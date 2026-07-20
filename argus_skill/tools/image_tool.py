@@ -13,16 +13,25 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None  # type: ignore[assignment]
+
+from argus_skill.skills.venue_profiles import VenueProfile, get_venue_profile
 
 from .capability_vault import ModelApiGrant, ModelApiRoute, load_model_api_route
-from argus_skill.skills.venue_profiles import VenueProfile, get_venue_profile
 
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 _JPEG_MAGIC = b"\xff\xd8\xff"
 _DEFAULT_TIMEOUT_SECONDS = 500.0
 _DEFAULT_MAX_RETRIES = 4
+_DEFAULT_IMAGE_DAILY_CALL_CAP = 200
 _MAX_RETRY_DELAY_SECONDS = 45.0
 _TRANSIENT_HTTP_STATUS_CODES = {429, 500, 502, 503, 504}
 _AUTO_SIZE_VALUES = {"", "auto", "adaptive"}
@@ -30,6 +39,28 @@ _SIZE_RE = re.compile(r"^(?P<width>[1-9]\d*)x(?P<height>[1-9]\d*)$")
 PAPER_FIGURE_PROMPT_TEMPLATE_ID = "argus-image2-paper-prompt-v1"
 PAPER_FIGURE_STUDIO_SOURCE_ID = "paper-framework-figure-studio-pro-v3.1.4a"
 PAPER_FIGURE_STUDIO_DEFAULT_STAGE = "S5-CANDIDATE-IMAGE"
+PAPER_FIGURE_CONTEXT_FREEZE_PATH = Path(
+    "paper/figures/IMAGE2_CONTEXT_FREEZE.json"
+)
+PAPER_FIGURE_CANDIDATE_CACHE_PATH = Path(
+    "paper/figures/IMAGE2_CANDIDATE_CACHE.json"
+)
+PAPER_FIGURE_MIN_REVIEWED_CANDIDATES = 6
+PAPER_FIGURE_MAX_REVIEWED_CANDIDATES = 20
+_PAPER_FIGURE_REQUIRED_CONTEXT = (
+    Path("research/RESEARCH_BRIEF.md"),
+    Path("paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md"),
+)
+_PAPER_FIGURE_EVIDENCE_OPTIONS = (
+    Path("paper/CLAIM_GRAPH.json"),
+    Path("paper/artifacts/claims_evidence.tsv"),
+    Path("paper/RESULTS_REPORT.md"),
+)
+_PAPER_FIGURE_OPTIONAL_CONTEXT = (
+    Path("research/VENUE_PROFILE.json"),
+    Path("research/EXPERIMENT_PLAN.md"),
+    Path("paper/artifacts/results_table.tsv"),
+)
 
 
 PAPER_FIGURE_PROMPT_TEMPLATE = """Create one polished EMNLP method figure variant.
@@ -141,6 +172,8 @@ def _json_request(
     raw = ""
     attempts = max(1, int(max_retries))
     for attempt_index in range(attempts):
+        if endpoint == "/images/generations":
+            _reserve_image_call(grant, payload, attempt_index=attempt_index)
         req = urllib.request.Request(
             url,
             data=body,
@@ -178,6 +211,76 @@ def _json_request(
     if not isinstance(data, dict):
         raise ImageToolError(f"unexpected response from {endpoint}: {type(data).__name__}")
     return data
+
+
+def _image_usage_path() -> Path:
+    raw = os.environ.get("ARGUS_SKILL_IMAGE_USAGE_LEDGER", "").strip()
+    return (
+        Path(raw).expanduser()
+        if raw
+        else Path.home() / ".argus-skill" / "capabilities" / "image_usage.jsonl"
+    )
+
+
+def _image_daily_cap() -> int:
+    raw = os.environ.get("ARGUS_SKILL_IMAGE_DAILY_CALL_CAP", "").strip()
+    if not raw:
+        return _DEFAULT_IMAGE_DAILY_CALL_CAP
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return _DEFAULT_IMAGE_DAILY_CALL_CAP
+
+
+def _reserve_image_call(
+    route: ModelApiGrant | ModelApiRoute,
+    payload: Mapping[str, Any],
+    *,
+    attempt_index: int,
+) -> None:
+    """Atomically meter every Azure image request attempt before it is sent."""
+    if str(route.provider or "").strip().lower() != "azure_openai":
+        return
+    cap = _image_daily_cap()
+    path = _image_usage_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    today = datetime.now(UTC).date().isoformat()
+    prompt_hash = hashlib.sha256(
+        str(payload.get("prompt") or "").encode("utf-8")
+    ).hexdigest()
+    with path.open("a+", encoding="utf-8") as handle:
+        if fcntl is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        handle.seek(0)
+        used = 0
+        for line in handle:
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if row.get("date_utc") == today:
+                used += 1
+        if cap and used >= cap:
+            raise ImageToolError(
+                f"daily image API call cap reached ({used}/{cap}); inspect "
+                f"{path} before increasing ARGUS_SKILL_IMAGE_DAILY_CALL_CAP"
+            )
+        record = {
+            "schema_version": 1,
+            "date_utc": today,
+            "reserved_at_utc": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "provider": route.provider,
+            "model": route.model,
+            "attempt_index": int(attempt_index),
+            "prompt_sha256": prompt_hash,
+            "project_root": str(Path.cwd().resolve()),
+        }
+        handle.seek(0, 2)
+        handle.write(json.dumps(record, separators=(",", ":")) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+        if fcntl is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def _read_prompt(prompt: str | None, prompt_file: Path | None) -> str:
@@ -516,18 +619,41 @@ def _atomic_write(path: Path, data: bytes, *, force: bool) -> None:
     if path.exists() and not force:
         raise ImageToolError(f"{path} already exists; pass --force to overwrite")
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_bytes(data)
-    os.replace(tmp, path)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_bytes(data)
+        os.replace(tmp, path)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def _atomic_write_json(path: Path, data: dict[str, Any], *, force: bool = True) -> None:
     if path.exists() and not force:
         raise ImageToolError(f"{path} already exists; pass --force to overwrite")
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(
+            json.dumps(data, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(tmp, path)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _restore_optional_file(path: Path, snapshot: bytes | None) -> None:
+    if snapshot is None:
+        if path.exists():
+            path.unlink()
+        return
+    _atomic_write(path, snapshot, force=True)
 
 
 def _sidecar_path(out: Path) -> Path:
@@ -784,6 +910,11 @@ def review_image(
     max_retries: int = _DEFAULT_MAX_RETRIES,
 ) -> dict[str, Any]:
     grant = _require_route("image_review", env)
+    if "image" in grant.model.lower():
+        raise ImageToolError(
+            "image_review route points to an image-generation model; configure "
+            "a vision-capable text/review model instead"
+        )
     original_prompt = prompt.strip() or _load_sidecar_prompt(image)
     text = _review_prompt(
         original_prompt=original_prompt,
@@ -854,15 +985,356 @@ def review_image(
 
 
 def _project_path(project_root: Path, path: Path | str) -> Path:
-    value = Path(path)
-    return value if value.is_absolute() else project_root / value
+    root = project_root.resolve()
+    value = Path(path).expanduser()
+    resolved = value.resolve() if value.is_absolute() else (root / value).resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise ImageToolError(f"path escapes project root: {path}") from exc
+    return resolved
+
+
+def _context_records(
+    project_root: Path,
+    paths: Sequence[Path],
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw_path in paths:
+        path = _project_path(project_root, raw_path)
+        if not path.is_file():
+            raise ImageToolError(f"paper figure freeze input does not exist: {path}")
+        rel = _project_relative(project_root, path)
+        if rel in seen:
+            continue
+        seen.add(rel)
+        records.append(
+            {
+                "path": rel,
+                "sha256": _sha256_file(path),
+                "bytes": path.stat().st_size,
+            }
+        )
+    return sorted(records, key=lambda row: str(row["path"]))
+
+
+def _context_sha256(records: Sequence[Mapping[str, Any]]) -> str:
+    canonical = json.dumps(
+        [
+            {
+                "path": str(row.get("path") or ""),
+                "sha256": str(row.get("sha256") or ""),
+            }
+            for row in records
+        ],
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return _sha256_text(canonical)
+
+
+def freeze_paper_figure_context(
+    *,
+    project_root: Path,
+    inputs: Sequence[Path] | None = None,
+    out: Path = PAPER_FIGURE_CONTEXT_FREEZE_PATH,
+) -> dict[str, Any]:
+    """Freeze stable evidence + structure inputs for image-2 candidate reuse.
+
+    ``paper/main.tex`` is intentionally excluded: prose, citation placement, and
+    minor layout edits must not invalidate reviewed figure candidates.
+    """
+    project_root = project_root.resolve()
+    if inputs:
+        selected = list(inputs)
+    else:
+        selected = list(_PAPER_FIGURE_REQUIRED_CONTEXT)
+        missing_required = [
+            path
+            for path in _PAPER_FIGURE_REQUIRED_CONTEXT
+            if not _project_path(project_root, path).is_file()
+        ]
+        if missing_required:
+            raise ImageToolError(
+                "freeze paper evidence/structure before image generation; missing "
+                + ", ".join(str(path) for path in missing_required)
+            )
+        evidence = [
+            path
+            for path in _PAPER_FIGURE_EVIDENCE_OPTIONS
+            if _project_path(project_root, path).is_file()
+        ]
+        if not evidence:
+            raise ImageToolError(
+                "freeze requires at least one claim/evidence artifact: "
+                + ", ".join(str(path) for path in _PAPER_FIGURE_EVIDENCE_OPTIONS)
+            )
+        selected.extend(evidence)
+        selected.extend(
+            path
+            for path in _PAPER_FIGURE_OPTIONAL_CONTEXT
+            if _project_path(project_root, path).is_file()
+        )
+    records = _context_records(project_root, selected)
+    payload = {
+        "schema_version": 1,
+        "created_at": datetime.now(UTC).isoformat(),
+        "context_sha256": _context_sha256(records),
+        "inputs": records,
+        "excludes": [
+            "paper/main.tex",
+            "paper/main.pdf",
+            "paper prose/layout-only edits",
+        ],
+    }
+    _atomic_write_json(_project_path(project_root, out), payload)
+    return payload
+
+
+def _paper_context_status(
+    *,
+    project_root: Path,
+    freeze_path: Path = PAPER_FIGURE_CONTEXT_FREEZE_PATH,
+) -> dict[str, Any]:
+    path = _project_path(project_root, freeze_path)
+    if not path.is_file():
+        return {
+            "frozen": False,
+            "current": False,
+            "reason": "missing_context_freeze",
+            "freeze_path": _project_relative(project_root, path),
+        }
+    try:
+        payload = _read_json_object(path)
+        raw_inputs = payload.get("inputs")
+        if not isinstance(raw_inputs, list) or not raw_inputs:
+            raise ImageToolError("context freeze has no inputs")
+        paths = [
+            Path(str(row.get("path") or ""))
+            for row in raw_inputs
+            if isinstance(row, dict) and str(row.get("path") or "").strip()
+        ]
+        records = _context_records(project_root, paths)
+        current_sha = _context_sha256(records)
+        frozen_sha = str(payload.get("context_sha256") or "")
+        return {
+            "frozen": True,
+            "current": current_sha == frozen_sha,
+            "reason": (
+                "current"
+                if current_sha == frozen_sha
+                else "evidence_or_structure_changed"
+            ),
+            "context_sha256": frozen_sha,
+            "current_context_sha256": current_sha,
+            "freeze_path": _project_relative(project_root, path),
+            "inputs": records,
+        }
+    except (OSError, ImageToolError, ValueError) as exc:
+        return {
+            "frozen": True,
+            "current": False,
+            "reason": f"invalid_context_freeze:{type(exc).__name__}",
+            "freeze_path": _project_relative(project_root, path),
+        }
+
+
+def _review_passed(review: Mapping[str, Any]) -> bool:
+    for field in ("passed", "pass", "accepted"):
+        if review.get(field) is True:
+            return True
+    verdict = str(review.get("verdict") or "").strip().lower()
+    if verdict in {"pass", "accepted", "keep"}:
+        return True
+    keep = str(review.get("keep_or_regenerate") or "").strip().lower()
+    if keep == "keep":
+        return True
+    text = str(review.get("review") or "")
+    lowered = text.lower()
+    if re.search(r"keep_or_regenerate\s*[:=]\s*keep\b", lowered):
+        return True
+    score_match = re.search(
+        r"score(?:_1_to_5)?\s*[:=]\s*([0-5](?:\.\d+)?)",
+        lowered,
+    )
+    return bool(
+        score_match
+        and float(score_match.group(1)) >= 4.0
+        and "regenerate" not in lowered
+        and "revise" not in lowered
+    )
+
+
+def paper_figure_cache_status(
+    *,
+    project_root: Path,
+    figure_type: str = "method",
+    min_candidates: int = PAPER_FIGURE_MIN_REVIEWED_CANDIDATES,
+    max_candidates: int = PAPER_FIGURE_MAX_REVIEWED_CANDIDATES,
+    freeze_path: Path = PAPER_FIGURE_CONTEXT_FREEZE_PATH,
+    cache_path: Path = PAPER_FIGURE_CANDIDATE_CACHE_PATH,
+) -> dict[str, Any]:
+    project_root = project_root.resolve()
+    context = _paper_context_status(
+        project_root=project_root,
+        freeze_path=freeze_path,
+    )
+    result: dict[str, Any] = {
+        **context,
+        "figure_type": figure_type,
+        "min_candidates": max(1, int(min_candidates)),
+        "max_candidates": max(1, int(max_candidates)),
+        "passed_candidates": 0,
+        "reusable": False,
+        "candidates": [],
+        "cache_path": _project_relative(
+            project_root,
+            _project_path(project_root, cache_path),
+        ),
+    }
+    if not context.get("current"):
+        return result
+    path = _project_path(project_root, cache_path)
+    if not path.is_file():
+        result["reason"] = "missing_candidate_cache"
+        return result
+    try:
+        payload = _read_json_object(path)
+    except ImageToolError:
+        result["reason"] = "invalid_candidate_cache"
+        return result
+    if str(payload.get("context_sha256") or "") != str(
+        context.get("context_sha256") or ""
+    ):
+        result["reason"] = "candidate_cache_context_mismatch"
+        return result
+    valid: list[dict[str, Any]] = []
+    for row in payload.get("candidates") or []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("figure_type") or "") != figure_type:
+            continue
+        if row.get("passed_review") is not True:
+            continue
+        output = _project_path(project_root, str(row.get("output_path") or ""))
+        review = _project_path(project_root, str(row.get("review_path") or ""))
+        if not output.is_file() or not review.is_file():
+            continue
+        if str(row.get("output_sha256") or "") != _sha256_file(output):
+            continue
+        if str(row.get("review_sha256") or "") != _sha256_file(review):
+            continue
+        valid.append(dict(row))
+    limit = max(1, int(max_candidates))
+    valid = valid[-limit:]
+    result["candidates"] = valid
+    result["passed_candidates"] = len(valid)
+    result["reusable"] = len(valid) >= max(1, int(min_candidates))
+    result["reason"] = "reviewed_candidate_cache_ready" if result["reusable"] else (
+        "need_more_reviewed_candidates"
+    )
+    return result
+
+
+def _register_paper_figure_candidate(
+    *,
+    project_root: Path,
+    entry: Mapping[str, Any],
+    review_payload: Mapping[str, Any],
+    cache_path: Path = PAPER_FIGURE_CANDIDATE_CACHE_PATH,
+) -> dict[str, Any]:
+    context = _paper_context_status(project_root=project_root)
+    if not context.get("current"):
+        return {
+            "registered": False,
+            "reason": str(context.get("reason") or "context_not_frozen"),
+        }
+    path = _project_path(project_root, cache_path)
+    payload: dict[str, Any] = {
+        "schema_version": 1,
+        "context_sha256": context["context_sha256"],
+        "freeze_path": context["freeze_path"],
+        "candidates": [],
+    }
+    if path.is_file():
+        try:
+            existing = _read_json_object(path)
+            if str(existing.get("context_sha256") or "") == str(
+                context["context_sha256"]
+            ):
+                payload = existing
+        except ImageToolError:
+            pass
+    candidates = payload.setdefault("candidates", [])
+    if not isinstance(candidates, list):
+        candidates = []
+        payload["candidates"] = candidates
+    passed_review = _review_passed(review_payload)
+    if not passed_review:
+        return {
+            "registered": False,
+            "reason": "review_not_passed",
+            "context_sha256": context["context_sha256"],
+        }
+    candidate = {
+        "figure_id": str(entry.get("figure_id") or ""),
+        "figure_type": str(entry.get("figure_type") or "method"),
+        "prompt_path": str(entry.get("prompt_path") or ""),
+        "prompt_sha256": str(entry.get("prompt_sha256") or ""),
+        "output_path": str(entry.get("output_path") or ""),
+        "output_sha256": str(entry.get("output_sha256") or ""),
+        "review_path": str(entry.get("review_path") or ""),
+        "review_sha256": str(entry.get("review_sha256") or ""),
+        "passed_review": True,
+        "registered_at": datetime.now(UTC).isoformat(),
+    }
+    output_sha = candidate["output_sha256"]
+    candidates = [
+        row
+        for row in candidates
+        if not (
+            isinstance(row, dict)
+            and str(row.get("output_sha256") or "") == output_sha
+        )
+    ]
+    candidates.append(candidate)
+    figure_type = candidate["figure_type"]
+    same_type = [
+        row
+        for row in candidates
+        if isinstance(row, dict)
+        and str(row.get("figure_type") or "") == figure_type
+    ][-PAPER_FIGURE_MAX_REVIEWED_CANDIDATES:]
+    other_types = [
+        row
+        for row in candidates
+        if not (
+            isinstance(row, dict)
+            and str(row.get("figure_type") or "") == figure_type
+        )
+    ]
+    payload["candidates"] = other_types + same_type
+    _atomic_write_json(path, payload)
+    status = paper_figure_cache_status(
+        project_root=project_root,
+        figure_type=figure_type,
+    )
+    return {
+        "registered": True,
+        "passed_review": candidate["passed_review"],
+        "context_sha256": context["context_sha256"],
+        "cache_path": _project_relative(project_root, path),
+        "passed_candidates": status["passed_candidates"],
+        "reusable": status["reusable"],
+    }
 
 
 def _project_relative(project_root: Path, path: Path) -> str:
     try:
         return path.resolve().relative_to(project_root.resolve()).as_posix()
-    except ValueError:
-        return path.as_posix()
+    except ValueError as exc:
+        raise ImageToolError(f"path escapes project root: {path}") from exc
 
 
 def _read_json_object(path: Path) -> dict[str, Any]:
@@ -881,7 +1353,7 @@ def _load_image2_manifest(path: Path) -> dict[str, Any]:
     payload = _read_json_object(path)
     figures = payload.get("figures")
     if not isinstance(figures, list):
-        payload["figures"] = []
+        raise ImageToolError(f"{path} `figures` must be a JSON list")
     return payload
 
 
@@ -984,8 +1456,11 @@ def _review_image_sha(review: dict[str, Any]) -> str:
 def _recorded_prompt_path(project_root: Path, prompt_file: Path, sidecar: dict[str, Any]) -> str:
     raw_prompt_path = sidecar.get("prompt_path")
     if isinstance(raw_prompt_path, str) and raw_prompt_path.strip():
-        candidate = _project_path(project_root, raw_prompt_path)
-        if candidate.resolve() == prompt_file.resolve():
+        try:
+            candidate = _project_path(project_root, raw_prompt_path)
+        except ImageToolError:
+            candidate = None
+        if candidate is not None and candidate.resolve() == prompt_file.resolve():
             return _project_relative(project_root, candidate)
     return _project_relative(project_root, prompt_file)
 
@@ -1010,6 +1485,21 @@ def sync_paper_metadata(
     if not figure_id.strip():
         raise ImageToolError("missing --figure-id")
     project_root = project_root.resolve()
+    manifest_path = _project_path(project_root, manifest)
+    _load_image2_manifest(manifest_path)
+    from ..verticals.research.figure_provenance import (
+        FIGURE_PROVENANCE_PATH,
+        figure_manifest_transaction,
+        preflight_figure_provenance,
+        register_figure,
+    )
+
+    try:
+        canonical_manifest_path = preflight_figure_provenance(project_root)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise ImageToolError(
+            f"canonical figure provenance is not writable/valid: {exc}"
+        ) from exc
     image_path = _project_path(project_root, image)
     if not image_path.is_file():
         raise ImageToolError(f"generated image does not exist: {image_path}")
@@ -1021,9 +1511,22 @@ def sync_paper_metadata(
 
     if prompt_file is None:
         raw_prompt_path = sidecar_payload.get("prompt_path")
-        if not isinstance(raw_prompt_path, str) or not raw_prompt_path.strip():
-            raise ImageToolError("pass --prompt-file; generation sidecar has no prompt_path")
-        prompt_path = _project_path(project_root, raw_prompt_path)
+        prompt_path = None
+        if isinstance(raw_prompt_path, str) and raw_prompt_path.strip():
+            try:
+                recorded_prompt_path = _project_path(project_root, raw_prompt_path)
+            except ImageToolError:
+                recorded_prompt_path = None
+            if recorded_prompt_path is not None and recorded_prompt_path.is_file():
+                prompt_path = recorded_prompt_path
+        inferred_prompt_path = image_path.with_suffix(".prompt.txt")
+        if prompt_path is None and inferred_prompt_path.is_file():
+            prompt_path = inferred_prompt_path
+        if prompt_path is None:
+            raise ImageToolError(
+                "pass --prompt-file; generation sidecar has no usable in-project "
+                "prompt_path and no sibling prompt file exists"
+            )
     else:
         prompt_path = _project_path(project_root, prompt_file)
     if not prompt_path.is_file():
@@ -1071,8 +1574,6 @@ def sync_paper_metadata(
         if provenance_path is not None
         else image_path.with_suffix(image_path.suffix + ".provenance.json")
     )
-    manifest_path = _project_path(project_root, manifest)
-
     model = str(sidecar_payload.get("model") or "gpt-image-2")
     requested_size = str(
         sidecar_payload.get("requested_size")
@@ -1142,7 +1643,62 @@ def sync_paper_metadata(
         entry["original_requested_size"] = original_requested_size
     if sidecar_payload.get("size_normalized_to_multiple_of_16") is True:
         entry["size_normalized_to_multiple_of_16"] = True
-    _upsert_image2_manifest_entry(manifest_path, entry)
+    cache_result = _register_paper_figure_candidate(
+        project_root=project_root,
+        entry=entry,
+        review_payload=review_payload,
+    )
+    if cache_result.get("registered"):
+        cache_fields = {
+            "context_sha256": cache_result.get("context_sha256"),
+            "candidate_cache_path": cache_result.get("cache_path"),
+            "candidate_cache_passed_count": cache_result.get("passed_candidates"),
+            "candidate_cache_reusable": cache_result.get("reusable"),
+        }
+        provenance.update(cache_fields)
+        entry.update(cache_fields)
+        _atomic_write_json(provenance_sidecar_path, provenance)
+    with figure_manifest_transaction(project_root):
+        _load_image2_manifest(manifest_path)
+        canonical_manifest_path = preflight_figure_provenance(project_root)
+        legacy_manifest_snapshot = (
+            manifest_path.read_bytes() if manifest_path.exists() else None
+        )
+        canonical_manifest_snapshot = (
+            canonical_manifest_path.read_bytes()
+            if canonical_manifest_path.exists()
+            else None
+        )
+        try:
+            _upsert_image2_manifest_entry(manifest_path, entry)
+            register_figure(
+                project_root=project_root,
+                figure_id=figure_id,
+                role=figure_type,
+                renderer="image2",
+                source_path=prompt_path,
+                output_path=image_path,
+                inputs=(sidecar_path, inspect_sidecar_path, provenance_sidecar_path),
+                review_path=review_sidecar_path,
+                render_metadata_path=sidecar_path,
+                command=(
+                    "python -m argus_skill.tools.image_tool generate "
+                    f"--prompt-file {prompt_rel} --out {output_rel} "
+                    f"--size {requested_size}"
+                ),
+                manifest_path=FIGURE_PROVENANCE_PATH,
+                _transaction_locked=True,
+            )
+        except BaseException:
+            _restore_optional_file(manifest_path, legacy_manifest_snapshot)
+            _restore_optional_file(
+                canonical_manifest_path,
+                canonical_manifest_snapshot,
+            )
+            raise
+    entry["figure_provenance_path"] = (
+        "paper/figures/FIGURE_PROVENANCE.json"
+    )
     return entry
 
 
@@ -1156,6 +1712,18 @@ def main(argv: list[str] | None = None) -> int:
 
     paper = sub.add_parser("paper-prompt", help="write the canonical Argus paper figure prompt")
     paper.add_argument("--out", type=Path, required=True)
+    paper.add_argument("--project-root", type=Path, default=Path("."))
+    paper.add_argument("--figure-type", default="method")
+    paper.add_argument(
+        "--ignore-reviewed-cache",
+        action="store_true",
+        help="write another prompt even when 6+ reviewed candidates are reusable",
+    )
+    paper.add_argument(
+        "--min-candidates",
+        type=int,
+        default=PAPER_FIGURE_MIN_REVIEWED_CANDIDATES,
+    )
     paper.add_argument("--force", action="store_true")
     paper.add_argument("--studio-stage", default=PAPER_FIGURE_STUDIO_DEFAULT_STAGE)
     paper.add_argument("--figure-title", default="Method Overview")
@@ -1186,6 +1754,18 @@ def main(argv: list[str] | None = None) -> int:
     gen.add_argument("--force", action="store_true")
     gen.add_argument("--timeout", type=float, default=_DEFAULT_TIMEOUT_SECONDS)
     gen.add_argument("--max-retries", type=int, default=_DEFAULT_MAX_RETRIES)
+    gen.add_argument("--project-root", type=Path, default=Path("."))
+    gen.add_argument(
+        "--paper-figure-type",
+        default=None,
+        help="enable reviewed-candidate cache reuse for this paper figure type",
+    )
+    gen.add_argument("--ignore-reviewed-cache", action="store_true")
+    gen.add_argument(
+        "--min-candidates",
+        type=int,
+        default=PAPER_FIGURE_MIN_REVIEWED_CANDIDATES,
+    )
 
     ins = sub.add_parser("inspect", help="inspect a local image without a model call")
     ins.add_argument("--image", type=Path, required=True)
@@ -1217,9 +1797,53 @@ def main(argv: list[str] | None = None) -> int:
     sync.add_argument("--figure-studio-stage", default=PAPER_FIGURE_STUDIO_DEFAULT_STAGE)
     sync.add_argument("--allow-noncanonical-prompt", action="store_true")
 
+    freeze = sub.add_parser(
+        "freeze-paper-context",
+        help="freeze claim/evidence and structure inputs before image-2 generation",
+    )
+    freeze.add_argument("--project-root", type=Path, default=Path("."))
+    freeze.add_argument(
+        "--input",
+        action="append",
+        type=Path,
+        default=[],
+        help="explicit stable context input; repeatable",
+    )
+    freeze.add_argument(
+        "--out",
+        type=Path,
+        default=PAPER_FIGURE_CONTEXT_FREEZE_PATH,
+    )
+
+    cache = sub.add_parser(
+        "paper-cache-status",
+        help="report whether reviewed image-2 candidates can be reused",
+    )
+    cache.add_argument("--project-root", type=Path, default=Path("."))
+    cache.add_argument("--figure-type", default="method")
+    cache.add_argument(
+        "--min-candidates",
+        type=int,
+        default=PAPER_FIGURE_MIN_REVIEWED_CANDIDATES,
+    )
+    cache.add_argument(
+        "--max-candidates",
+        type=int,
+        default=PAPER_FIGURE_MAX_REVIEWED_CANDIDATES,
+    )
+
     args = parser.parse_args(argv)
     try:
         if args.cmd == "paper-prompt":
+            if not args.ignore_reviewed_cache:
+                cache_status = paper_figure_cache_status(
+                    project_root=args.project_root,
+                    figure_type=args.figure_type,
+                    min_candidates=args.min_candidates,
+                )
+                if cache_status["reusable"]:
+                    _print_json({"cache_hit": True, **cache_status})
+                    return 0
             kwargs: dict[str, Any] = {
                 "prompt_file": args.out,
                 "studio_stage": args.studio_stage,
@@ -1253,6 +1877,15 @@ def main(argv: list[str] | None = None) -> int:
             _print_json(write_paper_figure_prompt(**kwargs))
             return 0
         if args.cmd == "generate":
+            if args.paper_figure_type and not args.ignore_reviewed_cache:
+                cache_status = paper_figure_cache_status(
+                    project_root=args.project_root,
+                    figure_type=args.paper_figure_type,
+                    min_candidates=args.min_candidates,
+                )
+                if cache_status["reusable"]:
+                    _print_json({"cache_hit": True, **cache_status})
+                    return 0
             prompt = _read_prompt(args.prompt, args.prompt_file)
             _print_json(generate_image(
                 prompt=prompt,
@@ -1294,6 +1927,25 @@ def main(argv: list[str] | None = None) -> int:
                 figure_studio_stage=args.figure_studio_stage,
                 allow_noncanonical_prompt=bool(args.allow_noncanonical_prompt),
             ))
+            return 0
+        if args.cmd == "freeze-paper-context":
+            _print_json(
+                freeze_paper_figure_context(
+                    project_root=args.project_root,
+                    inputs=args.input or None,
+                    out=args.out,
+                )
+            )
+            return 0
+        if args.cmd == "paper-cache-status":
+            _print_json(
+                paper_figure_cache_status(
+                    project_root=args.project_root,
+                    figure_type=args.figure_type,
+                    min_candidates=args.min_candidates,
+                    max_candidates=args.max_candidates,
+                )
+            )
             return 0
     except Exception as exc:  # noqa: BLE001 - CLI boundary
         sys.stderr.write(f"argus-skill image-tool: {_redact(str(exc))}\n")

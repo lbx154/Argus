@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from ..core.runtime_identity import runtime_identity
@@ -57,6 +58,14 @@ def daemon_protocol_compatibility(status: Any) -> tuple[bool | None, str]:
         )
     if isinstance(runtime, dict) and runtime.get("release_matches_source") is False:
         return False, "daemon release manifest does not match its loaded source"
+    worktree = runtime.get("worktree") if isinstance(runtime, dict) else None
+    require_clean = str(os.environ.get("ARGUS_SKILL_REQUIRE_CLEAN_SOURCE", "")).strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+    if require_clean and isinstance(worktree, dict) and (
+        worktree.get("dirty") is True or worktree.get("detached") is True
+    ):
+        return False, "daemon loaded a dirty or detached source checkout"
     expected_release = str(runtime_identity().get("release_id") or "")
     actual_release = str((runtime or {}).get("release_id") or "")
     if expected_release and actual_release and expected_release != actual_release:

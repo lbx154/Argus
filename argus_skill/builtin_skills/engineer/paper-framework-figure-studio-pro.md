@@ -1,8 +1,8 @@
 ---
-name: Paper Framework Figure Studio Pro
-description: "Argus-adapted autonomous S0-S7 figure workflow from paper-framework-figure-studio-pro-v3.1.4a. The engineer agent executes each stage in sequence — reading the paper, extracting module facts, exploring layout directions, refining candidates with project-specific content, co-designing figure+caption+legend, and jointly auditing for paper fidelity. Use when a paper needs a non-data conceptual figure. Prompt template marker: argus-image2-paper-prompt-v1."
+name: Paper Framework Figure Studio Pro (Image2)
+description: "Image-2-specific S0-S7 conceptual-figure workflow adapted from paper-framework-figure-studio-pro-v3.1.4a. Use only after the research Research Visualization Router selects image-2 and model-api-status reports an available image route."
 category: paper-figures
-version: "3.2.0-argus"
+version: "3.3.0-argus"
 created_at: "2026-05-28"
 source: "paper-framework-figure-studio-pro-v3.1.4a"
 ---
@@ -25,15 +25,40 @@ Source: `paper-framework-figure-studio-pro-v3.1.4a`
 
 ## When to use
 
-- The paper needs a non-data conceptual figure: Figure 1, method overview,
-  architecture diagram, pipeline figure, agent workflow schematic.
+- The Research Visualization Router selected image-2 for a non-data conceptual
+  figure and the secret-free capability status reports an available image route.
 - Data/metric/result plots are NOT handled here; use matplotlib scripts.
+- If image-2 is unavailable or a deterministic renderer better fits exact labels,
+  topology, or editability, return to the router instead of invoking this skill.
 
 ## S0-S7 Workflow — Agent Executes Each Stage
 
 The agent executes each stage below in order. Each stage must be completed
 before moving to the next. This is the same S0-S7 workflow as the original
 skill, with the agent acting as the human operator.
+
+### S-1-CONTEXT-FREEZE — Freeze evidence and paper structure
+
+Do not generate image candidates while claims or the paper structure are still
+moving. First ensure these exist:
+
+- `research/RESEARCH_BRIEF.md`
+- `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md`
+- at least one of `paper/CLAIM_GRAPH.json`,
+  `paper/artifacts/claims_evidence.tsv`, or `paper/RESULTS_REPORT.md`
+
+Then run:
+
+```bash
+python -m argus_skill.tools.image_tool freeze-paper-context --project-root .
+python -m argus_skill.tools.image_tool paper-cache-status \
+  --project-root . --figure-type method
+```
+
+The freeze fingerprint deliberately excludes `paper/main.tex` and `main.pdf`.
+Minor prose, citation, caption, and layout edits therefore reuse reviewed
+candidates. Only a changed claim/evidence artifact or
+`PAPER_STRUCTURE_BLUEPRINT.md` invalidates the cache.
 
 ### S0-PAPER-FOUNDATION — Read the paper and extract facts
 
@@ -70,53 +95,17 @@ Based on S0 extraction, decide:
 
 ### S2-SKETCH-EXPLORE — Generate diverse exploration candidates
 
-Generate exactly 3 image-2 rasters with structurally DIFFERENT layout variants.
-Do NOT generate more than 3 exploration candidates — it wastes tokens and time.
-Pick 3 variants that are maximally different (e.g., one horizontal pipeline,
-one nested containers, one hub-and-spoke). The goal is divergence — explore
-which spatial structure best communicates the method.
-Use the `content` parameter with project-specific labels from S0.
+Generate and review **6 structurally different candidates** as the minimum
+cache. Use up to 20 only when the first six do not contain an acceptable
+direction. Generate independent variants in parallel, then run `review` and
+`sync-paper-metadata` for every candidate so it enters
+`IMAGE2_CANDIDATE_CACHE.json`.
 
-First write all 3 prompt files, then generate all 3 images IN PARALLEL using
-the batch command. Do NOT generate images one at a time — use the parallel
-batch mode so you can continue working on other tasks while images render:
-
-```bash
-# Step 1: Write all prompt files first (fast, no API calls)
-python -m argus_skill.tools.image_tool paper-prompt \
-  --out paper/figures/method-overview.variant-01.prompt.txt \
-  --figure-title "<title>" --content "<content>" \
-  --layout-variant "<variant A>" --force
-
-python -m argus_skill.tools.image_tool paper-prompt \
-  --out paper/figures/method-overview.variant-02.prompt.txt \
-  --figure-title "<title>" --content "<content>" \
-  --layout-variant "<variant B>" --force
-
-python -m argus_skill.tools.image_tool paper-prompt \
-  --out paper/figures/method-overview.variant-03.prompt.txt \
-  --figure-title "<title>" --content "<content>" \
-  --layout-variant "<variant C>" --force
-
-# Step 2: Submit image generation to a sub-agent (returns immediately)
-python -m argus_skill.tools.subagent submit \
-  --task-id fig-explore \
-  --description "Generate 3 Figure 1 exploration candidates" \
-  --command "python -m argus_skill.tools.image_tool generate \
-    --prompt-file paper/figures/method-overview.variant-01.prompt.txt \
-    --out paper/figures/method-overview.variant-01.png --size 1536x1024 --force && \
-  python -m argus_skill.tools.image_tool generate \
-    --prompt-file paper/figures/method-overview.variant-02.prompt.txt \
-    --out paper/figures/method-overview.variant-02.png --size 1536x1024 --force && \
-  python -m argus_skill.tools.image_tool generate \
-    --prompt-file paper/figures/method-overview.variant-03.prompt.txt \
-    --out paper/figures/method-overview.variant-03.png --size 1536x1024 --force"
-
-# ... continue with other work while images generate ...
-
-# Check when done
-python -m argus_skill.tools.subagent status --task-id fig-explore
-```
+Every `paper-prompt` call must pass `--project-root . --figure-type method`;
+every `generate` call must pass `--paper-figure-type method`. Once
+`paper-cache-status` reports `reusable: true`, both commands return a cache hit
+instead of creating another candidate unless `--ignore-reviewed-cache` is
+explicitly supplied.
 
 ### S3-DIRECTION-SELECT — Pick the best structural direction
 
@@ -156,9 +145,11 @@ The content block must use actual project module names, NOT generic labels.
 
 ### S5-CANDIDATE-IMAGE — Generate refined formal candidates
 
-Generate exactly 3 refined image-2 rasters based on the S4 contracts.
-Do NOT generate more than 3 refined candidates. These should be clean
-publication-ready schematic references:
+Check the reviewed cache first. If six or more passing candidates already exist
+for the frozen context, do not generate again: select/refine the best cached
+candidate through caption and manuscript integration. Otherwise generate only
+the additional variants needed, never exceeding 20 reviewed candidates for the
+figure type. Refined candidates should be clean publication-ready references:
 - Straight or gently curved connectors with consistent stroke weight
 - Modular cards, panels, callouts, compact mechanism insets
 - Restrained color coding and high contrast
@@ -168,11 +159,13 @@ publication-ready schematic references:
 
 ```bash
 python -m argus_skill.tools.image_tool paper-prompt \
+  --project-root . --figure-type method \
   --out paper/figures/<id>.prompt.txt \
   --figure-title "<from S4>" --content "<from S4>" \
   --layout-variant "<from S4>" --force
 
 python -m argus_skill.tools.image_tool generate \
+  --project-root . --paper-figure-type method \
   --prompt-file paper/figures/<id>.prompt.txt \
   --out paper/figures/<id>.png --size 1536x1024 --force
 
@@ -185,7 +178,9 @@ python -m argus_skill.tools.image_tool review \
 
 ### S6-FINAL-SELECT — Choose and finalize the figure-text bundle
 
-Select the best S5 candidate. Produce the complete figure-text bundle:
+Select the best reviewed cached candidate. Ordinary prose/caption/layout edits
+must not trigger regeneration while the context freeze remains current. Produce
+the complete figure-text bundle:
 - **Selected image path** (displayed/recorded)
 - **Final title, caption, legend, body-reference text**
 - **Paper recheck**: verify module names, arrows, and claims match the paper
@@ -252,6 +247,7 @@ python -m argus_skill.tools.image_tool sync-paper-metadata \
   cards. Re-prompt with sharper constraints; do not fix in post.
 - If prompt/provenance/manifest hashes drift, run `sync-paper-metadata`
   from the real generated files. Do not patch JSON hashes by hand.
-- Do not draw non-data figures with matplotlib, TikZ, SVG, or PIL. Use
-  image-2 exclusively. If the result is ugly, improve the prompt and
-  regenerate; never hand-draw a replacement.
+- Inside this image-2 route, do not post-process the accepted raster with local
+  drawing tools or patch only metadata. If the result is weak, improve the
+  prompt and regenerate; if image-2 is no longer appropriate, return to the
+  router and explicitly register the replacement renderer.

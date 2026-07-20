@@ -41,7 +41,9 @@ from argus_skill.skills.vertical_select import (
     persist_vertical,
     require_vertical,
     reset_stage_for_new_intent,
+    resolve_evidence_mode,
     resolve_vertical,
+    resolve_workflow_mode,
     vertical_reached_own_terminal_stage,
 )
 from argus_skill.verticals._base import (
@@ -102,14 +104,47 @@ def test_research_vertical_review_checklist_is_loaded_and_required(
     assert len(contract.items) > 0
 
 
+def test_research_vertical_defaults_to_proportional_evidence_reuse(
+    tmp_path: Path,
+) -> None:
+    persist_vertical(tmp_path, "research")
+
+    assert resolve_workflow_mode(tmp_path) == "staged"
+    assert resolve_evidence_mode(tmp_path) == "proportional"
+
+
+def test_persist_vertical_records_explicit_target_venue(tmp_path: Path) -> None:
+    persist_vertical(tmp_path, "research", target_venue="  AAAI 2026  ")
+
+    state = json.loads(
+        (tmp_path / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
+    )
+    assert state["target_venue"] == "AAAI 2026"
+
+
+def test_explicit_staged_mode_overrides_research_vertical_default(
+    tmp_path: Path,
+) -> None:
+    persist_vertical(tmp_path, "research", workflow_mode="staged")
+
+    assert resolve_workflow_mode(tmp_path) == "staged"
+    assert resolve_evidence_mode(tmp_path) == "proportional"
+
+
+def test_direct_orchestration_overrides_proportional_evidence_default(
+    tmp_path: Path,
+) -> None:
+    persist_vertical(tmp_path, "research", workflow_mode="direct")
+
+    assert resolve_workflow_mode(tmp_path) == "direct"
+    assert resolve_evidence_mode(tmp_path) == "direct"
+
+
 # --- resolve_vertical precedence: env > state > research --------------------
 
 
-def test_resolve_failsoft_when_nothing_persisted(tmp_path: Path) -> None:
-    # FAIL-SOFT: a rigid rule must never hard-crash a mission. With nothing
-    # persisted, resolve returns the safe default rather than raising.
+def test_low_level_resolve_keeps_legacy_fallback(tmp_path: Path) -> None:
     assert resolve_vertical(tmp_path / "nope") == "research"
-    # ...and a state file with no ``vertical`` field also falls back.
     assert resolve_vertical(_project(tmp_path, None)) == "research"
 
 
@@ -127,12 +162,12 @@ def test_resolve_reads_pipeline_state_vertical(tmp_path: Path) -> None:
     assert resolve_vertical(_project(tmp_path, "speedrun")) == "speedrun"
 
 
-def test_resolve_env_overrides_state(
+def test_resolve_env_cannot_override_manager_state(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    root = _project(tmp_path, "research")  # state says research...
-    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "speedrun")  # ...env wins.
-    assert resolve_vertical(root) == "speedrun"
+    root = _project(tmp_path, "research")
+    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "speedrun")
+    assert resolve_vertical(root) == "research"
 
 
 # --- fail-hard invariants (no keyword classifier lives here anymore) --------
@@ -223,6 +258,36 @@ def test_reset_stage_for_new_intent_preserves_inprogress_reclassification(
     payload = json.loads((root / "research" / "PIPELINE_STATE.json").read_text())
     assert payload["vertical"] == "speedrun"
     assert payload["current_stage"] == "run"  # preserved, untouched
+
+
+def test_force_replacement_resets_inprogress_pipeline_immediately(
+    tmp_path: Path,
+) -> None:
+    root = _project(tmp_path, "research", current="review")
+    state_path = root / "research" / "PIPELINE_STATE.json"
+    payload = json.loads(state_path.read_text())
+    payload["stages"] = {
+        "research": {"status": "done"},
+        "plan": {"status": "done"},
+        "review": {"status": "in_progress"},
+    }
+    state_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    persist_vertical(root, "research")
+    applied = reset_stage_for_new_intent(
+        root,
+        old_vertical="research",
+        new_vertical="research",
+        force_replacement=True,
+    )
+
+    assert applied is True
+    payload = json.loads(state_path.read_text())
+    assert payload["current_stage"] == "research"
+    assert payload["stages"]["research"]["status"] == "in_progress"
+    assert payload["stages"]["plan"]["status"] == "pending"
+    assert payload["stages"]["review"]["status"] == "pending"
+    assert payload["stage_history"][-1]["direction"] == "reset"
 
 
 def test_vertical_reached_own_terminal_stage_true_and_false(tmp_path: Path) -> None:

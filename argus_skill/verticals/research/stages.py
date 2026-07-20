@@ -35,9 +35,7 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         _PIPELINE_CHECK,
         ("Research brief exists", "test -f research/RESEARCH_BRIEF.md"),
         ("Literature grounding exists", "test -f research/LITERATURE_GROUNDING.json"),
-        ("Source discovery exists", "test -f research/SOURCE_DISCOVERY.md"),
-        ("Trend insights exists", "test -f research/TREND_INSIGHTS.md"),
-        ("BibTeX has entries", "test -f paper/refs.bib && grep -c '@' paper/refs.bib"),
+        ("BibTeX file is non-empty", "test -s paper/refs.bib"),
         # Research quality and task-specific de-risk evidence are certified by
         # the L2 reviewer against the active Planner-authored checklist below.
         # Shell checks stay structural; they must not infer a domain validator
@@ -56,9 +54,8 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         #      mission is not expected to carry a full paper outline), and
         #      shell checks always count toward the exit code; findings
         #      flow through the M0.7 bounded downgrade.
-        #   2. calling the validator in-process avoids a `python3 -c`
-        #      subprocess that depends on `argus_skill` being importable by
-        #      whatever `python3` happens to resolve to on PATH.
+        #   2. calling the validator in-process avoids a subprocess import
+        #      dependency on whichever interpreter happens to resolve on PATH.
     ],
     "benchmark": [
         _PIPELINE_CHECK,
@@ -71,20 +68,28 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     "run": [
         _PIPELINE_CHECK,
         ("Project venv exists", "test -d .venv && test -f .venv/bin/python"),
-        ("Results exist", "find experiments -name 'summary.tsv' -o -name 'eval_results.jsonl' 2>/dev/null | head -1 | grep -q ."),
+        (
+            "Results exist",
+            "{python} -m argus_skill.verticals.path_evidence --project-root . "
+            "--glob 'experiments/**/summary.tsv' --glob 'experiments/**/eval_results.jsonl'",
+        ),
         ("Baseline reproduction recorded", "test -f research/BASELINE_REPRODUCTION.md"),
     ],
     "analysis": [
         _PIPELINE_CHECK,
         ("Results report exists", "test -f paper/RESULTS_REPORT.md"),
         ("Results table exists", "test -f paper/artifacts/results_table.tsv"),
-        ("Figures exist", "ls paper/figures/*.png paper/figures/*.pdf 2>/dev/null | head -1 | grep -q ."),
+        (
+            "Figures exist",
+            "{python} -m argus_skill.verticals.path_evidence --project-root . "
+            "--glob 'paper/figures/*.png' --glob 'paper/figures/*.pdf' "
+            "--glob 'paper/figures/*.svg'",
+        ),
     ],
     "draft": [
         _PIPELINE_CHECK,
         ("main.tex exists", "test -f paper/main.tex"),
         ("PDF compiles", "test -f paper/main.pdf"),
-        ("Image2 figures manifest present", "test -f paper/figures/IMAGE2_FIGURES.json"),
     ],
     "review": [
         _PIPELINE_CHECK,
@@ -102,7 +107,11 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         # `done`, and engineer kept failing because reviewer wouldn't verdict.
         # `ready` here means upstream stages are done and the cursor is at
         # this stage; the verdict itself is what promotes to `done`.
-        ("Submission stage is ready or done", "test -f research/PIPELINE_STATE.json && python3 -c \"import json,sys; d=json.load(open('research/PIPELINE_STATE.json')); st=(d.get('stages') or {}).get('submission') or {}; sys.exit(0 if str(st.get('status','')).lower() in ('ready','done') else 1)\""),
+        (
+            "Submission stage is ready or done",
+            "{python} -m argus_skill.verticals.stage_state --project-root . "
+            "--stage submission --allow ready --allow done",
+        ),
     ],
 }
 
@@ -121,25 +130,23 @@ REVIEWER_CHECKLISTS_EMNLP: dict[str, tuple[str, str, list[str]]] = {
         "engineer/research-brief-to-experiment-plan.md",
         "Evaluate the research foundation on these dimensions:\n"
         "1. Problem clarity — is the research gap well-defined and grounded in literature?\n"
-        "2. TIMELINE coverage (NOT paper count) — does `research/RESEARCH_TIMELINE.md` reconstruct the field's lineage end-to-end (founding work → key turning points → current SOTA → open frontier = the paper's entry point)? Depth is a CONNECTED timeline you can trace founding→frontier without gaps, NOT a paper tally; a flat list or a broken/gappy timeline is shallow regardless of how many papers it cites.\n"
-        "3. Source diversity — both scholarly (arXiv, Semantic Scholar) and trend sources (机器之心 etc.) checked?\n"
+        "2. Lineage coverage (NOT paper count) — does the canonical literature "
+        "ledger plus RESEARCH_BRIEF reconstruct the field from relevant foundations "
+        "through the nearest competitors to the open frontier? A flat list is "
+        "shallow regardless of how many papers it contains.\n"
+        "3. Source fitness — are primary scholarly/official sources used for "
+        "technical claims, with trend sources used only when they add a concrete "
+        "testable signal?\n"
         "4. Trend grounding — are trend insights converted to testable research questions?\n"
         "5. Direction viability — is this a real frontier gap, not just an incremental tweak?\n"
         "6. Reference code — were related papers' official repos cloned and studied?\n"
-        "7. **Real-search audit (HARD)** — the literature must be EARNED from real "
-        "retrieval, not recited from model knowledge. Run engineer-process-audit: "
-        "grep the engineer's execution log for real `curl` calls to "
-        "`export.arxiv.org` and `api.crossref.org` and confirm there are ≥5 such "
-        "real arxiv/Crossref queries (GPT-Researcher-style fan-out). Then spot-check "
-        "≥2 entries in LITERATURE_GROUNDING.json by independently `curl`-ing their "
-        "`url`/DOI to confirm the paper actually exists and the title/abstract match "
-        "(not hallucinated). BLOCK the stage if any of: the execution log shows 0 "
-        "(or <5) real curl arxiv/Crossref calls; the literature was clearly backed "
-        "from the model's own knowledge with no `retrieved_via`/`url`/real-`abstract` "
-        "provenance per entry; or any file's metadata claims it 'queried/searched "
-        "official scholarly sources' with no matching real curl in the log "
-        "(fabricated provenance). On block, require a redo with real `curl` evidence "
-        "per the engineer/deep-research-timeline + deep-research-via-api skills (real curl search, organized as a CONNECTED timeline, not a count).\n"
+        "7. **Source-integrity audit (HARD)** — retained literature must come from "
+        "real primary URLs, not model memory. Validate the canonical ledger with "
+        "`python -m argus_skill.verticals.research.literature_ledger check`. "
+        "Independently refetch an entry only when its URL/provenance is missing, "
+        "contradictory, implausible, or material to a disputed claim. Do not grade "
+        "research quality by curl/query counts and do not repeat a source audit "
+        "already certified in an earlier bounded mission without a concrete conflict.\n"
         "8. **Research de-risk audit (HARD)** — read the active "
         "`research.signal_derisk` project checklist item and audit exactly the "
         "task-specific evidence contract the Planner authored there. For the "
@@ -151,11 +158,9 @@ REVIEWER_CHECKLISTS_EMNLP: dict[str, tuple[str, str, list[str]]] = {
         "the evidence is missing, fabricated, internally inconsistent, or does not "
         "satisfy the active checklist; do not require inapplicable performance "
         "metrics and do not let a task-specific Python validator decide quality.\n"
-        "Pass threshold: clear gap identified with literature backing earned from "
-        "real curl arxiv/Crossref searches, not just agent brainstorming or recalled papers.",
-        ["research/RESEARCH_TIMELINE.md", "research/RESEARCH_BRIEF.md",
-         "research/LITERATURE_GROUNDING.json",
-         "research/SOURCE_DISCOVERY.md", "research/TREND_INSIGHTS.md",
+        "Pass threshold: a clear gap with claim-complete primary-source backing, "
+        "not agent brainstorming or recalled papers.",
+        ["research/RESEARCH_BRIEF.md", "research/LITERATURE_GROUNDING.json",
          "research/CHECKLISTS.json", "research/SIGNAL_DERISK.json",
          "research/SIGNAL_DERISK_LOG.txt"],
     ),
@@ -168,7 +173,9 @@ REVIEWER_CHECKLISTS_EMNLP: dict[str, tuple[str, str, list[str]]] = {
         "4. Baseline strength — is at least ONE baseline a reproduced published method (not just random/no-skill)?\n"
         "5. Reference code study — were top related papers' code repos cloned and studied? Check CODE_STUDY_NOTES.md\n"
         "6. Evaluation fairness — same compute/data budget for all conditions?\n"
-        "7. Benchmark adequacy — ≥3 independent real benchmark families?\n"
+        "7. Public evidence adequacy — does every empirical claim have an "
+        "appropriate public benchmark/data/task source, with breadth and scale "
+        "justified by the claim rather than a quota?\n"
         "8. Infrastructure choice — is the right training/inference framework selected?\n"
         "9. Feasibility — can this be executed with available resources?\n"
         "10. RL config sanity (RL post-training plans only) — if the method is "
@@ -185,7 +192,7 @@ REVIEWER_CHECKLISTS_EMNLP: dict[str, tuple[str, str, list[str]]] = {
          "research/CODE_STUDY_NOTES.md", "research/BASELINE_AND_BENCHMARK_PLAN.md"],
     ),
     "benchmark": (
-        "engineer/agent-research-benchmark-runner.md",
+        "engineer/research-experiment-runner.md",
         "Evaluate empirical-evidence preparation against the active Planner-authored "
         "benchmark checklist, not an assumed machine-learning benchmark shape:\n"
         "1. Provenance — are every used public source, planned source/cohort, version, "
@@ -212,13 +219,18 @@ REVIEWER_CHECKLISTS_EMNLP: dict[str, tuple[str, str, list[str]]] = {
     "run": (
         "reviewer/experiment-results-review.md",
         "Evaluate the experiment results on these dimensions:\n"
-        "1. Statistical significance — are gains significant, not noise?\n"
+        "1. Statistical support — is uncertainty handled appropriately for the "
+        "data and claim, including clean null or boundary findings?\n"
         "2. Ablation fairness — does ablation isolate the claimed contribution?\n"
         "3. Effect size — are improvements meaningful, not cosmetic?\n"
         "4. Claim support — does data actually support each claim?\n"
-        "5. Baseline competitiveness — did proposed method beat strong baselines?\n"
-        "6. Completeness — all conditions run, no missing benchmark families?\n"
-        "If results are too weak to support an EMNLP paper, do NOT auto-pivot — apply the failure-decision ladder in reviewer/experiment-results-review.md: reflect on WHY it fell short (evidence-cited), recommend ONE bounded optimization/re-run pass if a concrete fix exists, else proceed to write the paper honestly on the current results as a negative / limited-gain finding; reserve a full pivot only when the results support neither a win nor an honest negative-result paper.",
+        "5. Baseline competitiveness — are the strongest relevant comparisons fair?\n"
+        "6. Completeness — are all claim-relevant conditions represented or explained?\n"
+        "Judge the research value of the valid result, not only whether the method "
+        "won. A positive, negative, diagnostic, null, or boundary finding may "
+        "proceed to analysis when it answers an important question with appropriate "
+        "evidence. Recommend one corrective rerun only for a concrete validity "
+        "defect; pivot when the result is broken, inconclusive, or lacks research value.",
         ["paper/artifacts/results_table.tsv", "paper/artifacts/significance.tsv"],
     ),
     "analysis": (
@@ -283,13 +295,18 @@ _AAAI_STAGE_OVERRIDES: dict[str, tuple[str, str, list[str]]] = {
     "run": (
         "reviewer/experiment-results-review.md",
         "Evaluate the experiment results on these dimensions:\n"
-        "1. Statistical significance — are gains significant, not noise?\n"
+        "1. Statistical support — is uncertainty handled appropriately for the "
+        "data and claim, including clean null or boundary findings?\n"
         "2. Ablation fairness — does ablation isolate the claimed contribution?\n"
         "3. Effect size — are improvements meaningful, not cosmetic?\n"
         "4. Claim support — does data actually support each claim?\n"
-        "5. Baseline competitiveness — did proposed method beat strong baselines?\n"
-        "6. Completeness — all conditions run, no missing benchmark families?\n"
-        "If results are too weak to support an AAAI paper, do NOT auto-pivot — apply the failure-decision ladder in reviewer/experiment-results-review.md: reflect on WHY it fell short (evidence-cited), recommend ONE bounded optimization/re-run pass if a concrete fix exists, else proceed to write the paper honestly on the current results as a negative / limited-gain finding; reserve a full pivot only when the results support neither a win nor an honest negative-result paper.",
+        "5. Baseline competitiveness — are the strongest relevant comparisons fair?\n"
+        "6. Completeness — are all claim-relevant conditions represented or explained?\n"
+        "Judge the research value of the valid result, not only whether the method "
+        "won. A positive, negative, diagnostic, null, or boundary finding may "
+        "proceed to analysis when it answers an important question with appropriate "
+        "evidence. Recommend one corrective rerun only for a concrete validity "
+        "defect; pivot when the result is broken, inconclusive, or lacks research value.",
         ["paper/artifacts/results_table.tsv", "paper/artifacts/significance.tsv"],
     ),
     "review": (
@@ -352,7 +369,9 @@ _FRONTIERS_SLEEP_STAGE_OVERRIDES: dict[str, tuple[str, str, list[str]]] = {
         "2. Layout — official Frontiers Harvard basis, single spacing, page and line numbers; Frontiers has NO fixed page limit, so judge readability rather than conference page quotas.\n"
         "3. Authorship — single-anonymized review requires real author names, affiliations, corresponding email, CRediT contributions, conflicts, and funding.\n"
         "4. AI disclosure — public, journal-compliant disclosure of technology name/version/model/source; no internal routes, daemons, or orchestration details.\n"
-        "5. Figures — every figure is authentic, reviewed, and has distinct alt text; the core overview is recorded in IMAGE2_FIGURES.json.\n"
+        "5. Figures — every visible figure is readable, coherent, factually "
+        "correct, good-looking enough, and has distinct alt text. Minor aesthetic "
+        "imperfections and optional metadata gaps are not blockers.\n"
         "6. Evidence — every numerical or headline claim traces to current canonical evidence; executed and planned evidence remain distinct.\n"
         "7. Idea-centricity and honest framing — does the article revolve around one central testable thesis with a stated conceptual insight, treat null or uncertain evidence honestly without spin, scope every claim to the supported evidence, and keep planned and executed evidence distinct? Do not hide evidence that was produced; genuine nulls are reported as findings.\n"
         "Block if any review artifact is stale, unavailable, or has unresolved major issues.",
@@ -361,7 +380,7 @@ _FRONTIERS_SLEEP_STAGE_OVERRIDES: dict[str, tuple[str, str, list[str]]] = {
             "paper/LAYOUT_REVIEW.json",
             "paper/ACADEMIC_LANGUAGE_REVIEW.json",
             "paper/PAPER_INFRASTRUCTURE_REVIEW.json",
-            "paper/figures/IMAGE2_FIGURES.json",
+            "paper/figures/",
         ],
     ),
     "submission": (
@@ -427,13 +446,18 @@ def build_reviewer_checklists(
         "run": (
             "reviewer/experiment-results-review.md",
             "Evaluate the experiment results on these dimensions:\n"
-            "1. Statistical significance — are gains significant, not noise?\n"
+            "1. Statistical support — is uncertainty handled appropriately for the "
+            "data and claim, including clean null or boundary findings?\n"
             "2. Ablation fairness — does ablation isolate the claimed contribution?\n"
             "3. Effect size — are improvements meaningful, not cosmetic?\n"
             "4. Claim support — does data actually support each claim?\n"
-            "5. Baseline competitiveness — did proposed method beat strong baselines?\n"
-            "6. Completeness — all conditions run, no missing benchmark families?\n"
-            f"If results are too weak to support a {persona} paper, do NOT auto-pivot — apply the failure-decision ladder in reviewer/experiment-results-review.md: reflect on WHY it fell short (evidence-cited), recommend ONE bounded optimization/re-run pass if a concrete fix exists, else proceed to write the paper honestly on the current results as a negative / limited-gain finding; reserve a full pivot only when the results support neither a win nor an honest negative-result paper.",
+            "5. Baseline competitiveness — are the strongest relevant comparisons fair?\n"
+            "6. Completeness — are all claim-relevant conditions represented or explained?\n"
+            f"Judge the research value for {persona}, not only whether the method "
+            "won. A positive, negative, diagnostic, null, or boundary finding may "
+            "proceed when it answers an important question with appropriate "
+            "evidence. Recommend one corrective rerun only for a concrete validity "
+            "defect; pivot when the result is broken, inconclusive, or lacks research value.",
             ["paper/artifacts/results_table.tsv", "paper/artifacts/significance.tsv"],
         ),
         "review": (
@@ -507,8 +531,15 @@ def reviewer_checklists_for(venue: object) -> dict[str, tuple[str, str, list[str
 CHECKLIST_STAGE_ORDER = CANONICAL_STAGE_ORDER
 CHECKLIST_ITEMS = STAGE_CHECKLISTS
 
-#: Research missions complete on the full EMNLP/paper final-submission gate.
+#: Research missions complete on the selected venue's full-paper submission gate.
 completion_gate = "full_paper"
+
+# Research proceeds through strict stage gates, but evidence reuse within those
+# stages is proportional: once a Reviewer certifies a source or artifact, later
+# bounded missions verify only the new claim/delta unless a concrete conflict
+# reopens it. This keeps scientific integrity without repeatedly rebuilding the
+# same provenance tree.
+WORKFLOW_MODE = "proportional"
 
 
 def role_banner(_role: str = "engineer") -> str:
@@ -527,6 +558,7 @@ __all__ = [
     "_PIPELINE_CHECK",
     "CHECKLIST_STAGE_ORDER",
     "CHECKLIST_ITEMS",
+    "WORKFLOW_MODE",
     "role_banner",
     "completion_gate",
 ]

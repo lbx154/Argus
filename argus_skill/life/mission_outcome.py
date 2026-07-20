@@ -26,6 +26,15 @@ _FAILURE_SOURCES = frozenset({
     "infrastructure_failure",
     "scientific_evidence_failure",
 })
+_FAILURE_LAYERS = frozenset({
+    "platform",
+    "orchestration",
+    "evaluator",
+    "evidence_packaging",
+    "scientific",
+    "operator",
+    "unknown",
+})
 
 
 def mission_outcome_class(status: str, success: bool) -> str:
@@ -53,10 +62,11 @@ def mission_outcome_dimensions(
     stage_transition: object = None,
     scientific_decision: str = "",
     failure_source: str = "",
+    failure_layer: str = "",
     stop_kind: object = None,
     resumable: bool = False,
 ) -> dict[str, object]:
-    """Build the canonical six-axis terminal outcome from structured owners."""
+    """Build the canonical terminal outcome from structured owners."""
     normalized_status = str(status or "").strip().lower()
     normalized_stop = str(stop_kind or "").strip().lower()
     outcome_class = mission_outcome_class(normalized_status, bool(success))
@@ -87,6 +97,9 @@ def mission_outcome_dimensions(
     normalized_failure = str(failure_source or "").strip().lower()
     if normalized_failure not in _FAILURE_SOURCES:
         normalized_failure = ""
+    normalized_failure_layer = str(failure_layer or "").strip().lower()
+    if normalized_failure_layer not in _FAILURE_LAYERS:
+        normalized_failure_layer = ""
 
     return {
         "execution_status": execution_status,
@@ -94,6 +107,7 @@ def mission_outcome_dimensions(
         "stage_certification": stage_certification,
         "scientific_decision": normalized_science,
         "failure_source": normalized_failure,
+        "failure_layer": normalized_failure_layer,
         "interruption_kind": normalized_stop or "none",
         "resumable": bool(resumable),
     }
@@ -110,6 +124,7 @@ def outcome_dimension_summary(outcome: object) -> list[str]:
     stage = str(outcome.get("stage_certification") or "").strip().lower()
     science = str(outcome.get("scientific_decision") or "").strip().lower()
     failure = str(outcome.get("failure_source") or "").strip().lower()
+    failure_layer = str(outcome.get("failure_layer") or "").strip().lower()
     interruption = str(outcome.get("interruption_kind") or "").strip().lower()
     parts = [f"execution={execution}"]
     if review and review != "not_assessed":
@@ -120,6 +135,8 @@ def outcome_dimension_summary(outcome: object) -> list[str]:
         parts.append(f"science={science}")
     if failure:
         parts.append(f"failure={failure}")
+    if failure_layer:
+        parts.append(f"layer={failure_layer}")
     if interruption and interruption != "none":
         parts.append(f"interrupt={interruption}")
     if outcome.get("resumable") is True:

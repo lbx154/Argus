@@ -93,7 +93,7 @@ test('snapshot contract fails closed when budget fields are absent', () => {
       partial: false,
       diagnostics: [],
     }),
-    /daemon fields missing: per_mission_cap_usd/,
+    /daemon fields missing: global_daily_cap_usd/,
   );
 });
 

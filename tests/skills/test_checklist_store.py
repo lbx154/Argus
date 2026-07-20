@@ -10,8 +10,10 @@ from argus_skill.skills.vertical_select import persist_vertical
 
 
 @pytest.fixture(autouse=True)
-def _research_vertical(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "research")
+def _research_vertical(tmp_path) -> None:
+    # Formal routing no longer accepts a user-forced vertical. Seed the same
+    # Manager-owned state these low-level checklist tests operate beneath.
+    persist_vertical(tmp_path, "research")
 
 
 def test_absent_stage_returns_none_present_empty_returns_tuple(tmp_path):
@@ -61,7 +63,7 @@ def test_modify_and_revision_bump(tmp_path):
 
 def test_malformed_rows_dropped_on_read(tmp_path):
     path = tmp_path / "research" / "CHECKLISTS.json"
-    path.parent.mkdir(parents=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"revision": 1, "vertical": "research", "stages": {"scope": [
         {"id": "good", "statement": "ok", "evidence_hint": ""},
         {"id": "", "statement": "no id"},          # dropped

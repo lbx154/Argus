@@ -4,9 +4,12 @@ from pathlib import Path
 
 import argus_skill.tools.new_auto_research_project as narp
 from argus_skill.tools.new_auto_research_project import (
+    RUNTIME_CONTRACT_END,
+    RUNTIME_CONTRACT_START,
     default_objective,
     extract_copy_ready_agents_md,
     load_template_text,
+    refresh_agents_runtime_contract,
     render_agents_md,
 )
 
@@ -89,6 +92,62 @@ def test_render_agents_md_fills_placeholders_and_quality_contracts() -> None:
     assert "[write the target research problem and deliverable]" not in rendered
     assert "| [input] | [source] | [status] | [allowed use] | [rationale] |" not in rendered
     assert "agent-emnlp-auto-research-v15" in rendered
+
+
+def test_runtime_contract_refresh_preserves_unmanaged_agents_content(
+    tmp_path: Path,
+) -> None:
+    agents = tmp_path / "AGENTS.md"
+    agents.write_text(
+        "# AGENTS.md\n\noperator text before\n\n## Local rule\nkeep me\n",
+        encoding="utf-8",
+    )
+
+    assert refresh_agents_runtime_contract(
+        tmp_path,
+        objective="first objective",
+        vertical="research",
+    )
+    first = agents.read_text(encoding="utf-8")
+    assert "operator text before" in first
+    assert "## Local rule\nkeep me" in first
+    assert "first objective" in first
+    assert first.count(RUNTIME_CONTRACT_START) == 1
+    assert first.count(RUNTIME_CONTRACT_END) == 1
+
+    assert refresh_agents_runtime_contract(
+        tmp_path,
+        objective="second objective",
+        vertical="math",
+    )
+    second = agents.read_text(encoding="utf-8")
+    assert "operator text before" in second
+    assert "## Local rule\nkeep me" in second
+    assert "first objective" not in second
+    assert "second objective" in second
+    assert "Active vertical: `math`" in second
+    assert second.count(RUNTIME_CONTRACT_START) == 1
+    assert second.count(RUNTIME_CONTRACT_END) == 1
+
+
+def test_runtime_contract_refresh_fails_closed_on_malformed_markers(
+    tmp_path: Path,
+) -> None:
+    agents = tmp_path / "AGENTS.md"
+    original = f"# AGENTS.md\n\n{RUNTIME_CONTRACT_START}\nbroken\n"
+    agents.write_text(original, encoding="utf-8")
+
+    try:
+        refresh_agents_runtime_contract(
+            tmp_path,
+            objective="must not be written",
+            vertical="math",
+        )
+    except narp.LaunchError:
+        pass
+    else:
+        raise AssertionError("malformed managed markers must fail closed")
+    assert agents.read_text(encoding="utf-8") == original
 
 
 def test_rendered_agents_md_has_no_stale_validator_or_critic_prose() -> None:

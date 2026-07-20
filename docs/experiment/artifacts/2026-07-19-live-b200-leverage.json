@@ -1,0 +1,70 @@
+{
+  "date_utc": "2026-07-19",
+  "device": "NVIDIA B200",
+  "environment": {
+    "cuda": "12.9",
+    "pytorch": "2.8.0a0+5228986c39.nv25.06",
+    "triton": "3.3.0"
+  },
+  "workload": {
+    "op": "chunk_kda",
+    "mode": "fwdbwd",
+    "dtype": "bfloat16",
+    "shape": {
+      "B": 8,
+      "T": 1024,
+      "H": 8,
+      "D": 64
+    },
+    "dispatch": "kda.chunk_kda_bwd_wy_dqkg_fused -> tilelang",
+    "environment_flags": {
+      "FLA_TILELANG": "1",
+      "FLA_FLASH_KDA": "0"
+    }
+  },
+  "end_to_end": {
+    "median_ms": 1.8494559526443481,
+    "p20_ms": 1.8321343660354614,
+    "p80_ms": 1.8637951850891112
+  },
+  "timeline": {
+    "profiler": "torch CUDA timeline",
+    "profiled_iterations": 5,
+    "target_kernel": "kernel_kernel",
+    "target_launch_count": 5,
+    "target_duration_us_median": 110.912,
+    "target_duration_us_min": 110.495,
+    "target_duration_us_max": 111.232
+  },
+  "ncu_cross_check": {
+    "sections": [
+      "SpeedOfLight",
+      "LaunchStats",
+      "Occupancy"
+    ],
+    "passes": 9,
+    "target_duration_us": 171.36,
+    "purpose": "post-hoc cross-check only; not used for the final leverage share"
+  },
+  "leverage": {
+    "required_total_speedup": 1.02,
+    "plausible_kernel_speedup": 1.144057377,
+    "target_share": 0.059970068409262875,
+    "predicted_total_speedup": 1.0076087651243133,
+    "theoretical_max_total_speedup": 1.063795913719237,
+    "required_kernel_speedup": 1.4857968807496196,
+    "verdict": "reject_insufficient_plausible_gain"
+  },
+  "environment_failures": [
+    {
+      "failure": "Profiler script in /tmp could not import the project benchmarks package",
+      "repair": "Add the project root to PYTHONPATH",
+      "idea_status": "untested"
+    },
+    {
+      "failure": "PVC/NFS and first-run JIT caused long bootstrap latency before GPU execution",
+      "repair": "Separate bootstrap/JIT evidence from warmed steady-state timing",
+      "idea_status": "untested"
+    }
+  ]
+}

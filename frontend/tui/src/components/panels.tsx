@@ -19,7 +19,6 @@ import { outcomeDimensionSummary } from '../../../core/src/missionOutcome.js';
 import { eventMatchesView, type EventViewFilter } from '../../../core/src/events.js';
 import { buildEventLines } from '../eventLines.js';
 import { roleColor, toneColor } from '../eventRender.js';
-import { computeSpend } from '../cost.js';
 import { activityHistory } from '../../../core/src/activity.js';
 import { CostGauge } from './CostGauge.js';
 
@@ -102,7 +101,14 @@ export function PanelView({
   }
   switch (panel.kind) {
     case 'operations':
-      return <OperationsPanel snap={snap} events={events} width={viewportColumns} />;
+      return (
+        <OperationsPanel
+          snap={snap}
+          events={events}
+          width={viewportColumns}
+          height={viewportRows}
+        />
+      );
     case 'help':
       return <HelpPanel page={panel.page ?? 0} pageSize={pageSize} />;
     case 'status':
@@ -170,10 +176,12 @@ function OperationsPanel({
   snap,
   events,
   width,
+  height,
 }: {
   snap: Snapshot | null;
   events: EventMsg[];
   width: number;
+  height: number;
 }) {
   if (!snap) {
     return <Frame title="Operations" hint="Ctrl+O close"><Text dimColor>loading…</Text></Frame>;
@@ -181,31 +189,36 @@ function OperationsPanel({
   const activities = activityHistory(events, 8);
   const slo = snap.observability?.slo;
   const storage = snap.mission_view?.storage;
+  const compact = height <= 24;
+  const veryCompact = height <= 20;
+  const visibleRoles = veryCompact ? snap.roles.slice(0, 2) : snap.roles;
   return (
     <Frame title="Operations" hint="Ctrl+O close · /status and /doctor for details">
       <Row k="daemon" v={snap.daemon.alive ? `● pid ${snap.daemon.pid ?? '—'} · ${Math.floor((snap.daemon.uptime_seconds ?? 0) / 60)}m` : '○ stopped'} c={snap.daemon.alive ? theme.success : 'gray'} />
       <Row k="backend" v={snap.daemon.backend_label || snap.daemon.backend || '—'} />
-      <Row k="protocol" v={`${snap.daemon.protocol?.name || '—'}/${snap.daemon.protocol?.major ?? '—'}.${snap.daemon.protocol?.minor ?? '—'}`} />
-      <Text> </Text>
+      {!veryCompact ? <Row k="protocol" v={`${snap.daemon.protocol?.name || '—'}/${snap.daemon.protocol?.major ?? '—'}.${snap.daemon.protocol?.minor ?? '—'}`} /> : null}
+      {!compact ? <Text> </Text> : null}
       <CostGauge
-        spend={computeSpend(events)}
-        settledUsd={snap.spend_usd}
-        spendStatus={snap.spend_status}
-        usageSummary={snap.usage_summary}
+        settledUsd={snap.global_spend_usd}
+        spendStatus={snap.global_spend_status}
+        usageSummary={snap.global_usage_summary}
         daemon={snap.daemon}
         requestUsage={snap.request_usage}
         costControl={snap.cost_control}
         width={width}
       />
-      <Text> </Text>
+      {!compact ? <Text> </Text> : null}
       <Text dimColor>roles</Text>
-      {snap.roles.map((role) => (
+      {visibleRoles.map((role) => (
         <Text key={role.role}>
           <Text color={theme.role[role.role] ?? 'white'}>{role.role.padEnd(10)}</Text>
           <Text dimColor>{`${role.backend_label || role.backend} · ${role.model || '—'} · ${role.effort || 'default'}`}</Text>
         </Text>
       ))}
-      {storage && (storage.project_skill_dir || storage.global_skill_dir || storage.wiki_paths.length || storage.skill_history_compressed || storage.wiki_retired_compressed) ? (
+      {veryCompact && snap.roles.length > visibleRoles.length ? (
+        <Text dimColor>{`  + ${snap.roles.length - visibleRoles.length} roles · /status`}</Text>
+      ) : null}
+      {!compact && storage && (storage.project_skill_dir || storage.global_skill_dir || storage.wiki_paths.length || storage.skill_history_compressed || storage.wiki_retired_compressed) ? (
         <>
           <Text> </Text>
           <Text dimColor>self-evolution storage</Text>
@@ -215,14 +228,18 @@ function OperationsPanel({
           {(storage.skill_history_compressed || storage.wiki_retired_compressed) ? <Row k="cold history" v={`skill ${storage.skill_history_compressed} · wiki ${storage.wiki_retired_compressed} · ${formatBytes(storage.skill_history_bytes_saved + storage.wiki_retired_bytes_saved)} saved`} /> : null}
         </>
       ) : null}
-      {slo?.status === 'degraded' ? (
+      {compact && slo?.status === 'degraded' ? (
+        <Row k="SLO" v={slo.violations[0] || 'degraded'} c={theme.error} />
+      ) : slo?.status === 'degraded' ? (
         <>
           <Text> </Text>
           <Text color={theme.error}>SLO degraded</Text>
           {slo.violations.slice(0, 5).map((violation) => <Text key={violation} dimColor>{`  ! ${violation}`}</Text>)}
         </>
       ) : null}
-      {activities.length ? (
+      {compact && activities.length ? (
+        <Row k="activity" v={`${activities[0]?.role} · ${activities[0]?.label}`} />
+      ) : activities.length ? (
         <>
           <Text> </Text>
           <Text dimColor>recent observable activity</Text>
@@ -351,7 +368,6 @@ function BacklogPanel({ items, all, selected, pageSize }: { items: BacklogItem[]
             <Text color={focused ? theme.accent : 'gray'}>{focused ? '› ' : '  '}</Text>
             <Text color={color(it.status)}>{it.status.padEnd(10)}</Text>
             <Text dimColor>{`${it.id.slice(0, 8)}  `}</Text>
-            <Text dimColor>{`$${it.max_cost_usd.toFixed(0)}  `}</Text>
             <Text bold={focused}>{it.title || it.objective}</Text>
           </Box>
           );
@@ -411,8 +427,7 @@ function TaskPanel({ item, page, pageSize, width }: { item: BacklogItem; page: n
     `status      ${item.status}`,
     ...(outcome.length ? outcome.map((row, index) => `${index ? '            ' : 'outcome     '}${row}`) : []),
     `priority    p${item.priority}`,
-    `budget      $${item.max_cost_usd.toFixed(2)}`,
-    ...wrapDetail(`iteration   ${item.iterate ? 'auto' : 'single'} · ${item.iteration_cycles_done ?? 0}/${item.iteration_max_cycles ?? '—'} cycles · $${(item.iteration_cost_usd ?? 0).toFixed(2)}`, width),
+    ...wrapDetail(`iteration   ${item.iterate ? 'auto' : 'single'} · ${item.iteration_cycles_done ?? 0}/${item.iteration_max_cycles ?? '—'} cycles · cost $${(item.iteration_cost_usd ?? 0).toFixed(2)}`, width),
     ...(item.pending_question ? ['', 'WAITING ON YOU', ...wrapDetail(item.pending_question, width)] : []),
     '',
     'OBJECTIVE',

@@ -10,7 +10,7 @@ API_SERVICE = "argus-skill-webapi"
 API_PROTOCOL_NAME = "argus.webapi"
 API_PROTOCOL_MAJOR = 1
 API_PROTOCOL_MINOR = 10
-SNAPSHOT_SCHEMA_VERSION = 5
+SNAPSHOT_SCHEMA_VERSION = 6
 API_CAPABILITIES = (
     "daemon.admission.v1",
     "daemon.status.protocol.v1",

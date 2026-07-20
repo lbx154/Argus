@@ -72,7 +72,7 @@ def test_config_snapshot_reports_persisted_values_and_sources() -> None:
     from argus_skill.core.knob_store import write_persisted_knob
 
     write_persisted_knob("ARGUS_SKILL_MODEL", "claude-sonnet-5")
-    write_persisted_knob("ARGUS_SKILL_DAILY_CAP_USD", "75")
+    write_persisted_knob("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "75")
 
     snapshot = build_config_snapshot(
         env={},
@@ -84,7 +84,7 @@ def test_config_snapshot_reports_persisted_values_and_sources() -> None:
     assert engineer["model_source"] == "persisted:ARGUS_SKILL_MODEL"
     daily_cap = next(
         k for k in snapshot["operator_knobs"]
-        if k["name"] == "ARGUS_SKILL_DAILY_CAP_USD"
+        if k["name"] == "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"
     )
     assert daily_cap["value"] == "75"
     assert daily_cap["source"] == "persisted"

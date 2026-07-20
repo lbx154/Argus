@@ -15,6 +15,10 @@
 不得用 harness overlay 增删 checklist。`research/CHECKLISTS.json` 必须带 vertical，和当前
 项目 vertical 不一致时完全忽略。
 
+**Stage-check integrity:** `STAGE_CHECKS` 的 shell 只做结构存在性检查。禁止内嵌
+`grep/awk/sed/jq/cat/head/tail` 或 `python -c` 从内容关键词推断成功、分数或正确性；
+这类证据必须交给可单测的结构化 Python validator 解析 CSV/JSON/JSONL。
+
 **Math novelty trigger:** math 不增加固定 literature stage。仅当 solve 工作产生或实质改写
 新定理、算子、证明机制、障碍证书或渐近路线时，Planner 才派独立短 DAG 节点完成
 `research/MECHANISM_OVERLAP_AUDIT.md`（精确/同义词查询、最近 primary、前后向引用和
@@ -26,9 +30,9 @@ unverified，publishable/doctoral 与最终 review 不得完成。
 premise/lemma graph；形式化采用 informal→formal→back-translation/fidelity 闭环。生成与
 验证必须分离，不得把这些方法全量注入每个数学任务。
 
-**Budget ownership:** per-mission / project-daily USD 预算唯一来源是 project-state
-`budget.json`；host-global daily cap 在全局配置文件。启动代码只在文件缺失时做一次旧
-配置迁移，禁止用环境变量或默认值覆盖已有文件。
+**Budget ownership:** 唯一货币预算是全机 daily USD cap
+`ARGUS_SKILL_GLOBAL_DAILY_CAP_USD`。所有项目共享全机 `usage.jsonl` 汇总与调用级原子预留；
+没有 per-mission/project budget，也不把 USD 转换成 provider credits/fence。
 
 主链路：
 
@@ -324,6 +328,7 @@ paper/
   PAPER_INFRASTRUCTURE_REVIEW.json
   LAYOUT_REVIEW.json
   figures/IMAGE2_FIGURES.json
+  figures/FIGURE_PROVENANCE.json
   style_ref/
 ```
 
@@ -332,7 +337,7 @@ paper/
 | Stage | 主要 skill | 主要 artifact / 检查项 |
 | --- | --- | --- |
 | 选题/grounding | `research-brief-to-experiment-plan.md`, `auto-research-pipeline.md` | `validate-grounding`, `validate-idea-provenance`, `validate-code-reuse` |
-| 实验/benchmark | `agent-research-benchmark-runner.md` | `validate-full-scale-evidence`, `experiments/**` |
+| 实验/benchmark | `research-experiment-runner.md` | public evidence provenance, raw `experiments/**` artifacts |
 | 结果到 claim | `research-results-analysis-and-figures.md`, `claims-evidence-audit.md`, `result-to-claim.md` | `validate-claim-graph`, `RESULTS_REPORT.md`, `result_to_claim.tsv` |
 | 初稿/LaTeX | `emnlp-paper-drafting.md` | `validate-paper-contract`, `validate-paper-format`, `main.tex`, `main.pdf` |
 | 格式预检 | `emnlp-format-preflight.md` | `validate-research-md-format`, `FORMAT_PREFLIGHT.md` |
@@ -375,7 +380,7 @@ repair_emnlp_contract_artifacts
 > 要重新引入某项机器校验，优先在 `stage_checklists.py` 的 checklist 里加一条，由 reviewer 验证。
 
 项目是否“EMNLP ready”由 L2 reviewer 的 `format_full_pipeline_checklist` 整链裁决决定
-（evidence、claim graph、paper contract、format、image-2、review、manifest、freshness、
+（evidence、claim graph、paper contract、format、figure provenance、review、manifest、freshness、
 submission assurance 都在 checklist 里），不是看某个 validator 的返回值，也不只是看 PDF
 存不存在。
 
@@ -407,7 +412,16 @@ submission assurance 都在 checklist 里），不是看某个 validator 的返�
 
 这些 review JSON 是生成证据。不要为了让 gate 绿而手改成 PASS；应该改 `main.tex` / PDF / evidence 后重跑工具。
 
-## IMAGE2 / 论文图
+## 科研绘图路由 / IMAGE2
+
+Research vertical 的统一入口是
+`verticals/research/skills/engineer/research-visualization-router.md`。图的 renderer
+由 Engineer 根据科学语义、可编辑性、最终尺寸和真实 capability 选择；Reviewer
+裁决质量。允许的路线包括数据脚本、Vega/ECharts/Recharts/HTML/React、FigureSpec、
+Mermaid/Graphviz、Draw.io、PPT Master 和 image-2。paper-facing figure 可选写入
+`paper/figures/FIGURE_PROVENANCE.json` 作为 renderer/source handoff，不能成为
+完成 gate 或 Reviewer blocker。Reviewer 只看实际图片是否清晰、正确、协调且够好看；
+轻微审美问题直接通过，不得反复返工。Harness 不用关键词替 agent 选工具或评价图片。
 
 图像工具在 `argus_skill/tools/image_tool.py`。
 
@@ -421,7 +435,12 @@ python -m argus_skill.tools.image_tool review --image paper/figures/overview.png
 python -m argus_skill.tools.image_tool sync-paper-metadata --project-root . --image paper/figures/overview.png --figure-id overview
 ```
 
-contract 要求非数据类 paper-facing figure 通过 image-2/codex-image2 路线产生，并保留 prompt、sidecar、inspect、review、provenance、manifest hash。不要用本地 matplotlib/TikZ/SVG 画一个概念图再伪装成 image-2。
+image-2 只是 capability 可用且 router 认为合适时的一条路线；实际使用时必须保留
+prompt、sidecar、inspect、review、provenance、accepted-raster hash 和
+`IMAGE2_FIGURES.json`，并自动同步统一 manifest。没有 image API 时不得伪造
+image-2 metadata，也不得仅因此阻塞整篇论文；应由 agent 选择语义等价、可审计的
+确定性路线。任何本地 SVG/HTML/PPT 输出都必须以真实 renderer 名义登记，不能冒充
+image-2。
 
 ## Planner 的 EMNLP 完成判定
 
@@ -462,10 +481,10 @@ ARGUS_SKILL_RUNNER_BIN=/path/to/codex
 ARGUS_SKILL_RUNNER_EXTRA_ARGS="..."
 ARGUS_SKILL_SAFE_MODE=1
 ARGUS_SKILL_SKILL_OPS=0|1
-ARGUS_SKILL_MAX_ACTIVE_DAEMONS=2
+ARGUS_SKILL_MAX_ACTIVE_DAEMONS=64
 ```
 
-项目 USD budget 不属于 env；读写 project-state `budget.json`。
+USD 预算只读全局配置；项目没有独立预算文件。
 
 ## 事件和观测
 

@@ -1,4 +1,4 @@
-"""Frozen RUN CONTRACT + curriculum feasibility packet (anti-drift / anti-saturation).
+"""Frozen RUN CONTRACT + curriculum feasibility packet (anti-drift / anti-collapse).
 
 Two recurring, expensive failure modes in long-horizon RL research pipelines —
 both observed burning multi-hour full-scale runs before being caught post-hoc:
@@ -26,16 +26,15 @@ Artifacts:
 
 * :class:`RunContract` — the frozen, hashed set of locked knobs (the single
   source of truth), emitted at plan freeze to ``research/RUN_CONTRACT.json``.
-* :class:`FeasibilityPacket` — per-full-run evidence that the EXACT curriculum
-  the run will consume was probed and is non-degenerate: its ``curriculum_hash``
-  matches the contract, a static distinct-task-vs-rollout-volume diversity bound
-  holds, and the probe's reward/advantage stats are not already saturated — OR
-  the run is explicitly labelled ``smoke_only`` (a memorisation/wiring run that
-  may NOT be cited as general-learning evidence).
+* :class:`FeasibilityPacket` — per-full-run RL evidence that the EXACT curriculum
+  the run will consume was probed and is non-degenerate.
+* :class:`SupervisedFeasibilityPacket` — equivalent evidence for supervised
+  training, backed by hashed trainer loss/gradient and parameter-update
+  artifacts rather than inapplicable reward/advantage fields.
 
-A ``scale=full`` RL launch must cite a matching contract hash + a valid packet;
-the :mod:`argus_skill.tools.subagent` pre-launch interlock refuses otherwise
-(see :func:`check_full_run_launch`).
+A ``scale=full`` training launch must cite a matching contract hash + a valid
+packet; the :mod:`argus_skill.tools.subagent` pre-launch interlock refuses
+applicable launches otherwise (see :func:`check_full_run_launch`).
 
 CLI::
 
@@ -46,6 +45,9 @@ CLI::
     python -m argus_skill.skills.run_contract build-packet --project-root . \\
         --run-dir experiments/runs/<probe> --curriculum experiments/<slice>.json \\
         --total-steps 1200 --batch-size 1 --group-size 8 --out <packet.json>
+    python -m argus_skill.skills.run_contract build-supervised-packet \\
+        --project-root . --contract research/RUN_CONTRACT.json \\
+        --run-dir experiments/runs/<sft-probe> --out <packet.json>
     python -m argus_skill.skills.run_contract check-launch --project-root . \\
         --contract research/RUN_CONTRACT.json --packet paper_or_run/<packet>.json \\
         --lr 5e-6 --group-size 8 --total-steps 1200 --batch-size 1 \\
@@ -54,8 +56,11 @@ CLI::
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
+import importlib.util
 import json
+import math
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -63,6 +68,7 @@ from typing import TypeGuard
 
 CONTRACT_SCHEMA_VERSION = 1
 PACKET_SCHEMA_VERSION = 1
+SUPERVISED_PACKET_SCHEMA_VERSION = 2
 
 DEFAULT_RUN_CONTRACT_PATH = "research/RUN_CONTRACT.json"
 
@@ -81,6 +87,7 @@ LR_REL_TOL = 1e-3
 _ADVANTAGE_SPAN_EPS = 1e-6   # probe advantage max-min at/below this == no signal
 _REWARD_CEILING = 0.99       # probe reward mean at/above this == already solved
 _WITHIN_GROUP_STD_EPS = 1e-6  # per-group reward std at/below this == no contrast
+_GRAD_NORM_EPS = 1e-12
 
 
 @dataclass
@@ -160,6 +167,20 @@ def compute_contract_hash(contract: dict) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def compute_extension_hash(contract: dict) -> str:
+    """SHA-256 over an extended run contract (excludes ``extension_hash``)."""
+    payload = dict(contract)
+    payload.pop("extension_hash", None)
+    return hashlib.sha256(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
 def load_run_contract(path: Path) -> tuple[RunContract | None, list[ContractIssue]]:
     """Load + structurally validate a RunContract JSON file."""
     issues: list[ContractIssue] = []
@@ -212,6 +233,16 @@ def load_run_contract(path: Path) -> tuple[RunContract | None, list[ContractIssu
             f"locked fields (recomputed {recomputed[:12]}…) — the contract was "
             "edited after freezing; re-freeze it",
         ))
+    extension_hash = raw.get("extension_hash")
+    if extension_hash:
+        recomputed_extension = compute_extension_hash(raw)
+        if str(extension_hash) != recomputed_extension:
+            issues.append(ContractIssue(
+                "contract_extension_hash_mismatch",
+                f"extension_hash={str(extension_hash)[:12]}… does not match the "
+                f"extended contract fields (recomputed {recomputed_extension[:12]}…) "
+                "— the contract was edited after freezing; re-freeze it",
+            ))
     return contract, issues
 
 
@@ -252,6 +283,56 @@ class FeasibilityPacket:
         return self.prompt_volume / float(self.distinct_tasks)
 
 
+@dataclass
+class SupervisedFeasibilityPacket:
+    """Artifact-backed non-degeneracy evidence for supervised training."""
+
+    curriculum_hash: str
+    contract_hash: str
+    distinct_tasks: int
+    unique_example_count: int
+    execution_example_count: int
+    repeat_policy: str
+    maximum_occurrences_per_unique_example: int
+    materialized_rows_path: str
+    materialized_rows_sha256: str
+    total_steps: int
+    batch_size: int
+    group_size: int
+    loss_mean: float
+    loss_min: float
+    loss_max: float
+    grad_norm_mean: float
+    grad_norm_max: float
+    finite_update: bool
+    probe_steps: int
+    probe_trace_path: str
+    probe_trace_sha256: str
+    update_artifact_path: str
+    update_artifact_sha256: str
+    probe_manifest_path: str
+    probe_manifest_sha256: str
+    probe_run_dir: str = ""
+    smoke_only: bool = False
+    notes: str = ""
+    probe_type: str = "supervised_sft"
+    schema_version: int = SUPERVISED_PACKET_SCHEMA_VERSION
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @property
+    def prompt_volume(self) -> int:
+        return max(0, int(self.total_steps)) * max(0, int(self.batch_size))
+
+    @property
+    def max_repetition(self) -> float:
+        return float(self.maximum_occurrences_per_unique_example)
+
+
+FeasibilityPacketType = FeasibilityPacket | SupervisedFeasibilityPacket
+
+
 def _packet_bool(value: object) -> bool:
     """Strict boolean read for a feasibility packet.
 
@@ -271,7 +352,7 @@ def _packet_bool(value: object) -> bool:
 
 def load_feasibility_packet(
     path: Path,
-) -> tuple[FeasibilityPacket | None, list[ContractIssue]]:
+) -> tuple[FeasibilityPacketType | None, list[ContractIssue]]:
     try:
         raw = json.loads(Path(path).read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -280,40 +361,96 @@ def load_feasibility_packet(
         return None, [ContractIssue("packet_unreadable", f"{path}: {exc}")]
     if not isinstance(raw, dict):
         return None, [ContractIssue("packet_malformed", f"{path}: not a JSON object")]
-    required = (
-        "curriculum_hash", "distinct_tasks", "total_steps", "batch_size",
-        "group_size", "reward_mean", "advantage_span_max",
-        "per_group_reward_std_mean", "probe_steps",
-    )
+    probe_type = str(raw.get("probe_type", "rl_reward"))
+    if probe_type == "supervised_sft":
+        required = (
+            "curriculum_hash", "contract_hash", "distinct_tasks",
+            "unique_example_count", "execution_example_count", "repeat_policy",
+            "maximum_occurrences_per_unique_example", "materialized_rows_path",
+            "materialized_rows_sha256", "total_steps", "batch_size",
+            "group_size", "loss_mean", "loss_min", "loss_max", "grad_norm_mean",
+            "grad_norm_max", "finite_update", "probe_steps", "probe_trace_path",
+            "probe_trace_sha256", "update_artifact_path", "update_artifact_sha256",
+            "probe_manifest_path", "probe_manifest_sha256",
+        )
+    elif probe_type in {"rl_reward", ""}:
+        required = (
+            "curriculum_hash", "distinct_tasks", "total_steps", "batch_size",
+            "group_size", "reward_mean", "advantage_span_max",
+            "per_group_reward_std_mean", "probe_steps",
+        )
+    else:
+        return None, [ContractIssue(
+            "packet_probe_type_unsupported",
+            f"unsupported probe_type={probe_type!r}; expected 'rl_reward' or "
+            "'supervised_sft'",
+        )]
     missing = [k for k in required if k not in raw]
     if missing:
         return None, [ContractIssue(
             "packet_incomplete", f"missing fields: {', '.join(missing)}")]
     try:
-        packet = FeasibilityPacket(
-            curriculum_hash=str(raw["curriculum_hash"]),
-            distinct_tasks=int(raw["distinct_tasks"]),
-            total_steps=int(raw["total_steps"]),
-            batch_size=int(raw["batch_size"]),
-            group_size=int(raw["group_size"]),
-            reward_mean=float(raw["reward_mean"]),
-            reward_std=float(raw.get("reward_std", 0.0)),
-            per_group_reward_std_mean=float(raw["per_group_reward_std_mean"]),
-            advantage_span_max=float(raw["advantage_span_max"]),
-            frac_reward_zero_std=float(raw.get("frac_reward_zero_std", 0.0)),
-            probe_steps=int(raw["probe_steps"]),
-            probe_run_dir=str(raw.get("probe_run_dir", "")),
-            smoke_only=_packet_bool(raw.get("smoke_only", False)),
-            notes=str(raw.get("notes", "")),
-            schema_version=int(raw.get("schema_version", PACKET_SCHEMA_VERSION)),
-        )
+        if probe_type == "supervised_sft":
+            packet = SupervisedFeasibilityPacket(
+                curriculum_hash=str(raw["curriculum_hash"]),
+                contract_hash=str(raw["contract_hash"]),
+                distinct_tasks=int(raw["distinct_tasks"]),
+                unique_example_count=int(raw["unique_example_count"]),
+                execution_example_count=int(raw["execution_example_count"]),
+                repeat_policy=str(raw["repeat_policy"]),
+                maximum_occurrences_per_unique_example=int(
+                    raw["maximum_occurrences_per_unique_example"]
+                ),
+                materialized_rows_path=str(raw["materialized_rows_path"]),
+                materialized_rows_sha256=str(raw["materialized_rows_sha256"]),
+                total_steps=int(raw["total_steps"]),
+                batch_size=int(raw["batch_size"]),
+                group_size=int(raw["group_size"]),
+                loss_mean=float(raw["loss_mean"]),
+                loss_min=float(raw["loss_min"]),
+                loss_max=float(raw["loss_max"]),
+                grad_norm_mean=float(raw["grad_norm_mean"]),
+                grad_norm_max=float(raw["grad_norm_max"]),
+                finite_update=_packet_bool(raw["finite_update"]),
+                probe_steps=int(raw["probe_steps"]),
+                probe_trace_path=str(raw["probe_trace_path"]),
+                probe_trace_sha256=str(raw["probe_trace_sha256"]),
+                update_artifact_path=str(raw["update_artifact_path"]),
+                update_artifact_sha256=str(raw["update_artifact_sha256"]),
+                probe_manifest_path=str(raw["probe_manifest_path"]),
+                probe_manifest_sha256=str(raw["probe_manifest_sha256"]),
+                probe_run_dir=str(raw.get("probe_run_dir", "")),
+                smoke_only=_packet_bool(raw.get("smoke_only", False)),
+                notes=str(raw.get("notes", "")),
+                schema_version=int(
+                    raw.get("schema_version", SUPERVISED_PACKET_SCHEMA_VERSION)
+                ),
+            )
+        else:
+            packet = FeasibilityPacket(
+                curriculum_hash=str(raw["curriculum_hash"]),
+                distinct_tasks=int(raw["distinct_tasks"]),
+                total_steps=int(raw["total_steps"]),
+                batch_size=int(raw["batch_size"]),
+                group_size=int(raw["group_size"]),
+                reward_mean=float(raw["reward_mean"]),
+                reward_std=float(raw.get("reward_std", 0.0)),
+                per_group_reward_std_mean=float(raw["per_group_reward_std_mean"]),
+                advantage_span_max=float(raw["advantage_span_max"]),
+                frac_reward_zero_std=float(raw.get("frac_reward_zero_std", 0.0)),
+                probe_steps=int(raw["probe_steps"]),
+                probe_run_dir=str(raw.get("probe_run_dir", "")),
+                smoke_only=_packet_bool(raw.get("smoke_only", False)),
+                notes=str(raw.get("notes", "")),
+                schema_version=int(raw.get("schema_version", PACKET_SCHEMA_VERSION)),
+            )
     except (TypeError, ValueError) as exc:
         return None, [ContractIssue("packet_malformed", f"{path}: {exc}")]
     return packet, []
 
 
 def validate_feasibility_packet(
-    packet: FeasibilityPacket, contract: RunContract
+    packet: FeasibilityPacketType, contract: RunContract
 ) -> list[ContractIssue]:
     """Provenance + non-degeneracy checks tying a packet to its contract."""
     issues: list[ContractIssue] = []
@@ -335,6 +472,24 @@ def validate_feasibility_packet(
             f"probe_steps={packet.probe_steps} < {MIN_PROBE_STEPS}; run a longer "
             "feasibility probe so the reward/advantage stats are meaningful",
         ))
+    for name, packet_value, contract_value in (
+        ("total_steps", packet.total_steps, contract.total_steps),
+        ("batch_size", packet.batch_size, contract.batch_size),
+        ("group_size", packet.group_size, contract.group_size),
+    ):
+        if packet_value != contract_value:
+            issues.append(ContractIssue(
+                f"packet_{name}_mismatch",
+                f"packet {name}={packet_value} != contract {name}={contract_value}",
+            ))
+
+    if isinstance(packet, SupervisedFeasibilityPacket):
+        issues.extend(_validate_supervised_packet(packet, contract))
+        if packet.smoke_only:
+            return issues
+        if packet.max_repetition > MAX_PROMPT_REPETITION:
+            issues.append(_supervised_low_diversity_issue(packet))
+        return issues
 
     # A run the agent explicitly labels smoke/memorisation-only is allowed to
     # skip the diversity + non-saturation bounds — but the reviewer checklist
@@ -344,14 +499,7 @@ def validate_feasibility_packet(
 
     # (2) Static diversity bound: distinct tasks vs planned rollout volume.
     if packet.max_repetition > MAX_PROMPT_REPETITION:
-        issues.append(ContractIssue(
-            "curriculum_low_diversity",
-            f"each distinct task is seen ~{packet.max_repetition:.1f}x "
-            f"(prompt_volume={packet.prompt_volume} / distinct_tasks="
-            f"{packet.distinct_tasks}) > {MAX_PROMPT_REPETITION:.0f}x — a "
-            "memorisation regime; expand distinct tasks or shorten the run, or "
-            "label the run smoke_only",
-        ))
+        issues.append(_low_diversity_issue(packet))
 
     # (3) Probe non-saturation: the curriculum is not already solved / contrast
     # exists at the starting policy.
@@ -377,6 +525,292 @@ def validate_feasibility_packet(
             "probe_no_within_group_contrast",
             "every probed group had zero within-group reward variance — no "
             "GRPO contrast is possible on this curriculum",
+        ))
+    return issues
+
+
+def _low_diversity_issue(packet: FeasibilityPacketType) -> ContractIssue:
+    return ContractIssue(
+        "curriculum_low_diversity",
+        f"each distinct task is seen ~{packet.max_repetition:.1f}x "
+        f"(prompt_volume={packet.prompt_volume} / distinct_tasks="
+        f"{packet.distinct_tasks}) > {MAX_PROMPT_REPETITION:.0f}x — a "
+        "memorisation regime; expand distinct tasks or shorten the run, or "
+        "label the run smoke_only",
+    )
+
+
+def _supervised_low_diversity_issue(
+    packet: SupervisedFeasibilityPacket,
+) -> ContractIssue:
+    return ContractIssue(
+        "curriculum_low_diversity",
+        f"the materialized SFT curriculum repeats a unique example up to "
+        f"{packet.maximum_occurrences_per_unique_example}x > "
+        f"{MAX_PROMPT_REPETITION:.0f}x — expand unique examples or shorten the "
+        "run, or label the run smoke_only",
+    )
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _read_json_object(path: Path) -> dict:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError(f"{path} is not a JSON object")
+    return raw
+
+
+def _read_supervised_trace(path: Path) -> tuple[list[tuple[float, float]], int]:
+    records: list[tuple[float, float]] = []
+    malformed = 0
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            row = ast.literal_eval(line)
+        except (SyntaxError, ValueError):
+            continue
+        if not isinstance(row, dict) or "loss" not in row or "grad_norm" not in row:
+            continue
+        try:
+            loss = float(row["loss"])
+            grad_norm = float(row["grad_norm"])
+        except (TypeError, ValueError):
+            malformed += 1
+            continue
+        if not math.isfinite(loss) or not math.isfinite(grad_norm):
+            malformed += 1
+            continue
+        records.append((loss, grad_norm))
+    return records, malformed
+
+
+def _measure_supervised_curriculum_rows(path: Path) -> dict[str, int]:
+    execution_count = 0
+    unique_ids: set[str] = set()
+    occurrence_counts: dict[str, int] = {}
+    with path.open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"{path}:{line_number} is not valid JSON: {exc}"
+                ) from exc
+            if not isinstance(row, dict):
+                raise ValueError(f"{path}:{line_number} is not a JSON object")
+            unique_id = row.get("unique_example_id")
+            if not isinstance(unique_id, str) or not unique_id:
+                raise ValueError(
+                    f"{path}:{line_number} has no non-empty unique_example_id"
+                )
+            execution_count += 1
+            unique_ids.add(unique_id)
+            occurrence_counts[unique_id] = occurrence_counts.get(unique_id, 0) + 1
+    if not execution_count:
+        raise ValueError(f"{path} has no materialized curriculum rows")
+    return {
+        "execution_example_count": execution_count,
+        "unique_example_count": len(unique_ids),
+        "maximum_occurrences_per_unique_example": max(occurrence_counts.values()),
+    }
+
+
+def _validate_supervised_packet(
+    packet: SupervisedFeasibilityPacket, contract: RunContract
+) -> list[ContractIssue]:
+    issues: list[ContractIssue] = []
+    if packet.contract_hash != contract.contract_hash:
+        issues.append(ContractIssue(
+            "packet_contract_mismatch",
+            f"supervised packet contract_hash={packet.contract_hash[:12]}… != "
+            f"frozen contract_hash={contract.contract_hash[:12]}…",
+        ))
+    if packet.distinct_tasks != contract.distinct_tasks:
+        issues.append(ContractIssue(
+            "packet_distinct_tasks_mismatch",
+            f"supervised packet task-family count={packet.distinct_tasks} != "
+            f"frozen contract distinct_tasks={contract.distinct_tasks}",
+        ))
+    if not packet.repeat_policy.strip():
+        issues.append(ContractIssue(
+            "packet_repeat_policy_missing",
+            "supervised packet has no materialized curriculum repetition policy",
+        ))
+    if packet.prompt_volume != packet.execution_example_count:
+        issues.append(ContractIssue(
+            "packet_execution_volume_mismatch",
+            f"planned prompt volume={packet.prompt_volume} != materialized "
+            f"execution examples={packet.execution_example_count}",
+        ))
+    if (
+        packet.unique_example_count <= 0
+        or packet.execution_example_count < packet.unique_example_count
+        or packet.maximum_occurrences_per_unique_example <= 0
+    ):
+        issues.append(ContractIssue(
+            "packet_curriculum_counts_invalid",
+            "supervised packet example counts must be positive and execution "
+            "examples must cover every unique example",
+        ))
+
+    artifacts = (
+        ("probe_trace", packet.probe_trace_path, packet.probe_trace_sha256),
+        ("update_artifact", packet.update_artifact_path, packet.update_artifact_sha256),
+        ("probe_manifest", packet.probe_manifest_path, packet.probe_manifest_sha256),
+        (
+            "materialized_rows",
+            packet.materialized_rows_path,
+            packet.materialized_rows_sha256,
+        ),
+    )
+    for label, path_text, expected_hash in artifacts:
+        path = Path(path_text)
+        if not path.is_file():
+            issues.append(ContractIssue(
+                f"{label}_missing", f"supervised packet source {path} not found"))
+        elif _sha256_file(path) != expected_hash:
+            issues.append(ContractIssue(
+                f"{label}_hash_mismatch",
+                f"supervised packet source {path} changed after packet creation",
+            ))
+    if any(issue.code.endswith(("_missing", "_hash_mismatch")) for issue in issues):
+        return issues
+
+    trace_path = Path(packet.probe_trace_path)
+    records, malformed = _read_supervised_trace(trace_path)
+    losses = [loss for loss, _ in records]
+    grad_norms = [grad for _, grad in records]
+    if malformed:
+        issues.append(ContractIssue(
+            "probe_non_finite_sft_metrics",
+            f"{malformed} supervised trace rows have malformed/non-finite "
+            "loss or gradient norm",
+        ))
+    if len(records) != packet.probe_steps:
+        issues.append(ContractIssue(
+            "probe_step_count_mismatch",
+            f"packet probe_steps={packet.probe_steps} but hashed trace has "
+            f"{len(records)} finite loss/gradient steps",
+        ))
+    if sum(grad > _GRAD_NORM_EPS for grad in grad_norms) < MIN_PROBE_STEPS:
+        issues.append(ContractIssue(
+            "probe_zero_gradient",
+            f"fewer than {MIN_PROBE_STEPS} supervised steps have non-zero "
+            "gradient norm",
+        ))
+    if records:
+        summaries = (
+            ("loss_mean", packet.loss_mean, sum(losses) / len(losses)),
+            ("loss_min", packet.loss_min, min(losses)),
+            ("loss_max", packet.loss_max, max(losses)),
+            ("grad_norm_mean", packet.grad_norm_mean,
+             sum(grad_norms) / len(grad_norms)),
+            ("grad_norm_max", packet.grad_norm_max, max(grad_norms)),
+        )
+        for name, recorded, observed in summaries:
+            if not math.isfinite(recorded) or not math.isclose(
+                recorded, observed, rel_tol=1e-9, abs_tol=1e-9
+            ):
+                issues.append(ContractIssue(
+                    f"probe_{name}_mismatch",
+                    f"packet {name}={recorded!r} != hashed trace value "
+                    f"{observed!r}",
+                ))
+
+    try:
+        update = _read_json_object(Path(packet.update_artifact_path))
+        manifest = _read_json_object(Path(packet.probe_manifest_path))
+        measured_curriculum = _measure_supervised_curriculum_rows(
+            Path(packet.materialized_rows_path)
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return issues + [ContractIssue("probe_artifact_unreadable", str(exc))]
+    digest_changed = (
+        bool(update.get("initial_state_sha256"))
+        and bool(update.get("final_state_sha256"))
+        and update.get("initial_state_sha256") != update.get("final_state_sha256")
+    )
+    if (
+        not packet.finite_update
+        or update.get("finite_update") is not True
+        or not digest_changed
+    ):
+        issues.append(ContractIssue(
+            "probe_no_parameter_update",
+            "supervised probe lacks a true finite_update backed by distinct "
+            "initial/final trainable-state digests",
+        ))
+    try:
+        manifest_steps = int(manifest.get("steps", -1))
+        manifest_batch_size = int(manifest.get("effective_batch_size", -1))
+        manifest_family_count = int(
+            manifest.get("independent_task_family_count", -1)
+        )
+        manifest_unique_count = int(manifest.get("unique_example_count", -1))
+        manifest_execution_count = int(
+            manifest.get("execution_example_count", -1)
+        )
+        manifest_max_occurrences = int(
+            manifest.get("maximum_occurrences_per_unique_example", -1)
+        )
+    except (TypeError, ValueError) as exc:
+        return issues + [
+            ContractIssue(
+                "probe_manifest_malformed",
+                f"supervised probe manifest has non-integer execution facts: {exc}",
+            )
+        ]
+    manifest_checks = (
+        manifest.get("contract_hash") == contract.contract_hash
+        and manifest.get("curriculum_hash") == contract.curriculum_hash
+        and manifest_steps == contract.total_steps
+        and manifest_batch_size == contract.batch_size
+        and manifest.get("terminal_state") == "completed"
+    )
+    if not manifest_checks:
+        issues.append(ContractIssue(
+            "probe_manifest_mismatch",
+            "hashed supervised probe manifest is not a completed execution of "
+            "the frozen contract/curriculum/step/batch facts",
+        ))
+    manifest_curriculum_checks = (
+        manifest_family_count == packet.distinct_tasks
+        and manifest_unique_count == packet.unique_example_count
+        and manifest_execution_count == packet.execution_example_count
+        and str(manifest.get("repeat_policy", "")) == packet.repeat_policy
+        and manifest_max_occurrences == packet.maximum_occurrences_per_unique_example
+        and str(manifest.get("materialized_rows_sha256", ""))
+        == packet.materialized_rows_sha256
+    )
+    if not manifest_curriculum_checks:
+        issues.append(ContractIssue(
+            "probe_manifest_curriculum_mismatch",
+            "hashed supervised probe manifest does not match the packet's "
+            "example-level curriculum identity",
+        ))
+    measured_curriculum_checks = (
+        measured_curriculum["unique_example_count"] == packet.unique_example_count
+        and measured_curriculum["execution_example_count"]
+        == packet.execution_example_count
+        and measured_curriculum["maximum_occurrences_per_unique_example"]
+        == packet.maximum_occurrences_per_unique_example
+    )
+    if not measured_curriculum_checks:
+        issues.append(ContractIssue(
+            "materialized_curriculum_counts_mismatch",
+            "packet/manifest example counts do not match independently measured "
+            "materialized curriculum rows",
         ))
     return issues
 
@@ -469,7 +903,7 @@ def check_full_run_launch(
     packet_path: Path | None,
     knobs: LaunchKnobs,
 ) -> tuple[bool, str]:
-    """Provenance interlock for a ``scale=full`` RL launch.
+    """Provenance interlock for a ``scale=full`` training launch.
 
     Returns ``(reject, concern)``. ``reject`` is True when the launch is not a
     faithful, feasibility-probed execution of the frozen contract. ``concern`` is
@@ -480,16 +914,24 @@ def check_full_run_launch(
     contract, c_issues = load_run_contract(contract_path)
     if contract is None:
         detail = c_issues[0].detail if c_issues else ""
-        msg = f"freeze {DEFAULT_RUN_CONTRACT_PATH} before any scale=full RL launch"
+        msg = f"freeze {DEFAULT_RUN_CONTRACT_PATH} before any scale=full training launch"
         return True, f"{msg} ({detail})" if detail else msg
-    blocking = [i for i in c_issues if i.code in (
-        "contract_hash_absent", "contract_hash_mismatch")]
+    blocking = [
+        issue
+        for issue in c_issues
+        if issue.code
+        in {
+            "contract_hash_absent",
+            "contract_hash_mismatch",
+            "contract_extension_hash_mismatch",
+        }
+    ]
     if blocking:
         return True, _first_concern(blocking)
 
     if packet_path is None:
         return True, (
-            "scale=full RL launch requires a feasibility packet (--feasibility-"
+            "scale=full training launch requires a feasibility packet (--feasibility-"
             "packet) proving the exact frozen curriculum is non-saturating; "
             "build one with `python -m argus_skill.skills.run_contract build-packet`")
     packet, p_issues = load_feasibility_packet(packet_path)
@@ -598,6 +1040,114 @@ def build_feasibility_packet_from_run(
     )
 
 
+def build_supervised_feasibility_packet_from_run(
+    run_dir: Path,
+    *,
+    contract: RunContract,
+    project_root: Path | None = None,
+    smoke_only: bool = False,
+    notes: str = "",
+) -> SupervisedFeasibilityPacket:
+    """Build a supervised packet from hashed SFT trainer/update artifacts."""
+    run_dir = Path(run_dir).resolve()
+    trace_path = run_dir / "stdout.log"
+    update_path = run_dir / "metrics.json"
+    manifest_path = run_dir / "manifest.json"
+    for path in (trace_path, update_path, manifest_path):
+        if not path.is_file():
+            raise FileNotFoundError(f"supervised probe artifact missing: {path}")
+    records, malformed = _read_supervised_trace(trace_path)
+    if malformed:
+        raise ValueError(
+            f"supervised trace has {malformed} malformed/non-finite metric rows")
+    if not records:
+        raise ValueError("supervised trace has no finite loss/gradient rows")
+    losses = [loss for loss, _ in records]
+    grad_norms = [grad for _, grad in records]
+    update = _read_json_object(update_path)
+    manifest = _read_json_object(manifest_path)
+    required_curriculum_fields = (
+        "independent_task_family_count",
+        "unique_example_count",
+        "execution_example_count",
+        "repeat_policy",
+        "maximum_occurrences_per_unique_example",
+        "materialized_rows_path",
+        "materialized_rows_sha256",
+    )
+    missing_curriculum_fields = [
+        field for field in required_curriculum_fields if manifest.get(field) in (None, "")
+    ]
+    if missing_curriculum_fields:
+        raise ValueError(
+            "supervised probe manifest is missing example-level curriculum facts: "
+            + ", ".join(missing_curriculum_fields)
+        )
+    rows_path = Path(str(manifest["materialized_rows_path"]))
+    if not rows_path.is_absolute():
+        rows_path = (project_root or Path.cwd()) / rows_path
+    rows_path = rows_path.resolve()
+    if not rows_path.is_file():
+        raise FileNotFoundError(
+            f"supervised probe materialized curriculum missing: {rows_path}"
+        )
+    rows_sha256 = _sha256_file(rows_path)
+    if rows_sha256 != str(manifest["materialized_rows_sha256"]):
+        raise ValueError(
+            "supervised probe materialized curriculum hash does not match manifest"
+        )
+    measured_curriculum = _measure_supervised_curriculum_rows(rows_path)
+    declared_curriculum = {
+        "unique_example_count": int(manifest["unique_example_count"]),
+        "execution_example_count": int(manifest["execution_example_count"]),
+        "maximum_occurrences_per_unique_example": int(
+            manifest["maximum_occurrences_per_unique_example"]
+        ),
+    }
+    if declared_curriculum != measured_curriculum:
+        raise ValueError(
+            "supervised probe manifest example counts do not match materialized rows"
+        )
+    finite_update = (
+        update.get("finite_update") is True
+        and bool(update.get("initial_state_sha256"))
+        and bool(update.get("final_state_sha256"))
+        and update["initial_state_sha256"] != update["final_state_sha256"]
+    )
+    return SupervisedFeasibilityPacket(
+        curriculum_hash=contract.curriculum_hash,
+        contract_hash=contract.contract_hash,
+        distinct_tasks=contract.distinct_tasks,
+        unique_example_count=measured_curriculum["unique_example_count"],
+        execution_example_count=measured_curriculum["execution_example_count"],
+        repeat_policy=str(manifest["repeat_policy"]),
+        maximum_occurrences_per_unique_example=measured_curriculum[
+            "maximum_occurrences_per_unique_example"
+        ],
+        materialized_rows_path=str(rows_path),
+        materialized_rows_sha256=rows_sha256,
+        total_steps=contract.total_steps,
+        batch_size=contract.batch_size,
+        group_size=contract.group_size,
+        loss_mean=sum(losses) / len(losses),
+        loss_min=min(losses),
+        loss_max=max(losses),
+        grad_norm_mean=sum(grad_norms) / len(grad_norms),
+        grad_norm_max=max(grad_norms),
+        finite_update=finite_update,
+        probe_steps=len(records),
+        probe_trace_path=str(trace_path),
+        probe_trace_sha256=_sha256_file(trace_path),
+        update_artifact_path=str(update_path),
+        update_artifact_sha256=_sha256_file(update_path),
+        probe_manifest_path=str(manifest_path),
+        probe_manifest_sha256=_sha256_file(manifest_path),
+        probe_run_dir=str(run_dir),
+        smoke_only=smoke_only,
+        notes=notes,
+    )
+
+
 def _isnum(v: object) -> TypeGuard[float]:
     return isinstance(v, (int, float)) and not isinstance(v, bool)
 
@@ -637,6 +1187,8 @@ def _load_task_ids(curriculum_path: Path) -> tuple[list[str], int]:
 
 
 def _cmd_freeze(args: argparse.Namespace) -> int:
+    if getattr(args, "extended", False):
+        return _cmd_freeze_extended(args)
     root = Path(args.project_root)
     task_ids, distinct = _load_task_ids(Path(args.curriculum))
     cur_hash = compute_curriculum_hash(
@@ -658,6 +1210,77 @@ def _cmd_freeze(args: argparse.Namespace) -> int:
     out.write_text(json.dumps(contract.to_dict(), indent=2), encoding="utf-8")
     print(f"froze {out} contract_hash={contract.contract_hash[:12]}… "
           f"curriculum_hash={cur_hash[:12]}… distinct_tasks={distinct}")
+    return 0
+
+
+def _load_project_freezer(module_path: Path):
+    spec = importlib.util.spec_from_file_location(
+        "_argus_project_freeze_training_launch_slice", module_path
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot import extended freeze helper from {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _cmd_freeze_extended(args: argparse.Namespace) -> int:
+    """Write a project-owned extended RUN_CONTRACT via the official freezer."""
+    root = Path(args.project_root).resolve()
+    helper_path = root / "code" / "freeze_training_launch_slice.py"
+    module = _load_project_freezer(helper_path)
+
+    curriculum_path = (root / args.curriculum).resolve()
+    slice_path = (root / args.launch_slice).resolve()
+    argus_out = (root / args.argus_out).resolve()
+    out = (root / (args.out or DEFAULT_RUN_CONTRACT_PATH)).resolve()
+
+    scalar_args = argparse.Namespace(
+        project_root=root,
+        model=args.model,
+        lr=args.lr,
+        group_size=args.group_size,
+        total_steps=args.total_steps,
+        batch_size=args.batch_size,
+        curriculum=curriculum_path,
+        curriculum_slice_id=args.curriculum_slice_id,
+        seed=args.seed,
+        repeat_policy=args.repeat_policy,
+        scale=args.scale,
+        out=str(argus_out.relative_to(root)),
+    )
+    rc = _cmd_freeze(scalar_args)
+    if rc != 0:
+        return rc
+
+    curriculum = json.loads(curriculum_path.read_text(encoding="utf-8"))
+    curriculum_file_sha = module.sha256_file(curriculum_path)
+    launch_slice = module.build_slice(curriculum, curriculum_file_sha)
+    slice_text = json.dumps(launch_slice, indent=2, sort_keys=True) + "\n"
+    slice_path.write_text(slice_text, encoding="utf-8")
+    launch_slice_file_sha = module.sha256_bytes(slice_text.encode("utf-8"))
+    contract = module.build_contract(
+        curriculum,
+        curriculum_file_sha,
+        launch_slice,
+        launch_slice_file_sha,
+    )
+    recomputed_extension = compute_extension_hash(contract)
+    if contract.get("extension_hash") != recomputed_extension:
+        raise RuntimeError("extended contract hash mismatch during freeze")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        json.dumps(contract, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    print(
+        f"froze {out} schema_version={contract['schema_version']} "
+        f"contract_hash={contract['contract_hash'][:12]}… "
+        f"extension_hash={contract['extension_hash'][:12]}… "
+        f"launch_slice_content_sha256="
+        f"{contract['curriculum']['launch_slice_content_sha256'][:12]}… "
+        f"distinct_tasks={contract['distinct_tasks']}"
+    )
     return 0
 
 
@@ -683,6 +1306,39 @@ def _cmd_build_packet(args: argparse.Namespace) -> int:
           f"distinct_tasks={distinct} max_repetition={packet.max_repetition:.2f} "
           f"reward_mean={packet.reward_mean:.3f} "
           f"advantage_span_max={packet.advantage_span_max:.3e}")
+    return 0
+
+
+def _cmd_build_supervised_packet(args: argparse.Namespace) -> int:
+    root = Path(args.project_root).resolve()
+    contract, issues = load_run_contract(root / args.contract)
+    if contract is None or issues:
+        print(f"REJECT: {_first_concern(issues)}", file=sys.stderr)
+        return 1
+    try:
+        packet = build_supervised_feasibility_packet_from_run(
+            root / args.run_dir,
+            contract=contract,
+            project_root=root,
+            smoke_only=bool(args.smoke_only),
+            notes=args.notes or "",
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"REJECT: {exc}", file=sys.stderr)
+        return 1
+    out = root / args.out
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(packet.to_dict(), indent=2), encoding="utf-8")
+    validation_issues = validate_feasibility_packet(packet, contract)
+    if validation_issues:
+        print(f"REJECT: {_first_concern(validation_issues)}", file=sys.stderr)
+        return 1
+    print(
+        f"wrote {out} probe_type=supervised_sft "
+        f"probe_steps={packet.probe_steps} loss_mean={packet.loss_mean:.6g} "
+        f"grad_norm_max={packet.grad_norm_max:.6g} "
+        f"finite_update={packet.finite_update}"
+    )
     return 0
 
 
@@ -725,8 +1381,34 @@ def main(argv: list[str] | None = None) -> int:
     f.add_argument("--seed", default="42")
     f.add_argument("--repeat-policy", default="")
     f.add_argument("--scale", default="full")
+    f.add_argument(
+        "--extended",
+        action="store_true",
+        help="also freeze the project-owned extended RUN_CONTRACT schema",
+    )
+    f.add_argument("--launch-slice", default="research/TRAINING_LAUNCH_SLICE.json")
+    f.add_argument("--argus-out", default="research/RUN_CONTRACT_ARGUS_FREEZE.json")
     f.add_argument("--out", default="")
     f.set_defaults(func=_cmd_freeze)
+
+    fe = sub.add_parser(
+        "freeze-extended",
+        help="freeze a project-owned extended research/RUN_CONTRACT.json",
+    )
+    fe.add_argument("--model", required=True)
+    fe.add_argument("--lr", required=True)
+    fe.add_argument("--group-size", required=True)
+    fe.add_argument("--total-steps", required=True)
+    fe.add_argument("--batch-size", required=True)
+    fe.add_argument("--curriculum", required=True, help="admitted slice JSON")
+    fe.add_argument("--curriculum-slice-id", required=True)
+    fe.add_argument("--seed", default="42")
+    fe.add_argument("--repeat-policy", default="")
+    fe.add_argument("--scale", default="full")
+    fe.add_argument("--launch-slice", default="research/TRAINING_LAUNCH_SLICE.json")
+    fe.add_argument("--argus-out", default="research/RUN_CONTRACT_ARGUS_FREEZE.json")
+    fe.add_argument("--out", default=DEFAULT_RUN_CONTRACT_PATH)
+    fe.set_defaults(func=_cmd_freeze_extended)
 
     b = sub.add_parser("build-packet", help="build a feasibility packet from a probe run")
     b.add_argument("--run-dir", required=True)
@@ -741,7 +1423,19 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--out", required=True)
     b.set_defaults(func=_cmd_build_packet)
 
-    c = sub.add_parser("check-launch", help="provenance interlock for a full-scale RL launch")
+    s = sub.add_parser(
+        "build-supervised-packet",
+        help="build an artifact-backed SFT feasibility packet",
+    )
+    s.add_argument("--contract", default=DEFAULT_RUN_CONTRACT_PATH)
+    s.add_argument("--run-dir", required=True)
+    s.add_argument("--smoke-only", action="store_true")
+    s.add_argument("--notes", default="")
+    s.add_argument("--out", required=True)
+    s.set_defaults(func=_cmd_build_supervised_packet)
+
+    c = sub.add_parser(
+        "check-launch", help="provenance interlock for a full-scale training launch")
     c.add_argument("--contract", default=DEFAULT_RUN_CONTRACT_PATH)
     c.add_argument("--packet", default="")
     c.add_argument("--lr", default=None)

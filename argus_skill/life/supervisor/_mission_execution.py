@@ -15,8 +15,8 @@ from ...core.stop_kinds import (
     stop_kind_is_recoverable,
 )
 from ...core.usage import UsageLedger, UsageRecord
-from ..mission_outcome import mission_outcome_class, mission_outcome_dimensions
 from ..memory import BacklogItem
+from ..mission_outcome import mission_outcome_class, mission_outcome_dimensions
 from ._constants import PLANNER_SCOPE_BOUNDED, PLANNER_SCOPE_FINAL_SUBMISSION
 from ._cost import _CostTrackingSink
 from ._helpers import _normalize_planner_text
@@ -37,6 +37,28 @@ def bounded_dag_node_max_rounds() -> int:
         return max(2, min(8, int(raw)))
     except ValueError:
         return 3
+
+
+def is_progressive_experiment_matrix(item: BacklogItem) -> bool:
+    """Return whether a task is a progress-bearing experiment matrix."""
+    tags = {
+        str(tag).strip().lower()
+        for tag in getattr(item, "tags", [])
+    }
+    if "experiment_matrix" in tags:
+        return True
+    text = f"{item.title}\n{item.objective}".lower()
+    return "matrix" in text and any(
+        marker in text
+        for marker in (
+            "experiment",
+            "evaluation",
+            "benchmark",
+            "canonical",
+            "run-stage",
+            "e0",
+        )
+    )
 
 
 class MissionExecutionMixin:
@@ -63,8 +85,10 @@ class MissionExecutionMixin:
                     log.exception("life supervisor: claim rollback failed")
             return {"status": "claim_lost", "item_id": item.id}
         item = claimed
+        pipeline_stage_at_start = self._current_pipeline_stage() or ""
         usage_attempt_id = f"{item.id}:attempt:{max(1, int(item.attempt or 1))}"
         self._missions_started += 1
+        item_scope = self._planner_scope_from_item(item)
 
         self._emit({
             "type": EventType.LIFE_MISSION_STARTED,
@@ -74,7 +98,10 @@ class MissionExecutionMixin:
             # entry) so the live mission-context line renders the
             # real goal instead of "objective=-".
             "objective": item.objective,
-            "scope": self._planner_scope_from_item(item),
+            "scope": item_scope,
+            "independent_review_required": (
+                self._item_requires_independent_review(item)
+            ),
             "missions_started": self._missions_started,
             "attempt": item.attempt,
             "usage_attempt_id": usage_attempt_id,
@@ -96,6 +123,27 @@ class MissionExecutionMixin:
             or getattr(self.memory, "root", None)
             or self._artifact_root()
         )
+        context_packet_path: Path | None = None
+        try:
+            from ..context_packet import create_mission_context
+
+            context_packet_path = create_mission_context(
+                life_dir=usage_root,
+                mission_id=item.id,
+                stage=pipeline_stage_at_start,
+                scope=item_scope,
+                objective=item.objective,
+                acceptance_check=getattr(item, "acceptance_check", ""),
+                non_goals=list(getattr(item, "non_goals", []) or []),
+                context_refs=list(getattr(item, "context_refs", []) or []),
+                plan_id=item.plan_id,
+                plan_version=item.plan_version,
+                node_key=item.node_key,
+                deps=item.deps,
+                tags=item.tags,
+            )
+        except Exception:  # noqa: BLE001 - packet persistence must fail soft
+            log.exception("life supervisor: failed to create mission context packet")
         usage_ledger = (
             UsageLedger(usage_root)
             if hasattr(self.runner, "_set_usage_context")
@@ -154,17 +202,10 @@ class MissionExecutionMixin:
                 "objective": item.objective,
                 "sink": cost_sink,
                 "prelude_context": prelude,
-                "scope": self._planner_scope_from_item(item),
+                "scope": item_scope,
             }
             original_objective = (
                 getattr(item, "original_objective", "") or item.objective
-            )
-            # F3: a LIVE per-mission budget probe — the engine reads cost_sink each
-            # round and hard-stops if the effective cap is reached mid-mission.
-            from ._config import MissionBudget
-            mission_budget = MissionBudget(
-                cap_usd=self._effective_per_mission_cap(item),
-                spent=cost_sink.total_usd,
             )
             authorization_id = str(
                 getattr(item, "authorization_id", "") or ""
@@ -252,22 +293,36 @@ class MissionExecutionMixin:
                 )
                 if "original_objective" in params or _accepts_kw:
                     execute_kwargs["original_objective"] = original_objective
-                if "per_mission_budget" in params or _accepts_kw:
-                    execute_kwargs["per_mission_budget"] = mission_budget
                 if "preplanned" in params or _accepts_kw:
                     execute_kwargs["preplanned"] = any(
                         str(tag).strip().lower() == "planner"
                         for tag in getattr(item, "tags", [])
                     )
+                if "require_independent_review" in params or _accepts_kw:
+                    execute_kwargs["require_independent_review"] = (
+                        self._item_requires_independent_review(item)
+                    )
                 if "mission_id" in params or _accepts_kw:
                     execute_kwargs["mission_id"] = item.id
                 if "usage_mission_id" in params or _accepts_kw:
                     execute_kwargs["usage_mission_id"] = usage_attempt_id
+                if "context_packet_path" in params or _accepts_kw:
+                    execute_kwargs["context_packet_path"] = (
+                        str(context_packet_path) if context_packet_path else ""
+                    )
                 tags = {
                     str(tag).strip().lower()
                     for tag in getattr(item, "tags", [])
                 }
-                if "bounded_dag_node" in tags:
+                progressive_matrix = is_progressive_experiment_matrix(item)
+                if (
+                    "progressive_experiment_matrix" in params
+                    or _accepts_kw
+                ):
+                    execute_kwargs["progressive_experiment_matrix"] = (
+                        progressive_matrix
+                    )
+                if "bounded_dag_node" in tags and not progressive_matrix:
                     if "max_rounds_override" in params or _accepts_kw:
                         execute_kwargs["max_rounds_override"] = (
                             bounded_dag_node_max_rounds()
@@ -279,9 +334,14 @@ class MissionExecutionMixin:
                         execute_kwargs["workflow_mode_override"] = "direct"
             except (TypeError, ValueError):
                 execute_kwargs["original_objective"] = original_objective
-                execute_kwargs["per_mission_budget"] = mission_budget
                 execute_kwargs["mission_id"] = item.id
                 execute_kwargs["usage_mission_id"] = usage_attempt_id
+                execute_kwargs["require_independent_review"] = (
+                    self._item_requires_independent_review(item)
+                )
+                execute_kwargs["context_packet_path"] = (
+                    str(context_packet_path) if context_packet_path else ""
+                )
                 if repair_capability is not None:
                     execute_kwargs["max_rounds_override"] = 1
                     execute_kwargs["workflow_mode_override"] = "direct"
@@ -327,7 +387,6 @@ class MissionExecutionMixin:
         self._evolve_runtime_skills_after_mission(
             success=success,
             usage_mission_id=usage_attempt_id,
-            mission_budget=mission_budget,
         )
         usage_summary = cost_sink.usage_summary()
         usd = usage_summary.cost_usd
@@ -386,16 +445,11 @@ class MissionExecutionMixin:
         # schema back-compat. / 事后 critic/迭代循环已移除；下方 journal/event 的
         # ``iteration`` 字段保留为空，仅为 schema 向后兼容。
 
-        # F3: the mid-mission cost breaker fired — PAUSE, do not fail/complete.
-        # Roll the item back to PENDING (next tick re-runs from its checkpoint).
-        # Anti-cheat: a budget-stopped mission is NEVER marked done/success —
-        # the reviewer stays the sole done-ness authority.
         pause_status = pause_status_for_stop_kind(stop_kind)
         if status == "budget_exhausted":
             status = "paused_budget"
             pause_status = status
         if pause_status:
-            cap = self._effective_per_mission_cap(item)
             pause_outcome = mission_outcome_dimensions(
                 status=pause_status,
                 success=False,
@@ -407,6 +461,9 @@ class MissionExecutionMixin:
                 ),
                 failure_source=str(
                     getattr(outcome, "failure_source", "") or ""
+                ),
+                failure_layer=str(
+                    getattr(outcome, "failure_layer", "") or ""
                 ),
                 stop_kind=stop_kind,
                 resumable=True,
@@ -433,8 +490,12 @@ class MissionExecutionMixin:
                 "cost_usd": usd,
                 "known_cost_usd": known_usd,
                 "pricing_status": usage_summary.pricing_status,
-                "cap_usd": cap,
                 "spent_usd": known_usd,
+                "context_packet": (
+                    str(context_packet_path.parent / "latest.json")
+                    if context_packet_path is not None
+                    else ""
+                ),
             })
             return {
                 "status": pause_status,
@@ -445,6 +506,11 @@ class MissionExecutionMixin:
                 "cost_usd": usd,
                 "known_cost_usd": known_usd,
                 "pricing_status": usage_summary.pricing_status,
+                "context_packet": (
+                    str(context_packet_path.parent / "latest.json")
+                    if context_packet_path is not None
+                    else ""
+                ),
             }
 
         repair_settlement: dict[str, Any] | None = None
@@ -514,6 +580,80 @@ class MissionExecutionMixin:
             "planner" in normalized_tags
             and self._planner_scope_from_item(item) == PLANNER_SCOPE_BOUNDED
         )
+        unfinished_plan_nodes: list[BacklogItem] = []
+        if planner_bounded_node and item.plan_id:
+            try:
+                unfinished_plan_nodes = [
+                    sibling
+                    for sibling in self.memory.backlog.all()
+                    if sibling.id != item.id
+                    and sibling.plan_id == item.plan_id
+                    and sibling.plan_version == item.plan_version
+                    and sibling.status
+                    not in {"done", "failed", "skipped", "superseded"}
+                ]
+            except Exception:  # noqa: BLE001 - stage safety falls back to Manager
+                log.exception(
+                    "life supervisor: failed to inspect dynamic plan before stage guard"
+                )
+        # A Planner DAG is authored entirely inside the current-stage frontier;
+        # the Planner is forbidden to enqueue speculative downstream-stage work.
+        # Therefore an intermediate node must not let the Manager advance the
+        # project while sibling/dependent nodes from the same plan are unfinished.
+        # The Manager decision has already mutated PIPELINE_STATE by this point,
+        # so undo that premature advance and expose a HOLD transition locally.
+        if (
+            stage_action == "advance"
+            and pipeline_stage_at_start
+            and unfinished_plan_nodes
+        ):
+            live_stage = self._current_pipeline_stage() or pipeline_stage_at_start
+            guard_reason = (
+                f"dynamic plan {item.plan_id} still has unfinished current-stage "
+                "node(s): "
+                + ", ".join(node.title for node in unfinished_plan_nodes[:6])
+            )
+            guard_applied = live_stage == pipeline_stage_at_start
+            if not guard_applied:
+                try:
+                    from ...skills.stage_checklists import rollback_stage
+
+                    rollback_stage(
+                        self._artifact_root(),
+                        target_stage=pipeline_stage_at_start,
+                        reason=guard_reason,
+                        rolled_back_by="supervisor_dynamic_plan_guard",
+                    )
+                    guard_applied = True
+                except Exception:  # noqa: BLE001
+                    log.exception(
+                        "life supervisor: failed to undo premature dynamic-plan "
+                        "stage advance"
+                    )
+            if guard_applied:
+                self._emit({
+                    "type": EventType.LIFE_MANAGER_STAGE_DECISION,
+                    "action": "rollback",
+                    "target_stage": pipeline_stage_at_start,
+                    "reason": guard_reason,
+                    "current_stage": live_stage,
+                    "source": "supervisor_dynamic_plan_guard",
+                    "diagnostic": "unfinished_same_plan_nodes",
+                    "item_id": item.id,
+                    "plan_id": item.plan_id,
+                    "unfinished_item_ids": [
+                        node.id for node in unfinished_plan_nodes
+                    ],
+                })
+                stage_transition = {
+                    "action": "hold",
+                    "current_stage": pipeline_stage_at_start,
+                    "target_stage": pipeline_stage_at_start,
+                    "reason": guard_reason,
+                    "source": "supervisor_dynamic_plan_guard",
+                    "diagnostic": "unfinished_same_plan_nodes",
+                }
+                stage_action = "hold"
         # ``research_incomplete`` is project-level: it says the persisted final
         # research target is not finished. It must NOT cancel a Manager-certified
         # intermediate stage transition. A scope mission can legitimately end
@@ -588,6 +728,9 @@ class MissionExecutionMixin:
         if intentional_abort:
             success = False
             status = "aborted"
+        stage_reconciled_replan = (
+            replan_requested and stage_action in {"advance", "rollback"}
+        )
         err = exc_str or stop_reason or "unspecified failure"
         resumable = bool(
             research_pause or stop_kind_is_recoverable(stop_kind)
@@ -605,6 +748,9 @@ class MissionExecutionMixin:
             failure_source=str(
                 getattr(outcome, "failure_source", "") or ""
             ),
+            failure_layer=str(
+                getattr(outcome, "failure_layer", "") or ""
+            ),
             stop_kind=stop_kind,
             resumable=resumable,
         )
@@ -613,6 +759,16 @@ class MissionExecutionMixin:
         # persisted success target is resumable, not a success or terminal failure.
         if success:
             self.memory.backlog.mark_done(item.id, outcome=outcome_dimensions)
+        elif stage_reconciled_replan:
+            self.memory.backlog.mark_failed(
+                item.id,
+                error=(
+                    f"manager {stage_action} to "
+                    f"{stage_transition.get('target_stage') or 'another stage'} "
+                    "after Reviewer identified an upstream stage defect"
+                ),
+                outcome=outcome_dimensions,
+            )
         elif replan_requested:
             self.memory.backlog.update(
                 item.id,
@@ -663,6 +819,13 @@ class MissionExecutionMixin:
                     self.memory.backlog.update(
                         item.id, pending_question=operator_question,
                     )
+                    self._emit({
+                        "type": EventType.LIFE_OPERATOR_QUESTION_PENDING,
+                        "item_id": item.id,
+                        "title": item.title,
+                        "question": operator_question,
+                        "agent_layer": "manager",
+                    })
                 except Exception:  # noqa: BLE001
                     log.exception(
                         "life supervisor: failed to persist pending_question"
@@ -679,7 +842,7 @@ class MissionExecutionMixin:
         )
         final_submission_certified = bool(
             kind == "mission_complete"
-            and self._planner_scope_from_item(item) == PLANNER_SCOPE_FINAL_SUBMISSION
+            and item_scope == PLANNER_SCOPE_FINAL_SUBMISSION
             and getattr(outcome, "final_submission_certified", False)
         )
         planner_report = (
@@ -702,6 +865,13 @@ class MissionExecutionMixin:
             if isinstance(getattr(outcome, "research_result", {}), dict)
             else {}
         )
+        from ...core.claim_synthesis import build_claim_synthesis
+
+        claim_synthesis = build_claim_synthesis(
+            research_result=research_result,
+            planner_report=planner_report,
+            step_back=step_back,
+        )
         completion_summary = self._completion_evidence_from_outcome(outcome)
         if final_submission_certified:
             self._persist_final_submission_certification(title=item.title)
@@ -717,7 +887,10 @@ class MissionExecutionMixin:
             "item_id": item.id,
             "title": item.title,
             "objective": item.objective,
-            "scope": self._planner_scope_from_item(item),
+            "scope": item_scope,
+            "independent_review_required": (
+                self._item_requires_independent_review(item)
+            ),
             "success": success,
             "status": status,
             "outcome_class": mission_outcome_class(status=status, success=success),
@@ -786,9 +959,15 @@ class MissionExecutionMixin:
             "had_follow_up": bool(getattr(outcome, "had_follow_up", False)),
             "completion_summary": completion_summary,
             "research_result": research_result or None,
+            "claim_synthesis": claim_synthesis,
             "planner_report": planner_report,
             "checklist_feedback": checklist_feedback,
             "step_back": step_back,
+            "context_packet": (
+                str(context_packet_path.parent / "latest.json")
+                if context_packet_path is not None
+                else ""
+            ),
             "final_submission_certified": final_submission_certified,
             "repair_capability": {
                 "capability_id": str(repair_capability.get("capability_id") or ""),
@@ -812,8 +991,14 @@ class MissionExecutionMixin:
             "iteration": None,
             "auth_failure": auth_failure,
             "planner_report": planner_report,
+            "claim_synthesis": claim_synthesis,
             "expected_plan_id": item.plan_id,
             "expected_plan_version": item.plan_version,
+            "context_packet": (
+                str(context_packet_path.parent / "latest.json")
+                if context_packet_path is not None
+                else ""
+            ),
         }
 
     # ------------------------------------------------------------------

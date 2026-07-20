@@ -17,27 +17,29 @@ from argus_skill.verticals._base import (
 )
 
 
-def test_direct_vertical_is_registered_and_lean(tmp_path) -> None:
-    assert "direct" in VERTICALS
-    assert "one-off" in VERTICAL_PURPOSES["direct"]
-    module = load_vertical("direct", project_root=tmp_path)
+def test_software_vertical_is_separate_from_direct_workflow(tmp_path) -> None:
+    assert "direct" not in VERTICALS
+    assert "software" in VERTICALS
+    assert "software engineering" in VERTICAL_PURPOSES["software"]
+    module = load_vertical("software", project_root=tmp_path)
     assert module.STAGE_ORDER == ["delivery"]
     assert module.completion_gate == "none"
-    assert vertical_workflow_mode(module) == "direct"
+    assert vertical_workflow_mode(module) == "staged"
 
 
 def test_runtime_resolves_direct_workflow(tmp_path) -> None:
-    persist_vertical(tmp_path, "direct")
+    persist_vertical(tmp_path, "software", workflow_mode="direct")
 
     assert _workflow_mode_for_project_root(tmp_path) == "direct"
-    assert Manager(project_root=tmp_path).plan_stages("direct") == ["delivery"]
+    assert Manager(project_root=tmp_path).plan_stages("software") == ["delivery"]
 
 
-def test_manager_can_commit_direct_vertical(tmp_path) -> None:
+def test_manager_can_commit_software_with_direct_workflow(tmp_path) -> None:
     class _Result:
         last_agent_message = json.dumps({
             "choice": "existing",
-            "vertical": "direct",
+            "vertical": "software",
+            "workflow_mode": "direct",
             "confidence": 0.95,
             "execution_task": "创作一篇《秋江赋》，语言典雅但可读。",
         })
@@ -52,36 +54,38 @@ def test_manager_can_commit_direct_vertical(tmp_path) -> None:
         "创作一篇《秋江赋》，语言典雅但可读。"
     )
 
-    assert division.vertical == "direct"
+    assert division.vertical == "software"
+    assert division.workflow_mode == "direct"
     assert division.stages == ["delivery"]
     assert division.execution_task == "创作一篇《秋江赋》，语言典雅但可读。"
 
 
-def test_manager_prompt_prefers_direct_without_inventing_requirements() -> None:
+def test_manager_prompt_separates_capability_from_execution_mode() -> None:
     prompt = build_fast_vertical_decision_prompt(
         "创作一篇《秋江赋》，语言典雅但可读，给我最终成品。",
         verticals_with_purpose=VERTICAL_PURPOSES,
     )
 
-    assert "Choose `direct` for a bounded one-off deliverable" in prompt
+    assert "`vertical` is the capability/domain" in prompt
+    assert "workflow_mode=direct" in prompt
     assert "expand the task" in prompt
     assert "execution_task" not in prompt
 
 
-def test_manager_prompt_routes_short_testable_software_repairs_to_direct() -> None:
+def test_manager_prompt_routes_short_repair_to_software_direct() -> None:
     prompt = build_fast_vertical_decision_prompt(
         "Fix the gRPC middleware bug in this repository; the existing tests define success.",
         verticals_with_purpose=VERTICAL_PURPOSES,
     )
 
-    assert "short-cycle software repairs" in prompt
-    assert "concrete acceptance test" in prompt
-    assert "Choose `direct`" in prompt
-    assert "Engineer/Reviewer turns" in prompt
+    assert "software" in prompt
+    assert "workflow_mode=direct" in prompt
 
 
-def test_direct_reviewer_skips_role_skill_matcher(tmp_path) -> None:
-    persist_vertical(tmp_path, "direct")
+def test_direct_reviewer_still_calls_role_skill_matcher(tmp_path) -> None:
+    from types import SimpleNamespace
+
+    persist_vertical(tmp_path, "software", workflow_mode="direct")
 
     class _Result:
         agent_messages: list[str] = []
@@ -96,8 +100,9 @@ def test_direct_reviewer_skips_role_skill_matcher(tmp_path) -> None:
             return _Result()
 
     reviewer = Reviewer(runner=_Runner(), skill_store=object())
-    reviewer.mission.match = lambda *args, **kwargs: (_ for _ in ()).throw(
-        AssertionError("direct workflow must not call reviewer skill matcher")
+    calls: list[str] = []
+    reviewer.mission.match = lambda objective, **kwargs: (
+        calls.append(objective) or SimpleNamespace(block="")
     )
 
     reviewer.evaluate(
@@ -108,3 +113,4 @@ def test_direct_reviewer_skips_role_skill_matcher(tmp_path) -> None:
         main_error=None,
         config=ReviewerConfig(working_dir=str(tmp_path)),
     )
+    assert calls == ["创建一个单文件番茄钟"]

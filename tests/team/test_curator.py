@@ -360,6 +360,183 @@ def test_tick_draining_keeps_marker_while_children_live(tmp_path: Path) -> None:
     assert registry.list_markers(tmp_path) == []
 
 
+def test_tick_publishes_one_manager_summary_when_team_becomes_quiescent(tmp_path: Path) -> None:
+    root = tmp_path / "team"
+    conversation = tmp_path / "conversation"
+    marker = registry.write_marker(
+        tmp_path, team_id="t1", team_root=root, cwd=tmp_path, now=1.0,
+    )
+    assert marker.exists()
+    task_board.form(root, [
+        {"task_id": "t::a", "title": "prove A", "objective": "x", "target": "proof"},
+        {"task_id": "t::b", "title": "test B", "objective": "y", "target": "proof"},
+    ])
+    task_board.complete(root, "t::a", shard="shards/w1.jsonl")
+    task_board.fail(root, "t::b", reason="counterexample search exhausted")
+    prompts: list[str] = []
+    c = _fake_curator(
+        tmp_path,
+        conversation_root=conversation,
+        completion_fn=lambda prompt: prompts.append(prompt) or (
+            "Team finished: one task completed and one failed. "
+            "The completed proof is in shards/w1.jsonl."
+        ),
+    )
+
+    c._tick(now=100.0)
+    c._tick(now=101.0)
+
+    from argus_skill.core.transcript import read_turns
+
+    turns = read_turns(conversation)
+    assert len(prompts) == 1
+    assert len(turns) == 1
+    assert turns[0]["role"] == "argus"
+    assert "one task completed and one failed" in turns[0]["text"]
+    events = [
+        json.loads(line)
+        for line in (conversation / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert len([event for event in events if event.get("type") == "ui.argus"]) == 1
+    record = json.loads((root / "completion_summary.json").read_text(encoding="utf-8"))
+    assert record["delivered"] is True
+    assert record["done"] == 1 and record["failed"] == 1
+
+
+def test_tick_does_not_publish_summary_while_teammate_is_live(tmp_path: Path) -> None:
+    root = tmp_path / "team"
+    conversation = tmp_path / "conversation"
+    registry.write_marker(tmp_path, team_id="t1", team_root=root, cwd=tmp_path, now=1.0)
+    task_board.form(root, [{"task_id": "t::a", "objective": "x"}])
+    c = _fake_curator(
+        tmp_path,
+        conversation_root=conversation,
+        completion_fn=lambda prompt: "must not run",
+    )
+    c._refill(root, width=1, cwd=tmp_path, now=100.0)
+
+    c._tick(now=101.0)
+
+    assert not (root / "completion_summary.json").exists()
+    assert not (conversation / "transcript.jsonl").exists()
+
+
+def test_new_campaign_generation_publishes_a_new_summary(tmp_path: Path) -> None:
+    root = tmp_path / "team"
+    conversation = tmp_path / "conversation"
+    calls: list[str] = []
+    c = _fake_curator(
+        tmp_path,
+        conversation_root=conversation,
+        completion_fn=lambda prompt: calls.append(prompt) or f"Summary {len(calls)}",
+    )
+    registry.write_marker(tmp_path, team_id="t1", team_root=root, cwd=tmp_path, now=1.0)
+    task_board.form(root, [{"task_id": "t::a", "objective": "first"}])
+    task_board.complete(root, "t::a")
+    c._tick(now=10.0)
+
+    registry.write_marker(tmp_path, team_id="t1", team_root=root, cwd=tmp_path, now=2.0)
+    task_board.form(root, [{"task_id": "t::a", "objective": "second"}])
+    task_board.complete(root, "t::a")
+    c._tick(now=20.0)
+
+    from argus_skill.core.transcript import read_turns
+
+    assert calls and len(calls) == 2
+    assert [turn["text"] for turn in read_turns(conversation)] == ["Summary 1", "Summary 2"]
+
+
+def test_strategy_changes_do_not_republish_same_generation_summary(tmp_path: Path) -> None:
+    root = tmp_path / "team"
+    conversation = tmp_path / "conversation"
+    calls: list[str] = []
+    registry.write_marker(tmp_path, team_id="t1", team_root=root, cwd=tmp_path, now=1.0)
+    task_board.form(root, [{"task_id": "t::a", "objective": "x", "target": "kA"}])
+    task_board.complete(root, "t::a")
+    c = _fake_curator(
+        tmp_path,
+        conversation_root=conversation,
+        completion_fn=lambda prompt: calls.append(prompt) or "One summary",
+        distill_fn=lambda prompt: f"Strategy revision {len(calls)}",
+        distill_interval_s=0,
+    )
+
+    c._tick(now=100.0)
+    (root / "strategy.md").write_text("A later strategy rewrite\n", encoding="utf-8")
+    c._tick(now=101.0)
+
+    from argus_skill.core.transcript import read_turns
+
+    assert len(calls) == 1
+    assert [turn["text"] for turn in read_turns(conversation)] == ["One summary"]
+
+
+def test_fallback_summary_redacts_internal_failure_paths(tmp_path: Path) -> None:
+    root = tmp_path / "team"
+    conversation = tmp_path / "conversation"
+    registry.write_marker(tmp_path, team_id="t1", team_root=root, cwd=tmp_path, now=1.0)
+    task_board.form(root, [{"task_id": "t::a", "title": "audit", "objective": "x"}])
+    task_board.fail(
+        root,
+        "t::a",
+        reason="working dir vanished before spawn: /tmp/private/team-worktree",
+    )
+    c = _fake_curator(tmp_path, conversation_root=conversation)
+    c._tick(now=100.0)
+
+    from argus_skill.core.transcript import read_turns
+
+    (turn,) = read_turns(conversation)
+    assert "/tmp/private" not in turn["text"]
+    assert "working directory unavailable" in turn["text"]
+
+
+def test_completion_summary_falls_back_when_manager_is_unavailable(tmp_path: Path) -> None:
+    root = tmp_path / "team"
+    conversation = tmp_path / "conversation"
+    registry.write_marker(tmp_path, team_id="t1", team_root=root, cwd=tmp_path, now=1.0)
+    task_board.form(root, [{"task_id": "t::a", "title": "audit", "objective": "x"}])
+    task_board.complete(root, "t::a")
+
+    def fail(_prompt: str) -> str:
+        raise RuntimeError("manager unavailable")
+
+    c = _fake_curator(tmp_path, conversation_root=conversation, completion_fn=fail)
+    c._tick(now=100.0)
+
+    from argus_skill.core.transcript import read_turns
+
+    (turn,) = read_turns(conversation)
+    assert "Team completed" in turn["text"]
+    assert "1 done" in turn["text"]
+
+
+def test_failed_dependency_publishes_summary_with_stranded_task(tmp_path: Path) -> None:
+    root = tmp_path / "team"
+    conversation = tmp_path / "conversation"
+    registry.write_marker(tmp_path, team_id="t1", team_root=root, cwd=tmp_path, now=1.0)
+    task_board.form(root, [
+        {"task_id": "t::a", "title": "foundation", "objective": "x"},
+        {"task_id": "t::b", "title": "dependent", "objective": "y", "deps": ["t::a"]},
+    ])
+    task_board.fail(root, "t::a", reason="proof failed")
+    prompts: list[str] = []
+    c = _fake_curator(
+        tmp_path,
+        conversation_root=conversation,
+        completion_fn=lambda prompt: prompts.append(prompt) or "Team stopped with blocked work.",
+    )
+
+    c._tick(now=100.0)
+
+    assert len(prompts) == 1
+    assert '"state": "blocked"' in prompts[0]
+    assert "dependency chain cannot proceed" in prompts[0]
+    record = json.loads((root / "completion_summary.json").read_text(encoding="utf-8"))
+    assert record["failed"] == 1
+    assert record["blocked"] == 1
+
+
 def test_start_then_stop_runs_ticks_and_reaps_real_child(tmp_path: Path) -> None:
     root = tmp_path / "team"
     registry.write_marker(tmp_path, team_id="t1", team_root=root, cwd=tmp_path, now=1.0)

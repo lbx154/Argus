@@ -865,6 +865,75 @@ def _registry_path(task_id: str) -> Path:
     return REGISTRY_DIR / f"{task_id}.json"
 
 
+def _exit_status_path(task_id: str) -> Path:
+    return REGISTRY_DIR / f"{task_id}_logs" / "exit_code"
+
+
+def _launch_durable_command(
+    *,
+    task_id: str,
+    command: str,
+    cwd: str,
+    stdout: Any,
+    stderr: Any,
+) -> "subprocess.Popen[Any]":
+    """Launch a command whose exit status survives loss of its Python owner."""
+    exit_path = _exit_status_path(task_id).resolve()
+    temporary = exit_path.with_name(exit_path.name + ".tmp")
+    wrapper = (
+        'set +e\n'
+        'bash -lc "$1"\n'
+        'rc=$?\n'
+        'printf "%s\\n" "$rc" > "$2"\n'
+        'mv -f "$2" "$3"\n'
+        'exit "$rc"\n'
+    )
+    return subprocess.Popen(
+        ["bash", "-c", wrapper, "argus-durable-job", command, str(temporary), str(exit_path)],
+        stdout=stdout,
+        stderr=stderr,
+        cwd=cwd,
+        start_new_session=os.name != "nt",
+        env=_child_env(),
+    )
+
+
+def _read_exit_code(task_id: str) -> int | None:
+    try:
+        return int(_exit_status_path(task_id).read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+
+
+def reconcile_terminal_task(task_id: str, task: dict[str, Any]) -> dict[str, Any]:
+    """Recover a terminal direct/supervised job after its worker owner died."""
+    if task.get("state") not in {"starting", "preflight", "running"}:
+        return task
+    pid = int(task.get("pid") or 0)
+    if pid and _is_pid_alive(pid):
+        worker_pid = int(task.get("worker_pid") or 0)
+        if worker_pid and not _is_pid_alive(worker_pid):
+            task["owner_lost"] = True
+            task["terminal_owner"] = "exit_sidecar_reconciler"
+        return task
+    exit_code = _read_exit_code(task_id)
+    if exit_code is None:
+        task["state"] = "crashed"
+        task["error"] = f"sub-agent process {pid} no longer running and no exit sidecar exists"
+    else:
+        task["state"] = "done" if exit_code == 0 else "error"
+        task["exit_code"] = exit_code
+        task["terminal_owner"] = "exit_sidecar_reconciler"
+        task["owner_lost"] = True
+        stdout_path = Path(str(task.get("stdout_log") or ""))
+        stderr_path = Path(str(task.get("stderr_log") or ""))
+        task["stdout_tail"] = _tail_file(stdout_path, 3000) if stdout_path else ""
+        task["stderr_tail"] = _tail_file(stderr_path, 3000) if stderr_path else ""
+    task["completed_at"] = time.time()
+    _write_task(task_id, task)
+    return task
+
+
 def _write_task(task_id: str, data: dict[str, Any]) -> None:
     REGISTRY_DIR.mkdir(parents=True, exist_ok=True)
     path = _registry_path(task_id)
@@ -1003,9 +1072,12 @@ def _run_direct(
     start_time = time.time()
     try:
         with stdout_path.open("w") as out, stderr_path.open("w") as err:
-            proc = subprocess.Popen(
-                command, shell=True, stdout=out, stderr=err,
-                cwd=cwd, start_new_session=os.name != "nt", env=_child_env(),
+            proc = _launch_durable_command(
+                task_id=task_id,
+                command=command,
+                stdout=out,
+                stderr=err,
+                cwd=cwd,
             )
             running_task = _apply_supervisor_usage_fields({
                 "state": "running", "task_id": task_id,
@@ -1013,6 +1085,7 @@ def _run_direct(
                 "pid": proc.pid, "worker_pid": os.getpid(),
                 "started_at": time.time(), "mode": "direct",
                 "run_dir": run_dir,
+                "exit_status_path": str(_exit_status_path(task_id).resolve()),
                 "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
             }, model="", totals=_ZERO_USAGE_TUPLE)
             _write_task(task_id, running_task)
@@ -2010,9 +2083,12 @@ def _run_supervised(
                     task_id, "EARLY-STOPPED", final_td, cwd, report)
                 return
         with stdout_path.open("w") as out, stderr_path.open("w") as err:
-            proc = subprocess.Popen(
-                command, shell=True, stdout=out, stderr=err,
-                cwd=cwd, start_new_session=os.name != "nt", env=_child_env(),
+            proc = _launch_durable_command(
+                task_id=task_id,
+                command=command,
+                stdout=out,
+                stderr=err,
+                cwd=cwd,
             )
             running_task = _apply_supervisor_usage_fields({
                 "state": "running", "task_id": task_id, "run_id": run_id,
@@ -2023,6 +2099,7 @@ def _run_supervised(
                 "run_dir": resolved_run_dir,
                 "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
                 "supervisor_log": str(supervisor_log),
+                "exit_status_path": str(_exit_status_path(task_id).resolve()),
             }, model=model, totals=supervisor_usage_totals)
             _write_task(task_id, running_task)
 

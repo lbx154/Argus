@@ -22,7 +22,7 @@ from ..core.metrics import metrics_snapshot
 from ..core.mission_view import snapshot_mission_view
 from ..core.provider_quota import provider_usage_snapshot
 from ..core.session import SessionMeta, list_sessions, read_session_meta
-from ..core.usage import UsageSummary, project_usage_summary
+from ..core.usage import UsageLedger, UsageSummary
 from ..daemon.commands import daemon_command_snapshot
 from ..daemon.life_worker import (
     DaemonStatus,
@@ -43,6 +43,11 @@ _SPEND_CACHE_LOCK = threading.Lock()
 _METRICS_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _METRICS_CACHE_LOCK = threading.Lock()
 _METRICS_CACHE_TTL_SECONDS = 60.0
+
+
+def project_usage_summary(project_root: Path | str) -> UsageSummary:
+    """Return settled rows without taking the writer/reconciliation lock."""
+    return UsageLedger(project_root, migrate_legacy=False).summary()
 
 
 def _project_index_text(value: Any, limit: int, *, single_line: bool = False) -> str:
@@ -105,8 +110,6 @@ def daemon_dict(status: DaemonStatus) -> dict[str, Any]:
         "started_at_iso": status.started_at_iso,
         "uptime_seconds": status.uptime_seconds,
         "backend": status.backend,
-        "per_mission_cap_usd": budget.per_mission_cap_usd,
-        "daily_cap_usd": budget.daily_cap_usd,
         "global_daily_cap_usd": budget.global_daily_cap_usd,
         "read_status": "error" if status.status_read_error else "ok",
         "read_error": status.status_read_error,
@@ -133,19 +136,15 @@ def diagnostic(section: str, exc: BaseException) -> dict[str, str]:
 def daemon_error_dict(exc: BaseException) -> dict[str, Any]:
     try:
         budget = resolve_effective_budget(None)
-        per_mission = budget.per_mission_cap_usd
-        daily = budget.daily_cap_usd
         global_daily = budget.global_daily_cap_usd
     except Exception:  # noqa: BLE001 - the original diagnostic is authoritative
-        per_mission = daily = global_daily = None
+        global_daily = None
     return {
         "alive": False,
         "pid": None,
         "started_at_iso": None,
         "uptime_seconds": None,
         "backend": None,
-        "per_mission_cap_usd": per_mission,
-        "daily_cap_usd": daily,
         "global_daily_cap_usd": global_daily,
         "read_status": "error",
         "read_error": str(exc or type(exc).__name__)[:500],
@@ -213,7 +212,6 @@ def compact_backlog_item(item: Any) -> dict[str, Any]:
         "objective": "" if title else objective[:240],
         "status": str(getattr(item, "status", "pending")),
         "priority": int(getattr(item, "priority", 100)),
-        "max_cost_usd": float(getattr(item, "max_cost_usd", 0.0)),
         "iterate": bool(getattr(item, "iterate", False)),
         "pending_question": str(getattr(item, "pending_question", "") or "")[:500],
         "started_ts": getattr(item, "started_ts", None),
@@ -281,6 +279,9 @@ def settled_spend(
         if cached is not None and cached[0] == signature:
             return cached[1]
     try:
+        # Snapshot reads must never wait behind provider finalization.  The
+        # durable JSONL is append-only, so reading settled rows without running
+        # migrations/reconciliation gives the cockpit a safe current view.
         total = project_usage_summary(life_dir)
     except Exception as exc:  # noqa: BLE001 - snapshot remains available
         total = _empty_usage_summary()
@@ -441,6 +442,14 @@ def build_snapshot(
         diagnostics.append(diagnostic("cost_control", exc))
 
     try:
+        from ..life.supervisor import global_daily_usage_summary
+
+        global_spend = global_daily_usage_summary(global_root=root)
+    except Exception as exc:  # noqa: BLE001
+        global_spend = _empty_usage_summary()
+        diagnostics.append(diagnostic("global_usage", exc))
+
+    try:
         daemon_commands = daemon_command_snapshot(life_dir)
     except Exception as exc:  # noqa: BLE001
         daemon_commands = None
@@ -462,6 +471,9 @@ def build_snapshot(
         "spend_usd": spend.cost_usd,
         "spend_status": spend.pricing_status,
         "usage_summary": spend.to_jsonable(),
+        "global_spend_usd": global_spend.cost_usd,
+        "global_spend_status": global_spend.pricing_status,
+        "global_usage_summary": global_spend.to_jsonable(),
         "request_usage": request_usage,
         "cost_control": cost_control,
         "daemon_commands": daemon_commands,

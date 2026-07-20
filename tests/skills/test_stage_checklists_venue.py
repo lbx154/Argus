@@ -27,11 +27,21 @@ def _project(tmp_path: Path, venue: str | None) -> Path:
     return tmp_path
 
 
-def test_emnlp_floor_is_byte_identical(tmp_path: Path) -> None:
-    # No target_venue and explicit EMNLP must render the same floor text.
-    default = format_stage_checklist("draft", role="reviewer", project_root=_project(tmp_path / "a", None))
-    emnlp = format_stage_checklist("draft", role="reviewer", project_root=_project(tmp_path / "b", "EMNLP"))
-    assert default == emnlp
+def test_missing_venue_blocks_instead_of_defaulting_to_emnlp(
+    tmp_path: Path,
+) -> None:
+    unresolved = format_stage_checklist(
+        "draft", role="reviewer", project_root=_project(tmp_path / "a", None)
+    )
+    assert "`venue.profile`" in unresolved
+    assert "CCF-A" in unresolved
+    assert "Anonymous EMNLP Submission" not in unresolved
+
+
+def test_explicit_emnlp_floor_remains_available(tmp_path: Path) -> None:
+    emnlp = format_stage_checklist(
+        "draft", role="reviewer", project_root=_project(tmp_path, "EMNLP")
+    )
     assert "EMNLP/ACL long-paper sections" in emnlp
     assert "References starts on page 9 or later" in emnlp
 

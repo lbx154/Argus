@@ -1,0 +1,5 @@
+metric,unit,direct,support,failed_or_noop,total,strict_efficiency,inclusive_efficiency,attribution
+reasoning,engineer_reasoning_output_tokens,135062,94408,11777,241247,0.5598,0.9512,"Direct: frontier-changing theorem missions; support: validation and state-consolidation missions; failed: interrupted overlap audit"
+verification,reviewer_reasoning_output_tokens,53295,33725,9209,96229,0.5538,0.9043,"Direct: proof review and recertification; support: review-state consolidation; failed: interrupted overlap audit"
+action_count,bounded_missions,10,7,1,18,0.5556,0.9444,"Direct: six frontier plus four validation missions; support: seven state-consolidation missions; failed: one interrupted mission"
+action_cost,usd,20.64091925,12.33015325,3.794541,36.7656135,0.5614,0.8968,"Same mission attribution weighted by recorded mission cost"

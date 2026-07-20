@@ -8,6 +8,7 @@ local skills.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import threading
 import uuid
@@ -20,6 +21,81 @@ from .store import Skill
 
 _BUILTIN_PACKAGE = "argus_skill.builtin_skills"
 DEFAULT_PROJECT_BUILTIN_SKILLS_DIR = "argus_builtin_skills"
+_VERTICAL_SKILL_INHERITANCE = {
+    "digital_circuit_benchmark": ("digital_circuit",),
+}
+_SAFE_BUILTIN_UPGRADE_DIGESTS = {
+    "agent-md-existing-project-optimization-template.md": {
+        "99a442f23f397d712568e9ac16db6ec5c5c8d3639001083680561a397192d166",
+    },
+    "agent-md-new-project-template.md": {
+        "34f4a486c681e3bd42e360b2d13ae64db3251380cd307e7a64268a12cf605e02",
+        "7da2456956d5e6a99f0af6a64b9413ff926744806a376ae76d476418006f0a36",
+    },
+    "engineer/aaai-format-preflight.md": {
+        "7a7ca6c7b65ec06bd2dc52527122a9321bf79195c92c1d51ddeb223c5b675a80",
+    },
+    "engineer/aaai-paper-drafting.md": {
+        "bfc8f5ac876ddacbf298666b718cfd80364a0403c9befde4f583888ab97cfd96",
+    },
+    "engineer/aaai-paper-skill-router.md": {
+        "1c007009d5edd8666b492ba7b3092c447cf030fef3069a8e8c9343291772ee14",
+    },
+    "engineer/argus-engineer-role.md": {
+        "13480bb0c54ebea266197f8f78dcfe0e0802bedd5bb4fca56e8295fbd2a840ad",
+        "8225b379f4e0069117e5666e6610dcefd0e3478b4ba3a207ad5feb8d43c52a96",
+    },
+    "engineer/auto-research-pipeline.md": {
+        "2d480ab8e64a451201631a0bda7fe0a90f05d4e1183c74c4bba6fc7c22393a02",
+    },
+    "engineer/benchmark-paper-figure-checklist.md": {
+        "26cf35588546954b0410d7000d588d8e0e29551907c25ad17847f06230d69779",
+    },
+    "engineer/emnlp-format-preflight.md": {
+        "f0950f6be9f7c1b0467ee1203e6abbfe5fb9717a6bcf60213c85fa5c881cfd36",
+    },
+    "engineer/emnlp-paper-drafting.md": {
+        "c78734508a03955d3a7fe26465b47f669c49947a43b02e1bc1fff14d3f2d0580",
+    },
+    "engineer/emnlp-paper-skill-router.md": {
+        "8b5fe2aa69301225535893d5bb5f350bac0666b9b91d309321c1e28a88814b8f",
+    },
+    "engineer/figure-spec.md": {
+        "e46107aac72e6e7b23ecf645492f786262a3e32f679f62500b8142e7e58b5629",
+    },
+    "engineer/paper-chart-styling.md": {
+        "dccbf77624b4c5ca3fe3e5c39a1c9ac30274cbbcb7a65bf073e905da8ea5b9bb",
+    },
+    "engineer/paper-framework-figure-studio-pro.md": {
+        "580e6b0d723413c2257e3fb0337d5174344d8d986598ee9d48adedd333d0c40b",
+    },
+    "engineer/paper-illustration-image2.md": {
+        "fdc43b56ffc47e49e8dc3b575948726b4fa2a44a8e881d4606bd5e9706d168ba",
+    },
+    "engineer/paper-review-revision-loop.md": {
+        "e7cde5309b287eb75f91fd8f0c9400341910fb1eeb556a2d3ec78d6accd3a2c5",
+    },
+    "engineer/presentation-master.md": {
+        "a78fab7703be6727a6cbf6e27ba8b397630908268135b89e6a88c34dda16662e",
+    },
+    "engineer/research-results-analysis-and-figures.md": {
+        "41c046a4a4c6e89eaa063bdd1804a114792d4ae54051c0ac16f950e47eb8af9c",
+        "d2529cf7bf29486dcc3e8ae5baca15d04e4e0a1368c2c99d2e4dda4d7bf481af",
+        "4f0baf6ce7b0de2da3790fd51ef04d957e210f525b4761c12e498d893baf0186",
+    },
+    "engineer/research-submission-assurance-gate.md": {
+        "89b29cad54f8b790997a3374c273a028953acd909dcb51a9170addfd3bfb4a97",
+    },
+    "reviewer/academic-paper-peer-review-benchmark.md": {
+        "ecf4983184c6f86d557f91b606c832739de33e22112b438f3fe0e240233f81d3",
+    },
+    "reviewer/argus-reviewer-role.md": {
+        "c581e43666de71a3af7274523fde0317c22fa315f612bbbcb41c8f41dca265f9",
+    },
+    "reviewer/reviewer-engineer-handoff.md": {
+        "451a98884ad675eace245b2974ea4b13b62a3caa83179c025481ab4e36c8ad7d",
+    },
+}
 
 
 def builtin_skill_source_path() -> Path:
@@ -64,10 +140,16 @@ def iter_vertical_skill_texts(vertical: str) -> Iterable[tuple[str, str]]:
     ``<role>/<name>.md`` layout as the bundled builtins. Fail-open: an unknown
     vertical or one with no ``skills/`` dir yields nothing.
     """
-    root = vertical_skill_source_path(vertical)
-    if not root.is_dir():
-        return
-    yield from _iter_builtin_skill_resources(root)
+    emitted: set[str] = set()
+    for source_vertical in (*_VERTICAL_SKILL_INHERITANCE.get(vertical, ()), vertical):
+        root = vertical_skill_source_path(source_vertical)
+        if not root.is_dir():
+            continue
+        for filename, text in _iter_builtin_skill_resources(root):
+            if filename in emitted:
+                continue
+            emitted.add(filename)
+            yield filename, text
 
 
 def _iter_builtin_skill_resources(
@@ -122,6 +204,9 @@ def seed_builtin_skills(skills_dir: Path, *, overwrite: bool = False) -> dict[st
             _validate_builtin(filename, text)
         dest = skills_dir / filename
         if dest.exists() and not overwrite:
+            if _upgrade_unmodified_builtin(dest, filename, text):
+                created[filename] = True
+                continue
             created[filename] = False
             continue
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -171,6 +256,9 @@ def seed_builtin_skills_for_vertical(
             _validate_builtin(filename, text)
         dest = skills_dir / filename
         if dest.exists() and not overwrite:
+            if _upgrade_unmodified_builtin(dest, filename, text):
+                created[filename] = True
+                continue
             created[filename] = False
             continue
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -190,12 +278,43 @@ def seed_builtin_skills_for_vertical(
     return created
 
 
+def seed_vertical_skills(
+    skills_dir: Path,
+    vertical: str,
+    *,
+    overwrite: bool = False,
+) -> dict[str, bool]:
+    """Seed only the active vertical's skills into a project runtime layer."""
+    skills_dir = Path(skills_dir)
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    created: dict[str, bool] = {}
+    for filename, text in iter_vertical_skill_texts(vertical):
+        if filename.endswith(".md"):
+            _validate_builtin(filename, text)
+        dest = skills_dir / filename
+        if dest.exists() and not overwrite:
+            created[filename] = False
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write_text(dest, text)
+        created[filename] = True
+    return created
+
+
 def _validate_builtin(filename: str, text: str) -> None:
     skill = Skill.parse(text, filename)
     if not skill.name.strip():
         raise ValueError(f"bundled skill has no name: {filename}")
     if not skill.description.strip():
         raise ValueError(f"bundled skill has no description: {filename}")
+
+
+def _upgrade_unmodified_builtin(dest: Path, filename: str, text: str) -> bool:
+    previous_digest = hashlib.sha256(dest.read_bytes()).hexdigest()
+    if previous_digest not in _SAFE_BUILTIN_UPGRADE_DIGESTS.get(filename, set()):
+        return False
+    _atomic_write_text(dest, text)
+    return True
 
 
 def _atomic_write_text(path: Path, text: str) -> None:

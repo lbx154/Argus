@@ -90,7 +90,6 @@ def _make_supervisor(
     monkeypatch.setattr(sup, "_recent_no_progress_failures", lambda: {})
     monkeypatch.setattr(sup, "_effective_full_paper_gate", lambda *_a, **_k: False)
     monkeypatch.setattr(sup, "_planner_runtime_with_idle_note", lambda: "")
-    monkeypatch.setattr(config.budget, "remaining_today", lambda *_a, **_k: 1000.0)
     return sup
 
 

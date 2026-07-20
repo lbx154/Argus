@@ -93,9 +93,9 @@ def test_vertical_prompt_does_not_escalate_bounded_repo_fix_to_new_domain() -> N
         verticals_with_purpose=VERTICAL_PURPOSES,
     )
 
-    assert "short-cycle software repairs" in prompt
-    assert "Do not choose a staged lifecycle or author a new domain" in prompt
-    assert "repo investigation alone does not make the task long-horizon" in prompt.lower()
+    assert "capability VERTICAL" in prompt
+    assert "workflow_mode" in prompt
+    assert "software" in prompt
 
 
 def test_fast_vertical_prompt_is_tool_free_and_route_only() -> None:
@@ -115,7 +115,8 @@ def test_fast_vertical_parser_accepts_confident_existing_route() -> None:
     route = parse_fast_vertical_decision(
         json.dumps({
             "choice": "existing",
-            "vertical": "direct",
+            "vertical": "software",
+            "workflow_mode": "direct",
             "confidence": 0.94,
             "research_target_level": None,
             "rationale": "bounded repair",
@@ -125,7 +126,8 @@ def test_fast_vertical_parser_accepts_confident_existing_route() -> None:
 
     assert route is not None
     assert route.needs_grounding is False
-    assert route.vertical == "direct"
+    assert route.vertical == "software"
+    assert route.workflow_mode == "direct"
     assert route.confidence == 0.94
 
 

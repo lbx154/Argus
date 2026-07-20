@@ -16,6 +16,7 @@ import tempfile
 from argus_skill.core.models import RunnerResult
 from argus_skill.skills.idea_search import (
     SOURCE_MARKER,
+    _build_prompt,
     _already_seeded,
     augment_idea_candidates,
 )
@@ -101,6 +102,17 @@ def test_codex_call_uses_live_search():
     assert opts.model == "gpt-5.5"
 
 
+def test_live_search_prompt_has_a_bounded_move_vocabulary() -> None:
+    prompt = _build_prompt("quantized memory for long-running agents", 6)
+
+    assert "15. Design a Property-Targeting Pretext Objective" in prompt
+    assert "31 tactical clusters" not in prompt
+    assert "`C##`" not in prompt
+    # Keep the one-shot source compact; detailed cards are loaded later by the
+    # idea-discovery skill only when the project actually needs refinement.
+    assert len(prompt) < 12_000
+
+
 def test_fail_open_on_runner_exception():
     d = _workdir()
     assert augment_idea_candidates(_FakeRunner(raises=True), d, direction="x") == 0
@@ -157,7 +169,6 @@ def test_loop_emits_idea_search_events(tmp_path):
         json.dumps({"vertical": "research", "current_stage": "research"}),
         encoding="utf-8",
     )
-
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("distiller", CannedResponse(message=""))
@@ -177,10 +188,20 @@ def test_loop_emits_idea_search_events(tmp_path):
         skills_dir=tmp_path / "skills",
         engineer_runner=backend,
         reviewer_runner=backend,
-        config=SkillLoopConfig(max_rounds=2, paper_mission=True),
+        config=SkillLoopConfig(
+            max_rounds=2,
+            paper_mission=True,
+            continuous_objective="discover methods for faithful reasoning",
+        ),
         on_event=events.append,
     )
-    loop.run("detect unfaithful chain-of-thought reasoning", workdir=tmp_path)
+    loop.run(
+        "## Operator Directives\n- put durable blobs under /data\n\n"
+        "## Live objective\nbootstrap this project",
+        workdir=tmp_path,
+        objective_for_skill="bootstrap this project",
+        original_objective="detect unfaithful chain-of-thought reasoning",
+    )
 
     types = [e.get("type") for e in events]
     assert "idea.search.started" in types
@@ -195,7 +216,14 @@ def test_loop_emits_idea_search_events(tmp_path):
     labels = [lbl for lbl, _p, _o in backend.history]
     assert "idea-search" in labels
     opts = next(o for lbl, _p, o in backend.history if lbl == "idea-search")
+    idea_prompt = next(p for lbl, p, _o in backend.history if lbl == "idea-search")
     assert getattr(opts, "live_search", False) is True
+    assert opts.working_dir == str(tmp_path.resolve())
+    assert opts.full_auto is True
+    assert "discover methods for faithful reasoning" in idea_prompt
+    assert "detect unfaithful chain-of-thought reasoning" not in idea_prompt
+    assert "put durable blobs under /data" not in idea_prompt
+    assert "bootstrap this project" not in idea_prompt
 
 
 def test_loop_idea_search_run_once_no_reemit(tmp_path):
@@ -317,5 +345,3 @@ def test_loop_skips_idea_search_when_paper_mode_is_not_explicit(tmp_path):
 
     assert "idea.search.started" not in [e.get("type") for e in events]
     assert "idea-search" not in [label for label, _prompt, _opts in backend.history]
-
-

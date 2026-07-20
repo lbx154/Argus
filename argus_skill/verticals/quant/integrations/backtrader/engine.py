@@ -15,12 +15,11 @@ parameters — nothing market-specific is hardcoded.
 """
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from ...backtest import BacktestResult, BacktestSpec
+from ...backtest import BacktestResult, BacktestSpec, config_fingerprint
 
 #: Build a configured ``backtrader.Cerebro`` for the asset the spec names
 #: (add the data feed + strategy). Injected so the engine stays decoupled from
@@ -51,10 +50,15 @@ class BacktraderEngine:
     name: str = "backtrader@skeleton"
 
     def _config_hash(self, spec: BacktestSpec) -> str:
-        h = hashlib.sha256()
-        for part in (self.name, str(self.commission), str(self.slippage_perc), *spec.factor_ids):
-            h.update(str(part).encode())
-        return h.hexdigest()[:16]
+        return config_fingerprint(
+            engine_name=self.name,
+            spec=spec,
+            engine_config={
+                "init_cash": self.init_cash,
+                "commission": self.commission,
+                "slippage_perc": self.slippage_perc,
+            },
+        )
 
     def run(self, spec: BacktestSpec) -> BacktestResult:
         """Run one single-asset event-driven backtest through backtrader.

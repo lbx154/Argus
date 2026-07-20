@@ -57,16 +57,19 @@ def test_unknown_roles_filtered_out_and_none_left_is_none() -> None:
     assert classify_config_intent("x", run_exec=_exec("SET model banana gpt-5.5")) is None
 
 
-# ── global knobs: budget caps + toggles (roles field is a dash) ───────────────
+# ── global knobs: one budget cap + toggles (roles field is a dash) ────────────
 
-def test_per_mission_cap_global() -> None:
-    intent = classify_config_intent("x", run_exec=_exec("SET per_mission_cap - 50"))
-    assert intent == ConfigIntent(knob="per_mission_cap", roles=(), value="50")
+def test_global_daily_cap() -> None:
+    intent = classify_config_intent("x", run_exec=_exec("SET global_daily_cap - 200"))
+    assert intent == ConfigIntent(knob="global_daily_cap", roles=(), value="200")
 
 
-def test_daily_cap_global() -> None:
-    intent = classify_config_intent("x", run_exec=_exec("SET daily_cap - 200"))
-    assert intent == ConfigIntent(knob="daily_cap", roles=(), value="200")
+@pytest.mark.parametrize("retired", ["per_mission_cap", "daily_cap"])
+def test_retired_budget_knobs_are_rejected(retired: str) -> None:
+    assert classify_config_intent(
+        "x",
+        run_exec=_exec(f"SET {retired} - 50"),
+    ) is None
 
 
 @pytest.mark.parametrize(
@@ -145,7 +148,7 @@ def test_value_quotes_are_stripped() -> None:
 def test_prompt_lists_all_knobs() -> None:
     prompt = build_config_intent_prompt("switch engineer to claude")
     for knob in (
-        "backend", "model", "effort", "per_mission_cap", "daily_cap",
+        "backend", "model", "effort", "global_daily_cap",
         "max_daemons", "codex_daily_requests", "copilot_daily_requests",
         "copilot_daily_premium", "safe_mode", "show_reasoning", "telegram",
     ):
@@ -153,15 +156,9 @@ def test_prompt_lists_all_knobs() -> None:
     assert "NONE" in prompt
 
 
-def test_prompt_disambiguates_single_run_budget_from_standing_cap() -> None:
-    # Regression for the one adversarial miss: "这轮 mission 就给 200 刀" (a per-run
-    # TASK budget) was swallowed as a change to the STANDING per_mission_cap knob,
-    # because the knob name contains "mission". The prompt must teach the
-    # scope distinction (single run → NONE; every future mission → CONFIG) so the
-    # model can tell them apart. Assert the guidance is present (the LLM decision
-    # itself is validated adversarially, not in this deterministic unit test).
+def test_prompt_does_not_treat_single_run_budget_as_global_config() -> None:
     prompt = build_config_intent_prompt("这轮 mission 就给 200 刀,烧完自动停")
     low = prompt.lower()
-    assert "standing" in low                    # per_mission_cap framed as the standing default
-    assert "for this mission only" in low or "this run" in low
-    assert "part of the task" in low            # run-scoped budget/effort → NONE
+    assert "global_daily_cap" in low
+    assert "one specific run" in low
+    assert "part of the task" in low

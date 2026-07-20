@@ -8,8 +8,9 @@ deleted along with the dead code.
 """
 from __future__ import annotations
 
-import json
 import hashlib
+import json
+from pathlib import Path
 
 import pytest
 
@@ -83,6 +84,7 @@ def test_parse_planner_text_emits_task_specs() -> None:
             "impact_area": "correctness",
             "evidence": "loader crashes on empty input",
             "scope": "bounded",
+            "stage_closing": True,
             "objective": "patch code/loader.py to handle empty input and add a regression test",
         }],
     })
@@ -94,6 +96,113 @@ def test_parse_planner_text_emits_task_specs() -> None:
     assert spec.title == "fix the loader"
     assert spec.impact_score == 5
     assert spec.scope == "bounded"
+    assert spec.stage_closing is True
+    # Legacy planner rows remain readable; evidence becomes the fallback check.
+    assert spec.acceptance_check == "loader crashes on empty input"
+
+
+def test_parse_planner_text_preserves_context_packet_fields() -> None:
+    txt = json.dumps({
+        "project_done": False,
+        "reason": "screen one candidate",
+        "new_tasks": [{
+            "title": "Screen candidate access",
+            "impact_score": 5,
+            "impact_area": "discovery",
+            "evidence": "The selected candidate has not been access-checked.",
+            "acceptance_check": "research/access_screen.json records pass or fail",
+            "non_goals": ["do not preregister", "do not execute inference"],
+            "context_refs": [{
+                "kind": "artifact",
+                "ref": "research/IDEA_CANDIDATES.md",
+                "why": "selected candidate",
+                "content_hash": "abc",
+            }],
+            "scope": "bounded",
+            "stage_closing": False,
+            "objective": "Verify public code, data, model, and evaluator access.",
+            "key": "access",
+            "deps": [],
+        }],
+    })
+
+    spec = parse_planner_text(txt).new_tasks[0]
+    assert spec.acceptance_check.endswith("pass or fail")
+    assert spec.non_goals == ["do not preregister", "do not execute inference"]
+    assert spec.context_refs[0]["ref"] == "research/IDEA_CANDIDATES.md"
+
+
+def test_plan_next_rejects_whole_stage_research_monolith() -> None:
+    broad = json.dumps({
+        "project_done": False,
+        "reason": "close research in one mission",
+        "new_tasks": [{
+            "title": "Close research with a new thesis",
+            "impact_score": 5,
+            "impact_area": "discovery",
+            "evidence": "The stage is open.",
+            "acceptance_check": "independent review closes research",
+            "non_goals": [],
+            "context_refs": [{
+                "kind": "artifact",
+                "ref": "research/PIPELINE_STATE.json",
+                "why": "stage state",
+                "content_hash": "",
+            }],
+            "scope": "bounded",
+            "stage_closing": True,
+            "objective": (
+                "Survey primary literature and select candidate ideas; verify "
+                "access and environment preflight; freeze a preregistration and "
+                "run the GPU experiment; analyze results and write the paper claim."
+            ),
+            "key": "all-research",
+            "deps": [],
+        }],
+    })
+
+    verdict = Planner(_FakeRunner(broad)).plan_next(
+        continuous_objective="Develop a strong paper.",
+    )
+
+    assert verdict.new_tasks == []
+    assert "granularity" in verdict.error
+    assert "one fresh Engineer session" in verdict.reason
+
+
+def test_plan_next_rejects_large_multi_artifact_package() -> None:
+    task = {
+        "title": "Rewrite the full plan package",
+        "impact_score": 5,
+        "impact_area": "reliability",
+        "evidence": "Six planning surfaces are stale.",
+        "acceptance_check": (
+            "EXPERIMENT_PLAN.md, BASELINE_PLAN.md, CODE_REUSE_PLAN.md, "
+            "INFRA_CHOICE.md, BENCHMARK_PROVENANCE.json, and RUN_CONTRACT.json "
+            "are all rewritten"
+        ),
+        "non_goals": ["do not execute experiments"],
+        "context_refs": [
+            {"kind": "artifact", "ref": f"research/input-{i}.json", "why": "input", "content_hash": ""}
+            for i in range(6)
+        ],
+        "scope": "bounded",
+        "stage_closing": False,
+        "objective": (
+            "Rewrite EXPERIMENT_PLAN.md, BASELINE_PLAN.md, CODE_REUSE_PLAN.md, "
+            "INFRA_CHOICE.md, BENCHMARK_PROVENANCE.json, and RUN_CONTRACT.json."
+        ),
+        "key": "all-plan",
+        "deps": [],
+    }
+    verdict = Planner(_FakeRunner(json.dumps({
+        "project_done": False,
+        "reason": "repair all plan files",
+        "new_tasks": [task],
+    }))).plan_next(continuous_objective="Develop a strong paper.")
+
+    assert verdict.new_tasks == []
+    assert "artifact boundary" in verdict.error
 
 
 def test_parse_planner_text_uses_latest_json_verdict() -> None:
@@ -340,6 +449,7 @@ def test_parse_planner_text_preserves_agent_authored_waiting_contract() -> None:
         wake_on=("authorization", "artifact_revision"),
         watched_paths=("research/LICENSED_SOURCE.md",),
         expires_at=0.0,
+        operator_action_required=True,
     )
 
 
@@ -350,6 +460,7 @@ def test_waiting_contract_positional_api_remains_backward_compatible() -> None:
     assert contract.recheck_after_seconds == 600
     assert contract.stage_reconciliation_required is False
     assert contract.wait_mode == "poll"
+    assert contract.operator_action_required is False
 
 
 def test_waiting_contract_rejects_unsafe_watched_paths() -> None:
@@ -376,6 +487,60 @@ def test_waiting_contract_rejects_unsafe_watched_paths() -> None:
     assert verdict.waiting_contract is not None
     assert verdict.waiting_contract.wake_on == ("artifact_revision",)
     assert verdict.waiting_contract.watched_paths == ("research/report.json",)
+
+
+def test_waiting_contract_does_not_infer_operator_hold_from_failed_theses() -> None:
+    verdict = parse_planner_text(json.dumps({
+        "project_done": False,
+        "reason": "all authorized theses are exhausted",
+        "new_tasks": [],
+        "waiting": True,
+        "waiting_reason": "await explicit authorization for more research",
+        "waiting_contract": {
+            "blocker_fingerprint": "research-stage-no-viable-thesis-after-six-no-gos",
+            "recheck_condition": (
+                "Manager explicitly authorizes a materially distinct thesis"
+            ),
+            "recheck_token": "six-no-gos-v1",
+            "stage_reconciliation_required": True,
+            "operator_action_required": False,
+            "allow_verification_probe": False,
+            "recheck_after_seconds": 0,
+        },
+    }))
+
+    assert verdict.waiting
+    assert verdict.waiting_contract is not None
+    assert verdict.waiting_contract.operator_action_required is False
+
+
+def test_waiting_contract_preserves_explicit_operator_only_scope_expansion() -> None:
+    verdict = parse_planner_text(json.dumps({
+        "project_done": False,
+        "reason": "operator must choose whether to expand beyond the objective",
+        "new_tasks": [],
+        "waiting": True,
+        "waiting_reason": "operator decision required",
+        "waiting_contract": {
+            "blocker_fingerprint": "operator:scope-expansion",
+            "recheck_condition": "operator explicitly expands the objective",
+            "recheck_token": "scope-v1",
+            "stage_reconciliation_required": False,
+            "operator_action_required": True,
+            "allow_verification_probe": False,
+            "recheck_after_seconds": 0,
+        },
+    }))
+    assert verdict.waiting_contract is not None
+    assert verdict.waiting_contract.operator_action_required is True
+
+
+def test_planner_role_treats_no_go_as_autonomous_pivot() -> None:
+    text = Path(
+        "argus_skill/builtin_skills/planner/argus-planner-role.md"
+    ).read_text()
+    assert "NO-GO" in text
+    assert "NOT an operator-only blocker" in text
 
 
 def test_parse_planner_text_no_tasks_without_waiting_is_error() -> None:
@@ -483,6 +648,493 @@ def test_plan_next_defaults_to_xhigh_reasoning_effort() -> None:
     assert "## Stage checklist" in sent_prompt
 
 
+def test_plan_next_rejects_nonproof_task_for_hard_theorem_objective(
+    monkeypatch,
+) -> None:
+    runner = _FakeRunner(json.dumps({
+        "project_done": False,
+        "reason": "calibrate one more finite route",
+        "new_tasks": [{
+            "title": "Validate partitioned order-22 certificate route",
+            "objective": (
+                "Run bounded geng shards and, if no witness appears, classify the "
+                "result as feasibility evidence only."
+            ),
+            "impact_score": 5,
+            "impact_area": "correctness",
+            "evidence": "Replayable finite shard manifests.",
+            "scope": "bounded",
+            "stage_closing": False,
+            "key": None,
+            "deps": [],
+        }],
+    }))
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **_kwargs: "prompt"),
+    )
+    from argus_skill.skills import harness_overlay, stage_checklists
+
+    monkeypatch.setattr(harness_overlay, "resolve_project_root", lambda: Path("."))
+    monkeypatch.setattr(stage_checklists, "current_stage", lambda _root: "solve")
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective=(
+            "The hard success criterion is at least one nontrivial theorem with "
+            "a complete self-contained proof accepted by an independent Reviewer. "
+            "Finite enumeration and feasibility evidence do not count."
+        ),
+    )
+
+    assert verdict.new_tasks == []
+    assert "hard objective contract violation" in verdict.error
+
+
+def test_plan_next_accepts_proof_task_for_hard_theorem_objective(
+    monkeypatch,
+) -> None:
+    runner = _FakeRunner(json.dumps({
+        "project_done": False,
+        "reason": "prove a structural special case",
+        "new_tasks": [{
+            "title": "State and prove a structural cycle theorem",
+            "objective": (
+                "State a precisely quantified nontrivial lemma, give a complete "
+                "self-contained rigorous proof, update the lemma graph and claim "
+                "ledger, and require independent Reviewer acceptance."
+            ),
+            "impact_score": 5,
+            "impact_area": "correctness",
+            "evidence": "The theorem statement, proof, ledger, graph, and review.",
+            "scope": "bounded",
+            "stage_closing": False,
+            "key": None,
+            "deps": [],
+        }],
+    }))
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **_kwargs: "prompt"),
+    )
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective=(
+            "The hard success criterion is at least one nontrivial theorem with "
+            "a complete self-contained proof accepted by an independent Reviewer."
+        ),
+    )
+
+    assert not verdict.error
+    assert [task.title for task in verdict.new_tasks] == [
+        "State and prove a structural cycle theorem"
+    ]
+
+
+def test_theorem_contract_allows_honest_prior_no_theorem_context(
+    monkeypatch,
+) -> None:
+    runner = _FakeRunner(json.dumps({
+        "project_done": False,
+        "reason": "replace the prior finite route with proof work",
+        "new_tasks": [{
+            "title": "Prove structural no-C4/C8/C16 cubic lemma",
+            "objective": (
+                "State a precisely quantified nontrivial lemma and give a complete "
+                "self-contained rigorous proof. Do not accept the mission as a "
+                "successful finite-search-only report. Update the lemma graph and "
+                "claim ledger and require independent Reviewer acceptance."
+            ),
+            "impact_score": 5,
+            "impact_area": "correctness",
+            "evidence": (
+                "Prior work has no theorem and only a bounded non-exhaustive prefix."
+            ),
+            "scope": "bounded",
+            "stage_closing": True,
+            "key": "structural-lemma",
+            "deps": [],
+        }],
+    }))
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **_kwargs: "prompt"),
+    )
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective=(
+            "The hard success criterion is at least one nontrivial theorem with "
+            "a complete self-contained proof accepted by an independent Reviewer."
+        ),
+    )
+
+    assert not verdict.error
+    assert [task.title for task in verdict.new_tasks] == [
+        "Prove structural no-C4/C8/C16 cubic lemma"
+    ]
+
+
+def test_theorem_contract_allows_review_stage_closure(monkeypatch) -> None:
+    runner = _FakeRunner(json.dumps({
+        "project_done": False,
+        "reason": "close the accepted theorem's review delta",
+        "new_tasks": [{
+            "title": "Close review-stage venue profile after round 12",
+            "objective": (
+                "Record the already accepted theorem's review-stage venue delta "
+                "without changing its proof or novelty classification."
+            ),
+            "impact_score": 4,
+            "impact_area": "requirement_gap",
+            "evidence": "Reviewer-certified theorem and current venue artifacts.",
+            "scope": "bounded",
+            "stage_closing": True,
+            "key": "review-delta",
+            "deps": [],
+        }],
+    }))
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **_kwargs: "prompt"),
+    )
+    from argus_skill.skills import harness_overlay, stage_checklists
+
+    monkeypatch.setattr(harness_overlay, "resolve_project_root", lambda: Path("."))
+    monkeypatch.setattr(stage_checklists, "current_stage", lambda _root: "review")
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective=(
+            "The hard success criterion is at least one nontrivial theorem with "
+            "a complete self-contained proof accepted by an independent Reviewer."
+        ),
+    )
+
+    assert not verdict.error
+    assert [task.title for task in verdict.new_tasks] == [
+        "Close review-stage venue profile after round 12"
+    ]
+
+
+def test_theorem_contract_relies_on_runtime_reviewer_not_task_wording(
+    monkeypatch, tmp_path,
+) -> None:
+    runner = _FakeRunner(json.dumps({
+        "project_done": False,
+        "reason": "prove the next structural lemma",
+        "new_tasks": [{
+            "title": "Prove a rooted path lemma",
+            "objective": (
+                "State a precisely quantified theorem and give a complete "
+                "self-contained rigorous proof. Update the claim ledger and "
+                "lemma graph; finite checks alone cannot complete the task."
+            ),
+            "impact_score": 5,
+            "impact_area": "correctness",
+            "evidence": "Current solve boundary and exact proof artifacts.",
+            "scope": "bounded",
+            "stage_closing": False,
+            "key": "rooted-lemma",
+            "deps": [],
+        }],
+    }))
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **_kwargs: "prompt"),
+    )
+    from argus_skill.skills import harness_overlay, stage_checklists
+
+    monkeypatch.setattr(harness_overlay, "resolve_project_root", lambda: tmp_path)
+    monkeypatch.setattr(stage_checklists, "current_stage", lambda _root: "solve")
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective=(
+            "The hard success criterion is a theorem with a complete "
+            "self-contained proof accepted by an independent Reviewer."
+        ),
+    )
+
+    assert not verdict.error
+    assert [task.title for task in verdict.new_tasks] == [
+        "Prove a rooted path lemma"
+    ]
+
+
+def test_theorem_contract_rejects_nonadvancing_theorem_after_baseline(
+    monkeypatch, tmp_path,
+) -> None:
+    research = tmp_path / "research"
+    research.mkdir()
+    (research / "CLAIM_LEDGER.md").write_text(
+        "C22 | complete bounded theorem with self-contained proof\n",
+        encoding="utf-8",
+    )
+    runner = _FakeRunner(json.dumps({
+        "project_done": False,
+        "reason": "prove another easy fact",
+        "new_tasks": [{
+            "title": "Re-derive a standard degree lemma",
+            "objective": (
+                "Read research/CLAIM_LEDGER.md and research/LEMMA_GRAPH.md. "
+                "State a theorem and give a complete self-contained proof."
+            ),
+            "impact_score": 5,
+            "impact_area": "correctness",
+            "evidence": "The existing theorem ledger and dependency graph.",
+            "scope": "bounded",
+            "stage_closing": False,
+            "key": "easy-lemma",
+            "deps": [],
+        }],
+    }))
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **_kwargs: "prompt"),
+    )
+    from argus_skill.skills import harness_overlay, stage_checklists
+
+    monkeypatch.setattr(harness_overlay, "resolve_project_root", lambda: tmp_path)
+    monkeypatch.setattr(stage_checklists, "current_stage", lambda _root: "solve")
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective=(
+            "The hard success criterion is a theorem with a complete "
+            "self-contained proof accepted by an independent Reviewer."
+        ),
+    )
+
+    assert verdict.new_tasks == []
+    assert "strict improvement" in verdict.error
+
+
+def test_theorem_contract_accepts_strict_bound_improvement_after_baseline(
+    monkeypatch, tmp_path,
+) -> None:
+    research = tmp_path / "research"
+    research.mkdir()
+    (research / "CLAIM_LEDGER.md").write_text(
+        "C22 | complete bounded theorem with self-contained proof\n",
+        encoding="utf-8",
+    )
+    runner = _FakeRunner(json.dumps({
+        "project_done": False,
+        "reason": "strictly improve the current blocker bound",
+        "new_tasks": [{
+            "title": "Prove a sharper rooted blocker bound",
+            "objective": (
+                "Read research/CLAIM_LEDGER.md and research/LEMMA_GRAPH.md. "
+                "Prove a precisely quantified theorem with a complete "
+                "self-contained proof that strictly strengthens Theorem 14.1 "
+                "by replacing constant 27 with an explicit K < 27."
+            ),
+            "impact_score": 5,
+            "impact_area": "correctness",
+            "evidence": "C22/P21 record blocker-or-27 as the current boundary.",
+            "scope": "bounded",
+            "stage_closing": False,
+            "key": "sharper-bound",
+            "deps": [],
+        }],
+    }))
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **_kwargs: "prompt"),
+    )
+    from argus_skill.skills import harness_overlay, stage_checklists
+
+    monkeypatch.setattr(harness_overlay, "resolve_project_root", lambda: tmp_path)
+    monkeypatch.setattr(stage_checklists, "current_stage", lambda _root: "solve")
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective=(
+            "The hard success criterion is a theorem with a complete "
+            "self-contained proof accepted by an independent Reviewer."
+        ),
+    )
+
+    assert not verdict.error
+    assert [task.title for task in verdict.new_tasks] == [
+        "Prove a sharper rooted blocker bound"
+    ]
+
+
+def test_theorem_contract_allows_guarded_overlap_node_after_strict_theorem(
+    monkeypatch, tmp_path,
+) -> None:
+    research = tmp_path / "research"
+    research.mkdir()
+    (research / "CLAIM_LEDGER.md").write_text(
+        "C22 | complete bounded theorem with self-contained proof\n",
+        encoding="utf-8",
+    )
+    runner = _FakeRunner(json.dumps({
+        "project_done": False,
+        "reason": "improve the theorem, then audit its mechanism",
+        "new_tasks": [
+            {
+                "title": "Prove a sharper rooted blocker bound",
+                "objective": (
+                    "Read research/CLAIM_LEDGER.md and research/LEMMA_GRAPH.md. "
+                    "Prove a theorem with a complete self-contained proof that "
+                    "strictly strengthens Theorem 14.1 by obtaining K < 27."
+                ),
+                "impact_score": 5,
+                "impact_area": "correctness",
+                "evidence": "C22/P21 record the current blocker-or-27 bound.",
+                "scope": "bounded",
+                "stage_closing": False,
+                "key": "r15-proof",
+                "deps": [],
+            },
+            {
+                "title": "Audit and close the round-15 solve package",
+                "objective": (
+                    "Read the new theorem plus research/CLAIM_LEDGER.md and "
+                    "research/LEMMA_GRAPH.md. Complete a mechanism-overlap audit. "
+                    "This node may close only if the package retains a theorem with "
+                    "a complete self-contained proof; if the proof artifact is "
+                    "absent or flawed, repair it or fail."
+                ),
+                "impact_score": 4,
+                "impact_area": "requirement_gap",
+                "evidence": "The strict theorem node creates novelty-audit debt.",
+                "scope": "bounded",
+                "stage_closing": True,
+                "key": "r15-overlap",
+                "deps": ["r15-proof"],
+            },
+        ],
+    }))
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **_kwargs: "prompt"),
+    )
+    from argus_skill.skills import harness_overlay, stage_checklists
+
+    monkeypatch.setattr(harness_overlay, "resolve_project_root", lambda: tmp_path)
+    monkeypatch.setattr(stage_checklists, "current_stage", lambda _root: "solve")
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective=(
+            "The hard success criterion is a theorem with a complete "
+            "self-contained proof accepted by an independent Reviewer."
+        ),
+    )
+
+    assert not verdict.error
+    assert [task.title for task in verdict.new_tasks] == [
+        "Prove a sharper rooted blocker bound",
+        "Audit and close the round-15 solve package",
+    ]
+
+
+def test_theorem_contract_allows_round16_audit_to_inherit_proof_dependency(
+    monkeypatch, tmp_path,
+) -> None:
+    research = tmp_path / "research"
+    research.mkdir()
+    (research / "CLAIM_LEDGER.md").write_text(
+        "C23 | complete bounded theorem with self-contained proof\n",
+        encoding="utf-8",
+    )
+    runner = _FakeRunner(json.dumps({
+        "project_done": False,
+        "reason": "strict theorem advancement followed by overlap audit",
+        "new_tasks": [
+            {
+                "title": "Prove a graph-specific blocker advance",
+                "objective": (
+                    "Read research/CLAIM_LEDGER.md and research/LEMMA_GRAPH.md. "
+                    "Prove a precisely quantified theorem with a complete "
+                    "self-contained proof that strictly advances C23 by an "
+                    "improved bound K < 25."
+                ),
+                "impact_score": 5,
+                "impact_area": "correctness",
+                "evidence": "C23/P22/T15 record blocker-or-25.",
+                "scope": "bounded",
+                "stage_closing": False,
+                "key": "round16-proof",
+                "deps": [],
+            },
+            {
+                "title": "Audit overlap for new blocker mechanism",
+                "objective": (
+                    "After the successful predecessor theorem, read its artifact "
+                    "plus research/CLAIM_LEDGER.md and research/LEMMA_GRAPH.md. "
+                    "Run a mechanism-level overlap audit with exact queries, "
+                    "primary sources, citation checks, overlap mapping, and "
+                    "novelty limitations."
+                ),
+                "impact_score": 4,
+                "impact_area": "correctness",
+                "evidence": "A refined theorem triggers a separate overlap audit.",
+                "scope": "bounded",
+                "stage_closing": True,
+                "key": "round16-overlap",
+                "deps": ["round16-proof"],
+            },
+        ],
+    }))
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **_kwargs: "prompt"),
+    )
+    from argus_skill.skills import harness_overlay, stage_checklists
+
+    monkeypatch.setattr(harness_overlay, "resolve_project_root", lambda: tmp_path)
+    monkeypatch.setattr(stage_checklists, "current_stage", lambda _root: "solve")
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective=(
+            "The hard success criterion is a theorem with a complete "
+            "self-contained proof accepted by an independent Reviewer."
+        ),
+    )
+
+    assert not verdict.error
+    assert [task.title for task in verdict.new_tasks] == [
+        "Prove a graph-specific blocker advance",
+        "Audit overlap for new blocker mechanism",
+    ]
+
+
+def test_theorem_first_prompt_makes_nonproof_fallback_illegal(
+    monkeypatch, tmp_path,
+) -> None:
+    from argus_skill.skills import harness_overlay, stage_checklists
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    persist_vertical(tmp_path, "math")
+    monkeypatch.setattr(stage_checklists, "current_stage", lambda *_a, **_k: "solve")
+    monkeypatch.setattr(
+        stage_checklists,
+        "format_stage_checklist",
+        lambda s, **_k: f"<<CHECKLIST:{s}>>",
+    )
+    monkeypatch.setattr(
+        harness_overlay, "resolve_project_root", lambda *_a, **_k: tmp_path
+    )
+    prompt = Planner._build_planner_prompt(
+        continuous_objective=(
+            "The hard success criterion is to produce a theorem with a complete "
+            "self-contained proof. Finite computation does not count."
+        ),
+        journal_tail="",
+        planning_cycle=0,
+    )
+
+    assert "Active hard theorem-proof contract" in prompt
+    assert "MUST NOT be written as an alternative successful fallback" in prompt
+
+
 def test_plan_next_returns_error_verdict_on_runner_exception() -> None:
     class _BrokenRunner:
         def run_exec(self, **_):
@@ -581,6 +1233,42 @@ def test_waiting_external_capability_documented_in_role() -> None:
     assert "written action artifact" in text
     assert "operator action" in text
     assert "no independent high-impact work remains" in text
+    assert "Reversible project-local housekeeping is not such a blocker" in text
+    assert "choose the safe archive instead" in text
+
+
+def test_prompt_routes_reversible_local_archive_as_engineer_work(
+    monkeypatch, tmp_path
+) -> None:
+    prompt = _prompt_for_stage(monkeypatch, tmp_path, "run")
+    compact = " ".join(prompt.split())
+    assert "reversible project-local archive/quarantine" in compact
+    assert "ordinary Engineer work, not an external operator dependency" in compact
+    assert "queue the safe archive" in compact
+
+
+def test_decision_frontier_prevents_speculative_downstream_dag_nodes() -> None:
+    text = load_builtin_skill_text("argus-planner-role.md")
+    compact = " ".join(text.split())
+
+    assert "Decision-frontier rule" in text
+    assert "enqueue ONLY that decision node" in compact
+    assert "Do not speculatively enqueue training" in compact
+    assert "Re-plan from the reviewed outcome" in compact
+    assert "waiting=true" in text and "waiting_contract" in text
+    assert "Manager owns stage transitions" in compact
+    assert "can never create credentials" in compact
+    assert "operator_action_required=true" in compact
+    assert "resolve a stale wait" in compact
+
+
+def test_planner_does_not_repeat_skill_loading_in_task_objectives() -> None:
+    text = load_builtin_skill_text("argus-planner-role.md")
+    compact = " ".join(text.split())
+
+    assert "Do not tell the Engineer to export, open, or read built-in skill files" in compact
+    assert "SkillLoop already matches and task-adapts" in compact
+    assert "Name at most one exact skill" in compact
 
 
 def test_stage_ordering_rule_in_role() -> None:
@@ -768,7 +1456,16 @@ def test_planner_schema_accepts_dag_and_flat_tasks() -> None:
             "impact_score": 5,
             "impact_area": "reliability",
             "evidence": "e",
+            "acceptance_check": "pytest -q",
+            "non_goals": ["do not edit unrelated files"],
+            "context_refs": [{
+                "kind": "artifact",
+                "ref": "research/STATE.json",
+                "why": "current state",
+                "content_hash": "",
+            }],
             "scope": "bounded",
+            "stage_closing": False,
             "objective": "o",
             "key": None,
             "deps": None,

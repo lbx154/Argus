@@ -316,9 +316,24 @@ jobs:
           publish_or_verify "$windows_tarball" "$RELEASE_VERSION-win32-x64" win32-x64
           publish_or_verify "$argus_tarball" "$RELEASE_VERSION" beta
 
-          test "$(npm view @argusevolve/argus dist-tags.linux-x64)" = "$RELEASE_VERSION-linux-x64"
-          test "$(npm view @argusevolve/argus dist-tags.win32-x64)" = "$RELEASE_VERSION-win32-x64"
-          test "$(npm view @argusevolve/argus dist-tags.beta)" = "$RELEASE_VERSION"
+          wait_for_tag() {
+            tag=$1
+            expected=$2
+            for attempt in $(seq 1 12); do
+              actual=$(npm view "@argusevolve/argus" "dist-tags.$tag" 2>/dev/null || true)
+              if [ "$actual" = "$expected" ]; then
+                return 0
+              fi
+              echo "waiting for npm dist-tag $tag ($attempt/12): got '$actual', want '$expected'"
+              sleep 5
+            done
+            echo "npm dist-tag $tag did not converge to $expected" >&2
+            return 1
+          }
+
+          wait_for_tag linux-x64 "$RELEASE_VERSION-linux-x64"
+          wait_for_tag win32-x64 "$RELEASE_VERSION-win32-x64"
+          wait_for_tag beta "$RELEASE_VERSION"
 
       - name: Write auditable release metadata
         env:

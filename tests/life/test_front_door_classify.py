@@ -1,6 +1,7 @@
 """The merged cockpit front-door classifier (life.router.classify_front_door).
 
 ONE model call decides config intent, operator control, and SELF/TEAM routing.
+It never chooses a vertical; every formal task goes to Manager classification.
 """
 from __future__ import annotations
 
@@ -25,8 +26,8 @@ def _exec(answer: str, exit_code: int = 0):
         assert all(
             label in prompt
             for label in (
-                "CONFIG:", "CONTROL:", "STEER_DIRECTIVE:", "ROUTE:", "LIFETIME:",
-                "AUTHORIZATION:", "GREETING:", "NAME:", "VERTICAL:", "TARGET:",
+                "CONFIG:", "CONTROL:", "AUTHORIZATION:", "STEER_DIRECTIVE:",
+                "ROUTE:", "LIFETIME:", "GREETING:", "NAME:",
             )
         )
         return _FakeResult(answer, exit_code)
@@ -37,14 +38,17 @@ def _exec(answer: str, exit_code: int = 0):
 def test_front_door_prompt_has_a_strict_token_efficiency_budget() -> None:
     prompt = build_front_door_prompt("你好", active_mission=True)
 
-    assert len(prompt) <= 5_000
+    assert len(prompt) <= 4_600
     assert all(
         label in prompt
         for label in (
-            "CONFIG:", "CONTROL:", "STEER_DIRECTIVE:", "ROUTE:",
-            "AUTHORIZATION:", "LIFETIME:", "GREETING:", "NAME:", "VERTICAL:", "TARGET:",
+            "CONFIG:", "CONTROL:", "AUTHORIZATION:", "STEER_DIRECTIVE:",
+            "ROUTE:", "LIFETIME:", "GREETING:", "NAME:",
         )
     )
+    assert "VERTICAL:" not in prompt
+    assert "TARGET:" not in prompt
+    assert "WORKFLOW:" not in prompt
     assert "FAST_REPLY:" not in prompt
     assert "ACTIVE_MISSION: YES" in prompt
 
@@ -76,22 +80,6 @@ def test_front_door_reuses_team_lifetime_from_the_same_model_call() -> None:
 
     assert decision == (None, None, "complex")
     assert lifetimes == ["standing"]
-
-
-def test_front_door_reuses_obvious_builtin_vertical_and_target() -> None:
-    verticals: list[dict[str, str]] = []
-    decision = classify_front_door(
-        "持续证明一个未解决的 Erdős 问题",
-        run_exec=_exec(
-            "CONFIG: NONE\nCONTROL: NONE\nSTEER_DIRECTIVE: NONE\n"
-            "ROUTE: TEAM\nLIFETIME: STANDING\n"
-            "NAME: Erdős 证明\nVERTICAL: math\nTARGET: PUBLISHABLE"
-        ),
-        vertical_sink=verticals.append,
-    )
-
-    assert decision == (None, None, "complex")
-    assert verticals == [{"vertical": "math", "target": "publishable"}]
 
 
 def test_front_door_pure_greeting_can_finish_from_one_model_call() -> None:

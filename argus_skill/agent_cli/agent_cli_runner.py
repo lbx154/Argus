@@ -192,8 +192,6 @@ class RunnerOptions:
     reasoning_effort: str | None = None
     dangerous_yolo: bool = False
     full_auto: bool = False
-    max_budget_usd: float | None = None
-    max_ai_credits: int | None = None
     # Codex sandbox policy. When set (e.g. "workspace-write"), the codex command
     # is built with ``-s <mode> -C <working_dir> --add-dir <add_dirs>`` so writes
     # are confined to the workspace + add_dirs, and the child env is scrubbed of
@@ -307,7 +305,7 @@ class AgentCliRunner:
         # Warm-copilot fast path: Manager front-door classify + direct replies go
         # through a persistent ``copilot --acp`` process.  The ACP client keeps
         # the classifier and conversation in separate logical sessions.
-        if self._acp_enabled(run_label, options) and options.max_ai_credits is None:
+        if self._acp_enabled(run_label, options):
             _acp = self._run_exec_acp(
                 prompt=prompt,
                 resume_thread_id=resume_thread_id,
@@ -575,12 +573,14 @@ class AgentCliRunner:
         elif process.returncode != 0 and fatal_error is None:
             turn_failed = True
             fatal_error = f"Process exited with code {process.returncode} before turn completion."
-        elif not turn_completed and not agent_messages and fatal_error is None:
-            # Some CLIs report configuration errors on stderr but still exit 0
-            # (Copilot does this for an unavailable --model). A clean process
-            # exit is not a successful model turn: preserve the concrete stderr
-            # diagnostic so the supervisor fails fast instead of laundering it
-            # into two rounds of "empty output" / no_progress.
+        elif not turn_completed and fatal_error is None:
+            # A provider message is not a terminal turn receipt. Copilot can
+            # exit 0 after emitting assistant/tool deltas without the final
+            # ``result`` event; accepting that partial stream loses sessionId,
+            # records thread_id=null, and lets an unfinished Engineer round
+            # advance to review. Fail closed unless the backend emitted its
+            # authoritative completion event. Preserve stderr when available
+            # so configuration failures still retain their concrete diagnosis.
             turn_failed = True
             fatal_error = _incomplete_turn_error(stderr_lines)
 
@@ -822,8 +822,6 @@ class AgentCliRunner:
                 else options.reasoning_effort
             )
             command.extend(["--effort", effort])
-        if options.max_budget_usd is not None and options.max_budget_usd > 0:
-            command.extend(["--max-budget-usd", format(options.max_budget_usd, ".12g")])
         if options.sandbox_mode == "read-only":
             command.extend(["--tools", "Read,Glob,Grep"])
         elif options.dangerous_yolo:
@@ -886,8 +884,6 @@ class AgentCliRunner:
             command.extend(["--model", options.model])
         if options.reasoning_effort:
             command.extend(["--reasoning-effort", options.reasoning_effort])
-        if options.max_ai_credits is not None and options.max_ai_credits >= 30:
-            command.extend(["--max-ai-credits", str(options.max_ai_credits)])
         if options.sandbox_mode == "read-only":
             command.extend([
                 "--available-tools", "view,rg,glob",

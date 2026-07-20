@@ -137,6 +137,7 @@ def match_role_skills(
     task: str,
     on_event: Callable[[dict], None] | None = None,
     exclude_files: set[str] | None = None,
+    force_empty_match: bool = False,
 ) -> RoleSkillMatch:
     """Run the role-scoped matcher and render the matched playbook block.
 
@@ -154,6 +155,7 @@ def match_role_skills(
         on_event=on_event,
         role=role,
         exclude_files=exclude_files,
+        force_empty_match=force_empty_match,
     )
     skills = list(matched) if matched else []
     primary, reference = partition_by_role(skill_store, role, skills)

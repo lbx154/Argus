@@ -30,3 +30,8 @@ reply with ONE JSON object and nothing else:
 for a HOLD set `target_stage` to the current stage. Final-stage completion is
 certified by the pipeline itself from the reviewer's verdict; you never emit a
 "complete" action.
+
+During an explicit Planner-wait reconciliation, the decision prompt may add an
+optional `resolves_wait` boolean. Set it true only when your HOLD supplies a new
+authorization, directive, or evidence that satisfies the Planner's declared
+recheck condition and should trigger immediate replanning without moving stage.

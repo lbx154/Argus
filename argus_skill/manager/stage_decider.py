@@ -18,6 +18,8 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from hashlib import sha256
+from pathlib import Path
 from typing import Any, Sequence
 
 
@@ -29,6 +31,11 @@ class StageDecision:
     target_stage: str
     reason: str
     diagnostic: str = ""
+    # Planner-wait reconciliation only: an authoritative HOLD may keep the
+    # current stage while surfacing pre-existing operator authority or changed
+    # evidence that satisfies the Planner's declared recheck condition. Manager
+    # cannot create or expand operator authorization.
+    resolves_wait: bool = False
 
 
 _VALID_ACTIONS = ("advance", "hold", "rollback")
@@ -59,7 +66,15 @@ def _checklist_lines(review: Any) -> str:
         if evidence:
             line += f" — evidence: {evidence}"
         lines.append(line)
-    return "\n".join(lines) or "(reviewer provided no per-item checklist)"
+    if lines:
+        return "\n".join(lines)
+    if str(getattr(review, "review_source", "") or "") == "engineer_self_review":
+        return (
+            "(independent Reviewer waived for this bounded mission; no Reviewer "
+            "checklist is expected. Manager must judge the Engineer verification "
+            "against the current-stage checklist above.)"
+        )
+    return "(reviewer provided no per-item checklist)"
 
 
 def _planner_report_lines(review: Any) -> str:
@@ -100,6 +115,37 @@ def build_stage_decision_prompt(
     advance_target = f"`{next_stage}`" if next_stage else "(none — already the final stage)"
     status = str(getattr(review, "status", "") or "")
     reason = str(getattr(review, "reason", "") or "")
+    review_source = str(
+        getattr(review, "review_source", "reviewer") or "reviewer"
+    ).strip()
+    verification_summary = str(
+        getattr(review, "verification_summary", "") or ""
+    ).strip()
+    planner_waiting = bool(getattr(planner_verdict, "waiting", False))
+    waiting_contract = getattr(planner_verdict, "waiting_contract", None)
+    waiting_reason = str(
+        getattr(planner_verdict, "waiting_reason", "")
+        or getattr(planner_verdict, "reason", "")
+        or ""
+    ).strip()
+    recheck_condition = str(
+        getattr(waiting_contract, "recheck_condition", "") or ""
+    ).strip()
+    operator_action_required = bool(
+        getattr(waiting_contract, "operator_action_required", False)
+    )
+
+    source_instructions = ""
+    if review_source == "engineer_self_review":
+        source_instructions = (
+            "The Engineer used an allowed bounded-task review waiver. The empty "
+            "Reviewer checklist is therefore expected, not a failure. The waiver "
+            "itself is not evidence: independently compare the Engineer's concrete "
+            "verification with every applicable current-stage checklist item. You "
+            "MAY ADVANCE when that evidence genuinely satisfies the stage; HOLD "
+            "otherwise. A final-submission or explicitly independent-review gate "
+            "still requires a real Reviewer checklist.\n"
+        )
 
     open_ended_block = ""
     if open_ended:
@@ -115,6 +161,46 @@ def build_stage_decision_prompt(
             f"Operator objective:\n{continuous_objective.strip()}\n\n"
         )
 
+    wait_resolution_block = ""
+    if planner_waiting:
+        operator_boundary = (
+            "This blocker requires fresh OPERATOR action. You cannot create or "
+            "expand operator authorization; set `resolves_wait=false`. "
+            if operator_action_required
+            else
+            "You may set `resolves_wait=true` only when PRE-EXISTING operator "
+            "authority already shown below or concrete changed evidence satisfies "
+            "the recheck condition. Inside an open-ended standing objective, a new "
+            "mechanism, benchmark, or evidence-supported framing is an ordinary "
+            "route decision, not scope expansion. Never invent credentials, legal "
+            "permission, irreversible external authority, or work outside the "
+            "operator objective. "
+        )
+        wait_resolution_block = (
+            "## Planner-wait reconciliation\n"
+            f"Waiting reason: {waiting_reason or '(none)'}\n"
+            f"Declared recheck condition: {recheck_condition or '(none)'}\n"
+            f"{operator_boundary}"
+            "If this Manager ruling identifies such existing authority or changed "
+            "evidence, keep the stage on HOLD and set `resolves_wait=true` so "
+            "the Planner immediately replans without the stale waiting contract. "
+            "This does not advance the stage or certify its checklist. Set "
+            "`resolves_wait=false` when the blocker remains unchanged.\n\n"
+        )
+
+    response_schema = (
+        '{"action": "advance|hold|rollback", "target_stage": "<stage name>", '
+        '"reason": "<clear explanation>", "resolves_wait": true|false, '
+        '"live_view": null | {"title": "<title>", "reason": "<why>", '
+        '"paths": ["<path>", ...]}}\n'
+        if planner_waiting
+        else
+        '{"action": "advance|hold|rollback", "target_stage": "<stage name>", '
+        '"reason": "<clear explanation>", "live_view": null | '
+        '{"title": "<title>", "reason": "<why>", '
+        '"paths": ["<path>", ...]}}\n'
+    )
+
     return (
         "You are the MANAGER of an automated research pipeline, and the SOLE "
         "authority over pipeline STAGE transitions. The reviewer and planner only "
@@ -126,28 +212,115 @@ def build_stage_decision_prompt(
         f"Legal ROLLBACK targets (earlier stages): {earlier}\n\n"
         "## Current-stage checklist (what \"done\" requires)\n"
         f"{checklist_md}\n\n"
-        "## Reviewer verdict on the latest round\n"
+        "## Latest completion evidence\n"
+        f"source: {review_source}\n"
         f"status: {status}\n"
         f"reason: {reason}\n"
+        f"verification_summary: {verification_summary or '(none)'}\n"
         f"{_planner_report_lines(review)}\n\n"
+        f"{source_instructions}\n"
         "### Reviewer per-item checklist\n"
         f"{_checklist_lines(review)}\n\n"
         "## Planner note (advisory)\n"
         f"{_advisory_planner(planner_verdict)}\n\n"
+        f"{wait_resolution_block}"
         f"{open_ended_block}"
         f"{rendering_block.strip()}\n\n"
         "## Your decision\n"
         "- ADVANCE only when the current stage's checklist is genuinely satisfied "
-        "with concrete evidence the reviewer confirmed.\n"
+        "with concrete evidence. For Reviewer evidence, use its checklist. For an "
+        "accepted Engineer self-review, make your own judgment from the verification "
+        "summary and project artifacts; do not HOLD merely because its Reviewer "
+        "checklist is empty.\n"
         "- HOLD when any checklist work remains, or the evidence is weak/unclear.\n"
         "- ROLL BACK only when an EARLIER stage's evidence is missing, stale, or "
         "unreliable (say which one and why).\n"
+        "- Stage names recorded in `research/GROUND_TRUTH.md` are dated "
+        "observations, not live stage invariants. A legal pipeline transition "
+        "naturally makes that observation historical; NEVER roll back solely "
+        "because its recorded stage differs from the current "
+        "`research/PIPELINE_STATE.json` stage.\n"
         "- When in doubt, HOLD. Never advance on weak evidence.\n\n"
         "Reply with ONE JSON object and NOTHING else:\n"
-        '{"action": "advance|hold|rollback", "target_stage": "<stage name>", '
-        '"reason": "<clear explanation>", "live_view": null | {"title": "<title>", '
-        '"reason": "<why>", "paths": ["<path>", ...]}}\n'
+        f"{response_schema}"
         "For HOLD, set target_stage to the current stage."
+    )
+
+
+def reject_certified_ground_truth_snapshot_rollback(
+    decision: StageDecision,
+    *,
+    project_root: Path | str,
+    current_stage: str,
+) -> StageDecision:
+    """Reject rollback attempts that reinterpret an accepted snapshot as drift.
+
+    An advance records the exact ``GROUND_TRUTH.md`` digest it accepted. If that
+    same immutable snapshot is later cited as stale merely because the live stage
+    advanced, it is historical evidence, not a newly broken prerequisite.
+    """
+    if decision.action != "rollback":
+        return decision
+    reason = decision.reason.lower()
+    if "ground_truth" not in reason and "ground truth" not in reason:
+        return decision
+    stage_drift_terms = (
+        "stage differs",
+        "stage mismatch",
+        "stage conflict",
+        "contradicts the live",
+        "contradicts the current",
+        "pipeline_state",
+        "pipeline state",
+    )
+    independent_blocker_terms = (
+        "missing evidence",
+        "insufficient evidence",
+        "unreliable evidence",
+        "invalid contract",
+        "broken contract",
+        "failed prerequisite",
+        "missing prerequisite",
+        "unmet prerequisite",
+    )
+    if not any(term in reason for term in stage_drift_terms):
+        return decision
+    if any(term in reason for term in independent_blocker_terms):
+        return decision
+
+    root = Path(project_root)
+    state_path = root / "research" / "PIPELINE_STATE.json"
+    ground_truth_path = root / "research" / "GROUND_TRUTH.md"
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        current_digest = sha256(ground_truth_path.read_bytes()).hexdigest()
+    except (OSError, json.JSONDecodeError):
+        return decision
+    history = state.get("stage_history")
+    if not isinstance(history, list):
+        return decision
+    current = str(current_stage or "").strip().lower()
+    accepted_snapshot = next(
+        (
+            entry.get("ground_truth_snapshot")
+            for entry in reversed(history)
+            if isinstance(entry, dict)
+            and entry.get("direction") == "advance"
+            and str(entry.get("to_stage") or "").strip().lower() == current
+        ),
+        None,
+    )
+    if (
+        not isinstance(accepted_snapshot, dict)
+        or accepted_snapshot.get("sha256") != current_digest
+    ):
+        return decision
+    return StageDecision(
+        "hold",
+        current,
+        "GROUND_TRUTH is the unchanged snapshot certified by the latest legal "
+        "advance; its recorded stage is historical and cannot trigger rollback",
+        "certified_ground_truth_snapshot_rollback_rejected",
     )
 
 
@@ -219,11 +392,18 @@ def parse_stage_decision(
     if action not in _VALID_ACTIONS:
         return StageDecision("hold", cur, "manager held (default)", "unknown_action")
     reason = str(obj.get("reason") or "").strip()
+    resolves_wait = obj.get("resolves_wait") is True
     raw_target = obj.get("target_stage")
     target = _normalized_stage_label(raw_target)
 
     if action == "hold":
-        return StageDecision("hold", cur, reason or "manager held", "intentional_hold")
+        return StageDecision(
+            "hold",
+            cur,
+            reason or "manager held",
+            "intentional_hold",
+            resolves_wait,
+        )
 
     if cur not in order:
         return StageDecision(
@@ -272,6 +452,7 @@ def fallback_empty_stage_decision(
     *,
     current_stage: str,
     stage_order: Sequence[str],
+    checklist_contract: Any | None = None,
 ) -> StageDecision:
     """Resolve persistent empty manager-stage output without wedging a stage.
 
@@ -314,6 +495,18 @@ def fallback_empty_stage_decision(
             return hold("empty_output_unsatisfied_checklist")
         if not str(item.get("evidence", "")).strip():
             return hold("empty_output_missing_checklist_evidence")
+    if checklist_contract is not None:
+        required_ids = {
+            str(getattr(item, "id", "") or "").strip()
+            for item in getattr(checklist_contract, "items", ())
+            if str(getattr(item, "id", "") or "").strip()
+        }
+        reviewed_ids = {
+            str(item.get("item") or item.get("id") or "").strip()
+            for item in items
+        }
+        if required_ids - reviewed_ids:
+            return hold("empty_output_missing_required_checklist_items")
 
     next_stage = order[cur_idx + 1]
     return StageDecision(

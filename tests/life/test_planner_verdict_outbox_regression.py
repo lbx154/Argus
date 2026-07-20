@@ -181,7 +181,6 @@ def test_all_filtered_planned_verdict_replays_plan_retry_not_false(
     monkeypatch.setattr(sup, "_recent_subagent_family_failures", lambda: {})
     monkeypatch.setattr(sup, "_effective_full_paper_gate", lambda *_a, **_k: False)
     monkeypatch.setattr(sup, "_planner_runtime_with_idle_note", lambda: "")
-    monkeypatch.setattr(config.budget, "remaining_today", lambda *_a, **_k: 1000.0)
 
     # ── first pass ──────────────────────────────────────────────────────────
     # Planner runs, all 3 tasks deduplicated, verdict delivery fails → PLAN_RETRY.

@@ -54,7 +54,6 @@ from ..core.copilot_usage import (
 )
 from ..core.event_catalog import EventType, normalize_event_envelope
 from ..core.metrics import metrics_root_for_project, record_metric
-from ..core.mission_budget import mission_cap_from_guard
 from ..core.models import RunnerOptions, RunnerResult
 from ..core.runner_errors import result_has_pre_provider_refusal
 from ..core.secret_guard import (
@@ -223,8 +222,8 @@ def _command_metadata(command: Any) -> list[str]:
 
 def _reservation_denial_stop_kind(reason: str) -> StopKind:
     low = str(reason or "").casefold()
-    if "budget fence breach" in low or "unresolved provider cost" in low:
-        return "provider_fence"
+    if "unresolved provider cost" in low:
+        return "budget_exhausted"
     if "cost control unavailable" in low:
         return "backend_unavailable"
     return "budget_exhausted"
@@ -631,14 +630,6 @@ class AgentCliBackend:
         self._is_codex = chosen == deps["BACKEND_CODEX"]
         self._is_copilot = chosen == deps["BACKEND_COPILOT"]
         self._default_interrupt_reason_provider = default_interrupt_reason_provider
-        # SOURCE-LEVEL per-mission budget cap. A live provider set per-mission
-        # (see ``set_budget_reason_provider``): it returns a non-empty reason once
-        # the mission's spend hits its cap, which is composed into the interrupt
-        # chain above so ``AgentCliRunner.run_exec`` refuses to spawn a NEW LLM
-        # call — enforcing the cap at the finest granularity (no round can
-        # overspend past it before the between-rounds breaker checks). ``None`` =
-        # no cap (default; every existing caller unchanged).
-        self._budget_reason_provider = None
         self._default_watchdog_soft_idle_seconds = max(
             0, int(default_watchdog_soft_idle_seconds or 0)
         )
@@ -657,6 +648,7 @@ class AgentCliBackend:
         self._thread_premium_totals: dict[str, float] = {}
         self._usage_context_lock = threading.Lock()
         self._usage_project_root: Path | None = None
+        self._usage_global_root: Path | None = None
         self._usage_mission_id: str | None = None
         self._known_secret_values = known_secret_values()
 
@@ -689,33 +681,33 @@ class AgentCliBackend:
         if callable(close):
             close()
 
-    def set_budget_reason_provider(self, provider) -> None:
-        """Install (or clear with ``None``) the per-mission budget guard.
-
-        ``provider() -> str | None`` is polled live: a non-empty string means the
-        mission has hit its cap. It is composed into the interrupt chain so a new
-        LLM call through this backend is refused at the source once the cap trips.
-        The mission entry (``_SkillLoopRunner.execute``) sets this for the mission
-        and clears it in a ``finally`` so it never leaks to a later mission."""
-        self._budget_reason_provider = provider
-
     def set_usage_context(
         self,
         *,
         project_root: Path | str | None,
+        global_root: Path | str | None = None,
         mission_id: str | None = None,
     ) -> None:
-        """Set the project ledger and optional mission owning subsequent calls."""
+        """Set the project/global ledgers and mission owning subsequent calls."""
         with self._usage_context_lock:
             self._usage_project_root = (
                 Path(project_root).expanduser() if project_root is not None else None
             )
+            self._usage_global_root = (
+                Path(global_root).expanduser() if global_root is not None else None
+            )
             text = str(mission_id or "").strip()
             self._usage_mission_id = text or None
 
-    def _usage_context_snapshot(self) -> tuple[Path | None, str | None]:
+    def _usage_context_snapshot(
+        self,
+    ) -> tuple[Path | None, str | None, Path | None]:
         with self._usage_context_lock:
-            return self._usage_project_root, self._usage_mission_id
+            return (
+                self._usage_project_root,
+                self._usage_mission_id,
+                self._usage_global_root,
+            )
 
     def _configured_pricing_model(self, *, profile: str = "") -> str:
         """Read the implicit model from Codex's own config, never another route."""
@@ -786,7 +778,9 @@ class AgentCliBackend:
         call_id = uuid.uuid4().hex
         started_at = time.time()
         log_path = self._agent_io_log_path(options)
-        usage_project_root, usage_mission_id = self._usage_context_snapshot()
+        usage_project_root, usage_mission_id, usage_global_root = (
+            self._usage_context_snapshot()
+        )
         if usage_project_root is None and log_path is not None:
             usage_project_root = log_path.parent
         cost_reservation = None
@@ -795,6 +789,11 @@ class AgentCliBackend:
             "call_id": call_id,
             "run_label": run_label,
             "log_path": str(log_path) if log_path is not None else "",
+            "raw_log_path": (
+                str(log_path.with_name("agent_io.jsonl"))
+                if log_path is not None and io_mode == "full"
+                else ""
+            ),
             "model": options.model,
             "mode": io_mode,
             "prompt_sha256": _text_sha256(prompt),
@@ -965,11 +964,6 @@ class AgentCliBackend:
                             "amount_usd": cost_reservation.amount_usd,
                             "cost_usd": usage_record.cost_usd,
                             "overrun_usd": reservation_overrun_usd,
-                            "fence_breached": bool(
-                                reservation_overrun_usd
-                                and reservation_overrun_usd > 0
-                            ),
-                            **cost_reservation.provider_fence.event_fields(),
                             "pricing_status": usage_record.pricing_status,
                         })
                     else:
@@ -982,8 +976,6 @@ class AgentCliBackend:
                             "amount_usd": cost_reservation.amount_usd,
                             "cost_usd": None,
                             "overrun_usd": None,
-                            "fence_breached": False,
-                            **cost_reservation.provider_fence.event_fields(),
                             "pricing_status": "unknown",
                             "error": reason,
                         })
@@ -1012,11 +1004,6 @@ class AgentCliBackend:
                                 if cost_reservation is not None
                                 else None
                             ),
-                            "fence_enforcement": (
-                                cost_reservation.provider_fence.enforcement
-                                if cost_reservation is not None
-                                else "none"
-                            ),
                             "overrun_usd": reservation_overrun_usd,
                         },
                     )
@@ -1024,24 +1011,6 @@ class AgentCliBackend:
                     log.exception("failed to record provider metric for %s", call_id)
             self._close_io_context(call_id)
             return result
-
-        budget_reason = ""
-        if self._budget_reason_provider is not None:
-            try:
-                budget_reason = str(self._budget_reason_provider() or "").strip()
-            except Exception:  # noqa: BLE001 - budget probes remain fail-open
-                budget_reason = ""
-        if budget_reason:
-            return _finalize_result(
-                RunnerResult(
-                    exit_code=-1,
-                    thread_id=resume_thread_id,
-                    fatal_error=f"refused before start: {budget_reason}",
-                    stop_kind="budget_exhausted",
-                ),
-                status="denied",
-                error=budget_reason,
-            )
 
         # Reservation happens before the provider responds, so there is no
         # response model yet — attribute it to the request model, falling back to
@@ -1052,8 +1021,8 @@ class AgentCliBackend:
         )[0]
         try:
             from ..core.cost_control import (
+                call_reservation_usd,
                 cost_control_enabled,
-                per_call_budget_cap_usd,
                 reserve_call_budget,
             )
 
@@ -1065,10 +1034,8 @@ class AgentCliBackend:
                     provider=self._backend_name,
                     model=reservation_model,
                     run_label=run_label,
-                    per_mission_cap_usd=mission_cap_from_guard(
-                        self._budget_reason_provider
-                    ),
-                    per_call_cap_usd=per_call_budget_cap_usd(),
+                    global_root=usage_global_root,
+                    reservation_usd=call_reservation_usd(run_label),
                 )
                 if cost_reservation is None:
                     self._log_agent_io(log_path, {
@@ -1097,7 +1064,6 @@ class AgentCliBackend:
                     "model": reservation_model,
                     "run_label": run_label,
                     "amount_usd": cost_reservation.amount_usd,
-                    **cost_reservation.provider_fence.event_fields(),
                 })
         except Exception as exc:  # noqa: BLE001 — fail closed before provider spend
             reason = f"cost control unavailable: {type(exc).__name__}: {exc}"
@@ -1120,17 +1086,6 @@ class AgentCliBackend:
                 error=reason,
             )
 
-        if cost_reservation is not None:
-            fence = cost_reservation.provider_fence
-            options = replace(
-                options,
-                max_budget_usd=(
-                    fence.limit_usd if fence.enforcement == "hard" else None
-                ),
-                max_ai_credits=(
-                    fence.max_ai_credits if fence.enforcement == "soft" else None
-                ),
-            )
         try:
             argus_options = self._translate_options(options)
         except Exception as exc:  # noqa: BLE001 - release reservation on setup failure
@@ -1475,7 +1430,12 @@ class AgentCliBackend:
             "cache_write_tokens": translated.cache_write_tokens,
             "output_tokens": translated.output_tokens,
             "reasoning_output_tokens": translated.reasoning_output_tokens,
-            "premium_requests": translated.premium_requests,
+            "premium_requests": (
+                translated.premium_requests
+                if translated.premium_requests_present
+                else None
+            ),
+            "premium_requests_present": translated.premium_requests_present,
             "total_nano_aiu": translated.total_nano_aiu,
             "usage_model": translated.usage_model,
             "ts": time.time(),
@@ -1530,7 +1490,7 @@ class AgentCliBackend:
         )
 
     def _agent_io_log_path(self, options: RunnerOptions) -> Path | None:
-        project_root, _mission_id = self._usage_context_snapshot()
+        project_root, _mission_id, _global_root = self._usage_context_snapshot()
         if project_root is not None:
             try:
                 from ..core.usage import ensure_project_events_standardized
@@ -1610,7 +1570,7 @@ class AgentCliBackend:
             context = self._io_context
             if context is None or str(context.get("call_id") or "") != call_id:
                 return
-            raw_path = str(context.get("log_path") or "")
+            raw_path = str(context.get("raw_log_path") or "")
             if raw_path:
                 path = Path(raw_path)
             lines = list(context.get("buffer") or [])
@@ -1622,7 +1582,7 @@ class AgentCliBackend:
         with self._io_context_lock:
             context = self._io_context
         ctx = context or {}
-        log_path = str(ctx.get("log_path") or "")
+        log_path = str(ctx.get("raw_log_path") or "")
         io_mode = str(ctx.get("mode") or "compact")
         prompt_echo = (
             _user_message_content(line)
@@ -1675,7 +1635,6 @@ class AgentCliBackend:
         # outer supervisor can interrupt the codex subprocess.
         interrupt_provider = _compose_interrupt_providers(
             self._default_interrupt_reason_provider,
-            self._budget_reason_provider,
             options.external_interrupt_reason_provider,
         )
         soft_idle = (
@@ -1712,10 +1671,6 @@ class AgentCliBackend:
         # field degrades to no streaming rather than crashing.
         if "on_agent_message" in getattr(argus_cls, "__dataclass_fields__", {}):
             kwargs["on_agent_message"] = getattr(options, "on_agent_message", None)
-        if "max_budget_usd" in getattr(argus_cls, "__dataclass_fields__", {}):
-            kwargs["max_budget_usd"] = getattr(options, "max_budget_usd", None)
-        if "max_ai_credits" in getattr(argus_cls, "__dataclass_fields__", {}):
-            kwargs["max_ai_credits"] = getattr(options, "max_ai_credits", None)
         return argus_cls(**kwargs)
 
     def _translate_result(
@@ -1770,9 +1725,20 @@ class AgentCliBackend:
         raw_premium, premium_requests_present = _extract_copilot_premium_requests(
             getattr(argus_result, "json_events", None)
         )
-        premium_requests = self._premium_delta_for_thread(
-            thread_id=argus_result.thread_id or resume_thread_id,
-            raw_total=raw_premium,
+        premium_thread_id = argus_result.thread_id or resume_thread_id
+        premium_requests = (
+            self._premium_delta_for_thread(
+                thread_id=premium_thread_id,
+                raw_total=raw_premium,
+                resume_baseline_unknown=bool(
+                    resume_thread_id and premium_thread_id == resume_thread_id
+                ),
+            )
+            if premium_requests_present
+            else None
+        )
+        premium_requests_present = (
+            premium_requests_present and premium_requests is not None
         )
         usage_model = authoritative_usage_model or (
             copilot_usage.model if copilot_usage is not None else ""
@@ -1787,13 +1753,21 @@ class AgentCliBackend:
                 {**row, "model": authoritative_usage_model}
                 for row in model_usage
             ]
+        fatal_error = _normalize_fatal_error(argus_result.fatal_error)
+        if (
+            getattr(argus_result, "turn_failed", False)
+            and not fatal_error
+        ):
+            fatal_error = "\n".join(
+                map(str, getattr(argus_result, "stderr_lines", None) or [])
+            ).strip() or "backend reported a failed turn"
         return RunnerResult(
             exit_code=argus_result.exit_code,
             agent_messages=list(argus_result.agent_messages or []),
             stdout_lines=list(argus_result.stdout_lines or []),
             stderr_lines=list(argus_result.stderr_lines or []),
             thread_id=argus_result.thread_id or resume_thread_id,
-            fatal_error=_normalize_fatal_error(argus_result.fatal_error),
+            fatal_error=fatal_error,
             stop_kind=(
                 normalize_stop_kind(getattr(argus_result, "stop_kind", None))
                 or _raw_backend_stop_kind(
@@ -1806,7 +1780,7 @@ class AgentCliBackend:
             cache_write_tokens=raw_usage.cache_write_tokens,
             output_tokens=output_tokens,
             reasoning_output_tokens=reasoning_output_tokens,
-            premium_requests=premium_requests,
+            premium_requests=premium_requests or 0.0,
             input_tokens_present=raw_usage.input_tokens_present,
             cached_input_tokens_present=raw_usage.cached_input_tokens_present,
             cache_write_tokens_present=raw_usage.cache_write_tokens_present,
@@ -1866,26 +1840,30 @@ class AgentCliBackend:
         *,
         thread_id: str | None,
         raw_total: float,
-    ) -> float:
+        resume_baseline_unknown: bool = False,
+    ) -> float | None:
         """Convert copilot's session-cumulative premiumRequests into this call's
-        delta. Mirrors ``_usage_delta_for_thread`` for the scalar case.
+        delta. A resumed thread without an in-memory baseline is unresolved for
+        its first call after restart; charging the cumulative total would bill
+        the earlier turns again. Mirrors ``_usage_delta_for_thread`` otherwise.
         把 copilot 会话累计的 premiumRequests 转成本次调用的增量（标量版）。"""
-        if raw_total <= 0.0:
-            return 0.0
+        current = max(0.0, float(raw_total))
         if not thread_id:
-            return raw_total
+            return current
 
         with self._usage_lock:
             previous = self._thread_premium_totals.get(thread_id)
-            self._thread_premium_totals[thread_id] = raw_total
+            self._thread_premium_totals[thread_id] = current
 
         if previous is None:
-            return raw_total
-        delta = raw_total - previous
+            if resume_baseline_unknown and current > 0.0:
+                return None
+            return current
+        delta = current - previous
         if delta < 0.0:
             # Cumulative counter reset (new session on the same id) — charge the
             # current total as a fresh delta rather than a negative credit.
-            return raw_total
+            return current
         return delta
 
 def _sum_copilot_premium_requests(events: list[dict[str, Any]] | None) -> float:

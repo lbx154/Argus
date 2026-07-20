@@ -34,25 +34,24 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         ("Mission file present",
          "test -f MISSION.md || test -f TASK.md"),
         ("Target training script present",
-         "{ test -d baseline && ls baseline/*.py 2>/dev/null | head -1 | grep -q .; } "
-         "|| ls train*.py *nanogpt*.py 2>/dev/null | head -1 | grep -q ."),
+         "{python} -m argus_skill.verticals.path_evidence --project-root . "
+         "--glob 'baseline/*.py' --glob 'train*.py' --glob '*nanogpt*.py'"),
         ("Setup notes present",
-         "test -f mission/SETUP.md || test -f SETUP.md "
-         "|| ls *SETUP*.md 2>/dev/null | head -1 | grep -q ."),
+         "{python} -m argus_skill.verticals.path_evidence --project-root . "
+         "--glob 'mission/SETUP.md' --glob 'SETUP.md' --glob '*SETUP*.md'"),
         ("GROUND_TRUTH.md exists with content",
          "test -s research/GROUND_TRUTH.md"),
     ],
     "optimize": [
         _PIPELINE_CHECK,
         ("At least one attempt scaffolded",
-         "ls attempts/*/*.py experiments/*/*.py 2>/dev/null | head -1 | grep -q ."),
+         "{python} -m argus_skill.verticals.path_evidence --project-root . "
+         "--glob 'attempts/*/*.py' --glob 'experiments/*/*.py'"),
     ],
     "measure": [
         _PIPELINE_CHECK,
         ("At least one timed-to-target run recorded",
-         "find attempts experiments -name '*.csv' -size +0c 2>/dev/null | head -1 | grep -q . "
-         "|| grep -rlsq -iE 'val_loss|seconds_to_target|wall_seconds|3\\.28' "
-         "experiments attempts research 2>/dev/null"),
+         "{python} -m argus_skill.verticals.metric_evidence nanogpt --project-root ."),
     ],
     "report": [
         _PIPELINE_CHECK,

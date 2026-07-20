@@ -18,6 +18,7 @@ import { initialProjectSelection, interactiveStartup } from './initialProject.js
 import type { ProjectSelection } from '../../core/src/projects.js';
 import { projectsForLaunchCwd } from '../../core/src/projects.js';
 import { openWebBrowser, webUiUrl } from './webLaunch.js';
+import { createImeCursorOutput, ImeCursorProvider } from './imeCursor.js';
 
 async function resolveProject(base: ApiClient, given?: string): Promise<ProjectSelection> {
   return initialProjectSelection(await base.listProjects(), given);
@@ -244,7 +245,14 @@ async function main() {
 
   // Interactive: render immediately; connect in the background (smooth startup).
   const canAnimate = !!process.stdout.isTTY && !process.env.NO_COLOR && !process.env.CI;
-  render(<Boot args={args} animate={canAnimate} />, { exitOnCtrlC: false });
+  const imeCursor = createImeCursorOutput(process.stdout);
+  const instance = render(
+    <ImeCursorProvider controller={imeCursor.controller}>
+      <Boot args={args} animate={canAnimate} />
+    </ImeCursorProvider>,
+    { exitOnCtrlC: false, stdout: imeCursor.stdout },
+  );
+  void instance.waitUntilExit().finally(imeCursor.dispose);
 }
 
 /** Headless data-chain smoke: prove REST + WS work without the render layer. */

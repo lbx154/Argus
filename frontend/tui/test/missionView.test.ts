@@ -22,14 +22,12 @@ function snapshot(): Snapshot {
       pid: 1,
       uptime_seconds: 10,
       backend: 'codex',
-      per_mission_cap_usd: 30,
-      daily_cap_usd: 50,
       global_daily_cap_usd: 200,
     },
     roles: [
       { role: 'engineer', backend: 'codex', backend_label: 'Codex', model: 'gpt', effort: 'high', active: true, label: 'Profiling', status: 'active', age_s: 0 },
     ],
-    backlog: [{ id: 'task-1', title: 'Kernel v7', objective: 'Optimize kernel', status: 'running', priority: 1, max_cost_usd: 30, deps: [] }],
+    backlog: [{ id: 'task-1', title: 'Kernel v7', objective: 'Optimize kernel', status: 'running', priority: 1, deps: [] }],
     recent_events: [],
     mission_view: emptyMissionView(),
   };
@@ -179,6 +177,7 @@ test('mission projector keeps completion, stage certification, and no-go indepen
       stage_certification: 'not_certified',
       scientific_decision: 'no_go',
       failure_source: 'scientific_evidence_failure',
+      failure_layer: 'evaluator',
       interruption_kind: 'none',
       resumable: false,
     },
@@ -186,6 +185,7 @@ test('mission projector keeps completion, stage certification, and no-go indepen
   assert.equal(view.mission.status, 'complete');
   assert.equal(view.outcome.stage_certification, 'not_certified');
   assert.equal(view.outcome.scientific_decision, 'no_go');
+  assert.equal(view.outcome.failure_layer, 'evaluator');
 });
 
 test('mission projector forces life.mission.failed to failed even with malformed completion fields', () => {
@@ -224,12 +224,12 @@ test('idle snapshot clears stale role activity from historical events', () => {
   assert.equal(view.roles.find((role) => role.role === 'manager')?.status, 'waiting');
 });
 
-test('budget summary is always visible with spent and daily cap', () => {
+test('budget summary is always visible with global spend and cap', () => {
   assert.equal(
-    budgetSummary(0.26285125, 'priced', 50, 300, true),
-    '$0.26 spent / $50 daily · $300 global',
+    budgetSummary(0.26285125, 'priced', 300),
+    '$0.26 spent / $300 global daily',
   );
-  assert.equal(budgetSummary(null, 'empty', 50, 300, false), '$0.00 spent / $50 daily');
+  assert.equal(budgetSummary(null, 'empty', 300), '$0.00 spent / $300 global daily');
 });
 
 test('request summary includes Codex, Copilot, and premium usage', () => {

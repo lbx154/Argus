@@ -24,7 +24,6 @@ operator never has to guess which line matters.
 """
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -238,7 +237,9 @@ def _check_backend_preflight() -> Check:
             f"backend preflight raised ({type(exc).__name__}: {exc})",
             "reinstall argus-skill",
         )
-    backend = os.environ.get("ARGUS_SKILL_RUNNER_BACKEND") or "codex"
+    from ..core.knobs import resolve_role_backend
+
+    backend = resolve_role_backend("")
     if warning:
         return Check("backend preflight", False, f"{backend} backend cannot run: {warning}", warning)
     return Check(

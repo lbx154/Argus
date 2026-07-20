@@ -28,8 +28,6 @@ function daemon(sid: string, spawned: boolean, objective = ''): CreatedDaemon {
       pid: spawned ? 42 : null,
       uptime_seconds: spawned ? 0 : null,
       backend: null,
-      per_mission_cap_usd: null,
-      daily_cap_usd: null,
       global_daily_cap_usd: null,
     },
   };

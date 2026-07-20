@@ -1,0 +1,36 @@
+{
+  "figure_id": "autonomous-paper-portfolio",
+  "reader_question": "What scientific work did Argus produce, and how does the recurrent runtime connect to those outputs?",
+  "claim": "Six canonical pipelines completed across six domains through repeated role handoffs, review, rollback, and session continuation.",
+  "evidence": [
+    "paper_trajectory_summary.json",
+    "paper_scientific_findings.json"
+  ],
+  "encoding": "Six real first-page PDF thumbnails are paired with task-native scientific headlines; a separate bottom strip reports Argus production-process counts.",
+  "scope": "Observed Argus campaigns; paper-format completion is not venue acceptance or a human-quality comparison.",
+  "target_size": "12 x 5.75 inch source canvas; approximately 3.2 inches high at manuscript width",
+  "visual_style": "shared Argus anime-editorial palette, cream paper, mountain-ridge motif, reusable role characters, and fixed role colors",
+  "character_assets": [
+    "assets/anime/manager.svg",
+    "assets/anime/planner.svg",
+    "assets/anime/engineer.svg",
+    "assets/anime/reviewer.svg"
+  ],
+  "visual_assets": [
+    "assets/paper_thumbnails/bench-fragile.png",
+    "assets/paper_thumbnails/cv-compositional.png",
+    "assets/paper_thumbnails/cv-frontier.png",
+    "assets/paper_thumbnails/mm-gui.png",
+    "assets/paper_thumbnails/mm-hallucination.png",
+    "assets/paper_thumbnails/quant-vocab.png"
+  ],
+  "editable_source": [
+    "build_paper_case_study.py",
+    "paper_case_study.html"
+  ],
+  "export": [
+    "paper_case_study.pdf",
+    "paper_case_study.svg",
+    "paper_case_study.png"
+  ]
+}

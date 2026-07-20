@@ -205,13 +205,11 @@ def test_provider_budget_overrun_degrades_slo_and_exports_metrics(tmp_path: Path
             "status": "completed",
             "pricing_status": "priced",
         },
-        fields={"fence_enforcement": "unsupported", "overrun_usd": 0.02},
+        fields={"overrun_usd": 0.02},
     )
     snapshot = metrics_snapshot(root=tmp_path)
     assert snapshot["provider"]["overrun_calls"] == 1
     assert snapshot["provider"]["overrun_usd"] == 0.02
-    assert snapshot["provider"]["fences"]["unsupported"] == 1
     assert snapshot["slo"]["status"] == "degraded"
     prometheus = render_prometheus(snapshot)
     assert "argus_provider_budget_overrun_calls 1" in prometheus
-    assert 'argus_provider_fences_total{enforcement="unsupported"} 1' in prometheus

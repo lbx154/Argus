@@ -49,6 +49,13 @@ def _full_review() -> ReviewDecision:
         cached_input_tokens=2000,
         output_tokens=789,
         reasoning_output_tokens=456,
+        prompt_block_stats={
+            "static_total": {
+                "chars": 4000,
+                "bytes": 4200,
+                "estimated_tokens": 1050,
+            }
+        },
     )
 
 
@@ -81,6 +88,7 @@ def test_to_event_payload_forwards_every_structured_field() -> None:
     assert payload["cached_input_tokens"] == 2000
     assert payload["output_tokens"] == 789
     assert payload["reasoning_output_tokens"] == 456
+    assert payload["prompt_block_stats"]["static_total"]["estimated_tokens"] == 1050
     assert payload["usage_scope"] == "delta"
 
     # Caller-supplied extras passed through.

@@ -39,8 +39,8 @@ from ...core.planner_verdict import (
 from ...core.ports import EventSink
 from ...core.pricing import price_for
 from ...core.usage import project_usage_summary
-from ..mission_outcome import mission_outcome_class
 from ..memory import BacklogItem
+from ..mission_outcome import mission_outcome_class
 from ..planner_verdict_outbox import (
     OUTBOX_FILE,
     clear_planner_verdict_outbox,
@@ -54,7 +54,6 @@ from ._config import (
     LifeSupervisorConfig,
     _MemoryView,
     _MissionRunner,
-    reserve_global_daily_budget,
 )
 from ._constants import (
     FULL_PAPER_GATE_DESCRIPTION as _FULL_PAPER_GATE_DESCRIPTION,  # noqa: F401
@@ -448,6 +447,19 @@ class LifeSupervisor(
         results: list[dict[str, Any]] = []
         stopped_by: str = ""
         while True:
+            yield_provider = getattr(
+                self.config,
+                "manager_pipeline_yield_provider",
+                None,
+            )
+            if callable(yield_provider):
+                try:
+                    manager_yield = bool(yield_provider())
+                except Exception:  # noqa: BLE001 - a stale marker must not crash work
+                    manager_yield = False
+                if manager_yield:
+                    stopped_by = "manager_config_pending"
+                    break
             # Hot-reload continuous config from provider (disk, etc.)
             self._reload_continuous_config()
             stop_reason = self._maybe_stop()
@@ -514,6 +526,29 @@ class LifeSupervisor(
             if outcome is None:
                 # Backlog empty — continuous mode: ask planner for more
                 if self.config.continuous and self.config.continuous_objective:
+                    pending_questions = [
+                        item
+                        for item in self.memory.backlog.all()
+                        if str(getattr(item, "pending_question", "") or "").strip()
+                    ]
+                    if pending_questions:
+                        if self._resolve_pending_question_from_inbox(
+                            pending_questions
+                        ):
+                            continue
+                        sleep_s = self._enter_pause_backoff()
+                        self._emit({
+                            "type": "life.planner.deferred",
+                            "reason": "waiting for operator answer",
+                            "item_ids": [item.id for item in pending_questions],
+                            "suggested_sleep_s": sleep_s,
+                            "agent_layer": "planner",
+                        })
+                        self._emit_status(
+                            "planner deferred: waiting for operator answer"
+                        )
+                        stopped_by = "pending_operator_question"
+                        break
                     manager_rollback = (
                         self._consume_manager_blocked_rollback_before_planner()
                     )
@@ -761,13 +796,8 @@ class LifeSupervisor(
         if obsolete_final_submission is not None:
             return obsolete_final_submission
 
-        memory_global_root = getattr(self.memory, "global_root", None)
-        budget_global_root = (
-            Path(memory_global_root) if memory_global_root is not None else None
-        )
+        budget_global_root = self._budget_global_root()
         ok, reason = self.config.budget.can_start(
-            item=item,
-            journal=self.memory.journal,
             global_root=budget_global_root,
         )
         if not ok:
@@ -815,31 +845,14 @@ class LifeSupervisor(
         if lifecycle_block is not None:
             return lifecycle_block
 
-        reservation, reserve_reason = reserve_global_daily_budget(
-            cap_usd=self.config.budget.global_daily_cap_usd,
-            amount_usd=self._effective_per_mission_cap(item),
-            global_root=budget_global_root,
-            owner=item.id,
-        )
-        if reservation is None:
-            self._emit_status(f"budget block: {reserve_reason}")
-            self._emit({
-                "type": EventType.LIFE_BUDGET_PAUSE,
-                "item_id": item.id,
-                "title": item.title,
-                "reason": reserve_reason,
-                "agent_layer": "supervisor",
-            })
-            return {
-                "status": "paused_budget",
-                "item_id": item.id,
-                "reason": reserve_reason,
-                "recoverable": True,
-            }
-        try:
-            return self._run_one(item)
-        finally:
-            reservation.release()
+        return self._run_one(item)
+
+    def _budget_global_root(self) -> Path:
+        configured = getattr(self.memory, "global_root", None)
+        if configured is not None:
+            return Path(configured).expanduser()
+        root = Path(getattr(self.memory, "root", ".")).expanduser()
+        return root.parent.parent if root.parent.name == "projects" else root
 
     def _maybe_skip_inapplicable_final_submission_item(
         self,
@@ -883,12 +896,6 @@ class LifeSupervisor(
     # ------------------------------------------------------------------
     # One mission
     # ------------------------------------------------------------------
-
-    def _effective_per_mission_cap(self, item: BacklogItem) -> float:
-        """The cap enforced for ``item`` (min of operator per-item budget and the
-        global per-mission cap). Delegates to ``LifeBudget`` so the preflight
-        ``can_start`` check and the mid-mission breaker use one number (F3)."""
-        return self.config.budget.effective_per_mission_cap(item)
 
     def _planner_verdict_metadata(self) -> dict[str, Any]:
         project = getattr(self.memory, "project", None)
@@ -1076,7 +1083,44 @@ class LifeSupervisor(
         except Exception:  # noqa: BLE001
             log.exception("life supervisor: event sink raised")
             return False
-        return accepted is not False
+        delivered = accepted is not False
+        if delivered and str(event.get("type") or "") == EventType.LIFE_BUDGET_PAUSE:
+            self._publish_budget_pause_message(event)
+        return delivered
+
+    def _publish_budget_pause_message(self, event: dict[str, Any]) -> None:
+        """Surface a durable, deduplicated budget pause in the Manager chat."""
+        try:
+            import hashlib
+
+            from ...core.operator_messages import publish_operator_message
+
+            project = getattr(self.memory, "project", None)
+            life_dir = getattr(project, "root", None) or getattr(self.memory, "root", None)
+            if life_dir is None:
+                return
+            item_id = str(event.get("item_id") or "")
+            title = str(event.get("title") or "current task").strip()
+            reason = str(event.get("reason") or "budget cap reached").strip()
+            signature = hashlib.sha256(f"{item_id}\0{reason}".encode("utf-8")).hexdigest()[:16]
+            text = (
+                "Budget pause · 预算不足，任务已暂停。\n"
+                f"Task: {title}\n"
+                f"Reason: {reason}\n"
+                "任务状态与 CHECKPOINT.md 已保留；提高项目预算后可以继续。"
+            )
+            publish_operator_message(
+                life_dir,
+                text=text,
+                message_id=f"budget-pause-{signature}",
+                event_fields={
+                    "budget_pause": True,
+                    "item_id": item_id,
+                    "reason": reason,
+                },
+            )
+        except Exception:  # noqa: BLE001 - alerting must not break supervision
+            log.exception("life supervisor: failed to publish budget pause chat alert")
 
     def _emit_status(self, text: str) -> None:
         self._emit({"type": "life.status", "text": text})

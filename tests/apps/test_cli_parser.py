@@ -41,6 +41,17 @@ def test_parser_has_only_wiki_subcommand():
     assert args.project == "demo"
 
 
+def test_parser_accepts_stage_targeted_notify() -> None:
+    args = build_parser().parse_args([
+        "--notify",
+        "profile after certification",
+        "--notify-stage",
+        "optimize",
+    ])
+    assert args.notify == "profile after certification"
+    assert args.notify_stage == "optimize"
+
+
 def test_parser_accepts_wiki_ingest_subcommand(tmp_path: Path):
     p = build_parser()
     wiki = tmp_path / ".autors" / "demo" / "wiki"
@@ -197,6 +208,12 @@ def test_parser_model_api_flags_present():
     assert p.parse_args(["--init-model-api"]).init_model_api is True
 
 
+def test_parser_ppt_master_flags_present():
+    p = build_parser()
+    assert p.parse_args(["--install-ppt-master"]).install_ppt_master is True
+    assert p.parse_args(["--ppt-master-status"]).ppt_master_status is True
+
+
 def test_parser_export_builtin_skills_flag_present():
     p = build_parser()
     assert (
@@ -224,6 +241,7 @@ def test_main_exports_builtin_skills(
     assert (target / "engineer/auto-research-pipeline.md").exists()
     assert (target / "engineer/emnlp-paper-drafting.md").exists()
     assert (target / "engineer/arxiv-paper-search.md").exists()
+    assert (target / "engineer/research-visualization-router.md").exists()
     assert "exported built-in skills" in out
     assert str(target) in out
 
@@ -259,6 +277,25 @@ def test_main_rejects_continuous_on_memory_backend_for_daemon(
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "memory")
     rc = main(["--daemon", "--continuous", "--objective", "hardening objective"])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "cannot plan" in err
+
+
+def test_main_rejects_continuous_on_persisted_memory_backend(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from argus_skill.core.knob_store import write_persisted_knob
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_LIFE_BACKEND", raising=False)
+    assert write_persisted_knob("ARGUS_SKILL_LIFE_BACKEND", "memory")
+
+    rc = main(["--continuous", "--objective", "hardening objective"])
+
     err = capsys.readouterr().err
     assert rc == 2
     assert "cannot plan" in err

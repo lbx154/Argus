@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from argus_skill.verticals.quant.portfolio import book_returns, sharpe_maxdd, to_weights
 
@@ -15,6 +16,18 @@ def test_weights_dollar_neutral_gross_one_and_capped():
     assert np.abs(w).max() <= 0.05 + 1e-9   # cap respected
     # monotone: highest score gets the most positive weight
     assert np.argmax(w) == np.argmax(s)
+
+
+def test_cap_is_preserved_after_full_investment():
+    w = to_weights(np.arange(6.0), max_weight=0.18)
+    assert abs(w.sum()) < 1e-9
+    assert abs(np.abs(w).sum() - 1.0) < 1e-9
+    assert np.abs(w).max() <= 0.18 + 1e-9
+
+
+def test_infeasible_cap_raises_instead_of_silently_breaking_it():
+    with pytest.raises(ValueError, match="infeasible"):
+        to_weights(np.arange(5.0), max_weight=0.1)
 
 
 def test_nan_scores_get_zero_weight():
@@ -53,3 +66,14 @@ def test_book_returns_and_sharpe():
     assert net[1] == 0.5 * 0.01                     # no turnover (same book), 0.005
     sh, dd = sharpe_maxdd(net, periods_per_year=12.0)
     assert sh > 0 and dd <= 0.0
+
+
+def test_book_returns_rejects_misaligned_periods_and_shapes():
+    with pytest.raises(ValueError, match="same number"):
+        book_returns(
+            [np.array([1.0]), np.array([1.0])],
+            [np.array([0.1])],
+            cost=0.0,
+        )
+    with pytest.raises(ValueError, match="differ at rebalance"):
+        book_returns([np.array([0.5, -0.5])], [np.array([0.1])], cost=0.0)

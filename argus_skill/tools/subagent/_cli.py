@@ -27,6 +27,7 @@ from ._core import (
     _run_direct,
     _run_supervised,
     _write_task,
+    reconcile_terminal_task,
 )
 
 
@@ -204,14 +205,10 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(json.dumps({"error": f"task '{args.task_id}' not found"}))
         return 2
 
-    # Update state if process died without writing final report.
+    # The command wrapper writes its own exit sidecar. This lets status recover
+    # the real terminal state even if the forked Python worker/Engineer vanished.
+    task = reconcile_terminal_task(args.task_id, task)
     pid = task.get("pid", 0)
-    if task.get("state") in ("running", "starting"):
-        if pid and not _core._is_pid_alive(pid):
-            task["state"] = "crashed"
-            task["error"] = f"sub-agent process {pid} no longer running"
-            task["completed_at"] = time.time()
-            _write_task(args.task_id, task)
 
     # Enrich with a live-process flag and run-directory progress so a single
     # poll tells the engineer whether the job is alive and advancing, without
@@ -253,12 +250,8 @@ def cmd_list(_args: argparse.Namespace) -> int:
 
     # Update crashed tasks
     for task in tasks:
-        if task.get("state") == "running":
-            pid = task.get("pid", 0)
-            if pid and not _core._is_pid_alive(pid):
-                task["state"] = "crashed"
-                task["error"] = f"process {pid} no longer running"
-                _write_task(task["task_id"], task)
+        if task.get("state") in {"running", "starting", "preflight"}:
+            reconcile_terminal_task(str(task.get("task_id") or ""), task)
 
     # Summary table
     running = [t for t in tasks if t.get("state") == "running"]
@@ -299,7 +292,8 @@ def cmd_wait(args: argparse.Namespace) -> int:
         if task is None:
             print(json.dumps({"error": f"task '{args.task_id}' not found"}))
             return 1
-        if task.get("state") not in ("running", "starting"):
+        task = reconcile_terminal_task(args.task_id, task)
+        if task.get("state") not in ("running", "starting", "preflight"):
             print(json.dumps(task, indent=2))
             return 1 if task.get("state") in _FAILED_STATES else 0
         time.sleep(5)

@@ -18,9 +18,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.core.session import SessionMeta, write_session_meta
+from argus_skill.core.session import (
+    SessionMeta,
+    read_session_meta,
+    write_session_meta,
+)
 from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.manager import Manager, config_intent, dispatch, front_door
+from argus_skill.manager.domain_author import VerticalDecision
 from argus_skill.webapi import manager_bridge, project_state, server
 
 fastapi = pytest.importorskip("fastapi")
@@ -556,6 +561,61 @@ def test_message_task_lazily_spawns_daemon(client: TestClient, monkeypatch) -> N
     assert "daemon" in body
 
 
+def test_manager_handoff_failure_persists_and_streams_error_reply(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    sid = "s-handoff-failure"
+    life = _make_project(tmp_path, sid)
+    manager_bridge._STATES.clear()
+
+    class _FailingManager:
+        def decide_vertical(self, text, **kwargs):
+            raise RuntimeError("provider quota reached")
+
+    monkeypatch.setattr(
+        config_intent,
+        "_front_door_classify",
+        lambda *args, **kwargs: (None, None, "complex"),
+    )
+    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        front_door,
+        "_ensure_manager_runner",
+        lambda *args, **kwargs: SimpleNamespace(manager=_FailingManager()),
+    )
+    fragments: list[tuple[str, dict]] = []
+
+    result = manager_bridge.manager_message(
+        sid,
+        "why no reply",
+        global_root=tmp_path,
+        on_fragment=lambda kind, payload: fragments.append((kind, payload)),
+    )
+
+    assert result["kind"] == "error"
+    assert "provider quota reached" in result["reply"]
+    assert LifeMemory.open(life).backlog.all() == []
+    transcript = [
+        json.loads(line)
+        for line in (life / "transcript.jsonl").read_text().splitlines()
+    ]
+    assert transcript[-1]["role"] == "argus"
+    assert transcript[-1]["text"] == result["reply"]
+    assert any(
+        kind == "delta" and payload.get("text") == result["reply"]
+        for kind, payload in fragments
+    )
+    events = [
+        json.loads(line)
+        for line in (life / "events.jsonl").read_text().splitlines()
+    ]
+    assert any(
+        event.get("type") == "ui.argus" and event.get("text") == result["reply"]
+        for event in events
+    )
+
+
 def test_active_mission_message_cannot_enqueue_even_if_classified_team(
     tmp_path: Path, monkeypatch,
 ) -> None:
@@ -777,7 +837,7 @@ def test_team_message_runs_manager_lifetime_decision_before_enqueue(
     assert result["continuous"] is True
 
 
-def test_explicit_math_vertical_web_enqueue_enters_backlog(
+def test_manager_decided_math_vertical_web_enqueue_enters_backlog(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -792,7 +852,18 @@ def test_explicit_math_vertical_web_enqueue_enters_backlog(
         lambda *args, **kwargs: "exploratory",
     )
 
-    monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "math")
+    monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
+    monkeypatch.setattr(
+        manager,
+        "decide_vertical",
+        lambda task, **kwargs: VerticalDecision(
+            choice="existing",
+            vertical="math",
+            workflow_mode="direct",
+            execution_task=task,
+            research_target_level="exploratory",
+        ),
+    )
     monkeypatch.setattr(
         config_intent,
         "_front_door_classify",
@@ -894,7 +965,7 @@ def test_message_unknown_project_404(client: TestClient, monkeypatch) -> None:
     assert client.post("/api/projects/s-nope/message", json={"text": "hi"}).status_code == 404
 
 
-def test_pending_answer_bypasses_manager_and_continues_blocked_task(
+def test_pending_answer_routes_through_manager_and_continues_blocked_task(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -905,10 +976,19 @@ def test_pending_answer_bypasses_manager_and_continues_blocked_task(
         objective="Write the camera-ready paper",
         tags=["paper"],
         iterate=False,
-        iteration_budget_usd=12.0,
     )
     blocked.pending_question = "Should the appendix be included?"
     mem.backlog.add(blocked)
+    monkeypatch.setattr(
+        front_door,
+        "manager_triage",
+        lambda *args, **kwargs: json.dumps({
+            "is_answer": True,
+            "resolved": True,
+            "decision": "Include the appendix after the references.",
+            "reply": "I have sent that decision to the team.",
+        }),
+    )
     started: list[str] = []
     monkeypatch.setattr(
         server,
@@ -931,12 +1011,20 @@ def test_pending_answer_bypasses_manager_and_continues_blocked_task(
     original = next(item for item in items if item.id == blocked.id)
     continuation = next(item for item in items if item.id == payload["item"]["id"])
     assert original.pending_question == ""
-    assert "Operator reply to blocked question" in continuation.objective
+    assert "Operator response" in continuation.objective
     assert "include it after the references" in continuation.objective
+    assert "Manager interpretation and continuation decision" in continuation.objective
+    assert "Include the appendix after the references" in continuation.objective
     assert continuation.iterate is False
-    assert continuation.iteration_budget_usd == 12.0
-    assert continuation.tags == ["paper", "operator-reply"]
-    assert not (life / "inbox.jsonl").exists()
+    assert continuation.tags == [
+        "paper", "operator-reply", "manager-approved",
+    ]
+    assert "MANAGER OPERATOR-ANSWER DECISION" in (
+        life / "inbox.jsonl"
+    ).read_text(encoding="utf-8")
+    assert "life.operator_question.answered" in (
+        life / "events.jsonl"
+    ).read_text(encoding="utf-8")
 
     duplicate = client.post(
         f"/api/projects/s-msgtest0/backlog/{blocked.id}/answer",
@@ -946,11 +1034,24 @@ def test_pending_answer_bypasses_manager_and_continues_blocked_task(
     assert len(LifeMemory.open(life).backlog.all()) == 2
 
 
-def test_concurrent_pending_answers_create_one_continuation(tmp_path: Path) -> None:
+def test_concurrent_pending_answers_create_one_continuation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     life = _make_project(tmp_path)
     blocked = BacklogItem.new(title="Blocked", objective="Original objective")
     blocked.pending_question = "Choose A or B?"
     LifeMemory.open(life).backlog.add(blocked)
+    monkeypatch.setattr(
+        front_door,
+        "manager_triage",
+        lambda *args, **kwargs: json.dumps({
+            "is_answer": True,
+            "resolved": True,
+            "decision": "Use the operator-selected option.",
+            "reply": "Decision delivered.",
+        }),
+    )
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(
@@ -966,6 +1067,105 @@ def test_concurrent_pending_answers_create_one_continuation(tmp_path: Path) -> N
     assert sum(bool(result and result.get("item")) for result in results) == 1
     assert sum(bool(result and result.get("error")) for result in results) == 1
     assert len(LifeMemory.open(life).backlog.all()) == 2
+
+
+def test_manager_message_resolves_single_pending_question(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    life = _make_project(tmp_path)
+    blocked = BacklogItem.new(title="Choose GPU", objective="Run the matrix")
+    blocked.status = "failed"
+    blocked.pending_question = "Which GPU may I use?"
+    LifeMemory.open(life).backlog.add(blocked)
+    monkeypatch.setattr(
+        front_door,
+        "manager_triage",
+        lambda *args, **kwargs: json.dumps({
+            "is_answer": True,
+            "resolved": True,
+            "decision": "Use GPU 1 through the project allocation contract.",
+            "reply": "GPU 1 is now authorized for the continuation.",
+        }),
+    )
+
+    result = manager_bridge.manager_message(
+        "s-msgtest0",
+        "Use GPU 1.",
+        global_root=tmp_path,
+    )
+
+    assert result["kind"] == "pending_question"
+    assert result["resolved"] is True
+    assert result["answered_item_id"] == blocked.id
+    rows = LifeMemory.open(life).backlog.all()
+    assert len(rows) == 2
+    assert next(row for row in rows if row.id == blocked.id).pending_question == ""
+
+
+def test_non_answer_message_falls_through_without_clearing_pending_question(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    life = _make_project(tmp_path)
+    blocked = BacklogItem.new(title="Choose GPU", objective="Run the matrix")
+    blocked.status = "failed"
+    blocked.pending_question = "Which GPU may I use?"
+    LifeMemory.open(life).backlog.add(blocked)
+    monkeypatch.setattr(
+        front_door,
+        "manager_triage",
+        lambda *args, **kwargs: json.dumps({
+            "is_answer": False,
+            "resolved": False,
+            "decision": "",
+            "reply": "",
+        }),
+    )
+
+    result = manager_bridge.manager_message(
+        "s-msgtest0",
+        "What is the status?",
+        global_root=tmp_path,
+    )
+
+    assert result["kind"] == "chat"
+    rows = LifeMemory.open(life).backlog.all()
+    assert len(rows) == 1
+    assert rows[0].pending_question == "Which GPU may I use?"
+
+
+def test_manager_keeps_pending_question_when_answer_is_insufficient(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    life = _make_project(tmp_path)
+    blocked = BacklogItem.new(title="Choose GPU", objective="Run the matrix")
+    blocked.status = "failed"
+    blocked.pending_question = "Which GPU may I use?"
+    LifeMemory.open(life).backlog.add(blocked)
+    monkeypatch.setattr(
+        front_door,
+        "manager_triage",
+        lambda *args, **kwargs: json.dumps({
+            "is_answer": True,
+            "resolved": False,
+            "decision": "",
+            "reply": "Please provide the approved GPU number.",
+        }),
+    )
+
+    result = manager_bridge.manager_message(
+        "s-msgtest0",
+        "Use one of the free cards.",
+        global_root=tmp_path,
+    )
+
+    assert result["kind"] == "pending_question"
+    assert result["resolved"] is False
+    rows = LifeMemory.open(life).backlog.all()
+    assert len(rows) == 1
+    assert rows[0].pending_question == "Which GPU may I use?"
 
 
 # ── streaming front-door: POST /message/stream (Server-Sent Events) ──────────
@@ -1236,7 +1436,9 @@ def test_direct_task_names_an_idle_session_from_its_first_task(
     session = json.loads(
         (tmp_path / "projects" / created["sid"] / "session.json").read_text()
     )
-    assert session["display_name"].casefold() == "first direct task"
+    display_name = session["display_name"].strip().casefold()
+    assert display_name
+    assert "direct task" in display_name
 
 
 def test_create_daemon_without_objective_is_idle(tmp_path: Path, monkeypatch) -> None:
@@ -1255,6 +1457,22 @@ def test_create_daemon_without_objective_is_idle(tmp_path: Path, monkeypatch) ->
     assert spawned == []  # no fork
     assert (tmp_path / "projects" / sid / "session.json").exists()
     assert not (tmp_path / "projects" / sid / "continuous.json").exists()  # no campaign armed
+
+
+def test_create_daemon_never_overwrites_global_budget(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    config = tmp_path / "config.json"
+    config.write_text(
+        json.dumps({"ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "4321"}),
+        encoding="utf-8",
+    )
+
+    server.create_daemon(global_root=tmp_path)
+
+    assert json.loads(config.read_text())["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"] == "4321"
 
 
 def test_create_daemon_at_cap_returns_replacement_candidates(
@@ -1317,16 +1535,19 @@ def test_web_daemon_config_uses_resolved_role_models_and_efforts(
     monkeypatch.setenv("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "high")
     monkeypatch.setenv("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "xhigh")
     monkeypatch.setenv("ARGUS_SKILL_PLANNER_TASK_ITERATION_MAX_CYCLES", "9")
-    monkeypatch.setenv("ARGUS_SKILL_PLANNER_TASK_ITERATION_BUDGET_USD", "1234")
     life_dir = tmp_path / "life"
+    life_dir.mkdir()
+    write_session_meta(
+        tmp_path,
+        SessionMeta(id=life_dir.name, cwd=str(life_dir), workdir=str(life_dir)),
+    )
     cfg = server._worker_config_from_env(life_dir, tmp_path)
-    assert cfg.project_workdir == life_dir
+    assert cfg.project_workdir == life_dir.resolve()
     assert cfg.engineer_model == "engineer-model"
     assert cfg.reviewer_model == "reviewer-model"
     assert cfg.engineer_reasoning_effort == "high"
     assert cfg.reviewer_reasoning_effort == "xhigh"
     assert cfg.planner_task_iteration_max_cycles == 9
-    assert cfg.planner_task_iteration_budget_usd == 1234.0
 
 
 def test_web_daemon_config_uses_persisted_session_workdir(tmp_path: Path) -> None:
@@ -1369,6 +1590,57 @@ def test_web_daemon_config_does_not_migrate_legacy_launch_cwd(
     assert cfg.project_workdir == life_dir.resolve()
 
 
+def test_web_daemon_config_migrates_legacy_daemon_workdir(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    sid = "legacy-workdir"
+    life_dir = tmp_path / "projects" / sid
+    workspace = tmp_path / "workspace"
+    life_dir.mkdir(parents=True)
+    workspace.mkdir()
+    monkeypatch.setattr(
+        server,
+        "read_daemon_status",
+        lambda _path: SimpleNamespace(project_workdir=str(workspace)),
+    )
+
+    cfg = server._worker_config_from_env(life_dir, tmp_path)
+    meta = read_session_meta(tmp_path, sid)
+
+    assert cfg.project_workdir == workspace.resolve()
+    assert meta is not None
+    assert meta.workdir == str(workspace.resolve())
+
+
+def test_web_daemon_config_refuses_legacy_session_without_workdir(
+    tmp_path: Path,
+) -> None:
+    sid = "legacy-without-workdir"
+    life_dir = tmp_path / "projects" / sid
+    life_dir.mkdir(parents=True)
+
+    with pytest.raises(FileNotFoundError, match="no trustworthy workdir"):
+        server._worker_config_from_env(life_dir, tmp_path)
+
+    assert read_session_meta(tmp_path, sid) is None
+
+
+def test_web_daemon_start_reports_legacy_session_without_workdir(
+    tmp_path: Path,
+) -> None:
+    sid = "legacy-without-workdir"
+    life_dir = tmp_path / "projects" / sid
+    life_dir.mkdir(parents=True)
+
+    result = server.start_project_daemon(sid, global_root=tmp_path)
+
+    assert result is not None
+    assert result["rc"] == 3
+    assert "no trustworthy workdir" in result["error"]
+    assert read_session_meta(tmp_path, sid) is None
+
+
 def test_web_daemon_config_honors_persisted_runner_backend(
     tmp_path: Path, monkeypatch,
 ) -> None:
@@ -1380,6 +1652,12 @@ def test_web_daemon_config_honors_persisted_runner_backend(
         lambda: {"ARGUS_SKILL_RUNNER_BACKEND": "copilot"},
     )
 
-    cfg = server._worker_config_from_env(tmp_path / "life", tmp_path)
+    life_dir = tmp_path / "life"
+    life_dir.mkdir()
+    write_session_meta(
+        tmp_path,
+        SessionMeta(id=life_dir.name, cwd=str(life_dir), workdir=str(life_dir)),
+    )
+    cfg = server._worker_config_from_env(life_dir, tmp_path)
 
     assert cfg.backend == "copilot"

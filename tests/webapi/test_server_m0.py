@@ -401,8 +401,6 @@ def test_build_snapshot_shape_and_failsoft(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_PER_MISSION_CAP_USD", "7.5")
-    monkeypatch.setenv("ARGUS_SKILL_DAILY_CAP_USD", "19.25")
     monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "55")
     _make_project(tmp_path)
     snap = server.build_snapshot("s-testaaaa", global_root=tmp_path)
@@ -410,6 +408,7 @@ def test_build_snapshot_shape_and_failsoft(
     assert set(snap) == {
         "schema_version", "session", "daemon", "roles", "backlog",
         "recent_events", "spend_usd", "spend_status", "usage_summary",
+        "global_spend_usd", "global_spend_status", "global_usage_summary",
         "request_usage", "cost_control", "daemon_commands", "observability",
         "mission_view", "partial", "diagnostics",
     }
@@ -426,12 +425,11 @@ def test_build_snapshot_shape_and_failsoft(
     assert len(snap["recent_events"]) == 2
     assert snap["backlog"][0]["title"] == "do X"
     assert snap["daemon"]["alive"] is False  # no daemon running
-    assert snap["daemon"]["per_mission_cap_usd"] == 7.5
-    assert snap["daemon"]["daily_cap_usd"] == 19.25
     assert snap["daemon"]["global_daily_cap_usd"] == 55.0
     assert snap["spend_usd"] is None
     assert snap["spend_status"] == "empty"
     assert snap["usage_summary"]["call_count"] == 0
+    assert snap["global_usage_summary"]["call_count"] == 0
     # unknown project → None (not an exception)
     assert server.build_snapshot("s-nope", global_root=tmp_path) is None
 
@@ -515,7 +513,7 @@ def test_build_snapshot_marks_failsoft_sections_partial(
     assert snap["partial"] is True
     assert snap["daemon"]["read_status"] == "error"
     assert snap["daemon"]["read_error"] == "status sidecar is unreadable"
-    assert "daily_cap_usd" in snap["daemon"]
+    assert "global_daily_cap_usd" in snap["daemon"]
     assert snap["diagnostics"] == [{
         "section": "daemon",
         "error_type": "RuntimeError",

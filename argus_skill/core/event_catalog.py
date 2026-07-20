@@ -53,7 +53,6 @@ class EventType(StrEnum):
     BUDGET_RESERVATION_SETTLED = "budget.reservation.settled"
     BUDGET_RESERVATION_RELEASED = "budget.reservation.released"
     BUDGET_UNPRICED_BLOCKED = "budget.unpriced.blocked"
-    BUDGET_FENCE_BREACH_BLOCKED = "budget.fence_breach.blocked"
     LOOP_START = "loop.start"
     LOOP_DONE = "loop.done"
     ROUND_START = "round.start"
@@ -103,6 +102,8 @@ class EventType(StrEnum):
     LIFE_LIFECYCLE_TRANSITION = "life.lifecycle.transition"
     LIFE_INBOX_QUEUED = "life.inbox.queued"
     LIFE_INBOX_DRAINED = "life.inbox.drained"
+    LIFE_OPERATOR_QUESTION_PENDING = "life.operator_question.pending"
+    LIFE_OPERATOR_QUESTION_ANSWERED = "life.operator_question.answered"
     LIFE_DAEMON_IDLE_TIMEOUT = "life.daemon.idle_timeout"
     DAEMON_PARKED = "daemon.parked"
     DAEMON_COMMAND_SUBMITTED = "daemon.command.submitted"
@@ -122,6 +123,8 @@ class EventType(StrEnum):
     SKILL_UPDATED = "skill.updated"
     SKILL_ARCHIVED = "skill.archived"
     SKILL_OUTCOME = "skill.outcome"
+    SKILL_TRANSFER_STARTED = "skill.transfer.started"
+    SKILL_TRANSFER_COMPLETED = "skill.transfer.completed"
     SKILL_SCIENTIST_STARTED = "skill.scientist.started"
     SKILL_SCIENTIST_CREATED = "skill.scientist.created"
     SKILL_SCIENTIST_ADAPTATION_STARTED = "skill.scientist.adaptation_started"
@@ -145,6 +148,7 @@ class EventType(StrEnum):
     WIKI_COMPACT_ERROR = "wiki.compact.error"
     WIKI_OP_ERROR = "wiki.op.error"
     WIKI_OP_REJECTED = "wiki.op.rejected"
+    WIKI_REVIEWER_DIRECT_WRITE_REVERTED = "wiki.reviewer_direct_write_reverted"
     WIKI_CREATED = "wiki.created"
     WIKI_UPDATED = "wiki.updated"
     WIKI_RETIRED = "wiki.retired"
@@ -185,6 +189,8 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.SKILL_UPDATED,
     EventType.SKILL_ARCHIVED,
     EventType.SKILL_OUTCOME,
+    EventType.SKILL_TRANSFER_STARTED,
+    EventType.SKILL_TRANSFER_COMPLETED,
     EventType.SKILL_SCIENTIST_STARTED,
     EventType.SKILL_SCIENTIST_CREATED,
     EventType.SKILL_SCIENTIST_ADAPTATION_STARTED,
@@ -208,6 +214,7 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.WIKI_COMPACT_ERROR,
     EventType.WIKI_OP_ERROR,
     EventType.WIKI_OP_REJECTED,
+    EventType.WIKI_REVIEWER_DIRECT_WRITE_REVERTED,
     EventType.WIKI_CREATED,
     EventType.WIKI_UPDATED,
     EventType.WIKI_RETIRED,
@@ -241,7 +248,6 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.LIFE_BUDGET_PAUSE,
     EventType.BUDGET_RESERVATION_DENIED,
     EventType.BUDGET_UNPRICED_BLOCKED,
-    EventType.BUDGET_FENCE_BREACH_BLOCKED,
     EventType.LIFE_LIFECYCLE_BLOCK,
     EventType.LIFE_LIFECYCLE_TRANSITION,
     EventType.PROVIDER_REQUEST_STARTED,
@@ -466,6 +472,11 @@ def normalize_event_envelope(
     out = dict(event) if isinstance(event, Mapping) else {"raw": str(event)}
     out.pop("event_validation", None)
     out.pop("canonical_type", None)
+    if canonical_event_type(out.get("type")) == EventType.LIFE_MANAGER_INTENT_COMPLETED:
+        # Daemon-boot handoffs historically predated the shared Manager intent
+        # payload and recorded the same values under intent/execution names.
+        out.setdefault("item_id", out.get("intent_id"))
+        out.setdefault("objective", out.get("execution_task"))
     out.setdefault("ts", time.time() if timestamp is None else float(timestamp))
     out.setdefault("event_schema_version", EVENT_ENVELOPE_VERSION)
     payload_schema = event_payload_schema(out.get("type"))

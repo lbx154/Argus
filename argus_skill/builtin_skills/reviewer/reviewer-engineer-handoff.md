@@ -45,6 +45,11 @@ traces or long output blocks unless one or two lines are essential for diagnosis
 
 When validation concerns an auto-research paper:
 
-- For any non-data figure failure (Figure 1, teaser, overall, method overview, framework, architecture, pipeline, schematic, qualitative/example visual, or explanatory diagram), require the paper body to include the real image-generation raster output, usually a `.png`, `.jpg`, or `.jpeg` listed in `paper/figures/IMAGE2_FIGURES.json`. Data/metric/result plots are the only figures that may remain locally scripted.
-- Explicitly reject self-drawn non-data substitutes: matplotlib, FancyBboxPatch, TikZ/manual vector redraws, SVG/PIL/HTML canvas output, screenshots, cleaned PDFs, generic raster mockups, hand-written `codex-image2` manifests without raw generation sidecars, manual-only image reviews, or other non-image-2 replacements.
-- Tell the engineer to update `paper/main.tex` and any non-data figure-generation scripts so the body uses the image-2 artifact directly. If visual quality is the problem, instruct the engineer to create the stronger prompt with `python -m argus_skill.tools.image_tool paper-prompt ...`, retain `argus-image2-paper-prompt-v1` and `paper-framework-figure-studio-pro-v3.1.4a`, regenerate/select/review image-2 attempts, and run `sync-paper-metadata`, not to redraw the figure locally. Then ask for a fresh L2 reviewer round so the relevant checklist item can be re-evaluated.
+- Review the actual visible figure. Pass it once it is readable, coherent,
+  factually correct, and good-looking enough; minor stylistic preferences are
+  not blockers.
+- Request at most one targeted visual repair for an aesthetic issue. Further
+  regeneration requires a concrete remaining defect such as unreadable text,
+  wrong content, broken rendering, or severe visual mismatch.
+- Use optional renderer metadata only to help the Engineer find the source. Its
+  absence or hash drift is not itself a Reviewer blocker.

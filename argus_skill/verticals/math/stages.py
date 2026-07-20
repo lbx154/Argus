@@ -129,6 +129,21 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             evidence_hint="a claim ledger with result class, correctness, novelty, and limitations",
         ),
         ChecklistItem(
+            id="solve.monotone-theorem-advancement",
+            statement=(
+                "When a prior proved theorem exists and the operator requires continued "
+                "strengthening, the new theorem explicitly identifies the strongest "
+                "consumed claim-ledger and lemma-graph nodes and strictly advances them "
+                "by strengthening the conclusion, weakening hypotheses, improving a "
+                "quantitative bound, or proving a missing bridge in a blocked chain."
+            ),
+            evidence_hint=(
+                "a before/after theorem comparison in research/CLAIM_LEDGER.md and "
+                "research/LEMMA_GRAPH.md; a weaker or incomparable known theorem does "
+                "not satisfy this item"
+            ),
+        ),
+        ChecklistItem(
             id="solve.mechanism-overlap-audit",
             statement=(
                 "When solve work introduces or materially refines a theorem, operator, "

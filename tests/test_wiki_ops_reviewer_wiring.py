@@ -207,6 +207,68 @@ def test_current_mission_sources_are_ingested_before_reviewer(tmp_path: Path) ->
     assert "unknown" not in source.ingested_by
 
 
+def test_direct_reviewer_wiki_page_edit_is_reverted_and_retried(
+    tmp_path: Path,
+) -> None:
+    wiki_root = _init_wiki_with_source(tmp_path)
+    card_path = wiki_root / "pages" / "techniques" / "protected.md"
+    original = (
+        "---\n"
+        "id: protected\n"
+        "type: technique\n"
+        "status: scratch\n"
+        "title: Protected\n"
+        "tags: []\n"
+        "sources: []\n"
+        "related_runs: []\n"
+        "related_projects: []\n"
+        "revisit_after: null\n"
+        "created_at: 2026-07-18\n"
+        "last_reviewed_at: 2026-07-18\n"
+        "reviewer_note: ''\n"
+        "---\n"
+    )
+    card_path.write_text(original, encoding="utf-8")
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    _queue_no_op_distill(backend)
+    backend.queue("engineer-r1", CannedResponse(message="Engineer handoff."))
+
+    def direct_edit(_prompt, _options) -> str:
+        card_path.write_text(
+            original.replace("status: scratch", "status: reviewed"),
+            encoding="utf-8",
+        )
+        return _review_with_wiki_ops(status="done", wiki_ops=[])
+
+    backend.queue(
+        "reviewer",
+        CannedResponse(message_factory=direct_edit),
+    )
+    backend.queue(
+        "reviewer",
+        CannedResponse(message=_review_with_wiki_ops(status="done", wiki_ops=[])),
+    )
+    events: list[dict] = []
+
+    outcome = _loop(tmp_path / "skills", backend, events).run(
+        "review without bypassing WikiRouter",
+        workdir=tmp_path,
+    )
+
+    assert outcome.status == "done"
+    assert card_path.read_text(encoding="utf-8") == original
+    reverted = [
+        event
+        for event in events
+        if event.get("type") == "wiki.reviewer_direct_write_reverted"
+    ]
+    assert len(reverted) == 1
+    assert reverted[0]["paths"] == [
+        ".autors/demo/wiki/pages/techniques/protected.md"
+    ]
+
+
 def test_reviewer_achievement_emits_the_authoritative_event(tmp_path: Path) -> None:
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))

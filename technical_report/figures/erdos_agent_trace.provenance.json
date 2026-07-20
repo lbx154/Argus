@@ -1,0 +1,11 @@
+{
+  "figure": "erdos_agent_trace",
+  "editable_source": "figures/erdos_agent_trace.html",
+  "evidence": "evidence/erdos_trace/trace.csv",
+  "export": "figures/erdos_vertical_trace.pdf",
+  "renderer": "figures/render_html_figure.py (headless Chrome)",
+  "target_size": "12 x 5.3 inch source canvas; approximately 3.1 inches high at manuscript width",
+  "visual_style": "shared Argus anime-editorial palette, cream paper field, reusable role characters, compact campaign panels, and mountain-ridge motif",
+  "scope": "single observational campaign; role workflow and accepted process trace",
+  "caveat": "mathematical novelty, optimality, and conjecture resolution are not claimed"
+}

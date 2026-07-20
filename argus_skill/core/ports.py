@@ -11,6 +11,7 @@ skill-agent's ``codex_exec(...)`` callable used to be. By making it a
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, Protocol
 
 from .models import RunnerOptions, RunnerResult
@@ -48,13 +49,15 @@ class SkillSource(Protocol):
     def find_relevant(
         self,
         task_description: str,
+        on_event: Callable[[dict], None] | None = None,
         *,
         role: str | None = None,
         exclude_files: set[str] | None = None,
+        force_empty_match: bool = False,
     ) -> tuple[list[Any] | None, int]:
         ...
 
-    def render_skill(self, skill: Any) -> str:
+    def render_skill(self, skill: Any, *, full: bool = False) -> str:
         """Render a skill into the prompt-injectable string form."""
         ...
 

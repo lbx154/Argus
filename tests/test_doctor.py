@@ -186,12 +186,16 @@ def test_backend_preflight_missing_binary_names_the_configured_backend(monkeypat
     assert "codex" not in check.detail
 
 
-def test_backend_preflight_defaults_to_codex_with_original_install_hint(monkeypatch):
+def test_backend_preflight_defaults_to_codex_with_original_install_hint(
+    tmp_path, monkeypatch
+):
     """The default (unset) backend keeps the exact original codex message so
     existing operators see no change."""
     from argus_skill.tools.doctor import _check_backend_preflight
 
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_LIFE_BACKEND", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BIN", raising=False)
     monkeypatch.setattr("shutil.which", lambda name: None)
 
@@ -199,6 +203,28 @@ def test_backend_preflight_defaults_to_codex_with_original_install_hint(monkeypa
     assert check.ok is False
     assert "codex" in check.detail
     assert "npm install -g @openai/codex" in check.fix
+
+
+def test_backend_preflight_uses_persisted_copilot_selection(
+    tmp_path, monkeypatch
+):
+    from argus_skill.core.knob_store import write_persisted_knob
+    from argus_skill.tools.doctor import _check_backend_preflight
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_LIFE_BACKEND", raising=False)
+    assert write_persisted_knob("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
+    monkeypatch.setattr(
+        "shutil.which",
+        lambda name: "/usr/local/bin/copilot" if name == "copilot" else None,
+    )
+
+    check = _check_backend_preflight()
+
+    assert check.ok is True
+    assert "copilot backend runnable" in check.detail
+    assert "codex" not in check.detail
 
 
 # ---------------------------------------------------------------------------

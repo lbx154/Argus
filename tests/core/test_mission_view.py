@@ -15,6 +15,28 @@ def emit(root: Path, event_type: str, ts: float, **payload) -> dict:
     return update_mission_view_event(root, {"type": event_type, "ts": ts, **payload})
 
 
+def test_manager_handoff_refreshes_stage_after_objective_update(tmp_path: Path) -> None:
+    emit(
+        tmp_path,
+        "life.manager.stage_decision",
+        1,
+        action="advance",
+        target_stage="run",
+    )
+    view = emit(
+        tmp_path,
+        "life.manager.intent.completed",
+        2,
+        intent_id="intent-updated",
+        objective="Extended standing objective",
+        vertical="research",
+        stages=["research", "plan", "benchmark", "run"],
+        current_stage="research",
+    )
+
+    assert view["stage"] == {"id": "research", "label": "Research"}
+
+
 def test_planner_terminal_event_clears_active_role(tmp_path: Path) -> None:
     view = emit(tmp_path, "life.planner.start", 1)
     assert view["active_role"] == "planner"
@@ -193,6 +215,42 @@ def test_free_text_is_display_only_and_never_changes_review_state(tmp_path: Path
     )
     assert view["review"]["status"] == ""
     assert view["primary_metric"] is None
+    assert view["active_role"] == "engineer"
+
+
+def test_new_mission_resets_prior_review_projection(tmp_path: Path) -> None:
+    emit(
+        tmp_path,
+        "life.mission.started",
+        1,
+        item_id="mission-1",
+        title="First mission",
+        objective="Complete the first mission",
+    )
+    emit(
+        tmp_path,
+        "round.review.completed",
+        2,
+        round_index=1,
+        status="done",
+        reason="First mission accepted.",
+    )
+
+    view = emit(
+        tmp_path,
+        "life.mission.started",
+        3,
+        item_id="mission-2",
+        title="Second mission",
+        objective="Complete the second mission",
+    )
+
+    roles = {role["role"]: role for role in view["roles"]}
+    assert view["mission"]["id"] == "mission-2"
+    assert view["review"] == {"status": "", "reason": "", "rejected_attempts": 0}
+    assert roles["reviewer"]["status"] == "waiting"
+    assert roles["reviewer"]["label"] == "Awaiting engineer handoff"
+    assert roles["engineer"]["status"] == "active"
     assert view["active_role"] == "engineer"
 
 

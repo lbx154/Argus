@@ -56,7 +56,20 @@ class PlanningContextMixin:
             # and re-plan it forever. Normalize at the enqueue boundary; the
             # old skip path remains as migration support for persisted rows.
             scope = PLANNER_SCOPE_BOUNDED
-        return ["planner", f"scope:{scope}"]
+        tags = ["planner", f"scope:{scope}"]
+        if scope == PLANNER_SCOPE_BOUNDED:
+            tags.append("bounded_dag_node")
+        if bool(getattr(task, "stage_closing", False)):
+            tags.extend(["stage_closing", "review:required"])
+        return tags
+
+    @staticmethod
+    def _item_requires_independent_review(item: BacklogItem) -> bool:
+        return any(
+            str(tag).strip().lower().replace("-", "_")
+            in {"review:required", "independent_review:required"}
+            for tag in item.tags
+        )
 
     def _planner_authorization_prompt_block(self) -> str:
         try:
@@ -156,11 +169,19 @@ class PlanningContextMixin:
         context_refs = [
             ref for ref in getattr(item, "context_refs", []) if isinstance(ref, dict)
         ]
+        acceptance_check = str(getattr(item, "acceptance_check", "") or "").strip()
+        non_goals = [
+            str(value).strip()
+            for value in getattr(item, "non_goals", [])
+            if str(value).strip()
+        ]
         if (
             not scope
             and not item.tags
             and not getattr(item, "plan_id", "")
             and not context_refs
+            and not acceptance_check
+            and not non_goals
         ):
             return ""
         is_paper_long_horizon = self.config.paper_mission
@@ -171,8 +192,18 @@ class PlanningContextMixin:
             lines.append(f"- node_key: {item.node_key}")
         if scope:
             lines.append(f"- planner_scope: {scope}")
+        if self._item_requires_independent_review(item):
+            lines.append(
+                "- independent_review: REQUIRED; Engineer self-review cannot close "
+                "this stage-closing mission."
+            )
         if item.tags:
             lines.append("- tags: " + ", ".join(item.tags))
+        if acceptance_check:
+            lines.append("- decisive_acceptance_check: " + acceptance_check)
+        if non_goals:
+            lines.append("- non_goals:")
+            lines.extend(f"  - {value}" for value in non_goals)
         if scope == PLANNER_SCOPE_FINAL_SUBMISSION:
             lines.append(
                 f"- final_submission_gate: {FULL_PAPER_GATE_DESCRIPTION} must be "
@@ -495,7 +526,9 @@ class PlanningContextMixin:
             if contract is not None
             else None
         )
-        sleep_s = self._enter_idle_backoff()
+        # A declared external wait is active campaign work, not terminal
+        # inactivity. Keep exponential polling without arming daemon idle-exit.
+        sleep_s = self._enter_pause_backoff()
         reason = verdict.waiting_reason or verdict.reason or "awaiting external dependency"
         repair_payload = (
             verdict.schema_repair_event_payload()
@@ -536,6 +569,99 @@ class PlanningContextMixin:
     def _planner_waiting_objective_fingerprint(self) -> str:
         objective = str(getattr(self.config, "continuous_objective", "") or "")
         return hashlib.sha256(objective.encode("utf-8")).hexdigest()
+
+    def _manager_planner_feedback_path(self) -> Path:
+        root = Path(
+            getattr(self.config, "telemetry_dir", None)
+            or getattr(self.memory, "root", None)
+            or "."
+        )
+        objective_fingerprint = self._planner_waiting_objective_fingerprint()
+        return root / f"manager-planner-feedback-{objective_fingerprint[:16]}.json"
+
+    def _load_manager_planner_feedback(self) -> dict[str, Any] | None:
+        path = self._manager_planner_feedback_path()
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return None
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            log.warning("Manager feedback is unreadable: %s", path, exc_info=True)
+            return None
+        if not isinstance(payload, dict) or payload.get("version") != 1:
+            return None
+        if (
+            str(payload.get("objective_fingerprint") or "")
+            != self._planner_waiting_objective_fingerprint()
+        ):
+            return None
+        if not bool(payload.get("active")):
+            return None
+        if not str(payload.get("reason") or "").strip():
+            return None
+        return payload
+
+    def _write_manager_planner_feedback(self, payload: dict[str, Any]) -> bool:
+        path = self._manager_planner_feedback_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
+        try:
+            tmp.write_text(
+                json.dumps(payload, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            os.replace(tmp, path)
+            return True
+        except OSError:
+            log.exception("failed to persist Manager feedback: %s", path)
+            return False
+        finally:
+            try:
+                tmp.unlink()
+            except FileNotFoundError:
+                pass
+
+    def _persist_manager_planner_feedback(
+        self,
+        *,
+        stage: str,
+        reason: str,
+        diagnostic: str,
+    ) -> bool:
+        return self._write_manager_planner_feedback({
+            "version": 1,
+            "active": True,
+            "objective_fingerprint": self._planner_waiting_objective_fingerprint(),
+            "stage": str(stage or "").strip(),
+            "reason": str(reason or "").strip(),
+            "diagnostic": str(diagnostic or "").strip(),
+            "created_at": time.time(),
+        })
+
+    def _clear_manager_planner_feedback(self) -> None:
+        state = self._load_manager_planner_feedback()
+        if state is None:
+            return
+        state["active"] = False
+        state["resolved_at"] = time.time()
+        self._write_manager_planner_feedback(state)
+
+    def _manager_planner_feedback_runtime_note(self) -> str:
+        state = self._load_manager_planner_feedback()
+        if state is None:
+            return ""
+        return (
+            "MANAGER TO PLANNER REVISION FEEDBACK (durable and unresolved):\n"
+            f"- current_stage: {state.get('stage') or ''}\n"
+            f"- diagnostic: {state.get('diagnostic') or ''}\n"
+            f"- rejection_reason: {state.get('reason') or ''}\n"
+            "The Manager attempted the requested stage transition, but framework "
+            "authority rejected it because the required Reviewer evidence is "
+            "incomplete. Re-plan now: emit one or more bounded new_tasks that gather "
+            "or repair the missing current-stage evidence and obtain a complete "
+            "Reviewer verdict. Do not return waiting on the same stage authority, "
+            "and do not start next-stage work."
+        )
 
     @staticmethod
     def _waiting_contract_key(contract: Any) -> tuple[str, str]:
@@ -805,6 +931,9 @@ class PlanningContextMixin:
             "stage_reconciliation_required": bool(
                 getattr(contract, "stage_reconciliation_required", False)
             ),
+            "operator_action_required": bool(
+                getattr(contract, "operator_action_required", False)
+            ),
             "allow_verification_probe": bool(
                 getattr(contract, "allow_verification_probe", False)
             ),
@@ -847,6 +976,12 @@ class PlanningContextMixin:
             "pending_probe": (
                 previous.get("pending_probe")
                 if isinstance(previous.get("pending_probe"), dict)
+                else None
+            ),
+            "manager_resolution": (
+                previous.get("manager_resolution")
+                if same_condition
+                and isinstance(previous.get("manager_resolution"), dict)
                 else None
             ),
             "active": True,
@@ -976,6 +1111,68 @@ class PlanningContextMixin:
         state["updated_at"] = time.time()
         self._write_planner_waiting_contract_state(state)
 
+    def _resolve_planner_waiting_contract(
+        self,
+        *,
+        manager_reason: str,
+        target_stage: str,
+    ) -> None:
+        """Persist an authoritative Manager resolution for the next Planner.
+
+        Deactivating the stale contract alone is insufficient: Manager stage
+        decisions are event-sourced but are not part of the Planner journal
+        rendered in the immediate retry. Persist the exact ruling beside the
+        objective-scoped waiting contract so the next fresh Planner session sees
+        the new authority without mutating the operator objective or project
+        evidence.
+        """
+        state = self._load_planner_waiting_contract_state()
+        if state is None:
+            return
+        now = time.time()
+        state["active"] = False
+        state["manager_resolution"] = {
+            "reason": str(manager_reason or "").strip(),
+            "target_stage": str(target_stage or "").strip(),
+            "resolved_at": now,
+            "blocker_fingerprint": str(
+                state.get("blocker_fingerprint") or ""
+            ),
+            "recheck_condition": str(state.get("recheck_condition") or ""),
+        }
+        state["updated_at"] = now
+        self._write_planner_waiting_contract_state(state)
+
+    def _planner_wait_resolution_runtime_note(self) -> str:
+        state = self._load_planner_waiting_contract_state()
+        if state is None:
+            return ""
+        resolution = state.get("manager_resolution")
+        if not isinstance(resolution, dict):
+            return ""
+        reason = str(resolution.get("reason") or "").strip()
+        if not reason:
+            return ""
+        return (
+            "AUTHORITATIVE MANAGER WAIT RESOLUTION (current objective):\n"
+            f"- stage remains: {resolution.get('target_stage') or '(unchanged)'}\n"
+            f"- prior blocker: {resolution.get('blocker_fingerprint') or ''}\n"
+            "- prior recheck condition: "
+            f"{resolution.get('recheck_condition') or ''}\n"
+            f"- Manager directive: {reason}\n"
+            "The Manager set `resolves_wait=true`; do not claim this Manager "
+            "authorization/directive is absent. Plan the smallest lawful work "
+            "within it, or identify a materially different blocker."
+        )
+
+    def _clear_planner_wait_resolution(self) -> None:
+        state = self._load_planner_waiting_contract_state()
+        if state is None or not isinstance(state.get("manager_resolution"), dict):
+            return
+        state["manager_resolution"] = None
+        state["updated_at"] = time.time()
+        self._write_planner_waiting_contract_state(state)
+
     @staticmethod
     def _waiting_contract_event_payload(
         state: dict[str, Any] | None,
@@ -990,6 +1187,11 @@ class PlanningContextMixin:
             "stage_reconciliation_required": getattr(
                 contract,
                 "stage_reconciliation_required",
+                False,
+            ),
+            "operator_action_required": getattr(
+                contract,
+                "operator_action_required",
                 False,
             ),
             "allow_verification_probe": getattr(
@@ -1016,6 +1218,7 @@ class PlanningContextMixin:
                 "recheck_condition",
                 "recheck_token",
                 "stage_reconciliation_required",
+                "operator_action_required",
                 "allow_verification_probe",
                 "recheck_after_seconds",
                 "wait_mode",
@@ -1049,6 +1252,8 @@ class PlanningContextMixin:
             f"- observed_revision: {state.get('observed_revision') or ''}\n"
             "- stage_reconciliation_required: "
             f"{bool(state.get('stage_reconciliation_required'))}\n"
+            "- operator_action_required: "
+            f"{bool(state.get('operator_action_required'))}\n"
             f"- last_probe_at: {state.get('last_probe_at') or 0}\n"
             "If current evidence does not satisfy the declared recheck condition, "
             "reuse the exact fingerprint and token with waiting=true and do not "
@@ -1120,7 +1325,6 @@ class PlanningContextMixin:
             or getattr(verdict, "reason", "")
             or "an external dependency"
         )
-        item_budget = self._item_iteration_budget()
         item = BacklogItem.new(
             title="verification probe: re-test the recorded external blocker",
             objective=(
@@ -1138,11 +1342,9 @@ class PlanningContextMixin:
                 "current state."
             ),
             priority=50,
-            max_cost_usd=item_budget,
             tags=["planner", "scope:bounded", "life", "verification_probe"],
             iterate=True,
             iteration_max_cycles=1,
-            iteration_budget_usd=min(item_budget, 5.0),
         )
         try:
             contract_state_before_probe = None
@@ -1256,7 +1458,7 @@ class PlanningContextMixin:
                     f"{project_name}/wiki/sources/`, and update "
                     "`data/bot_state.json`. This mission is allowed while the "
                     "project is externally blocked because it is train-free and "
-                    "uses the shared per-mission budget. Do not run GPU work."
+                    "uses the host-global budget. Do not run GPU work."
                 ),
                 impact_score=4,
                 impact_area="discovery",
@@ -1273,7 +1475,6 @@ class PlanningContextMixin:
             tags=[*self._planner_task_tags(task), "wiki_collect"],
             iterate=True,
             iteration_max_cycles=1,
-            iteration_budget_usd=min(self._item_iteration_budget(), 5.0),
         )
         self.memory.backlog.add(item)
         self._emit({

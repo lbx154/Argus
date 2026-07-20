@@ -7,7 +7,6 @@ import pytest
 
 from argus_skill.skills.venue_profiles import (
     AAAI_PROFILE,
-    DEFAULT_VENUE_KEY,
     EMNLP_PROFILE,
     FRONTIERS_SLEEP_PROFILE,
     cross_venue_excluded_skill_files,
@@ -35,12 +34,12 @@ def test_aaai_variant_tokens_resolve_to_aaai() -> None:
     # grade an AAAI paper by EMNLP rules -- the exact failure this seam exists to stop).
     for token in ("AAAI", "aaai", "aaai2026", "AAAI 2026", "AAAI-26", "AAAI2026", "aaai-2026"):
         assert get_venue_profile(token).key == AAAI_PROFILE.key, token
-    # EMNLP variants still resolve to EMNLP; empty preserves the historical
-    # default while unknown non-empty values fail closed.
+    # EMNLP variants still resolve to EMNLP; empty and unknown values fail closed.
     assert get_venue_profile("EMNLP 2026").key == EMNLP_PROFILE.key
     with pytest.raises(KeyError):
         get_venue_profile("NeurIPS")
-    assert get_venue_profile("").key == DEFAULT_VENUE_KEY
+    with pytest.raises(KeyError):
+        get_venue_profile("")
 
 
 def test_aaai_profile_matches_verified_facts() -> None:
@@ -69,8 +68,9 @@ def test_get_venue_profile_is_case_and_alias_insensitive() -> None:
     assert get_venue_profile("emnlp") is EMNLP_PROFILE
     assert get_venue_profile("acl") is EMNLP_PROFILE  # alias
     assert get_venue_profile("ARR") is EMNLP_PROFILE  # alias
-    # Empty -> default; unknown non-empty -> fail closed.
-    assert get_venue_profile(None).key == DEFAULT_VENUE_KEY
+    # Empty and unknown values fail closed.
+    with pytest.raises(KeyError):
+        get_venue_profile(None)
     with pytest.raises(KeyError):
         get_venue_profile("nope")
 
@@ -82,11 +82,14 @@ def _write_state(root: Path, payload: dict) -> None:
     )
 
 
-def test_resolve_defaults_to_emnlp_when_field_absent(tmp_path: Path) -> None:
+def test_resolve_requires_explicit_or_local_profile_when_field_absent(
+    tmp_path: Path,
+) -> None:
     _write_state(tmp_path, {"current_stage": "plan"})
-    assert resolve_venue_profile(tmp_path) is EMNLP_PROFILE
-    # no PIPELINE_STATE at all -> still EMNLP
-    assert resolve_venue_profile(tmp_path / "nonexistent") is EMNLP_PROFILE
+    with pytest.raises(KeyError):
+        resolve_venue_profile(tmp_path)
+    with pytest.raises(KeyError):
+        resolve_venue_profile(tmp_path / "nonexistent")
 
 
 def test_resolve_reads_target_venue(tmp_path: Path) -> None:
@@ -125,9 +128,11 @@ def test_venue_excluded_skill_files_resolves_from_project(tmp_path: Path) -> Non
     excl = venue_excluded_skill_files(tmp_path)
     assert "emnlp-paper-drafting.md" in excl
     assert "aaai-paper-drafting.md" not in excl
-    # Default (no target_venue) is EMNLP -> excludes the AAAI siblings.
+    # Unresolved venue excludes all venue-specific siblings.
     _write_state(tmp_path / "e", {})
-    assert "aaai-paper-drafting.md" in venue_excluded_skill_files(tmp_path / "e")
+    unresolved = venue_excluded_skill_files(tmp_path / "e")
+    assert "aaai-paper-drafting.md" in unresolved
+    assert "emnlp-paper-drafting.md" in unresolved
 
 
 def test_venue_skill_files_resolve_to_real_builtin_skills() -> None:

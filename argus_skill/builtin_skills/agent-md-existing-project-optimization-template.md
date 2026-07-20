@@ -1,6 +1,6 @@
 ---
 name: AGENTS.md Existing Project Optimization Template
-description: Copy-ready AGENTS.md template for repairing or optimizing an existing autonomous EMNLP/ACL long-paper project without erasing useful evidence or gaming validators.
+description: Copy-ready AGENTS.md template for repairing or optimizing an existing venue-aware AI research paper project without erasing useful evidence or gaming validators.
 category: project-agent-template
 version: 2
 ---
@@ -9,7 +9,8 @@ version: 2
 AGENTS.md Existing Project Optimization Template
 
 ## When to use
-- Use this when a project already has research artifacts, code, experiments, logs, LaTeX, figures, reviews, user edits, or a partially accepted EMNLP/ACL paper direction.
+- Use this when a project already has research artifacts, code, experiments,
+  LaTeX, figures, reviews, user edits, or an accepted AI research direction.
 - Use it for rescue, hardening, validation cleanup, evidence refresh, paper polish, experiment completion, image-2 figure replacement, format preflight, and final submission-readiness loops.
 
 ## When NOT to use
@@ -23,7 +24,9 @@ AGENTS.md Existing Project Optimization Template
 # AGENTS.md
 
 ## Project contract
-This is an existing project: an autonomous EMNLP/ACL long-paper workspace. Improve the current paper package while preserving valid source, raw evidence, experiment logs, tests, user edits, and operator-approved decisions. Do not erase history, overwrite user work, or restart from scratch unless the operator explicitly says the current direction is rejected.
+This is an existing venue-aware AI research workspace. Improve the current
+paper package while preserving valid source, raw evidence, experiment logs,
+tests, user edits, and operator-approved decisions.
 
 The goal is a submission-quality long-paper package, not a pilot PDF, validator-shaped demo, or superficial review-file edit. Keep the artifact pipeline synchronized: research brief -> literature/source discovery -> idea provenance -> benchmark/code -> experiment runs -> result JSON/TSV -> generated tables/figures -> LaTeX -> PDF -> format preflight -> academic-language review -> visual layout review -> submission assurance.
 
@@ -33,9 +36,12 @@ The goal is a submission-quality long-paper package, not a pilot PDF, validator-
 - If this workspace does not already have local copies, export the built-in skills so the daemon can read them directly:
   `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill --export-builtin-skills ./argus_builtin_skills`
 - Read `./argus_builtin_skills/*.md` and `./argus_builtin_skills/**/*.md` first when invoking built-in paper/research/domain skills. If the local copy is absent or stale, refresh it with the export command above or load `argus_skill.builtin_skills` through the active Python environment. Do not copy the whole Argus repository, global memory, model caches, or capability vault into this project.
-- When ownership is unclear, read `./argus_builtin_skills/emnlp-paper-skill-router.md` first, then load the specific skill it routes to.
+- When ownership is unclear, resolve the target venue first, then load that
+  venue's drafting/preflight/review router; do not hard-code EMNLP.
 - Prefer `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill ...` for Argus validation commands; the launcher injects `ARGUS_SKILL_PYTHON`, `ARGUS_SKILL_SOURCE_ROOT`, and `PYTHONPATH` when a source checkout is needed.
-- Final EMNLP completion is certified only when the L2 reviewer returns a `scope: final_submission` verdict with `status: done` and a non-empty checklist where every item has `satisfied: true` plus concrete evidence covering the full pipeline (research → submission). Quote that verdict in completion evidence.
+- Final completion is certified only when the L2 reviewer returns a
+  `scope: final_submission` verdict with `status: done` and concrete evidence
+  covering the full pipeline and selected venue.
 - Full-scale experiment evidence is a prerequisite for analysis, narrative, drafting, assurance, and submission. The L2 reviewer must tick off the run-stage "full-scale evidence" checklist item before any of those stages are marked ready/done.
 - Treat `missing_full_scale_experiment_run`, `incomplete_full_scale_experiment_run`, `missing_baseline_condition_run`, and `pilot_pdf_without_full_scale_evidence` as hard blockers.
 - the L2 reviewer pipeline-state checklist item, a compiled PDF, a pilot run, or a passing stale review artifact alone is not final readiness.
@@ -160,15 +166,15 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
          --out paper/figures/method_overview.review.json
 
    A helper such as `code/generate_image2_figure.py` must then write or refresh `paper/figures/IMAGE2_FIGURES.json` with `figure_id`, `figure_type`, `model` or `generator_model`, `prompt_path`, `output_path`, `output_sha256`, `sidecar_path`, `inspect_path`, `review_path`, `generation_provenance_path`, width, and height. The sidecar must preserve image-tool/API evidence (`/images/generations`, model, created time, prompt SHA, output SHA, dimensions), and `review_path` must come from the `image_review` model route. `generation_provenance_path` may point at the image sidecar if that JSON records `prompt_path`, `output_path`, and `output_sha256`. Never crop, downsample, resave, PDF-wrap, locally redraw the accepted raster, or hand-fill `codex-image2` metadata around a local PNG after this provenance is written.
-6. If the current Figure 1/teaser is ugly, cramped, misspelled, square, generic, or prompt-thin, do not patch it with matplotlib/TikZ/PDF/vector redraws. Regenerate through image-2 from `python -m argus_skill.tools.image_tool paper-prompt ...`, keeping the required `argus-image2-paper-prompt-v1` and `paper-framework-figure-studio-pro-v3.1.4a` markers, generating 6--20 layout variants by changing only the layout/candidate-contract fields; keep the best reviewed raster and record the selected `prompt_variant_id` in provenance or the manifest:
+6. If the current Figure 1/teaser uses image-2 and is ugly, cramped, misspelled, square, generic, or prompt-thin, regenerate through image-2 from `python -m argus_skill.tools.image_tool paper-prompt ...`, keeping the required `argus-image2-paper-prompt-v1` and `paper-framework-figure-studio-pro-v3.1.4a` markers, generating 6--20 layout variants by changing only the layout/candidate-contract fields; keep the best reviewed raster and record the selected `prompt_variant_id` in provenance or the manifest. For any other recorded renderer, repair its source and rerender through the Research Visualization Router:
 
        Use case: scientific-educational
        Prompt template: argus-image2-paper-prompt-v1
        Prompt source: paper-framework-figure-studio-pro-v3.1.4a
-       Asset type: Figure 1 teaser / conceptual overview for an EMNLP/ACL/NeurIPS-style academic manuscript.
+       Asset type: Figure 1 teaser / conceptual overview for the selected venue.
 
        General style:
-       - EMNLP/ACL/NeurIPS/CS paper method figure, full-width two-column landscape, 1536x1024 or 1920x1088.
+       - Selected-venue AI paper method figure, adaptive landscape, 1536x1024 or 1920x1088.
        - Clean Figma-style block diagram / block-based Figma style with rounded cards, neat alignment, soft pastel fills, dark-gray 2px borders, and compact information density.
        - Compact, information-rich, suitable for a PDF page-width figure; little wasted space but not crowded.
        - Tidy rounded handwritten or friendly sans-serif feel is acceptable only if it remains crisp and readable; no messy sketch fonts.
@@ -179,7 +185,7 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
        Style intent:
        - Clean, dense, modular, Figma-like, mostly rounded cards, low-saturation pastel blocks.
        - Use small badges/icons sparingly; avoid empty space while preserving alignment.
-       - It should look like a main figure in an EMNLP/ACL/NeurIPS paper, not a marketing graphic, stock illustration, dashboard screenshot, or casual whiteboard.
+       - It should look like a main figure in the selected venue, not a marketing graphic, stock illustration, dashboard screenshot, or casual whiteboard.
 
        Pinned content that must appear exactly:
        - Title: "<short human-readable method/system name>"
@@ -256,27 +262,39 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 ## Existing research and evidence repair
 1. Preserve valid raw results and provenance, but do not preserve weak claims, stale reviews, copied text, duplicated benchmark rows, or known-invalid benchmark framing.
 2. If the current evidence is only pilot-scale, label it as pilot evidence and queue a real scale-up run; do not pad the paper or assurance files into final readiness.
-3. A small single-source run is pilot evidence even if all methods ran successfully; final long-paper evidence requires an executed multi-source matrix, not a lone large slice.
+3. A focused public source may support a narrow final claim when controls and
+   uncertainty justify it; broader claims require broader public validation.
 4. Benchmark construction is not execution. `benchmarks/full/tasks.jsonl`, benchmark manifests, or `status.json task_count` do not satisfy final evidence unless raw completed scored rows under `experiments/**` cover every required method/baseline condition.
 5. Benchmark scale must come from unique semantic tasks/examples, not duplicates, relabeling, suffixes, paraphrase inflation, or shuffled copies.
 6. For agent-skill/memory projects, each required baseline/method condition such as `no_skill`, `raw_memory`, `reflexion`, `static_skill_lib`, and the proposed method must be evaluated on the same executed multi-source benchmark matrix, unless the operator documents a domain-specific replacement.
-7. Final paper evidence needs at least 3 independent executed real benchmark/data sources or official task-release families. Same-family slices do not count as separate sources. Planned diagnostic rows, future slices, and manifests without raw scored rows do not count.
+7. Final empirical claims need executed evidence from appropriate public
+   benchmark/data/task sources. Scope and source count follow the claim; synthetic
+   diagnostics alone are not final public evidence.
 8. Benchmark/source selection must document source diversity, recency/relevance, adoption/rejection decisions, license/access status, leakage controls, and why each source tests a distinct capability.
-9. If no local GPU is configured, use the approved hosted LLM route for runnable agent experiments instead of a toy oracle/policy; `gpt-5-mini` is the default low-cost no-GPU backbone unless the operator specifies another model. Record model id, endpoint/provider class, temperature, top_p, max_tokens, token/request budget, seed policy, and stopping rules in internal manifests. In the paper, report only evaluated-system facts such as model/backend, benchmark, metric, budget/decoding, and high-level cost; never expose local device/cache/path or Argus/Codex route configuration.
-10. When a GPU is configured, **saturate it — train fast, do not crawl.** Low GPU utilization or low VRAM on an allocated card is wasted compute and a blocker, and a tiny-batch/short-sequence run that inches along slows every iteration of the loop. Scale the knobs UP to the largest that fit: per-device batch size + gradient accumulation, sequence/`max_len` (prompt and completion), and — for GRPO/PPO/RLVR — `num_generations`/group size and rollout batch. For reasoning RL a saturating `clipped_ratio` or completions pinned at the cap means `max_completion_length` is too **small**: raise it, do not shrink it to "save tokens". Aim for ≳70% VRAM and high GPU util% on every card and verify with `nvidia-smi`, recording peak VRAM, util%, and throughput (step time / samples-per-sec). Going small is justified only as a smoke run or a stated research/ablation reason — bound cost by fewer steps or a smaller model deliberately, not by starving an idle GPU. See the training-infrastructure skill's hardware-saturation contract.
+9. Use local compute, hosted models, CPUs, accelerators, simulators, theorem
+   provers, or other resources only when appropriate to the research design.
+10. GPU utilization is an efficiency observation, not a universal scientific gate.
 11. Every numeric claim must remain tied to current raw artifacts under `results/`, `experiments/`, or `paper/artifacts/`.
 12. the L2 reviewer run-stage "full-scale evidence" checklist item before final analysis/drafting/assurance repair. If it fails, preserve valid raw evidence but queue the missing full-run or matrix-completion work and keep the PDF non-final.
-13. If the method-positive thesis is rejected by evidence, queue repair/pivot tasks for method, metric, benchmark, or objective. Do not convert it into a negative-result paper unless the operator explicitly asks.
+13. If valid evidence rejects the method-positive thesis, decide whether the
+    negative, diagnostic, or boundary finding has research value. Write it
+    honestly when it does; pivot only when broken, inconclusive, or not useful.
 
 ## Existing paper repair
-1. Improve the artifact the reader/reviewer sees, not just the validator surface. Reader-facing prose must stay clear, specific, and evidence-backed. Readability includes basic reproducibility facts about the **evaluated paper system**, not the Argus/Codex machinery that wrote the paper: the main body must tell an outside reviewer what paper-facing agent framework, benchmark harness, or controller was used, which evaluated model/backend powered the agent runs, what controller/skill/memory mechanism changed behavior, which benchmark/tasks/baselines/metrics/budgets were used, and how one episode executes. LLM/model identifiers must be visible whenever the evaluated agent calls a hosted model; scorer-based experiments should name the evaluated scorer/backend such as `PairScorer` and its scoring budget. Put this in Method/Experimental Setup prose or a compact table; never expose API keys, private vault contents, local device/cache/path details, or Argus/Codex authoring route names.
+1. Improve the artifact the reader/reviewer sees, not just the validator
+   surface. Method/Experimental Setup must describe the actual model, algorithm,
+   system, data, proof, evaluator, diagnostic protocol, public evidence, and
+   relevant configuration for the claim.
 2. If academic-language review repeatedly says the headline mechanism is unsupported or not isolated, reset the claim instead of polishing the same sentence again. Use one exact end-to-end result as the paper's headline: method/system name, comparator, task slice, sample size, metric, value, and protocol. Remove mechanism-causal language from the title/abstract/conclusion unless an ablation isolates it; put the unresolved mechanism in analysis or limitations.
 3. Preserve useful author/user edits unless they contradict evidence, current validators, or the operator's latest direction.
 4. Do not convert uncertainty into repetitive caveats that make the paper worse. Move detailed scope limits to limitations/discussion.
 5. Keep the one-sentence contribution concrete: "We propose X. We show X improves Y by Z because W." If X/Y/Z/W cannot be backed by current artifacts, fix evidence or claims before language polish.
-6. The abstract should read like a normal EMNLP abstract. Do not mention validator names, raw paths, evidence-span bookkeeping, review mechanics, or appendix layout trivia in the abstract/body.
+6. The abstract should follow the selected venue's normal research-paper style
+   and must not expose validator or authoring-infrastructure details.
 7. Never invent BibTeX. Fetch/verify references through scholarly sources or mark unresolved entries as blockers.
-8. Use official ACL/EMNLP review style, anonymous author block, 7.5--8.0 pages of main content, conclusion by the end of page 8, Limitations and Ethical Considerations after Conclusion, References before Appendix, and a reproducibility appendix. References and Appendix should begin on page 9 or later for an eight-page body; references or appendix material on page 8 are still an underfilled-paper smell. After page 8, the total article length is unrestricted: do not enforce a total-page maximum for References or Appendix. If the body is short, repair by adding or moving source-backed body content before Conclusion: literature-grounded Introduction/Related Work framing, benchmark/Method detail, or evidence-bearing Results/Analysis/Ablation/Failure Cases content according to the page budget. Post-Conclusion end matter does not count as fixing the main body. Do not insert `\clearpage`, `\newpage`, `\pagebreak`, or `\FloatBarrier` immediately before Conclusion; those breaks can strand page 8 and must be reserved for after body end matter.
+8. Use the selected venue's official style, anonymity, page/word limits,
+   required sections, bibliography rules, and reproducibility contract from
+   `research/VENUE_PROFILE.json`.
 9. Repair `paper/PAGE_BUDGET.md` and `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md` against this reference budget, adjusting only with evidence/exemplar justification: Abstract 0.3 pages; Introduction 1 page; Related Work 0.5--0.8 pages; Method 1--1.5 pages; Experimental Setup 0.5--1 page; Main Results 1--1.5 pages; Analysis/Ablation 1 page; Failure Cases 0.3--0.5 pages; Conclusion 0.2 pages.
 10. If the rendered body is underfilled, references begin before page 9, or the paper feels like a thin report, do not fix it with margins, font tricks, filler, or repeated caveats. First check the L2 reviewer run-stage "full-scale evidence" checklist item, `paper/EVIDENCE_GAPS.json`, and `paper/CLAIM_GRAPH.json`; then run missing benchmark conditions, ablations, robustness slices, public-validation checks, or failure analyses. Only expand prose from fresh or already-recorded evidence. If the evidence remains insufficient, downgrade to `pilot-note`/`not_ready` or soften claims.
 11. the L2 reviewer review-stage checklist item for research.md format after the final compile and before academic-language/layout review. Update `paper/FORMAT_PREFLIGHT.md` with compile status, page count, conclusion page, figure/table inventory, bibliography status, fixes, and final validator result.
@@ -295,17 +313,22 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
    - Self-evolution and process supervision: `qi2024webrl`, `li2025webevolver`, `wang2025mobileagente`, `tang2025sage`, `zhang2025skillrl`, `lightman2023letsverify`, `zelikman2022star`.
    - Evaluation, hallucination, and multi-agent surveys: `zheng2023judging`, `ji2023survey`, `huang2025hallucination`, `guo2024llmmas`, `manakul2023selfcheckgpt`, `lin2022truthfulqa`.
    - Agent benchmarks and validation environments: `liu2023agentbench`, `zhou2023webarena`, `mialon2023gaia`, `maharana2024locomo`, `shridhar2020alfworld`.
-5. Add domain-specific EMNLP/ACL papers, benchmark papers, dataset papers, and official repos from the literature survey until the final paper clears the bibliography-depth gate. Unrelated domains need their own topic-specific starter list.
+5. Add domain- and venue-relevant papers, benchmark/data papers, and official
+   repos until the 35/30 bibliography-depth gate and claim coverage both hold.
 
 ## Figure repair
-1. Use image-2/codex-image2 for core conceptual figure repair.
-2. Data/metric/result plots may be generated locally from scripts. Every other paper-facing figure, including Figure 1, teaser, overall, core method/framework/system/pipeline overview figures, schematics, qualitative/example visuals, and explanatory diagrams, must be the actual generated image-2 raster `output_path`, or equivalent codex-image2 raster, included directly from `paper/main.tex`.
-3. If the overview is ugly, cramped, misspelled, or low quality, regenerate through image-2 from `python -m argus_skill.tools.image_tool paper-prompt ...`, keep `argus-image2-paper-prompt-v1` and `paper-framework-figure-studio-pro-v3.1.4a`, then review and run `sync-paper-metadata`. Do not locally redraw, trace, vectorize, PDF-wrap, screenshot, crop, downsample, resave, or overwrite it after provenance is written.
-4. Do not replace the overview with matplotlib/FancyBboxPatch, TikZ node graphs, PIL/SVG/HTML canvases, manual vector tools, cleaned PDF derivatives, or a locally drawn mockup labeled as image-2.
-5. Preserve prompt, metadata, generation provenance, inspect/review artifacts, SHA-256, width, and height. Refresh `paper/figures/IMAGE2_FIGURES.json` when the prompt, provenance, generation settings, accepted output, or paper include path changes.
-6. Do not regenerate an already accepted image merely to refresh metadata; repair missing provenance from recorded facts when possible, otherwise regenerate once through image-2.
-7. Conceptual figures should be adaptive or landscape page-width assets, preferably `1536x1024` or `1920x1088` (image-route dimensions divisible by 16); avoid square `1024x1024`, weird/sketchy fonts, tiny text, heavy gradients, photorealism, excessive logos, and decorative clutter.
-8. Data figures and tables must derive from local raw data/results and their scripts, not from image-2.
+1. Use the Research Visualization Router and inspect the actual visible figure;
+   optional `FIGURE_PROVENANCE.json` may help locate its source.
+2. Repair only unreadable, factually wrong, broken, or seriously unattractive
+   figures. Pass good-enough visuals and avoid repeated aesthetic regeneration.
+3. For actual image-2 figures, preserve prompt, generation/inspect/review
+   sidecars, exact accepted raster hash, width/height, and
+   `IMAGE2_FIGURES.json`. Never relabel a local file as image-2 or patch only
+   metadata.
+4. Image-2 absence is not itself a blocker. Use a truthful deterministic route
+   when it can express the same scientific content.
+5. Review every repaired figure at final paper size; optional source/renderer
+   metadata is advisory only.
 
 ## Exemplar/style repair
 1. If `paper/style_ref/EXEMPLAR.json` is absent, URL-only, stale, or schema-incomplete, invoke the Paper Exemplar PDF Learning skill before paper prose polish.
@@ -327,7 +350,9 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 3. Academic-language and layout review scores must be at least 4/5, fresh, backed by the required model/vision mode, and have `needs_revision: false`.
 4. Write or refresh `paper/SUBMISSION_ASSURANCE.md` and `paper/SUBMISSION_ASSURANCE.json` only from current validator/review results.
 5. Review artifacts, calibration files, and readiness reports are evidence, not targets. Never hand-edit them to say PASS/ready while the underlying paper, PDF, image, evidence, or validator remains blocked.
-6. Never emit PASS/WARN/final-ready if any required validator fails. `WARN` cannot launder pilot scale, stale reviews, missing provenance, or hard blockers into final EMNLP readiness.
+6. Never emit PASS/WARN/final-ready if any required validator fails. `WARN`
+   cannot launder pilot scale, stale reviews, missing provenance, or hard
+   blockers into selected-venue readiness.
 
 ## Telemetry and long-run visibility
 1. Long experiments must expose live progress in `progress.jsonl`, `status.json`, logs, and a run manifest.
@@ -357,7 +382,9 @@ The full project is complete only when the L2 reviewer certifies `done` for `sco
 ```
 
 ## Generality check
-This template is EMNLP/ACL-paper-specific but must stay project-neutral. It must not contain host-specific Argus paths, a specific project title, benchmark name, result number, figure name, or prior-workspace story.
+This template is venue-aware and project-neutral. It must not contain
+host-specific Argus paths, a specific project title, benchmark name, result
+number, figure name, or prior-workspace story.
 
 ## Coverage check
 Before using the template, fill the current operator goal, canonical state table, validation commands, and reset boundary from the actual project. Delete no hard gate unless the operator explicitly changes the paper scope.

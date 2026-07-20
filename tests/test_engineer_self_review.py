@@ -109,6 +109,13 @@ def test_self_verified_engineer_can_skip_reviewer(tmp_path: Path) -> None:
     assert status == "done"
     assert len(rounds) == 1
     assert rounds[0].review.status == "done"
+    assert rounds[0].review.review_source == "engineer_self_review"
+    assert "Manager stage adjudication" in (
+        rounds[0].review.planner_report["headline"]
+    )
+    assert "ADVANCE or HOLD" in (
+        rounds[0].review.planner_report["recommended_next"]
+    )
     assert "self-verification" in reason
     assert thread_id == "engineer-1"
     assert [label for label, _prompt, _options in backend.history] == ["engineer-r1"]
@@ -118,7 +125,41 @@ def test_self_verified_engineer_can_skip_reviewer(tmp_path: Path) -> None:
     assert completed[0]["review_source"] == "engineer_self_review"
 
 
-def test_missing_verbatim_output_fails_closed_to_reviewer(tmp_path: Path) -> None:
+def test_required_independent_review_ignores_engineer_skip_request(
+    tmp_path: Path,
+) -> None:
+    backend = MemoryBackend()
+    backend.queue(
+        "engineer-r1",
+        CannedResponse(message=_engineer_message(), thread_id="engineer-1"),
+    )
+    reviewer = _DoneReviewer()
+    engine = SupervisedEngineer(
+        engineer_runner=backend,
+        reviewer=reviewer,
+        engineer_config=EngineerConfig(model="test"),
+        reviewer_config=ReviewerConfig(model="test"),
+    )
+
+    status, rounds, *_ = engine.run(
+        objective="close the current stage",
+        engineer_prompt_builder=lambda _next, _static=True: "do it",
+        supervised_config=SupervisedConfig(
+            max_rounds=1,
+            allow_engineer_self_review=False,
+            effective_progress_timeout_seconds=0,
+            background_subagent_advisory=False,
+        ),
+        workdir=tmp_path,
+    )
+
+    assert status == "done"
+    assert reviewer.calls == 1
+    assert rounds[0].review.review_source == "reviewer"
+    assert rounds[0].review.reason == "independently reviewed"
+
+
+def test_engineer_skip_is_not_second_guessed_for_missing_verbatim_block(tmp_path: Path) -> None:
     backend = MemoryBackend()
     message = _engineer_message().replace(
         "## Verification (verbatim)\n```text\n1 passed in 0.04s\n```\n\n",
@@ -148,11 +189,11 @@ def test_missing_verbatim_output_fails_closed_to_reviewer(tmp_path: Path) -> Non
     )
 
     assert status == "done"
-    assert reviewer.calls == 1
-    assert any(e["type"] == "engineer.self_review.rejected" for e in events)
+    assert reviewer.calls == 0
+    assert any(e["type"] == "engineer.self_review.accepted" for e in events)
 
 
-def test_final_submission_cannot_waive_independent_reviewer(tmp_path: Path) -> None:
+def test_final_submission_engineer_skip_is_honored(tmp_path: Path) -> None:
     backend = MemoryBackend()
     backend.queue(
         "engineer-r1",
@@ -180,7 +221,7 @@ def test_final_submission_cannot_waive_independent_reviewer(tmp_path: Path) -> N
     )
 
     assert status == "done"
-    assert reviewer.calls == 1
+    assert reviewer.calls == 0
 
 
 SKILL_MD = """# Deterministic Parser Repair
@@ -237,7 +278,13 @@ def test_skill_creation_resumes_same_engineer_session(tmp_path: Path) -> None:
 
     assert outcome.status == "done"
     labels = [label for label, _prompt, _options in backend.history]
-    assert labels == ["engineer-r1", "engineer-skill-maintenance"]
+    assert labels == ["matcher", "engineer-r1", "engineer-skill-maintenance"]
+    maintenance_options = next(
+        options
+        for label, _prompt, options in backend.history
+        if label == "engineer-skill-maintenance"
+    )
+    assert maintenance_options.reasoning_effort == "low"
     resumes = dict(backend.resume_history)
     assert resumes["engineer-skill-maintenance"] == "engineer-session"
     summaries = SkillStore(skills_dir).list_summaries()
@@ -270,3 +317,70 @@ def test_skill_router_create_supports_layered_store(tmp_path: Path) -> None:
     assert counts["created"] == 1
     created = [event for event in events if event.get("type") == "skill.created"]
     assert created and created[0]["scope"] == "general"
+
+
+def test_required_post_task_learning_forces_same_session_create(tmp_path: Path) -> None:
+    persist_vertical(tmp_path, "software", workflow_mode="direct")
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend.queue(
+        "engineer-r1",
+        CannedResponse(message=_engineer_message(), thread_id="learn-session"),
+    )
+    backend.queue(
+        "engineer-skill-maintenance",
+        CannedResponse(message=SKILL_MD, thread_id="learn-session"),
+    )
+    events: list[dict] = []
+    outcome = SkillLoop(
+        skills_dir=tmp_path / "skills",
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(
+            max_rounds=1,
+            workflow_mode="direct",
+            require_post_task_learning=True,
+            force_post_task_learning=True,
+        ),
+        on_event=events.append,
+    ).run("repair one deterministic parser test", workdir=tmp_path)
+
+    assert outcome.status == "done"
+    labels = [label for label, _prompt, _options in backend.history]
+    assert labels == ["matcher", "engineer-r1", "engineer-skill-maintenance"]
+    assert any(
+        event.get("type") == "engineer.skill_maintenance.completed"
+        and event.get("success") is True
+        for event in events
+    )
+
+
+def test_selective_post_task_learning_does_not_force_maintenance(tmp_path: Path) -> None:
+    persist_vertical(tmp_path, "software", workflow_mode="direct")
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend.queue(
+        "engineer-r1",
+        CannedResponse(message=_engineer_message(), thread_id="learn-session"),
+    )
+    outcome = SkillLoop(
+        skills_dir=tmp_path / "skills",
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(
+            max_rounds=1,
+            workflow_mode="direct",
+            require_post_task_learning=True,
+        ),
+    ).run("repair one deterministic parser test", workdir=tmp_path)
+
+    assert outcome.status == "done"
+    labels = [label for label, _prompt, _options in backend.history]
+    assert labels == ["matcher", "engineer-r1"]
+    engineer_prompt = next(
+        prompt for label, prompt, _options in backend.history if label == "engineer-r1"
+    )
+    assert "Selective self-evolution" in engineer_prompt
+    assert "skill_action=none" in engineer_prompt
+    assert "inspect about 12 relevant files" in engineer_prompt
+    assert "at most 3 focused verification commands" in engineer_prompt

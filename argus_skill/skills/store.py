@@ -80,6 +80,9 @@ def role_of_path(path: str, skills_dir: Path) -> str:
 
 TASK_HISTORY_MAX_ITEMS = 32
 TASK_HISTORY_MAX_ITEM_LEN = 200
+_INLINE_BODY_MAX_CHARS_ENV = "ARGUS_SKILL_INLINE_BODY_MAX_CHARS"
+_DEFAULT_INLINE_BODY_MAX_CHARS = 12_000
+_DEFAULT_INLINE_EXCERPT_CHARS = 5_000
 
 
 def task_fingerprint(task_desc: str) -> str:
@@ -263,6 +266,38 @@ def _slugify(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
 
+def _render_progressive_skill(skill: Skill, content: str, *, limit: int) -> str:
+    headings = [
+        line.strip()
+        for line in content.splitlines()
+        if re.match(r"^#{1,4}\s+\S", line)
+    ]
+    heading_index = "\n".join(f"- {heading}" for heading in headings[:40])
+    if len(headings) > 40:
+        heading_index += f"\n- ... ({len(headings) - 40} more sections)"
+    excerpt_limit = min(_DEFAULT_INLINE_EXCERPT_CHARS, max(1_500, limit // 2))
+    excerpt = content[:excerpt_limit]
+    if len(content) > excerpt_limit:
+        boundary = excerpt.rfind("\n")
+        if boundary >= excerpt_limit // 2:
+            excerpt = excerpt[:boundary]
+        excerpt = excerpt.rstrip() + "\n\n[core excerpt truncated]"
+    source = str(skill.path or "").strip() or "<skill source unavailable>"
+    return (
+        "## Progressive skill disclosure\n"
+        f"Matched skill: **{skill.name}**\n"
+        f"Source: `{source}`\n"
+        f"Full body: {len(content)} chars; inline budget: {limit} chars.\n\n"
+        "This prompt contains only the entrypoint. Before applying detailed "
+        "procedures, read the source file and load only the sections relevant to "
+        "the current task. Do not infer omitted rules from this excerpt.\n\n"
+        "### Section index\n"
+        f"{heading_index or '- (no Markdown headings found)'}\n\n"
+        "### Core excerpt\n"
+        f"{excerpt}"
+    )
+
+
 class SkillStore:
     """Markdown-backed skill cache with LLM matcher.
 
@@ -443,9 +478,31 @@ class SkillStore:
     # SkillSource protocol — additions for argus-skill loop
     # ------------------------------------------------------------------
 
-    def render_skill(self, skill: Skill) -> str:
-        """Markdown rendering for prompt injection. Skips frontmatter."""
-        return skill.content.strip()
+    def render_skill(self, skill: Skill, *, full: bool = False) -> str:
+        """Render a skill for prompt injection.
+
+        Small skills are injected in full. Large skills use progressive
+        disclosure: the prompt receives a compact entrypoint, source path,
+        section index, and core excerpt; the agent reads only relevant source
+        sections with file tools. ``full=True`` is reserved for internal
+        operations that genuinely require the whole playbook.
+        """
+        content = skill.content.strip()
+        if full:
+            return content
+        try:
+            limit = int(
+                os.environ.get(
+                    _INLINE_BODY_MAX_CHARS_ENV,
+                    str(_DEFAULT_INLINE_BODY_MAX_CHARS),
+                )
+                or _DEFAULT_INLINE_BODY_MAX_CHARS
+            )
+        except ValueError:
+            limit = _DEFAULT_INLINE_BODY_MAX_CHARS
+        if limit <= 0 or len(content) <= limit:
+            return content
+        return _render_progressive_skill(skill, content, limit=limit)
 
     def save_distilled(
         self,
@@ -615,6 +672,7 @@ class SkillStore:
         *,
         role: str | None = None,
         exclude_files: set[str] | None = None,
+        force_empty_match: bool = False,
     ) -> tuple[list[Skill] | None, int]:
         """Use small model to judge which skills are relevant to the task.
 
@@ -643,7 +701,8 @@ class SkillStore:
                     else f"no skills in scope for role={role}"
                 )
                 on_event({"type": "match.info", "text": msg})
-            return None, 0
+            if not force_empty_match:
+                return None, 0
 
         cache_key = (
             " ".join(task_description.lower().split()),
@@ -652,6 +711,7 @@ class SkillStore:
         )
         cached = self._match_cache.get(cache_key)
         if cached is not None or cache_key in self._match_cache:
+            # Refresh LRU order and report zero new usage for a cache hit.
             self._match_cache.pop(cache_key, None)
             self._match_cache[cache_key] = cached
             self._last_match_input_tokens = 0
@@ -660,15 +720,20 @@ class SkillStore:
             self._last_match_premium_requests = 0.0
             if on_event:
                 label = (
-                    ", ".join(Path(p).stem for p in cached) if cached else "no match"
+                    ", ".join(Path(path).stem for path in cached)
+                    if cached
+                    else "no match"
                 )
-                on_event({"type": "match.info",
-                          "text": f"matcher cache hit: {label} (0 tok)"})
+                on_event({
+                    "type": "match.info",
+                    "text": f"matcher cache hit: {label} (0 tok)",
+                })
             if cached is None:
                 return None, 0
             try:
-                return [self.load(p) for p in cached], 0
+                return [self.load(path) for path in cached], 0
             except OSError:
+                # A skill changed or disappeared after caching; rematch safely.
                 self._match_cache.pop(cache_key, None)
 
         if self.runner is None:
@@ -708,7 +773,7 @@ class SkillStore:
                         "candidates before LLM matcher"
                     ),
                 })
-        batches = self._candidate_batches(summaries)
+        batches = self._candidate_batches(summaries) or [[]]
         if on_event:
             names = ", ".join(s.get("name", "?") for s in summaries[:5])
             more = f" (+{len(summaries) - 5} more)" if len(summaries) > 5 else ""

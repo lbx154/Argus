@@ -72,8 +72,7 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     ],
     "run": [
         _PIPELINE_CHECK,
-        ("Search ledger has trials",
-         "test -s run/SEARCH_LEDGER.jsonl && head -1 run/SEARCH_LEDGER.jsonl | grep -q ."),
+        ("Search ledger has trials", "test -s run/SEARCH_LEDGER.jsonl"),
         ("Screen results recorded", "test -s run/SCREEN_RESULTS.tsv"),
         ("Combinations built & recorded", "test -s run/COMBINATIONS.json"),
     ],
@@ -87,8 +86,8 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         _PIPELINE_CHECK,
         ("Factor report drafted", "test -s report/FACTOR_REPORT.md"),
         ("Figures present",
-         "ls report/figures/* 2>/dev/null | head -1 | grep -q . "
-         "|| grep -q . report/FACTOR_REPORT.md"),
+         "{python} -m argus_skill.verticals.path_evidence --project-root . "
+         "--glob 'report/figures/*' --glob 'report/FACTOR_REPORT.md'"),
     ],
     "review": [
         _PIPELINE_CHECK,
@@ -102,7 +101,11 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         # Same ready-or-done acceptance as research: the reviewer flips
         # submission.status ready -> done AFTER this check passes; requiring
         # `done` at check-time would deadlock the verdict.
-        ("Submission stage is ready or done", "test -f research/PIPELINE_STATE.json && python3 -c \"import json,sys; d=json.load(open('research/PIPELINE_STATE.json')); st=(d.get('stages') or {}).get('submission') or {}; sys.exit(0 if str(st.get('status','')).lower() in ('ready','done') else 1)\""),
+        (
+            "Submission stage is ready or done",
+            "{python} -m argus_skill.verticals.stage_state --project-root . "
+            "--stage submission --allow ready --allow done",
+        ),
     ],
 }
 

@@ -72,6 +72,17 @@ def test_format_stage_checklist_reviewer_framing() -> None:
     assert "Do not run any `validate-*` shell command" in text
 
 
+def test_bounded_reviewer_only_gates_on_mission_relevant_items() -> None:
+    text = format_stage_checklist("research", role="reviewer", scope="bounded")
+
+    assert "bounded mission" in text
+    assert "only the checklist items materially touched by this mission" in text
+    assert "do not use them to keep this mission running" in text
+    assert "Manager separately keeps the project stage on HOLD" in text
+    assert "reply `done` only when every item is satisfied" not in text.lower()
+    assert "research.literature" in text
+
+
 def test_plan_benchmark_checklist_supports_clinical_mechanism_projects() -> None:
     text = format_stage_checklist("plan", role="reviewer")
     assert "Clinical or mechanism projects" in text
@@ -204,6 +215,8 @@ def test_rollback_stage_moves_state_machine_backward(tmp_path: Path) -> None:
     assert payload["stages"]["benchmark"]["status"] == "in_progress"
     assert len(payload["rollback_history"]) == 1
     entry = payload["rollback_history"][0]
+    assert entry["at"].endswith("Z")
+    assert "+00:00" not in entry["at"]
     assert entry["from_stage"] == "run"
     assert entry["to_stage"] == "benchmark"
     assert "constant 1.0" in entry["reason"]
@@ -311,6 +324,8 @@ def test_advance_stage_moves_forward_and_marks_previous_done(tmp_path: Path) -> 
     # unified transition log records the advance
     assert len(payload["stage_history"]) == 1
     entry = payload["stage_history"][0]
+    assert entry["at"].endswith("Z")
+    assert "+00:00" not in entry["at"]
     assert entry["direction"] == "advance"
     assert entry["from_stage"] == "benchmark"
     assert entry["to_stage"] == "run"

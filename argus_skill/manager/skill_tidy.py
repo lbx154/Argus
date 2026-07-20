@@ -122,7 +122,7 @@ def _target_dir(placement: str, vertical: str) -> Path | None:
     from ..skills.vertical_select import VERTICALS
 
     if placement == "vertical":
-        if vertical not in VERTICALS or vertical == "research":
+        if vertical not in VERTICALS:
             return None
         return vertical_skill_source_path(vertical)
     return builtin_skill_source_path()

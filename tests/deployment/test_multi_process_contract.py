@@ -29,9 +29,8 @@ def _reserve_worker(root: str, project: str, start, finish, queue, call_id: str)
         model="gpt-5.6-sol",
         run_label="engineer-r1",
         global_root=Path(root),
-        per_mission_cap_usd=10,
-        project_daily_cap_usd=10,
         global_daily_cap_usd=10,
+        reservation_usd=10,
     )
     queue.put((reservation is not None, reason))
     if reservation is not None:

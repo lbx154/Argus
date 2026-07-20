@@ -61,6 +61,7 @@ def test_manager_runner_uses_persisted_workdir_without_moving_state_root(
     assert args.workdir == str(workspace.resolve())
     assert args.manager_session_root == str(memory.project.root)
     assert args.project_state_dir == str(memory.project.root)
+    assert args.global_root == str(root)
     assert args.operator_workspace == str(workspace.resolve())
 
 

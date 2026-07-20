@@ -11,7 +11,12 @@ import os
 import numpy as np
 import pytest
 
-from argus_skill.verticals.quant.backtest import BacktestEngine, BacktestSpec, run_backtest
+from argus_skill.verticals.quant.backtest import (
+    BacktestEngine,
+    BacktestSpec,
+    config_fingerprint,
+    run_backtest,
+)
 from argus_skill.verticals.quant.integrations.qlib_cn import (
     QlibCnEngine,
     factor_to_signal,
@@ -36,6 +41,57 @@ def test_factor_to_signal_shape_and_dropna():
 def test_engine_satisfies_protocol():
     engine = QlibCnEngine(signal_provider=lambda spec: None)
     assert isinstance(engine, BacktestEngine)
+
+
+def test_config_hash_covers_trial_params():
+    engine = QlibCnEngine(signal_provider=lambda spec: None)
+    base = BacktestSpec(run_id="x", factor_ids=["f"], params={})
+    changed = BacktestSpec(
+        run_id="x",
+        factor_ids=["f"],
+        params={"compute_forward_alignment": True},
+    )
+    assert engine._config_hash(base) != engine._config_hash(changed)
+
+
+def test_config_fingerprint_canonicalizes_unordered_values():
+    first = BacktestSpec(
+        run_id="a",
+        factor_ids=["f"],
+        params={"groups": {"alpha", "beta", "gamma"}},
+    )
+    second = BacktestSpec(
+        run_id="b",
+        factor_ids=["f"],
+        params={"groups": {"gamma", "alpha", "beta"}},
+    )
+    assert config_fingerprint(engine_name="test", spec=first) == config_fingerprint(
+        engine_name="test",
+        spec=second,
+    )
+
+
+def test_config_fingerprint_canonicalizes_numpy_scalars():
+    numpy_spec = BacktestSpec(
+        run_id="a",
+        factor_ids=["f"],
+        params={"count": np.int64(5), "enabled": np.bool_(True)},
+    )
+    native_spec = BacktestSpec(
+        run_id="b",
+        factor_ids=["f"],
+        params={"count": 5, "enabled": True},
+    )
+    assert config_fingerprint(
+        engine_name="test",
+        spec=numpy_spec,
+    ) == config_fingerprint(engine_name="test", spec=native_spec)
+    extended = BacktestSpec(
+        run_id="c",
+        factor_ids=["f"],
+        params={"threshold": np.longdouble("1.5")},
+    )
+    assert config_fingerprint(engine_name="test", spec=extended)
 
 
 def test_empty_signal_becomes_error_row(tmp_path):

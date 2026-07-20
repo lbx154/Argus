@@ -46,7 +46,7 @@ def _front_door_classify(
     """ONE merged LLM call for the Manager front-door: returns
     ``(ConfigIntent | None, control | None, route)``.
 
-    Reuses that same call's task-lifetime and vertical verdicts. It never treats
+    Reuses that same call's task-lifetime verdict. It never treats
     classifier output as an operator-facing reply: every SELF message reaches
     the real Manager model.
     Fail-soft: no runner, no manager, or any error → ``(None, None, "complex")``
@@ -57,13 +57,11 @@ def _front_door_classify(
     greeting_replies: list[str] = []
     steering_directives: list[str] = []
     authorization_decisions: list[tuple[str, ...]] = []
-    vertical_decisions: list[dict[str, str]] = []
     chat_state.pop("_frontdoor_lifetime", None)
     chat_state.pop("_frontdoor_greeting_reply", None)
     chat_state.pop("_frontdoor_failure", None)
     chat_state.pop("_frontdoor_steering_directive", None)
     chat_state.pop("_frontdoor_authorization", None)
-    chat_state.pop("_frontdoor_vertical", None)
     try:
         runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
         mgr = getattr(runner, "manager", None) if runner is not None else None
@@ -87,8 +85,6 @@ def _front_door_classify(
             kwargs["steering_sink"] = steering_directives.append
         if accepts(mgr.classify_front_door, "authorization_sink"):
             kwargs["authorization_sink"] = authorization_decisions.append
-        if accepts(mgr.classify_front_door, "vertical_sink"):
-            kwargs["vertical_sink"] = vertical_decisions.append
         if accepts(mgr.classify_front_door, "active_mission"):
             kwargs["active_mission"] = bool(active_mission)
         decision = mgr.classify_front_door(text, **kwargs)
@@ -143,10 +139,6 @@ def _front_door_classify(
             ]
             if actions:
                 chat_state["_frontdoor_authorization"] = actions
-        if normalized_route == "complex" and vertical_decisions:
-            decision = vertical_decisions[0]
-            if isinstance(decision, dict) and decision.get("vertical"):
-                chat_state["_frontdoor_vertical"] = dict(decision)
         return (
             intent,
             control if control in {"abort", "no_dispatch", "steer"} else None,
@@ -218,16 +210,11 @@ def _apply_config_intent(
 ) -> bool:
     """Apply a parsed ConfigIntent and persist it to its authoritative file.
 
-    Backend/model/effort switches use knob_store; project USD budgets use the
-    project's budget.json and never mutate process environment.
+    Backend/model/effort and the host-global budget use knob_store.
     """
     from ..core.knob_store import write_persisted_knobs
 
     theme = chat_state.get("theme")
-
-    def _project_state_dir() -> Any:
-        project = getattr(mem, "project", None)
-        return getattr(project, "root", None) or getattr(mem, "root", None)
 
     def _confirm(line: str) -> None:
         if callable(on_confirm):
@@ -303,25 +290,9 @@ def _apply_config_intent(
         chat_state.pop("manager_runner", None)
         return True
 
-    if knob in ("per_mission_cap", "daily_cap"):
-        m = re.search(r"\d+(?:\.\d+)?", intent.value)
-        if m is None:
-            return False
-        project_state_dir = _project_state_dir()
-        if project_state_dir is None:
-            return False
-        from ..core.project_budget import update_project_budget
-
-        field = (
-            "per_mission_cap_usd"
-            if knob == "per_mission_cap"
-            else "daily_cap_usd"
-        )
-        update_project_budget(project_state_dir, **{field: m.group(0)})
-        _confirm(f"Set project {field} = {m.group(0)} in budget.json.")
-        return True
-
+    # The host-global cap and provider quotas share the knob_store write path.
     quota_knobs = {
+        "global_daily_cap": "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD",
         "max_daemons": "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
         "codex_daily_requests": "ARGUS_SKILL_CODEX_DAILY_CALL_CAP",
         "copilot_daily_requests": "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP",

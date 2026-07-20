@@ -1,6 +1,6 @@
 """Tests for the Manager new-domain authoring flow in ``Manager.divide``.
 
-The tool-free Fast Router must escalate potential new domains to one bounded
+The Manager's tool-free classification pass must escalate potential new domains to one bounded
 grounded call, which may then author the domain. Fake runners exercise both
 requests without a real backend.
 """
@@ -41,12 +41,14 @@ _NEW_DOMAIN_DECISION = {
     "stages": ["scope", "simulate", "measure", "report"],
     "rationale": "novel",
     "confidence": 0.8,
+    "workflow_mode": "staged",
     "execution_task": "Build and evaluate the MuJoCo controller.",
 }
 _EXISTING_RESEARCH_DECISION = {
     "choice": "existing",
     "vertical": "research",
     "confidence": 0.95,
+    "workflow_mode": "staged",
     "rationale": "the task is a paper with a literature review and submission",
     "execution_task": "Write the paper and prepare it for submission.",
 }
@@ -56,6 +58,7 @@ _NEW_MATH_DOMAIN_DECISION = {
     "stages": ["literature", "experiment", "proof", "review"],
     "rationale": "task-specific mathematical route",
     "confidence": 0.9,
+    "workflow_mode": "staged",
     "research_target_level": "doctoral",
 }
 # A task carrying NO preset (research/optimize/quant) signal → novel domain.
@@ -101,7 +104,7 @@ def test_preset_task_unchanged(tmp_path, monkeypatch):
     assert not (tmp_path / "research" / "DOMAINS").exists()  # no domain authored
 
 
-def test_explicit_math_env_reuses_builtin_without_authoring_data_domain(
+def test_vertical_env_cannot_replace_manager_authored_domain(
     tmp_path, monkeypatch
 ):
     monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "math")
@@ -111,19 +114,19 @@ def test_explicit_math_env_reuses_builtin_without_authoring_data_domain(
         "Investigate this open conjecture using literature, computation, and proof attempts"
     )
 
-    assert div.vertical == "math"
+    assert div.vertical == "math_conjecture"
     assert [call["run_label"] for call in runner.calls] == [
-        "manager-research-target"
+        "manager-classify-fast",
+        "manager-classify-grounded",
     ]
-    assert not (tmp_path / "research" / "DOMAINS" / "math_conjecture.json").exists()
+    assert (tmp_path / "research" / "DOMAINS" / "math_conjecture.json").exists()
     state = json.loads(
         (tmp_path / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
     )
-    assert state["vertical"] == "math"
-    assert state["research_target_level"] == "doctoral"
+    assert state["vertical"] == "math_conjecture"
 
 
-def test_explicit_math_env_replaces_persisted_math_conjecture_selection(
+def test_vertical_env_does_not_override_manager_reclassification(
     tmp_path, monkeypatch
 ):
     from argus_skill.verticals._data_domain import write_data_domain
@@ -143,16 +146,16 @@ def test_explicit_math_env_replaces_persisted_math_conjecture_selection(
         "Continue investigating the open conjecture"
     )
 
-    assert div.vertical == "math"
+    assert div.vertical == "math_conjecture_2"
     assert [call["run_label"] for call in runner.calls] == [
-        "manager-research-target"
+        "manager-classify-fast",
+        "manager-classify-grounded",
     ]
     state = json.loads(
         (tmp_path / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
     )
-    assert state["vertical"] == "math"
-    assert state["research_target_level"] == "doctoral"
-    assert vs.resolve_vertical(tmp_path) == "math"
+    assert state["vertical"] == "math_conjecture_2"
+    assert vs.resolve_vertical(tmp_path) == "math_conjecture_2"
 
 
 def test_no_runner_raises(tmp_path, monkeypatch):
@@ -206,10 +209,10 @@ def test_authoring_call_is_grounded_not_a_blind_guess(tmp_path, monkeypatch):
     mgr.divide(_NOVEL_TASK)
 
     assert [call["run_label"] for call in runner.calls] == [
-        "manager-vertical-fast-route",
-        "manager-vertical-grounded",
+        "manager-classify-fast",
+        "manager-classify-grounded",
     ]
-    call = next(c for c in runner.calls if c["run_label"] == "manager-vertical-grounded")
+    call = next(c for c in runner.calls if c["run_label"] == "manager-classify-grounded")
     opts = call["options"]
     assert opts.working_dir == str(tmp_path)
     assert opts.sandbox_mode == "read-only"
@@ -232,7 +235,7 @@ def test_copilot_vertical_decision_does_not_auto_inject_repo_instructions(
         "write a research paper",
     )
 
-    call = next(c for c in runner.calls if c["run_label"] == "manager-vertical-fast-route")
+    call = next(c for c in runner.calls if c["run_label"] == "manager-classify-fast")
     assert call["options"].extra_args == [
         "--no-custom-instructions",
         "--disable-builtin-mcps",
@@ -252,7 +255,7 @@ def test_authoring_call_respects_safe_mode(tmp_path, monkeypatch):
     mgr = Manager(project_root=tmp_path, runner=runner)
     mgr.divide(_NOVEL_TASK)
 
-    call = next(c for c in runner.calls if c["run_label"] == "manager-vertical-grounded")
+    call = next(c for c in runner.calls if c["run_label"] == "manager-classify-grounded")
     opts = call["options"]
     assert opts.sandbox_mode == "read-only"
     assert opts.dangerous_yolo is False

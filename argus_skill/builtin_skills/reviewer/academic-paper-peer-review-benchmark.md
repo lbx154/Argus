@@ -1,139 +1,158 @@
 ---
 name: Academic Paper Peer Review Benchmark
-description: Simulate a strict EMNLP/ACL-style program-committee reviewer for a nearly complete academic paper, scoring contribution, evidence, experiments, writing, format, and readiness before reviewer agents accept paper tasks as done.
+description: Simulate a strict, venue-aware reviewer for a nearly complete AI research paper, judging contribution value, evidence, reproducibility, writing, format, and readiness without requiring a positive result or a fixed benchmark scale.
 category: paper-review
-version: 1
-created_at: 2026-05-25T00:00:00+00:00
+version: 2
+created_at: 2026-07-17T00:00:00+00:00
 ---
 
-## Title
-Academic Paper Peer Review Benchmark
+# Academic Paper Peer Review Benchmark
 
-## Description
-Use this as the reviewer agent's built-in benchmark when the task is an academic-paper mission and the paper is already fairly complete: `paper/main.tex` exists, a compiled PDF or draft report exists, experiments/results have been written into the paper, or the current scope is `final_submission`. It distills ARIS-style paper audit loops, `research.md` EMNLP preflight rules, ARA rigor-review dimensions, and the Auto Research Pipeline final contract into one simulated peer-review rubric.
+## Purpose
 
-This skill is not a copyediting pass. It is a calibrated reject/accept simulation that decides whether a real reviewer would still reject the paper and turns that judgment into a concise engineer handoff.
+Review a nearly complete paper against its selected venue and actual
+contribution shape. Use `research/VENUE_PROFILE.json`,
+`research/VENUE_SELECTION.md`, and the official author kit rather than assuming
+EMNLP or AAAI.
 
-## When to use
-- The reviewer is judging a paper drafting, paper revision, submission assurance, or final submission task.
-- The project has a manuscript (`paper/main.tex`, `paper/main.pdf`, or equivalent) plus claims, results, figures/tables, and bibliography.
-- The main agent asks to call the paper "complete", "EMNLP-ready", "submission-ready", or "publication quality".
-- the per-stage reviewer checklist items have been ticked off and submission-assurance evidence is fresh.
-
-## When NOT to use
-- The task is only literature search, experiment planning, benchmark implementation, or early smoke testing with no complete draft.
-- The operator asks for a narrow code fix unrelated to a manuscript.
-- The evidence is missing so completely that the right action is to run experiments, not simulate final peer review.
+A method improvement, system, theorem, diagnostic, characterization,
+interpretability result, benchmark/data contribution, clean null, negative
+result, and boundary finding are all legitimate when they have research value
+and appropriate evidence.
 
 ## Reviewer stance
-- Review like a skeptical EMNLP/ACL/AAAI PC reviewer, not like the author. Your default is **reject**: a paper earns acceptance, it is not presumed acceptable.
-- **When in doubt, reject.** If you are unsure whether the evidence is strong enough, the result is reproducible, the scale is adequate, or a claim is supported, treat it as NOT satisfied and choose `continue` (or a `Reject` decision at final submission). Borderline ⇒ reject, never accept-by-default.
-- Prefer `continue` over `done` if any major reviewer objection remains actionable.
-- Do not reward a PDF merely for existing. A PDF with weak evidence, copied benchmarks, stale artifacts, or underfilled body pages is a reject.
-- **The "diagnostic / null-result / bounded-scope" reframing does NOT lower the evidence bar.** Re-labelling a paper "diagnostic" or "characterization" does not waive the scale and integrity hard blockers below (≥3 real benchmark families, non-pilot scale, multi-model where claims generalize). A 40-row, single-model, single-seed study is a *pilot*, not an AAAI paper, whether or not it calls itself "diagnostic". Honesty about a null result is good; it does not substitute for adequate evidence.
-- Every weakness must include a concrete fix. The reviewer handoff should be professional and short enough for a smaller engineer model to execute.
-- Separate paper-quality issues from environment blockers. Missing web/LaTeX access can be `blocked`; weak experiments, stale manifests, bad prose, and format failures are `continue`.
-- Treat review artifacts, calibration files, and readiness reports as evidence, not optimization targets. A paper passes only when the manuscript, raw artifacts, generated figures/tables, and validators independently satisfy the underlying condition.
 
-### Calibration anchors (be this harsh)
-Real top-venue (AAAI/ACL/NeurIPS) acceptance is competitive. Calibrate to these, not to "no obvious errors":
-- Single model + single seed + tens of rows, OR a null/tiny effect within noise → **Overall 3–4, Decision: Reject.** This is the common case for a first auto-generated draft; do not inflate it.
-- One solid positive result, ≥3 real benchmark families, but single-model / limited ablations → **Overall 5, Borderline, Decision: Reject** (resubmit after broadening).
-- Multi-model, adequately powered, clear supported headline result, clean writing/format → **Overall 6–7, Decision: Accept.**
-- Most plausible auto-generated drafts deserve Reject on first pass. Accepting a weak paper is a worse error than asking for another iteration.
+- Be skeptical about unsupported claims, not biased toward positive results.
+- Do not reward a PDF merely for existing.
+- Do not automatically reject diagnostic, null, negative, single-benchmark, or
+  focused mechanism studies. Judge whether the evidence is sufficient for the
+  exact scope of the contribution.
+- Broader claims require broader validation; narrow claims may be supported by a
+  focused public benchmark plus decisive controls.
+- Every weakness must identify a concrete repair or a justified scope boundary.
 
-## Required input artifacts to inspect or demand
-- Manuscript: `paper/main.tex`, section files, `paper/main.pdf`, and `paper/main.log`.
-- Paper contract: `paper/PAPER_DRAFT_REPORT.json`, `paper/PAGE_BUDGET.md`, `paper/TEMPLATE_SOURCE.md`, and `research/PIPELINE_STATE.json`.
-- Evidence: `paper/artifacts/results_summary.tsv`, raw `experiments/**` and `results/**` records/logs, `paper/artifacts/claims_evidence.tsv`, and `paper/SUBMISSION_ASSURANCE.json`.
-- Style/review gates: `paper/FORMAT_PREFLIGHT.md`, `paper/ACADEMIC_LANGUAGE_REVIEW.json`, `paper/LAYOUT_REVIEW.json`, `paper/style_ref/EXEMPLAR.json`, and `paper/figures/IMAGE2_FIGURES.json`.
+## Required inputs
+
+- selected venue profile and official template source;
+- manuscript source/PDF/log;
+- canonical literature grounding;
+- public benchmark/data provenance;
+- raw experiment or proof artifacts;
+- claims-evidence mapping and generated tables/figures;
+- format, academic-language, infrastructure, and layout reviews;
+- submission assurance.
 
 ## Eight review dimensions
-Score each dimension 1--5. Most plausible drafts should land in the 2--4 range; a 5 means genuinely conference-ready, not merely "no obvious syntax errors".
 
-1. **Contribution and venue fit**
-   - Is there a clear X-Y-Z-W claim: "We propose X. We show X improves Y by Z because W"?
-   - Is the problem important to EMNLP/ACL reviewers, not just an internal demo?
-   - Is novelty derived from literature, benchmark gaps, trend signals, and code sources rather than agent brainstorming?
+Score each dimension 1–5.
+
+1. **Contribution and research value**
+   - Is the question important for the selected venue and subfield?
+   - Does the result add a method, mechanism, theory, reliable diagnosis,
+     evaluation capability, data resource, negative finding, or useful boundary?
+   - Is the contribution distinguished from the closest prior work?
 
 2. **Claim-evidence alignment**
-   - Does every abstract/introduction/result/conclusion claim cite a raw local artifact or table row?
-   - Are numeric claims, superlatives, SOTA/generalization phrases, captions, and limitations consistent with the evidence?
-   - Are unsupported claims removed or softened instead of hidden behind vague wording?
+   - Does every headline, numerical, comparative, causal, or generalization claim
+     map to authentic evidence?
+   - Are nulls, losses, contradictions, and limitations preserved?
+   - Is claim scope no broader than the evidence?
 
-3. **Experiment and benchmark integrity**
-   - Final evidence requires a complete executed multi-source matrix over at least 3 independent real benchmark families; small, single-source, or same-family-only runs are pilots.
-   - Do not accept duplicated benchmark expansion: no copied, relabelled, shuffled, suffix-renamed (`_r2`, `_copy`, `_dup`) prompts/specs/gold answers.
-   - Benchmark provenance must list selected benchmark sources/components and include at least 3 independent sources, specifically 3 independent executed real/frontier benchmark sources/components, as a hard minimum. Planned diagnostic rows and manifests without raw scored rows do not count.
-   - Selected sources should be practical/frontier and not single-family: include URL/repo, paper/citation/DOI, version/date, split/filtering, task count, license/access, capability covered, and rationale.
-   - Baselines must include meaningful nontrivial comparisons; positive comparative claims require beating the strongest relevant baseline with statistical support.
-   - Ablations must isolate the proposed mechanism; metrics must match the claim.
+3. **Experiment or proof integrity**
+   - For empirical claims, is at least one appropriate public benchmark,
+     dataset, task suite, challenge, or official evaluation release actually
+     executed?
+   - Are synthetic/generated diagnostics clearly supplementary?
+   - Are the strongest relevant comparisons fair?
+   - Is evidence breadth, task count, model count, seed count, or proof coverage
+     justified by the claim rather than a universal quota?
+   - Are uncertainty and repeatability handled appropriately?
 
-4. **Literature, related work, and citation quality**
-   - Literature grounding should include at least 10 recent high-quality papers and 3 classic anchors.
-   - The bibliography should be deep enough for a long paper: at least 35 verified BibTeX entries, at least 30 unique cited keys, and no invented or `% UNVERIFIED` entries unless explicitly disclosed.
-   - Related work should be methodological and contrastive, not a chronological list.
+4. **Literature and novelty**
+   - Are material premises, nearest competitors, foundations, contradictions,
+     and the frontier grounded in primary sources?
+   - Does the bibliography contain at least 35 verified BibTeX entries and at
+     least 30 unique cited keys, with claim-complete coverage rather than padding?
+   - Does the paper explain why the result matters?
 
-5. **Reproducibility and artifact audit**
-   - Manifest digests, TSV schemas, generated artifacts, source links, and paper copies must be fresh.
-   - Result tables and figures must be generated from canonical artifacts, not hand-edited numbers.
-   - The appendix must include paper-facing model IDs, prompt/template policy when relevant, seeds, hyperparameters, compute/cost, scoring methodology, and significance methodology. Local cache fingerprints, filesystem paths, device IDs, and authoring-route configuration stay in manifests or logs, not paper prose.
+5. **Reproducibility**
+   - Can an outside researcher identify public data, method/configuration,
+     evaluator, controls, uncertainty method, and relevant compute?
+   - Are generated artifacts fresh and traceable to canonical sources?
+   - Are private paths, secrets, and authoring infrastructure excluded while
+     legitimate scientific environment details remain?
 
-6. **Writing quality and reviewer readability**
-   - Abstract and introduction should quickly answer What, Why, So What, and why now.
-   - The abstract must read like a normal EMNLP abstract: problem/gap first, method/result/implication after; no Appendix Figure/Table references, raw artifact paths, evidence-span quotes, validator vocabulary, or repeated defensive caveats.
-   - The method should be re-implementable from the description.
-   - Results should lead with supported takeaways, then caveats and failure analysis.
-   - Limitations and ethics should be honest and specific, not boilerplate.
+6. **Writing and structure**
+   - Does the abstract state problem, gap, contribution shape, evidence, and
+     implication honestly?
+   - Does the paper have one coherent thesis?
+   - Are negative or diagnostic results framed as findings rather than apologies?
 
-7. **Format, layout, and visual evidence**
-   - Enforce `research.md`: official ACL/EMNLP review template, anonymous author block, 7.5--8 main-content pages, conclusion by page 8, Limitations/Ethics after conclusion, References before Appendix, References/Appendix starting on page 9 or later, no total-page maximum after the body, and complete reproducibility appendix.
-   - No unresolved references/citations, `[?]`, placeholders, or `Overfull \hbox > 5pt`.
-   - Every figure is labeled and referenced; every table caption has a numerical headline; the middle-body visual rhythm passes the model-backed layout review; paired-significance evidence appears when comparative binary outcomes are reported.
-   - Data/metric/result plots may be generated locally from scripts. Every other paper-facing figure, including Figure 1, teaser, overall, core method/framework/system/pipeline overview figures, schematics, qualitative/example visuals, and explanatory diagrams, must use actual image-2/codex-image2 raster output in `paper/main.tex`. The prompt must be created with `python -m argus_skill.tools.image_tool paper-prompt ...` and retain `argus-image2-paper-prompt-v1` plus `paper-framework-figure-studio-pro-v3.1.4a`. Hard reject self-drawn substitutes from matplotlib, TikZ node graphs, SVG/PIL/HTML canvas, screenshots, Inkscape/manual vectors, or cleaned PDFs.
-   - Tables should use the research.md style tokens: `\footnotesize`, `\tabcolsep=3-4pt`, `\arraystretch=1.15`, light-gray header, soft peach "ours" row, alternating row tint, and bold winning values.
+7. **Venue format and visual evidence**
+   - Does the paper follow the selected venue's current official template,
+     anonymity policy, page/word limits, bibliography rules, and required
+     sections?
+   - Are references, tables, captions, and floats readable and internally valid?
+   - Judge the actual rendered figures for clarity, readability, coherence, and
+     whether they look good enough for the venue. Metadata is advisory only.
+   - Do not require image-2 when unavailable or when a deterministic renderer is
+     better. Do not demand repeated visual regeneration for minor preferences;
+     require repair only for unreadable, factually wrong, broken, or seriously
+     unattractive figures.
 
 8. **Strongest reviewer objection**
-   - Write the strongest short reason to reject the paper.
-   - If the reason is still valid and fixable, choose `continue`.
-   - If the reason requires new experiments, say so directly; do not ask the engineer to paper over it with prose.
+   - State the strongest short reason to reject.
+   - Decide whether it requires new evidence, a source repair, a scope change, or
+     only writing/format work.
 
 ## Recommendation mapping
-Compute the mean of the eight dimension scores, then assign a calibrated **Overall (1–10)** and a **binary Decision (Accept / Reject)** — no "Weak Accept / Borderline" hedge; you must commit to Accept or Reject (borderline ⇒ Reject).
 
-Overall anchors (AAAI/ACL/NeurIPS-calibrated):
-- **8–10**: Strong/award quality — technically strong, broad evidence, clear impact. (mean ≥ 4.5)
-- **6–7**: Accept — technically solid, adequately powered (multi-model or ≥3 real benchmark families with non-pilot scale), supported headline result, no hard blocker. (mean ≥ 4.0, no dimension below 3)
-- **5**: Borderline → **Reject** — one solid result but under-powered/single-model or limited ablations; resubmit after broadening.
-- **3–4**: Reject — under-powered (single model/seed, pilot-scale, tens of rows), null/tiny effect within noise, or a major unsupported claim.
-- **1–2**: Strong Reject — trivial result, critical flaw, fabricated/duplicated evidence, or a hard blocker.
+Compute the mean dimension score and assign Overall 1–10.
 
-**Decision rule:** `Decision: Accept` ONLY when Overall ≥ 6 AND mean ≥ 4.0 AND no dimension below 3 AND no hard blocker. Everything else is `Decision: Reject`.
+- **8–10**: strong/award-quality candidate.
+- **6–7**: accept-quality for the selected venue; evidence supports the scoped
+  contribution and no hard blocker remains.
+- **5**: borderline; one material objection remains.
+- **3–4**: reject; major evidence, novelty, integrity, or presentation gap.
+- **1–2**: strong reject; fabricated evidence, fatal flaw, or no research value.
 
-**`done` rule (final_submission):** mark the mission `done` ONLY when `Decision: Accept` (Overall ≥ 6). A `Reject` (Overall ≤ 5), even a "Weak/Borderline" one, is `continue` — return the per-dimension scores and the strongest reject reason as actionable engineer feedback so the next round can fix it.
+`Decision: Accept` requires Overall ≥6, mean ≥4.0, no dimension below 3,
+and no hard blocker.
 
-Hard blockers force **Reject** (Overall ≤ 4) regardless of mean: failed the full pipeline checklist for `final_submission`, pilot-scale final evidence, duplicated benchmark expansion, fewer than 3 executed real benchmark source families for final evidence, single-source or same-family-only benchmark evidence for any generalizing claim, single-model evidence for any claim that reads as model-general, missing nontrivial baseline for comparative claims, unsupported headline claim, an internal numeric/table inconsistency in a claim-supporting statement, stale manifest/digest, unresolved citations, self-drawn non-data figure where image-2 output is required, severe overfull boxes, underfilled long-paper body, or missing limitations/ethics. The "diagnostic/null-result/bounded-scope" label does NOT exempt a paper from these.
+## Hard blockers
 
-## Reviewer output contract
-When this skill applies, include a compact simulated-review section inside `round_summary_markdown`:
+- missing or unresolved target venue/profile;
+- fabricated, duplicated, relabeled, or unsupported evidence;
+- empirical headline claim with no executed public benchmark/data/task source;
+- synthetic/generated evidence presented as the sole public validation;
+- missing strongest relevant comparison for a comparative claim;
+- claim contradicts raw evidence;
+- uncertainty or repeatability omitted where required by the claim;
+- stale or untraceable generated artifacts;
+- unresolved citations or official-format violations;
+- fewer than 35 verified BibTeX entries or 30 unique cited keys;
+- unreadable, factually wrong, or visibly broken required figure;
+- private infrastructure/secrets leaked into rendered prose;
+- paper value depends only on relabeling a weak result rather than a genuine
+  insight.
+
+A clean negative, null, diagnostic, or boundary result is not a hard blocker.
+
+## Output contract
+
+Return a compact simulated review:
 
 ```markdown
-### Simulated peer-review benchmark
-- Decision: Reject
-- Overall: 4/10
-- Scores: contribution 4, evidence 2, experiments 2, literature 3, reproducibility 3, writing 4, format/layout 2, strongest-objection 2
+### Simulated peer review
+- Venue: ...
+- Contribution shape: method | systems | theory | diagnostic | evaluation |
+  data | negative | boundary
+- Decision: Accept | Reject
+- Overall: N/10
+- Scores: ...
 - Strongest accept argument: ...
 - Strongest reject argument: ...
 - Blocking issues: ...
 ```
 
-The `Decision` and `Overall` are the gate: `status: done` is allowed ONLY with `Decision: Accept` and `Overall >= 6`. With `Decision: Reject` (Overall <= 5) you MUST emit `status: continue` and put the per-dimension scores + the strongest reject argument + concrete repairs into `next_action`.
-
-If `status` is `continue`, make `next_action` a concise engineer prompt:
-
-1. List the top 1--3 blocking reviewer objections.
-2. Name exact files/artifacts to repair.
-3. Phrase the verdict in terms of the per-stage reviewer checklist; for final submission, confirm every item across all stages is satisfied.
-4. Tell the engineer not to claim completion until those commands pass.
-
-If `status` is `done`, `completion_summary_markdown` must cite the passing gate output and explain why no simulated reviewer hard blocker remains.
+For `final_submission`, `done` is allowed only with `Decision: Accept`.

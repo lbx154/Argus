@@ -20,10 +20,9 @@ describe('conciseConfigKnobs', () => {
     const result = conciseConfigKnobs([
       knob('ARGUS_SKILL_ENGINEER_BACKEND', 'backend'),
       knob('ARGUS_SKILL_ENGINEER_MODEL', 'models'),
-      knob('ARGUS_SKILL_PER_MISSION_CAP_USD', 'budget'),
+      knob('ARGUS_SKILL_GLOBAL_DAILY_CAP_USD', 'budget'),
       knob('ARGUS_SKILL_RUNNER_BIN', 'backend'),
       knob('ARGUS_SKILL_TELEGRAM_BOT_TOKEN', 'telemetry'),
-      knob('ARGUS_SKILL_CONTROL_PLANE_CALL_CAP_USD', 'budget'),
       knob('ARGUS_SKILL_MAX_ACTIVE_DAEMONS', 'budget'),
       knob('ARGUS_SKILL_UNPRICED_COST_POLICY', 'budget'),
       knob('ARGUS_SKILL_SAFE_MODE', 'lifecycle'),
@@ -32,7 +31,6 @@ describe('conciseConfigKnobs', () => {
     ]);
 
     expect(result.map((item) => item.name)).toEqual([
-      'ARGUS_SKILL_CONTROL_PLANE_CALL_CAP_USD',
       'ARGUS_SKILL_MAX_ACTIVE_DAEMONS',
       'ARGUS_SKILL_UNPRICED_COST_POLICY',
       'ARGUS_SKILL_SAFE_MODE',
@@ -40,7 +38,6 @@ describe('conciseConfigKnobs', () => {
       'ARGUS_SKILL_SHOW_REASONING',
     ]);
     expect(result.map((item) => item.group)).toEqual([
-      'Limits',
       'Limits',
       'Safety',
       'Safety',

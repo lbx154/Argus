@@ -70,7 +70,7 @@ def _build_runner_ns(cwd: str, *, max_rounds: int, paper_mission: bool,
     ns.engineer_model = resolve_role_model("engineer", role_env="ARGUS_SKILL_ENGINEER_MODEL")
     ns.reviewer_model = resolve_role_model("reviewer", role_env="ARGUS_SKILL_REVIEWER_MODEL")
     ns.engineer_reasoning_effort = os.environ.get("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh")
-    ns.reviewer_reasoning_effort = os.environ.get("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "xhigh")
+    ns.reviewer_reasoning_effort = os.environ.get("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "high")
     ns.skills_dir = os.environ.get("ARGUS_SKILL_SKILLS_DIR", str(core_paths.skills_global_root()))
     ns.workdir = str(cwd)
     ns.max_rounds = int(os.environ.get("ARGUS_SKILL_MAX_ROUNDS", str(max_rounds)))

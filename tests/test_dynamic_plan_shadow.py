@@ -58,6 +58,23 @@ def test_continue_signal_does_not_emit_shadow_event() -> None:
     assert runner._plan_signal_event(_review("continue")) is None
 
 
+def test_replan_requested_verdict_ends_round_immediately() -> None:
+    status, reason = SupervisedEngineer._classify(
+        review=ReviewDecision(
+            status="replan_requested",
+            reason="The immutable run identity requires a replacement plan.",
+            next_action="Create a fresh identity.",
+        ),
+        no_progress_streak=0,
+        no_progress_threshold=2,
+        round_index=1,
+        max_rounds=3,
+    )
+
+    assert status == "replan_requested"
+    assert "replacement plan" in reason
+
+
 def test_dynamic_plan_defaults_off_for_behavior_compatibility(monkeypatch) -> None:
     monkeypatch.delenv("ARGUS_SKILL_DYNAMIC_PLAN_MODE", raising=False)
 
@@ -109,6 +126,51 @@ def _done_json() -> str:
             "completion_summary_markdown": "Done.",
         }
     )
+
+
+def _upstream_stage_defect_json() -> str:
+    return json.dumps({
+        "status": "continue",
+        "reason": (
+            "The earliest broken stage is benchmark; run execution is unsupported."
+        ),
+        "next_action": "Return to benchmark and recertify before any GPU work.",
+        "round_summary_markdown": "# Review\n",
+        "completion_summary_markdown": "",
+        "progress_class": "decision",
+        "planner_report": {
+            "forward_progress": True,
+            "headline": "upstream benchmark defect",
+            "blocker": "the run packet predates the repaired benchmark adapter",
+            "recommended_next": "rollback to benchmark",
+            "plan_signal": "continue",
+            "plan_signal_reason": "",
+            "evidence_files": [],
+        },
+    })
+
+
+def _manager_return_stage_defect_json() -> str:
+    return json.dumps({
+        "status": "continue",
+        "reason": "Execution failed closed before model loading.",
+        "next_action": (
+            "Manager must preserve history, return structurally to `benchmark`, "
+            "and recertify before another run."
+        ),
+        "round_summary_markdown": "# Review\n",
+        "completion_summary_markdown": "",
+        "progress_class": "decision",
+        "planner_report": {
+            "forward_progress": True,
+            "headline": "stage authority mismatch",
+            "blocker": "the run transition is not executable",
+            "recommended_next": "repair through Manager",
+            "plan_signal": "continue",
+            "plan_signal_reason": "",
+            "evidence_files": [],
+        },
+    })
 
 
 def _engineer(backend: MemoryBackend) -> SupervisedEngineer:
@@ -170,6 +232,81 @@ def test_active_mode_requires_two_consecutive_reconsider_signals(tmp_path) -> No
     plan_events = [event for event in events if event["type"] == "life.plan.signal"]
     assert [event["confirmed"] for event in plan_events] == [False, True]
     assert all(event["mode"] == "active" for event in plan_events)
+
+
+def test_upstream_stage_defect_preempts_next_engineer_round(tmp_path) -> None:
+    research = tmp_path / "research"
+    research.mkdir()
+    (research / "PIPELINE_STATE.json").write_text(json.dumps({
+        "current_stage": "run",
+        "stages": {
+            "research": {"status": "done"},
+            "plan": {"status": "done"},
+            "benchmark": {"status": "done"},
+            "run": {"status": "in_progress"},
+        },
+    }), encoding="utf-8")
+    backend = MemoryBackend()
+    backend.queue("engineer-r1", CannedResponse(message="run attempt", thread_id="t1"))
+    backend.queue("reviewer", CannedResponse(message=_upstream_stage_defect_json()))
+    backend.queue("engineer-r2", CannedResponse(message="must not run", thread_id="t2"))
+    events: list[dict] = []
+
+    status, rounds, _final, reason, _thread_id = _engineer(backend).run(
+        objective="execute the run stage",
+        engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
+        supervised_config=SupervisedConfig(max_rounds=3, dynamic_plan_mode="off"),
+        workdir=tmp_path,
+        on_event=events.append,
+    )
+
+    assert status == "replan_requested"
+    assert len(rounds) == 1
+    assert "earliest_broken_stage=benchmark" in reason
+    assert [label for label, _prompt, _options in backend.history] == [
+        "engineer-r1",
+        "reviewer",
+    ]
+    report = rounds[-1].review.planner_report
+    assert report["stage_reconciliation_required"] is True
+    assert report["earliest_broken_stage"] == "benchmark"
+    signals = [event for event in events if event.get("signal") == "stage_reconciliation"]
+    assert signals and signals[-1]["target_stage"] == "benchmark"
+
+
+def test_manager_return_wording_also_preempts_next_engineer_round(
+    tmp_path,
+) -> None:
+    research = tmp_path / "research"
+    research.mkdir()
+    (research / "PIPELINE_STATE.json").write_text(json.dumps({
+        "current_stage": "run",
+        "stages": {
+            "research": {"status": "done"},
+            "plan": {"status": "done"},
+            "benchmark": {"status": "done"},
+            "run": {"status": "in_progress"},
+        },
+    }), encoding="utf-8")
+    backend = MemoryBackend()
+    backend.queue("engineer-r1", CannedResponse(message="run attempt", thread_id="t1"))
+    backend.queue("reviewer", CannedResponse(message=_manager_return_stage_defect_json()))
+    backend.queue("engineer-r2", CannedResponse(message="must not run", thread_id="t2"))
+
+    status, rounds, _final, reason, _thread_id = _engineer(backend).run(
+        objective="execute the run stage",
+        engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
+        supervised_config=SupervisedConfig(max_rounds=3, dynamic_plan_mode="off"),
+        workdir=tmp_path,
+    )
+
+    assert status == "replan_requested"
+    assert len(rounds) == 1
+    assert "earliest_broken_stage=benchmark" in reason
+    assert [label for label, _prompt, _options in backend.history] == [
+        "engineer-r1",
+        "reviewer",
+    ]
 
 
 def test_confirmed_reconsider_preempts_reviewer_wait(tmp_path, monkeypatch) -> None:

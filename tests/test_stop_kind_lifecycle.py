@@ -131,8 +131,8 @@ def test_reviewer_budget_stop_pauses_without_failure_streak(tmp_path: Path) -> N
             self.calls += 1
             return ReviewDecision(
                 status="blocked",
-                reason="review call denied by mission budget",
-                next_action="resume after replenishing budget",
+                reason="review call denied by the global daily USD cap",
+                next_action="resume after the cap resets or is raised",
                 backend_unavailable=True,
                 backend_stop_kind="budget_exhausted",
             )

@@ -67,6 +67,14 @@ def test_runtime_form_gate_passes_compliant_fails_banned(tmp_path):
     assert _run(cmd, tmp_path).returncode != 0
 
 
+def test_runtime_form_gate_rejects_missing_or_malformed_declared_spec(tmp_path):
+    cmd = _cmd("form-check poetry/draft_poem.txt")
+    _write(tmp_path, "poetry/draft_poem.txt", _POEM)
+    assert _run(cmd, tmp_path).returncode != 0
+    _write(tmp_path, "poetry/form_spec.json", "{not-json")
+    assert _run(cmd, tmp_path).returncode != 0
+
+
 def test_runtime_intake_gate(tmp_path):
     cmd = _cmd("intake-validate")
     _write(tmp_path, "poetry/task_envelope.json",

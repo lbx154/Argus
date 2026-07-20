@@ -101,6 +101,64 @@ def test_none_callback_leaves_turn_unchanged(_fake_copilot, monkeypatch) -> None
     assert result.exit_code == 0
 
 
+def test_clean_exit_with_message_but_no_terminal_result_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Intermediate Copilot output must not masquerade as a completed turn.
+
+    A long tool-using Engineer can emit useful messages and still exit before
+    Copilot's terminal ``result`` event. Without that event there is no
+    sessionId or authoritative completion receipt, so the round must be retried
+    as a fresh backend failure rather than recorded with ``thread_id=null``.
+    """
+    lines = [
+        json.dumps({
+            "type": "assistant.message",
+            "data": {"content": "partial work summary"},
+        }),
+        json.dumps({
+            "type": "assistant.tool_call_delta",
+            "data": {
+                "toolCallId": "call-1",
+                "toolName": "bash",
+                "inputDelta": "{",
+            },
+        }),
+    ]
+    monkeypatch.setattr(
+        runner_mod.subprocess,
+        "Popen",
+        lambda *args, **kwargs: _FakeProc(lines),
+    )
+    monkeypatch.setattr(
+        AgentCliRunner,
+        "_resolve_executable",
+        staticmethod(lambda value: value),
+    )
+    monkeypatch.setattr(
+        AgentCliRunner,
+        "_build_command",
+        lambda self, **kwargs: ["copilot", "-p", "x"],
+    )
+
+    result = AgentCliRunner(
+        agent_bin="copilot",
+        backend=BACKEND_COPILOT,
+    ).run_exec(
+        prompt="bounded mission",
+        resume_thread_id=None,
+        options=RunnerOptions(),
+        run_label="engineer-r1",
+    )
+
+    assert result.exit_code == 0
+    assert result.agent_messages == ["partial work summary"]
+    assert result.thread_id is None
+    assert result.turn_completed is False
+    assert result.turn_failed is True
+    assert result.fatal_error == "Agent CLI exited without completing a model turn."
+
+
 def test_cli_process_starts_in_its_own_posix_session(_fake_copilot, monkeypatch) -> None:
     monkeypatch.setattr(
         AgentCliRunner,

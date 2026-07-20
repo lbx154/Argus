@@ -12,11 +12,14 @@ Public surface kept identical: ``Reviewer.evaluate(...) -> ReviewDecision``,
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
+import os
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from ..core.models import ReviewDecision, RunnerOptions
 from ..core.ports import RunnerBackend
@@ -61,6 +64,49 @@ RESEARCH_SCHEMA_PATH = str(Path(__file__).with_name("reviewer_research_schema.js
 LEGACY_RESEARCH_SCHEMA_PATH = str(
     Path(__file__).with_name("reviewer_legacy_research_schema.json")
 )
+
+
+def _compact_schema_for_backend(
+    schema_path: str,
+    schema_contract: bytes,
+) -> tuple[str, bytes]:
+    """Return a content-addressed minified schema path for provider input.
+
+    Keep the checked-in schema readable, but do not spend tokens on indentation
+    and descriptive whitespace every review turn. Any parse/cache failure falls
+    back to the authoritative original bytes/path.
+    """
+    try:
+        payload = json.loads(schema_contract)
+        compact = json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        if len(compact) >= len(schema_contract):
+            return schema_path, schema_contract
+        digest = hashlib.sha256(compact).hexdigest()[:20]
+        cache_dir = Path(tempfile.gettempdir()) / "argus-skill-reviewer-schemas"
+        cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        cached_path = cache_dir / f"{Path(schema_path).stem}-{digest}.json"
+        if not cached_path.exists() or cached_path.read_bytes() != compact:
+            fd, temp_name = tempfile.mkstemp(
+                dir=cache_dir,
+                prefix=f".{cached_path.name}.",
+                suffix=".tmp",
+            )
+            try:
+                with os.fdopen(fd, "wb") as handle:
+                    handle.write(compact)
+                os.replace(temp_name, cached_path)
+            finally:
+                try:
+                    os.unlink(temp_name)
+                except FileNotFoundError:
+                    pass
+        return str(cached_path), compact
+    except (OSError, TypeError, ValueError):
+        return schema_path, schema_contract
 
 
 def _project_has_wiki(
@@ -161,6 +207,19 @@ def _verification_directive() -> str:
     )
 
 
+def _prompt_block_stats(blocks: Mapping[str, str]) -> dict[str, dict[str, int]]:
+    stats: dict[str, dict[str, int]] = {}
+    for name, text in blocks.items():
+        rendered = str(text or "")
+        byte_count = len(rendered.encode("utf-8"))
+        stats[str(name)] = {
+            "chars": len(rendered),
+            "bytes": byte_count,
+            "estimated_tokens": (byte_count + 3) // 4,
+        }
+    return stats
+
+
 def _reviewer_evidence_contract(workflow_mode: str) -> str:
     """Small, non-contradictory evidence policy for the Reviewer."""
     mode = (workflow_mode or "").strip().lower()
@@ -191,6 +250,7 @@ def _engineer_log_audit_block(
     engineer_call_id: str = "",
     round_index: int,
     measured: bool,  # noqa: ARG001 — round_index kept for call-site symmetry with the other audit blocks
+    compact: bool = False,
 ) -> str:
     """Reviewer prompt section for auditing the engineer's EXECUTION LOG.
 
@@ -219,6 +279,20 @@ def _engineer_log_audit_block(
     if not path:
         return ""
     call_id = (engineer_call_id or "").strip()
+    if compact:
+        scope = (
+            f"current engineer call id `{call_id}`"
+            if call_id
+            else "the current engineer round"
+        )
+        return (
+            "## Engineer execution log (on-demand)\n"
+            f"Log: `{path}`; scope: {scope}. Do not read or grep it routinely. "
+            "Previously certified process evidence remains valid. Inspect this log "
+            "only for a concrete contradiction, implausible result, missing material "
+            "provenance, or suspected shortcut; otherwise spend the review judging "
+            "the result and next research decision.\n\n"
+        )
     progress_filter = '\'"type": "engineer.progress"\''
     if call_id:
         def shell_quote(value: str) -> str:
@@ -333,6 +407,7 @@ class Reviewer:
     def __init__(self, runner: RunnerBackend, *, skill_store: Any | None = None) -> None:
         self.runner = runner
         self.schema_path = SCHEMA_PATH
+        self._last_prompt_block_stats: dict[str, dict[str, int]] = {}
         # Optional: when wired, the reviewer runs the same role-mission skill
         # matcher every other role uses, surfacing adaptive reviewer skills
         # (e.g. stage-specific review playbooks) plus cross-role engineer
@@ -364,6 +439,7 @@ class Reviewer:
         escalate_hint: str = "",
         engineer_log_path: str = "",
         engineer_call_id: str = "",
+        preselected_skill_block: str | None = None,
         resume_thread_id: str | None = None,
         prior_static_fingerprint: str = "",
     ) -> ReviewDecision:
@@ -395,6 +471,10 @@ class Reviewer:
         try:
             if schema_path:
                 schema_contract = Path(schema_path).read_bytes()
+                schema_path, schema_contract = _compact_schema_for_backend(
+                    schema_path,
+                    schema_contract,
+                )
         except OSError as exc:
             reason = (
                 "Reviewer output-schema file is unavailable (missing or unreadable) at "
@@ -439,9 +519,21 @@ class Reviewer:
             escalate_hint=escalate_hint,
             engineer_log_path=engineer_log_path,
             engineer_call_id=engineer_call_id,
+            preselected_skill_block=preselected_skill_block,
             working_dir=config.working_dir,
         )
         static, delta_base = self._render(resumed=False, **common)
+        prompt_block_stats = {
+            name: dict(stats)
+            for name, stats in self._last_prompt_block_stats.items()
+        }
+        if schema_contract:
+            schema_bytes = len(schema_contract)
+            prompt_block_stats["output_schema"] = {
+                "chars": len(schema_contract.decode("utf-8", errors="replace")),
+                "bytes": schema_bytes,
+                "estimated_tokens": (schema_bytes + 3) // 4,
+            }
         fingerprint_input = bytearray(static.encode("utf-8"))
         if schema_path:
             fingerprint_input.extend(b"\0output-schema\0")
@@ -574,6 +666,7 @@ class Reviewer:
         parsed.output_tokens = rev_out
         parsed.reasoning_output_tokens = rev_reasoning_output_tokens
         parsed.premium_requests = rev_premium
+        parsed.prompt_block_stats = prompt_block_stats
         # Transport metadata remains useful in events even though the next
         # Reviewer call is always fresh.
         parsed.thread_id = rev_tid
@@ -649,6 +742,7 @@ class Reviewer:
         escalate_hint: str = "",
         engineer_log_path: str = "",
         engineer_call_id: str = "",
+        preselected_skill_block: str | None = None,
         working_dir: str | Path | None = None,
     ) -> tuple[str, str]:
         """F7: render the reviewer prompt as ``(static_preamble, round_delta)``.
@@ -665,21 +759,27 @@ class Reviewer:
         # are excluded by ReviewerMission so the matcher never re-injects what
         # is already hard-wired into this prompt.
         from ..skills.harness_overlay import resolve_project_root
-        from ..skills.vertical_select import resolve_vertical
+        from ..skills.vertical_select import resolve_evidence_mode, resolve_vertical
         from ..verticals._base import (
             load_vertical,
             vertical_completion_gate,
             vertical_role_banner,
             vertical_search_altitude,
-            vertical_workflow_mode,
         )
 
         _proot = resolve_project_root(working_dir)
         _active_vertical = resolve_vertical(_proot)
         _vmod = load_vertical(_active_vertical, project_root=_proot)
-        _direct_workflow = vertical_workflow_mode(_vmod) == "direct"
         matched_review_skill_block = ""
-        if self.skill_store is not None and not _direct_workflow:
+        if preselected_skill_block is not None:
+            if preselected_skill_block.strip():
+                matched_review_skill_block = (
+                    "Preselected mission skill context from the single matcher pass "
+                    "(apply what is relevant; follow any on-demand read instruction "
+                    "inside):\n"
+                    f"{preselected_skill_block.strip()}\n\n"
+                )
+        elif self.skill_store is not None:
             from ..skills.venue_profiles import venue_excluded_skill_files
 
             review_match = self.mission.match(
@@ -804,7 +904,12 @@ class Reviewer:
         elif is_final_submission or stage == "submission":
             stage_checklist = format_full_pipeline_checklist(role="reviewer", project_root=_proot)
         else:
-            stage_checklist = format_stage_checklist(stage, role="reviewer", project_root=_proot)
+            stage_checklist = format_stage_checklist(
+                stage,
+                role="reviewer",
+                project_root=_proot,
+                scope=scope_normalized,
+            )
 
         # Academic peer-review benchmark skill: advisory rubric for reviewing
         # a near-complete manuscript. Gate it on the structured stage/scope
@@ -848,9 +953,12 @@ class Reviewer:
         rollback_block = (
             "## Upstream defects\n"
             f"Current stage: `{stage}`. Earlier stages: {earlier_stages}.\n"
-            "If earlier-stage evidence is broken, return `continue` and name the "
-            "earliest broken stage in `reason` and `planner_report.blocker`. The "
-            "the Manager owns rollback; never edit `research/PIPELINE_STATE.json`."
+            "If earlier-stage evidence is broken and this mission cannot repair it "
+            "within its own scope, return `replan_requested` (never `continue`) and "
+            "name the earliest broken stage in `reason` and "
+            "`planner_report.blocker`. Set `planner_report.plan_signal` to "
+            "`reconsider` with a non-empty `plan_signal_reason`; the Manager owns rollback. "
+            "Never edit `research/PIPELINE_STATE.json`."
         )
         # Checklist-feedback channel. The PLANNER owns the per-stage checklist
         # (it authors/edits it via checklist_ops). The reviewer is FEEDBACK-ONLY:
@@ -938,6 +1046,11 @@ class Reviewer:
             engineer_call_id=engineer_call_id,
             round_index=round_index,
             measured=_measured,
+            compact=not (
+                is_final_submission
+                or stage in {"review", "submission"}
+                or bool((main_error or "").strip())
+            ),
         )
         # Final-submission completion contract. This block replaces the
         # retired hardcoded EMNLP validators: instead of the supervisor
@@ -961,7 +1074,7 @@ class Reviewer:
             final_submission_block = ""
         # Byte-stable static policy; every fresh Reviewer receives it in full.
         static = (
-            _reviewer_evidence_contract(vertical_workflow_mode(_vmod))
+            _reviewer_evidence_contract(resolve_evidence_mode(_proot))
             + optimize_banner
             + research_result_instruction
             + EFFECTIVE_TASK_CONTRACT
@@ -1001,9 +1114,16 @@ class Reviewer:
             "- `step_back` is required for a measured result, including success: "
             "independently state support, surprises, new questions, and cheap "
             "alternative directions; use null only when nothing was measured.\n"
+            "- Every valid measured result must identify the strongest supported "
+            "finding in `planner_report.headline`. A clean negative, null, boundary, "
+            "or diagnostic result is paper evidence: recommend analysis/write-up "
+            "instead of holding the campaign merely because the original positive "
+            "hypothesis failed.\n"
             "- `failure_cause` classifies non-done outcomes. Reusable skill/wiki "
             "learning must already have been edited directly during this Reviewer "
-            "turn; never encode memory edits in the final JSON.\n"
+            "turn, except Wiki pages, which must use the schema's structured "
+            "`wiki_ops`. Never directly edit `.autors/**/wiki/pages/**`, and never "
+            "encode other memory edits in the final JSON.\n"
             "- `failure_source` is independent acceptance provenance. Use null "
             "without a diagnosed acceptance failure; otherwise choose exactly one "
             "structured kind and cite concrete artifact observations. A "
@@ -1014,6 +1134,10 @@ class Reviewer:
             "not authorize repair. Never label missing/failed scientific evidence "
             "as a validator defect. Set `scientific_decision` independently to "
             "go, pivot, no_go, undecided, or null.\n"
+            "- `failure_layer` is orthogonal and must be one of `platform`, "
+            "`orchestration`, `evaluator`, `evidence_packaging`, `scientific`, "
+            "`operator`, or `unknown`. Platform/program/evaluator/packaging failures "
+            "must request repair and must not be used as evidence against the idea.\n"
             "- `operator_question` is only for an operator-only blocker. "
             "`checklist_feedback` is only when the checklist itself is wrong.\n\n"
             "Decision rules:\n"
@@ -1066,6 +1190,32 @@ class Reviewer:
             f"{main_summary}\n\n"
             f"{evidence_block}"
         )
+        objective_context = (
+            f"{(original_objective or objective).strip()}\n"
+            f"{objective}\n"
+            f"{operator_text}\n"
+            f"{planner_review_instruction or 'none'}"
+        )
+        self._last_prompt_block_stats = _prompt_block_stats(
+            {
+                "static_total": static,
+                "delta_total": delta,
+                "stage_checklist": stage_checklist,
+                "matched_skill": matched_review_skill_block,
+                "direct_memory": direct_memory_edit_block,
+                "wiki_curator": wiki_curator_skill_block,
+                "paper_review": paper_review_skill_block,
+                "research_result": research_result_instruction,
+                "final_submission": final_submission_block,
+                "objective_context": objective_context,
+                "checkpoint": checkpoint_block,
+                "execution_log_audit": engineer_log_audit_block,
+                "background": background_block,
+                "shared_context": shared_context_block,
+                "main_summary": main_summary,
+                "raw_evidence": evidence_block,
+            }
+        )
         return static, delta
 
     def _build_prompt(self, **kwargs: Any) -> str:
@@ -1083,6 +1233,13 @@ class Reviewer:
         """This round's delta alone; ``resumed`` prepends the RE-EVALUATE header."""
         _, delta = self._render(resumed=resumed, **kwargs)
         return delta
+
+    @property
+    def last_prompt_block_stats(self) -> dict[str, dict[str, int]]:
+        return {
+            name: dict(stats)
+            for name, stats in self._last_prompt_block_stats.items()
+        }
 
 
 _MAX_SHARED_CTX_CHARS = 100_000_000  # effectively no cap: reviewer must see the FULL engineer reasoning/prev-review to audit honesty

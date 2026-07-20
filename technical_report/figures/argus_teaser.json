@@ -1,15 +1,19 @@
 {
+  "schema": "argus-teaser/v2",
   "figure": "argus_teaser",
-  "reader_question": "How does Argus turn a dense-intelligence objective into retained capability, and what public benchmark results characterize the system?",
-  "claim": "Argus couples role-separated research with a review gate and reports heterogeneous public outcomes without cross-normalizing their metrics.",
-  "sources": {
-    "results": "evidence/website_results.json",
-    "results_sha256": "d3b578ffa07c8ea35c9624b628967869452eeaef58924fd320eec1336a097c0a",
-    "paper_inventory": "evidence/paper_inventory.json",
-    "paper_inventory_sha256": "441679d40d9c073299d812c17e38abbe7948ec93ba23deae71e56f5fd60b8835"
-  },
-  "editable_source": "argus_teaser.html",
+  "reader_question": "How does Argus organize recurrent work, and what task-native results characterize the runtime?",
+  "claim": "Argus couples a recurrent four-role control loop with persistent shared state and reports results across seven task-native evaluation cards.",
+  "evidence": [
+    "evidence/website_results.json",
+    "evidence/swebench_pro/unified_experiment_summary.json"
+  ],
+  "editable_sources": [
+    "argus_teaser.pptx",
+    "argus_teaser.source.svg",
+    "ppt_master/argus_teaser_wechat_20260719/design_spec.md"
+  ],
   "vector_export": "argus_teaser.pdf",
-  "renderer": "google-chrome",
-  "html_sha256": "1ef66f4507b5502348c00f5a1a502876568182c599281a6174cc60775aea5021"
+  "raster_preview": "argus_teaser.png",
+  "renderer": "libreoffice",
+  "notes": "All seven cards retain independent task-native scales; no formulas appear in the teaser."
 }

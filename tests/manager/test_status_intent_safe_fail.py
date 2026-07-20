@@ -83,39 +83,39 @@ class _HandledWithoutReplyRunner:
         return True
 
 
-def test_triage_failure_safe_fails_for_do_not_run_input() -> None:
-    chat_state = {"manager_runner": _RaisingRunner()}
-    reply = manager_triage(
-        object(), "请只做状态检查，不要运行任务", chat_state,
+def _triage(runner: Any, body: str) -> str | None:
+    return manager_triage(
+        object(),
+        body,
+        {},
+        ensure_runner=lambda _chat_state, _mem: runner,
     )
+
+
+def test_triage_failure_safe_fails_for_do_not_run_input() -> None:
+    reply = _triage(_RaisingRunner(), "请只做状态检查，不要运行任务")
     # A non-None reply means "handled as chat, do NOT enqueue".
     assert reply is not None
 
 
 def test_triage_failure_still_dispatches_real_work() -> None:
-    chat_state = {"manager_runner": _RaisingRunner()}
-    reply = manager_triage(
-        object(), "optimize the training throughput of this project", chat_state,
+    reply = _triage(
+        _RaisingRunner(),
+        "optimize the training throughput of this project",
     )
     # None means "route to the TEAM backlog" — real work is never dropped.
     assert reply is None
 
 
 def test_pre_provider_refusal_never_dispatches_unclassified_input() -> None:
-    chat_state = {"manager_runner": _PreProviderRefusalRunner()}
-
-    reply = manager_triage(object(), "你好", chat_state)
+    reply = _triage(_PreProviderRefusalRunner(), "你好")
 
     assert reply is not None
     assert "你好" in reply
 
 
 def test_handled_empty_self_reply_is_explicit_and_never_dispatched() -> None:
-    reply = manager_triage(
-        object(),
-        "这个进程还活着吗",
-        {"manager_runner": _HandledWithoutReplyRunner()},
-    )
+    reply = _triage(_HandledWithoutReplyRunner(), "这个进程还活着吗")
 
     assert reply is not None
     assert reply != "(no reply)"
@@ -125,6 +125,5 @@ def test_handled_empty_self_reply_is_explicit_and_never_dispatched() -> None:
 def test_successful_task_classify_is_not_overridden() -> None:
     # Even a do-not-run-looking body, when the classify SUCCEEDS and decides
     # "task", is left as a task. The detector only guards the FAILURE path.
-    chat_state = {"manager_runner": _TaskRunner()}
-    reply = manager_triage(object(), "只做状态检查 and then run it", chat_state)
+    reply = _triage(_TaskRunner(), "只做状态检查 and then run it")
     assert reply is None

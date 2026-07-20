@@ -20,9 +20,13 @@ Design notes
 * **No new runtime dependency.** Pure-stdlib BM25 (Okapi variant), based
   on the standard formulation; same result shape as `rank_bm25` so we
   can swap to that library later without changing call sites.
-* **Lowercased, alphanumeric-token, ≥3 chars.** Same tokenization rule
-  the matcher cache already uses (`SkillStore._normalize_tokens`) so the
-  cache-key fingerprint and BM25 score derive from the same vocabulary.
+* **Unicode-aware tokens.** NFKC-normalized, lowercased ASCII alphanumeric
+  tokens keep the historical ≥3-character rule; contiguous CJK text is split
+  into overlapping character bigrams so Chinese/Japanese/Korean metadata can
+  participate.
+* **No lexical signal = no pruning.** An empty query or a cross-language query
+  whose tokens occur in none of the candidate summaries returns the full pool to
+  the LLM matcher. Arbitrary on-disk order must never decide recall.
 * **Failure mode = fall back to LLM-only.** Any tokenization or
   index-building error → return the unfiltered candidate list and let
   the LLM matcher take over. Selection accuracy must never regress just
@@ -49,12 +53,16 @@ import logging
 import math
 import os
 import re
+import unicodedata
 from collections import Counter
 from typing import Sequence
 
 log = logging.getLogger(__name__)
 
-_TOKEN_RE = re.compile(r"[a-z0-9]+")
+_ASCII_TOKEN_RE = re.compile(r"[a-z0-9]+")
+_CJK_RUN_RE = re.compile(
+    r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]+"
+)
 _DEFAULT_THRESHOLD = 40
 _DEFAULT_TOP_K = 30
 
@@ -63,11 +71,20 @@ _K1 = 1.5
 _B = 0.75
 
 
-def _tokenize(text: str) -> list[str]:
+def bm25_tokens(text: str) -> list[str]:
+    """Return the Unicode-aware lexical tokens used by BM25 retrieval paths."""
     if not text:
         return []
-    lowered = text.lower().replace("_", " ").replace("-", " ")
-    return [t for t in _TOKEN_RE.findall(lowered) if len(t) >= 3]
+    lowered = unicodedata.normalize("NFKC", text).lower()
+    lowered = lowered.replace("_", " ").replace("-", " ")
+    tokens = [t for t in _ASCII_TOKEN_RE.findall(lowered) if len(t) >= 3]
+    for match in _CJK_RUN_RE.finditer(lowered):
+        run = match.group(0)
+        if len(run) == 1:
+            tokens.append(run)
+            continue
+        tokens.extend(run[index : index + 2] for index in range(len(run) - 1))
+    return tokens
 
 
 def _candidate_text(summary: dict) -> str:
@@ -116,7 +133,9 @@ def bm25_prefilter(
 ) -> list[dict]:
     """Rank ``summaries`` by Okapi BM25 against ``task_description``.
 
-    Returns at most ``top_k`` summaries, in original order if BM25 fails.
+    Returns at most ``top_k`` summaries when BM25 has lexical evidence. Empty or
+    cross-language/no-overlap queries return the full pool for LLM-only matching.
+    BM25 failures also return the full pool.
     """
     if not summaries:
         return []
@@ -135,19 +154,22 @@ def bm25_prefilter(
 def _bm25_rank(
     task_description: str, summaries: Sequence[dict], top_k: int
 ) -> list[dict]:
-    q_tokens = _tokenize(task_description)
+    q_tokens = bm25_tokens(task_description)
     if not q_tokens:
-        return list(summaries)[:top_k]
+        return list(summaries)
 
-    docs: list[list[str]] = [_tokenize(_candidate_text(s)) for s in summaries]
+    docs: list[list[str]] = [bm25_tokens(_candidate_text(s)) for s in summaries]
     n = len(docs)
     if n == 0:
-        return []
+        return list(summaries)
 
     # Document frequencies
     df: Counter[str] = Counter()
     for tokens in docs:
         df.update(set(tokens))
+    matched_query_tokens = [token for token in q_tokens if token in df]
+    if not matched_query_tokens:
+        return list(summaries)
 
     # Inverse document frequency, Okapi formulation (with +0.5 smoothing)
     idf = {
@@ -165,7 +187,7 @@ def _bm25_rank(
             continue
         tf = Counter(tokens)
         score = 0.0
-        for q in q_tokens:
+        for q in matched_query_tokens:
             if q not in tf:
                 continue
             idf_q = idf.get(q, 0.0)
@@ -179,4 +201,4 @@ def _bm25_rank(
     return [summaries[i] for i in keep_idx]
 
 
-__all__ = ["is_prefilter_enabled", "bm25_prefilter"]
+__all__ = ["bm25_tokens", "is_prefilter_enabled", "bm25_prefilter"]

@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import tempfile
 import time
 from pathlib import Path
@@ -24,12 +25,18 @@ OFFSET_FILE = "inbox.offset"
 log = logging.getLogger(__name__)
 
 
-def inbox_path(life_dir: Path | str) -> Path:
-    return Path(life_dir) / INBOX_FILE
+def _stage_token(stage: str) -> str:
+    return re.sub(r"[^a-z0-9_-]+", "-", str(stage or "").strip().lower()).strip("-")
 
 
-def inbox_offset_path(life_dir: Path | str) -> Path:
-    return Path(life_dir) / OFFSET_FILE
+def inbox_path(life_dir: Path | str, stage: str = "") -> Path:
+    token = _stage_token(stage)
+    return Path(life_dir) / (f"inbox.{token}.jsonl" if token else INBOX_FILE)
+
+
+def inbox_offset_path(life_dir: Path | str, stage: str = "") -> Path:
+    token = _stage_token(stage)
+    return Path(life_dir) / (f"inbox.{token}.offset" if token else OFFSET_FILE)
 
 
 def _read_offset(path: Path) -> int:
@@ -78,9 +85,10 @@ def _read_inbox_messages(
     *,
     advance: bool,
     limit: int | None = None,
+    stage: str = "",
 ) -> list[str]:
-    inbox = inbox_path(life_dir)
-    offset_file = inbox_offset_path(life_dir)
+    inbox = inbox_path(life_dir, stage)
+    offset_file = inbox_offset_path(life_dir, stage)
     if not inbox.exists():
         return []
     offset = _read_offset(offset_file)
@@ -114,15 +122,48 @@ def _read_inbox_messages(
 
 
 def count_pending_inbox_messages(life_dir: Path | str) -> int:
-    return len(_read_inbox_messages(life_dir, advance=False))
+    total = len(_read_inbox_messages(life_dir, advance=False))
+    root = Path(life_dir)
+    try:
+        staged = list(root.glob("inbox.*.jsonl"))
+    except OSError:
+        staged = []
+    for path in staged:
+        stage = path.name[len("inbox.") : -len(".jsonl")]
+        total += len(_read_inbox_messages(life_dir, advance=False, stage=stage))
+    return total
 
 
-def drain_inbox_messages(life_dir: Path | str, *, limit: int = 10) -> list[str]:
-    return _read_inbox_messages(life_dir, advance=True, limit=max(1, limit))
+def drain_inbox_messages(
+    life_dir: Path | str,
+    *,
+    limit: int = 10,
+    current_stage: str | None = None,
+) -> list[str]:
+    messages = _read_inbox_messages(
+        life_dir,
+        advance=True,
+        limit=max(1, limit),
+    )
+    remaining = max(0, max(1, limit) - len(messages))
+    if remaining and str(current_stage or "").strip():
+        messages.extend(_read_inbox_messages(
+            life_dir,
+            advance=True,
+            limit=remaining,
+            stage=str(current_stage or "").strip(),
+        ))
+    return messages
 
 
-def queue_inbox_message(life_dir: Path | str, text: str, *, source: str) -> None:
-    inbox = inbox_path(life_dir)
+def queue_inbox_message(
+    life_dir: Path | str,
+    text: str,
+    *,
+    source: str,
+    stage: str = "",
+) -> None:
+    inbox = inbox_path(life_dir, stage)
     inbox.parent.mkdir(parents=True, exist_ok=True)
     record = {"ts": time.time(), "text": text}
     with inbox.open("a", encoding="utf-8") as fh:
@@ -131,6 +172,7 @@ def queue_inbox_message(life_dir: Path | str, text: str, *, source: str) -> None
         "type": "life.inbox.queued",
         "text": text,
         "source": source,
+        "stage": stage.strip().lower(),
     })
 
 
@@ -141,9 +183,12 @@ def format_inbox_event(event: dict[str, Any]) -> str | None:
         if not text:
             return None
         source = str(event.get("source", "") or "").strip()
+        stage = str(event.get("stage", "") or "").strip()
         label = "📥 life.inbox.queued"
         if source:
             label += f" · {source}"
+        if stage:
+            label += f" · stage={stage}"
         return f"{label} · {_truncate(text, 120)}"
 
     if event_type == "life.inbox.drained":

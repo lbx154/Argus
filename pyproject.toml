@@ -57,6 +57,23 @@ figures = [
   "seaborn>=0.13",
   "SciencePlots>=2.1",
 ]
+# Core quant helpers (factor analysis, deterministic backtests, and K-line
+# rendering). Heavy engines such as qlib/vectorbt/backtrader remain separate,
+# lazy integrations because they require project-specific data and toolchains.
+quant = [
+  "numpy>=1.26",
+  "pandas>=2",
+  "scipy>=1.11",
+  "scikit-learn>=1.4",
+  "matplotlib>=3.8",
+  "mplfinance>=0.12.10b0",
+]
+# Browser-rendered research figures (React/ECharts/Recharts/Vega/D3). The
+# browser binary remains an explicit project/environment choice: install
+# Playwright Chromium separately or pass the system Chrome channel.
+visual-web = [
+  "playwright>=1.50,<2",
+]
 # `argus-skill[signing]` — the Ed25519 result-provenance feature
 # (argus_skill/team/result_provenance.py) is off by default (inert unless
 # ARGUS_EVAL_SIGNING_KEY / ARGUS_TEAMMATE_RESULT_VERIFY_KEY is set) and
@@ -114,6 +131,14 @@ dev = [
   # anywhere in argus_skill/ runtime code — test-only, so it belongs here
   # rather than as its own installable extra.
   "jsonschema>=4",
+  # Quant modules are covered by the default test suite. Keep the dev install
+  # self-contained instead of relying on unrelated host packages.
+  "numpy>=1.26",
+  "pandas>=2",
+  "scipy>=1.11",
+  "scikit-learn>=1.4",
+  "matplotlib>=3.8",
+  "mplfinance>=0.12.10b0",
 ]
 
 [project.scripts]

@@ -24,6 +24,33 @@ class ManagerHandoffSupersededError(ManagerHandoffError):
     """A newer continuous command superseded an in-flight Manager handoff."""
 
 
+def objective_update_requires_stage_reset(
+    previous_objective: str,
+    *updated_objectives: str,
+) -> bool:
+    """Return whether a continuous-objective update replaces prior work.
+
+    Continuous objectives are commonly extended with operator clarifications,
+    authorizations, or constraints.  Those monotonic additions must update the
+    standing objective without resetting a certified pipeline back to its first
+    stage.  A genuinely different objective still requires the replacement
+    reset.  Whitespace-only rewrites are treated as the same objective.
+
+    Callers may provide both the raw operator objective and the Manager-clean
+    execution task; an additive relationship in either representation is
+    sufficient to preserve the current stage.
+    """
+
+    previous = " ".join(str(previous_objective or "").split())
+    if not previous:
+        return False
+    for candidate in updated_objectives:
+        current = " ".join(str(candidate or "").split())
+        if current == previous or current.startswith(f"{previous} "):
+            return False
+    return True
+
+
 def require_manager_execution_task(division: Any) -> str:
     execution_task = str(
         getattr(division, "execution_task", "") or ""
@@ -151,7 +178,7 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
                 "ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh"
             ),
             reviewer_reasoning_effort=os.environ.get(
-                "ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "xhigh"
+                "ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "high"
             ),
             plan_mode="auto",
             plan_model=None,
@@ -162,6 +189,7 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
             operator_workspace=str(operator_workspace),
             manager_session_root=str(session_root) if session_root else None,
             project_state_dir=str(session_root) if session_root else None,
+            global_root=str(mem.global_root),
             life_dir=getattr(mem, "root", None),
             stop_event=None,
         )
@@ -242,6 +270,16 @@ def _emit_manager_event(mem: Any, event: dict[str, Any]) -> None:
         pass
 
 
+def _manager_current_stage(manager: Any) -> str:
+    resolver = getattr(manager, "current_stage", None)
+    if not callable(resolver):
+        return ""
+    try:
+        return str(resolver() or "").strip()
+    except Exception:  # noqa: BLE001 - event enrichment must never break handoff
+        return ""
+
+
 def _accepts_keyword(fn: Any, name: str) -> bool:
     try:
         parameters = signature(fn).parameters.values()
@@ -266,12 +304,18 @@ class PreparedManagerHandoff:
     def execution_task(self) -> str:
         return require_manager_execution_task(self.decision)
 
-    def commit(self, *, acquire_lock: bool = True) -> Any:
+    def commit(
+        self,
+        *,
+        acquire_lock: bool = True,
+        force_stage_reset: bool = False,
+    ) -> Any:
         kwargs = {} if acquire_lock else {"_lock_held": True}
         division = self.manager.commit_vertical_decision(
             self.body,
             self.decision,
             ask_on_new_domain=False,
+            force_stage_reset=force_stage_reset,
             **kwargs,
         )
         require_manager_execution_task(division)
@@ -292,6 +336,7 @@ class PreparedManagerHandoff:
             "objective": self.body,
             "execution_task": self.execution_task,
             "vertical": getattr(division, "vertical", ""),
+            "workflow_mode": getattr(division, "workflow_mode", "staged"),
             "kind": getattr(division, "kind", ""),
             "regular": bool(getattr(division, "regular", False)),
             "stages": list(getattr(division, "stages", []) or []),
@@ -303,6 +348,9 @@ class PreparedManagerHandoff:
         }
         if continuous_generation is not None:
             event["continuous_generation"] = continuous_generation
+        current_stage = _manager_current_stage(self.manager)
+        if current_stage:
+            event["current_stage"] = current_stage
         _emit_manager_event(self.mem, event)
 
     def failed(self, exc: Exception) -> None:
@@ -357,45 +405,13 @@ def prepare_manager_execution_task(
                 runner=None,
             )
 
-        cached_vertical = chat_state.pop("_frontdoor_vertical", None)
-        decision = None
-        if isinstance(cached_vertical, dict):
-            from ..skills import vertical_select
-
-            vertical = str(cached_vertical.get("vertical") or "").strip().lower()
-            target = str(cached_vertical.get("target") or "").strip().lower()
-            if vertical in vertical_select.VERTICALS:
-                from ..verticals._base import (
-                    load_vertical,
-                    vertical_research_target_levels,
-                    )
-
-                manager_project_root = (
-                    getattr(manager, "project_root", None)
-                    or getattr(mem, "project_root", None)
-                )
-                levels = set(vertical_research_target_levels(
-                    load_vertical(vertical, project_root=manager_project_root)
-                ))
-                if levels and target not in levels:
-                    decision = None
-                else:
-                    from .domain_author import VerticalDecision
-
-                    decision = VerticalDecision(
-                        choice="existing",
-                        vertical=vertical,
-                        execution_task=body.strip(),
-                        research_target_level=target if levels else "",
-                    )
-        if decision is None:
-            if root_task_id is None or not _accepts_keyword(
-                manager.decide_vertical,
-                "root_task_id",
-            ):
-                decision = manager.decide_vertical(body)
-            else:
-                decision = manager.decide_vertical(body, root_task_id=root_task_id)
+        if root_task_id is None or not _accepts_keyword(
+            manager.decide_vertical,
+            "root_task_id",
+        ):
+            decision = manager.decide_vertical(body)
+        else:
+            decision = manager.decide_vertical(body, root_task_id=root_task_id)
         require_manager_execution_task(decision)
         return PreparedManagerHandoff(
             mem=mem,
@@ -483,7 +499,13 @@ def manager_bounded_handoff(
     ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
     prepare_persist: Callable[[str], None] | None = None,
 ) -> Any:
-    """Commit Manager state and durable task enqueue under one pipeline lock."""
+    """Commit Manager state and durable task enqueue under one pipeline lock.
+
+    A bounded operator task submitted while a continuous campaign is active is
+    supplemental work inside that campaign. The Manager may rewrite the task
+    into a role-clean execution handoff, but it must not replace the standing
+    campaign's vertical, stage, target level, or workflow mode.
+    """
     prepared = prepare_manager_execution_task(
         mem,
         body,
@@ -497,7 +519,12 @@ def manager_bounded_handoff(
         if prepare_persist is not None:
             prepare_persist(prepared.execution_task)
         with pipeline_lock:
-            division = prepared.commit(acquire_lock=False)
+            division = _bounded_handoff_division(
+                prepared,
+                chat_state=chat_state,
+            )
+            if division is None:
+                division = prepared.commit(acquire_lock=False)
             result = persist(prepared.execution_task, division)
             prepared.completed(division)
             return result
@@ -506,6 +533,38 @@ def manager_bounded_handoff(
         if isinstance(exc, ManagerHandoffError):
             raise
         raise ManagerHandoffError(f"Manager bounded handoff failed: {exc}") from exc
+
+
+def _bounded_handoff_division(
+    prepared: PreparedManagerHandoff,
+    *,
+    chat_state: dict[str, Any],
+) -> Any | None:
+    """Return a non-mutating Division for supplemental continuous work."""
+    from ..daemon.state import read_continuous_state
+
+    life_dir = _life_dir_for(prepared.mem)
+    continuous = read_continuous_state(life_dir)
+    if not continuous.enabled or not continuous.objective.strip():
+        return None
+
+    from ..skills.vertical_select import resolve_vertical, resolve_workflow_mode
+    from ._core import Division
+
+    project_root = Path(
+        getattr(prepared.manager, "project_root", None)
+        or _operator_workspace(chat_state, life_dir)
+    )
+    vertical = resolve_vertical(project_root)
+    return Division(
+        task=prepared.body,
+        vertical=vertical,
+        kind=prepared.manager._kind_for(vertical),
+        regular=True,
+        stages=list(prepared.manager.plan_stages(vertical)),
+        workflow_mode=resolve_workflow_mode(project_root),
+        execution_task=prepared.execution_task,
+    )
 
 
 def manager_continuous_handoff(
@@ -536,12 +595,42 @@ def manager_continuous_handoff(
         ensure_runner=ensure_runner,
     )
     committed: dict[str, Any] = {}
+    replacement_intent = bool(
+        expected.objective.strip()
+        and requested_objective.strip()
+        and objective_update_requires_stage_reset(
+            expected.objective,
+            body,
+            prepared.execution_task,
+        )
+    )
 
     def _commit() -> None:
         if callable(cancelled) and cancelled():
             raise ManagerHandoffError("Manager request cancelled before commit")
-        committed["division"] = prepared.commit(acquire_lock=False)
+        committed["division"] = prepared.commit(
+            acquire_lock=False,
+            force_stage_reset=replacement_intent,
+        )
+        if replacement_intent:
+            backlog = getattr(mem, "backlog", None)
+            supersede = getattr(
+                backlog,
+                "supersede_pending_for_replacement",
+                None,
+            )
+            if callable(supersede):
+                committed["superseded_ids"] = supersede(
+                    reason="operator replaced the standing Manager objective",
+                    replacement_id=prepared.intent_id,
+                )
 
+    from ._core import (
+        clear_manager_pipeline_yield,
+        request_manager_pipeline_yield,
+    )
+
+    yield_token = request_manager_pipeline_yield(life_dir)
     try:
         lock_factory = getattr(prepared.manager, "pipeline_lock", None)
         pipeline_lock = lock_factory() if callable(lock_factory) else nullcontext()
@@ -558,6 +647,8 @@ def manager_continuous_handoff(
         if isinstance(exc, ManagerHandoffError):
             raise
         raise ManagerHandoffError(f"Manager handoff commit failed: {exc}") from exc
+    finally:
+        clear_manager_pipeline_yield(life_dir, yield_token)
     if not swapped:
         prepared.superseded()
         current = read_continuous_state(life_dir)
@@ -572,6 +663,14 @@ def manager_continuous_handoff(
         committed["division"],
         continuous_generation=expected.generation + 1,
     )
+    for item_id in committed.get("superseded_ids", ()):
+        _emit_manager_event(mem, {
+            "type": "life.plan.node.superseded",
+            "item_id": item_id,
+            "superseded_by_plan_id": prepared.intent_id,
+            "reason": "operator replaced the standing Manager objective",
+            "source": "manager_intent_replacement",
+        })
     return prepared.execution_task
 
 
@@ -622,10 +721,16 @@ _DO_NOT_RUN_SAFE_REPLY = (
 )
 
 
-def _pre_provider_refusal_reply(exc: Exception) -> str:
+def _fallback_request_excerpt(body: str) -> str:
+    compact = " ".join(str(body or "").split())
+    return compact if len(compact) <= 160 else compact[:157] + "..."
+
+
+def _pre_provider_refusal_reply(exc: Exception, body: str) -> str:
     return (
         "[not dispatched] The Manager could not classify this message because "
-        f"the provider call was refused before start: {exc}"
+        f"the provider call was refused before start: {exc}. "
+        f"Request: {_fallback_request_excerpt(body)}"
     )
 
 
@@ -658,7 +763,8 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
     captured: list[str] = []
     empty_reply = (
         "[Manager reply unavailable] The SELF turn completed without an assistant "
-        "message. No task was dispatched and the current mission was not changed."
+        "message. No task was dispatched and the current mission was not changed. "
+        f"Request: {_fallback_request_excerpt(body)}"
     )
 
     def _fragment(kind: str, payload: dict[str, Any]) -> None:
@@ -776,7 +882,7 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
             if looks_like_do_not_run_request(body):
                 return _DO_NOT_RUN_SAFE_REPLY
             if is_pre_provider_refusal_error(exc):
-                return _pre_provider_refusal_reply(exc)
+                return _pre_provider_refusal_reply(exc, body)
             return None
     except Exception as exc:  # noqa: BLE001 — triage failure: bias to task ("never drop
         # work to a bad classify") UNLESS the operator explicitly forbade running
@@ -785,7 +891,7 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
         if looks_like_do_not_run_request(body):
             return _DO_NOT_RUN_SAFE_REPLY
         if is_pre_provider_refusal_error(exc):
-            return _pre_provider_refusal_reply(exc)
+            return _pre_provider_refusal_reply(exc, body)
         return None
     return None
 

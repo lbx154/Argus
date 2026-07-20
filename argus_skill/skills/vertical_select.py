@@ -26,16 +26,8 @@ and ``manager/domain_author.py``):
   validates the name (``require_vertical``) and RAISES on an unknown vertical or
   a corrupt state file — no swallowed errors.
 
-Precedence for the resolved vertical (read side):
-
-    persisted project-local DATA domain  >  explicit non-default env
-    ``ARGUS_SKILL_VERTICAL``  >  persisted built-in ``vertical`` in
-    ``research/PIPELINE_STATE.json``  >  RAISE.
-
-A Manager-authored DATA domain must remain authoritative after it is persisted.
-The daemon may still carry the broader built-in vertical selected before the
-Manager authored that domain; allowing that inherited env value to win would
-silently replace the domain's stage contract with the built-in one.
+The resolved vertical has one authority: the Manager-persisted ``vertical`` in
+``research/PIPELINE_STATE.json`` (including a Manager-authored data domain).
 
 There are NO keyword classifiers and NO fallbacks: an objective is never mapped
 to a vertical by matching words, and a missing/corrupt state is never quietly
@@ -59,15 +51,16 @@ log = logging.getLogger(__name__)
 #: ``"quant"`` is the finance factor-research vertical — a REPORT peer of
 #: ``research`` (it produces a reviewer-certified factor report, not a numeric
 #: metric), so it is NOT an optimize vertical and is never routed under speedrun.
-#: ``"speedrun"`` is the generic numeric-optimization vertical; the three
-#: per-task verticals below are the distinct Recursive "First Steps" tasks,
+#: ``"speedrun"`` is the generic numeric-optimization vertical;
+#: ``"kernel_engineering"`` is the production/repository GPU-kernel vertical;
+#: the three per-task verticals below are the distinct Recursive "First Steps" tasks,
 #: each optimizing its OWN metric (so they are never conflated under speedrun):
 #:   nanochat         — Task 1: minimize val_bpb (300s, 1 GPU)
 #:   nanogpt_speedrun — Task 2: minimize wall-time to val_loss<=3.28 (8xH100)
 #:   kernelbench      — Task 3: maximize SOL score (B200 kernels)
 VERTICALS: tuple[str, ...] = (
-    "direct", "research", "math", "physics", "quant", "speedrun",
-    "nanochat", "nanogpt_speedrun", "kernelbench",
+    "software", "digital_circuit", "digital_circuit_benchmark", "research", "math", "physics", "quant", "speedrun",
+    "kernel_engineering", "nanochat", "nanogpt_speedrun", "kernelbench",
     "learning", "ale_last_exam", "fiction_writing", "classical_poetry",
     "modern_poetry", "prose", "literary_editor",
 )
@@ -77,10 +70,14 @@ VERTICALS: tuple[str, ...] = (
 #: expert per-stage reviewer checklists) over authoring a fresh, checklist-less
 #: data domain. Keys must stay in sync with ``VERTICALS``.
 VERTICAL_PURPOSES: dict[str, str] = {
-    "direct": "bounded one-off deliverable that an Engineer can produce and a "
-    "Reviewer can judge in one mission, without a staged research lifecycle "
-    "(short-cycle software repairs, bug fixes, focused edits/refactors, creative "
-    "composition, and small standalone artifacts with a concrete acceptance test)",
+    "software": "software engineering: repository repairs, features, refactors, "
+    "tests, developer tooling, and implementation work",
+    "digital_circuit": "digital hardware engineering: Verilog/SystemVerilog RTL, "
+    "testbenches, assertions/formal verification, FPGA/ASIC synthesis, timing, "
+    "and reproducible sign-off evidence",
+    "digital_circuit_benchmark": "single-stage fixed-harness RTL benchmark execution "
+    "under digital_circuit: exact public interface closure, RTL, local verification, "
+    "pre-score elaboration, and immutable attempt handoff without staged overhead",
     "research": "full multi-stage research-PAPER pipeline (literature review → "
     "experiments → draft → submission); the default when the goal is a written paper",
     "math": "mathematical conjectures, proofs, and open research problems; dynamically "
@@ -95,6 +92,10 @@ VERTICAL_PURPOSES: dict[str, str] = {
     "(IC/ICIR, backtest, Sharpe) into a reviewer-certified factor report; not a metric loop",
     "speedrun": "generic single-metric optimize loop on a script/benchmark under a "
     "wall-clock budget (setup → optimize → measure → report); no paper",
+    "kernel_engineering": "production GPU-kernel engineering in a real repository "
+    "(environment/toolchain audit → correct baseline → profile/optimize → full "
+    "validation → upstream-ready report); use for CUDA/Triton/TileLang/CUTLASS/PyTorch "
+    "library work and PRs, not fixed SOL-ExecBench competition tasks",
     "nanochat": "minimize val_bpb on the nanochat train.py (bits-per-byte, ~300s, 1 GPU)",
     "nanogpt_speedrun": "minimize wall-clock time to reach val_loss<=3.28 on modded-nanogpt (8xH100)",
     "kernelbench": "maximize SOL score / speedup for GPU kernels (CUDA/Triton/CUTLASS, "
@@ -131,7 +132,8 @@ VERTICAL_PURPOSES: dict[str, str] = {
 #: The safe default vertical when intent is unclear or state is missing.
 DEFAULT_VERTICAL: str = "research"
 
-#: Environment override consulted first by ``resolve_vertical``.
+#: Legacy environment name retained for low-level compatibility/introspection.
+#: Formal task routing does not consult it; Manager owns vertical classification.
 ENV_VERTICAL: str = "ARGUS_SKILL_VERTICAL"
 
 _STATE_RELPATH = ("research", "PIPELINE_STATE.json")
@@ -161,7 +163,16 @@ def _strip_needed(value: str) -> str:
     cleaned = value.strip().lower()
     if cleaned.endswith("-needed"):
         cleaned = cleaned[: -len("-needed")]
+    # Migration only: ``direct`` used to conflate a capability vertical with an
+    # execution topology. Old persisted state now means software + direct mode.
+    if cleaned == "direct":
+        return "software"
     return cleaned
+
+
+def _normalize_workflow_mode(value: object) -> str:
+    mode = str(value or "").strip().lower()
+    return mode if mode in {"direct", "staged"} else ""
 
 
 def _known_vertical(value: object, project_root: object = None) -> str | None:
@@ -193,11 +204,13 @@ def _known_vertical(value: object, project_root: object = None) -> str | None:
 
 
 def explicit_builtin_vertical() -> str | None:
-    """Return the built-in vertical explicitly selected by the environment.
+    """Return a legacy built-in environment hint without applying it.
 
-    Project-local data domains are intentionally excluded: this signal is the
-    operator choosing a stable built-in capability, not the Manager recovering a
-    previously-authored project route.
+    This compatibility accessor supports low-level callers that inspect the old
+    ``ARGUS_SKILL_VERTICAL`` signal.  It deliberately has no authority over
+    ``resolve_vertical`` or Manager dispatch: formal tasks are classified and
+    persisted by Manager, and users cannot bypass that decision via environment.
+    Project-local data domains are excluded because they are Manager-owned state.
     """
     return _known_vertical(os.environ.get(ENV_VERTICAL))
 
@@ -254,6 +267,57 @@ def _persisted_vertical(project_root: object) -> str | None:
     return _known_vertical(payload.get("vertical"), project_root)
 
 
+def resolve_workflow_mode(project_root: object = ".") -> str:
+    """Return the Manager-persisted orchestration mode."""
+    try:
+        raw = _state_path(project_root).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        payload: dict = {}
+    else:
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise VerticalResolutionError(
+                f"PIPELINE_STATE.json at {_state_path(project_root)} is not valid JSON: {exc}"
+            ) from exc
+        if not isinstance(payload, dict):
+            raise VerticalResolutionError(
+                f"PIPELINE_STATE.json at {_state_path(project_root)} is not a JSON object"
+            )
+    mode = _normalize_workflow_mode(payload.get("workflow_mode"))
+    if mode:
+        return mode
+    # Backward-compatible migration for state written when `direct` was itself
+    # a vertical. New writes never persist that value.
+    if str(payload.get("vertical") or "").strip().lower() == "direct":
+        return "direct"
+    return "staged"
+
+
+def resolve_evidence_mode(project_root: object = ".") -> str:
+    """Return direct/staged/proportional evidence policy for agent prompts.
+
+    ``workflow_mode`` is a Manager-owned orchestration axis (direct vs staged).
+    ``WORKFLOW_MODE = "proportional"`` on a vertical is an evidence-reuse policy,
+    not a request to bypass stage orchestration. A direct Manager decision still
+    wins; otherwise the vertical may choose proportional evidence inside its
+    staged pipeline.
+    """
+    orchestration = resolve_workflow_mode(project_root)
+    if orchestration == "direct":
+        return "direct"
+    try:
+        from ..verticals._base import load_vertical, vertical_workflow_mode
+
+        vertical = resolve_vertical(project_root)
+        mode = vertical_workflow_mode(
+            load_vertical(vertical, project_root=project_root)
+        )
+        return "proportional" if mode == "proportional" else "staged"
+    except Exception:  # noqa: BLE001 — evidence policy must not break prompts
+        return "staged"
+
+
 def _is_project_data_domain(value: str | None, project_root: object) -> bool:
     """Whether ``value`` names a project-local DATA domain, not a built-in vertical."""
     if value is None or value in VERTICALS:
@@ -268,64 +332,33 @@ def _is_project_data_domain(value: str | None, project_root: object) -> bool:
 
 def resolve_vertical_if_decided(project_root: object = ".") -> str | None:
     """Return the Manager-decided vertical, or ``None`` without a fallback."""
-    env = _known_vertical(os.environ.get(ENV_VERTICAL), project_root)
-    persisted = _persisted_vertical(project_root)
-    if _is_project_data_domain(persisted, project_root):
-        return persisted
-    if env is not None:
-        return env
-    return persisted
+    return _persisted_vertical(project_root)
 
 
 def resolve_checklist_vertical(project_root: object = ".") -> str | None:
     """Resolve the vertical that owns this project's checklist.
 
-    The persisted project decision wins over a process-level env value. This
-    prevents a stale/bootstrap ``ARGUS_SKILL_VERTICAL=research`` from injecting
-    research gates into a project the Manager has committed to math or another
-    vertical. Env is used only before a project decision exists.
+    The Manager-persisted project decision is the only authority.
     """
-    persisted = _persisted_vertical(project_root)
-    if persisted is not None:
-        return persisted
-    return _known_vertical(os.environ.get(ENV_VERTICAL), project_root)
+    return _persisted_vertical(project_root)
 
 
 def resolve_vertical(project_root: object = ".") -> str:
     """Resolve the active vertical (cheap, deterministic, no LLM).
 
-    Precedence:
+    The Manager-persisted project vertical is the only authority.
 
-        1. A persisted project-local DATA domain. It is the Manager's committed
-           task contract and wins over a broader built-in env value inherited
-           from mission bootstrap.
-        2. env ``ARGUS_SKILL_VERTICAL`` — only if it names a known vertical
-           (a trailing ``-needed`` sentinel is stripped first).
-        3. A persisted built-in ``vertical``.
-
-    FAIL-SOFT: if neither yields a known vertical, WARN and return
-    ``DEFAULT_VERTICAL`` rather than raising — a rigid rule must never hard-crash
-    a mission. The Manager is still the decider (its persisted value wins above);
-    the default only catches the un-decided edge (a read that raced the persist,
-    or a conversational mission). Still deterministic, never spends a token, and
-    never mutates state.
+    Formal task entry points require a Manager-persisted decision. The research
+    fallback is retained only for low-level library/legacy callers that do not
+    dispatch a formal task through Manager.
     """
     decided = resolve_vertical_if_decided(project_root)
     if decided is not None:
         return decided
-    # FAIL-SOFT (was fail-hard): the Manager is meant to DECIDE and PERSIST a
-    # vertical at mission bootstrap, but a rigid rule must never hard-crash a
-    # whole mission (and block the daemon) just because a read raced ahead of the
-    # persist, or a conversational/trivial mission never armed one. Fall back to
-    # the safe general default and WARN (visible, not silent) — the same thing
-    # the CLI already does (apps/cli/_core.py catches this and defaults to
-    # "research"). Real research missions still get the Manager-decided vertical
-    # via the persisted value above; only the un-decided edge lands here.
     log.warning(
-        "no vertical resolved for %r (ARGUS_SKILL_VERTICAL unset/invalid and "
-        "research/PIPELINE_STATE.json has no known 'vertical'); falling back to %s. "
-        "The Manager should decide + persist a vertical at mission bootstrap.",
-        project_root, DEFAULT_VERTICAL,
+        "no Manager vertical resolved for %r; using research only as a low-level "
+        "compatibility fallback (formal tasks must classify through Manager)",
+        project_root,
     )
     return DEFAULT_VERTICAL
 
@@ -358,6 +391,8 @@ def persist_vertical(
     vertical: str,
     *,
     research_target_level: str | None = None,
+    workflow_mode: str | None = None,
+    target_venue: str | None = None,
 ) -> None:
     """Persist the chosen ``vertical`` into ``research/PIPELINE_STATE.json``.
 
@@ -379,6 +414,7 @@ def persist_vertical(
     already falls back to the vertical's first stage at read time without
     mutating the file.
     """
+    legacy_direct = str(vertical or "").strip().lower() == "direct"
     vert = require_vertical(vertical, project_root)
     path = _state_path(project_root)
 
@@ -399,6 +435,17 @@ def persist_vertical(
             )
 
     payload["vertical"] = vert
+    if target_venue is not None:
+        venue = " ".join(str(target_venue).strip().split())[:100]
+        if venue:
+            payload["target_venue"] = venue
+    if workflow_mode is None and legacy_direct:
+        workflow_mode = "direct"
+    if workflow_mode is not None:
+        normalized_mode = _normalize_workflow_mode(workflow_mode)
+        if not normalized_mode:
+            raise ValueError(f"invalid workflow_mode: {workflow_mode!r}")
+        payload["workflow_mode"] = normalized_mode
     if research_target_level is not None:
         from ..core.research_contract import normalize_research_target_level
         from ..verticals._base import (
@@ -505,10 +552,15 @@ def reset_stage_for_new_intent(
     *,
     old_vertical: str | None,
     new_vertical: str,
+    force_replacement: bool = False,
 ) -> bool:
     """Reset ``current_stage`` to ``new_vertical``'s first stage when a
     genuinely NEW, operator-issued intent supersedes an already-finished prior
-    run, whether the newly selected vertical is different or the same.
+    run, whether the newly selected vertical is different or the same. A
+    Manager-confirmed standing-objective replacement may pass
+    ``force_replacement=True`` to reset immediately even when the old pipeline
+    was still in progress; ordinary bounded/reclassification calls retain the
+    conservative completed-run-only behavior.
 
     Call this AFTER ``persist_vertical(project_root, new_vertical)`` has
     already run, so the stage machinery (``current_stage`` /
@@ -534,17 +586,20 @@ def reset_stage_for_new_intent(
     ``stage_checklists.rollback_stage`` (audited, ``rolled_back_by="manager"``),
     without touching ``persist_vertical``'s own never-reset contract.
 
-    Returns ``True`` iff a reset was actually applied. No-op (returns
-    ``False``) when: there is no prior vertical, the prior vertical was not
-    actually finished, or the rollback primitive rejects the target stage
+    Returns ``True`` iff a reset was actually applied. Without forced
+    replacement, no-op (returns ``False``) when: there is no prior vertical,
+    the prior vertical was not actually finished, or the rollback primitive rejects the target stage
     (e.g. the stale stage was never even a member of the new vertical's
     order, in which case ``current_stage()`` already falls back safely on its
     own). Fail-open: any error is treated as "nothing to reset" so a probe or
     rollback hiccup never blocks the Manager's division.
     """
-    if not old_vertical:
+    if not old_vertical and not force_replacement:
         return False
-    if not vertical_reached_own_terminal_stage(project_root, old_vertical):
+    if (
+        not force_replacement
+        and not vertical_reached_own_terminal_stage(project_root, old_vertical)
+    ):
         return False
 
     try:
@@ -559,20 +614,34 @@ def reset_stage_for_new_intent(
         return False
 
     try:
-        from .stage_checklists import rollback_stage  # late (cycle)
+        if force_replacement:
+            from .stage_checklists import reset_stage_for_replacement_intent
 
-        rollback_stage(
-            project_root,
-            target_stage=new_order[0],
-            reason=(
-                f"prior vertical {old_vertical!r} had already reached its own "
-                f"terminal stage (done); a genuinely new operator-issued "
-                f"intent assigned vertical {new_vertical!r} — "
-                f"resetting current_stage to its first stage rather than "
-                f"silently inheriting the completed prior run's stale stage."
-            ),
-            rolled_back_by="manager",
-        )
+            reset_stage_for_replacement_intent(
+                project_root,
+                target_stage=new_order[0],
+                reason=(
+                    "operator replaced the standing Manager objective; resetting "
+                    f"the superseded {old_vertical!r} pipeline to the first stage "
+                    f"of {new_vertical!r} instead of preserving incompatible progress."
+                ),
+                reset_by="manager",
+            )
+        else:
+            from .stage_checklists import rollback_stage  # late (cycle)
+
+            rollback_stage(
+                project_root,
+                target_stage=new_order[0],
+                reason=(
+                    f"prior vertical {old_vertical!r} had already reached its own "
+                    f"terminal stage (done); a genuinely new operator-issued "
+                    f"intent assigned vertical {new_vertical!r} — "
+                    f"resetting current_stage to its first stage rather than "
+                    f"silently inheriting the completed prior run's stale stage."
+                ),
+                rolled_back_by="manager",
+            )
     except ValueError:
         log.debug(
             "reset_stage_for_new_intent: rollback rejected for %r -> %r "
@@ -596,6 +665,8 @@ __all__ = [
     "resolve_checklist_vertical",
     "resolve_vertical_if_decided",
     "resolve_vertical",
+    "resolve_workflow_mode",
+    "resolve_evidence_mode",
     "persist_vertical",
     "vertical_reached_own_terminal_stage",
     "reset_stage_for_new_intent",

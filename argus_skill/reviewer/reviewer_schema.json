@@ -4,11 +4,11 @@
   "additionalProperties": false,
   "properties": {
     "status": {
-      "type": "string",
       "enum": [
         "done",
         "continue",
-        "blocked"
+        "blocked",
+        "replan_requested"
       ]
     },
     "reason": {
@@ -42,7 +42,6 @@
         "object",
         "null"
       ],
-      "description": "Verified project-level achievement only; otherwise null.",
       "additionalProperties": false,
       "properties": {
         "title": {
@@ -89,10 +88,6 @@
       ]
     },
     "failure_cause": {
-      "type": [
-        "string",
-        "null"
-      ],
       "enum": [
         "skill_gap",
         "execution_mistake",
@@ -106,11 +101,9 @@
     },
     "failure_source": {
       "type": ["object", "null"],
-      "description": "Acceptance failure source with concrete evidence; null when no acceptance failure was diagnosed.",
       "additionalProperties": false,
       "properties": {
         "kind": {
-          "type": "string",
           "enum": [
             "validator_defect",
             "provenance_binding_defect",
@@ -118,23 +111,19 @@
             "scientific_evidence_failure"
           ]
         },
-        "validator_id": {"type": ["string", "null"], "maxLength": 200},
+        "validator_id": {"type": ["string", "null"]},
         "repair_paths": {
           "type": "array",
-          "maxItems": 16,
-          "items": {"type": "string", "minLength": 1, "maxLength": 500},
-          "description": "Exact project-relative validator/test/provenance paths that a restricted repair may edit; empty unless the diagnosed defect is repairable without changing scientific evidence."
+          "items": {"type": "string"}
         },
         "evidence": {
           "type": "array",
-          "minItems": 1,
-          "maxItems": 12,
           "items": {
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "artifact": {"type": "string", "minLength": 1, "maxLength": 500},
-              "observation": {"type": "string", "minLength": 1, "maxLength": 1000}
+              "artifact": {"type": "string"},
+              "observation": {"type": "string"}
             },
             "required": ["artifact", "observation"]
           }
@@ -143,11 +132,22 @@
       "required": ["kind", "validator_id", "repair_paths", "evidence"]
     },
     "scientific_decision": {
-      "type": ["string", "null"],
       "enum": ["go", "pivot", "no_go", "undecided", null]
     },
+    "failure_layer": {
+      "enum": [
+        "platform",
+        "orchestration",
+        "evaluator",
+        "evidence_packaging",
+        "scientific",
+        "operator",
+        "unknown",
+        "",
+        null
+      ]
+    },
     "progress_class": {
-      "type": "string",
       "enum": [
         "decision",
         "evidence",
@@ -161,14 +161,9 @@
         "object",
         "null"
       ],
-      "description": "OPTIONAL reviewer-authored runner control. Use null unless you are explicitly requesting a reviewed wait on a healthy self-watched subagent.",
       "additionalProperties": false,
       "properties": {
         "action": {
-          "type": [
-            "string",
-            "null"
-          ],
           "enum": [
             "wait_for_subagent",
             null
@@ -188,10 +183,6 @@
       ]
     },
     "scope": {
-      "type": [
-        "string",
-        "null"
-      ],
       "enum": [
         "bounded",
         "final_submission",
@@ -218,7 +209,6 @@
           "maxLength": 1200
         },
         "plan_signal": {
-          "type": "string",
           "enum": [
             "continue",
             "reconsider"
@@ -299,7 +289,6 @@
         "null"
       ],
       "additionalProperties": false,
-      "description": "Planner-only checklist correction feedback; otherwise null.",
       "properties": {
         "stage": {
           "type": "string",
@@ -352,10 +341,8 @@
         "null"
       ],
       "additionalProperties": false,
-      "description": "Required for any measured result; null only when nothing was measured.",
       "properties": {
         "supported_by_results": {
-          "type": "string",
           "enum": [
             "yes",
             "partial",
@@ -420,6 +407,7 @@
     "failure_cause",
     "failure_source",
     "scientific_decision",
+    "failure_layer",
     "progress_class",
     "control",
     "scope",

@@ -17,6 +17,9 @@ factor is good. The L2 reviewer reads the ledger and the report and rules.
 """
 from __future__ import annotations
 
+import hashlib
+import json
+import math
 import time
 import traceback
 from collections.abc import Mapping, Sequence
@@ -84,6 +87,100 @@ class BacktestEngine(Protocol):
 
     def run(self, spec: BacktestSpec) -> BacktestResult:
         ...
+
+
+def _canonical_config(value: object) -> object:
+    scalar_item = getattr(value, "item", None)
+    if (
+        type(value).__module__.startswith("numpy")
+        and getattr(value, "ndim", None) == 0
+        and callable(scalar_item)
+    ):
+        unpacked = scalar_item()
+        if type(unpacked).__module__.startswith("numpy"):
+            text = str(value)
+            if text.strip().lower() in {
+                "nan",
+                "+nan",
+                "-nan",
+                "inf",
+                "+inf",
+                "-inf",
+                "infinity",
+                "+infinity",
+                "-infinity",
+            }:
+                raise ValueError("configuration floats must be finite")
+            return {
+                "__numpy_scalar__": {
+                    "dtype": str(getattr(value, "dtype", type(value).__name__)),
+                    "value": text,
+                }
+            }
+        return _canonical_config(unpacked)
+    if value is None or isinstance(value, (bool, int, str)):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("configuration floats must be finite")
+        return {"__float__": value.hex()}
+    if isinstance(value, Mapping):
+        if not all(isinstance(key, str) for key in value):
+            raise TypeError("configuration mapping keys must be strings")
+        return {
+            "__mapping__": [
+                [key, _canonical_config(value[key])]
+                for key in sorted(value)
+            ]
+        }
+    if isinstance(value, list):
+        return {"__list__": [_canonical_config(item) for item in value]}
+    if isinstance(value, tuple):
+        return {"__tuple__": [_canonical_config(item) for item in value]}
+    if isinstance(value, (set, frozenset)):
+        items = [_canonical_config(item) for item in value]
+        items.sort(
+            key=lambda item: json.dumps(
+                item,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        return {"__set__": items}
+    raise TypeError(
+        f"unsupported configuration value {type(value).__name__}; "
+        "use JSON-like values, tuples, or sets"
+    )
+
+
+def config_fingerprint(
+    *,
+    engine_name: str,
+    spec: BacktestSpec,
+    engine_config: Mapping[str, Any] | None = None,
+) -> str:
+    """Return a deterministic fingerprint of every result-affecting setting."""
+    canonical = json.dumps(
+        _canonical_config(
+            {
+                "engine": engine_name,
+                "engine_config": dict(engine_config or {}),
+                "spec": {
+                    "factor_ids": list(spec.factor_ids),
+                    "weighting": spec.weighting,
+                    "params": dict(spec.params),
+                    "window": spec.window,
+                    "is_out_of_sample": spec.is_out_of_sample,
+                    "universe": spec.universe,
+                    "data_snapshot": spec.data_snapshot,
+                    "seed": spec.seed,
+                },
+            },
+        ),
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
 
 def _result_payload(spec: BacktestSpec, result: BacktestResult) -> dict[str, Any]:

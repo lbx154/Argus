@@ -65,6 +65,21 @@ def test_premium_delta_per_thread_decumulates() -> None:
     assert be._premium_delta_for_thread(thread_id="t3", raw_total=0.0) == 0.0
 
 
+def test_premium_delta_after_restart_fails_closed_then_recovers() -> None:
+    be = AgentCliBackend(backend="copilot")
+
+    assert be._premium_delta_for_thread(
+        thread_id="resumed",
+        raw_total=15.0,
+        resume_baseline_unknown=True,
+    ) is None
+    assert be._premium_delta_for_thread(
+        thread_id="resumed",
+        raw_total=22.5,
+        resume_baseline_unknown=True,
+    ) == 7.5
+
+
 # --- sink: folds premium deltas into copilot_usd() and total_usd() -----------
 
 def test_sink_folds_copilot_premium_into_total_usd() -> None:

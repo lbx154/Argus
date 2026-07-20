@@ -8,8 +8,11 @@ venue profile rather than hardcoded ACL page numbers.
 """
 from __future__ import annotations
 
-from argus_skill.verticals.research.paper_layout_review import _deterministic_assessment
 from argus_skill.skills.venue_profiles import AAAI_PROFILE, EMNLP_PROFILE
+from argus_skill.verticals.research.paper_layout_review import (
+    _deterministic_assessment,
+    _vision_prompt,
+)
 
 
 def _layout(pages: list[str]) -> str:
@@ -62,6 +65,18 @@ def test_page_flow_contract_values_are_venue_relative() -> None:
     # Same references page (8), opposite verdicts driven purely by the profile.
     assert emnlp_pfc["references_on_or_after_page_9"] is False
     assert aaai_pfc["references_on_or_after_page_9"] is True
+
+
+def test_figure_review_uses_good_enough_non_looping_standard() -> None:
+    prompt = _vision_prompt(
+        deterministic={},
+        threshold=3.5,
+        venue=EMNLP_PROFILE,
+    )
+
+    assert "good-looking-enough" in prompt
+    assert "at most one targeted aesthetic repair" in prompt
+    assert "Optional renderer metadata may help" in prompt
 
 
 def test_top_level_heading_detection_ignores_abstract_conclusion_label() -> None:

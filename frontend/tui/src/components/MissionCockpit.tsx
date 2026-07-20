@@ -32,16 +32,13 @@ function timelineColor(item: MissionTimelineItem): string | undefined {
 export function budgetSummary(
   spentUsd?: number | null,
   spendStatus?: string,
-  dailyCapUsd?: number | null,
   globalDailyCapUsd?: number | null,
-  wide = true,
 ): string {
   const spent = spentUsd == null
     ? spendStatus && spendStatus !== 'empty' ? spendStatus : '$0.00 spent'
     : `$${spentUsd.toFixed(2)} spent`;
-  const daily = dailyCapUsd ? ` / $${dailyCapUsd.toFixed(0)} daily` : '';
-  const global = globalDailyCapUsd && wide ? ` · $${globalDailyCapUsd.toFixed(0)} global` : '';
-  return spent + daily + global;
+  const global = globalDailyCapUsd ? ` / $${globalDailyCapUsd.toFixed(0)} global daily` : '';
+  return spent + global;
 }
 
 export function requestSummary(requestUsage?: RequestUsage | null): string {
@@ -57,17 +54,17 @@ export function requestSummary(requestUsage?: RequestUsage | null): string {
 export function MissionCockpit({
   view,
   width,
+  height,
   spentUsd,
   spendStatus,
-  dailyCapUsd,
   globalDailyCapUsd,
   requestUsage,
 }: {
   view: MissionView;
   width: number;
+  height?: number;
   spentUsd?: number | null;
   spendStatus?: string;
-  dailyCapUsd?: number | null;
   globalDailyCapUsd?: number | null;
   requestUsage?: RequestUsage | null;
 }) {
@@ -85,6 +82,80 @@ export function MissionCockpit({
   const stage = view.stage.label || view.stage.id || '—';
   const round = view.round.max > 0 ? `${view.round.current} / ${view.round.max}` : view.round.current ? String(view.round.current) : '—';
   const outcome = outcomeDimensionSummary(view.outcome);
+  const compactHeight = height != null && height < 26;
+
+  if (compactHeight) {
+    const latest = timeline[timeline.length - 1];
+    return (
+      <Box flexDirection="column" marginTop={1}>
+        <Text dimColor>MISSION</Text>
+        <Text bold>{compact(mission, Math.max(24, width - 2))}</Text>
+        <Text wrap="truncate-end">
+          <Text dimColor>STAGE </Text>
+          <Text color={theme.info}>{compact(stage, 20)}</Text>
+          <Text dimColor>{` · ROUND ${round} · ELAPSED `}</Text>
+          <Text>{formatMissionElapsed(view.mission.elapsed_seconds)}</Text>
+          <Text dimColor> · BEST </Text>
+          <Text color={metric?.verification_status === 'accepted' ? theme.success : theme.warning}>
+            {metricDisplay(metric)}
+          </Text>
+        </Text>
+        <Text wrap="truncate-end">
+          <Text dimColor>BUDGET </Text>
+          <Text color={spendStatus === 'partial' || spendStatus === 'unpriced' ? theme.warning : theme.success}>
+            {budgetSummary(spentUsd, spendStatus, globalDailyCapUsd)}
+          </Text>
+          <Text dimColor>{` · ${requestSummary(requestUsage)}`}</Text>
+        </Text>
+        {outcome.length ? (
+          <Text wrap="truncate-end">
+            <Text dimColor>OUTCOME </Text>
+            <Text>{outcome.join(' · ')}</Text>
+          </Text>
+        ) : null}
+        <Box flexDirection="column">
+          <Text dimColor>AI RESEARCH TEAM</Text>
+          {ROLE_ORDER.map((name) => {
+            const role = roleByName.get(name);
+            const status = role?.status ?? 'waiting';
+            const glyph = status === 'active'
+              ? '●'
+              : status === 'done'
+              ? '✓'
+              : status === 'rejected' || status === 'error'
+              ? '!'
+              : '○';
+            const color = status === 'rejected' || status === 'error'
+              ? theme.error
+              : status === 'done'
+              ? theme.success
+              : status === 'active'
+              ? theme.role[name] ?? theme.info
+              : 'gray';
+            return (
+              <Box key={name}>
+                <Box width={11}>
+                  <Text color={theme.role[name] ?? 'white'} bold>{name.toUpperCase()}</Text>
+                </Box>
+                <Text color={color}>{glyph} </Text>
+                <Text color={status === 'waiting' ? 'gray' : undefined} dimColor={status === 'waiting'}>
+                  {compact(role?.label || (status === 'waiting' ? 'Waiting' : cap(status)), Math.max(20, width - 16))}
+                </Text>
+              </Box>
+            );
+          })}
+        </Box>
+        <Text wrap="truncate-end">
+          <Text dimColor>TIMELINE </Text>
+          {latest ? (
+            <Text color={timelineColor(latest)}>
+              {compact(latest.title + (latest.detail ? ` · ${latest.detail}` : ''), Math.max(18, width - 12))}
+            </Text>
+          ) : <Text dimColor>Waiting for structured research events…</Text>}
+        </Text>
+      </Box>
+    );
+  }
 
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -113,9 +184,7 @@ export function MissionCockpit({
           {budgetSummary(
             spentUsd,
             spendStatus,
-            dailyCapUsd,
             globalDailyCapUsd,
-            width >= 90,
           )}
         </Text>
       </Box>

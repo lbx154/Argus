@@ -1,0 +1,3 @@
+# 01_argus_teaser
+
+The left panel is a schematic of Argus as a recurrent control system: Manager governs stage movement, Planner selects missions, Engineer builds and tests, and Reviewer independently validates work. Structured decisions, supervision state, and shared artifacts persist across missions rather than disappearing after one pass. The seven cards on the right retain each benchmark's native metric and direction; lower-is-better comparisons use explicitly printed truncated ranges, while no incompatible benchmarks share a normalized axis.

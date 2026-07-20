@@ -105,6 +105,29 @@ class _StageMissionRunner:
         return outcome
 
 
+class _MutatingAdvanceRunner:
+    def __init__(self, project_root: Path) -> None:
+        self.project_root = project_root
+
+    def execute(self, **_kwargs) -> _MissionOutcome:
+        from argus_skill.skills.stage_checklists import advance_stage
+
+        advance_stage(
+            self.project_root,
+            target_stage="review",
+            reason="first solve DAG node passed its local checklist",
+            advanced_by="manager",
+        )
+        outcome = _MissionOutcome()
+        outcome.stage_transition = {
+            "action": "advance",
+            "current_stage": "solve",
+            "target_stage": "review",
+            "reason": "first solve DAG node passed its local checklist",
+        }
+        return outcome
+
+
 class _ScopeThenFinalRunner:
     def __init__(self) -> None:
         self.calls = 0
@@ -285,8 +308,33 @@ def _stage(root: Path) -> str:
 
 def test_replan_control_outcome_does_not_run_manager_stage_transition() -> None:
     assert _runtime._should_run_stage_transition("replan_requested") is False
+    assert _runtime._should_run_stage_transition(
+        "replan_requested",
+        {"stage_reconciliation_required": True},
+    ) is True
     assert _runtime._should_run_stage_transition("paused_budget") is False
-    assert _runtime._should_run_stage_transition("done") is True
+    assert _runtime._should_run_stage_transition("done") is False
+    assert _runtime._should_run_stage_transition(
+        "done", require_independent_review=True
+    ) is True
+    assert _runtime._should_run_stage_transition(
+        "done", mission_scope="final_submission"
+    ) is True
+
+
+def test_engineer_self_review_done_still_runs_manager_stage_transition() -> None:
+    assert _runtime._should_run_stage_transition(
+        "done", review_source="engineer_self_review"
+    ) is True
+
+
+def test_ordinary_reviewed_intermediate_task_skips_manager_stage_call() -> None:
+    assert _runtime._should_run_stage_transition(
+        "done",
+        review_source="reviewer",
+        require_independent_review=False,
+        mission_scope="bounded",
+    ) is False
 
 
 def test_open_ended_terminal_planner_error_triggers_manager_rollback(
@@ -348,9 +396,11 @@ def test_hook_advances_stage_and_emits_event(tmp_path: Path) -> None:
         {"action": "advance", "target_stage": "plan", "reason": "done"}
     ))
     sink = _Sink()
+    review = _review()
+    review.failure_layer = "evaluator"
 
     decision = runner._decide_stage_transition(
-        rounds_list=[_Round(_review())], workdir=root, sink=sink
+        rounds_list=[_Round(review)], workdir=root, sink=sink
     )
 
     assert decision["action"] == "advance"
@@ -365,8 +415,37 @@ def test_hook_advances_stage_and_emits_event(tmp_path: Path) -> None:
         (root / "campaign-control" / "HEAD.json").read_text(encoding="utf-8")
     )
     assert control_head["state_revision"] == 1
+    control_snapshot = json.loads(
+        (root / "campaign-control" / control_head["snapshot"]).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert control_snapshot["terminal_evidence"][0]["failure_layer"] == "evaluator"
     # The retired self-reported confidence must not leak into the event payload.
     assert "confidence" not in decision
+
+
+def test_hook_manager_can_advance_from_engineer_self_review(tmp_path: Path) -> None:
+    root = _project(tmp_path, current="research")
+    backend = _StubRunner(
+        {
+            "action": "advance",
+            "target_stage": "plan",
+            "reason": "Engineer verification satisfies the research checklist",
+        }
+    )
+    runner = _runner_with(backend)
+    sink = _Sink()
+    review = _review(checklist=[])
+    review.review_source = "engineer_self_review"
+    review.verification_summary = "pytest: 12 passed; artifact hashes verified"
+
+    decision = runner._decide_stage_transition(
+        rounds_list=[_Round(review)], workdir=root, sink=sink
+    )
+
+    assert decision["action"] == "advance"
+    assert _stage(root) == "plan"
 
 
 def test_replayed_scope_completion_cannot_advance_math_stage_twice(
@@ -468,6 +547,72 @@ def test_research_incomplete_does_not_override_intermediate_stage_advance(
     assert persisted.finished_ts is None
     assert not any(
         event.get("type") == "life.mission.completed" for event in sink.events
+    )
+
+
+def test_dynamic_plan_blocks_stage_advance_until_successors_finish(
+    tmp_path: Path,
+) -> None:
+    persist_vertical(tmp_path, "math")
+    _write_json(
+        tmp_path / "research" / "PIPELINE_STATE.json",
+        {
+            "current_stage": "solve",
+            "vertical": "math",
+            "stages": {
+                "scope": {"status": "done"},
+                "solve": {"status": "pending"},
+                "review": {"status": "pending"},
+            },
+        },
+    )
+    memory = LifeMemory.open(tmp_path / "life")
+    plan_id = "plan-proof-then-overlap"
+    theorem = BacklogItem.new(
+        title="prove improved theorem",
+        objective="prove K < 27",
+        tags=["planner", "scope:bounded"],
+        plan_id=plan_id,
+        plan_version=1,
+        node_key="proof",
+    )
+    overlap = BacklogItem.new(
+        title="audit theorem overlap",
+        objective="audit only after proof",
+        tags=["planner", "scope:bounded", "stage_closing", "review:required"],
+        deps=[theorem.id],
+        plan_id=plan_id,
+        plan_version=1,
+        node_key="overlap",
+    )
+    memory.backlog.add_many([theorem, overlap])
+    sink = _Sink()
+    sup = LifeSupervisor(
+        memory=memory,
+        runner=_MutatingAdvanceRunner(tmp_path),
+        sink=sink,
+        config=LifeSupervisorConfig(
+            continuous=True,
+            project_worktree=tmp_path,
+            artifact_root=tmp_path,
+        ),
+    )
+
+    result = sup.tick()
+
+    assert result is not None
+    assert result["success"] is True
+    assert _stage(tmp_path) == "solve"
+    items = {item.id: item for item in memory.backlog.all()}
+    assert items[theorem.id].status == "done"
+    assert items[overlap.id].status == "pending"
+    assert memory.backlog.ready()[0].id == overlap.id
+    assert any(
+        event.get("type") == "life.manager.stage_decision"
+        and event.get("action") == "rollback"
+        and event.get("source") == "supervisor_dynamic_plan_guard"
+        and overlap.id in event.get("unfinished_item_ids", [])
+        for event in sink.events
     )
 
 
@@ -671,8 +816,15 @@ def test_hook_persistent_empty_done_satisfied_advances(
     backend = _EmptyThenRunner({}, empties=99)
     runner = _runner_with(backend)
     sink = _Sink()
+    contract = resolve_stage_checklist_contract("research", project_root=root)
+    review = _review(
+        checklist=[
+            {"item": item.id, "satisfied": True, "evidence": item.evidence_hint}
+            for item in contract.items
+        ]
+    )
     decision = runner._decide_stage_transition(
-        rounds_list=[_Round(_review())], workdir=root, sink=sink
+        rounds_list=[_Round(review)], workdir=root, sink=sink
     )
     assert backend.calls == 3
     assert decision["action"] == "advance"
@@ -1207,3 +1359,35 @@ def test_execute_path_writes_open_ended_into_skill_loop_config_kwargs(
     assert captured.get("continuous_objective") == "prove or disprove the conjecture", (
         "execute() did not forward continuous_objective into SkillLoopConfig kwargs"
     )
+
+
+def test_execute_path_disables_self_review_when_independent_review_required(
+    tmp_path: Path,
+) -> None:
+    captured: dict = {}
+
+    class _SpyConfig:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+            raise _ConfigKwargsCaptured(kwargs)
+
+    runner = _SkillLoopRunner.__new__(_SkillLoopRunner)
+    runner._allow_chat_fast_path = False
+    runner._SkillLoopConfig = _SpyConfig
+    runner._args = SimpleNamespace(
+        engineer_model="stub-model",
+        reviewer_model="stub-model",
+        max_rounds=1,
+        workdir=str(tmp_path),
+        open_ended=True,
+        continuous_objective="complete the current research stage",
+    )
+
+    with pytest.raises(_ConfigKwargsCaptured):
+        runner.execute(
+            objective="complete and certify the research gate",
+            sink=_Sink(),
+            require_independent_review=True,
+        )
+
+    assert captured.get("engineer_self_review_enabled") is False

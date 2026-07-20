@@ -13,6 +13,8 @@ from pathlib import Path
 
 from argus_skill import SkillLoop, SkillLoopConfig, SkillStore
 from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus_skill.life.context_packet import create_mission_context
+from argus_skill.loop import _nearest_transfer_scores
 
 SKILL_MD = (
     "## Title\nWrite a hello message\n\n"
@@ -38,13 +40,48 @@ SKILL_MD = (
 )
 
 
-def test_skill_loop_defaults_use_xhigh_reasoning_effort() -> None:
+def test_skill_loop_defaults_use_adaptive_reasoning_effort() -> None:
     config = SkillLoopConfig()
 
     assert config.engineer_model == "gpt-5.5"
+    assert config.engineer_initial_reasoning_effort == "high"
     assert config.engineer_reasoning_effort == "xhigh"
-    assert config.matcher_reasoning_effort == "high"
-    assert config.reviewer_reasoning_effort == "xhigh"
+    assert config.matcher_reasoning_effort == "low"
+    assert config.reviewer_reasoning_effort == "high"
+    # Staged/paper work stays xhigh from round one; direct work opts into high.
+    assert config.resolved_initial_engineer_effort() == "xhigh"
+    config.workflow_mode = "direct"
+    assert config.resolved_initial_engineer_effort() == "high"
+
+
+def test_nearest_transfer_ignores_self_reinforcing_task_history() -> None:
+    task = (
+        "Caching middleware fails to initialize because Go shadowing leaves the "
+        "evaluation cacher nil. Repair cache middleware startup and verification."
+    )
+    summaries = [
+        {
+            "name": "Flipt Audit Resource Type Wiring",
+            "description": "Add audit resource types and checker nouns.",
+            "category": "Go audit logging",
+            # A repeatedly mis-selected Skill can accumulate the current task in
+            # history. Retrieval must not treat that as semantic relevance.
+            "task_history": [task] * 8,
+        },
+        {
+            "name": "Flipt Evaluation Cache Wiring",
+            "description": (
+                "Wire evaluation data and requests through the cache layer and "
+                "evaluation middleware."
+            ),
+            "category": "Go evaluation caching",
+            "task_history": [],
+        },
+    ]
+
+    scores = _nearest_transfer_scores(task, summaries)
+
+    assert scores[1] > scores[0]
 
 
 def _continue_review() -> str:
@@ -98,11 +135,29 @@ def test_skill_loop_matched_then_two_rounds_to_done(tmp_path: Path) -> None:
     ))
     backend.queue("reviewer", CannedResponse(message=_done_review()))
 
+    mission_context = create_mission_context(
+        life_dir=tmp_path / "state",
+        mission_id="hello-mission",
+        stage="direct",
+        scope="bounded",
+        objective="say hi to the user",
+        acceptance_check="the greeting is printed",
+        context_refs=[{
+            "kind": "artifact",
+            "ref": "request.txt",
+            "why": "requested wording",
+            "content_hash": "",
+        }],
+    )
     loop = SkillLoop(
         skills_dir=skills_dir,
         engineer_runner=backend,
         reviewer_runner=backend,
-        config=SkillLoopConfig(max_rounds=4),
+        config=SkillLoopConfig(
+            max_rounds=4,
+            checkpoint_path=mission_context.parent / "CHECKPOINT.md",
+            context_packet_path=str(mission_context),
+        ),
     )
     outcome = loop.run("say hi to the user", workdir=tmp_path)
 
@@ -112,17 +167,187 @@ def test_skill_loop_matched_then_two_rounds_to_done(tmp_path: Path) -> None:
     assert outcome.skill_used == "Write a hello message"
     assert outcome.rounds[0].review.status == "continue"
     assert outcome.rounds[1].review.status == "done"
+    assert [label for label, _prompt, _options in backend.history].count("matcher") == 1
 
-    # Cross-round guidance lives in CHECKPOINT.md, not duplicated in the prompt.
+    # Continuation rounds omit the large static contract but retain the short
+    # concrete Reviewer instruction alongside CHECKPOINT.md.
     r2_prompt = next(
         prompt for label, prompt, _ in backend.history if label == "engineer-r2"
     )
-    assert "Print the actual greeting" not in r2_prompt
+    assert "Print the actual greeting" in r2_prompt
+    assert "## Continuation turn" in r2_prompt
+    assert "## Current mission task" not in r2_prompt
+    assert str(mission_context.parent / "latest.json") in r2_prompt
+
+    latest = json.loads((mission_context.parent / "latest.json").read_text())
+    assert latest["kind"] == "round_reviewed_handoff"
+    assert latest["round"] == 2
+    assert latest["scope"] == "bounded"
+    assert latest["objective"] == "say hi to the user"
+    assert latest["acceptance_check"] == "the greeting is printed"
+    assert latest["context_refs"][0]["ref"] == "request.txt"
+    assert latest["mission"]["path"] == str(mission_context)
+    assert latest["review"]["status"] == "done"
+    assert (mission_context.parent / "round-0001-engineer.json").exists()
+    assert (mission_context.parent / "round-0001.json").exists()
+    assert (mission_context.parent / "round-0002.json").exists()
 
     # Skill is still present and was reused, not re-created.
     store = SkillStore(skills_dir)
     summaries = store.list_summaries()
     assert any(s["name"] == "Write a hello message" for s in summaries), summaries
+
+
+def test_direct_work_escalates_engineer_effort_only_after_review(tmp_path: Path) -> None:
+    skills_dir = tmp_path / "skills"
+    _seed_skill(skills_dir)
+    backend = MemoryBackend()
+    backend.queue("matcher", _match_hello())
+    backend.queue("engineer-r1", CannedResponse(message="partial"))
+    backend.queue("reviewer", CannedResponse(message=_continue_review()))
+    backend.queue("engineer-r2", CannedResponse(message="done"))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+
+    outcome = SkillLoop(
+        skills_dir=skills_dir,
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(
+            max_rounds=2,
+            workflow_mode="direct",
+            skill_adapter_enabled=False,
+        ),
+    ).run("say hi to the user", workdir=tmp_path)
+
+    assert outcome.successful
+    options = {label: opts for label, _prompt, opts in backend.history}
+    assert options["engineer-r1"].reasoning_effort == "high"
+    assert options["engineer-r2"].reasoning_effort == "xhigh"
+    assert options["reviewer"].reasoning_effort == "high"
+
+
+def test_matched_skill_is_adapted_with_one_low_effort_call(tmp_path: Path) -> None:
+    skills_dir = tmp_path / "skills"
+    _seed_skill(skills_dir)
+    backend = MemoryBackend()
+    backend.queue("matcher", _match_hello())
+    backend.queue(
+        "skill-adapter",
+        CannedResponse(
+            message="- Emit exactly one concise greeting.\n- Preserve the requested tone.",
+            input_tokens=40,
+            output_tokens=12,
+        ),
+    )
+    backend.queue("engineer-r1", CannedResponse(message="done"))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+    events: list[dict] = []
+    loop = SkillLoop(
+        skills_dir=skills_dir,
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(max_rounds=1),
+        on_event=events.append,
+    )
+
+    outcome = loop.run("say hi warmly", workdir=tmp_path)
+
+    assert outcome.successful
+    adapter_prompt, adapter_options = next(
+        (prompt, options)
+        for label, prompt, options in backend.history
+        if label == "skill-adapter"
+    )
+    assert "Closest reusable skill" in adapter_prompt
+    assert "at most 8 short bullets" in adapter_prompt
+    assert adapter_options.reasoning_effort == "low"
+    engineer_prompt = next(
+        prompt for label, prompt, _options in backend.history if label == "engineer-r1"
+    )
+    assert "Task-adapted skill guideline" in engineer_prompt
+    assert "Emit exactly one concise greeting" in engineer_prompt
+    reviewer_prompt = next(
+        prompt for label, prompt, _options in backend.history if label == "reviewer"
+    )
+    assert "Engineer skill pointer (on demand)" in reviewer_prompt
+    assert "Write a hello message" in reviewer_prompt
+    assert "Expected version/hash" in reviewer_prompt
+    assert "sha256:" in reviewer_prompt
+    assert "Do not read it by default" in reviewer_prompt
+    assert "## Examples" not in reviewer_prompt
+    pointer = reviewer_prompt.split("## Engineer skill pointer (on demand)", 1)[1]
+    assert len(pointer.split("## Stage checklist", 1)[0]) < 500
+    assert any(event.get("type") == "skill.transfer.completed" for event in events)
+
+
+def test_skill_adapter_reasoning_effort_honors_operator_env(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_ADAPTER_REASONING_EFFORT", "xhigh")
+    skills_dir = tmp_path / "skills"
+    _seed_skill(skills_dir)
+    backend = MemoryBackend()
+    backend.queue("matcher", _match_hello())
+    backend.queue(
+        "skill-adapter",
+        CannedResponse(message="- Emit one concise greeting."),
+    )
+    backend.queue("engineer-r1", CannedResponse(message="done"))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+    events: list[dict] = []
+
+    outcome = SkillLoop(
+        skills_dir=skills_dir,
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(max_rounds=1),
+        on_event=events.append,
+    ).run("say hi warmly", workdir=tmp_path)
+
+    assert outcome.successful
+    adapter_options = next(
+        options
+        for label, _prompt, options in backend.history
+        if label == "skill-adapter"
+    )
+    assert adapter_options.reasoning_effort == "xhigh"
+    started = next(
+        event for event in events if event.get("type") == "skill.transfer.started"
+    )
+    assert started["reasoning_effort"] == "xhigh"
+
+
+def test_low_confidence_transfer_uses_compact_hint_without_adapter(
+    tmp_path: Path,
+) -> None:
+    skills_dir = tmp_path / "skills"
+    _seed_skill(skills_dir)
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend.queue("engineer-r1", CannedResponse(message="implemented and verified"))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+
+    outcome = SkillLoop(
+        skills_dir=skills_dir,
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(
+            max_rounds=1,
+            require_post_task_learning=True,
+            nearest_transfer_min_score=1.0,
+        ),
+    ).run("repair a database migration", workdir=tmp_path)
+
+    assert outcome.successful
+    labels = [label for label, _prompt, _options in backend.history]
+    assert labels.count("matcher") == 1
+    assert "skill-adapter" not in labels
+    prompt = next(
+        prompt for label, prompt, _options in backend.history if label == "engineer-r1"
+    )
+    assert "Low-confidence transfer hint" in prompt
+    assert "Treat this only as an analogy" in prompt
 
 
 def test_live_manager_guidance_is_injected_at_next_engineer_round(tmp_path: Path) -> None:
@@ -149,6 +374,30 @@ def test_live_manager_guidance_is_injected_at_next_engineer_round(tmp_path: Path
     )
     assert "LIVE MANAGER / OPERATOR DIRECTIVES" in prompt
     assert "invent a mathematical tool" in prompt
+
+
+def test_live_guidance_cannot_silently_broaden_bounded_task(tmp_path: Path) -> None:
+    skills_dir = tmp_path / "skills"
+    _seed_skill(skills_dir)
+    backend = MemoryBackend()
+    backend.queue("matcher", _match_hello())
+    backend.queue("engineer-r1", CannedResponse(message="done"))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+
+    loop = SkillLoop(
+        skills_dir=skills_dir,
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(max_rounds=1),
+        extra_guidance_provider=lambda: ["start profiling instead"],
+    )
+    loop.run("certify baseline only", workdir=tmp_path, scope="bounded")
+
+    prompt = next(
+        prompt for label, prompt, _ in backend.history if label == "engineer-r1"
+    )
+    assert "do not silently broaden a structured bounded task" in prompt
+    assert "request Reviewer/Planner replanning" in prompt
 
 
 def test_skill_loop_blocked_short_circuits(tmp_path: Path) -> None:
@@ -196,7 +445,7 @@ def test_skill_loop_max_rounds_hit(tmp_path: Path) -> None:
     assert outcome.round_count == 3
 
 
-def test_repeated_rejections_trigger_alternative_skill(tmp_path: Path) -> None:
+def test_repeated_rejections_do_not_spawn_separate_scientist(tmp_path: Path) -> None:
     skills_dir = tmp_path / "skills"
     _seed_skill(skills_dir)
     backend = MemoryBackend()
@@ -204,9 +453,6 @@ def test_repeated_rejections_trigger_alternative_skill(tmp_path: Path) -> None:
     for i in range(1, 5):
         backend.queue(f"engineer-r{i}", CannedResponse(message=f"attempt {i}"))
         backend.queue("reviewer", CannedResponse(message=_continue_review()))
-    backend.queue("scientist.skill_distill", CannedResponse(message=SKILL_MD.replace(
-        "Write a hello message", "Alternative greeting strategy"
-    )))
     backend.queue("engineer-r5", CannedResponse(message="new strategy succeeded"))
     backend.queue("reviewer", CannedResponse(message=_done_review()))
 
@@ -221,33 +467,14 @@ def test_repeated_rejections_trigger_alternative_skill(tmp_path: Path) -> None:
     outcome = loop.run("say hi to the user", workdir=tmp_path)
 
     assert outcome.successful
-    r5_prompt = next(p for label, p, _ in backend.history if label == "engineer-r5")
-    assert "Alternative greeting strategy" in r5_prompt
-    assert any(e.get("type") == "skill.scientist.adaptation_created" for e in events)
+    labels = [label for label, _prompt, _options in backend.history]
+    assert "scientist.skill_distill" not in labels
+    assert not any(e.get("type") == "skill.scientist.adaptation_created" for e in events)
 
 
-def test_skill_loop_scientist_distills_active_skill_on_miss(tmp_path: Path) -> None:
-    """A matcher miss authors an active skill and records its reviewed use."""
+def test_skill_loop_matcher_miss_defers_creation_to_engineer(tmp_path: Path) -> None:
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
-    backend.queue("scientist.skill_distill", CannedResponse(message="""# Solve Trivial Task
-## Description
-Reusable playbook for solving simple deterministic tasks.
-## Category
-general
-## When to use
-- Use when a task has no matched skill but has a small deterministic goal.
-## When NOT to use
-- Do not use for broad multi-stage work.
-## How to solve
-1. Read the task.
-2. Do the smallest correct action.
-## Pitfalls
-- Do not invent extra scope.
-## Sources
-- [Python documentation](https://docs.python.org/3/) — deterministic execution basics.
-- [Git documentation](https://git-scm.com/docs) — reproducible change tracking.
-"""))
     backend.queue("engineer-r1", CannedResponse(
         message="Done: solved with the scientist skill. Remaining: none.",
     ))
@@ -263,19 +490,18 @@ general
     )
     outcome = loop.run("trivial task", workdir=tmp_path)
     assert outcome.successful
-    assert outcome.skill_used == "Solve Trivial Task"
-    assert outcome.skill_distilled is True
+    assert outcome.skill_used is None
+    assert outcome.skill_distilled is False
     summaries = SkillStore(tmp_path / "skills").list_summaries()
-    assert [s["name"] for s in summaries] == ["Solve Trivial Task"]
-    assert summaries[0]["successful_reuses"] == 1
-    assert any(event.get("type") == "skill.use.recorded" for event in loop_events)
-    scientist_options = next(
-        options for label, _prompt, options in backend.history
-        if label == "scientist.skill_distill"
-    )
-    assert scientist_options.live_search is True
-def test_direct_workflow_skips_matcher_and_scientist(tmp_path: Path) -> None:
+    assert summaries == []
+    labels = [label for label, _prompt, _options in backend.history]
+    assert "matcher" in labels
+    assert "scientist.skill_distill" not in labels
+
+
+def test_direct_workflow_uses_matcher_and_skips_separate_scientist(tmp_path: Path) -> None:
     backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue(
         "engineer-r1",
         CannedResponse(message="Delivered the requested standalone artifact."),
@@ -294,6 +520,6 @@ def test_direct_workflow_skips_matcher_and_scientist(tmp_path: Path) -> None:
 
     assert outcome.successful
     labels = [label for label, _prompt, _options in backend.history]
-    assert "matcher" not in labels
+    assert "matcher" in labels
     assert "scientist.skill_distill" not in labels
     assert not any(event.get("type") == "skill.scientist.started" for event in events)

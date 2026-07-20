@@ -183,8 +183,8 @@ class LayeredSkillStore:
     def save(self, skill: Skill) -> Path:
         return self.store_for_skill(skill).save(skill)
 
-    def render_skill(self, skill: Skill) -> str:
-        return self.project.render_skill(skill)
+    def render_skill(self, skill: Skill, *, full: bool = False) -> str:
+        return self.store_for_skill(skill).render_skill(skill, full=full)
 
     def save_distilled(
         self,
@@ -360,6 +360,7 @@ class LayeredSkillStore:
         *,
         role: str | None = None,
         exclude_files: set[str] | None = None,
+        force_empty_match: bool = False,
     ) -> tuple[list[Skill] | None, int]:
         """Run the matcher across the merged (project + global) summaries.
 
@@ -371,18 +372,6 @@ class LayeredSkillStore:
         """
         # Build the merged view ourselves so we can match across layers.
         merged_summaries = self.list_summaries()
-        if not merged_summaries:
-            self.project._last_match_input_tokens = 0
-            self.project._last_match_cached_input_tokens = 0
-            self.project._last_match_output_tokens = 0
-            self.project._last_match_premium_requests = 0.0
-            if on_event:
-                on_event({
-                    "type": "match.info",
-                    "text": "skill store empty (project + global) — will distill a new playbook",
-                })
-            return None, 0
-
         # The underlying SkillStore.find_relevant uses self.list_summaries
         # internally. We borrow its full pipeline by temporarily swapping
         # in our merged view + a load() that dispatches across layers.
@@ -407,6 +396,7 @@ class LayeredSkillStore:
                 on_event=on_event,
                 role=role,
                 exclude_files=exclude_files,
+                force_empty_match=force_empty_match,
             )
         finally:
             ps_any.list_summaries = original_list

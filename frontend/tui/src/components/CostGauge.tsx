@@ -1,12 +1,11 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { theme } from '../theme.js';
-import { authoritativeSpend, fraction, type Spend } from '../cost.js';
+import { fraction } from '../cost.js';
 import type { CostControlSnapshot, Daemon, RequestUsage, UsageSummary } from '../api.js';
 
 /** Live budget gauge backed by the call-level usage ledger. */
 export function CostGauge({
-  spend,
   settledUsd,
   spendStatus,
   usageSummary,
@@ -15,7 +14,6 @@ export function CostGauge({
   costControl,
   width,
 }: {
-  spend: Spend;
   settledUsd?: number | null;
   spendStatus?: string;
   usageSummary?: UsageSummary;
@@ -24,41 +22,33 @@ export function CostGauge({
   costControl?: CostControlSnapshot | null;
   width: number;
 }) {
-  const dailyCap = daemon?.daily_cap_usd ?? null;
-  const missionCap = daemon?.per_mission_cap_usd ?? null;
-  const total = authoritativeSpend(spend, settledUsd);
+  const globalCap = daemon?.global_daily_cap_usd ?? null;
+  const total = settledUsd ?? 0;
   const incomplete = spendStatus === 'partial' || spendStatus === 'unpriced';
   if (
     total <= 0
     && !incomplete
-    && !dailyCap
+    && !globalCap
     && !requestUsage
     && !costControl?.reserved_usd
     && !costControl?.unresolved_calls
-    && !costControl?.fence_breach_calls
   ) return null;
-  const frac = fraction(spend.last, missionCap);
+  const frac = fraction(total, globalCap);
   const color = frac < 0.6 ? theme.success : frac < 0.85 ? theme.warning : theme.error;
   const codex = requestUsage?.codex;
   const copilot = requestUsage?.copilot;
-  const breachRetryMinutes = Math.ceil((costControl?.fence_breach_remaining_seconds ?? 0) / 60);
   return (
     <Box flexDirection="column">
-      {(total > 0 || incomplete || dailyCap) ? (
+      {(total > 0 || incomplete || globalCap) ? (
         <Box>
-          <Text dimColor>cumulative cost </Text>
+          <Text dimColor>host-global cost </Text>
           <Text color={color}>
             {settledUsd == null && incomplete
               ? spendStatus
               : `$${total.toFixed(2)}${incomplete ? '+' : ''}`}
           </Text>
           {incomplete && settledUsd != null ? <Text dimColor>{` · ${spendStatus}`}</Text> : null}
-          {width >= 80 && spend.missions > 0 ? (
-            <Text dimColor>
-              {`  · last $${spend.last.toFixed(2)}${incomplete ? '+' : ''}${missionCap ? ` / $${missionCap.toFixed(0)} mission cap` : ''}`}
-            </Text>
-          ) : null}
-          {dailyCap ? <Text dimColor>{width < 80 ? ` · cap $${dailyCap.toFixed(0)}/d` : `  · daily cap $${dailyCap.toFixed(0)}`}</Text> : null}
+          {globalCap ? <Text dimColor>{` · cap $${globalCap.toFixed(0)}/d`}</Text> : null}
         </Box>
       ) : null}
       {requestUsage ? (
@@ -68,9 +58,9 @@ export function CostGauge({
             : `requests today · Codex ${codex?.daily_calls ?? 0}/${codex?.daily_cap || '∞'} · Copilot ${copilot?.daily_calls ?? 0}/${copilot?.daily_cap || '∞'} · premium ${(copilot?.premium_requests ?? 0).toFixed(1)}/${copilot?.premium_cap || '∞'}`}
         </Text>
       ) : null}
-      {costControl && (costControl.reserved_usd > 0 || costControl.unresolved_calls > 0 || (costControl.fence_breach_calls ?? 0) > 0) ? (
-        <Text color={costControl.unresolved_calls > 0 || (costControl.fence_breach_calls ?? 0) > 0 ? theme.error : undefined} dimColor={costControl.unresolved_calls === 0 && (costControl.fence_breach_calls ?? 0) === 0}>
-          {`cost control · reserved $${costControl.reserved_usd.toFixed(2)} · in-flight ${costControl.active_reservations} · unresolved ${costControl.unresolved_calls} · fence breaches ${costControl.fence_breach_calls ?? 0}${breachRetryMinutes > 0 ? ` · retry in ${breachRetryMinutes}m` : ''}`}
+      {costControl && (costControl.reserved_usd > 0 || costControl.unresolved_calls > 0) ? (
+        <Text color={costControl.unresolved_calls > 0 ? theme.error : undefined} dimColor={costControl.unresolved_calls === 0}>
+          {`cost control · reserved $${costControl.reserved_usd.toFixed(2)} · in-flight ${costControl.active_reservations} · unresolved ${costControl.unresolved_calls}`}
         </Text>
       ) : null}
       {usageSummary && usageSummary.call_count > 0 ? (

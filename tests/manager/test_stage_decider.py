@@ -25,6 +25,8 @@ from argus_skill.skills.stage_checklists import (
     ChecklistItem,
     ChecklistLoadState,
     StageChecklistContract,
+    advance_stage,
+    resolve_stage_checklist_contract,
 )
 from argus_skill.skills.vertical_select import persist_vertical
 
@@ -117,6 +119,25 @@ def _read_stage(root: Path) -> str:
     return json.loads(
         (root / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
     )["current_stage"]
+
+
+def test_prompt_treats_engineer_waiver_as_manager_judgment_input() -> None:
+    review = _review(checklist=[])
+    review.review_source = "engineer_self_review"
+    review.verification_summary = "pytest: 12 passed; artifact hashes verified"
+
+    prompt = build_stage_decision_prompt(
+        current_stage="research",
+        next_stage="plan",
+        earlier_stages=[],
+        checklist_md="- [ ] research evidence is complete",
+        review=review,
+    )
+
+    assert "source: engineer_self_review" in prompt
+    assert "pytest: 12 passed; artifact hashes verified" in prompt
+    assert "empty Reviewer checklist is therefore expected" in prompt
+    assert "MAY ADVANCE" in prompt
 
 
 def _read_stage_status(root: Path, stage: str) -> str:
@@ -297,6 +318,50 @@ def test_decide_hold_writes_nothing(tmp_path: Path) -> None:
     assert _read_stage(root) == "research"  # untouched
 
 
+def test_parse_wait_reconciliation_hold_can_request_replanning() -> None:
+    decision = parse_stage_decision(
+        json.dumps({
+            "action": "hold",
+            "target_stage": "research",
+            "reason": "new mechanism work is now authorized",
+            "resolves_wait": True,
+        }),
+        current_stage="research",
+        stage_order=["research", "plan"],
+    )
+
+    assert decision.action == "hold"
+    assert decision.target_stage == "research"
+    assert decision.resolves_wait is True
+
+
+def test_wait_reconciliation_prompt_explains_resolves_wait() -> None:
+    planner_verdict = SimpleNamespace(
+        waiting=True,
+        waiting_reason="manager authorization required",
+        reason="manager authorization required",
+        waiting_contract=SimpleNamespace(
+            recheck_condition="Manager explicitly authorizes a new mechanism",
+            operator_action_required=True,
+        ),
+    )
+
+    prompt = build_stage_decision_prompt(
+        current_stage="research",
+        next_stage="plan",
+        earlier_stages=[],
+        checklist_md="- [ ] research.signal",
+        review=None,
+        planner_verdict=planner_verdict,
+    )
+
+    assert "Planner-wait reconciliation" in prompt
+    assert "resolves_wait=true" in prompt
+    assert '"resolves_wait": true|false' in prompt
+    assert "cannot create or expand operator authorization" in prompt
+    assert "set `resolves_wait=false`" in prompt
+
+
 def test_decide_stage_refreshes_manager_owned_live_view(
     tmp_path: Path,
     monkeypatch,
@@ -346,6 +411,106 @@ def test_decide_rollback_writes_state(tmp_path: Path) -> None:
     st = mgr.decide_stage_transition(review=_review(status="continue"), project_root=root)
     assert st.action == "rollback"
     assert _read_stage(root) == "benchmark"
+
+
+def test_unchanged_ground_truth_snapshot_cannot_undo_legal_advance(
+    tmp_path: Path,
+) -> None:
+    root = _project(tmp_path, current="research")
+    ground_truth = root / "research" / "GROUND_TRUTH.md"
+    ground_truth.write_text(
+        "Observed pipeline stage: research\n",
+        encoding="utf-8",
+    )
+    advance_stage(
+        root,
+        target_stage="plan",
+        reason="research evidence certified",
+        advanced_by="manager",
+    )
+    state = json.loads(
+        (root / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
+    )
+    snapshot = state["stage_history"][-1]["ground_truth_snapshot"]
+    assert snapshot["observed_pipeline_stage"] == "research"
+    assert snapshot["pipeline_revision"] == 0
+
+    mgr = Manager(project_root=root, runner=_StubRunner({
+        "action": "rollback",
+        "target_stage": "research",
+        "reason": (
+            "research/GROUND_TRUTH.md contradicts the live "
+            "research/PIPELINE_STATE.json plan stage"
+        ),
+    }))
+    transition = mgr.decide_stage_transition(
+        review=_review(status="continue"),
+        project_root=root,
+    )
+
+    assert transition.action == "hold"
+    assert (
+        transition.diagnostic
+        == "certified_ground_truth_snapshot_rollback_rejected"
+    )
+    assert _read_stage(root) == "plan"
+
+
+def test_changed_ground_truth_can_still_support_real_rollback(
+    tmp_path: Path,
+) -> None:
+    root = _project(tmp_path, current="research")
+    ground_truth = root / "research" / "GROUND_TRUTH.md"
+    ground_truth.write_text("certified evidence\n", encoding="utf-8")
+    advance_stage(
+        root,
+        target_stage="plan",
+        reason="research evidence certified",
+        advanced_by="manager",
+    )
+    ground_truth.write_text("newly discovered missing evidence\n", encoding="utf-8")
+
+    mgr = Manager(project_root=root, runner=_StubRunner({
+        "action": "rollback",
+        "target_stage": "research",
+        "reason": "GROUND_TRUTH now records newly missing research evidence",
+    }))
+    transition = mgr.decide_stage_transition(
+        review=_review(status="continue"),
+        project_root=root,
+    )
+
+    assert transition.action == "rollback"
+    assert _read_stage(root) == "research"
+
+
+def test_unchanged_ground_truth_does_not_mask_independent_rollback_reason(
+    tmp_path: Path,
+) -> None:
+    root = _project(tmp_path, current="research")
+    ground_truth = root / "research" / "GROUND_TRUTH.md"
+    ground_truth.write_text("Observed pipeline stage: research\n", encoding="utf-8")
+    advance_stage(
+        root,
+        target_stage="plan",
+        reason="research evidence certified",
+    )
+
+    mgr = Manager(project_root=root, runner=_StubRunner({
+        "action": "rollback",
+        "target_stage": "research",
+        "reason": (
+            "GROUND_TRUTH stage differs from PIPELINE_STATE, and the plan has an "
+            "invalid contract that independently requires research repair"
+        ),
+    }))
+    transition = mgr.decide_stage_transition(
+        review=_review(status="continue"),
+        project_root=root,
+    )
+
+    assert transition.action == "rollback"
+    assert _read_stage(root) == "research"
 
 
 @pytest.mark.parametrize("target", ["`benchmark`", "benchmark stage"])
@@ -629,7 +794,15 @@ def test_decide_persistent_empty_done_satisfied_advances(
     root = _project(tmp_path, current="research")
     backend = _StubRunner("")
     mgr = Manager(project_root=root, runner=backend)
-    st = mgr.decide_stage_transition(review=_review(), project_root=root)
+    contract = resolve_stage_checklist_contract("research", project_root=root)
+    checklist = [
+        {"item": item.id, "satisfied": True, "evidence": item.evidence_hint}
+        for item in contract.items
+    ]
+    st = mgr.decide_stage_transition(
+        review=_review(checklist=checklist),
+        project_root=root,
+    )
     assert backend.calls == 3
     assert st.action == "advance"
     assert st.target_stage == "plan"
@@ -859,6 +1032,35 @@ def test_fallback_empty_stage_decision_unknown_current_holds() -> None:
     )
     assert d.action == "hold"
     assert d.diagnostic == "empty_output_unknown_current_stage"
+
+
+def test_fallback_empty_stage_decision_requires_every_contract_item() -> None:
+    contract = StageChecklistContract(
+        stage="research",
+        state=ChecklistLoadState.LOADED,
+        checklist_optional=False,
+        items=(
+            ChecklistItem("research.brief", "brief", "brief.md"),
+            ChecklistItem("research.literature", "literature", "ledger.json"),
+        ),
+    )
+    d = fallback_empty_stage_decision(
+        _review(
+            checklist=[
+                {
+                    "item": "research.brief",
+                    "satisfied": True,
+                    "evidence": "brief.md",
+                }
+            ]
+        ),
+        current_stage="research",
+        stage_order=ORDER,
+        checklist_contract=contract,
+    )
+
+    assert d.action == "hold"
+    assert d.diagnostic == "empty_output_missing_required_checklist_items"
 
 
 # --- F3: the manager-stage codex turn is metered ----------------------------

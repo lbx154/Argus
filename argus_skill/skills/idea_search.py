@@ -23,7 +23,6 @@ Design rules:
 """
 from __future__ import annotations
 
-import functools
 import logging
 from pathlib import Path
 from typing import Any
@@ -64,43 +63,16 @@ _RESEARCH_MOVES = (
     "15. Design a Property-Targeting Pretext Objective — inject a relational/geometric property via a pretext objective\n"
 )
 
-#: Directory of vendored ideation-pattern reference cards (the evidence tier
-#: shared with ``idea-discovery``): 15 pattern cards + 31 sub-pattern cards.
-_PATTERN_REF_DIR = (
-    Path(__file__).resolve().parents[1]
-    / "builtin_skills"
-    / "engineer"
-    / "references"
-    / "ideation"
-)
-
-
-@functools.lru_cache(maxsize=1)
 def _pattern_reference() -> str:
-    """The full 15-pattern + 31-sub-pattern selection vocabulary, read from the
-    vendored ideation cards so this web-search source uses the SAME evidence tier
-    as ``idea-discovery`` (definitions, operational signatures, when-to-apply,
-    and the sub-pattern → parent mapping). Falls back to the compact inline
-    :data:`_RESEARCH_MOVES` menu when the reference files are unavailable, so the
-    fail-open / never-raise contract still holds."""
-    try:
-        patterns = (
-            _PATTERN_REF_DIR / "ideation-patterns" / "overview.md"
-        ).read_text(encoding="utf-8")
-        subs = (
-            _PATTERN_REF_DIR / "ideation-sub-patterns" / "overview.md"
-        ).read_text(encoding="utf-8")
-    except OSError:
-        return "Research-move menu (15 corpus-derived patterns):\n" + _RESEARCH_MOVES
-    blob = (
-        "## Ideation patterns (15 moves — definition · operational signature · "
-        "when-to-apply)\n\n"
-        + patterns.strip()
-        + "\n\n## Sub-patterns (31 tactical clusters, each mapped to its parent "
-        "pattern)\n\n"
-        + subs.strip()
-    )
-    return blob[:20000]
+    """Compact move vocabulary for the one-shot live-search source.
+
+    The full 15-pattern/31-sub-pattern cards remain available to the downstream
+    ``idea-discovery`` skill. Reinjecting those ~20k characters into this call
+    duplicates that later reasoning and materially increases every web-search
+    turn's context. The compact menu preserves mechanism diversity while leaving
+    detailed tactical refinement to candidate selection.
+    """
+    return "Research-move menu (15 corpus-derived patterns):\n" + _RESEARCH_MOVES
 
 
 def _candidates_path(workdir: Any) -> Path:
@@ -155,15 +127,16 @@ def _build_prompt(direction: str, n: int) -> str:
         "show, not on model memory.\n"
         "STEP 2 — RESEARCH MOVE: from the corpus-derived ideation patterns below, "
         "pick the ONE pattern whose operational signature structurally closes the "
-        "gap, then name the specific sub-pattern (`C##`) whose tactic you will "
-        "apply. The pattern is thinking vocabulary, never the contribution itself, "
+        "gap. The pattern is thinking vocabulary, never the contribution itself, "
         "and never a hard filter (a common pattern is fine if the delivery is "
         "substantive):\n\n"
         f"{_pattern_reference()}\n\n"
         "STEP 3 — INSTANTIATE: turn the chosen move applied to the specific gap "
-        "into one concrete, named mechanism that plausibly BEATS a reproduced, "
-        "competitive baseline — NOT a diagnostic, a probe, a benchmark, or a "
-        "'we measure that model M does X' study.\n\n"
+        "into one concrete research contribution. Valid shapes include a method, "
+        "system, theorem, diagnostic, characterization, evaluation, benchmark/data "
+        "contribution, negative result, or boundary finding. Do not require every "
+        "candidate to beat a baseline; require it to answer an important question "
+        "against a strong reference.\n\n"
         f"Output EXACTLY {n} candidate ideas, each as a markdown block in this "
         "format (ids WS-1, WS-2, ...). Make the ideas DIVERSE: different gaps and "
         "different moves, not variants of one idea (include at least one "
@@ -174,33 +147,28 @@ def _build_prompt(direction: str, n: int) -> str:
         "**Lineage & gap type**: <the 3-5 method refine/replace chain; label the "
         "gap ADDITIVE or SUBTRACTIVE; one line for the regression check — which "
         "ancestor could already do this, and why yours differs>\n\n"
-        "**Research move**: <the ONE pattern by name + the `C##` sub-pattern whose tactic you applied>\n\n"
-        "**Proposed method**: <the move instantiated as a concrete, named "
-        "technique/mechanism you introduce — the contribution, not a "
-        "measurement>\n\n"
-        "**Baseline to beat + target**: <a reproduced, published, competitive "
-        "baseline (name it), the real benchmark(s), and the margin you expect to "
-        "win by>\n\n"
-        "**Why it wins (thesis)**: <one sentence — the mechanism/insight that "
-        "makes the gain non-obvious>\n\n"
+        "**Research move**: <the ONE pattern by number and name>\n\n"
+        "**Contribution shape**: <method, system, theorem, diagnostic, "
+        "characterization, evaluation, benchmark/data, negative result, or "
+        "boundary finding>\n\n"
+        "**Reference comparison + target**: <a strong published/standard "
+        "reference, the public benchmark(s), and the outcome that would support "
+        "or refute the claim>\n\n"
+        "**Why it matters (thesis)**: <one sentence — the non-obvious insight or "
+        "decision-relevant value>\n\n"
         "**Grounding**: <cite 1-2 REAL papers you found via search, "
         "title + year + arxiv id; state what they did and the gap they leave>\n\n"
-        "**Resource & 8h fit**: <compute needed vs what realistically exists "
-        "(assume ~1 modern GPU unless the direction states otherwise); the "
-        "training approach if any (LoRA/QLoRA/PEFT, small/base-model FT, trained "
-        "probe/steering, distillation); confirm the MAIN experiment — training + "
-        "baselines + method + key ablation — fits <=8h wall-clock, or how to "
-        "descope so it does>\n\n"
+        "**Resource plan**: <compute/data/access needed vs what realistically "
+        "exists; staged execution and the operator-approved budget>\n\n"
         "**Anticipated kill-argument**: <the strongest ~40-word rejection>\n\n"
         "Rules: cite ONLY papers you actually found via search (no fabricated "
         "ids); the bottleneck and regression check must trace to retrieved "
         "papers, not memory. The research move is diagnostic vocabulary, never "
-        "the contribution claim itself. Every candidate MUST propose a method "
-        "with a concrete baseline it aims to beat and a nameable reason it should "
-        "win — REJECT pure diagnostic / probing / benchmark-only ideas. Design "
-        "each idea for compute that realistically exists (discover it; if the "
-        "direction or operator states resource or time limits, honor those over "
-        "any assumption), and keep the main experiment feasible in <=8h. Venue is "
+        "the contribution claim itself. Every candidate MUST name a strong "
+        "reference and a falsifiable outcome, but diagnostic, probing, benchmark, "
+        "negative, and boundary contributions are allowed when valuable. Design "
+        "each idea for resources that realistically exist or state a credible "
+        "staged plan; honor operator limits without imposing an 8h cutoff. Venue is "
         "decided elsewhere. Keep the whole answer under ~1100 words. Output ONLY "
         "the candidate blocks, nothing else."
     )
@@ -251,6 +219,7 @@ def augment_idea_candidates(
             options=RunnerOptions(
                 model=model,
                 reasoning_effort="high",
+                working_dir=str(Path(workdir).expanduser().resolve()),
                 skip_git_repo_check=True,
                 full_auto=True,
                 live_search=True,

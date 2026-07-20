@@ -40,7 +40,8 @@
         "cache_write_tokens": {"type": "integer", "minimum": 0},
         "output_tokens": {"type": "integer", "minimum": 0},
         "reasoning_output_tokens": {"type": "integer", "minimum": 0},
-        "premium_requests": {"type": "number", "minimum": 0},
+        "premium_requests": {"type": ["number", "null"], "minimum": 0},
+        "premium_requests_present": {"type": "boolean"},
         "total_nano_aiu": {"type": ["integer", "null"], "minimum": 0}
       }
     },
@@ -114,11 +115,7 @@
         "amount_usd": {"type": "number", "minimum": 0},
         "provider": {"type": "string"},
         "model": {"type": "string"},
-        "run_label": {"type": "string"},
-        "fence_enforcement": {"type": "string", "enum": ["hard", "soft", "unsupported", "none"]},
-        "fence_limit_usd": {"type": ["number", "null"], "minimum": 0},
-        "fence_limit_ai_credits": {"type": ["integer", "null"], "minimum": 0},
-        "fence_reason": {"type": "string"}
+        "run_label": {"type": "string"}
       }
     },
     "budget.reservation.denied": {
@@ -141,11 +138,6 @@
         "amount_usd": {"type": "number", "minimum": 0},
         "cost_usd": {"type": ["number", "null"], "minimum": 0},
         "overrun_usd": {"type": ["number", "null"], "minimum": 0},
-        "fence_breached": {"type": "boolean"},
-        "fence_enforcement": {"type": "string", "enum": ["hard", "soft", "unsupported", "none"]},
-        "fence_limit_usd": {"type": ["number", "null"], "minimum": 0},
-        "fence_limit_ai_credits": {"type": ["integer", "null"], "minimum": 0},
-        "fence_reason": {"type": "string"},
         "pricing_status": {"type": "string"}
       }
     },
@@ -168,21 +160,6 @@
         "provider": {"type": "string"},
         "model": {"type": "string"},
         "run_label": {"type": "string"}
-      }
-    },
-    "budget.fence_breach.blocked": {
-      "version": 1,
-      "required": ["call_id", "provider", "reason"],
-      "properties": {
-        "call_id": {"type": "string", "minLength": 1},
-        "project_id": {"type": "string"},
-        "mission_id": {"type": ["string", "null"]},
-        "provider": {"type": "string", "minLength": 1},
-        "model": {"type": "string"},
-        "run_label": {"type": "string"},
-        "breach_call_id": {"type": "string"},
-        "overrun_usd": {"type": "number", "minimum": 0},
-        "reason": {"type": "string", "minLength": 1}
       }
     },
     "life.mission.started": {
@@ -226,6 +203,7 @@
             "stage_certification",
             "scientific_decision",
             "failure_source",
+            "failure_layer",
             "interruption_kind",
             "resumable"
           ],
@@ -235,6 +213,7 @@
             "stage_certification": {"type": "string"},
             "scientific_decision": {"type": "string"},
             "failure_source": {"type": "string"},
+            "failure_layer": {"type": "string"},
             "interruption_kind": {"type": "string"},
             "resumable": {"type": "boolean"}
           }
@@ -422,7 +401,6 @@
             "paused_no_breakthrough",
             "exhausted_current_methods",
             "provider_cooldown",
-            "provider_fence",
             "infra_blocked",
             "error"
           ]
@@ -513,6 +491,26 @@
       "properties": {
         "count": {"type": "integer", "minimum": 1},
         "messages": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "life.operator_question.pending": {
+      "version": 1,
+      "required": ["item_id", "question"],
+      "properties": {
+        "item_id": {"type": "string", "minLength": 1},
+        "title": {"type": "string"},
+        "question": {"type": "string", "minLength": 1},
+        "agent_layer": {"type": "string"}
+      }
+    },
+    "life.operator_question.answered": {
+      "version": 1,
+      "required": ["item_id", "continuation_item_id", "question", "manager_decision"],
+      "properties": {
+        "item_id": {"type": "string", "minLength": 1},
+        "continuation_item_id": {"type": "string", "minLength": 1},
+        "question": {"type": "string", "minLength": 1},
+        "manager_decision": {"type": "string", "minLength": 1}
       }
     },
     "engineer.progress": {

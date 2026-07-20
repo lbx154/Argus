@@ -204,6 +204,7 @@ def test_completed_no_go_keeps_stage_and_science_independent() -> None:
         "stage_certification": "not_certified",
         "scientific_decision": "no_go",
         "failure_source": "scientific_evidence_failure",
+        "failure_layer": "",
         "interruption_kind": "none",
         "resumable": False,
     }

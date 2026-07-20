@@ -4,8 +4,10 @@ import base64
 import hashlib
 import io
 import json
+from concurrent.futures import ThreadPoolExecutor
 from email.message import Message
 from pathlib import Path
+from threading import Barrier
 from typing import Any, cast
 from urllib.error import HTTPError
 
@@ -130,6 +132,100 @@ def test_prompt_sha256_matches_raw_file_bytes(tmp_path: Path) -> None:
     )
 
 
+def test_image_tool_project_path_rejects_escape(tmp_path: Path) -> None:
+    with pytest.raises(image_tool.ImageToolError, match="escapes project root"):
+        image_tool._project_path(tmp_path, Path("../outside.json"))
+
+
+def test_project_image2_helper_rejects_path_escape(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="escapes project root"):
+        image2_template.project_path(tmp_path, Path("../outside.json"))
+
+
+def test_project_image2_helper_rejects_invalid_manifest(tmp_path: Path) -> None:
+    manifest = tmp_path / "IMAGE2_FIGURES.json"
+    manifest.write_text("{not-json", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="not valid JSON"):
+        image2_template.load_manifest(manifest)
+
+
+def test_project_image2_helper_preflights_manifest_before_generation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prompt = tmp_path / "paper" / "figures" / "method.prompt.txt"
+    prompt.parent.mkdir(parents=True)
+    prompt.write_text(image_tool.render_paper_figure_prompt(), encoding="utf-8")
+    manifest = prompt.parent / "IMAGE2_FIGURES.json"
+    manifest.write_text("{not-json", encoding="utf-8")
+    generated = False
+
+    def fake_generate_image(**kwargs: Any) -> dict[str, Any]:
+        nonlocal generated
+        generated = True
+        return {}
+
+    monkeypatch.setattr(image2_template, "generate_image", fake_generate_image)
+
+    with pytest.raises(RuntimeError, match="not valid JSON"):
+        image2_template.generate_image2_figure(
+            project_root=tmp_path,
+            prompt_file=prompt,
+            manifest=manifest,
+        )
+
+    assert generated is False
+
+
+def test_atomic_json_writes_use_distinct_temporary_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = tmp_path / "review.json"
+    barrier = Barrier(2)
+    temporary_paths: list[Path] = []
+    real_replace = image_tool.os.replace
+
+    def synchronized_replace(source: str | Path, destination: str | Path) -> None:
+        temporary_paths.append(Path(source))
+        barrier.wait(timeout=5)
+        real_replace(source, destination)
+
+    monkeypatch.setattr(image_tool.os, "replace", synchronized_replace)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        list(
+            executor.map(
+                lambda value: image_tool._atomic_write_json(target, {"value": value}),
+                (1, 2),
+            )
+        )
+
+    assert len(set(temporary_paths)) == 2
+    assert json.loads(target.read_text(encoding="utf-8"))["value"] in {1, 2}
+
+
+def test_project_image2_manifest_upsert_preserves_concurrent_entries(
+    tmp_path: Path,
+) -> None:
+    manifest = tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json"
+
+    def upsert(index: int) -> None:
+        image2_template.upsert_manifest_entry(
+            manifest,
+            {"figure_id": f"candidate-{index}", "output_path": f"{index}.png"},
+            project_root=tmp_path,
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(upsert, range(16)))
+
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    assert {row["figure_id"] for row in payload["figures"]} == {
+        f"candidate-{index}" for index in range(16)
+    }
+
+
 def test_render_paper_figure_prompt_custom_aspect_ratio() -> None:
     prompt = image_tool.render_paper_figure_prompt(
         figure_title="Tall Diagram",
@@ -197,11 +293,17 @@ def test_sync_paper_metadata_writes_manifest_and_provenance(tmp_path: Path) -> N
         )
     )
     manifest = json.loads((figures / "IMAGE2_FIGURES.json").read_text(encoding="utf-8"))
+    unified = json.loads(
+        (figures / "FIGURE_PROVENANCE.json").read_text(encoding="utf-8")
+    )
     manifest_entry = manifest["figures"][0]
+    unified_entry = unified["figures"][0]
     assert entry["prompt_template_id"] == "argus-image2-paper-prompt-v1"
     assert entry["figure_studio_source"] == "paper-framework-figure-studio-pro-v3.1.4a"
     assert manifest_entry["output_sha256"] == info["sha256"]
     assert provenance["output_sha256"] == info["sha256"]
+    assert unified_entry["renderer"] == "image2"
+    assert unified_entry["output_sha256"] == info["sha256"]
     assert (figures / "method.png.inspect.json").exists()
 
 
@@ -223,7 +325,7 @@ def test_sync_paper_metadata_accepts_raw_file_prompt_hash_with_stripped_sidecar_
                 "model": "gpt-image-2",
                 "created_at_unix": 1700000000,
                 "prompt": prompt,
-                "prompt_path": "paper/figures/method.prompt.txt",
+                "prompt_path": "../stale.prompt.txt",
                 "prompt_sha256": prompt_sha,
                 "output_path": "paper/figures/method.png",
                 "output_sha256": info["sha256"],
@@ -251,12 +353,183 @@ def test_sync_paper_metadata_accepts_raw_file_prompt_hash_with_stripped_sidecar_
     entry = image_tool.sync_paper_metadata(
         project_root=tmp_path,
         image=Path("paper/figures/method.png"),
-        prompt_file=Path("paper/figures/method.prompt.txt"),
         figure_id="method-overview",
         figure_type="method",
     )
 
     assert entry["prompt_sha256"] == prompt_sha
+    assert entry["prompt_path"] == "paper/figures/method.prompt.txt"
+
+
+def _seed_frozen_paper_context(root: Path) -> dict[str, Any]:
+    (root / "research").mkdir(parents=True, exist_ok=True)
+    (root / "research" / "RESEARCH_BRIEF.md").write_text(
+        "# Brief\n\nStable research thesis.\n",
+        encoding="utf-8",
+    )
+    style = root / "paper" / "style_ref"
+    style.mkdir(parents=True, exist_ok=True)
+    (style / "PAPER_STRUCTURE_BLUEPRINT.md").write_text(
+        "# Blueprint\n\nFigure 1 explains the frozen mechanism.\n",
+        encoding="utf-8",
+    )
+    (root / "paper" / "CLAIM_GRAPH.json").write_text(
+        json.dumps({"claims": [{"id": "c1", "claim": "Mechanism improves X"}]}),
+        encoding="utf-8",
+    )
+    return image_tool.freeze_paper_figure_context(project_root=root)
+
+
+def _sync_reviewed_candidate(root: Path, index: int) -> dict[str, Any]:
+    figures = root / "paper" / "figures"
+    figures.mkdir(parents=True, exist_ok=True)
+    prompt_path = figures / f"method-{index}.prompt.txt"
+    prompt = image_tool.render_paper_figure_prompt(
+        figure_title=f"Method Candidate {index}",
+        layout_variant=f"variant {index}",
+    ).strip()
+    prompt_path.write_text(prompt + "\n", encoding="utf-8")
+    output_path = figures / f"method-{index}.png"
+    output_path.write_bytes(_PNG_BYTES + bytes([index]))
+    info = image_tool.inspect_image(output_path)
+    prompt_sha = hashlib.sha256(prompt_path.read_bytes()).hexdigest()
+    output_path.with_suffix(output_path.suffix + ".json").write_text(
+        json.dumps(
+            {
+                "model": "gpt-image-2",
+                "created_at_unix": 1700000000 + index,
+                "prompt": prompt,
+                "prompt_path": f"paper/figures/{prompt_path.name}",
+                "prompt_sha256": prompt_sha,
+                "output_path": f"paper/figures/{output_path.name}",
+                "output_sha256": info["sha256"],
+                "requested_size": "1536x1024",
+                "image": info,
+                "api": {"endpoint": "/images/generations"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    output_path.with_suffix(output_path.suffix + ".review.json").write_text(
+        json.dumps(
+            {
+                "image": info,
+                "model": "gpt-5.4",
+                "endpoint": "/responses",
+                "review": "score_1_to_5: 5\nkeep_or_regenerate: keep",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return image_tool.sync_paper_metadata(
+        project_root=root,
+        image=Path(f"paper/figures/{output_path.name}"),
+        prompt_file=Path(f"paper/figures/{prompt_path.name}"),
+        figure_id=f"method-candidate-{index}",
+        figure_type="method",
+    )
+
+
+def test_sync_preflights_canonical_manifest_before_legacy_update(
+    tmp_path: Path,
+) -> None:
+    _seed_frozen_paper_context(tmp_path)
+    figures = tmp_path / "paper" / "figures"
+    figures.mkdir(parents=True, exist_ok=True)
+    canonical = figures / "FIGURE_PROVENANCE.json"
+    canonical.write_text("{bad json", encoding="utf-8")
+
+    with pytest.raises(image_tool.ImageToolError, match="canonical figure provenance"):
+        _sync_reviewed_candidate(tmp_path, 1)
+
+    assert not (figures / "IMAGE2_FIGURES.json").exists()
+    assert canonical.read_text(encoding="utf-8") == "{bad json"
+
+
+def test_sync_rolls_back_legacy_manifest_when_canonical_write_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_frozen_paper_context(tmp_path)
+
+    def fail_registration(**_kwargs):
+        raise OSError("simulated canonical write failure")
+
+    monkeypatch.setattr(
+        "argus_skill.verticals.research.figure_provenance.register_figure",
+        fail_registration,
+    )
+    with pytest.raises(OSError, match="simulated canonical write failure"):
+        _sync_reviewed_candidate(tmp_path, 1)
+
+    figures = tmp_path / "paper" / "figures"
+    assert not (figures / "IMAGE2_FIGURES.json").exists()
+    assert not (figures / "FIGURE_PROVENANCE.json").exists()
+
+
+def test_reviewed_candidate_cache_reuses_frozen_context(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    frozen = _seed_frozen_paper_context(tmp_path)
+    for index in range(6):
+        entry = _sync_reviewed_candidate(tmp_path, index)
+    assert entry["candidate_cache_reusable"] is True
+    assert entry["candidate_cache_passed_count"] == 6
+
+    status = image_tool.paper_figure_cache_status(
+        project_root=tmp_path,
+        figure_type="method",
+    )
+    assert status["context_sha256"] == frozen["context_sha256"]
+    assert status["reusable"] is True
+    assert status["passed_candidates"] == 6
+
+    main_tex = tmp_path / "paper" / "main.tex"
+    main_tex.write_text("minor prose v1", encoding="utf-8")
+    main_tex.write_text("minor prose v2", encoding="utf-8")
+    assert image_tool.paper_figure_cache_status(
+        project_root=tmp_path,
+        figure_type="method",
+    )["reusable"] is True
+
+    prompt_out = tmp_path / "paper" / "figures" / "should-not-exist.prompt.txt"
+    rc = image_tool.main(
+        [
+            "paper-prompt",
+            "--project-root",
+            str(tmp_path),
+            "--figure-type",
+            "method",
+            "--out",
+            str(prompt_out),
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert payload["cache_hit"] is True
+    assert not prompt_out.exists()
+
+
+def test_candidate_cache_invalidates_only_on_frozen_input_change(
+    tmp_path: Path,
+) -> None:
+    _seed_frozen_paper_context(tmp_path)
+    for index in range(6):
+        _sync_reviewed_candidate(tmp_path, index)
+    claim_graph = tmp_path / "paper" / "CLAIM_GRAPH.json"
+    claim_graph.write_text(
+        json.dumps({"claims": [{"id": "c2", "claim": "Changed evidence"}]}),
+        encoding="utf-8",
+    )
+    status = image_tool.paper_figure_cache_status(
+        project_root=tmp_path,
+        figure_type="method",
+    )
+    assert status["reusable"] is False
+    assert status["reason"] == "evidence_or_structure_changed"
 
 
 def test_generate_image_writes_artifact_and_secret_free_sidecar(
@@ -597,6 +870,12 @@ def test_project_image2_helper_records_normalized_size(
     manifest_path = tmp_path / "paper" / "figures" / "IMAGE2_FIGURES.json"
     prompt_path.parent.mkdir(parents=True)
     prompt_path.write_text(image_tool.render_paper_figure_prompt(), encoding="utf-8")
+    research = tmp_path / "research"
+    research.mkdir()
+    (research / "PIPELINE_STATE.json").write_text(
+        '{"vertical":"research","target_venue":"EMNLP"}',
+        encoding="utf-8",
+    )
 
     def fake_generate_image(
         prompt: str,
@@ -626,7 +905,13 @@ def test_project_image2_helper_records_normalized_size(
             "height": 1088,
         }
 
-    def fake_review_image(image: Path, out: Path, prompt: str) -> dict[str, Any]:
+    def fake_review_image(
+        image: Path,
+        out: Path,
+        prompt: str,
+        venue_profile=None,
+    ) -> dict[str, Any]:
+        assert venue_profile.key == "EMNLP"
         image2_template.write_json(out, {"review": "ok"})
         return {"review": "ok"}
 
@@ -651,6 +936,7 @@ def test_project_image2_helper_records_normalized_size(
     )
     manifest_entry = json.loads(manifest_path.read_text(encoding="utf-8"))["figures"][0]
 
+    assert provenance["prompt_sha256"] == hashlib.sha256(prompt_path.read_bytes()).hexdigest()
     assert entry["requested_size"] == "1920x1088"
     assert entry["original_requested_size"] == "1920x1080"
     assert entry["size_normalized_to_multiple_of_16"] is True

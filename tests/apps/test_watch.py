@@ -320,23 +320,13 @@ def test_budget_line_cache_reuses_previous_result_until_inputs_change(
     cache = _BudgetLineCache()
     journal_path = tmp_path / "journal.jsonl"
     journal_path.write_text("", encoding="utf-8")
-    calls = {"n": 0}
-
     class _FakeBudget:
-        per_mission_cap_usd = 2.5
-        daily_cap_usd = 5.0
         global_daily_cap_usd = 9.0
-
-        def remaining_today(self, journal: object) -> float:  # noqa: ARG002
-            calls["n"] += 1
-            return 3.0
 
     monkeypatch.setattr(watch_mod, "resolve_effective_budget", lambda status: _FakeBudget())
     monkeypatch.setattr(watch_mod, "global_daily_spend", lambda global_root=None: 1.25)
     status = Namespace(
         alive=True,
-        per_mission_cap_usd=2.5,
-        daily_cap_usd=5.0,
         global_daily_cap_usd=9.0,
     )
 
@@ -345,13 +335,9 @@ def test_budget_line_cache_reuses_previous_result_until_inputs_change(
     journal_path.write_text('{"ts": 1, "cost_usd": 1.0}\n', encoding="utf-8")
     third = cache.render(journal_path=journal_path, journal=object(), status=status)
 
-    assert first == (
-        "budget   : per-mission $2.50 · daily $5.00 · "
-        "global $1.25/$9.00 · remaining $3.00"
-    )
+    assert first == "budget   : global $1.25/$9.00 · remaining $7.75"
     assert second == first
     assert third == first
-    assert calls["n"] == 2
 
 
 def test_journal_tail_cache_reuses_previous_result_until_file_changes(
@@ -506,8 +492,7 @@ def test_watch_subprocess_renders_inbox_guidance_and_keeps_offset(tmp_path: Path
     env = _subprocess_env()
     env.update({
         "PYTHONUNBUFFERED": "1",
-        "ARGUS_SKILL_PER_MISSION_CAP_USD": "2.5",
-        "ARGUS_SKILL_DAILY_CAP_USD": "5.0",
+        "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "5.0",
         "COLUMNS": "260",
         "LINES": "60",
     })
@@ -555,8 +540,7 @@ def test_watch_subprocess_redirected_output_flushes_and_exits_on_sigterm(
                 "started_at_iso": started_at,
                 "backend": "memory",
                 "life_dir": str(global_root),
-                "per_mission_cap_usd": 2.5,
-                "daily_cap_usd": 5.0,
+
             }
         ),
         encoding="utf-8",
@@ -625,8 +609,7 @@ def test_watch_subprocess_redirected_output_flushes_and_exits_on_sigterm(
     env = _subprocess_env()
     env.update({
         "PYTHONUNBUFFERED": "1",
-        "ARGUS_SKILL_PER_MISSION_CAP_USD": "2.5",
-        "ARGUS_SKILL_DAILY_CAP_USD": "5.0",
+        "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "5.0",
         "COLUMNS": "260",
         "LINES": "60",
     })
@@ -700,8 +683,7 @@ def test_watch_subprocess_shows_paused_budget_when_exhausted(tmp_path: Path) -> 
     env = _subprocess_env()
     env.update({
         "PYTHONUNBUFFERED": "1",
-        "ARGUS_SKILL_PER_MISSION_CAP_USD": "2.5",
-        "ARGUS_SKILL_DAILY_CAP_USD": "5.0",
+        "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "5.0",
         "COLUMNS": "260",
         "LINES": "60",
     })

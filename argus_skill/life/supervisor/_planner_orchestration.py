@@ -49,10 +49,21 @@ class PlannerOrchestrationMixin:
     def _planner_runtime_with_idle_note(self) -> str:
         """Prefix repeated idle cycles with a current-reality check."""
         base = self._planner_project_context()
+        resolution_note = self._planner_wait_resolution_runtime_note()
         contract_note = self._planner_waiting_contract_runtime_note()
+        manager_feedback = self._manager_planner_feedback_runtime_note()
         n = int(getattr(self, "_consecutive_idle_planner_cycles", 0))
         if n < 2:
-            return "\n\n".join(part for part in (contract_note, base) if part)
+            return "\n\n".join(
+                part
+                for part in (
+                    resolution_note,
+                    manager_feedback,
+                    contract_note,
+                    base,
+                )
+                if part
+            )
         note = (
             "CURRENT-REALITY CHECK (read before trusting the journal below): you "
             f"have idled {n} consecutive cycle(s) concluding `waiting=true` on the "
@@ -62,7 +73,17 @@ class PlannerOrchestrationMixin:
             "token while it is unchanged; the harness permits at most one probe for "
             "each Planner-authored fingerprint/token pair."
         )
-        return "\n\n".join(part for part in (contract_note, note, base) if part)
+        return "\n\n".join(
+            part
+            for part in (
+                resolution_note,
+                manager_feedback,
+                contract_note,
+                note,
+                base,
+            )
+            if part
+        )
 
     def _recent_no_progress_failures(self) -> dict[tuple[str, str], Any]:
         """Return recent failed task signatures quarantined from replanning."""

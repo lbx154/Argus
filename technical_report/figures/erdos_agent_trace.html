@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Argus mathematical claim frontier</title>
+<style>
+@page{size:12in 5.2in;margin:0}*{box-sizing:border-box}html,body{margin:0;width:12in;height:5.2in}
+body{font-family:Arial,Helvetica,sans-serif;color:#24465d;background:#fbf7ee;print-color-adjust:exact;-webkit-print-color-adjust:exact}
+.canvas{position:relative;width:12in;height:5.2in;padding:16px 22px 54px;border:2px solid #24465d;display:grid;grid-template-rows:42px 154px 126px 74px;gap:8px;overflow:hidden}
+.mountain{position:absolute;left:0;bottom:0;width:100%;height:56px;object-fit:cover;opacity:.9}.header,.timeline,.artifacts,.efficiency{position:relative;z-index:2}
+.header{display:flex;align-items:center;justify-content:space-between}.header strong{font-size:17px;color:#173b70}.legend{display:flex;gap:8px}.legend span{border:1px solid #d8e0e8;border-radius:999px;background:#fffdf8;padding:4px 8px;font-size:9.5px;font-weight:700}.legend .red{color:#b43f55}.legend .gray{color:#687582}.legend .gold{color:#9b6b16}.legend .green{color:#287d70}
+.timeline{border:1.5px solid #24465d;border-radius:11px;background:rgba(255,253,248,.96);padding:10px 10px 8px}.timeline-title{font-size:12.5px;font-weight:800;color:#173b70;margin-bottom:9px}.claims{display:grid;grid-template-columns:repeat(7,1fr);gap:7px}.claim{--c:#315bce;position:relative;border:1px solid #d8e0e8;border-top:5px solid var(--c);border-radius:8px;background:#fffdf8;padding:8px 7px;min-height:105px}.claim:not(:last-child)::after{content:"→";position:absolute;right:-10px;top:45%;z-index:3;color:#8b9baa;font-size:17px;font-weight:900}.claim .id{color:var(--c);font-size:16px;font-weight:900}.claim b{display:block;margin:5px 0;color:#1e2732;font-size:11.5px;line-height:1.12}.claim small{display:block;color:#667482;font-size:9.3px;line-height:1.2}.claim.falsified{--c:#b43f55;background:#fff6f6}.claim.known{--c:#7a838e}.claim.frontier{--c:#c38a20;background:#fffaf0}.claim.best{box-shadow:inset 0 0 0 2px #c38a20}.claim.reviewed::after{content:"✓";position:absolute;right:7px;top:7px;color:#287d70;font-size:13px;font-weight:900}
+.artifacts{display:grid;grid-template-columns:1.1fr 1fr 1.1fr 1fr;gap:8px}.artifact{--c:#315bce;border:1px solid #24465d;border-left:6px solid var(--c);border-radius:9px;background:#fffdf8;padding:10px 11px}.artifact strong{display:block;color:var(--c);font-size:12px;margin-bottom:7px}.artifact b{display:block;color:#1e2732;font-size:15px;line-height:1.08;margin-bottom:5px}.artifact span{display:block;color:#5d6b78;font-size:10px;line-height:1.22}
+.efficiency{border:1.5px solid #24465d;border-radius:10px;background:rgba(255,253,248,.96);padding:8px 12px;display:grid;grid-template-columns:130px repeat(3,1fr);gap:12px;align-items:center}.eff-title strong{display:block;color:#173b70;font-size:12px}.eff-title span{display:block;color:#667482;font-size:9px;margin-top:4px}.eff{display:grid;grid-template-columns:74px 1fr;gap:7px;align-items:center}.eff label{font-size:10px;font-weight:800}.track{position:relative;height:15px;border-radius:7px;background:#e8edf2;overflow:hidden}.inclusive{position:absolute;left:0;top:0;bottom:0;background:#b8c8e7}.strict{position:absolute;left:0;top:0;bottom:0;background:#315bce}.eff em{grid-column:2;color:#5d6b78;font-size:8.8px;font-style:normal}
+</style></head><body><main class="canvas"><img class="mountain" src="assets/anime/mountain_strip.png" alt="">
+<section class="header"><strong>Erdős–Gyárfás campaign · claim frontier</strong><div class="legend"><span class="red">falsified</span><span class="gray">known baseline</span><span class="gold">campaign frontier</span><span class="green">✓ Argus-reviewed</span></div></section>
+<section class="timeline"><div class="timeline-title">Seven retained claim updates</div><div class="claims">
+  <div class="claim falsified reviewed"><span class="id">C5</span><b>Route falsified</b><small>24-vertex witness</small></div>
+  <div class="claim known reviewed"><span class="id">C20</span><b>C4 degree bound</b><small>δ(δ−1) &gt; n−1</small></div>
+  <div class="claim known reviewed"><span class="id">C21</span><b>Rooted paths</b><small>length 2 vs. 4</small></div>
+  <div class="claim frontier reviewed"><span class="id">C22</span><b>Blocker or 27</b><small>threshold 28</small></div>
+  <div class="claim frontier best reviewed"><span class="id">C23</span><b>Blocker or 25</b><small>threshold 26</small></div>
+  <div class="claim frontier reviewed"><span class="id">C24</span><b>Simple triples</b><small>injective map</small></div>
+  <div class="claim frontier reviewed"><span class="id">C25</span><b>Fano excluded</b><small>gap closure</small></div>
+</div></section>
+<section class="artifacts">
+  <div class="artifact" style="--c:#b43f55"><strong>Rejected branch</strong><b>P13/P17 + C16</b><span>The witness disproves the proposed P13-free reduction.</span></div>
+  <div class="artifact" style="--c:#7a838e"><strong>Baseline theorem</strong><b>C4 degree bound</b><span>Known-style result independently re-derived and checked.</span></div>
+  <div class="artifact" style="--c:#c38a20"><strong>Frontier strengthened</strong><b>27 → 25</b><span>Forced-blocker threshold improves from 28 to 26.</span></div>
+  <div class="artifact" style="--c:#287d70"><strong>Bridge closure</strong><b>2 bridge lemmas</b><span>Simple triples and the simple Fano pattern are excluded.</span></div>
+</section>
+<section class="efficiency"><div class="eff-title"><strong>Work attribution</strong><span>dark = direct · light = inclusive</span></div>
+  <div class="eff"><label>Reasoning</label><div class="track"><div class="inclusive" style="width:95.12%"></div><div class="strict" style="width:55.98%"></div></div><em>56% direct · 95% inclusive</em></div>
+  <div class="eff"><label>Verification</label><div class="track"><div class="inclusive" style="width:90.43%"></div><div class="strict" style="width:55.38%"></div></div><em>55% direct · 90% inclusive</em></div>
+  <div class="eff"><label>Action</label><div class="track"><div class="inclusive" style="width:94.44%"></div><div class="strict" style="width:55.56%"></div></div><em>56% direct · 94% inclusive</em></div>
+</section></main></body></html>

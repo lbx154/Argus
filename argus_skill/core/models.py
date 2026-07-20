@@ -21,6 +21,7 @@ ReviewStatus = Literal[
     "done",
     "continue",
     "blocked",
+    "replan_requested",
     "research_incomplete",
     "paused_no_breakthrough",
     "exhausted_current_methods",
@@ -72,10 +73,6 @@ class RunnerOptions:
     sandbox_mode: str | None = None
     full_auto: bool = False
     dangerous_yolo: bool = False
-    # Internal provider-side spend fences. These are populated from the atomic
-    # call reservation by AgentCliBackend, not by ordinary role configuration.
-    max_budget_usd: float | None = None
-    max_ai_credits: int | None = None
     # Watchdog hooks — propagated to the codex subprocess so an outer
     # supervisor (e.g. ArgusBot's LoopEngine, the MissionDaemon) can
     # interrupt a long-running engineer turn promptly.
@@ -197,6 +194,9 @@ class ReviewDecision:
     validator_id: str = ""
     repair_paths: list[str] = field(default_factory=list)
     scientific_decision: str = ""
+    # Orthogonal failure layer. Infrastructure/program/evaluator/packaging
+    # failures must repair their own layer and never become scientific evidence.
+    failure_layer: str = ""
     # Compact reviewer-authored decision-progress classification. The harness
     # counts it but never infers it from filenames, keywords, or tool activity.
     progress_class: str = ""
@@ -207,6 +207,11 @@ class ReviewDecision:
     control_action: str = ""
     control_task_id: str = ""
     verification_summary: str = ""
+    # Internal provenance for the verdict.  ``reviewer`` is an independent L2
+    # decision; ``engineer_self_review`` is a bounded waiver that the Manager
+    # may still evaluate against the current stage checklist.  This field is
+    # not authored by the Reviewer model.
+    review_source: str = "reviewer"
     # Optional project-level research achievement independently certified by
     # this reviewer. The loop emits the sole authoritative
     # ``research.achievement.certified`` event only for a ``done`` verdict with
@@ -269,6 +274,10 @@ class ReviewDecision:
     # defer/reject it. Fail-soft: ``None`` when the round had no measured result
     # (pure wiring/run-wait) or the reviewer omitted it.
     step_back: dict[str, Any] | None = None
+    # Prompt observability side-channel populated by Reviewer.evaluate. Each
+    # block records chars/bytes/estimated_tokens so token regressions can be
+    # attributed to concrete prompt components rather than one opaque total.
+    prompt_block_stats: dict[str, dict[str, int]] = field(default_factory=dict)
     # Side-channel: token usage of the reviewer subprocess that produced
     # this decision. Populated by ``Reviewer.evaluate`` and consumed by
     # telemetry/cost reporting. Not part of the reviewer's semantic output.
@@ -362,10 +371,12 @@ class ReviewDecision:
             "validator_id": self.validator_id or "",
             "repair_paths": list(self.repair_paths or []),
             "scientific_decision": self.scientific_decision or "",
+            "failure_layer": self.failure_layer or "",
             "progress_class": self.progress_class or "",
             "control_action": self.control_action or "",
             "control_task_id": self.control_task_id or "",
             "verification_summary": self.verification_summary or "",
+            "review_source": self.review_source or "reviewer",
             "achievement": (
                 dict(self.achievement) if isinstance(self.achievement, dict) else None
             ),
@@ -377,6 +388,11 @@ class ReviewDecision:
             "wiki_ops": list(self.wiki_ops or []),
             "checklist_feedback": dict(self.checklist_feedback or {}),
             "step_back": (dict(self.step_back) if isinstance(self.step_back, dict) else None),
+            "prompt_block_stats": {
+                str(name): dict(stats)
+                for name, stats in (self.prompt_block_stats or {}).items()
+                if isinstance(stats, dict)
+            },
             # Token bookkeeping (cost-tracking sinks read these).
             "input_tokens": int(self.input_tokens or 0),
             "cached_input_tokens": int(self.cached_input_tokens or 0),
