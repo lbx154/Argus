@@ -541,14 +541,28 @@ completion_gate = "full_paper"
 # same provenance tree.
 WORKFLOW_MODE = "proportional"
 
+# Scientific implementation and experiment claims always require a fresh,
+# independent Reviewer; an Engineer verifier cannot waive this review.
+REQUIRE_INDEPENDENT_REVIEW = True
 
-def role_banner(_role: str = "engineer") -> str:
-    """No top-of-prompt override for the research vertical (the default).
+_REVIEWER_ENGINEERING_AUDIT = """\
+RESEARCH ENGINEERING AUDIT (mandatory; overrides generic trust-first review):
+- Independently inspect the relevant implementation source and raw artifacts; an
+  Engineer summary, passing unit tests, or validator exit code is not sufficient.
+- For idea probes, benchmark preparation, and main experiment runs, check data
+  selection, preprocessing/extraction, method and baseline semantics, evaluator
+  and validator logic, seeds/budgets, dropped rows, retries, and raw-to-summary
+  replay. Use file/shell tools on the concrete code and evidence.
+- Distinguish method failure from infrastructure, numerical, evaluator, or
+  evidence-packaging defects. A negative or technical NO-GO needs the same
+  engineering scrutiny as a positive result; never accept a conservative failure
+  until its root cause is classified.
+"""
 
-    The planner/reviewer/engineer prompts are already authored for the paper
-    pipeline, so the research vertical injects no banner.
-    """
-    return ""
+
+def role_banner(role: str = "engineer") -> str:
+    """Add the research-specific engineering contract to Reviewer prompts."""
+    return _REVIEWER_ENGINEERING_AUDIT if role == "reviewer" else ""
 
 
 __all__ = [
@@ -559,6 +573,7 @@ __all__ = [
     "CHECKLIST_STAGE_ORDER",
     "CHECKLIST_ITEMS",
     "WORKFLOW_MODE",
+    "REQUIRE_INDEPENDENT_REVIEW",
     "role_banner",
     "completion_gate",
 ]

@@ -641,6 +641,14 @@ class _SkillLoopRunner(SelfReplyMixin):
                 return _chat
 
         args = self._args
+        _proot = Path(
+            getattr(self, "_artifact_root", None)
+            or (Path(args.workdir).expanduser() if args.workdir else Path.cwd())
+        )
+        effective_require_independent_review = (
+            require_independent_review
+            or _independent_review_required_for_project_root(_proot)
+        )
         # 7×24 product: default to dangerous_yolo (no bwrap sandbox).
         # The operator runs the daemon on their own box and explicitly
         # consents to autonomous execution; the sandbox only fights us
@@ -691,7 +699,7 @@ class _SkillLoopRunner(SelfReplyMixin):
             "skip_git_repo_check": True,
             "engineer_self_review_enabled": (
                 _env_flag("ARGUS_SKILL_ENGINEER_SELF_REVIEW", default=True)
-                and not require_independent_review
+                and not effective_require_independent_review
             ),
             # Filled from the resolved vertical below.  Fail-safe default: an
             # undecided task is bounded/non-paper.
@@ -742,10 +750,6 @@ class _SkillLoopRunner(SelfReplyMixin):
         # A paper contract is enabled only by a positively resolved
         # ``full_paper`` vertical.  An explicit False from a specialized caller
         # may still opt out; True cannot turn a non-paper vertical into a paper.
-        _proot = Path(
-            getattr(self, "_artifact_root", None)
-            or (Path(args.workdir).expanduser() if args.workdir else Path.cwd())
-        )
         _paper_override = getattr(args, "paper_mission", None)
         _paper_allowed = True if _paper_override is None else bool(_paper_override)
         config_kwargs["paper_mission"] = (
@@ -1018,7 +1022,7 @@ class _SkillLoopRunner(SelfReplyMixin):
                 effective_status,
                 planner_report,
                 mission_scope=mission_scope,
-                require_independent_review=require_independent_review,
+                require_independent_review=effective_require_independent_review,
                 review_source=review_source,
             )
         ):
@@ -1452,6 +1456,28 @@ def _paper_mission_for_project_root(project_root: Path | str) -> bool:
             == "full_paper"
         )
     except Exception:  # noqa: BLE001 — mission typing must fail safe
+        return False
+
+
+def _independent_review_required_for_project_root(
+    project_root: Path | str,
+) -> bool:
+    """Return the persisted vertical's mandatory independent-review policy."""
+    try:
+        from ..skills.vertical_select import _persisted_vertical
+        from ..verticals._base import (
+            load_vertical,
+            vertical_requires_independent_review,
+        )
+
+        root = Path(project_root).expanduser()
+        persisted = _persisted_vertical(root)
+        if persisted is None:
+            return False
+        return vertical_requires_independent_review(
+            load_vertical(persisted, project_root=root)
+        )
+    except Exception:  # noqa: BLE001 — unresolved projects keep legacy behavior
         return False
 
 

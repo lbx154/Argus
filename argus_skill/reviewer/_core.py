@@ -220,7 +220,11 @@ def _prompt_block_stats(blocks: Mapping[str, str]) -> dict[str, dict[str, int]]:
     return stats
 
 
-def _reviewer_evidence_contract(workflow_mode: str) -> str:
+def _reviewer_evidence_contract(
+    workflow_mode: str,
+    *,
+    mandatory_engineering_audit: bool = False,
+) -> str:
     """Small, non-contradictory evidence policy for the Reviewer."""
     mode = (workflow_mode or "").strip().lower()
     if mode == "direct":
@@ -232,11 +236,19 @@ def _reviewer_evidence_contract(workflow_mode: str) -> str:
             "Inspect relevant artifacts/logs and require the staged ground-truth record "
             "when the active checklist calls for it."
         )
+    verification = (
+        "Shown command/scorer output is only a lead: inspect the material source "
+        "and raw artifacts with tools before deciding."
+        if mandatory_engineering_audit
+        else (
+            "Consistent shown command/scorer output is evidence; re-run only on "
+            "missing, stale, contradictory, or implausible facts."
+        )
+    )
     return (
         "## Evidence policy\n"
         "实事求是: never fabricate evidence or approve an unsupported material claim. "
-        f"{scope} Consistent shown command/scorer output is evidence; re-run only on "
-        "missing, stale, contradictory, or implausible facts.\n\n"
+        f"{scope} {verification}\n\n"
     )
 
 
@@ -759,17 +771,29 @@ class Reviewer:
         # are excluded by ReviewerMission so the matcher never re-injects what
         # is already hard-wired into this prompt.
         from ..skills.harness_overlay import resolve_project_root
-        from ..skills.vertical_select import resolve_evidence_mode, resolve_vertical
+        from ..skills.vertical_select import (
+            _persisted_vertical,
+            resolve_evidence_mode,
+            resolve_vertical,
+        )
         from ..verticals._base import (
             load_vertical,
             vertical_completion_gate,
             vertical_role_banner,
+            vertical_requires_independent_review,
             vertical_search_altitude,
         )
 
         _proot = resolve_project_root(working_dir)
         _active_vertical = resolve_vertical(_proot)
         _vmod = load_vertical(_active_vertical, project_root=_proot)
+        _persisted = _persisted_vertical(_proot)
+        _requires_engineering_audit = bool(
+            _persisted is not None
+            and vertical_requires_independent_review(
+                load_vertical(_persisted, project_root=_proot)
+            )
+        )
         matched_review_skill_block = ""
         if preselected_skill_block is not None:
             if preselected_skill_block.strip():
@@ -800,7 +824,11 @@ class Reviewer:
         )
         stage = current_stage(_proot)
         import os as _os
-        _measured = _os.environ.get("ARGUS_SKILL_MEASURED_MODE", "").strip().lower() in ("1", "true", "yes", "on")
+        _measured = (
+            not _requires_engineering_audit
+            and _os.environ.get("ARGUS_SKILL_MEASURED_MODE", "").strip().lower()
+            in ("1", "true", "yes", "on")
+        )
         # Vertical-native prompt framing: resolve the active vertical and let it
         # supply the top-of-prompt role banner. The rollback / final-submission
         # framing below applies ONLY to a paper vertical (completion_gate ==
@@ -809,6 +837,11 @@ class Reviewer:
         # only that vertical's metric instead of paper-pipeline artifacts.
         _full_paper = vertical_completion_gate(_vmod) == "full_paper"
         optimize_banner = vertical_role_banner(_vmod, "reviewer")
+        if (
+            vertical_requires_independent_review(_vmod)
+            and not _requires_engineering_audit
+        ):
+            optimize_banner = ""
         research_result_instruction = ""
         from ..core.research_contract import resolve_research_target_level
 
@@ -1074,7 +1107,10 @@ class Reviewer:
             final_submission_block = ""
         # Byte-stable static policy; every fresh Reviewer receives it in full.
         static = (
-            _reviewer_evidence_contract(resolve_evidence_mode(_proot))
+            _reviewer_evidence_contract(
+                resolve_evidence_mode(_proot),
+                mandatory_engineering_audit=_requires_engineering_audit,
+            )
             + optimize_banner
             + research_result_instruction
             + EFFECTIVE_TASK_CONTRACT
@@ -1084,7 +1120,11 @@ class Reviewer:
             "the whole project; final-submission work may not. Use `done` only for "
             "verified completion, `continue` for agent-fixable gaps, and `blocked` "
             "only for genuine operator/external dependencies.\n\n"
-            + _verification_directive()
+            + (
+                ""
+                if _requires_engineering_audit
+                else _verification_directive()
+            )
             + "## Output protocol\n"
             "Talk normally, reason, and use tools; do not format intermediate messages as "
             "JSON. ONLY your FINAL message is the structured handoff: one FINAL "
