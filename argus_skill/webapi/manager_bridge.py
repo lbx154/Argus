@@ -222,6 +222,7 @@ def _parse_pending_question_decision(text: str) -> dict[str, Any] | None:
         if payload["resolved"] and (not payload["is_answer"] or not decision):
             continue
         return {
+            "item_id": str(payload.get("item_id") or "").strip(),
             "is_answer": payload["is_answer"],
             "resolved": payload["resolved"],
             "decision": decision,
@@ -230,9 +231,9 @@ def _parse_pending_question_decision(text: str) -> dict[str, Any] | None:
     return None
 
 
-def _resolve_pending_question_with_manager(
+def _resolve_pending_questions_with_manager(
     mem: Any,
-    item: Any,
+    items: list[Any],
     answer: str,
     chat_state: dict[str, Any],
     *,
@@ -243,24 +244,42 @@ def _resolve_pending_question_with_manager(
     from ..life.event_log import JsonlEventSink
     from ..manager.front_door import manager_triage
 
-    question = str(getattr(item, "pending_question", "") or "").strip()
+    candidates = [
+        item
+        for item in items
+        if str(getattr(item, "pending_question", "") or "").strip()
+    ]
+    if not candidates:
+        return {"error": "question is no longer pending"}
+    default_item_id = candidates[0].id if len(candidates) == 1 else ""
+    candidate_context = "\n\n".join(
+        (
+            f"Blocked item id: {item.id}\n"
+            f"Blocked mission title: {item.title}\n"
+            f"Blocked mission objective:\n{item.objective}\n\n"
+            "Reviewer question:\n"
+            f"{str(getattr(item, 'pending_question', '') or '').strip()}"
+        )
+        for item in candidates
+    )
     prompt = (
-        "You are the Manager resolving an operator-only blocker for an existing "
-        "mission. Interpret the operator response in the blocked mission context. "
-        "Return ONLY one JSON object with exactly these fields: "
-        '{"is_answer": boolean, "resolved": boolean, "decision": string, '
-        '"reply": string}. Set is_answer=false when the message is unrelated '
+        "You are the Manager resolving operator-only blockers for existing "
+        "missions. Interpret the operator response against every listed blocked "
+        "mission. Return ONLY one JSON object with exactly these fields: "
+        '{"item_id": string, "is_answer": boolean, "resolved": boolean, '
+        '"decision": string, "reply": string}. Set is_answer=false when the message is unrelated '
         "chat, status, configuration, or control rather than an attempted answer; "
-        "in that case also set resolved=false and leave decision and reply empty. "
+        "in that case also set resolved=false and leave item_id, decision, and "
+        "reply empty. When the response clearly addresses one blocker, copy that "
+        "blocked item id exactly into item_id. If several blockers remain plausible, "
+        "set resolved=false, leave item_id and decision empty, and ask the operator "
+        "to choose one. "
         "Set resolved=true only when the response supplies enough authority or "
         "information for the team to continue. decision must then be an explicit, "
         "role-clean instruction for Planner/Engineer. If it is unrelated or "
         "insufficient, set resolved=false, keep decision empty, and use reply to "
         "ask one concise clarification question.\n\n"
-        f"Blocked item id: {item.id}\n"
-        f"Blocked mission title: {item.title}\n"
-        f"Blocked mission objective:\n{item.objective}\n\n"
-        f"Reviewer question:\n{question}\n\n"
+        f"{candidate_context}\n\n"
         f"Operator response:\n{answer.strip()}"
     )
     try:
@@ -278,46 +297,61 @@ def _resolve_pending_question_with_manager(
                 "Manager could not interpret the pending-question response: "
                 f"{type(exc).__name__}: {exc}"
             ),
-            "answered_item_id": item.id,
+            "answered_item_id": default_item_id,
         }
     parsed = _parse_pending_question_decision(manager_reply or "")
     if parsed is None:
         return {
             "error": "Manager could not produce a valid pending-question decision",
-            "answered_item_id": item.id,
+            "answered_item_id": default_item_id,
         }
+    selected = next(
+        (item for item in candidates if item.id == parsed["item_id"]),
+        candidates[0] if len(candidates) == 1 else None,
+    )
     if not parsed["is_answer"]:
         return {
-            "answered_item_id": item.id,
+            "answered_item_id": "",
             "answer_intent": False,
             "resolved": False,
             "reply": "",
         }
+    if selected is None:
+        return {
+            "answered_item_id": "",
+            "answer_intent": True,
+            "resolved": False,
+            "reply": (
+                parsed["reply"]
+                or "Please open the specific Needs you prompt you want to answer."
+            ),
+        }
     if not parsed["resolved"]:
         return {
-            "answered_item_id": item.id,
+            "answered_item_id": selected.id,
             "answer_intent": True,
             "resolved": False,
             "reply": parsed["reply"] or "Please clarify the requested decision.",
         }
 
     blocked, continuation = mem.backlog.continue_with_operator_reply(
-        item.id,
+        selected.id,
         answer,
         manager_decision=parsed["decision"],
     )
     if blocked is None:
-        return {"error": "unknown backlog item", "answered_item_id": item.id}
+        return {"error": "unknown backlog item", "answered_item_id": selected.id}
     if continuation is None:
         return {
             "error": "question is no longer pending",
-            "answered_item_id": item.id,
+            "answered_item_id": selected.id,
         }
 
     life_dir = Path(mem.project_root)
+    question = str(getattr(selected, "pending_question", "") or "").strip()
     directive = (
         "[MANAGER OPERATOR-ANSWER DECISION] "
-        f"Blocked item {item.id} was answered and continuation {continuation.id} "
+        f"Blocked item {selected.id} was answered and continuation {continuation.id} "
         f"was durably enqueued with this decision: {parsed['decision']} "
         "Treat this as authority/context and deactivate any stale waiting contract. "
         "Do not enqueue duplicate work if that continuation is already terminal."
@@ -325,13 +359,13 @@ def _resolve_pending_question_with_manager(
     queue_inbox_message(life_dir, directive, source="manager.answer")
     JsonlEventSink(None, life_dir=life_dir).append({
         "type": EventType.LIFE_OPERATOR_QUESTION_ANSWERED,
-        "item_id": item.id,
+        "item_id": selected.id,
         "continuation_item_id": continuation.id,
         "question": question,
         "manager_decision": parsed["decision"],
     })
     return {
-        "answered_item_id": item.id,
+        "answered_item_id": selected.id,
         "answer_intent": True,
         "resolved": True,
         "reply": parsed["reply"] or "I have delivered your decision to the team.",
@@ -374,9 +408,9 @@ def manager_answer_pending_question(
             text.strip(),
             message_id=f"{turn_id}-operator",
         )
-        result = _resolve_pending_question_with_manager(
+        result = _resolve_pending_questions_with_manager(
             mem,
-            item,
+            [item],
             text,
             chat_state,
         )
@@ -797,11 +831,11 @@ def manager_message(
             for item in mem.backlog.all()
             if str(getattr(item, "pending_question", "") or "").strip()
         ]
-        if len(pending_questions) == 1:
+        if pending_questions:
             _phase("Manager · interpreting your answer to the blocked mission")
-            result = _resolve_pending_question_with_manager(
+            result = _resolve_pending_questions_with_manager(
                 mem,
-                pending_questions[0],
+                pending_questions,
                 body,
                 chat_state,
                 root_task_id=BacklogItem.new_id(),
@@ -824,23 +858,6 @@ def manager_message(
                     message_id=f"{turn_id}-argus",
                 )
                 return {"kind": "pending_question", "reply": reply, **result}
-        if len(pending_questions) > 1:
-            reply = (
-                "More than one task needs your input. Open the Needs you prompt "
-                "for the specific task you want to answer."
-            )
-            _fragment("delta", {"text": reply})
-            try:
-                append_turn(life_dir, "argus", reply)
-            except Exception:  # noqa: BLE001
-                pass
-            _emit_ui_turn(
-                life_dir,
-                "argus",
-                reply,
-                message_id=f"{turn_id}-argus",
-            )
-            return {"kind": "pending_question_choice", "reply": reply}
 
         # Emit the stage BEFORE the classifier call. Copilot ACP may produce no
         # protocol events while the model is reasoning, so without this real
