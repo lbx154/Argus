@@ -365,6 +365,119 @@ def test_empty_bootstrap_objective_waits_for_manager_instead_of_demo_goal(
     assert "Start " + tmp_path.name + " as a clean-slate EMNLP/ACL" not in agents
 
 
+def test_existing_project_contract_refreshes_on_daemon_boot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / "AGENTS.md").write_text("# Existing project\n", encoding="utf-8")
+    worker = LifeWorker(LifeWorkerConfig(
+        life_dir=tmp_path / "state",
+        project_workdir=tmp_path,
+        continuous_objective="standing objective",
+    ))
+    calls: list[tuple[Path, str | None]] = []
+    monkeypatch.setattr(
+        worker,
+        "_seed_project_agents_and_venv",
+        lambda project_root, *, objective=None: calls.append(
+            (project_root, objective)
+        ),
+    )
+
+    worker._refresh_existing_project_contract(_StubMemory([]))
+
+    assert calls == [(tmp_path, "standing objective")]
+
+
+def test_existing_project_refreshes_framework_owned_vertical_runtime_skill(
+    tmp_path: Path,
+) -> None:
+    persist_vertical(tmp_path, "research")
+    life_dir = tmp_path / "state"
+    runtime_skill = (
+        life_dir
+        / "skills"
+        / "engineer"
+        / "research-visualization-router.md"
+    )
+    runtime_skill.parent.mkdir(parents=True)
+    runtime_skill.write_text("stale router\n", encoding="utf-8")
+    worker = LifeWorker(LifeWorkerConfig(
+        life_dir=life_dir,
+        project_workdir=tmp_path,
+        project_fingerprint="project",
+        continuous_objective="standing objective",
+    ))
+
+    worker._seed_project_agents_and_venv(
+        tmp_path,
+        objective="standing objective",
+    )
+
+    refreshed = runtime_skill.read_text(encoding="utf-8")
+    assert "stale router" not in refreshed
+    assert "Research Visualization Router" in refreshed
+    assert "PPT Master" in refreshed
+
+
+def test_fresh_project_contract_waits_for_manager_before_seeding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worker = LifeWorker(LifeWorkerConfig(
+        life_dir=tmp_path / "state",
+        project_workdir=tmp_path,
+        continuous_objective="undivided objective",
+    ))
+    called = False
+
+    def _unexpected(*_args, **_kwargs) -> None:
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(worker, "_seed_project_agents_and_venv", _unexpected)
+
+    worker._refresh_existing_project_contract(_StubMemory([]))
+
+    assert called is False
+
+
+def test_existing_project_refresh_ignores_planner_local_objective(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / "AGENTS.md").write_text("# Existing project\n", encoding="utf-8")
+    manager_item = BacklogItem.new(
+        title="Manager mission",
+        objective="manager execution step",
+        priority=0,
+        tags=["manager", "scope:bounded"],
+    )
+    manager_item.original_objective = "manager-owned objective"
+    planner_item = BacklogItem.new(
+        title="Planner repair",
+        objective="planner-local repair",
+        priority=-1,
+        tags=["planner", "scope:bounded"],
+    )
+    worker = LifeWorker(LifeWorkerConfig(
+        life_dir=tmp_path / "state",
+        project_workdir=tmp_path,
+    ))
+    calls: list[str | None] = []
+    monkeypatch.setattr(
+        worker,
+        "_seed_project_agents_and_venv",
+        lambda _project_root, *, objective=None: calls.append(objective),
+    )
+
+    worker._refresh_existing_project_contract(
+        _StubMemory([manager_item, planner_item])
+    )
+
+    assert calls == ["manager-owned objective"]
+
+
 def test_bootstrap_prefers_highest_priority_active_manager_objective() -> None:
     older = BacklogItem.new(
         title="Older task",

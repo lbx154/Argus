@@ -68,6 +68,7 @@ _SAFE_BUILTIN_UPGRADE_DIGESTS = {
     },
     "engineer/paper-framework-figure-studio-pro.md": {
         "580e6b0d723413c2257e3fb0337d5174344d8d986598ee9d48adedd333d0c40b",
+        "f5f6185ce3f4861f70f368ae89f3ff459fbe904bf4151747278401c53440ec9d",
     },
     "engineer/paper-illustration-image2.md": {
         "fdc43b56ffc47e49e8dc3b575948726b4fa2a44a8e881d4606bd5e9706d168ba",

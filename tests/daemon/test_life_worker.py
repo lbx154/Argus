@@ -1835,6 +1835,7 @@ def test_resume_with_explicit_new_objective_runs_manager_handoff(
     monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
     worker = LifeWorker(LifeWorkerConfig(
         life_dir=tmp_path,
+        project_workdir=tmp_path,
         backend="memory",
         poll_interval=0.01,
         continuous=True,
@@ -1842,9 +1843,14 @@ def test_resume_with_explicit_new_objective_runs_manager_handoff(
         resume_continuous=True,
     ))
     worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
+    refresh_after_divide: list[list[str]] = []
+    worker._refresh_existing_project_contract = (  # type: ignore[method-assign]
+        lambda _memory: refresh_after_divide.append(list(calls))
+    )
 
     assert worker.run_forever() == 0
     assert calls == ["new raw objective"]
+    assert refresh_after_divide == [["new raw objective"]]
     assert commit_kwargs[0]["force_stage_reset"] is True
     assert seen["objective"] == "new manager-clean objective"
     assert read_continuous_state(tmp_path).objective == "new manager-clean objective"

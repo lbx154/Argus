@@ -19,6 +19,7 @@ from argus_skill.life.supervisor._config import LifeSupervisorConfig
 from argus_skill.life.supervisor._constants import PLAN_AWAITING, PLAN_RETRY
 from argus_skill.life.supervisor._core import LifeSupervisor
 from argus_skill.life.supervisor._helpers import _resolve_task_dep_ids
+from argus_skill.manager.control_state import CampaignControlStore
 from argus_skill.planner import WaitingContract
 from argus_skill.skills.vertical_select import persist_vertical
 
@@ -317,6 +318,91 @@ def test_planner_wait_stage_mismatch_rolls_back_before_idling(
     contract_state = sup._load_planner_waiting_contract_state()
     assert contract_state is not None
     assert contract_state["active"] is False
+
+
+def test_runtime_upgrade_invalidates_persisted_planner_wait(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    sup, _backend, _project = _make_waiting_supervisor(
+        tmp_path,
+        monkeypatch,
+        reconcile=False,
+        manager_action="hold",
+    )
+    monkeypatch.setattr(
+        sup,
+        "_planner_waiting_runtime_revision",
+        lambda: "release-a",
+    )
+    sup._persist_planner_waiting_contract(WaitingContract(
+        blocker_fingerprint="visual-policy:legacy-image-route",
+        recheck_condition="an image route becomes available",
+        recheck_token="image-route-v1",
+        operator_action_required=True,
+    ))
+    assert "PERSISTED PLANNER WAITING CONTRACT" in (
+        sup._planner_waiting_contract_runtime_note()
+    )
+
+    monkeypatch.setattr(
+        sup,
+        "_planner_waiting_runtime_revision",
+        lambda: "release-b",
+    )
+
+    assert sup._load_planner_waiting_contract_state() is None
+    state = json.loads(
+        sup._planner_waiting_contract_path().read_text(encoding="utf-8")
+    )
+    assert state["active"] is False
+    assert state["wake_reason"] == "runtime_revision_changed"
+    assert state["authored_runtime_revision"] == "release-a"
+    assert state["superseded_by_runtime_revision"] == "release-b"
+    control = CampaignControlStore(
+        sup.memory.root,
+        project_root=sup._project_workdir(),
+    )
+    control_head = control.read_head()
+    control_snapshot = control.read_snapshot(control_head)
+    assert control_snapshot is not None
+    assert control_snapshot["active_wait"] is None
+    assert any(
+        event.get("type") == "life.planner.waiting_woken"
+        and event.get("wake_reason") == "runtime_revision_changed"
+        for event in sup._test_sink.events  # type: ignore[attr-defined]
+    )
+
+
+def test_wait_runtime_revision_uses_canonical_source_digest(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    sup, _backend, _project = _make_waiting_supervisor(
+        tmp_path,
+        monkeypatch,
+        reconcile=False,
+        manager_action="hold",
+    )
+    monkeypatch.setattr(
+        "argus_skill.release.release_identity",
+        lambda _root: {
+            "runtime_source_digest": "content-digest",
+            "manifest_source_digest": "manifest-digest",
+            "release_id": "release-id",
+        },
+    )
+    assert sup._planner_waiting_runtime_revision() == "content-digest"
+
+    monkeypatch.setattr(
+        "argus_skill.release.release_identity",
+        lambda _root: {
+            "runtime_source_digest": None,
+            "manifest_source_digest": "content-digest",
+            "release_id": "release-id",
+        },
+    )
+    assert sup._planner_waiting_runtime_revision() == "content-digest"
 
 
 def test_live_background_job_wait_becomes_overlap_work(

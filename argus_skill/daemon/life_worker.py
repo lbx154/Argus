@@ -549,7 +549,11 @@ class LifeWorker:
             pass
 
     @staticmethod
-    def _active_manager_objective(memory: Any) -> str:
+    def _active_manager_objective(
+        memory: Any,
+        *,
+        manager_owned_only: bool = False,
+    ) -> str:
         """Return the highest-priority active Manager objective, if one exists.
 
         Bounded work lives in the backlog rather than ``continuous.json``.  The
@@ -569,6 +573,13 @@ class LifeWorker:
             for item in items
             if str(getattr(item, "status", "")) in {"pending", "running"}
             and str(getattr(item, "title", "")) != "bootstrap empty project root"
+            and (
+                not manager_owned_only
+                or "manager" in {
+                    str(tag).strip().lower()
+                    for tag in (getattr(item, "tags", []) or [])
+                }
+            )
         ]
         active.sort(
             key=lambda item: (
@@ -746,9 +757,31 @@ class LifeWorker:
             log.exception("daemon: failed to seed builtin skills during bootstrap")
         if vertical and self.config.project_fingerprint:
             try:
-                seed_vertical_skills(Path(self.config.life_dir) / "skills", vertical)
+                seed_vertical_skills(
+                    Path(self.config.life_dir) / "skills",
+                    vertical,
+                    overwrite=True,
+                )
             except Exception:  # noqa: BLE001 — best-effort, never break bootstrap
                 log.exception("daemon: failed to seed vertical runtime skills")
+
+    def _refresh_existing_project_contract(self, memory: Any) -> None:
+        """Refresh framework-owned project surfaces on every daemon boot."""
+        project_root = self.config.project_workdir
+        if project_root is None or not (project_root / "AGENTS.md").is_file():
+            return
+        manager_objective = str(
+            self.config.continuous_objective or ""
+        ).strip()
+        if not manager_objective:
+            manager_objective = self._active_manager_objective(
+                memory,
+                manager_owned_only=True,
+            )
+        self._seed_project_agents_and_venv(
+            project_root,
+            objective=manager_objective,
+        )
 
     def _seed_bootstrap_task(
         self,
@@ -1355,23 +1388,14 @@ class LifeWorker:
         ):
             self._seed_bootstrap_task(mem, sink, bootstrap_preflight_pending)
 
-        # Existing projects may already have a generated AGENTS.md. Refresh only
-        # its managed runtime block on every daemon boot/resume; operator and
-        # Engineer edits outside the markers remain untouched.
+        # Refresh framework-owned project surfaces only after Manager divide has
+        # persisted the final vertical. Safe digest upgrades preserve user-edited
+        # common skills; the active vertical's read-only layer is authoritative.
         if cfg.project_workdir is not None:
             try:
-                from ..skills.vertical_select import _persisted_vertical
-                from ..tools.new_auto_research_project import (
-                    refresh_agents_runtime_contract,
-                )
-
-                refresh_agents_runtime_contract(
-                    cfg.project_workdir,
-                    objective=str(init_objective or ""),
-                    vertical=_persisted_vertical(cfg.project_workdir) or "",
-                )
-            except Exception:  # noqa: BLE001 — runtime refresh is best-effort
-                log.exception("daemon: failed to refresh AGENTS.md runtime contract")
+                self._refresh_existing_project_contract(mem)
+            except Exception:  # noqa: BLE001 — refresh must not prevent recovery
+                log.exception("daemon: failed to refresh existing project contract")
 
         # Build supervisor policy only AFTER Manager.divide() has persisted the
         # vertical.  Mission typing is fail-safe (non-paper until a

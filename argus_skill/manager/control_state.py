@@ -468,6 +468,36 @@ class CampaignControlStore:
         )
         return head
 
+    def clear_wait_if_current(
+        self,
+        *,
+        identity: CampaignIdentity,
+        expected_state_revision: int,
+        expected_wait_id: str,
+        reason: str,
+    ) -> ControlHead | None:
+        """Atomically clear one exact active wait, or leave newer state intact."""
+        with self.locked():
+            head = self.read_head()
+            snapshot = self.read_snapshot(head)
+            active = snapshot.get("active_wait") if snapshot else None
+            if (
+                head is None
+                or head.campaign_id != identity.campaign_id
+                or head.objective_sha256 != identity.objective_sha256
+                or head.campaign_epoch != identity.campaign_epoch
+                or head.state_revision != int(expected_state_revision)
+                or not isinstance(active, dict)
+                or active.get("wait_id") != str(expected_wait_id)
+            ):
+                return None
+            cleared_head, _ = self._next_revision_unlocked(
+                identity=identity,
+                updates={"active_wait": None},
+                reason=reason,
+            )
+            return cleared_head
+
     def issue_authorization(
         self,
         *,

@@ -570,6 +570,46 @@ class PlanningContextMixin:
         objective = str(getattr(self.config, "continuous_objective", "") or "")
         return hashlib.sha256(objective.encode("utf-8")).hexdigest()
 
+    @staticmethod
+    def _planner_waiting_runtime_revision() -> str:
+        """Identify the runtime policy that authored a durable wait."""
+        from ...core.runtime_identity import source_root
+        from ...release import release_identity
+
+        identity = release_identity(source_root())
+        return str(
+            identity.get("runtime_source_digest")
+            or identity.get("manifest_source_digest")
+            or identity.get("release_id")
+            or "unknown"
+        )
+
+    def _clear_planner_wait_control_binding(
+        self,
+        payload: dict[str, Any],
+        *,
+        reason: str,
+    ) -> None:
+        if payload.get("state_revision") is None:
+            return
+        from ...manager.control_state import CampaignControlStore
+
+        control = CampaignControlStore(
+            Path(self.memory.root),
+            project_root=self._project_workdir(),
+        )
+        identity = control.campaign_identity(
+            objective=str(
+                getattr(self.config, "continuous_objective", "") or ""
+            )
+        )
+        control.clear_wait_if_current(
+            identity=identity,
+            expected_state_revision=int(payload.get("state_revision") or 0),
+            expected_wait_id=str(payload.get("wait_id") or ""),
+            reason=reason,
+        )
+
     def _manager_planner_feedback_path(self) -> Path:
         root = Path(
             getattr(self.config, "telemetry_dir", None)
@@ -687,6 +727,36 @@ class PlanningContextMixin:
             str(payload.get("objective_fingerprint") or "")
             != self._planner_waiting_objective_fingerprint()
         ):
+            return None
+        runtime_revision = self._planner_waiting_runtime_revision()
+        authored_revision = str(payload.get("runtime_revision") or "")
+        if authored_revision != runtime_revision:
+            if bool(payload.get("active")):
+                try:
+                    self._clear_planner_wait_control_binding(
+                        payload,
+                        reason="planner wait invalidated by runtime revision change",
+                    )
+                except (OSError, TypeError, ValueError):
+                    log.warning(
+                        "failed to clear stale planner wait control binding: %s",
+                        path,
+                        exc_info=True,
+                    )
+                payload["active"] = False
+                payload["wake_reason"] = "runtime_revision_changed"
+                payload["authored_runtime_revision"] = authored_revision
+                payload["superseded_by_runtime_revision"] = runtime_revision
+                payload["updated_at"] = time.time()
+                self._write_planner_waiting_contract_state(payload)
+                self._emit({
+                    "type": EventType.LIFE_PLANNER_WAITING_WOKEN,
+                    "blocker_fingerprint": payload.get("blocker_fingerprint"),
+                    "recheck_token": payload.get("recheck_token"),
+                    "wake_reason": "runtime_revision_changed",
+                    "authored_runtime_revision": authored_revision,
+                    "current_runtime_revision": runtime_revision,
+                })
             return None
         if not str(payload.get("blocker_fingerprint") or "").strip():
             return None
@@ -925,6 +995,7 @@ class PlanningContextMixin:
         payload = {
             "version": 1,
             "objective_fingerprint": self._planner_waiting_objective_fingerprint(),
+            "runtime_revision": self._planner_waiting_runtime_revision(),
             "blocker_fingerprint": blocker_fingerprint,
             "recheck_condition": recheck_condition,
             "recheck_token": recheck_token,
@@ -1217,6 +1288,7 @@ class PlanningContextMixin:
                 "blocker_fingerprint",
                 "recheck_condition",
                 "recheck_token",
+                "runtime_revision",
                 "stage_reconciliation_required",
                 "operator_action_required",
                 "allow_verification_probe",
@@ -1231,6 +1303,7 @@ class PlanningContextMixin:
                 "wait_id",
                 "observed_revision",
                 "superseded_by_revision",
+                "superseded_by_runtime_revision",
                 "wake_reason",
                 "first_observed_at",
                 "last_probe_at",

@@ -57,6 +57,35 @@ def test_head_last_revisions_make_old_waits_stale(tmp_path: Path) -> None:
     assert len(list(store.revisions_root.glob("*.json"))) == 2
 
 
+def test_clear_wait_if_current_does_not_clear_newer_wait(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    identity = store.campaign_identity()
+    old_head = store.activate_wait(
+        identity=identity,
+        wait_id="wait-old",
+        blocker_fingerprint="source:old",
+        recheck_token="source-v1",
+    )
+    store.activate_wait(
+        identity=identity,
+        wait_id="wait-new",
+        blocker_fingerprint="source:new",
+        recheck_token="source-v2",
+    )
+
+    cleared = store.clear_wait_if_current(
+        identity=identity,
+        expected_state_revision=old_head.state_revision,
+        expected_wait_id="wait-old",
+        reason="stale runtime attempted cleanup",
+    )
+
+    assert cleared is None
+    snapshot = store.read_snapshot()
+    assert snapshot is not None
+    assert snapshot["active_wait"]["wait_id"] == "wait-new"
+
+
 def test_authorization_is_manager_owned_campaign_bound_and_one_shot(tmp_path: Path) -> None:
     store = _store(tmp_path)
     identity = store.campaign_identity()
