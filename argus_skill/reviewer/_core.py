@@ -3,7 +3,7 @@
 Provenance: vendored from ``ArgusBot/agent_cli/reviewer.py``. The
 substantive change is decoupling: the original took a ``AgentCliRunner``
 directly; this version takes any ``RunnerBackend`` (see
-``argus_skill.core.ports``) so it works with codex, claude-code, or the
+``argus_skill.core.ports``) so it works with any supported agent CLI or the
 in-memory test stub equally well.
 
 Public surface kept identical: ``Reviewer.evaluate(...) -> ReviewDecision``,

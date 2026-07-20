@@ -50,6 +50,11 @@ def test_gpt_5_6_sol_official_default_price_golden() -> None:
     assert quote.cost_usd == pytest.approx(0.71)
 
 
+def test_openai_qualified_model_uses_known_price() -> None:
+    assert model_price_for("openai/gpt-5.4") == model_price_for("gpt-5.4")
+    assert model_price_for("openrouter/gpt-5.4") is None
+
+
 def test_gpt_5_6_sol_official_long_context_price_golden() -> None:
     quote = quote_token_usage(
         "gpt-5.6-sol",

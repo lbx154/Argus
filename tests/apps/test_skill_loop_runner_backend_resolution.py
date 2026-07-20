@@ -31,6 +31,7 @@ def test_falls_back_to_args_backend_when_env_unset() -> None:
     assert _resolve_runner_backend_name(_ns("copilot"), env={}) == "copilot"
     assert _resolve_runner_backend_name(_ns("claude"), env={}) == "claude"
     assert _resolve_runner_backend_name(_ns("codex"), env={}) == "codex"
+    assert _resolve_runner_backend_name(_ns("opencode"), env={}) == "opencode"
 
 
 def test_env_override_still_wins() -> None:

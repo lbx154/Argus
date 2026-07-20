@@ -26,7 +26,7 @@ argus-skill (CLI)                         apps/cli/_parser.py + apps/cli/_core.p
     core/  (budget, persistence, structured I/O, paths, locks)
     regime_jump/  (the SINGLE anti-stuck mechanism: regime-jump)
     verticals/<name>/  (the task-specific shape + reviewer gate)
-    backend: agent_cli/ + adapters/  (codex / claude / copilot CLI runners)
+    backend: agent_cli/ + adapters/  (codex / claude / copilot / opencode CLI runners)
 ```
 
 ## Module map (live)
@@ -46,7 +46,7 @@ argus-skill (CLI)                         apps/cli/_parser.py + apps/cli/_core.p
 | Meta (anti-stuck) | `regime_jump/` (`saturation.py`, `flow_controller.py`, `ledger.py`, `meta_prompter.py`, `config.py`) | regime-jump: DETECT (dumb counter) / JUDGE (planner LLM) / ENFORCE (never-cleared forbidden ledger). Fail-soft to no-op. |
 | Verticals | `verticals/_base.py` + `verticals/{nanochat,nanogpt_speedrun,kernelbench,speedrun,quant,research,learning,ale_last_exam}/` | per-task shape via a plugin contract (`role_banner`, `completion_gate`, `search_altitude`, `strategy_pool`); `ale_last_exam` is the single-stage hidden-reference artifact-delivery shape |
 | Daemon | `daemon/life_worker.py` | detached 7×24 worker around `LifeSupervisor`; SIGTERM/drain, pid lock |
-| Backend | `agent_cli/agent_cli_runner.py`, `adapters/agent_cli_backend.py`, `adapters/memory_backend.py` | the CLI runner (codex/claude/copilot) + a deterministic memory backend for tests |
+| Backend | `agent_cli/agent_cli_runner.py`, `adapters/agent_cli_backend.py`, `adapters/memory_backend.py` | the CLI runner (codex/claude/copilot/opencode) + a deterministic memory backend for tests |
 
 > **Optional, not the spine:** the `research` vertical (paper-from-idea-to-
 > submission) and its `skills/` paper machinery are an OPTIONAL mode, lazy-loaded

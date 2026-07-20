@@ -14,7 +14,7 @@ Each role independently resolves three knobs at runtime, all surfaced here:
 
 * **backend** — ``ARGUS_SKILL_{ROLE}_BACKEND`` → ``ARGUS_SKILL_RUNNER_BACKEND``
   → ``ARGUS_SKILL_LIFE_BACKEND`` → a persisted ``/backend`` switch
-  (``core.knob_store``) → ``codex`` (one of Codex / Claude Code / Copilot;
+  (``core.knob_store``) → ``codex`` (one of Codex / Claude Code / Copilot / OpenCode;
   ``memory`` in tests).
 * **model** — ``ARGUS_SKILL_{ROLE}_MODEL`` (``ARGUS_SKILL_PLAN_MODEL`` for the
   planner) → ``ARGUS_SKILL_MODEL`` → a persisted ``/backend``/``/config``
@@ -49,6 +49,7 @@ _BACKEND_LABEL = {
     "codex": "Codex",
     "claude": "Claude Code",
     "copilot": "Copilot",
+    "opencode": "OpenCode",
     "memory": "memory",
 }
 
@@ -91,8 +92,8 @@ _ROLE_DESC = {
 @dataclass(frozen=True)
 class RoleConfig:
     role: str
-    backend: str          # normalized: codex / claude / copilot / memory
-    backend_label: str    # display: Codex / Claude Code / Copilot
+    backend: str          # normalized: codex / claude / copilot / opencode / memory
+    backend_label: str    # display: Codex / Claude Code / Copilot / OpenCode
     model: str
     effort: str | None    # None → not a reasoning model (effort N/A)
     desc: str
@@ -130,8 +131,8 @@ def _resolve_backend(role: str, env: Mapping[str, str]) -> str:
 
 
 def runner_backend_label(env: Mapping[str, str] | None = None) -> str:
-    """Display label of the *current* runner backend (Codex / Claude Code /
-    Copilot), resolved from ``ARGUS_SKILL_RUNNER_BACKEND`` →
+    """Display label of the *current* runner backend, resolved from
+    ``ARGUS_SKILL_RUNNER_BACKEND`` →
     ``ARGUS_SKILL_LIFE_BACKEND`` → a persisted ``/backend`` switch → ``codex``.
 
     Used by user-facing copy (status phrases, the Manager chat identity) so the

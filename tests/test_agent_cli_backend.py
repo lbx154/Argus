@@ -101,6 +101,7 @@ def fake_agent_cli(monkeypatch: pytest.MonkeyPatch) -> None:
     backend_mod.__dict__["BACKEND_CLAUDE"] = "claude"
     backend_mod.__dict__["BACKEND_CODEX"] = "codex"
     backend_mod.__dict__["BACKEND_COPILOT"] = "copilot"
+    backend_mod.__dict__["BACKEND_OPENCODE"] = "opencode"
     backend_mod.__dict__["DEFAULT_RUNNER_BACKEND"] = "codex"
 
     def default_runner_bin() -> str | None:
@@ -260,6 +261,50 @@ def test_run_exec_translates_options_and_result(
     assert len(usage_rows) == 1
     assert usage_rows[0]["call_id"] == result.call_id
     assert result.call_id_log_correlated is True
+
+
+def test_opencode_success_persists_provider_reported_cost(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = AgentCliBackend(backend="opencode")
+    project = tmp_path / ".argus"
+    backend.set_usage_context(project_root=project)
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__,
+        "run_exec",
+        lambda self, **kwargs: _make_argus_result(
+            json_events=[{
+                "type": "step_finish",
+                "part": {
+                    "tokens": {
+                        "input": 100,
+                        "output": 20,
+                        "reasoning": 5,
+                        "cache": {"read": 40, "write": 0},
+                    },
+                    "cost": 0.0123,
+                    "reason": "stop",
+                },
+            }],
+            thread_id="opencode-cost-thread",
+        ),
+        raising=True,
+    )
+
+    result = backend.run_exec(
+        prompt="priced OpenCode call",
+        options=RunnerOptions(model="anthropic/claude-sonnet-4-5"),
+        run_label="engineer-r1",
+    )
+
+    usage_row = json.loads((project / "usage.jsonl").read_text().strip())
+    assert result.cost_usd == pytest.approx(0.0123)
+    assert result.pricing_status == "priced"
+    assert usage_row["cost_usd"] == pytest.approx(0.0123)
+    assert usage_row["pricing_tier"] == "provider_reported"
+    assert usage_row["cost_basis"] == "provider_reported"
 
 
 def test_usage_context_keeps_explicit_global_budget_root(tmp_path: Path) -> None:
@@ -1654,6 +1699,79 @@ def test_run_exec_reports_delta_for_resumed_cumulative_thread(
         100,
         30,
     )
+
+
+def test_run_exec_preserves_resumed_opencode_per_step_usage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = AgentCliBackend(backend="opencode")
+    raw_usages = [
+        {
+            "input": 100,
+            "output": 10,
+            "cache": {"read": 20, "write": 0},
+            "cost": 0.01,
+        },
+        {
+            "input": 150,
+            "output": 20,
+            "cache": {"read": 30, "write": 0},
+            "cost": 0.02,
+        },
+    ]
+
+    def fake_run_exec(
+        self: Any,
+        *,
+        prompt: Any,
+        resume_thread_id: Any,
+        options: Any,
+        run_label: str,
+    ) -> AgentRunResult:
+        usage = raw_usages.pop(0)
+        return _make_argus_result(
+            thread_id="ses-opencode",
+            json_events=[
+                {
+                    "type": "step_finish",
+                    "part": {
+                        "tokens": {
+                            key: value for key, value in usage.items() if key != "cost"
+                        },
+                        "cost": usage["cost"],
+                    },
+                },
+            ],
+        )
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+    )
+
+    first = backend.run_exec(
+        prompt="first",
+        options=RunnerOptions(model="openai/gpt-5.4"),
+        run_label="engineer-r1",
+    )
+    second = backend.run_exec(
+        prompt="second",
+        options=RunnerOptions(model="openai/gpt-5.4"),
+        run_label="engineer-r2",
+        resume_thread_id="ses-opencode",
+    )
+
+    assert (first.input_tokens, first.cached_input_tokens, first.output_tokens) == (
+        120,
+        20,
+        10,
+    )
+    assert (second.input_tokens, second.cached_input_tokens, second.output_tokens) == (
+        180,
+        30,
+        20,
+    )
+    assert first.cost_usd == pytest.approx(0.01)
+    assert second.cost_usd == pytest.approx(0.02)
 
 
 def test_run_exec_default_watchdog_options_are_inert():

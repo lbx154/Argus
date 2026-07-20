@@ -372,7 +372,7 @@ class _SkillLoopRunner(SelfReplyMixin):
 
         # Per-role backends. Each agent role (engineer / reviewer / planner /
         # manager) can be pinned to its OWN backend via
-        # ``ARGUS_SKILL_{ROLE}_BACKEND`` (codex / claude / copilot) plus an
+        # ``ARGUS_SKILL_{ROLE}_BACKEND`` (codex / claude / copilot / opencode) plus an
         # optional ``ARGUS_SKILL_{ROLE}_RUNNER_BIN``. When neither is set the
         # role SHARES the single default backend above — so the common case
         # still builds exactly one CLI process and behaviour is unchanged. Set
@@ -1302,7 +1302,7 @@ def _codex_preflight_warning() -> str | None:
                 "check the argus-skill install")
     # BUG FIX: this used to hardcode `shutil.which("codex")` regardless of
     # which CLI is actually configured, so an operator running entirely on
-    # ARGUS_SKILL_RUNNER_BACKEND=claude/copilot (no `codex` npm package
+    # ARGUS_SKILL_RUNNER_BACKEND=claude/copilot/opencode (no `codex` npm package
     # installed at all, by design) got a false "codex binary not found"
     # warning on every banner / `/doctor` run. Check whichever backend is
     # actually configured; "codex" (the default) keeps its exact original
@@ -1402,7 +1402,7 @@ def _resolve_runner_backend_name(
     if explicit:
         return explicit
     resolved = getattr(args, "backend", None)
-    if resolved in ("codex", "claude", "copilot"):
+    if resolved in ("codex", "claude", "copilot", "opencode"):
         return resolved
     return None
 
@@ -1446,9 +1446,9 @@ def build_life_runner(args: argparse.Namespace, *, seed_thread_id: str | None = 
         if scripted_backend is not None:
             runner.backend = scripted_backend
         return runner
-    if args.backend in ("codex", "claude", "copilot"):
-        # All three are agent-CLI backends: _SkillLoopRunner drives the codex /
-        # claude / copilot CLI via AgentCliBackend (per-role resolution), so the
+    if args.backend in ("codex", "claude", "copilot", "opencode"):
+        # These are agent-CLI backends: _SkillLoopRunner drives the selected
+        # CLI via AgentCliBackend (per-role resolution), so the
         # SAME runner serves every backend. Gating this on "codex" alone used to
         # SystemExit the Manager front-door (triage / web bridge) whenever
         # the operator ran on copilot/claude — the daemon already runs missions

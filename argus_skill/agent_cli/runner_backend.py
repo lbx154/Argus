@@ -5,11 +5,12 @@ import shutil
 from pathlib import Path
 from typing import Literal
 
-RunnerBackend = Literal["codex", "claude", "copilot"]
+RunnerBackend = Literal["codex", "claude", "copilot", "opencode"]
 
 BACKEND_CODEX: RunnerBackend = "codex"
 BACKEND_CLAUDE: RunnerBackend = "claude"
 BACKEND_COPILOT: RunnerBackend = "copilot"
+BACKEND_OPENCODE: RunnerBackend = "opencode"
 DEFAULT_RUNNER_BACKEND: RunnerBackend = BACKEND_CODEX
 
 
@@ -19,6 +20,8 @@ def normalize_runner_backend(raw: str | None) -> RunnerBackend:
         return BACKEND_CLAUDE
     if value == BACKEND_COPILOT:
         return BACKEND_COPILOT
+    if value in (BACKEND_OPENCODE, "opencod"):
+        return BACKEND_OPENCODE
     return BACKEND_CODEX
 
 
@@ -27,6 +30,8 @@ def default_runner_bin(backend: RunnerBackend) -> str:
         return "claude"
     if backend == BACKEND_COPILOT:
         return "copilot"
+    if backend == BACKEND_OPENCODE:
+        return "opencode"
     return "codex"
 
 
@@ -45,6 +50,10 @@ def resolve_runner_bin(
         return resolved
     if Path(expanded).parent != Path("."):
         return None
+    if chosen == BACKEND_OPENCODE:
+        opencode_home = Path.home() / ".opencode" / "bin" / expanded
+        if opencode_home.is_file() and os.access(opencode_home, os.X_OK):
+            return str(opencode_home)
     user_local = Path.home() / ".local" / "bin" / expanded
     if user_local.is_file() and os.access(user_local, os.X_OK):
         return str(user_local)

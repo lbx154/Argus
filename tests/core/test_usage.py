@@ -101,6 +101,30 @@ def test_usage_ledger_is_idempotent_by_call_id(tmp_path: Path) -> None:
     assert len((project / "usage.jsonl").read_text().splitlines()) == 1
 
 
+def test_opencode_provider_reported_cost_is_authoritative(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "projects" / "p1"
+    record = build_usage_record(
+        call_id="opencode-call",
+        project_root=project,
+        mission_id="mission-1",
+        provider="opencode",
+        model="openai/gpt-5.4",
+        run_label="engineer-r1",
+        started_at=1.0,
+        completed_at=2.0,
+        status="completed",
+        token_usage=_known_usage(input_tokens=1000, output_tokens=200),
+        provider_cost_usd=0.0123,
+    )
+
+    assert record.pricing_status == "priced"
+    assert record.pricing_tier == "provider_reported"
+    assert record.cost_basis == "provider_reported"
+    assert record.cost_usd == pytest.approx(0.0123)
+
+
 def test_stale_copilot_resume_error_is_read_as_not_billed() -> None:
     record = UsageRecord.from_jsonable({
         "call_id": "stale-resume",

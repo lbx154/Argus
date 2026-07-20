@@ -62,7 +62,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob(
         "ARGUS_SKILL_LIFE_BACKEND",
         "codex",
-        "agent backend: codex | copilot | claude | memory (test only)",
+        "agent backend: codex | copilot | claude | opencode | memory (test only)",
         "backend",
     ),
     Knob("ARGUS_SKILL_RUNNER_BIN", "(agent CLI on PATH)", "absolute path to the agent CLI binary", "backend"),
@@ -366,8 +366,10 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
         return f"{number:g}"
     if name in _BACKEND_KNOBS:
         backend = raw.lower()
-        if backend not in {"codex", "claude", "copilot"}:
-            raise ValueError(f"{name} must be codex, claude, or copilot")
+        if backend == "opencod":
+            backend = "opencode"
+        if backend not in {"codex", "claude", "copilot", "opencode"}:
+            raise ValueError(f"{name} must be codex, claude, copilot, or opencode")
         return backend
     if name in _EFFORT_KNOBS:
         effort = raw.lower()
@@ -469,7 +471,7 @@ def resolve_role_model(
 
 
 def resolve_role_backend(role: str, *, env: Mapping[str, str] | None = None) -> str:
-    """Resolve a role's agent-CLI backend (codex / claude / copilot / memory)
+    """Resolve a role's agent-CLI backend (codex / claude / copilot / opencode / memory)
     using Argus's runtime precedence.
 
     Precedence: role-specific override (``ARGUS_SKILL_<ROLE>_BACKEND``) ->
@@ -477,7 +479,7 @@ def resolve_role_backend(role: str, *, env: Mapping[str, str] | None = None) -> 
     -> persisted switch (the same three vars, same order — a prior
     ``/backend`` switch or natural-language "engineer 用 claude") -> ``codex``.
     Returns the RAW value (unnormalized); callers that need the canonical
-    codex/claude/copilot spelling should pass it through
+    canonical backend spelling should pass it through
     ``agent_cli.runner_backend.normalize_runner_backend``, same as every
     existing caller of this precedence already does.
     """

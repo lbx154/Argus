@@ -202,10 +202,30 @@ def test_setup_defaults_to_only_installed_copilot(
     assert read_persisted_knobs()["ARGUS_SKILL_RUNNER_BACKEND"] == "copilot"
 
 
+def test_setup_defaults_to_only_installed_opencode(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_LIFE_BACKEND", raising=False)
+    monkeypatch.setattr(
+        _wizard.shutil,
+        "which",
+        lambda name: "/usr/local/bin/opencode" if name == "opencode" else None,
+    )
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "")
+    from argus_skill.core.knob_store import read_persisted_knobs
+
+    assert _wizard._configure_runner_backend() == "opencode"
+    assert read_persisted_knobs()["ARGUS_SKILL_RUNNER_BACKEND"] == "opencode"
+
+
 def test_setup_rejects_selected_backend_missing_from_path(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
+    monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_LIFE_BACKEND", raising=False)
     monkeypatch.setattr(_wizard.shutil, "which", lambda _name: None)
