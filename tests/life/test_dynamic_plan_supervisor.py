@@ -403,7 +403,12 @@ def test_operator_inbox_resolves_single_pending_question_through_manager(
         tmp_path,
         planner_response=_single_replacement_verdict(),
     )
-    blocked = BacklogItem.new(title="Need GPU", objective="Run the matrix")
+    blocked = BacklogItem.new(
+        title="Need GPU",
+        objective="Run the matrix",
+        acceptance_check="Run only on GPU 0.",
+        non_goals=["Do not use GPU 6."],
+    )
     blocked.status = "failed"
     blocked.pending_question = "Which GPU is approved?"
     supervisor.memory.backlog.add(blocked)
@@ -431,6 +436,15 @@ def test_operator_inbox_resolves_single_pending_question_through_manager(
     assert continuation.status == "pending"
     assert "GPU 6 is approved" in continuation.objective
     assert "Use physical GPU 6 exclusively." in continuation.objective
+    assert "Manager operator-answer decision" in continuation.acceptance_check
+    assert "Run only on GPU 0." in continuation.acceptance_check
+    assert continuation.non_goals == [
+        (
+            "Subject to the authoritative Manager operator-answer decision, "
+            "preserve this inherited non-goal only where it does not conflict: "
+            "Do not use GPU 6."
+        )
+    ]
     drained = [
         event for event in sink.events if event["type"] == "life.inbox.drained"
     ]

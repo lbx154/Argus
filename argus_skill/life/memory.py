@@ -1317,6 +1317,24 @@ class Backlog:
             guidance = f"Operator response:\n{answer}"
             if decision:
                 guidance += f"\n\nManager interpretation and continuation decision:\n{decision}"
+            acceptance_check = blocked.acceptance_check
+            non_goals = list(blocked.non_goals)
+            if decision:
+                if acceptance_check:
+                    acceptance_check = (
+                        "The Manager operator-answer decision in this continuation "
+                        "is authoritative. Apply this inherited acceptance check only "
+                        "where it does not conflict with that decision:\n"
+                        f"{acceptance_check}"
+                    )
+                non_goals = [
+                    (
+                        "Subject to the authoritative Manager operator-answer "
+                        "decision, preserve this inherited non-goal only where it "
+                        f"does not conflict: {goal}"
+                    )
+                    for goal in non_goals
+                ]
             continuation = BacklogItem.new(
                 title=blocked.title,
                 objective=(
@@ -1337,8 +1355,8 @@ class Backlog:
                     else ""
                 ),
                 context_refs=list(blocked.context_refs),
-                acceptance_check=blocked.acceptance_check,
-                non_goals=list(blocked.non_goals),
+                acceptance_check=acceptance_check,
+                non_goals=non_goals,
             )
             blocked.pending_question = ""
             items.append(continuation)
