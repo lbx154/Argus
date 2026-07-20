@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import subprocess
 from pathlib import Path
 
@@ -323,6 +324,109 @@ def test_opencode_export_recovery_rejects_stale_assistant_message(
 
     assert events == []
     assert error == "OpenCode session export did not contain the current assistant message."
+
+
+def test_opencode_recovers_from_database_when_export_is_truncated(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "opencode.db"
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE message (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                time_created INTEGER NOT NULL,
+                data TEXT NOT NULL
+            );
+            CREATE TABLE part (
+                id TEXT PRIMARY KEY,
+                message_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                time_created INTEGER NOT NULL,
+                data TEXT NOT NULL
+            );
+            """
+        )
+        connection.execute(
+            "INSERT INTO message VALUES (?, ?, ?, ?)",
+            (
+                "assistant-1",
+                "ses-123",
+                1,
+                json.dumps(
+                    {
+                        "role": "assistant",
+                        "finish": "stop",
+                        "cost": 0.002,
+                        "tokens": {
+                            "input": 10,
+                            "output": 2,
+                            "reasoning": 1,
+                            "cache": {"read": 5, "write": 0},
+                        },
+                    }
+                ),
+            ),
+        )
+        connection.executemany(
+            "INSERT INTO part VALUES (?, ?, ?, ?, ?)",
+            [
+                (
+                    "text-1",
+                    "assistant-1",
+                    "ses-123",
+                    2,
+                    json.dumps({"type": "text", "text": "OK"}),
+                ),
+                (
+                    "finish-1",
+                    "assistant-1",
+                    "ses-123",
+                    3,
+                    json.dumps({"type": "step-finish", "reason": "stop"}),
+                ),
+            ],
+        )
+
+    calls = 0
+
+    def fake_run(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return subprocess.CompletedProcess(
+                args=args[0],
+                returncode=0,
+                stdout='{"messages":[{"info":{"role":"assistant"',
+                stderr="",
+            )
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout=f"{database}\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(runner_mod.subprocess, "run", fake_run)
+
+    events, error = _runner()._recover_opencode_events(
+        thread_id="ses-123",
+        observed_events=[
+            {
+                "type": "step_start",
+                "part": {"id": "step-start-1", "messageID": "assistant-1"},
+            }
+        ],
+        options=RunnerOptions(),
+    )
+
+    assert error is None
+    assert [event["type"] for event in events] == ["text", "step_finish"]
+    assert events[0]["part"]["text"] == "OK"
+    assert events[1]["part"]["reason"] == "stop"
+    assert calls == 2
 
 
 def test_opencode_nested_error_is_preserved() -> None:

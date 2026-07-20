@@ -5,6 +5,7 @@ import os
 import queue
 import shutil
 import signal
+import sqlite3
 import subprocess
 import threading
 import time
@@ -1184,7 +1185,17 @@ class AgentCliRunner:
         try:
             payload = json.loads(exported.stdout)
         except json.JSONDecodeError:
-            return [], "OpenCode session export returned invalid JSON."
+            payload, database_error = self._recover_opencode_payload_from_database(
+                thread_id=thread_id,
+                message_id=message_id,
+                options=options,
+            )
+            if database_error is not None:
+                return (
+                    [],
+                    "OpenCode session export returned invalid JSON; "
+                    f"database recovery failed: {database_error}",
+                )
         if not isinstance(payload, dict):
             return [], "OpenCode session export returned an invalid payload."
         messages = payload.get("messages")
@@ -1284,6 +1295,136 @@ class AgentCliRunner:
         if not recovered:
             return [], "OpenCode session export contained no recoverable current-turn events."
         return recovered, None
+
+    def _recover_opencode_payload_from_database(
+        self,
+        *,
+        thread_id: str,
+        message_id: str,
+        options: RunnerOptions,
+    ) -> tuple[dict | None, str | None]:
+        """Read one interrupted turn when ``opencode export`` truncates stdout."""
+        command = [self._resolve_executable(self.agent_bin), "db", "path"]
+        try:
+            located = subprocess.run(
+                command,
+                cwd=options.working_dir or None,
+                env=self._child_env(options),
+                text=True,
+                capture_output=True,
+                timeout=10.0,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return None, "OpenCode database path lookup timed out."
+        except OSError as exc:
+            return None, f"OpenCode database path lookup failed: {exc}"
+        if located.returncode != 0:
+            return None, (
+                "OpenCode database path lookup exited with code "
+                f"{located.returncode}."
+            )
+        path_lines = [line.strip() for line in located.stdout.splitlines() if line.strip()]
+        if not path_lines:
+            return None, "OpenCode database path lookup returned no path."
+        database_path = Path(path_lines[-1]).expanduser()
+        if not database_path.is_file():
+            return None, f"OpenCode database does not exist at {database_path}."
+
+        try:
+            connection = sqlite3.connect(
+                f"{database_path.resolve().as_uri()}?mode=ro",
+                uri=True,
+                timeout=5.0,
+            )
+            with connection:
+                message_rows = connection.execute(
+                    """
+                    SELECT id, session_id, data
+                    FROM message
+                    WHERE session_id = ?
+                    ORDER BY time_created, id
+                    """,
+                    (thread_id,),
+                ).fetchall()
+                start_index = next(
+                    (
+                        index
+                        for index, row in enumerate(message_rows)
+                        if row[0] == message_id
+                    ),
+                    None,
+                )
+                if start_index is None:
+                    return None, (
+                        "OpenCode database did not contain the current assistant "
+                        "message."
+                    )
+
+                messages: list[dict] = []
+                for stored_id, stored_session_id, raw_info in message_rows[start_index:]:
+                    try:
+                        info = json.loads(raw_info)
+                    except (TypeError, json.JSONDecodeError):
+                        return None, (
+                            "OpenCode database contained invalid message metadata."
+                        )
+                    if not isinstance(info, dict):
+                        return None, (
+                            "OpenCode database contained invalid message metadata."
+                        )
+                    role = info.get("role")
+                    if role == "user":
+                        break
+                    if role != "assistant":
+                        continue
+
+                    part_rows = connection.execute(
+                        """
+                        SELECT id, data
+                        FROM part
+                        WHERE session_id = ?
+                          AND message_id = ?
+                          AND json_extract(data, '$.type') IN (
+                              'text',
+                              'step-finish',
+                              'step_finish'
+                          )
+                        ORDER BY time_created, id
+                        """,
+                        (stored_session_id, stored_id),
+                    ).fetchall()
+                    parts: list[dict] = []
+                    for part_id, raw_part in part_rows:
+                        try:
+                            part = json.loads(raw_part)
+                        except (TypeError, json.JSONDecodeError):
+                            return None, (
+                                "OpenCode database contained invalid message parts."
+                            )
+                        if not isinstance(part, dict):
+                            return None, (
+                                "OpenCode database contained invalid message parts."
+                            )
+                        part = dict(part)
+                        part.setdefault("id", part_id)
+                        part.setdefault("messageID", stored_id)
+                        part.setdefault("sessionID", stored_session_id)
+                        parts.append(part)
+
+                    info = dict(info)
+                    info.setdefault("id", stored_id)
+                    info.setdefault("sessionID", stored_session_id)
+                    messages.append({"info": info, "parts": parts})
+        except sqlite3.Error as exc:
+            return None, f"OpenCode database query failed: {exc}"
+        finally:
+            if "connection" in locals():
+                connection.close()
+
+        if not messages:
+            return None, "OpenCode database contained no recoverable assistant messages."
+        return {"messages": messages}, None
 
     @staticmethod
     def _resolve_executable(executable: str) -> str:
