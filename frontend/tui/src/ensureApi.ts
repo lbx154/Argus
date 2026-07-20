@@ -110,12 +110,13 @@ export interface EnsureResult {
 export interface DaemonUpgradeScheduleSummary {
   outdated: string[];
   scheduled: string[];
+  skipped: string[];
   failed: string[];
 }
 
 export async function scheduleOutdatedDaemonUpgrades(
   projects: ProjectRow[],
-  schedule: (sid: string) => Promise<unknown>,
+  schedule: (sid: string) => Promise<{ scheduled?: unknown }>,
 ): Promise<DaemonUpgradeScheduleSummary> {
   const outdated = projects
     .filter((project) =>
@@ -127,9 +128,13 @@ export async function scheduleOutdatedDaemonUpgrades(
       ))
     .map((project) => project.id);
   const settled = await Promise.allSettled(outdated.map((sid) => schedule(sid)));
+  const accepted = settled.map((result) =>
+    result.status === 'fulfilled' && result.value.scheduled === true);
   return {
     outdated,
-    scheduled: outdated.filter((_, index) => settled[index].status === 'fulfilled'),
+    scheduled: outdated.filter((_, index) => accepted[index]),
+    skipped: outdated.filter((_, index) =>
+      settled[index].status === 'fulfilled' && !accepted[index]),
     failed: outdated.filter((_, index) => settled[index].status === 'rejected'),
   };
 }

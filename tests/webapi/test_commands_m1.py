@@ -904,6 +904,55 @@ def test_pending_daemon_upgrade_survives_webapi_restart(
     assert not (life / server.project_state.DAEMON_UPGRADE_REQUEST_FILE).exists()
 
 
+def test_schedule_daemon_upgrade_retries_after_thread_start_failure(
+    ctx,
+    monkeypatch,
+) -> None:
+    root, sid, life = ctx
+    source = root / "checkout"
+    source.mkdir()
+    status = server.DaemonStatus(
+        alive=True,
+        pid=321,
+        started_at_iso=None,
+        uptime_seconds=1.0,
+        life_dir=life,
+    )
+    monkeypatch.setattr(server, "runtime_identity", lambda: {"source_root": str(source)})
+    monkeypatch.setattr(server, "read_daemon_status", lambda path: status)
+    monkeypatch.setattr(
+        server,
+        "daemon_protocol_compatibility",
+        lambda value: (False, "release mismatch"),
+    )
+    monkeypatch.setattr(
+        server,
+        "daemon_runtime_owned_by_current_source",
+        lambda value: True,
+    )
+    monkeypatch.setattr(
+        server,
+        "read_continuous_state",
+        lambda path: SimpleNamespace(enabled=False, objective=""),
+    )
+
+    class BrokenThread:
+        def __init__(self, *, target, name, daemon):
+            pass
+
+        def start(self):
+            raise RuntimeError("thread unavailable")
+
+    monkeypatch.setattr(server.threading, "Thread", BrokenThread)
+    server._SCHEDULED_DAEMON_UPGRADES.clear()
+
+    with pytest.raises(RuntimeError, match="thread unavailable"):
+        server.schedule_project_daemon_upgrade(sid, global_root=root)
+
+    assert str(life.resolve()) not in server._SCHEDULED_DAEMON_UPGRADES
+    assert (life / server.project_state.DAEMON_UPGRADE_REQUEST_FILE).is_file()
+
+
 def test_daemon_upgrade_drains_and_restores_continuous_mode(
     ctx, monkeypatch,
 ) -> None:

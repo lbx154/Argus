@@ -1228,11 +1228,17 @@ def schedule_project_daemon_upgrade(
             with _SCHEDULED_DAEMON_UPGRADES_LOCK:
                 _SCHEDULED_DAEMON_UPGRADES.discard(key)
 
-    threading.Thread(
+    worker = threading.Thread(
         target=_run,
         name=f"argus-daemon-upgrade-{sid[:12]}",
         daemon=True,
-    ).start()
+    )
+    try:
+        worker.start()
+    except Exception:
+        with _SCHEDULED_DAEMON_UPGRADES_LOCK:
+            _SCHEDULED_DAEMON_UPGRADES.discard(key)
+        raise
     return {"rc": 0, "scheduled": True, "reason": reason}
 
 

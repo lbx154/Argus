@@ -281,11 +281,38 @@ test('launcher schedules only live daemons with incompatible runtime identity', 
     },
   ], async (sid) => {
     calls.push(sid);
+    return { scheduled: true };
   });
   assert.deepEqual(calls, ['stale', 'pending']);
   assert.deepEqual(summary, {
     outdated: ['stale', 'pending'],
     scheduled: ['stale', 'pending'],
+    skipped: [],
+    failed: [],
+  });
+});
+
+test('launcher does not claim a refused daemon upgrade was scheduled', async () => {
+  const summary = await scheduleOutdatedDaemonUpgrades([
+    {
+      id: 'stale',
+      label: 'stale',
+      objective: '',
+      last_active: 1,
+      daemon_alive: true,
+      daemon_pid: 1,
+      uptime_seconds: 10,
+      daemon_protocol_compatible: false,
+      daemon_source_owned: true,
+    },
+  ], async () => ({
+    scheduled: false,
+    reason: 'daemon identity changed',
+  }));
+  assert.deepEqual(summary, {
+    outdated: ['stale'],
+    scheduled: [],
+    skipped: ['stale'],
     failed: [],
   });
 });
