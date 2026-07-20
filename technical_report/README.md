@@ -18,8 +18,10 @@ make clean
 make all
 ```
 
-The build regenerates the current paper figures, runs BibTeX, and writes
-`argus-technical-report.pdf`.
+The build uses the committed paper-facing figure PDFs, runs BibTeX, and writes
+`argus-technical-report.pdf`. Component-editable PowerPoint sources are retained
+under `figures/` and `PPT_SOURCES/`; the HTML/Python figure generators remain as
+provenance and deterministic comparison sources rather than automatic build steps.
 
 ## Public release scope
 

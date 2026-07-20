@@ -1,21 +1,24 @@
 # Figure Sources
 
-The current technical report uses six paper-facing figures:
+The current technical report uses seven paper-facing figures:
 
 1. `argus_teaser.pdf` — first-page system and result overview;
 2. `horizon_mountain.pdf` — recurrent roles, Stage dynamics, and training vision;
-3. `swebench_evolution.pdf` — SWE-Bench Pro result, longitudinal evolution, and Reviewer routing/recovery;
-4. `erdos_vertical_trace.pdf` — representative mathematical campaign;
-5. `paper_case_study.pdf` — recurrent production mechanism and six scientific outputs;
-6. `paper_case_trajectory.pdf` — a role-resolved 163.6-hour paper campaign.
+3. `swebench_evolution.pdf` — SWE-Bench Pro outcome, review summary, and longitudinal evolution;
+4. `reviewer_mechanism.pdf` — adaptive Reviewer routing and revision recovery;
+5. `erdos_vertical_trace.pdf` — representative mathematical campaign;
+6. `paper_case_study.pdf` — recurrent production mechanism and six scientific outputs;
+7. `paper_case_trajectory.pdf` — a role-resolved 163.6-hour paper campaign.
 
 Editable sources are retained alongside the exports:
 
-- editable PowerPoint plus native SVG source for the teaser;
-- HTML/SVG sources for the horizon and mathematical trace;
-- PowerPoint source for the unified SWE-Bench Pro result/evolution/Reviewer figure;
-- HTML/CSS/SVG sources generated from deterministic public data for the
-  paper-production case study;
+- the current teaser was supplied as a paper-facing vector PDF; the retained
+  PowerPoint and SVG are the preceding editable version;
+- component-editable PowerPoint sources for the long-horizon model, unified
+  SWE-Bench Pro figure, Reviewer routing/recovery figure, mathematical trace,
+  six-paper portfolio, and representative paper trajectory;
+- HTML/CSS/SVG generation sources remain available for provenance and
+  deterministic comparison;
 - real first-page thumbnails for the six autonomous paper outputs under
   `assets/paper_thumbnails/`;
 - deterministic data files under `../evidence/`.
@@ -26,7 +29,7 @@ figures in the current paper.
 
 ## Visual standard
 
-- All six figures share one restrained anime-editorial system derived from the
+- All seven figures share one restrained editorial system derived from the
   mountain illustration: cream paper (`#FBF7EE`), dark navy linework (`#24465D`),
   low-saturation landscape colors, and the same Manager, Planner, Engineer, and
   Reviewer character assets under `assets/anime/`.

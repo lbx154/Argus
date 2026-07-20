@@ -7,13 +7,15 @@
     "evidence/website_results.json",
     "evidence/swebench_pro/unified_experiment_summary.json"
   ],
-  "editable_sources": [
+  "previous_editable_sources": [
     "argus_teaser.pptx",
     "argus_teaser.source.svg",
     "ppt_master/argus_teaser_wechat_20260719/design_spec.md"
   ],
+  "paper_facing_source": "../PPT_SOURCES/pdf/01_Figure1_Argus_Runtime_and_Benchmark_Overview.pdf",
   "vector_export": "argus_teaser.pdf",
   "raster_preview": "argus_teaser.png",
-  "renderer": "libreoffice",
-  "notes": "All seven cards retain independent task-native scales; no formulas appear in the teaser."
+  "renderer": "ghostscript normalization of supplied vector PDF",
+  "notes": "All seven cards retain independent task-native scales; no formulas appear in the teaser. The current PDF supersedes the preceding editable PPT version.",
+  "paper_facing_source_sha256": "737879510265d8070462e1561221300cc444c2509b05a52a88a72859e3e46928"
 }

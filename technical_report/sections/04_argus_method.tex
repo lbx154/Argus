@@ -98,7 +98,7 @@ from the structured verdict rather than filenames, Token volume, or keywords. Th
 corresponding artifacts and execution records remain inspectable, while credential
 redaction and result provenance preserve the same completion rule.
 
-\subsection{Runtime-State Updates}
+\subsection{Fixed-Model Runtime Self-Evolution}
 
 Equation~\ref{eq:runtime-update} separates the model from the state around it.
 Table~\ref{tab:runtime-ownership} identifies how each component can change and who
@@ -108,6 +108,16 @@ a candidate, and the Reviewer commits the retained form. Tools and procedures ar
 system-configured. Stage checklists are Planner-owned, with Reviewer feedback rather
 than a second commit gate. Routing policy is Manager-committed, while task
 definitions are Planner-authored and scheduler-committed.
+
+We use \emph{runtime self-evolution} in a deliberately narrow sense. The underlying
+model parameters remain fixed, while reviewed missions can change the persistent
+runtime state available to later work. A complete update cycle has four parts:
+(1) an execution trajectory produces a candidate memory, skill, procedure,
+verification rule, routing decision, or task definition; (2) the responsible role
+checks the candidate against artifacts and task-native evidence; (3) the authorized
+owner commits, revises, or rejects the update; and (4) a later mission retrieves the
+retained state as part of its starting context or execution policy. Activity that
+does not survive this commit-and-reuse path is not counted as self-evolution.
 
 \begin{table}[H]
 \centering
@@ -135,6 +145,14 @@ that can be matched to later tasks. A project knowledge base stores source-linke
 records and synthesized pages derived from reviewed outcomes. Neither surface is
 treated as automatically correct: entries can be revised, archived, or retired when
 later results contradict them.
+
+This mechanism can improve a later mission without changing the model itself. A
+retained failure can prevent a repeated dead end; a reviewed procedure can shorten
+environment inspection; a verifier can reject a previously accepted shortcut; and
+a routing update can assign independent review to a higher-risk task. The mechanism
+does not imply monotonic improvement. Some missions commit no reusable state,
+retained state can become stale, and a harder task distribution can increase cost
+even after useful state has accumulated.
 
 \subsection{Reliability and Resource Governance}
 

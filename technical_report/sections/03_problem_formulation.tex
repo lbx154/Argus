@@ -38,31 +38,24 @@ artifact state, $e_t$ the observed measurements, and $r_t$ the review outcome. A
 must terminate, pause, or transfer control explicitly; continuity belongs to the
 persistent campaign state rather than an unbounded model session.
 
-Figure~\ref{fig:horizon-mountain} visualizes both horizon and density. A
-session-limited agent follows one sparse route and eventually spends its budget on
+Figure~\ref{fig:horizon-mountain} contrasts a session-limited trajectory with the
+persistent runtime model. A session-limited agent eventually spends its budget on
 reconstruction and repeated work. \systemname instead instantiates a recurrent
-Manager--Planner--Engineer--Reviewer state machine inside each campaign stage.
-Manager-controlled holds and rollbacks reopen earlier work, while rejected branches
-remain available to later cycles. The resulting trajectory is therefore a spiral
-with local regressions rather than a one-pass or monotonically rising pipeline.
+Manager--Planner--Engineer--Reviewer loop inside each campaign Stage. Reviewed
+state persists below the loop, while Manager-controlled advance, rollback, and
+rejected branches change the route taken by later missions.
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.95\linewidth]{figures/horizon_mountain.pdf}
-  \caption{Conceptual view of Dense Intelligence across the effective task horizon.
-  The four roles form a recurrent state machine instantiated inside every stage:
-  Manager owns stage transitions, Planner decomposes work, Engineer acts and tests,
-  and Reviewer returns a verdict that can trigger revision. The research vertical is
-  shown with eight stages---research, plan, benchmark, run, analysis, draft, review,
-  and submission. A binocular-equipped researcher stands on the connected
-  foreground ridge and looks toward the golden summit flag. The sand-backed blue
-  route follows mountain switchbacks, rising overall while including local
-  descents; the orange dashed arrow is a rollback, and red crosses are rejected
-  branches. The
-  purple flow sends reviewed trajectories to a future SFT/RL flywheel whose target is
-  native long-horizon behavior. That parameter-training panel is a research
-  hypothesis; the current runtime keeps model parameters fixed. Geometry and height
-  are schematic rather than empirical scales.}
+  \caption{Operational model of long-horizon runtime self-evolution. The left card
+  shows a session-limited route ending in reset. The central recurrent role loop is
+  reused across eight Manager-controlled research Stages, while the blue route,
+  orange rollback, and red rejected branches show that progress need not be
+  monotone. Reviewed memory, Skills, tools, verifiers, and routing persist across
+  missions. The purple path to future SFT/RL is a research hypothesis; the current
+  runtime changes persistent state while keeping model parameters fixed. Geometry
+  is conceptual rather than an empirical scale.}
   \label{fig:horizon-mountain}
 \end{figure}
 

@@ -22,15 +22,13 @@ projects and are not calendar time because several projects overlap.
 \begin{figure}[H]
   \centering
   \includegraphics[width=\linewidth]{figures/paper_case_study.pdf}
-  \caption{Six scientific outputs produced by \systemname. Each card contains the
-  actual first page of the final PDF, its research domain, a short manuscript label,
-  and the principal task-native scientific result. These headlines are paper
-  findings---for example, 15 stable leaderboard claims, a weaker compositional
-  gate, and 15 hallucination-evaluation cells---not measures of writing quality.
-  The separately labeled bottom strip reports the \systemname production process:
-  completed pipelines, aggregate campaign-hours, Engineer rounds, Reviewer
-  revisions, session rolls, and Stage rollbacks. Formatting completion does not
-  imply venue acceptance or external peer review.}
+  \caption{Scientific outcomes and production load across six paper campaigns.
+  Each card pairs the final manuscript's first page with its domain, scoped research
+  question, and principal task-native result, including diagnostic and negative
+  findings. The bottom strip reports the shared production process: six completed
+  pipelines, 640 aggregate campaign-hours, 576 Engineer rounds, 286 Reviewer
+  revisions, 89 session rolls, and 16 Stage rollbacks. Manuscript completion does
+  not imply venue acceptance, novelty, or external peer review.}
   \label{fig:paper-case-study}
 \end{figure}
 
@@ -58,15 +56,13 @@ package completes the pipeline.
 \begin{figure}[H]
   \centering
   \includegraphics[width=\linewidth]{figures/paper_case_trajectory.pdf}
-  \caption{Representative 163.6-hour paper-production trajectory. The main panel
-  plots the actual Manager-controlled Stage state against elapsed campaign-hours;
-  the upper-right boxes report campaign-hours, Engineer rounds, Reviewer revisions,
-  session rolls, and early/late rollback counts. Red points mark rollback decisions.
-  Seven early no-go rollbacks prune weak method routes before a negative-results
-  scope pivot, and two submission-to-benchmark rollbacks repair the final evidence
-  package. The five connected episodes summarize hypothesis pruning, scientific
-  pivot, the 15-cell/4,500-row canonical experiment, manuscript construction, and
-  submission recovery.}
+  \caption{Representative 163.6-hour paper-production trajectory. Panel (a) plots
+  the Manager-controlled Stage against campaign time: seven early no-go decisions
+  prune weak method routes, the project pivots from a positive method claim to an
+  audit, and two late rollbacks repair the submission evidence. Panel (b) reduces
+  the trace to five scientific episodes---prune, pivot, experiment, write, and
+  repair---while retaining the 15-cell, 4,500-row experiment and the final
+  10-page manuscript.}
   \label{fig:paper-case-trajectory}
 \end{figure}
 

@@ -1,11 +1,18 @@
 {
   "figure": "erdos_agent_trace",
-  "editable_source": "figures/erdos_agent_trace.html",
+  "editable_source": "figures/erdos_vertical_trace.pptx",
   "evidence": "evidence/erdos_trace/trace.csv",
   "export": "figures/erdos_vertical_trace.pdf",
-  "renderer": "figures/render_html_figure.py (headless Chrome)",
+  "renderer": "LibreOffice PowerPoint export normalized to PDF 1.5",
   "target_size": "12 x 5.3 inch source canvas; approximately 3.1 inches high at manuscript width",
-  "visual_style": "shared Argus anime-editorial palette, cream paper field, reusable role characters, compact campaign panels, and mountain-ridge motif",
+  "visual_style": "component-editable cream-paper claim frontier with native cards, text, and attribution bars",
   "scope": "single observational campaign; role workflow and accepted process trace",
-  "caveat": "mathematical novelty, optimality, and conjecture resolution are not claimed"
+  "caveat": "mathematical novelty, optimality, and conjecture resolution are not claimed",
+  "generation_source": "figures/erdos_agent_trace.html",
+  "output_sha256": {
+    "pptx": "0ab2ba6774c5ff0de22114707a2701e52b93d912da1c42b7efd09f9a1f204adf",
+    "pdf": "c20af89cb22645e68e97356bc27c1249f9d7e688bf50e2bbe841c877b6f96dd5",
+    "png": "c9f493b7f5ea139c40004ad53c110212ec6d689e6d302638f408cad642a8acc2",
+    "svg": "25fb4421a79d0d324dd8b90e35e6624b527c41e4d52abe7db25d15523985892a"
+  }
 }

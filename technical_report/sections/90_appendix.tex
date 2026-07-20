@@ -187,6 +187,26 @@ patterns.}
 \label{tab:formula-instantiation}
 \end{table}
 
+\section{Upstream Kernel Adoption}
+\label{app:upstream-kernel}
+
+The kernel-optimization work produced an externally reviewed upstream
+contribution to Flash Linear Attention. In
+\href{https://github.com/fla-org/flash-linear-attention/pull/1045}
+{FLA PR \#1045}, \systemname implemented and optimized an opt-in TileLang
+\code{RWKV6} dense-\code{bf16}, \code{D=64} forward-intra kernel. The submitted
+H100 evidence reports a forward latency reduction from 0.199 ms to 0.168 ms
+(1.18$\times$) and a forward-plus-backward reduction from 0.900 ms to 0.747 ms
+(1.21$\times$), with 13 correctness-gate passes and 14 repository tests.
+
+An FLA collaborator affiliated with Moonshot AI reviewed the generated CUDA,
+identified a long-sequence numerical-stability issue, and requested block-local
+exponent centering. After \systemname applied the fix and reran the verification
+suite, the contribution was merged into \code{fla-org:main} on July 20, 2026 as
+\href{https://github.com/fla-org/flash-linear-attention/commit/c70f11c5530142450525549cc96d13d9f5165f69}
+{commit \code{c70f11c}}. This is evidence of human-reviewed upstream adoption,
+not external scientific validation of the broader runtime.
+
 \section{Notation}
 
 \begin{table}[H]

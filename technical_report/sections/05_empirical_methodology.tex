@@ -13,9 +13,10 @@ also enables deeper analyses of runtime evolution and Reviewer intervention.
 What task-native outcomes does \systemname achieve across the seven benchmark
 arenas, and how do they compare with the reference reported for each arena?
 
-\paragraph{RQ2: Self-evolution efficiency.}
-Within the SWE-Bench Pro run, does the Token and active-time demand of mature
-\systemname windows decrease as the shared Skill and Wiki state accumulates?
+\paragraph{RQ2: Fixed-model runtime self-evolution.}
+Within the SWE-Bench Pro run, how does solve-time resource demand change as reviewed
+Skill, Wiki, verification, and routing state accumulates while the underlying model
+parameters remain fixed?
 
 \paragraph{RQ3: Reviewer routing and recovery.}
 Within the same SWE-Bench Pro run, how often is an independent Reviewer invoked,
@@ -72,7 +73,7 @@ GPT-5.5/xhigh through Copilot for both Direct Copilot and \systemname. The full
 Raw Copilot Token totals and per-Wave resource traces were not retained; therefore
 the longitudinal analysis is \systemname-only.
 
-\subsection{SWE-Bench Pro Self-Evolution Analysis}
+\subsection{SWE-Bench Pro Runtime Self-Evolution Analysis}
 
 For a completed \systemname Wave $w$ with task set $\mathcal{T}_w$, we measure
 \begin{align}
@@ -96,6 +97,16 @@ Completed Waves are summarized by task-weighted windows: W1--6 (startup), W7--12
 W23--24 (late difficult tasks). Two incomplete Waves are omitted from the grouped
 means. The primary comparison is startup versus mature operation; composition and
 difficulty variation remain visible.
+
+The unit of analysis is the observed sequential window, not a matched task pair.
+The startup window begins with less project-specific state, whereas later windows
+can retrieve reviewed repository knowledge, reusable procedures, prior failure
+records, verification guidance, and updated routing decisions. Lower Token or time
+demand in a later window is therefore consistent with runtime self-evolution when
+the retained state removes repeated inspection or failed work. It is not, by
+itself, a causal estimate of the value of that state. Task identity, repository
+mix, execution latency, and difficulty also change across Waves, and no matched
+frozen-state replay is available.
 
 \subsection{SWE-Bench Pro Reviewer Analysis}
 

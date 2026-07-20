@@ -48,7 +48,7 @@
 
 \hypersetup{
   pdftitle={\systemname: A General-Purpose Agentic Runtime for Long-Horizon Reasoning},
-  pdfauthor={Shanghai Jiao Tong University; Microsoft},
+  pdfauthor={Argus Team},
   pdfsubject={\systemname Technical Report},
   pdfkeywords={general-purpose agentic runtime, long-horizon reasoning, compounding intelligence, persistent state, experimentation, review}
 }
@@ -90,8 +90,8 @@
 \pagestyle{fancy}
 \fancyhf{}
 \renewcommand{\headrulewidth}{0.35pt}
-\fancyhead[L]{\footnotesize\sffamily\color{muted}\systemname}
-\fancyhead[R]{\footnotesize\sffamily\color{muted}General-Purpose Agentic Runtime}
+\fancyhead[L]{\footnotesize\rmfamily\color{muted}\systemname}
+\fancyhead[R]{\footnotesize\rmfamily\color{muted}24$\times$7 Self-Evolving Agent System}
 \fancyfoot[C]{\footnotesize\sffamily\color{muted}\thepage}
 \fancypagestyle{firstpage}{
   \fancyhf{}
@@ -103,7 +103,6 @@
   enhanced,
   colback=papercream,
   colframe=papergold,
-  borderline west={1.8pt}{0pt}{argusblue},
   boxrule=0pt,
   arc=1.5pt,
   left=9pt,right=9pt,top=7pt,bottom=7pt,
@@ -131,31 +130,32 @@
 \begin{document}
 \thispagestyle{firstpage}
 
-\noindent{\color{papergold}\rule{0.16\linewidth}{2.2pt}}%
-{\color{argusdeep}\rule{0.84\linewidth}{2.2pt}}\par
-\vspace{0.18in}
+\vspace{0.04in}
 
-{\sffamily\small\bfseries\color{muted}
+\noindent{\sffamily\small\bfseries\color{muted}
   \MakeUppercase{\systemname} TECHNICAL REPORT \enspace\textperiodcentered\enspace JULY 2026}\par
 \vspace{0.12in}
 
-{\raggedright\sffamily\fontsize{23}{26}\selectfont\bfseries\color{ink}
+\noindent{\raggedright\sffamily\fontsize{23}{26}\selectfont\bfseries\color{ink}
   \systemname: A General-Purpose Agentic Runtime\par
   for Long-Horizon Reasoning}\par
 \vspace{0.07in}
-{\raggedright\sffamily\fontsize{13}{16}\selectfont\bfseries\color{argusdeep}
+\noindent{\raggedright\sffamily\fontsize{13}{16}\selectfont\bfseries\color{argusdeep}
   Compounding Intelligence through Persistent State, Experimentation, and Review}\par
-\vspace{0.12in}
+\vspace{0.08in}
+\noindent{\raggedright\sffamily\normalsize\bfseries\color{ink}
+  Argus Team}\par
+\vspace{0.10in}
 
 \noindent
-\begin{minipage}[c]{0.48\linewidth}
-  \includegraphics[height=0.43in]{assets/sjtu-logo.png}\hspace{0.10in}%
-  \raisebox{0.08in}{\parbox[c]{2.35in}{\sffamily\small\bfseries
-    Shanghai Jiao Tong University}}
+\begin{minipage}[c]{0.28\linewidth}
+  \includegraphics[width=1.62in]{assets/microsoft-logo.png}
 \end{minipage}%
 \hfill
-\begin{minipage}[c]{0.26\linewidth}
-  \raggedleft\includegraphics[width=1.62in]{assets/microsoft-logo.png}
+\begin{minipage}[c]{0.52\linewidth}
+  \makebox[\linewidth][r]{%
+    \includegraphics[height=0.43in]{assets/sjtu-logo.png}\hspace{0.08in}%
+    \raisebox{0.08in}{\sffamily\small\bfseries Shanghai Jiao Tong University}}
 \end{minipage}
 
 \begin{abstractbox}
@@ -175,7 +175,9 @@ become reviewed, reusable capability. Using GPT-5.5, we report task-native outco
 arenas. On SWE-Bench Pro, Direct Copilot with GPT-5.5/xhigh reaches approximately
 \SWEProDirectAccuracy\% accuracy; \systemname reaches approximately
 \SWEProArgusAccuracy\% while using \SWEProTokenRatio$\times$ the aggregate Tokens.
-The same run enables deeper analyses of self-evolution and Reviewer intervention.
+The same run supports an observational analysis of fixed-model runtime
+self-evolution: reviewed updates accumulate in memory, skills, procedures,
+verification state, and routing while the model parameters remain fixed.
 Relative to the W1--6 startup window,
 the mature W19--22 window uses \SWEProTokenReduction\% fewer solve input tokens and
 \SWEProTimeReduction\% less active workflow time per task. The trajectory is not
@@ -202,21 +204,21 @@ for future supervised and reinforcement learning.
 \end{minipage}%
 \hfill
 \begin{minipage}[t]{0.31\linewidth}
-  \raggedleft\footnotesize\color{muted}
-  \textbf{Project:} \href{https://argusbot.cn/}{argusbot.cn}
+  \raggedleft\small\sffamily\color{argusdeep}
+  \textbf{Project:} \href{https://argusbot.cn/}{\textbf{argusbot.cn}}
 \end{minipage}
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=\linewidth]{figures/argus_teaser.pdf}
-  \caption{\systemname at a glance. The center redraws the runtime framework:
-  Manager governs task, vertical, and Stage decisions; Planner, Engineer, and
-  Reviewer operate through the control plane over a shared workspace and persistent
-  harness. Seven surrounding plots summarize SWE-Bench Pro and six public arenas in
-  their native units. Arrows indicate whether larger or smaller values are better;
-  each mini-chart uses its own task-specific scale rather than a shared normalization. The
-  SWE-Bench Pro aggregate is approximately 59\% for Direct Copilot versus 78\%
-  for \systemname at 1.41$\times$ aggregate tokens.}
+  \caption{\systemname runtime and breadth evidence. The central diagram shows
+  Manager authority over tasks, research verticals, and Stage transitions;
+  Planner, Engineer, and Reviewer operate over a shared workspace whose knowledge,
+  event log, artifacts, backlog, budget, daemon, and memory persist across bounded
+  missions. The surrounding cards report outcomes from seven task-native
+  evaluations. Their bars use independent scales and indicate comparison direction
+  with arrows; they are breadth evidence rather than a single normalized
+  leaderboard.}
   \label{fig:overview}
 \end{figure}
 
@@ -236,6 +238,7 @@ for future supervised and reinforcement learning.
 \appendix
 \input{sections/90_appendix}
 
+\clearpage
 \bibliographystyle{plainnat}
 \bibliography{references}
 

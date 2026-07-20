@@ -31,41 +31,58 @@ agent; Backend denotes the execution surface.}
 \label{tab:benchmark-results}
 \end{table}
 
+As a small upstream-adoption example, an \systemname-optimized TileLang
+\code{RWKV6} kernel was reviewed by a Moonshot AI-affiliated FLA collaborator and
+merged into \code{fla-org:main}
+(\href{https://github.com/fla-org/flash-linear-attention/pull/1045}{PR \#1045};
+\href{https://github.com/fla-org/flash-linear-attention/commit/c70f11c5530142450525549cc96d13d9f5165f69}
+{commit \code{c70f11c}}); Appendix~\ref{app:upstream-kernel} records the technical
+details.
+
 The table shows one runtime reaching competitive outcomes across heterogeneous
 tasks. The remainder of this section
 analyzes the SWE-Bench Pro row because it provides a long sequential trajectory and
 Reviewer decisions.
 
-\subsection{SWE-Bench Pro Analysis: Self-Evolution Efficiency}
+\subsection{SWE-Bench Pro Analysis: Fixed-Model Runtime Self-Evolution}
 
 Figure~\ref{fig:swebench-evolution} shows the \systemname-only longitudinal
-trajectory. Mature operation W19--22 uses \SWEProTokenReduction\% fewer solve
-input tokens and \SWEProTimeReduction\% less active workflow time per task than
-startup W1--6. The lowest-Token window, W13--18, reaches a
-\SWEProBestTokenReduction\% reduction from startup but requires more active time
-because its task composition contains slower executions. The final difficult-task window rebounds
-in both metrics.
+trajectory. Here, self-evolution refers to changes in persistent runtime state, not
+to online training of the underlying model. Across Waves, accepted trajectories can
+update repository knowledge, reusable Skills, verification guidance, task
+definitions, and routing policy. These objects alter what later missions retrieve,
+which checks they run, and where they spend independent review.
+
+Mature operation W19--22 uses \SWEProTokenReduction\% fewer solve input Tokens and
+\SWEProTimeReduction\% less active workflow time per task than startup W1--6. This
+pattern is consistent with accumulated state reducing repeated inspection,
+rediscovery, or failed execution. The lowest-Token window, W13--18, reaches a
+\SWEProBestTokenReduction\% reduction from startup but requires more active time,
+showing that Token efficiency and execution latency do not move together. The
+final difficult-task window rebounds in both metrics.
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=\linewidth]{figures/swebench_evolution.pdf}
-  \caption{Unified analysis of the SWE-Bench Pro result. Panel (a) combines the
-  full-suite accuracy and aggregate-Token comparison with Reviewer routing and the
-  observed recovery chain: 388 first-pass acceptances, 43 revision requests, 34
-  later official-verifier passes, and 22 strict review-loop rescues. Reviewer routing
-  is adaptive rather than randomized, so its cost ratios describe a harder routed
-  workload rather than a causal ablation. Panels (b) and (c) aggregate \systemname
-  Token and active time over approximately six-Wave windows. Values are task-weighted means. Two
-  incomplete Waves are omitted, while W23--24 remain visible as late difficult-task
-  stress. Active time excludes orchestration wait, environment preparation,
-  external verification, infrastructure recovery, and post-task knowledge
-  maintenance; Copilot per-Wave resource traces were not logged.}
+  \caption{Outcome, review, and longitudinal efficiency in the 731-task SWE-Bench
+  Pro run. Panel (a) reports the full-suite accuracy and aggregate-Token comparison,
+  adaptive Reviewer routing, and observed review outcomes. Panels (b) and (c)
+  aggregate \systemname solve input Tokens and active workflow time over
+  approximately six-Wave windows using task-weighted means. Relative to W1--6,
+  W19--22 uses 21\% fewer solve input Tokens and 15\% less active time per task.
+  Two incomplete Waves are omitted, while W23--24 remains visible as late
+  difficult-task stress. Copilot per-Wave resource traces were not retained, and
+  the window comparison is observational rather than a controlled learning
+  ablation.}
   \label{fig:swebench-evolution}
-  \label{fig:reviewer-mechanism}
 \end{figure}
 
-The curve shows a lower-cost mature operating window together with visible
-task-composition and late-wave difficulty effects.
+The trajectories show a lower-cost mature operating window together with visible
+task-composition and late-wave difficulty effects. The rebound in W23--24 prevents
+the startup-to-mature comparison from being read as monotonic improvement. Because
+the task sequence is not replayed against a frozen runtime state, the evidence
+supports an observational claim about system-state accumulation rather than a
+causal claim that any individual memory or Skill update produced the reduction.
 
 \subsection{SWE-Bench Pro Analysis: Reviewer Routing and Recovery}
 
@@ -80,6 +97,25 @@ Reviewer-routed tasks consume \ReviewerTokenRatio$\times$ as many solve input
 tokens and \ReviewerTimeRatio$\times$ as much active time as self-reviewed tasks on
 average, indicating that the routing policy selects a harder workload. The recovery
 funnel is therefore more interpretable than a raw group-accuracy comparison.
+
+Figure~\ref{fig:reviewer-mechanism} separates the routing population from the
+revision-recovery path. The accepted and revise branches partition outcomes after
+Reviewer invocation together with 35 blocked cases; verifier pass and strict rescue
+are nested recovery milestones among the 43 revision-requested tasks.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/reviewer_mechanism.pdf}
+  \caption{Adaptive Reviewer routing and revision recovery. Panel (a) shows that
+  466 of 731 tasks invoke an independent Reviewer, while 265 use Engineer
+  self-review; routed tasks consume 2.75$\times$ the solve input Tokens and
+  1.80$\times$ the active time on average. Panel (b) follows the routed workload:
+  388 tasks are accepted on first review, 43 receive a revision request, 34 of
+  those later pass the official verifier, and 22 complete the strict
+  review-loop rescue. Routing is task-dependent, so the cost contrast is
+  descriptive rather than a randomized causal estimate.}
+  \label{fig:reviewer-mechanism}
+\end{figure}
 
 \subsection{Measured Process Quantities}
 

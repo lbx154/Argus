@@ -9,7 +9,7 @@
   "encoding": "Six real first-page PDF thumbnails are paired with task-native scientific headlines; a separate bottom strip reports Argus production-process counts.",
   "scope": "Observed Argus campaigns; paper-format completion is not venue acceptance or a human-quality comparison.",
   "target_size": "12 x 5.75 inch source canvas; approximately 3.2 inches high at manuscript width",
-  "visual_style": "shared Argus anime-editorial palette, cream paper, mountain-ridge motif, reusable role characters, and fixed role colors",
+  "visual_style": "component-editable cream-paper portfolio with six independent manuscript thumbnails, cards, labels, and process metrics",
   "character_assets": [
     "assets/anime/manager.svg",
     "assets/anime/planner.svg",
@@ -25,6 +25,7 @@
     "assets/paper_thumbnails/quant-vocab.png"
   ],
   "editable_source": [
+    "paper_case_study.pptx",
     "build_paper_case_study.py",
     "paper_case_study.html"
   ],
@@ -32,5 +33,11 @@
     "paper_case_study.pdf",
     "paper_case_study.svg",
     "paper_case_study.png"
-  ]
+  ],
+  "output_sha256": {
+    "pptx": "3864bd175cbacda3bc96bd8c485064abd5a42a7e02614943e3c405e68bee3a01",
+    "pdf": "3c53c19cb28d1b51cc479d9cb8fbe1cddd45909d53a52abb385cc3eded991112",
+    "png": "f7fc711b942f6ae26f62c4198f9a5c4afc6c7caea895a0d2e55e95bce96cfa2e",
+    "svg": "1bfbbedd8267d5d3ff6dee9e62501e13854ce7d55b7d1030813013acfbc3f22f"
+  }
 }

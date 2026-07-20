@@ -11,13 +11,13 @@
     "reviewer_mechanism_stats.json": "da7f4206345b1092b6750426b09995396aaadedf91235299eb40295b55910919"
   },
   "outputs": {
-    "reviewer_mechanism.pdf": "cc7050fdb7ef6ba7b6bcf2f42a3ec1eed32d220bf9756baa2282c98ddf34fdac",
-    "reviewer_mechanism.png": "12f8e467260de3da24361e7f36df4d4c25491e9db9dca030c961e479d7614c52",
-    "reviewer_mechanism.pptx": "d274d34a5a5b603c31d10514d374ca81431d350cf6972b4f36f939fafbdc01a6",
-    "reviewer_mechanism.svg": "9055680dba7fdb4822cadabfd339af54515fa3fe78c8188fdcbd73d9f0c3ec15",
+    "reviewer_mechanism.pdf": "975a3307a97b7b501da160d39f4910c561adf9e4021cf7b8b6694765550f6f74",
+    "reviewer_mechanism.png": "b231aa79e34582389475a252a4d5b22e20c1263fd2ca54ccea2b1ca03eceaed4",
+    "reviewer_mechanism.pptx": "a7e87f0ca3e740de18378848c31dd1f90f42414c06ffbe107f3772bc76d578ee",
+    "reviewer_mechanism.svg": "5c8e7562d89de85fedb64a700dda7fae458ceccf62af0e2f74083c2be9865957",
     "reviewer_metrics.tex": "21c39bbe66483362360893ec56ee53c37e22edae3baf40884e9a75deeeebf5ab"
   },
   "reader_question": "How often is an independent Reviewer invoked, and how many revision-requested tasks are recovered?",
   "scope": "Adaptive routing analysis, not randomized ablation.",
-  "visual_style": "anime research field note with cream paper, navy linework, mountain-ridge motif, and shared Engineer/Reviewer characters; flow counts remain exact"
+  "visual_style": "cream paper, navy typography, blue and gold routing/recovery accents, with small Engineer and Reviewer role icons"
 }
