@@ -9,6 +9,7 @@ import time
 from collections import deque
 from pathlib import Path
 from typing import Any, Callable, Sequence
+from urllib.parse import urlencode
 
 from ...core import paths as core_paths
 from .._inbox import format_inbox_event
@@ -30,6 +31,74 @@ def _resolve_follow_events_path(args: argparse.Namespace) -> Path:
             return explicit
     bundle = _core._resolve_project_bundle(args)
     return bundle.project.root / "events.jsonl"
+
+
+def _follow_websocket_url(args: argparse.Namespace) -> str:
+    explicit = str(getattr(args, "life_dir", "") or "").strip()
+    if explicit:
+        path = core_paths.resolve_runtime_path(explicit, context="--life-dir")
+        if path.name == "events.jsonl":
+            return ""
+    bundle = _core._resolve_project_bundle(args)
+    host = str(getattr(args, "web_host", "127.0.0.1") or "127.0.0.1")
+    if host in {"0.0.0.0", "::"}:
+        host = "127.0.0.1"
+    elif ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    port = int(getattr(args, "web_port", 8799) or 8799)
+    query = {"replay": "40", "view": "full"}
+    token = str(os.environ.get("ARGUS_SKILL_WEB_TOKEN", "") or "").strip()
+    if token:
+        query["token"] = token
+    return (
+        f"ws://{host}:{port}/api/projects/{bundle.project.root.name}/stream?"
+        f"{urlencode(query)}"
+    )
+
+
+def _stream_follow_websocket(
+    args: argparse.Namespace,
+    on_event: Callable[[dict[str, Any]], None],
+    *,
+    on_idle: Callable[[], None] | None = None,
+    connect_factory: Callable[..., Any] | None = None,
+) -> bool:
+    """Consume the WebAPI's existing event stream until it closes.
+
+    Returns ``False`` when the live endpoint is unavailable or disconnects so
+    the caller can continue with the durable ``events.jsonl`` tail.
+    """
+    if connect_factory is None:
+        try:
+            from websockets.sync.client import connect as connect_factory
+        except ImportError:
+            return False
+    url = _follow_websocket_url(args)
+    if not url:
+        return False
+    try:
+        with connect_factory(
+            url,
+            open_timeout=1,
+            close_timeout=1,
+        ) as websocket:
+            while True:
+                try:
+                    raw = websocket.recv(timeout=0.5)
+                except TimeoutError:
+                    if on_idle is not None:
+                        on_idle()
+                    continue
+                if raw is None:
+                    return False
+                try:
+                    event = json.loads(str(raw))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    continue
+                if isinstance(event, dict):
+                    on_event(event)
+    except Exception:  # noqa: BLE001 — file-tail fallback remains available
+        return False
 
 
 def _follow_layer_label(layer: str | None) -> str:
@@ -221,9 +290,11 @@ class _FollowCoalescer:
         self._emit(event)
 
     def flush_idle(self) -> None:
-        # NO-OP: settle only on a new message_id, a non-replace event, or
-        # flush(). Committing on an idle gap re-fragmented slow real streams.
-        return
+        if (
+            self._ev is not None
+            and time.monotonic() - self._at >= self._idle_after
+        ):
+            self._commit()
 
     def flush(self) -> None:
         self._commit()

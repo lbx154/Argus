@@ -23,6 +23,7 @@ import json
 import os
 import sys
 import time
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -532,13 +533,17 @@ def _cmd_watch(args: argparse.Namespace) -> int:
 
 
 def _cmd_follow(args: argparse.Namespace) -> int:
-    """Tail events.jsonl with pretty formatting — like ``tail -f``."""
+    """Stream WebAPI events live, falling back to durable file tailing."""
     events_path = _resolve_follow_events_path(args)
     backlog_path = events_path.parent / "backlog.jsonl"
 
     import json as _json
 
-    print(f"argus-skill: following {events_path}  (Ctrl-C to stop)", flush=True)
+    print(
+        f"argus-skill: following project {events_path.parent.name} "
+        "(live WebSocket with file fallback, Ctrl-C to stop)",
+        flush=True,
+    )
     print("━" * 60, flush=True)
     fh = None
     current_layer = "engineer"
@@ -550,12 +555,33 @@ def _cmd_follow(args: argparse.Namespace) -> int:
     theme = Theme.auto()
     last_event_at = time.monotonic()
     last_heartbeat_at = 0.0
+    seen_order: deque[str] = deque(maxlen=512)
+    seen: set[str] = set()
 
     def _emit(ev: dict) -> None:
         # Render + print exactly one committed event. Runs the stateful
         # connector/timestamp advance ONCE per printed line (not per streamed
         # beat), so coalesced messages don't desync the grouping connectors.
         nonlocal current_layer, current_mission, last_event_at, last_heartbeat_at
+        explicit = str(ev.get("event_id") or ev.get("id") or "")
+        seen_key = explicit or _json.dumps(
+            {
+                key: ev.get(key)
+                for key in (
+                    "type", "ts", "message_id", "kind", "agent_layer",
+                    "text", "item_id", "status",
+                )
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        )
+        if seen_key in seen:
+            return
+        if len(seen_order) == seen_order.maxlen:
+            seen.discard(seen_order[0])
+        seen_order.append(seen_key)
+        seen.add(seen_key)
         current_layer = _follow_layer_from_event(ev, current_layer)
         etype = str(ev.get("type") or "")
         connector = lv.interior(state, lv.advance(state, etype, ev))
@@ -604,7 +630,36 @@ def _cmd_follow(args: argparse.Namespace) -> int:
         last_heartbeat_at = 0.0
 
     coalescer = _FollowCoalescer(_emit)
+
+    def _idle() -> None:
+        nonlocal last_heartbeat_at
+        coalescer.flush_idle()
+        now = time.monotonic()
+        idle = now - last_event_at
+        if (
+            idle >= _FOLLOW_HEARTBEAT_SECONDS
+            and now - last_heartbeat_at >= _FOLLOW_HEARTBEAT_SECONDS
+        ):
+            print(
+                _format_follow_heartbeat(events_path, current_layer, idle),
+                flush=True,
+            )
+            last_heartbeat_at = now
+
     try:
+        from ._follow import _stream_follow_websocket
+
+        if not _stream_follow_websocket(
+            args,
+            coalescer.feed,
+            on_idle=_idle,
+        ):
+            coalescer.flush()
+            print(
+                "argus-skill: live WebSocket unavailable; "
+                f"falling back to {events_path}",
+                flush=True,
+            )
         while fh is None:
             try:
                 fh = events_path.open("r", encoding="utf-8")
@@ -623,19 +678,8 @@ def _cmd_follow(args: argparse.Namespace) -> int:
             line = fh.readline()
             if not line:
                 # Settle a streamed message that has gone quiet, then idle.
-                coalescer.flush_idle()
                 time.sleep(0.5)
-                now = time.monotonic()
-                idle = now - last_event_at
-                if (
-                    idle >= _FOLLOW_HEARTBEAT_SECONDS
-                    and now - last_heartbeat_at >= _FOLLOW_HEARTBEAT_SECONDS
-                ):
-                    print(
-                        _format_follow_heartbeat(events_path, current_layer, idle),
-                        flush=True,
-                    )
-                    last_heartbeat_at = now
+                _idle()
                 # Check if file was rotated
                 try:
                     if events_path.stat().st_ino != os.fstat(fh.fileno()).st_ino:

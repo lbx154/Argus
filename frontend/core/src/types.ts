@@ -60,6 +60,8 @@ export interface BacklogItem {
   original_objective?: string;
   orphan_retries?: number;
   deps?: string[];
+  acceptance_check?: string;
+  non_goals?: string[];
   outcome?: MissionOutcomeDimensions;
 }
 
@@ -193,6 +195,39 @@ export interface MissionDagNode {
   deps: string[];
   branch_id: string;
   parent_branch_id: string | null;
+  acceptance_check?: string;
+  non_goals?: string[];
+}
+
+export interface MissionRoleWorkItem {
+  id: string;
+  ts: number;
+  role: string;
+  kind: string;
+  title: string;
+  detail: string;
+  status: string;
+  item_id?: string;
+  mission_id?: string;
+  mission_title?: string;
+  round_index?: number | null;
+}
+
+export interface MissionSkillView {
+  id: string;
+  name: string;
+  version: number;
+  scope: string;
+  path: string;
+  status: string;
+  updated_at: number;
+  mission_id?: string;
+  mission_title?: string;
+  source_path?: string;
+  source_placement?: string;
+  source_vertical?: string;
+  content?: string;
+  content_truncated?: boolean;
 }
 
 export interface MissionMetricView {
@@ -279,6 +314,8 @@ export interface MissionView {
   round: { current: number; max: number };
   active_role: string;
   roles: MissionRoleView[];
+  role_work: MissionRoleWorkItem[];
+  decision_context: Record<string, Record<string, unknown>>;
   dag: MissionDagNode[];
   hypotheses: Array<Record<string, unknown>>;
   experiments: Array<Record<string, unknown>>;
@@ -286,7 +323,7 @@ export interface MissionView {
   primary_metric: MissionMetricView | null;
   timeline: MissionTimelineItem[];
   artifacts: Array<Record<string, unknown>>;
-  learned_skills: Array<Record<string, unknown>>;
+  learned_skills: MissionSkillView[];
   learned_wiki_pages: Array<Record<string, unknown>>;
   storage: MissionStorageView;
   achievement: MissionAchievement | null;

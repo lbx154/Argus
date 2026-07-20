@@ -1,5 +1,5 @@
 import { canonicalEventType, EVENT_TYPES } from './eventCatalog.js';
-import { eventKey } from './events.js';
+import { eventKey, isReasoning, isStructuredAgentPayload } from './events.js';
 import {
   missionOutcomeDimensions,
   missionOutcomePresentation,
@@ -10,7 +10,9 @@ import type {
   MissionAchievement,
   MissionDagNode,
   MissionMetricView,
+  MissionRoleWorkItem,
   MissionRoleView,
+  MissionSkillView,
   MissionTimelineItem,
   MissionView,
   Snapshot,
@@ -49,6 +51,8 @@ export function emptyMissionView(): MissionView {
     round: { current: 0, max: 0 },
     active_role: '',
     roles: ROLE_NAMES.map((role) => ({ role, status: 'waiting', label: 'Waiting', updated_at: 0 })),
+    role_work: [],
+    decision_context: {},
     dag: [],
     hypotheses: [],
     experiments: [],
@@ -96,6 +100,7 @@ function setRole(view: MissionView, role: string, status: string, label: string,
   const patch: MissionRoleView = { role, status, label, updated_at: ts };
   upsert(view.roles as Array<MissionRoleView & Record<string, unknown>>, 'role', role, patch as MissionRoleView & Record<string, unknown>);
   if (status === 'active') view.active_role = role;
+  else if (view.active_role === role) view.active_role = '';
 }
 
 function addTimeline(
@@ -122,6 +127,57 @@ function addTimeline(
     if (value) row[key] = value;
   });
   view.timeline = [...view.timeline, row].slice(-120);
+}
+
+function addRoleWork(
+  view: MissionView,
+  event: EventMsg,
+  role: string,
+  kind: string,
+  title: string,
+  detail = '',
+  status = '',
+): void {
+  if (!ROLE_NAMES.includes(role as typeof ROLE_NAMES[number])) return;
+  const messageId = S(event, 'message_id');
+  const id = messageId ? `${role}:${messageId}` : eventKey(event);
+  const existing = view.role_work.find((row) => row.id === id);
+  const resolvedDetail = existing && existing.detail.length > detail.length
+    ? existing.detail
+    : detail;
+  const row: MissionRoleWorkItem = {
+    id,
+    ts: Number(event.ts ?? Date.now() / 1000),
+    role,
+    kind,
+    title: title.slice(0, 240),
+    detail: resolvedDetail.slice(0, 4000),
+    status,
+    item_id: S(event, 'item_id'),
+    mission_id: view.mission.id,
+    mission_title: view.mission.title.slice(0, 240),
+    round_index: N(event, 'round_index'),
+  };
+  const index = view.role_work.findIndex((candidate) => candidate.id === id);
+  if (index >= 0) view.role_work[index] = row;
+  else view.role_work.push(row);
+  const keep = new Set<string>();
+  ROLE_NAMES.forEach((roleName) => {
+    view.role_work
+      .filter((candidate) => candidate.role === roleName)
+      .slice(-40)
+      .forEach((candidate) => keep.add(candidate.id));
+  });
+  view.role_work = view.role_work.filter((candidate) => keep.has(candidate.id));
+}
+
+function captureDecisionContext(view: MissionView, event: EventMsg): void {
+  for (const key of ['planner_report', 'research_result', 'checklist_feedback', 'step_back']) {
+    const value = event[key];
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      view.decision_context[key] = value as Record<string, unknown>;
+    }
+  }
 }
 
 function missionTimelineTone(
@@ -167,26 +223,53 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
   const type = canonicalEventType(event.type);
   const ts = Number(event.ts ?? Date.now() / 1000);
   view.last_event_ts = Math.max(view.last_event_ts, ts);
+  captureDecisionContext(view, event);
 
   if (type === EVENT_TYPES.LIFE_MANAGER_INTENT_COMPLETED) {
+    view.decision_context = {};
     view.mission.id = S(event, 'item_id');
     view.mission.title = S(event, 'objective').slice(0, 240);
     view.mission.objective = S(event, 'objective');
     view.mission.status = 'framed';
+    const currentStage = S(event, 'current_stage');
     const stages = Array.isArray(event.stages) ? event.stages : [];
-    if (!view.stage.id && stages[0]) {
+    if (currentStage) {
+      view.stage = {
+        id: currentStage,
+        label: currentStage.replaceAll('_', ' '),
+      };
+    } else if (!view.stage.id && stages[0]) {
       const stage = String(stages[0]);
       view.stage = { id: stage, label: stage.replaceAll('_', ' ') };
     }
     setRole(view, 'manager', 'done', 'Goal framed', ts);
     addTimeline(view, event, 'manager', 'Goal framed', S(event, 'reason'), 'success');
+    addRoleWork(
+      view,
+      event,
+      'manager',
+      'decision',
+      'Goal framed',
+      S(event, 'reason') || S(event, 'execution_task'),
+      'done',
+    );
   } else if (type === EVENT_TYPES.LIFE_MANAGER_STAGE_DECISION) {
     const stage = S(event, 'target_stage') || S(event, 'stage') || S(event, 'current_stage');
     if (stage) view.stage = { id: stage, label: stage.replaceAll('_', ' ') };
     setRole(view, 'manager', 'done', stage ? `Stage · ${stage}` : 'Stage reviewed', ts);
     addTimeline(view, event, 'manager', stage ? `Stage → ${stage}` : 'Stage reviewed', S(event, 'reason'));
+    addRoleWork(
+      view,
+      event,
+      'manager',
+      'stage_decision',
+      stage ? `Stage → ${stage}` : 'Stage reviewed',
+      S(event, 'reason'),
+      S(event, 'action'),
+    );
   } else if (type === EVENT_TYPES.LIFE_PLANNER_START) {
     setRole(view, 'planner', 'active', 'Planning next work', ts);
+    addRoleWork(view, event, 'planner', 'planning', 'Planning next work', S(event, 'objective'), 'active');
   } else if (type === EVENT_TYPES.LIFE_PLANNER_TASK_ADDED) {
     const id = S(event, 'item_id');
     const node: MissionDagNode = {
@@ -201,7 +284,21 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
     upsert(view.dag as Array<MissionDagNode & Record<string, unknown>>, 'id', id, node as MissionDagNode & Record<string, unknown>);
     setRole(view, 'planner', 'done', 'Research branch added', ts);
     addTimeline(view, event, 'planner', 'Research branch added', node.title, 'info');
+    addRoleWork(view, event, 'planner', 'task', node.title || 'Task added', node.objective, 'pending');
+  } else if (type === EVENT_TYPES.LIFE_PLANNER_VERDICT) {
+    const projectDone = Boolean(event.project_done);
+    const label = projectDone ? 'Project reviewed' : 'Planning complete';
+    setRole(view, 'planner', 'done', label, ts);
+    addTimeline(view, event, 'planner', label, S(event, 'reason'), projectDone ? 'success' : 'neutral');
+    addRoleWork(view, event, 'planner', 'verdict', label, S(event, 'reason'), projectDone ? 'done' : 'planned');
+  } else if (type === EVENT_TYPES.LIFE_PLANNER_WAITING) {
+    setRole(view, 'planner', 'waiting', 'Waiting on external work', ts);
+    const detail = S(event, 'reason') || S(event, 'waiting_reason');
+    addTimeline(view, event, 'planner', 'Planner waiting', detail);
+    addRoleWork(view, event, 'planner', 'waiting', 'Planner waiting', detail, 'waiting');
   } else if (type === EVENT_TYPES.LIFE_MISSION_STARTED) {
+    view.decision_context = {};
+    view.review = { status: '', reason: '', rejected_attempts: 0 };
     view.mission.campaign_started_at ??= ts;
     view.mission = {
       ...view.mission,
@@ -212,8 +309,10 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
       started_at: ts,
       completed_at: null,
     };
+    setRole(view, 'reviewer', 'waiting', 'Awaiting engineer handoff', ts);
     setRole(view, 'engineer', 'active', 'Starting mission', ts);
     addTimeline(view, event, 'engineer', 'Mission started', S(event, 'title'), 'info');
+    addRoleWork(view, event, 'engineer', 'task', S(event, 'title') || 'Mission started', S(event, 'objective'), 'active');
   } else if (type === EVENT_TYPES.ROUND_START) {
     view.round = { current: N(event, 'round_index') ?? 0, max: N(event, 'round_max') ?? view.round.max };
     setRole(view, 'engineer', 'active', `Running round ${view.round.current}`, ts);
@@ -224,11 +323,27 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
     const kind = S(event, 'kind');
     const label = PROGRESS_LABELS[kind] ?? 'Working';
     setRole(view, role, 'active', label, ts);
+    const detail = S(event, 'action_summary') || S(event, 'text');
+    if (detail && !isReasoning(event) && !isStructuredAgentPayload(event)) {
+      addRoleWork(view, event, role, kind || 'progress', label, detail, 'active');
+    }
     if (!['reasoning', 'assistant_message', 'agent_message'].includes(kind)) {
       addTimeline(view, event, role, label, S(event, 'action_summary') || S(event, 'text'));
     }
+  } else if (type === EVENT_TYPES.ROUND_MAIN_COMPLETED) {
+    setRole(view, 'engineer', 'done', 'Engineer handoff ready', ts);
+    addRoleWork(
+      view,
+      event,
+      'engineer',
+      'handoff',
+      'Engineer handoff ready',
+      S(event, 'text') || S(event, 'summary'),
+      'done',
+    );
   } else if (type === EVENT_TYPES.ROUND_REVIEW_STARTED) {
     setRole(view, 'reviewer', 'active', 'Reviewing benchmark evidence', ts);
+    addRoleWork(view, event, 'reviewer', 'review', 'Review started', '', 'active');
   } else if (type === EVENT_TYPES.ROUND_REVIEW_DEFERRED) {
     const nextStep = S(event, 'next_step');
     setRole(view, 'engineer', 'active', 'Continuing before review', ts);
@@ -244,6 +359,16 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
     };
     setRole(view, 'reviewer', status === 'done' ? 'done' : 'rejected', status === 'done' ? 'Accepted evidence' : 'Requested another attempt', ts);
     addTimeline(view, event, 'reviewer', status === 'done' ? 'Evidence accepted' : 'Attempt rejected', reason, status === 'done' ? 'success' : 'error');
+    const nextAction = S(event, 'next_action');
+    addRoleWork(
+      view,
+      event,
+      'reviewer',
+      'verdict',
+      status === 'done' ? 'Evidence accepted' : 'Attempt rejected',
+      nextAction ? `${reason}\n\nNext action: ${nextAction}` : reason,
+      status,
+    );
     if (status === 'done') {
       const round = N(event, 'round_index');
       const candidates = view.metrics.filter((metric) =>
@@ -335,7 +460,11 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
   } else if ([EVENT_TYPES.SKILL_CREATED, EVENT_TYPES.SKILL_UPDATED].includes(type as never)) {
     const id = S(event, 'skill_id') || S(event, 'name');
     if (id) {
-      upsert(view.learned_skills, 'id', id, {
+      upsert(
+        view.learned_skills as Array<MissionSkillView & Record<string, unknown>>,
+        'id',
+        id,
+        {
         id,
         name: S(event, 'name'),
         version: N(event, 'version') ?? 1,
@@ -343,7 +472,10 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
         path: S(event, 'path'),
         status: 'active',
         updated_at: ts,
-      });
+        mission_id: view.mission.id,
+        mission_title: view.mission.title,
+        } as MissionSkillView & Record<string, unknown>,
+      );
       addTimeline(view, event, 'reviewer', type === EVENT_TYPES.SKILL_CREATED ? 'Capability unlocked' : 'Capability upgraded', S(event, 'name'), 'skill');
     }
   } else if (type === EVENT_TYPES.SKILL_EVOLUTION_COMPLETED) {
@@ -365,7 +497,20 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
         updated_at: ts,
       };
       if (existing) Object.assign(existing, patch);
-      else upsert(view.learned_skills, 'id', name, { id: name, name, version: 1, scope: '', path: '', status: 'active', ...patch });
+      else upsert(
+        view.learned_skills as Array<MissionSkillView & Record<string, unknown>>,
+        'id',
+        name,
+        {
+          id: name,
+          name,
+          version: 1,
+          scope: '',
+          path: '',
+          status: 'active',
+          ...patch,
+        } as MissionSkillView & Record<string, unknown>,
+      );
       addTimeline(view, event, 'manager', 'Capability promoted to source', name, 'skill');
     }
   } else if ([EVENT_TYPES.WIKI_INITIALIZED, EVENT_TYPES.WIKI_EVOLUTION_COMPLETED].includes(type as never)) {
@@ -448,8 +593,16 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
       S(event, 'title') || S(event, 'status'),
       missionTimelineTone(presentation.tone),
     );
+    addRoleWork(
+      view,
+      event,
+      'engineer',
+      'completion',
+      presentation.label,
+      S(event, 'title') || S(event, 'status'),
+      presentation.missionStatus,
+    );
   }
-  refreshPrimaryMetric(view);
   refreshPrimaryMetric(view);
   view.updated_at = Date.now() / 1000;
   return view;
@@ -500,6 +653,8 @@ function mergeSnapshot(view: MissionView, snapshot: Snapshot, artifacts: Artifac
       deps: item.deps ?? [],
       branch_id: item.id,
       parent_branch_id: item.deps?.[0] ?? null,
+      acceptance_check: item.acceptance_check ?? '',
+      non_goals: item.non_goals ?? [],
     };
     upsert(view.dag as Array<MissionDagNode & Record<string, unknown>>, 'id', node.id, node as MissionDagNode & Record<string, unknown>);
   });
@@ -554,6 +709,8 @@ export function projectMissionView(
   view.storage.skill_history_bytes_saved ??= 0;
   view.storage.wiki_retired_bytes_saved ??= 0;
   view.learned_wiki_pages ??= [];
+  view.role_work ??= [];
+  view.decision_context ??= {};
   view.outcome ??= {};
   const seedTs = view.last_event_ts;
   events

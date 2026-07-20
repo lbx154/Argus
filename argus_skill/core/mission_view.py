@@ -26,7 +26,9 @@ MISSION_VIEW_FILE = "mission-view.json"
 MISSION_VIEW_LOCK_FILE = "mission-view.lock"
 MISSION_VIEW_SCHEMA_VERSION = 1
 MISSION_TIMELINE_LIMIT = 120
+MISSION_ROLE_WORK_LIMIT_PER_ROLE = 40
 MISSION_BOOTSTRAP_MAX_BYTES = 8 * 1024 * 1024
+MISSION_SKILL_CONTENT_MAX_BYTES = 128 * 1024
 
 _ROLE_NAMES = ("manager", "planner", "engineer", "reviewer")
 _PIPELINE_ROLE_NAMES = frozenset({"planner", "engineer", "reviewer"})
@@ -61,6 +63,8 @@ def empty_mission_view() -> dict[str, Any]:
             {"role": role, "status": "waiting", "label": "Waiting", "updated_at": 0.0}
             for role in _ROLE_NAMES
         ],
+        "role_work": [],
+        "decision_context": {},
         "dag": [],
         "hypotheses": [],
         "experiments": [],
@@ -133,7 +137,13 @@ def _read_unlocked(root: Path) -> dict[str, Any]:
     for key, value in storage_defaults.items():
         storage.setdefault(key, value)
     payload.setdefault("learned_wiki_pages", [])
+    payload.setdefault("role_work", [])
+    payload.setdefault("decision_context", {})
     payload.setdefault("outcome", {})
+    for skill in payload.setdefault("learned_skills", []):
+        if isinstance(skill, dict):
+            skill.pop("content", None)
+            skill.pop("content_truncated", None)
     mission = payload.setdefault("mission", {})
     mission.setdefault("campaign_started_at", None)
     mission.setdefault("campaign_elapsed_seconds", 0.0)
@@ -187,6 +197,7 @@ _PROJECTED_EVENT_TYPES = frozenset({
     EventType.LIFE_MISSION_COMPLETED,
     EventType.LIFE_MISSION_FAILED,
     EventType.ROUND_START,
+    EventType.ROUND_MAIN_COMPLETED,
     EventType.ROUND_REVIEW_STARTED,
     EventType.ROUND_REVIEW_DEFERRED,
     EventType.ROUND_REVIEW_COMPLETED,
@@ -347,6 +358,91 @@ def _timeline(
     view["timeline"] = rows[-MISSION_TIMELINE_LIMIT:]
 
 
+def _role_work(
+    view: dict[str, Any],
+    event: Mapping[str, Any],
+    *,
+    role: str,
+    kind: str,
+    title: str,
+    detail: str = "",
+    status: str = "",
+) -> None:
+    if role not in _ROLE_NAMES:
+        return
+    rows = view.setdefault("role_work", [])
+    message_id = _text(event, "message_id", 200)
+    work_id = f"{role}:{message_id}" if message_id else _event_id(event)
+    mission = view.setdefault("mission", {})
+    item_id = _text(event, "item_id", 160)
+    existing = next(
+        (row for row in rows if str(row.get("id") or "") == work_id),
+        None,
+    )
+    if existing is not None and len(str(existing.get("detail") or "")) > len(detail):
+        detail = str(existing.get("detail") or "")
+    patch = {
+        "id": work_id,
+        "ts": float(event.get("ts") or time.time()),
+        "role": role,
+        "kind": kind,
+        "title": title[:240],
+        "detail": detail[:4000],
+        "status": status,
+        "item_id": item_id,
+        "mission_id": str(mission.get("id") or ""),
+        "mission_title": str(mission.get("title") or "")[:240],
+        "round_index": _integer(event, "round_index"),
+    }
+    _upsert(rows, "id", work_id, patch)
+    keep_ids: set[str] = set()
+    for role_name in _ROLE_NAMES:
+        role_rows = [
+            row for row in rows if str(row.get("role") or "") == role_name
+        ]
+        keep_ids.update(
+            str(row.get("id") or "")
+            for row in role_rows[-MISSION_ROLE_WORK_LIMIT_PER_ROLE:]
+        )
+    view["role_work"] = [
+        row for row in rows if str(row.get("id") or "") in keep_ids
+    ]
+
+
+def _capture_decision_context(
+    view: dict[str, Any],
+    event: Mapping[str, Any],
+) -> None:
+    context = view.setdefault("decision_context", {})
+    for key in (
+        "planner_report",
+        "research_result",
+        "checklist_feedback",
+        "step_back",
+    ):
+        value = event.get(key)
+        if isinstance(value, Mapping):
+            context[key] = dict(value)
+
+
+def _visible_role_work_progress(
+    event: Mapping[str, Any],
+    *,
+    role: str,
+    kind: str,
+    detail: str,
+) -> bool:
+    if kind == "reasoning":
+        return False
+    if (
+        kind in {"assistant_message", "agent_message", "message"}
+        and role in {"planner", "reviewer"}
+        and detail.lstrip().startswith("{")
+    ):
+        return False
+    return True
+
+
 _PROGRESS_LABELS = {
     "agent_message": "Reporting progress",
     "assistant_message": "Reporting progress",
@@ -399,8 +495,10 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
     ts = float(event.get("ts") or time.time())
     view["last_event_ts"] = max(float(view.get("last_event_ts") or 0.0), ts)
     mission = view.setdefault("mission", {})
+    _capture_decision_context(view, event)
 
     if event_type == EventType.LIFE_MANAGER_INTENT_COMPLETED:
+        view["decision_context"] = {}
         item_id = _text(event, "item_id") or _text(event, "intent_id")
         objective = _text(event, "objective", 2000) or _text(event, "execution_task", 2000)
         mission.update({
@@ -425,6 +523,16 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
             view["stage"] = {"id": stage, "label": stage.replace("_", " ").title()}
         _set_role(view, "manager", "done", "Goal framed", ts)
         _timeline(view, event, role="manager", title="Goal framed", detail=_text(event, "reason"), tone="success")
+        _role_work(
+            view,
+            event,
+            role="manager",
+            kind="decision",
+            title="Goal framed",
+            detail=_text(event, "reason", 4000)
+            or _text(event, "execution_task", 4000),
+            status="done",
+        )
 
     elif event_type == EventType.LIFE_MANAGER_STAGE_DECISION:
         stage = _text(event, "target_stage") or _text(event, "stage") or _text(event, "current_stage")
@@ -432,9 +540,27 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
             view["stage"] = {"id": stage, "label": stage.replace("_", " ").title()}
         _set_role(view, "manager", "done", f"Stage · {stage}" if stage else "Stage reviewed", ts)
         _timeline(view, event, role="manager", title=f"Stage → {stage}" if stage else "Stage reviewed", detail=_text(event, "reason"))
+        _role_work(
+            view,
+            event,
+            role="manager",
+            kind="stage_decision",
+            title=f"Stage → {stage}" if stage else "Stage reviewed",
+            detail=_text(event, "reason", 4000),
+            status=_text(event, "action"),
+        )
 
     elif event_type == EventType.LIFE_PLANNER_START:
         _set_role(view, "planner", "active", "Planning next work", ts)
+        _role_work(
+            view,
+            event,
+            role="planner",
+            kind="planning",
+            title="Planning next work",
+            detail=_text(event, "objective", 4000),
+            status="active",
+        )
 
     elif event_type == EventType.LIFE_PLANNER_TASK_ADDED:
         item_id = _text(event, "item_id")
@@ -450,6 +576,15 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
         })
         _set_role(view, "planner", "done", "Research branch added", ts)
         _timeline(view, event, role="planner", title="Research branch added", detail=_text(event, "title"), tone="info")
+        _role_work(
+            view,
+            event,
+            role="planner",
+            kind="task",
+            title=_text(event, "title", 240) or "Task added",
+            detail=_text(event, "objective", 4000),
+            status="pending",
+        )
 
     elif event_type == EventType.LIFE_PLANNER_VERDICT:
         project_done = bool(event.get("project_done"))
@@ -463,6 +598,15 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
             detail=_text(event, "reason"),
             tone="success" if project_done else "neutral",
         )
+        _role_work(
+            view,
+            event,
+            role="planner",
+            kind="verdict",
+            title=label,
+            detail=_text(event, "reason", 4000),
+            status="done" if project_done else "planned",
+        )
 
     elif event_type == EventType.LIFE_PLANNER_WAITING:
         _set_role(view, "planner", "waiting", "Waiting on external work", ts)
@@ -472,6 +616,16 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
             role="planner",
             title="Planner waiting",
             detail=_text(event, "reason") or _text(event, "waiting_reason"),
+        )
+        _role_work(
+            view,
+            event,
+            role="planner",
+            kind="waiting",
+            title="Planner waiting",
+            detail=_text(event, "reason", 4000)
+            or _text(event, "waiting_reason", 4000),
+            status="waiting",
         )
 
     elif event_type == EventType.LIFE_PLANNER_TERMINAL_IDLE:
@@ -496,6 +650,7 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
         )
 
     elif event_type == EventType.LIFE_MISSION_STARTED:
+        view["decision_context"] = {}
         if not mission.get("campaign_started_at"):
             mission["campaign_started_at"] = ts
         mission.update({
@@ -516,6 +671,15 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
         _set_role(view, "reviewer", "waiting", "Awaiting engineer handoff", ts)
         _set_role(view, "engineer", "active", "Starting mission", ts)
         _timeline(view, event, role="engineer", title="Mission started", detail=_text(event, "title"), tone="info")
+        _role_work(
+            view,
+            event,
+            role="engineer",
+            kind="task",
+            title=_text(event, "title", 240) or "Mission started",
+            detail=_text(event, "objective", 4000),
+            status="active",
+        )
 
     elif event_type == EventType.ROUND_START:
         current = _integer(event, "round_index") or 0
@@ -531,11 +695,51 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
         kind = _text(event, "kind")
         label = _PROGRESS_LABELS.get(kind, "Working")
         _set_role(view, role, "active", label, ts)
+        detail = (
+            _text(event, "action_summary", 4000)
+            or _text(event, "text", 4000)
+        )
+        if detail and _visible_role_work_progress(
+            event,
+            role=role,
+            kind=kind,
+            detail=detail,
+        ):
+            _role_work(
+                view,
+                event,
+                role=role,
+                kind=kind or "progress",
+                title=label,
+                detail=detail,
+                status="active",
+            )
         if kind not in {"reasoning", "assistant_message", "agent_message"}:
             _timeline(view, event, role=role, title=label, detail=_text(event, "action_summary") or _text(event, "text"))
 
     elif event_type == EventType.ROUND_REVIEW_STARTED:
         _set_role(view, "reviewer", "active", "Reviewing benchmark evidence", ts)
+        _role_work(
+            view,
+            event,
+            role="reviewer",
+            kind="review",
+            title="Review started",
+            status="active",
+        )
+
+    elif event_type == EventType.ROUND_MAIN_COMPLETED:
+        _set_role(view, "engineer", "done", "Engineer handoff ready", ts)
+        _role_work(
+            view,
+            event,
+            role="engineer",
+            kind="handoff",
+            title="Engineer handoff ready",
+            detail=_text(event, "text", 4000)
+            or _text(event, "summary", 4000),
+            status="done",
+        )
 
     elif event_type == EventType.ROUND_REVIEW_DEFERRED:
         next_step = _text(event, "next_step")
@@ -567,6 +771,19 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
             title="Evidence accepted" if status == "done" else "Attempt rejected",
             detail=reason,
             tone="success" if status == "done" else "error",
+        )
+        detail = reason
+        next_action = _text(event, "next_action", 2000)
+        if next_action:
+            detail = f"{detail}\n\nNext action: {next_action}".strip()
+        _role_work(
+            view,
+            event,
+            role="reviewer",
+            kind="verdict",
+            title="Evidence accepted" if status == "done" else "Attempt rejected",
+            detail=detail,
+            status=status,
         )
         if status == "done":
             round_index = _integer(event, "round_index")
@@ -685,6 +902,8 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
                 "path": _text(event, "path", 500),
                 "status": "active",
                 "updated_at": ts,
+                "mission_id": str(mission.get("id") or ""),
+                "mission_title": str(mission.get("title") or "")[:240],
             })
             _timeline(view, event, role="reviewer", title="Capability unlocked" if event_type == EventType.SKILL_CREATED else "Capability upgraded", detail=_text(event, "name"), tone="skill")
 
@@ -933,7 +1152,16 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
             detail=_text(event, "title") or _text(event, "status"),
             tone=tone,
         )
-    _refresh_primary_metric(view)
+        _role_work(
+            view,
+            event,
+            role="engineer",
+            kind="completion",
+            title=label,
+            detail=_text(event, "title", 500)
+            or _text(event, "status", 500),
+            status=mission_status,
+        )
     _refresh_primary_metric(view)
     view["updated_at"] = time.time()
     return view
@@ -1072,11 +1300,15 @@ def merge_mission_view_snapshot(
         _upsert(dag, "id", item_id, {
             "id": item_id,
             "title": str(item.get("title") or "")[:240],
-            "objective": str(item.get("objective") or "")[:1000],
+            "objective": str(item.get("objective") or ""),
             "status": str(item.get("status") or "pending"),
             "deps": [str(dep) for dep in (item.get("deps") or [])],
             "branch_id": item_id,
             "parent_branch_id": str((item.get("deps") or [""])[0] or "") or None,
+            "acceptance_check": str(item.get("acceptance_check") or ""),
+            "non_goals": [
+                str(value) for value in (item.get("non_goals") or [])
+            ],
         })
 
     now = time.time()
@@ -1099,6 +1331,46 @@ def merge_mission_view_snapshot(
     return view
 
 
+def _enrich_skill_content(root: Path, view: dict[str, Any]) -> None:
+    allowed_roots = [(root / "skills").resolve()]
+    if root.parent.name == "projects":
+        allowed_roots.append((root.parent.parent / "skills").resolve())
+    for skill in view.setdefault("learned_skills", []):
+        raw_path = str(skill.get("path") or skill.get("source_path") or "").strip()
+        if not raw_path:
+            continue
+        candidates = [Path(raw_path).expanduser()]
+        if not Path(raw_path).is_absolute():
+            candidates.extend(base / raw_path for base in allowed_roots)
+            candidates.append(root / raw_path)
+        selected: Path | None = None
+        for candidate in candidates:
+            try:
+                resolved = candidate.resolve()
+            except OSError:
+                continue
+            if not any(
+                resolved == base or base in resolved.parents
+                for base in allowed_roots
+            ):
+                continue
+            if resolved.is_file() and resolved.suffix.lower() == ".md":
+                selected = resolved
+                break
+        if selected is None:
+            continue
+        try:
+            data = selected.read_bytes()
+        except OSError:
+            continue
+        truncated = len(data) > MISSION_SKILL_CONTENT_MAX_BYTES
+        skill["content"] = data[:MISSION_SKILL_CONTENT_MAX_BYTES].decode(
+            "utf-8",
+            errors="replace",
+        )
+        skill["content_truncated"] = truncated
+
+
 def snapshot_mission_view(root: Path | str, **kwargs: Any) -> dict[str, Any]:
     path = Path(root).expanduser()
     with _locked(path):
@@ -1107,7 +1379,9 @@ def snapshot_mission_view(root: Path | str, **kwargs: Any) -> dict[str, Any]:
             view = _bootstrap_view(path)
         view = merge_mission_view_snapshot(view, **kwargs)
         _write_unlocked(path, view)
-        return view
+        response = json.loads(json.dumps(view))
+        _enrich_skill_content(path, response)
+        return response
 
 
 __all__ = [

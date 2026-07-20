@@ -137,9 +137,21 @@ export function MissionControl({
   const dag = dagView.nodes;
   const objective = view.mission.objective || view.mission.title || 'Waiting for a mission';
   const [replayIndex, setReplayIndex] = useState(Math.max(0, view.timeline.length - 1));
+  const [selectedRole, setSelectedRole] = useState(view.active_role || 'planner');
+  const [selectedTaskId, setSelectedTaskId] = useState(activeNode?.id || '');
   const outcome = outcomeDimensionSummary(view.outcome);
   useEffect(() => setReplayIndex(Math.max(0, view.timeline.length - 1)), [view.timeline.length]);
+  useEffect(() => {
+    if (activeNode?.id) setSelectedTaskId(activeNode.id);
+  }, [activeNode?.id]);
   const replayRows = view.timeline.slice(0, replayIndex + 1).slice(-12).reverse();
+  const selectedTask = view.dag.find((node) => node.id === selectedTaskId);
+  const selectedRoleWork = view.role_work
+    .filter((item) => item.role === selectedRole)
+    .filter((item) => !selectedTaskId || !item.item_id || item.item_id === selectedTaskId)
+    .slice(-40)
+    .reverse();
+  const decisionEntries = Object.entries(view.decision_context || {});
   return (
     <section className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-panel scroll-thin" aria-label="Mission control">
       <header className="border-b border-line/60 px-5 py-5">
@@ -172,16 +184,68 @@ export function MissionControl({
             const rejected = role?.status === 'rejected' || role?.status === 'error';
             const color = theme.role[name] ?? theme.inkFaint;
             return (
-              <div key={name} className="min-w-0 border-l-2 pl-3" style={{ borderColor: active || role?.status === 'done' ? color : 'rgb(var(--line))' }}>
+              <button
+                key={name}
+                type="button"
+                onClick={() => setSelectedRole(name)}
+                className={`min-w-0 border-l-2 pl-3 text-left ${selectedRole === name ? 'bg-white/[0.03]' : ''}`}
+                style={{ borderColor: active || role?.status === 'done' ? color : 'rgb(var(--line))' }}
+              >
                 <div className="flex items-center gap-2">
                   <span className={`h-2 w-2 rounded-full ${active ? 'animate-pulse motion-reduce:animate-none' : ''}`} style={{ background: rejected ? theme.error : active || role?.status === 'done' ? color : theme.inkFaint }} />
                   <span className="text-xs font-semibold capitalize" style={{ color }}>{name}</span>
                 </div>
                 <div className={`mt-1 truncate text-xs ${rejected ? 'text-err' : 'text-ink-dim'}`}>{role?.label || 'Waiting'}</div>
-              </div>
+              </button>
             );
           })}
         </div>
+      </section>
+
+      <section className="border-b border-line/60 px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
+            Role work · <span className="text-blue-sky">{selectedRole}</span>
+          </div>
+          {selectedTask ? (
+            <button type="button" onClick={() => setSelectedTaskId('')} className="text-[10px] text-ink-faint hover:text-ink">
+              filtered by {selectedTask.title || selectedTask.id} · clear
+            </button>
+          ) : <span className="text-[10px] text-ink-faint">all visible missions</span>}
+        </div>
+        <div className="mt-3 grid gap-2 lg:grid-cols-2">
+          {selectedRoleWork.map((item) => (
+            <article key={item.id} className="min-w-0 rounded border border-line/60 bg-bg/35 px-3 py-2">
+              <div className="flex items-center justify-between gap-3">
+                <span className="truncate text-xs font-medium text-ink">{item.title}</span>
+                <time className="shrink-0 font-mono text-[10px] text-ink-faint">
+                  {new Date(item.ts * 1000).toISOString().slice(11, 19)}
+                </time>
+              </div>
+              <div className="mt-1 flex gap-2 font-mono text-[10px] text-ink-faint">
+                <span>{item.kind}</span>
+                {item.status ? <span>{item.status}</span> : null}
+                {item.round_index != null ? <span>round {item.round_index}</span> : null}
+              </div>
+              {item.detail ? <p className="mt-2 max-h-36 overflow-auto whitespace-pre-wrap text-[11px] leading-5 text-ink-dim scroll-thin">{item.detail}</p> : null}
+            </article>
+          ))}
+          {!selectedRoleWork.length ? (
+            <div className="col-span-full py-8 text-center text-xs text-ink-faint">
+              No persisted {selectedRole} work for this selection yet.
+            </div>
+          ) : null}
+        </div>
+        {decisionEntries.length && ['manager', 'planner', 'reviewer'].includes(selectedRole) ? (
+          <details className="mt-3 rounded border border-line/60 bg-bg/25 px-3 py-2">
+            <summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-faint hover:text-ink">
+              Structured decision handoff
+            </summary>
+            <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap font-mono text-[10px] leading-5 text-ink-dim scroll-thin">
+              {JSON.stringify(view.decision_context, null, 2)}
+            </pre>
+          </details>
+        ) : null}
       </section>
 
       <div className="grid min-h-[320px] border-b border-line/60 lg:grid-cols-[minmax(0,1.15fr)_minmax(260px,0.85fr)]">
@@ -201,17 +265,42 @@ export function MissionControl({
               const done = ['done', 'completed'].includes(node.status);
               const failed = ['failed', 'blocked'].includes(node.status);
               return (
-                <div key={node.id} className="relative flex min-w-0 gap-3 pb-3 last:pb-0">
+                <button
+                  key={node.id}
+                  type="button"
+                  onClick={() => setSelectedTaskId(node.id)}
+                  className={`relative flex w-full min-w-0 gap-3 pb-3 text-left last:pb-0 ${selectedTaskId === node.id ? 'bg-white/[0.03]' : ''}`}
+                >
                   {index < dag.length - 1 ? <span className="absolute left-[5px] top-3 h-full w-px bg-line" /> : null}
                   <span className={`relative z-10 mt-1 h-3 w-3 shrink-0 rounded-full border-2 border-panel ${active ? 'animate-pulse bg-blue motion-reduce:animate-none' : done ? 'bg-ok' : failed ? 'bg-err' : 'bg-ink-faint'}`} />
                   <div className="min-w-0 flex-1">
                     <div className={`truncate text-xs font-medium ${active ? 'text-blue-sky' : 'text-ink'}`}>{node.title || node.objective || node.id}</div>
                     <div className="mt-0.5 flex gap-2 font-mono text-[10px] text-ink-faint"><span>{node.status}</span>{node.deps.length ? <span>after {node.deps.join(', ')}</span> : null}</div>
                   </div>
-                </div>
+                </button>
               );
             }) : <div className="py-12 text-center text-xs text-ink-faint">Planner has not added DAG nodes yet.</div>}
           </div>
+          {selectedTask ? (
+            <div className="mt-3 rounded border border-blue/25 bg-blue/5 px-3 py-3">
+              <div className="text-xs font-semibold text-blue-sky">{selectedTask.title || selectedTask.id}</div>
+              {selectedTask.objective ? <p className="mt-2 whitespace-pre-wrap text-[11px] leading-5 text-ink-dim">{selectedTask.objective}</p> : null}
+              {selectedTask.acceptance_check ? (
+                <div className="mt-3">
+                  <div className="text-[10px] uppercase tracking-[0.12em] text-ink-faint">Acceptance</div>
+                  <p className="mt-1 whitespace-pre-wrap text-[11px] leading-5 text-ink-dim">{selectedTask.acceptance_check}</p>
+                </div>
+              ) : null}
+              {selectedTask.non_goals?.length ? (
+                <div className="mt-3">
+                  <div className="text-[10px] uppercase tracking-[0.12em] text-ink-faint">Non-goals</div>
+                  <ul className="mt-1 list-disc space-y-1 pl-4 text-[11px] text-ink-dim">
+                    {selectedTask.non_goals.map((goal) => <li key={goal}>{goal}</li>)}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </section>
 
         <section className="min-w-0 px-5 py-4">
@@ -220,8 +309,22 @@ export function MissionControl({
           {view.learned_skills.length ? (
             <div className="mt-4 border-t border-line/50 pt-3">
               <div className="text-[10px] uppercase tracking-[0.12em] text-ok">Capabilities unlocked</div>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {view.learned_skills.filter((skill) => skill.status === 'active').slice(-6).map((skill) => <span key={String(skill.id)} className="rounded border border-ok/35 bg-ok/5 px-2 py-1 text-[10px] text-ok">{String(skill.name || skill.id)}</span>)}
+              <div className="mt-2 space-y-2">
+                {view.learned_skills.filter((skill) => skill.status === 'active').slice(-8).map((skill) => (
+                  <details key={String(skill.id)} className="rounded border border-ok/35 bg-ok/5 px-2 py-1.5">
+                    <summary className="cursor-pointer text-[10px] text-ok">{String(skill.name || skill.id)}</summary>
+                    <div className="mt-2 space-y-1 font-mono text-[9px] text-ink-faint">
+                      {skill.mission_title ? <div>evolved during · {skill.mission_title}</div> : null}
+                      {skill.path ? <div className="break-all">path · {skill.path}</div> : null}
+                      <div>version · {skill.version} · scope · {skill.scope || 'project'}</div>
+                    </div>
+                    {skill.content ? (
+                      <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap border-t border-ok/20 pt-2 font-mono text-[10px] leading-5 text-ink-dim scroll-thin">
+                        {skill.content}{skill.content_truncated ? '\n… content truncated' : ''}
+                      </pre>
+                    ) : <div className="mt-2 text-[10px] text-ink-faint">Skill content is not available in this snapshot.</div>}
+                  </details>
+                ))}
               </div>
             </div>
           ) : null}

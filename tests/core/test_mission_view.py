@@ -57,6 +57,15 @@ def test_planner_terminal_event_clears_active_role(tmp_path: Path) -> None:
 
 
 def test_structured_events_build_reviewer_certified_achievement(tmp_path: Path) -> None:
+    snapshot_mission_view(
+        tmp_path,
+        session={},
+        daemon={},
+        roles=[],
+        backlog=[],
+        continuous={},
+        current_stage="research",
+    )
     emit(
         tmp_path,
         "life.manager.intent.completed",
@@ -88,6 +97,24 @@ def test_structured_events_build_reviewer_certified_achievement(tmp_path: Path) 
         objective="Optimize FlashAttention on B200",
     )
     emit(tmp_path, "round.start", 4, round_index=7, round_max=24)
+    emit(
+        tmp_path,
+        "engineer.progress",
+        4.5,
+        message_id="engineer-thought-1",
+        kind="reasoning",
+        agent_layer="engineer",
+        text="Comparing the fused and unfused memory traffic.",
+    )
+    emit(
+        tmp_path,
+        "engineer.progress",
+        4.6,
+        message_id="engineer-tool-1",
+        kind="tool_use",
+        agent_layer="engineer",
+        text="Inspecting the measured memory-traffic artifact.",
+    )
     emit(
         tmp_path,
         "research.hypothesis.proposed",
@@ -137,6 +164,24 @@ def test_structured_events_build_reviewer_certified_achievement(tmp_path: Path) 
         round_index=7,
         status="done",
         reason="Official benchmark evidence verified.",
+        planner_report={"plan_signal": "continue", "reason": "Evidence is complete."},
+        checklist_feedback={"run.evidence": {"status": "pass"}},
+    )
+    skill_path = tmp_path / "skills" / "fused-epilogue-playbook.md"
+    skill_path.parent.mkdir()
+    skill_path.write_text(
+        "---\nname: fused-epilogue-playbook\ndescription: Reuse the fused epilogue.\n"
+        "---\n\n# Fused epilogue\n\nKeep the measured memory-traffic evidence.\n",
+        encoding="utf-8",
+    )
+    emit(
+        tmp_path,
+        "skill.evolution.completed",
+        9.5,
+        project_skill_dir=str(tmp_path / "skills"),
+        global_skill_dir=str(tmp_path / "global-skills"),
+        project_skill_count=1,
+        global_skill_count=0,
     )
     emit(
         tmp_path,
@@ -146,7 +191,7 @@ def test_structured_events_build_reviewer_certified_achievement(tmp_path: Path) 
         name="fused-epilogue-playbook",
         version=1,
         scope="engineer",
-        path="skills/fused-epilogue-playbook.md",
+        path=str(skill_path),
     )
     emit(
         tmp_path,
@@ -181,6 +226,14 @@ def test_structured_events_build_reviewer_certified_achievement(tmp_path: Path) 
         reviewer_certified=True,
     )
 
+    view = snapshot_mission_view(
+        tmp_path,
+        session={},
+        daemon={},
+        roles=[],
+        backlog=[],
+        continuous={},
+    )
     assert view["stage"]["id"] == "research"
     assert view["round"] == {"current": 7, "max": 24}
     assert view["primary_metric"]["value"] == 61.8
@@ -191,7 +244,25 @@ def test_structured_events_build_reviewer_certified_achievement(tmp_path: Path) 
     assert view["achievement"]["experiments_run"] == 1
     assert view["achievement"]["skills_learned"] == 1
     assert view["achievement"]["artifacts"] == 1
-    assert load_mission_view(tmp_path)["achievement"] == view["achievement"]
+    assert {row["role"] for row in view["role_work"]} >= {
+        "manager",
+        "planner",
+        "engineer",
+        "reviewer",
+    }
+    assert any(
+        row["kind"] == "tool_use"
+        and "measured memory-traffic" in row["detail"]
+        for row in view["role_work"]
+    )
+    assert not any(row["kind"] == "reasoning" for row in view["role_work"])
+    assert view["decision_context"]["planner_report"]["plan_signal"] == "continue"
+    assert view["decision_context"]["checklist_feedback"]["run.evidence"]["status"] == "pass"
+    assert view["learned_skills"][0]["mission_id"] == "task-1"
+    assert "# Fused epilogue" in view["learned_skills"][0]["content"]
+    persisted = load_mission_view(tmp_path)
+    assert persisted["achievement"] == view["achievement"]
+    assert "content" not in persisted["learned_skills"][0]
 
 
 def test_load_discards_legacy_derived_certification(tmp_path: Path) -> None:
@@ -234,6 +305,7 @@ def test_new_mission_resets_prior_review_projection(tmp_path: Path) -> None:
         round_index=1,
         status="done",
         reason="First mission accepted.",
+        planner_report={"plan_signal": "continue"},
     )
 
     view = emit(
@@ -248,6 +320,7 @@ def test_new_mission_resets_prior_review_projection(tmp_path: Path) -> None:
     roles = {role["role"]: role for role in view["roles"]}
     assert view["mission"]["id"] == "mission-2"
     assert view["review"] == {"status": "", "reason": "", "rejected_attempts": 0}
+    assert view["decision_context"] == {}
     assert roles["reviewer"]["status"] == "waiting"
     assert roles["reviewer"]["label"] == "Awaiting engineer handoff"
     assert roles["engineer"]["status"] == "active"
