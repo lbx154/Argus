@@ -205,6 +205,293 @@ def test_plan_next_rejects_large_multi_artifact_package() -> None:
     assert "artifact boundary" in verdict.error
 
 
+def test_plan_next_repairs_task_granularity_once_in_same_session() -> None:
+    broad = {
+        "title": "Refresh the complete scope package",
+        "impact_score": 5,
+        "impact_area": "reliability",
+        "evidence": "Five scope artifacts are stale.",
+        "acceptance_check": (
+            "GROUND_TRUTH.md, KERNEL_SCOPE.md, PROJECT_NATIVE_SETUP.md, "
+            "frontier/scope.json, and FRONTIER_WATCH.jsonl are current"
+        ),
+        "non_goals": ["do not run benchmarks"],
+        "context_refs": [],
+        "scope": "bounded",
+        "stage_closing": True,
+        "objective": (
+            "Refresh GROUND_TRUTH.md, KERNEL_SCOPE.md, PROJECT_NATIVE_SETUP.md, "
+            "frontier/scope.json, and FRONTIER_WATCH.jsonl."
+        ),
+        "key": "scope",
+        "deps": [],
+    }
+    first = json.dumps({
+        "project_done": False,
+        "reason": "close scope",
+        "new_tasks": [broad],
+        "checklist_ops": [],
+    })
+    repaired = json.dumps({
+        "project_done": False,
+        "reason": "close scope in two bounded nodes",
+        "new_tasks": [
+            {
+                **broad,
+                "title": "Refresh scope ground truth",
+                "acceptance_check": (
+                    "GROUND_TRUTH.md, KERNEL_SCOPE.md, and "
+                    "PROJECT_NATIVE_SETUP.md are current"
+                ),
+                "objective": (
+                    "Refresh GROUND_TRUTH.md, KERNEL_SCOPE.md, and "
+                    "PROJECT_NATIVE_SETUP.md."
+                ),
+                "key": "scope-ground-truth",
+                "stage_closing": False,
+            },
+            {
+                **broad,
+                "title": "Refresh scope frontier",
+                "acceptance_check": (
+                    "frontier/scope.json and FRONTIER_WATCH.jsonl are current"
+                ),
+                "objective": (
+                    "Refresh frontier/scope.json and FRONTIER_WATCH.jsonl."
+                ),
+                "key": "scope-frontier",
+                "deps": ["scope-ground-truth"],
+            },
+        ],
+        "checklist_ops": [],
+    })
+    runner = _SequencedRunner(
+        RunnerResult(
+            exit_code=0,
+            agent_messages=[first],
+            thread_id="planner-thread",
+            input_tokens=10,
+            output_tokens=4,
+        ),
+        RunnerResult(
+            exit_code=0,
+            agent_messages=[repaired],
+            thread_id="planner-thread",
+            input_tokens=3,
+            cached_input_tokens=2,
+            output_tokens=6,
+        ),
+    )
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective="Improve the scoped kernel.",
+        planning_cycle=3,
+    )
+
+    assert not verdict.error
+    assert [task.key for task in verdict.new_tasks] == [
+        "scope-ground-truth",
+        "scope-frontier",
+    ]
+    assert len(runner.calls) == 2
+    assert runner.calls[1]["resume_thread_id"] == "planner-thread"
+    assert runner.calls[1]["run_label"] == (
+        "planner.cycle3.task-contract-repair"
+    )
+    assert runner.calls[1]["options"].sandbox_mode == "read-only"
+    assert "at most 4 named output artifacts" in runner.calls[1]["prompt"]
+    assert verdict.input_tokens == 13
+    assert verdict.cached_input_tokens == 2
+    assert verdict.output_tokens == 10
+    assert verdict.task_contract_repair_attempted is True
+    assert verdict.task_contract_repair_succeeded is True
+    assert verdict.task_contract_repair_error == ""
+    assert verdict.repair_event_payload()[
+        "task_contract_repair_original_sha256"
+    ] == hashlib.sha256(first.encode("utf-8")).hexdigest()
+
+
+def test_plan_next_rejects_still_broad_task_contract_repair() -> None:
+    broad = json.dumps({
+        "project_done": False,
+        "reason": "close scope",
+        "new_tasks": [{
+            "title": "Refresh the complete scope package",
+            "impact_score": 5,
+            "impact_area": "reliability",
+            "evidence": "Five scope artifacts are stale.",
+            "acceptance_check": (
+                "A.md, B.md, C.md, D.md, and E.md are current"
+            ),
+            "scope": "bounded",
+            "objective": "Refresh A.md, B.md, C.md, D.md, and E.md.",
+        }],
+    })
+    runner = _SequencedRunner(
+        RunnerResult(
+            exit_code=0,
+            agent_messages=[broad],
+            thread_id="planner-thread",
+        ),
+        RunnerResult(
+            exit_code=0,
+            agent_messages=[broad],
+            thread_id="planner-thread",
+        ),
+    )
+
+    verdict = Planner(runner).plan_next(continuous_objective="Keep working.")
+
+    assert verdict.new_tasks == []
+    assert "task granularity violation" in verdict.error
+    assert verdict.task_contract_repair_attempted is True
+    assert verdict.task_contract_repair_succeeded is False
+    assert "task granularity violation" in verdict.task_contract_repair_error
+    assert len(runner.calls) == 2
+
+
+def test_plan_next_rejects_task_repair_that_changes_control_state() -> None:
+    broad_task = {
+        "title": "Refresh the complete scope package",
+        "impact_score": 5,
+        "impact_area": "reliability",
+        "evidence": "Five scope artifacts are stale.",
+        "acceptance_check": "A.md, B.md, C.md, D.md, and E.md are current",
+        "scope": "bounded",
+        "objective": "Refresh A.md, B.md, C.md, D.md, and E.md.",
+    }
+    first = json.dumps({
+        "project_done": False,
+        "reason": "close scope",
+        "waiting": False,
+        "new_tasks": [broad_task],
+        "checklist_ops": [],
+    })
+    improper = json.dumps({
+        "project_done": True,
+        "reason": "avoid the oversized task",
+        "waiting": False,
+        "new_tasks": [],
+        "checklist_ops": [],
+    })
+    runner = _SequencedRunner(
+        RunnerResult(
+            exit_code=0,
+            agent_messages=[first],
+            thread_id="planner-thread",
+        ),
+        RunnerResult(
+            exit_code=0,
+            agent_messages=[improper],
+            thread_id="planner-thread",
+        ),
+    )
+
+    verdict = Planner(runner).plan_next(continuous_objective="Keep working.")
+
+    assert verdict.project_done is False
+    assert verdict.new_tasks == []
+    assert "task granularity violation" in verdict.error
+    assert "project_done" in verdict.task_contract_repair_error
+    assert "same-session repair failed" in verdict.error
+
+
+def test_plan_next_preserves_schema_repair_telemetry_through_task_repair() -> None:
+    malformed = "I will refresh the package, but this is not JSON."
+    broad = json.dumps({
+        "project_done": False,
+        "reason": "refresh the package",
+        "new_tasks": [{
+            "title": "Refresh the complete package",
+            "impact_score": 5,
+            "impact_area": "reliability",
+            "evidence": "Five artifacts are stale.",
+            "acceptance_check": "A.md, B.md, C.md, D.md, and E.md are current",
+            "scope": "bounded",
+            "objective": "Refresh A.md, B.md, C.md, D.md, and E.md.",
+            "key": "all",
+            "deps": [],
+        }],
+        "checklist_ops": [],
+    })
+    repaired = json.dumps({
+        "project_done": False,
+        "reason": "refresh the package in two nodes",
+        "new_tasks": [
+            {
+                "title": "Refresh the first package",
+                "impact_score": 5,
+                "impact_area": "reliability",
+                "evidence": "A through C are stale.",
+                "acceptance_check": "A.md, B.md, and C.md are current",
+                "scope": "bounded",
+                "objective": "Refresh A.md, B.md, and C.md.",
+                "key": "first",
+                "deps": [],
+            },
+            {
+                "title": "Refresh the remaining package",
+                "impact_score": 5,
+                "impact_area": "reliability",
+                "evidence": "D and E are stale.",
+                "acceptance_check": "D.md and E.md are current",
+                "scope": "bounded",
+                "objective": "Refresh D.md and E.md.",
+                "key": "second",
+                "deps": ["first"],
+            },
+        ],
+        "checklist_ops": [],
+    })
+    runner = _SequencedRunner(
+        RunnerResult(
+            exit_code=0,
+            agent_messages=[malformed],
+            thread_id="planner-thread",
+            input_tokens=10,
+            output_tokens=1,
+        ),
+        RunnerResult(
+            exit_code=0,
+            agent_messages=[broad],
+            thread_id="planner-thread",
+            input_tokens=4,
+            cached_input_tokens=2,
+            output_tokens=3,
+        ),
+        RunnerResult(
+            exit_code=0,
+            agent_messages=[repaired],
+            thread_id="planner-thread",
+            input_tokens=5,
+            cached_input_tokens=3,
+            output_tokens=6,
+        ),
+    )
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective="Keep working.",
+        planning_cycle=9,
+    )
+
+    assert not verdict.error
+    assert [call["run_label"] for call in runner.calls] == [
+        "planner.cycle9",
+        "planner.cycle9.schema-repair",
+        "planner.cycle9.task-contract-repair",
+    ]
+    assert verdict.schema_repair_attempted is True
+    assert verdict.schema_repair_succeeded is True
+    assert verdict.task_contract_repair_attempted is True
+    assert verdict.task_contract_repair_succeeded is True
+    assert verdict.input_tokens == 19
+    assert verdict.cached_input_tokens == 5
+    assert verdict.output_tokens == 10
+    payload = verdict.repair_event_payload()
+    assert payload["schema_repair_input_tokens"] == 4
+    assert payload["task_contract_repair_input_tokens"] == 5
+
+
 def test_parse_planner_text_uses_latest_json_verdict() -> None:
     placeholder = json.dumps({
         "project_done": False,

@@ -461,6 +461,15 @@ class PlannerVerdict:
     schema_repair_output_tokens: int = 0
     schema_repair_reasoning_output_tokens: int = 0
     schema_repair_premium_requests: float = 0.0
+    task_contract_repair_attempted: bool = False
+    task_contract_repair_succeeded: bool = False
+    task_contract_repair_original_sha256: str = ""
+    task_contract_repair_error: str = ""
+    task_contract_repair_input_tokens: int = 0
+    task_contract_repair_cached_input_tokens: int = 0
+    task_contract_repair_output_tokens: int = 0
+    task_contract_repair_reasoning_output_tokens: int = 0
+    task_contract_repair_premium_requests: float = 0.0
 
     def schema_repair_event_payload(self) -> dict[str, Any]:
         if not self.schema_repair_attempted:
@@ -479,6 +488,39 @@ class PlannerVerdict:
                 self.schema_repair_reasoning_output_tokens
             ),
             "schema_repair_premium_requests": self.schema_repair_premium_requests,
+        }
+
+    def task_contract_repair_event_payload(self) -> dict[str, Any]:
+        if not self.task_contract_repair_attempted:
+            return {}
+        return {
+            "task_contract_repair_attempted": True,
+            "task_contract_repair_succeeded": self.task_contract_repair_succeeded,
+            "task_contract_repair_original_sha256": (
+                self.task_contract_repair_original_sha256
+            ),
+            "task_contract_repair_error": self.task_contract_repair_error,
+            "task_contract_repair_input_tokens": (
+                self.task_contract_repair_input_tokens
+            ),
+            "task_contract_repair_cached_input_tokens": (
+                self.task_contract_repair_cached_input_tokens
+            ),
+            "task_contract_repair_output_tokens": (
+                self.task_contract_repair_output_tokens
+            ),
+            "task_contract_repair_reasoning_output_tokens": (
+                self.task_contract_repair_reasoning_output_tokens
+            ),
+            "task_contract_repair_premium_requests": (
+                self.task_contract_repair_premium_requests
+            ),
+        }
+
+    def repair_event_payload(self) -> dict[str, Any]:
+        return {
+            **self.schema_repair_event_payload(),
+            **self.task_contract_repair_event_payload(),
         }
 
 
@@ -761,19 +803,191 @@ class Planner:
                 premium_requests=premium_requests,
             )
         granularity_issues = _planner_task_granularity_issues(parsed.new_tasks)
+        if (
+            granularity_issues
+            and text.strip()
+            and str(getattr(result, "thread_id", "") or "").strip()
+        ):
+            issue_text = "; ".join(granularity_issues[:6])
+            original_sha256 = hashlib.sha256(text.encode("utf-8")).hexdigest()
+            repair_prompt = (
+                "Your previous structured Planner decision was rejected by the "
+                "deterministic task-granularity contract:\n"
+                f"{issue_text}\n\n"
+                "Revise the decision once. Preserve the scientific judgment, "
+                "active stage, intended work, project_done state, and waiting "
+                "state. Change only task decomposition or artifact ownership so "
+                "each task fits one fresh Engineer session: at most 4 named output "
+                "artifacts, at most 8 context_refs, fewer than 4 decision phases, "
+                "and an objective no longer than 1400 characters. Split tasks and "
+                "connect them with DAG deps when necessary. Do not inspect files, "
+                "call tools, change checklist_ops, or add unrelated work. Return "
+                "only the complete repaired structured response. "
+                f"Original response SHA-256: {original_sha256}"
+            )
+            repair_error = ""
+            repair_succeeded = False
+            repair_input_tokens = 0
+            repair_cached_input_tokens = 0
+            repair_output_tokens = 0
+            repair_reasoning_output_tokens = 0
+            repair_premium_requests = 0.0
+            try:
+                repair_result = gateway_run_exec(
+                    self.runner,
+                    prompt=repair_prompt,
+                    resume_thread_id=str(result.thread_id),
+                    options=replace(
+                        planner_options,
+                        dangerous_yolo=False,
+                        full_auto=False,
+                        sandbox_mode="read-only",
+                        external_interrupt_reason_provider=(
+                            _planner_wall_clock_interrupt_provider()
+                        ),
+                    ),
+                    run_label=f"planner.cycle{planning_cycle}.task-contract-repair",
+                )
+                repair_input_tokens = int(
+                    getattr(repair_result, "input_tokens", 0) or 0
+                )
+                repair_cached_input_tokens = int(
+                    getattr(repair_result, "cached_input_tokens", 0) or 0
+                )
+                repair_output_tokens = int(
+                    getattr(repair_result, "output_tokens", 0) or 0
+                )
+                repair_reasoning_output_tokens = int(
+                    getattr(repair_result, "reasoning_output_tokens", 0) or 0
+                )
+                repair_premium_requests = float(
+                    getattr(repair_result, "premium_requests", 0.0) or 0.0
+                )
+                repair_text = "\n".join(
+                    getattr(repair_result, "agent_messages", None) or []
+                )
+                repaired = parse_planner_text(repair_text)
+                protected_fields = (
+                    "project_done",
+                    "restart_daemon",
+                    "restart_reason",
+                    "waiting",
+                    "waiting_reason",
+                    "waiting_contract",
+                    "checklist_ops",
+                )
+                changed_fields = [
+                    name
+                    for name in protected_fields
+                    if getattr(repaired, name) != getattr(parsed, name)
+                ]
+                original_obj = _load_json_object_with_schema(
+                    text,
+                    required_keys=("project_done", "reason", "new_tasks"),
+                )
+                repaired_obj = _load_json_object_with_schema(
+                    repair_text,
+                    required_keys=("project_done", "reason", "new_tasks"),
+                )
+                if (
+                    original_obj is not None
+                    and repaired_obj is not None
+                    and original_obj[0].get("meta_decision")
+                    != repaired_obj[0].get("meta_decision")
+                ):
+                    changed_fields.append("meta_decision")
+                repaired_hard_issues = _hard_objective_task_issues(
+                    continuous_objective,
+                    repaired.new_tasks,
+                    current_stage=active_stage,
+                    progression_required=(
+                        project_root is not None
+                        and _project_has_theorem_baseline(project_root)
+                    ),
+                )
+                repaired_granularity_issues = _planner_task_granularity_issues(
+                    repaired.new_tasks
+                )
+                if repaired.error:
+                    repair_error = repaired.error
+                elif changed_fields:
+                    repair_error = (
+                        "task contract repair changed protected field(s): "
+                        + ", ".join(changed_fields)
+                    )
+                elif repaired_hard_issues:
+                    repair_error = (
+                        "hard objective contract violation: "
+                        + "; ".join(repaired_hard_issues[:6])
+                    )
+                elif repaired_granularity_issues:
+                    repair_error = (
+                        "task granularity violation: "
+                        + "; ".join(repaired_granularity_issues[:6])
+                    )
+                else:
+                    schema_repair_state = {
+                        name: getattr(parsed, name)
+                        for name in (
+                            "schema_repair_attempted",
+                            "schema_repair_succeeded",
+                            "schema_repair_original_sha256",
+                            "schema_repair_error",
+                            "schema_repair_input_tokens",
+                            "schema_repair_cached_input_tokens",
+                            "schema_repair_output_tokens",
+                            "schema_repair_reasoning_output_tokens",
+                            "schema_repair_premium_requests",
+                        )
+                    }
+                    parsed = replace(repaired, **schema_repair_state)
+                    text = repair_text
+                    repair_succeeded = True
+            except Exception as exc:  # noqa: BLE001 - original error remains retryable
+                repair_error = f"{type(exc).__name__}: {exc}"
+            input_tokens += repair_input_tokens
+            cached_input_tokens += repair_cached_input_tokens
+            output_tokens += repair_output_tokens
+            reasoning_output_tokens += repair_reasoning_output_tokens
+            premium_requests += repair_premium_requests
+            parsed = replace(
+                parsed,
+                task_contract_repair_attempted=True,
+                task_contract_repair_succeeded=repair_succeeded,
+                task_contract_repair_original_sha256=original_sha256,
+                task_contract_repair_error=repair_error,
+                task_contract_repair_input_tokens=repair_input_tokens,
+                task_contract_repair_cached_input_tokens=repair_cached_input_tokens,
+                task_contract_repair_output_tokens=repair_output_tokens,
+                task_contract_repair_reasoning_output_tokens=(
+                    repair_reasoning_output_tokens
+                ),
+                task_contract_repair_premium_requests=repair_premium_requests,
+            )
+            granularity_issues = _planner_task_granularity_issues(parsed.new_tasks)
         if granularity_issues:
             issue_text = "; ".join(granularity_issues[:6])
+            repair_failure = (
+                f"; same-session repair failed: {parsed.task_contract_repair_error}"
+                if (
+                    parsed.task_contract_repair_attempted
+                    and not parsed.task_contract_repair_succeeded
+                    and parsed.task_contract_repair_error
+                )
+                else ""
+            )
             return replace(
                 parsed,
                 project_done=False,
                 reason=(
                     "planner proposed a whole-stage task that cannot fit one fresh "
                     "Engineer session; split at the next decision/artifact boundary "
-                    f"and preserve handoff through context_refs: {issue_text}"
+                    "and preserve handoff through context_refs: "
+                    f"{issue_text}{repair_failure}"
                 ),
                 new_tasks=[],
                 checklist_ops=[],
-                error=f"task granularity violation: {issue_text}",
+                error=f"task granularity violation: {issue_text}{repair_failure}",
                 input_tokens=input_tokens,
                 cached_input_tokens=cached_input_tokens,
                 output_tokens=output_tokens,

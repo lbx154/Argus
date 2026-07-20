@@ -531,8 +531,8 @@ class PlanningContextMixin:
         sleep_s = self._enter_pause_backoff()
         reason = verdict.waiting_reason or verdict.reason or "awaiting external dependency"
         repair_payload = (
-            verdict.schema_repair_event_payload()
-            if hasattr(verdict, "schema_repair_event_payload")
+            verdict.repair_event_payload()
+            if hasattr(verdict, "repair_event_payload")
             else {}
         )
         self._emit({

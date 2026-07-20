@@ -747,8 +747,8 @@ class PlanningCycleMixin:
             price_lookup=price_for,
         ) + copilot_usd_for_premium_requests(verdict.premium_requests)
         schema_repair_details = (
-            verdict.schema_repair_event_payload()
-            if hasattr(verdict, "schema_repair_event_payload")
+            verdict.repair_event_payload()
+            if hasattr(verdict, "repair_event_payload")
             else {}
         )
 
