@@ -81,6 +81,20 @@ test('protocol contract accepts the current server and rejects missing capabilit
   assert.match(driftedSource.warning ?? '', /source differs from its release manifest/);
 });
 
+test('local source identity rejects a stale process even when release ids match', () => {
+  const staleProcess = inspectApiMeta(meta({
+    runtime: {
+      ...(meta().runtime as Record<string, unknown>),
+      runtime_source_digest: 'old-process-source',
+    },
+  }), {
+    releaseId: RELEASE_ID,
+    sourceDigest: RELEASE_SOURCE_DIGEST,
+  });
+  assert.equal(staleProcess.compatible, false);
+  assert.match(staleProcess.reason, /backend process source .* does not match local source/);
+});
+
 test('snapshot contract fails closed when budget fields are absent', () => {
   assert.throws(
     () => requireSnapshotContract({
@@ -176,6 +190,31 @@ test('startup probe surfaces source drift without rejecting the backend', async 
   }
 });
 
+test('startup probe uses the source identity exported by the Python launcher', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalDigest = process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST;
+  process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST = RELEASE_SOURCE_DIGEST;
+  const stale = meta({
+    runtime: {
+      ...(meta().runtime as Record<string, unknown>),
+      runtime_source_digest: 'old-process-source',
+    },
+  });
+  globalThis.fetch = (async () => new Response(JSON.stringify(stale), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })) as typeof fetch;
+  try {
+    const probe = await probeApi('127.0.0.1', 8799);
+    assert.equal(probe.state, 'incompatible');
+    assert.match(probe.message, /does not match local source/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalDigest === undefined) delete process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST;
+    else process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST = originalDigest;
+  }
+});
+
 test('ensureApi preserves and emits a compatible source-drift warning', async () => {
   const warnings: string[] = [];
   const result = await ensureApi({
@@ -259,6 +298,72 @@ test('replaces a proven owned stale API with SIGTERM only', async () => {
   assert.equal(rec.port, 8899);
   assert.equal(basename(rec.backendBin), 'argus-skill');
   assert.equal(typeof rec.startedAt, 'string');
+});
+
+test('replaces an owned process whose source digest differs from local source', async () => {
+  const signals: Array<[number, NodeJS.Signals]> = [];
+  const digestMismatch: ApiProbeResult = {
+    state: 'incompatible',
+    message: 'backend process source old does not match local source new',
+  };
+  const result = await ensureApi({
+    host: '127.0.0.1',
+    port: 8899,
+    ownerFile: '/tmp/argus-owner.json',
+    dependencies: {
+      probeApi: probeSequence(digestMismatch, downProbe, currentProbe),
+      readOwnedApi: async () => ownedRecord,
+      signal: (pid, signal) => signals.push([pid, signal]),
+      spawnApi: async () => ({ pid: 9876 }),
+      writeOwnershipRecord: async () => undefined,
+      sleep: async () => undefined,
+    },
+  });
+  assert.equal(result.reachable, true);
+  assert.equal(result.spawned, true);
+  assert.deepEqual(signals, [[4321, 'SIGTERM']]);
+});
+
+test('continues restart when a concurrent launcher already stopped the owned pid', async () => {
+  const spawnApi = mock.fn(async () => ({ pid: 9876 }));
+  const result = await ensureApi({
+    host: '127.0.0.1',
+    port: 8899,
+    ownerFile: '/tmp/argus-owner.json',
+    dependencies: {
+      probeApi: probeSequence(staleProbe, downProbe, currentProbe),
+      readOwnedApi: async () => ownedRecord,
+      signal: () => {
+        throw new Error('ESRCH');
+      },
+      spawnApi,
+      writeOwnershipRecord: async () => undefined,
+      sleep: async () => undefined,
+    },
+  });
+  assert.equal(result.reachable, true);
+  assert.equal(spawnApi.mock.callCount(), 1);
+});
+
+test('does not spawn when signaling fails and the incompatible listener remains', async () => {
+  const spawnApi = mock.fn(async () => ({ pid: 9876 }));
+  const result = await ensureApi({
+    host: '127.0.0.1',
+    port: 8899,
+    ownerFile: '/tmp/argus-owner.json',
+    dependencies: {
+      probeApi: async () => staleProbe,
+      readOwnedApi: async () => ownedRecord,
+      signal: () => {
+        throw new Error('EPERM');
+      },
+      spawnApi,
+      sleep: async () => undefined,
+    },
+  });
+  assert.equal(result.reachable, false);
+  assert.equal(spawnApi.mock.callCount(), 0);
+  assert.match(result.message, /could not signal owned pid/);
 });
 
 test('bootstraps verified ownership from stale local API metadata, then replaces it', async () => {

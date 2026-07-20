@@ -65,6 +65,11 @@ export interface ApiCompatibility {
   meta?: ApiMeta;
 }
 
+export interface ApiRuntimeExpectation {
+  releaseId: string;
+  sourceDigest?: string;
+}
+
 type JsonObject = Record<string, unknown>;
 
 function object(value: unknown): JsonObject | null {
@@ -86,7 +91,10 @@ export function describeApiRuntime(meta: ApiMeta): string {
   return `${source} @ ${revision} · release ${meta.runtime.release_id} (pid ${meta.runtime.pid})${mismatch}`;
 }
 
-export function inspectApiMeta(value: unknown): ApiCompatibility {
+export function inspectApiMeta(
+  value: unknown,
+  expected: ApiRuntimeExpectation = { releaseId: RELEASE_ID },
+): ApiCompatibility {
   const root = object(value);
   const protocol = object(root?.protocol);
   const runtime = object(root?.runtime);
@@ -142,12 +150,30 @@ export function inspectApiMeta(value: unknown): ApiCompatibility {
       meta,
     };
   }
-  if (runtime.release_id !== RELEASE_ID) {
+  if (runtime.release_id !== expected.releaseId) {
     return {
       compatible: false,
-      reason: `backend release ${String(runtime.release_id)} does not match client release ${RELEASE_ID}`,
+      reason: `backend release ${String(runtime.release_id)} does not match client release ${expected.releaseId}`,
       meta,
     };
+  }
+  if (expected.sourceDigest) {
+    if (typeof runtime.runtime_source_digest !== 'string' || !runtime.runtime_source_digest) {
+      return {
+        compatible: false,
+        reason: 'backend process does not report the source digest required by this local checkout',
+        meta,
+      };
+    }
+    if (runtime.runtime_source_digest !== expected.sourceDigest) {
+      return {
+        compatible: false,
+        reason:
+          `backend process source ${String(runtime.runtime_source_digest).slice(0, 16)}` +
+          ` does not match local source ${expected.sourceDigest.slice(0, 16)}`,
+        meta,
+      };
+    }
   }
   // A live source digest is a release-integrity signal, not a wire-contract
   // version. Editable checkouts keep the last generated release_id while source

@@ -5,8 +5,10 @@ import { fileURLToPath } from 'node:url';
 import {
   describeApiRuntime,
   inspectApiMeta,
+  type ApiRuntimeExpectation,
   type ApiMeta,
 } from '../../core/src/protocol.js';
+import { RELEASE_ID } from '../../core/src/release.generated.js';
 import {
   claimApiOwnership as claimApiOwnershipImpl,
   isLocalApiHost,
@@ -44,6 +46,16 @@ export interface ApiProbeResult {
   meta?: ApiMeta;
 }
 
+function localRuntimeExpectation(
+  env: NodeJS.ProcessEnv = process.env,
+): ApiRuntimeExpectation {
+  const sourceDigest = env.ARGUS_TUI_LOCAL_SOURCE_DIGEST?.trim();
+  return {
+    releaseId: env.ARGUS_TUI_LOCAL_RELEASE_ID?.trim() || RELEASE_ID,
+    sourceDigest: sourceDigest || undefined,
+  };
+}
+
 export async function probeApi(
   host: string,
   port: number,
@@ -65,7 +77,7 @@ export async function probeApi(
     } catch {
       return { state: 'incompatible', message: 'backend returned malformed /api/meta JSON' };
     }
-    const compatibility = inspectApiMeta(body);
+    const compatibility = inspectApiMeta(body, localRuntimeExpectation());
     if (!compatibility.compatible || !compatibility.meta) {
       return {
         state: 'incompatible',
@@ -145,6 +157,7 @@ export async function ensureApi(opts: {
   const doSleep = deps?.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const local = isLocalApiHost(host);
 
+  onStatus?.('checking local and running versions…');
   const initial = await doProbe();
   if (initial.state === 'compatible') {
     // A compatible local API may predate ownership-by-default. Adopt it only
@@ -182,6 +195,7 @@ export async function ensureApi(opts: {
     });
   }
   if (initial.state === 'incompatible') {
+    onStatus?.('version mismatch; verifying safe restart ownership…');
     if (!ownerFile) {
       return {
         reachable: false,
@@ -239,12 +253,28 @@ export async function ensureApi(opts: {
     }
 
     // SIGTERM only — never escalate to SIGKILL.
-    doSignal(record.pid, 'SIGTERM');
+    onStatus?.('restarting outdated owned backend…');
+    let shutdown = false;
+    try {
+      doSignal(record.pid, 'SIGTERM');
+    } catch (error) {
+      const afterSignalFailure = await doProbe();
+      if (afterSignalFailure.state === 'unreachable') {
+        shutdown = true;
+      } else {
+        return {
+          reachable: false,
+          spawned: false,
+          message:
+            `incompatible Argus API at ${host}:${port}: could not signal owned pid ${record.pid}` +
+            ` (${(error as Error).message})`,
+        };
+      }
+    }
     onStatus?.('waiting for stale backend to shut down…');
 
     // Probe every 250 ms for at most 8 seconds.
-    let shutdown = false;
-    for (let i = 0; i < 32; i++) {
+    for (let i = 0; !shutdown && i < 32; i++) {
       await doSleep(250);
       const probe = await doProbe();
       if (probe.state === 'unreachable') {

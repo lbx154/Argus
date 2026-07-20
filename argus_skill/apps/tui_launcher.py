@@ -42,6 +42,38 @@ def _run_python_admin(argv: list[str]) -> int:
     return cli_main(argv)
 
 
+def _tui_local_identity() -> dict[str, object]:
+    from ..core.runtime_identity import source_root
+    from ..release import release_identity
+
+    return release_identity(source_root())
+
+
+def _export_tui_local_identity() -> None:
+    identity = _tui_local_identity()
+    values = {
+        "ARGUS_TUI_LOCAL_RELEASE_ID": identity.get("release_id"),
+        "ARGUS_TUI_LOCAL_SOURCE_DIGEST": identity.get("runtime_source_digest"),
+    }
+    for name, value in values.items():
+        text = str(value or "").strip()
+        if text:
+            os.environ[name] = text
+        else:
+            os.environ.pop(name, None)
+
+
+def _configure_tui_backend_bin() -> None:
+    if os.environ.get("ARGUS_BINARY_DISTRIBUTION", "").strip() == "1":
+        os.environ.setdefault("ARGUS_SKILL_BIN", sys.executable)
+        return
+    if os.environ.get("ARGUS_SKILL_BIN", "").strip():
+        return
+    sibling = Path(sys.executable).parent / "argus-skill"
+    if sibling.is_file():
+        os.environ["ARGUS_SKILL_BIN"] = str(sibling)
+
+
 def main(argv: list[str] | None = None) -> int:
     forwarded = list(sys.argv[1:] if argv is None else argv)
     if forwarded[:1] == ["report"]:
@@ -69,10 +101,11 @@ def main(argv: list[str] | None = None) -> int:
             f"argus: Ink TUI requires Node.js 18 or newer (found {found}).\n"
         )
         return 2
+    _configure_tui_backend_bin()
+    _export_tui_local_identity()
     if os.environ.get("ARGUS_BINARY_DISTRIBUTION", "").strip() == "1":
         # The TUI must own the real frozen backend process, not an npm wrapper
         # that would leave argus-core orphaned when the ownership PID is stopped.
-        os.environ.setdefault("ARGUS_SKILL_BIN", sys.executable)
         os.environ["ARGUS_BINARY_MODE"] = "cli"
     os.execv(node, [node, str(bundle), *forwarded])
     return 0  # pragma: no cover - execv replaces the process

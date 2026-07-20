@@ -194,6 +194,19 @@ user-level service manager for persistent operation; controlled replacement
 preserves the campaign identity and never silently re-plans an active objective
 during an upgrade.
 
+For a source checkout, updating remains one-command at launch:
+
+```bash
+git pull --ff-only
+pip install -e .  # refresh dependencies and entry points when they changed
+argus
+```
+
+Every `argus` launch compares the current local source fingerprint with the
+running local WebAPI. It reuses a matching process, starts a missing one, and
+gracefully replaces an outdated process only after proving that the endpoint is
+owned by this Argus installation. It never signals an unrelated port occupant.
+
 Argus targets three interchangeable agent-CLI backends:
 
 | Backend | Configuration value | Installation | Authentication |

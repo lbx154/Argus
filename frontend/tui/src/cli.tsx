@@ -219,6 +219,18 @@ async function main() {
   }
 
   if (args.once) {
+    const ready = await ensureApi({
+      host: args.host,
+      port: args.port,
+      token: args.token,
+      ownerFile: args.ownerFile,
+      onWarning: (warning) => process.stderr.write(`argus: warning: ${warning}\n`),
+    });
+    if (!ready.reachable) {
+      process.stderr.write(`argus: ${ready.message}\n`);
+      process.exitCode = 2;
+      return;
+    }
     const probe = new ApiClient({
       host: args.host,
       port: args.port,

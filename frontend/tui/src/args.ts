@@ -107,10 +107,11 @@ Usage: argus resume [SID] [--all]
        argus --web [--no-open]  # start Web UI and open/print its URL
        argus --once --json   # headless smoke: fetch snapshot + N events, print JSON, exit
 
-On launch it auto-starts the backend API (argus-skill --web) if it isn't already
-running. It records ownership of local APIs and safely replaces an outdated API
-from the same installation. A plain interactive launch creates a fresh idle session. argus resume
-shows conversations from this directory; add --all for every account session.
+Every launch compares the local source identity with the running backend. It
+auto-starts a missing backend and safely replaces an outdated backend only when
+process ownership is proven; unrelated port occupants are never signalled. A
+plain interactive launch creates a fresh idle session. argus resume shows
+conversations from this directory; add --all for every account session.
 
 Options:
   --host H       API host (default 127.0.0.1, env ARGUS_TUI_HOST)
