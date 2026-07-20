@@ -16,6 +16,11 @@ def test_extract_chat_reply_text_plain_and_json():
     assert _extract_chat_reply_text("你好，我在") == "你好，我在"
     assert _extract_chat_reply_text('{"reply": "hi there"}') == "hi there"
     assert _extract_chat_reply_text('{"message": "yo"}') == "yo"
+    pending_decision = (
+        '{"is_answer": true, "resolved": true, '
+        '"decision": "Continue.", "reply": "Decision delivered."}'
+    )
+    assert _extract_chat_reply_text(pending_decision) == pending_decision
     # garbage / non-reply JSON falls back to the raw text
     assert _extract_chat_reply_text('{"x": 1}') == '{"x": 1}'
     assert _extract_chat_reply_text("") == ""
