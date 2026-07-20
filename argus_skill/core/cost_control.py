@@ -51,6 +51,10 @@ class CostControlStateError(RuntimeError):
     pass
 
 
+class CostControlLockBusyError(CostControlStateError):
+    """Raised when a bounded read cannot acquire the host-global lock."""
+
+
 def _local_day(timestamp: float) -> str:
     local = time.localtime(timestamp)
     return f"{local.tm_year:04d}-{local.tm_mon:02d}-{local.tm_mday:02d}"
@@ -161,7 +165,7 @@ def _locked(
     if timeout_seconds is None:
         thread_lock.acquire()
     elif not thread_lock.acquire(timeout=max(0.0, timeout_seconds)):
-        raise CostControlStateError(f"cost control lock busy: {path}")
+        raise CostControlLockBusyError(f"cost control lock busy: {path}")
     try:
         fd = os.open(str(path), os.O_CREAT | os.O_RDWR, 0o600)
         try:
@@ -177,7 +181,7 @@ def _locked(
                         except BlockingIOError as exc:
                             remaining = deadline - time.monotonic()
                             if remaining <= 0:
-                                raise CostControlStateError(
+                                raise CostControlLockBusyError(
                                     f"cost control lock busy: {path}"
                                 ) from exc
                             time.sleep(min(0.01, remaining))
@@ -725,6 +729,7 @@ __all__ = [
     "COST_CONTROL_LOCK_FILE",
     "COST_CONTROL_STATE_FILE",
     "CallBudgetReservation",
+    "CostControlLockBusyError",
     "CostControlStateError",
     "call_reservation_usd",
     "cost_control_enabled",

@@ -22,6 +22,7 @@ from .runner_backend import (
     DEFAULT_RUNNER_BACKEND,
     RunnerBackend,
     default_runner_bin,
+    resolve_runner_bin,
 )
 
 EventCallback = Callable[[str, str], None]
@@ -231,7 +232,11 @@ class AgentCliRunner:
         before_exec: Callable[[], None] | None = None,
     ) -> None:
         self.backend = backend
-        self.agent_bin = agent_bin or default_runner_bin(backend)
+        requested_bin = agent_bin or default_runner_bin(backend)
+        self.agent_bin = (
+            resolve_runner_bin(backend, requested_bin)
+            or str(Path(requested_bin).expanduser())
+        )
         self.event_callback = event_callback
         self.default_extra_args = list(default_extra_args or [])
         self.before_exec = before_exec

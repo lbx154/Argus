@@ -1266,8 +1266,6 @@ def _codex_preflight_warning() -> str | None:
     except Exception:  # noqa: BLE001
         return ("bundled agent_cli failed to load — "
                 "check the argus-skill install")
-    import shutil
-
     # BUG FIX: this used to hardcode `shutil.which("codex")` regardless of
     # which CLI is actually configured, so an operator running entirely on
     # ARGUS_SKILL_RUNNER_BACKEND=claude/copilot (no `codex` npm package
@@ -1275,10 +1273,14 @@ def _codex_preflight_warning() -> str | None:
     # warning on every banner / `/doctor` run. Check whichever backend is
     # actually configured; "codex" (the default) keeps its exact original
     # message for backward compatibility.
+    from ..agent_cli.runner_backend import resolve_runner_bin
     from ..core.knobs import resolve_role_backend
 
     backend = resolve_role_backend("")
-    bin_path = os.environ.get("ARGUS_SKILL_RUNNER_BIN") or shutil.which(backend)
+    bin_path = resolve_runner_bin(
+        backend,
+        os.environ.get("ARGUS_SKILL_RUNNER_BIN") or None,
+    )
     if not bin_path:
         if backend == "codex":
             hint = "install with `npm install -g @openai/codex`"

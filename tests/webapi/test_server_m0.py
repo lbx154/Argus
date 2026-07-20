@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from argus_skill.core.cost_control import CostControlLockBusyError
 from argus_skill.core.session import SessionMeta, write_session_meta
 from argus_skill.core.transcript import append_turn
 from argus_skill.core.usage import UsageLedger, UsageRecord
@@ -187,6 +188,38 @@ def test_project_life_dir_resolves_and_guards(tmp_path: Path) -> None:
     # traversal + missing → None (never escapes projects/)
     assert server.project_life_dir("../../etc", global_root=tmp_path) is None
     assert server.project_life_dir("s-nope", global_root=tmp_path) is None
+
+
+def test_snapshot_reuses_cost_control_cache_during_transient_lock_contention(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _make_project(tmp_path)
+    fresh = {
+        "day": "2026-07-20",
+        "active_reservations": 1,
+        "reserved_usd": 2.5,
+        "unresolved_calls": 0,
+    }
+    calls = 0
+
+    def snapshot(*, global_root):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return fresh
+        raise CostControlLockBusyError("busy")
+
+    project_state._COST_CONTROL_CACHE.clear()
+    monkeypatch.setattr(project_state, "cost_control_snapshot", snapshot)
+
+    first = project_state.build_snapshot("s-testaaaa", global_root=tmp_path)
+    second = project_state.build_snapshot("s-testaaaa", global_root=tmp_path)
+
+    assert first is not None and first["cost_control"] == fresh
+    assert second is not None
+    assert second["partial"] is False
+    assert second["cost_control"] == {**fresh, "snapshot_stale": True}
 
 
 def test_project_index_and_routes_span_machine_session_roots(

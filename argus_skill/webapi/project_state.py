@@ -17,7 +17,7 @@ from typing import Any
 from ..apps.cli._follow import _read_recent_project_events
 from ..cli.roles_status import RoleActivity, RoleConfig, resolve_all_roles, role_activity
 from ..core import paths as core_paths
-from ..core.cost_control import cost_control_snapshot
+from ..core.cost_control import CostControlLockBusyError, cost_control_snapshot
 from ..core.metrics import metrics_snapshot
 from ..core.mission_view import snapshot_mission_view
 from ..core.provider_quota import provider_usage_snapshot
@@ -43,6 +43,8 @@ _SPEND_CACHE_LOCK = threading.Lock()
 _METRICS_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _METRICS_CACHE_LOCK = threading.Lock()
 _METRICS_CACHE_TTL_SECONDS = 60.0
+_COST_CONTROL_CACHE: dict[str, dict[str, Any]] = {}
+_COST_CONTROL_CACHE_LOCK = threading.Lock()
 
 
 def project_usage_summary(project_root: Path | str) -> UsageSummary:
@@ -82,6 +84,22 @@ def _cached_metrics_snapshot(
     value = metrics_snapshot(root=root)
     with _METRICS_CACHE_LOCK:
         _METRICS_CACHE[key] = (now + _METRICS_CACHE_TTL_SECONDS, value)
+    return value
+
+
+def _cached_cost_control_snapshot(root: Path) -> dict[str, Any]:
+    """Keep transient writer contention out of the operator health surface."""
+    key = str(root.resolve())
+    try:
+        value = cost_control_snapshot(global_root=root)
+    except CostControlLockBusyError:
+        with _COST_CONTROL_CACHE_LOCK:
+            cached = _COST_CONTROL_CACHE.get(key)
+        if cached is None:
+            raise
+        return {**cached, "snapshot_stale": True}
+    with _COST_CONTROL_CACHE_LOCK:
+        _COST_CONTROL_CACHE[key] = value
     return value
 
 
@@ -436,7 +454,7 @@ def build_snapshot(
         diagnostics.append(diagnostic("request_usage", exc))
 
     try:
-        cost_control = cost_control_snapshot(global_root=root)
+        cost_control = _cached_cost_control_snapshot(root)
     except Exception as exc:  # noqa: BLE001
         cost_control = None
         diagnostics.append(diagnostic("cost_control", exc))
