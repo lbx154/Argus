@@ -54,6 +54,7 @@ class RoleMission:
         task: str,
         *,
         extra_exclude: set[str] | None = None,
+        force_empty_match: bool = False,
     ) -> RoleSkillMatch:
         """Match skills for this mission's role against ``task``.
 
@@ -70,6 +71,7 @@ class RoleMission:
             task=task,
             on_event=self.on_event,
             exclude_files=exclude or None,
+            force_empty_match=force_empty_match,
         )
 
 

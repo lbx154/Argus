@@ -33,7 +33,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from ..skills.bm25_prefilter import bm25_prefilter
+from ..skills.bm25_prefilter import bm25_prefilter, bm25_tokens
 from .trajectory_index import (
     TrajectoryHit,
     default_db_path,
@@ -80,8 +80,7 @@ def _load_skill_summaries(skills_dir: Path) -> list[dict[str, Any]]:
                         summary = line.split(":", 1)[1].strip()
                     elif line.startswith("intent:"):
                         intent = line.split(":", 1)[1].strip()
-        # Field names align with bm25_prefilter._candidate_text():
-        # name + description + category are the BM25-visible fields.
+        # Field names align with the matcher-visible BM25 fields.
         out.append({
             "name": name,
             "description": summary or intent,
@@ -95,18 +94,16 @@ def _load_skill_summaries(skills_dir: Path) -> list[dict[str, Any]]:
 def _bm25_skills(query: str, summaries: list[dict[str, Any]], top_k: int = 5) -> list[SkillHit]:
     if not summaries:
         return []
-    # bm25_prefilter returns top_k regardless of score, so it can surface
-    # zero-overlap skills as filler when the query doesn't match anything.
-    # Pre-filter to docs that share at least one ≥3-char alnum token with
-    # the query — that mirrors `bm25_prefilter._tokenize` so downstream
-    # ranking still works.
-    q_tokens = {t for t in re.findall(r"[a-z0-9]+", query.lower()) if len(t) >= 3}
+    # The matcher-facing BM25 fallback intentionally returns the full pool on
+    # no-overlap for recall. The standalone query tool has no LLM second pass, so
+    # keep only skills that share at least one BM25 token before ranking.
+    q_tokens = set(bm25_tokens(query))
     if not q_tokens:
         return []
     candidate: list[dict[str, Any]] = []
     for s in summaries:
         blob = " ".join(str(s.get(k, "")) for k in ("name", "description", "category", "summary"))
-        toks = {t for t in re.findall(r"[a-z0-9]+", blob.lower()) if len(t) >= 3}
+        toks = set(bm25_tokens(blob))
         if q_tokens & toks:
             candidate.append(s)
     if not candidate:

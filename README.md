@@ -138,8 +138,8 @@ items, atomically claimed, executed through Engineer–Reviewer rounds, and retu
 as complete, blocked, paused, or ready for more planning — and after a controlled
 restart the daemon resumes the same campaign only when its persisted identity
 matches the current objective, vertical, and lineage. The runtime treats
-reliability as a first-class concern: bounded per-mission, daily, provider-call,
-and host-concurrency budgets; bounded retry and backoff for backend failures
+reliability as a first-class concern: one host-global daily USD cap with atomic
+call reservations, plus host-concurrency limits; bounded retry and backoff for backend failures
 instead of success-looking fallbacks; a Reviewer-authored, hard-capped
 `checkpoint.json` that carries curated working memory across bounded session
 rolls; and credential redaction before events and artifacts enter review.
@@ -152,14 +152,24 @@ quality stays a structured agent decision grounded in the artifacts of the run.
 
 Argus requires Python 3.11 or newer and one supported agent CLI.
 
+For GitHub Copilot subscribers:
+
+```bash
+npm install -g @github/copilot
+copilot login
+```
+
 ```bash
 git clone https://github.com/lbx154/argus-skill.git
 cd argus-skill
 python -m venv .venv
 . .venv/bin/activate
 pip install -e .
-argus-skill --setup
+argus-skill --setup  # defaults to Copilot when it is the only supported CLI on PATH
 ```
+
+Install `pip install -e '.[quant]'` when using the quant analysis, backtest,
+or K-line chart helpers. Heavy engines such as qlib remain project-managed.
 
 The setup wizard creates a trusted baseline machine-policy prompt when none
 exists. It never overwrites operator-authored prompts. Customize the generated

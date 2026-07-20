@@ -68,13 +68,11 @@ def _reviewer_checklist_for(
 
 
 def _get_current_stage(project_root: Path) -> str:
-    state_path = project_root / "research" / "PIPELINE_STATE.json"
-    if not state_path.exists():
-        return "research"
     try:
-        data = json.loads(state_path.read_text(encoding="utf-8"))
-        return data.get("current_stage", "research")
-    except (json.JSONDecodeError, OSError):
+        from ..skills.stage_checklists import current_stage
+
+        return current_stage(project_root)
+    except Exception:  # noqa: BLE001
         return "research"
 
 

@@ -1,6 +1,6 @@
 ---
 name: Deep Research via API
-description: "RESEARCH-stage literature playbook — build LITERATURE_GROUNDING from REAL `curl` queries to public arXiv + Crossref APIs (no key needed), GPT-Researcher style: fan out ≥5 sub-queries, fetch every source, source-track each paper, then recurse for depth. HARD BAN on writing literature entries from model knowledge: every paper must come from a real curl call recorded in the execution log. Use for any literature survey, arxiv/Crossref search, deep research, related-work discovery, or building LITERATURE_GROUNDING.json / refs.bib."
+description: "RESEARCH-stage literature playbook — build one canonical LITERATURE_GROUNDING ledger from real primary-source retrieval. Search adaptively until every material claim, nearest competitor, relevant foundation, and contradiction is covered; never optimize for query or paper counts."
 category: literature
 priority: high
 version: 1
@@ -13,7 +13,9 @@ This is the **research-stage** literature playbook. Its job is to make the
 literature grounding *earned from real retrieval*, not recited from the model's
 training memory. Inspired by GPT Researcher: the LLM that "remembers" a paper
 will hallucinate its authors, year, venue, and even its arXiv id. The only
-trustworthy evidence is a source you actually fetched this run.
+trustworthy evidence is a primary source you fetched or a previously
+Reviewer-certified cached response whose content still matches its recorded
+identity/hash.
 
 ## Why this exists (the failure mode it kills)
 
@@ -29,27 +31,26 @@ query ran. Process audit catches it; do not be the engineer it catches.
 
 1. **No model-knowledge literature.** You may NOT write any
    `LITERATURE_GROUNDING.json` entry, `refs.bib` entry, or related-work claim
-   from what you "know" about a paper. Every entry must trace to a real
-   `curl` call to arXiv or Crossref executed **this run**.
+   from what you "know" about a paper. Every entry must trace to a real primary
+   URL and either a cached retrieved payload or a retrieval performed for the
+   unresolved claim. Reuse previously certified cached sources unless a
+   concrete conflict or stale dependency requires refetching.
 2. **No fabricated provenance.** Do NOT write `"queried"`, `"searched"`,
    `"retrieved from"`, `"official scholarly sources"`, or any equivalent into
-   ANY file's `metadata`/prose unless the matching real `curl` command appears
-   in your execution log. A claimed query with no command is a process-audit
-   blocker.
+   ANY file's `metadata`/prose unless the matching source URL and retrieval
+   artifact are recorded in the canonical ledger.
 3. **No memory-filled fields.** `abstract`, `authors`, `year`, `venue`,
    `arxiv_id`, and `doi` must be COPIED from the API response, never recalled.
    If a field is not in the response, leave it empty — do not invent it.
-4. The reviewer runs `engineer-process-audit` and greps your execution log for
-   `curl` against `export.arxiv.org` / `api.crossref.org`. Zero real calls, or
-   entries that don't match any logged response, → the research stage is
-   BLOCKED and you redo it with real curl evidence.
+4. The Reviewer checks source identity and claim coverage. A missing source,
+   fabricated provenance claim, or source that does not support its recorded
+   implication blocks the stage; the number of shell commands does not.
 
-## Two retrieval channels — both real, both auditable, use BOTH for depth
+## Retrieval channels — choose the source that answers the question
 
-1. **`curl` to public APIs (the systematic, auditable deep-dive)** — arXiv +
-   Crossref work with no key behind the proxy. This is the auditable core: the
-   reviewer greps your execution log for these calls. Use curl for systematic
-   arXiv/Crossref fan-out and timeline construction.
+1. **`curl` to public APIs (systematic metadata retrieval)** — arXiv and
+   Crossref work with no key behind the proxy. Use them when they are the
+   shortest path to the needed source metadata.
 2. **codex `web_search` (the breadth channel — via the Responses API, it WORKS)**
    — an earlier note said "Copilot web search is blocked"; that was a mistake
    (it referred to the `--ghc` WebSearch limit, NOT codex's own `web_search`
@@ -63,8 +64,9 @@ query ran. Process audit catches it; do not be the engineer it catches.
 
 Neither channel is model memory. The arXiv/Crossref `curl` recipes are below;
 reach for `web_search` whenever the literature is recent, conference-published,
-or on OpenReview — places where curl-on-arXiv is blind. For each `web_search`
-hit you keep, record its real URL in `retrieved_via` exactly like a curl source.
+or on OpenReview — places where curl-on-arXiv is blind. Use one or both channels
+according to the coverage gap. For each hit you keep, record its real URL and
+cached source artifact.
 
 ### arXiv (Atom XML — title / abstract / arxiv id)
 
@@ -107,12 +109,12 @@ Parse `message.items[]`: `title[0]`, `DOI`, `abstract` (JATS), `author[]`,
 > 429-rate-limits without a key. Do not depend on it; arXiv + Crossref are the
 > required pair.
 
-## GPT-Researcher loop — fan-out → fetch → track → recurse
+## Claim-directed loop — identify gaps → fetch → track → stop when covered
 
-### 1. Fan out (breadth ≥ 5)
+### 1. Identify the claims that need sources
 
-Decompose the research objective into **at least 5 distinct sub-queries from
-different angles**, not five rewordings of one. Cover, at minimum:
+Decompose the research objective into material source questions. Typical angles
+include:
 
 1. **Core task / problem** (e.g. "tool-use agent benchmark")
 2. **Proposed method family** (e.g. "retrieval augmented tool selection")
@@ -120,10 +122,12 @@ different angles**, not five rewordings of one. Cover, at minimum:
 4. **Baselines / prior systems** you'll compare against
 5. **Evaluation / metric / failure-mode** angle (e.g. "hallucinated tool call evaluation")
 
-Run **each** sub-query against **both** arXiv and Crossref — that is ≥10 real
-curl calls in the first round alone. Save raw responses (e.g.
-`research/_search/q1_arxiv.xml`, `research/_search/q1_crossref.json`) so each
-entry is independently re-checkable.
+Use the source channel suited to each question: arXiv for preprints, Crossref
+for DOI/venue metadata, ACL Anthology/OpenReview/conference pages for published
+work, and official repositories or lab pages for implementation/release facts.
+Do not send every query to every API merely to increase a counter. Cache each
+retained primary response under `research/_search/` so it can be reused without
+another model or network turn.
 
 ### 2. Fetch & summarize each source individually
 
@@ -147,33 +151,33 @@ do not keep a paper just because the title looked right.
   "url": "https://arxiv.org/abs/2304.08244",
   "abstract": "<verbatim excerpt from the API response, NOT paraphrased from memory>",
   "retrieved_via": "curl arXiv search_query=all:%22API-Bank%22 (round 1, q3)",
+  "raw_response_path": "research/_search/q3_arxiv.xml",
   "source": "arxiv",
   "relevance": "primary tool-use benchmark; baseline for our eval"
 }
 ```
 
 Required per entry: `url` (arXiv `abs` link or `https://doi.org/<DOI>`),
-`retrieved_via` (which curl found it — query + round), and a real `abstract`
-excerpt drawn from the API payload. An entry missing any of these is treated as
-recalled-from-memory and must be removed or re-fetched.
+`retrieved_via`, `raw_response_path` (or equivalent cached-source field),
+project relevance/implication, and a real `abstract` excerpt drawn from the API
+payload. An entry missing any of these is treated as ungrounded and must be
+repaired from a real source.
 
-### 4. Recurse for depth (≥ 2 layers)
+### 4. Recurse only when coverage exposes a real gap
 
-GPT Researcher's depth dimension: after round 1, mine the retrieved abstracts
-for **high-frequency themes, method names, and recurring authors**, then
-generate a **second round of sub-queries** targeting those, and curl them for
-real. Repeat for at least a second layer (deeper if the topic is broad). The
-second round is what turns a flat keyword list into a grounded survey: it finds
-the papers the obvious queries miss.
+After the first retrieval pass, inspect whether a material premise, nearest
+competitor, classic lineage edge, contradictory result, or benchmark origin is
+still unsupported. Search again only for those explicit gaps. A narrow topic
+may be complete in one pass; a broad or disputed topic may require several.
+Depth is a connected argument, not a mandatory number of rounds.
 
 ### 5. Aggregate, dedup, cite
 
-Merge rounds, dedup by `arxiv_id`/`doi` (keep the richest record), and keep the
-literature matrix (`research/LIT_MATRIX.tsv`) and `paper/refs.bib` in sync with
-the grounded entries. Every BibTeX key must correspond to a real retrieved
-source. Record the run in `research/SOURCE_DISCOVERY.md`: list each sub-query,
-which API answered it, how many hits, and how many were kept — so the trail is
-auditable end to end.
+Merge retrievals and dedup by `arxiv_id`/`doi` (keep the richest record) in the
+canonical ledger. Generate `research/LIT_MATRIX.tsv` from that ledger with the
+ledger tool; do not maintain it independently. Every eventual BibTeX key must
+correspond to a retained source. Record search questions and unresolved gaps in
+ledger metadata only when they help future research decisions.
 
 ## Honest metadata
 
@@ -182,8 +186,8 @@ If you write a `metadata` block, it must be TRUE and specific:
 ```json
 "metadata": {
   "retrieval_method": "real curl to export.arxiv.org + api.crossref.org",
-  "sub_queries": 7,
-  "rounds": 2,
+  "source_questions": ["nearest competitor", "benchmark origin", "failure boundary"],
+  "coverage_gaps": [],
   "raw_responses_dir": "research/_search/",
   "queried_from_memory": false
 }
@@ -194,19 +198,23 @@ the curl commands are in your log, or the claim is false.
 
 ## Definition of done
 
-- ≥5 distinct sub-queries, each curled against arXiv AND Crossref (≥10 first-round calls).
-- ≥2 retrieval rounds (depth), the second derived from round-1 results.
-- Every `LITERATURE_GROUNDING.json` entry has `url`, `retrieved_via`, and a real `abstract` excerpt.
-- Raw responses saved under `research/_search/`; `SOURCE_DISCOVERY.md` logs the query trail.
+- Every material research premise, nearest competitor, relevant foundation,
+  contradictory result, and benchmark origin is connected to a retained
+  primary source, or explicitly marked unresolved.
+- Every `LITERATURE_GROUNDING.json` entry has a primary `url`, source provenance,
+  and a project-relevant implication.
+- Retained raw responses are cached under `research/_search/`.
+- `python -m argus_skill.verticals.research.literature_ledger check` passes and
+  `... literature_ledger sync` deterministically generates `LIT_MATRIX.tsv`.
 - No entry, abstract, or metadata claim originates from model knowledge.
 
 ## Integration
 
-- Runs in the **research** stage alongside `arxiv-paper-search.md` and
-  `semantic-scholar-search.md`; this skill is the *real-search discipline* those
-  searches must obey before anything lands in `LITERATURE_GROUNDING.json`.
-- Feeds `research/LITERATURE_GROUNDING.json`, `research/LIT_MATRIX.tsv`,
-  `research/SOURCE_DISCOVERY.md`, and `paper/refs.bib`.
-- The reviewer's research checklist audits this with `engineer-process-audit`:
-  it greps the execution log for real `curl` calls and spot-curls a couple of
-  cited urls/DOIs to confirm they exist.
+- Runs in the **research** stage alongside whichever scholarly search source is
+  appropriate. It is the source-integrity discipline before anything lands in
+  canonical `research/LITERATURE_GROUNDING.json`.
+- The ledger tool generates `research/LIT_MATRIX.tsv`; bibliography generation
+  or manuscript prose consumes the canonical ledger rather than another
+  independently maintained survey.
+- The Reviewer validates the ledger and refetches only missing, contradictory,
+  implausible, or disputed sources. It does not grade quality by query count.

@@ -33,9 +33,6 @@ from typing import Any, Callable, ClassVar, Protocol
 
 from ..core import paths as core_paths  # noqa: F401 — re-exported convenience
 from ..core.knobs import resolve_role_model, resolve_role_reasoning_effort
-from ..core.mission_budget import (
-    build_mission_budget_guard as _budget_reason_provider,
-)
 from ..core.ports import EventSink
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..engineer.runner import should_clear_thread_id_after_outcome
@@ -217,9 +214,29 @@ class LifeStderrSink:
         return
 
 
-def _should_run_stage_transition(status: object) -> bool:
+def _should_run_stage_transition(
+    status: object,
+    planner_report: dict | None = None,
+    *,
+    mission_scope: str = "",
+    require_independent_review: bool = False,
+    review_source: str = "",
+) -> bool:
     normalized = str(status or "")
-    return normalized != "replan_requested" and not normalized.startswith("paused_")
+    stage_reconciliation = bool(
+        isinstance(planner_report, dict)
+        and planner_report.get("stage_reconciliation_required") is True
+    )
+    if normalized == "replan_requested" and not stage_reconciliation:
+        return False
+    if normalized.startswith("paused_"):
+        return False
+    return bool(
+        stage_reconciliation
+        or require_independent_review
+        or str(mission_scope or "").strip().lower() == "final_submission"
+        or str(review_source or "").strip().lower() == "engineer_self_review"
+    )
 
 
 
@@ -391,6 +408,14 @@ class _SkillLoopRunner(SelfReplyMixin):
         self._usage_project_root = (
             Path(raw_usage_root).expanduser() if raw_usage_root else None
         )
+        raw_global_root = str(getattr(args, "global_root", "") or "").strip()
+        self._usage_global_root = (
+            Path(raw_global_root).expanduser() if raw_global_root else None
+        )
+        if self._usage_global_root is None and self._usage_project_root is not None:
+            parent = self._usage_project_root.parent
+            if parent.name == "projects":
+                self._usage_global_root = parent.parent
         self._active_usage_mission_id: str | None = None
         self._set_usage_context(None)
         # The ONE Manager instance for this runner. All daemon-side Manager uses
@@ -523,8 +548,7 @@ class _SkillLoopRunner(SelfReplyMixin):
         return gateway_run_exec(backend, **kwargs)
 
     def _distinct_backends(self) -> list:
-        """The distinct role AgentCliBackend instances this runner drives (each
-        appears once), that support the source-level budget guard."""
+        """The distinct role AgentCliBackend instances this runner drives."""
         seen: set[int] = set()
         out: list = []
         for be in (
@@ -535,22 +559,10 @@ class _SkillLoopRunner(SelfReplyMixin):
             getattr(self, "curator_backend", None),
             getattr(self, "manager_backend", None),
         ):
-            if be is not None and id(be) not in seen and hasattr(be, "set_budget_reason_provider"):
+            if be is not None and id(be) not in seen:
                 seen.add(id(be))
                 out.append(be)
         return out
-
-    def _set_budget_guard(self, provider) -> list:
-        """Install ``provider`` (or clear with ``None``) as the per-mission budget
-        guard on every role backend; returns the backends it touched so the caller
-        can clear them in a ``finally``."""
-        backends = self._distinct_backends()
-        for be in backends:
-            try:
-                be.set_budget_reason_provider(provider)
-            except Exception:  # noqa: BLE001 — a guard-set fault must never fail the mission
-                pass
-        return backends
 
     def _set_usage_context(self, mission_id: str | None) -> list:
         """Point every role backend at this project's call ledger."""
@@ -563,6 +575,7 @@ class _SkillLoopRunner(SelfReplyMixin):
             try:
                 setter(
                     project_root=self._usage_project_root,
+                    global_root=self._usage_global_root,
                     mission_id=mission_id,
                 )
             except Exception:  # noqa: BLE001 — metering must not break a mission
@@ -600,12 +613,14 @@ class _SkillLoopRunner(SelfReplyMixin):
         prelude_context: str = "",
         seed_thread_id: str | None = None,
         scope: str = "",
-        per_mission_budget: Any | None = None,
         preplanned: bool = False,
         mission_id: str | None = None,
         usage_mission_id: str | None = None,
+        context_packet_path: str = "",
         max_rounds_override: int | None = None,
+        progressive_experiment_matrix: bool = False,
         workflow_mode_override: str = "",
+        require_independent_review: bool = False,
     ) -> _Outcome:
         # Chat fast-path (operator-front-door-only; gated by _allow_chat_fast_path).
         # The classifier + reply logic lives in ``_maybe_chat_outcome``; here we
@@ -635,6 +650,9 @@ class _SkillLoopRunner(SelfReplyMixin):
         config_kwargs = {
             "engineer_model": args.engineer_model,
             "reviewer_model": args.reviewer_model,
+            "engineer_initial_reasoning_effort": os.environ.get(
+                "ARGUS_SKILL_ENGINEER_INITIAL_REASONING_EFFORT", "high"
+            ),
             "engineer_reasoning_effort": getattr(
                 args, "engineer_reasoning_effort", "xhigh"
             ),
@@ -671,6 +689,10 @@ class _SkillLoopRunner(SelfReplyMixin):
             "dangerous_yolo": not safe_mode,
             "full_auto": safe_mode,
             "skip_git_repo_check": True,
+            "engineer_self_review_enabled": (
+                _env_flag("ARGUS_SKILL_ENGINEER_SELF_REVIEW", default=True)
+                and not require_independent_review
+            ),
             # Filled from the resolved vertical below.  Fail-safe default: an
             # undecided task is bounded/non-paper.
             "paper_mission": False,
@@ -681,6 +703,7 @@ class _SkillLoopRunner(SelfReplyMixin):
                 args,
                 Path(args.workdir).expanduser() if args.workdir else Path.cwd(),
             ),
+            "context_packet_path": str(context_packet_path or ""),
             "session_id": mission_id,
             # Process-correctness audit: the reviewer runs in the project
             # work-tree and only sees the engineer's final summary. Give it the
@@ -688,6 +711,18 @@ class _SkillLoopRunner(SelfReplyMixin):
             # (``<life_dir>/events.jsonl``) so it can grep HOW the result was
             # produced. This runtime log remains outside the worktree.
         }
+        if progressive_experiment_matrix:
+            # Matrix closure is governed by measurable progress/stall detection,
+            # not an arbitrary round count. This value is practically unbounded
+            # while preserving the existing integer config/event schema.
+            config_kwargs["max_rounds"] = 2_147_483_647
+            config_kwargs["soft_round_limit"] = 0
+            config_kwargs["hard_escalate_rounds"] = 0
+        if context_packet_path:
+            config_kwargs["checkpoint_path"] = (
+                Path(context_packet_path).expanduser().resolve().parent
+                / "CHECKPOINT.md"
+            )
         _project_state_dir = _project_state_dir_for(
             args, Path(args.workdir).expanduser() if args.workdir else Path.cwd()
         )
@@ -720,10 +755,6 @@ class _SkillLoopRunner(SelfReplyMixin):
             workflow_mode_override.strip().lower()
             or _workflow_mode_for_project_root(_proot)
         )
-        if config_kwargs["workflow_mode"] == "direct":
-            config_kwargs["skill_ops_enabled"] = False
-            config_kwargs["wiki_ops_enabled"] = False
-            config_kwargs["auto_init_wiki"] = False
         try:
             from inspect import signature
 
@@ -757,8 +788,13 @@ class _SkillLoopRunner(SelfReplyMixin):
             msgs: list[str] = []
             if inbox_life_dir is not None:
                 try:
+                    from ..skills.stage_checklists import current_stage
                     from ._inbox import drain_inbox_messages
-                    msgs.extend(drain_inbox_messages(inbox_life_dir))
+
+                    msgs.extend(drain_inbox_messages(
+                        inbox_life_dir,
+                        current_stage=current_stage(workdir),
+                    ))
                 except Exception:  # noqa: BLE001 — never break a mission
                     pass
             return msgs
@@ -805,12 +841,7 @@ class _SkillLoopRunner(SelfReplyMixin):
         # We no longer re-parse it out of the objective prose — the harness
         # should consume the structured field, not sniff the rendered text.
         mission_scope = (scope or "").strip().lower()
-        # SOURCE-LEVEL budget cap: gate EVERY LLM call this mission makes on the
-        # live per-mission spend. Set the guard on the role backends for the
-        # duration of the mission and clear it in the finally so it can never leak
-        # into a later mission. ``None`` budget → no guard (cap unenforced, as before).
         self._set_usage_context(usage_mission_id or mission_id)
-        _guarded = self._set_budget_guard(_budget_reason_provider(per_mission_budget))
         try:
             # User-authored bounded work now follows the full team chain:
             # Manager → Planner → Engineer → Reviewer. Planner-authored backlog
@@ -883,16 +914,10 @@ class _SkillLoopRunner(SelfReplyMixin):
                 objective_for_skill=objective,
                 original_objective=original_objective or objective,
                 scope=mission_scope,
-                per_mission_budget=per_mission_budget,
             )
         finally:
             self._current_sink = None
             self._current_failure_ledger = None
-            for _be in _guarded:
-                try:
-                    _be.set_budget_reason_provider(None)
-                except Exception:  # noqa: BLE001 — clearing the guard must never fail the mission
-                    pass
             self._set_usage_context(None)
         new_tid = getattr(outcome, "last_thread_id", None)
         if should_clear_thread_id_after_outcome(
@@ -924,6 +949,7 @@ class _SkillLoopRunner(SelfReplyMixin):
         validator_id = ""
         repair_paths: list[str] = []
         scientific_decision = ""
+        review_source = ""
         rounds_list = getattr(outcome, "rounds", None) or []
         if rounds_list:
             _final_review = getattr(rounds_list[-1], "review", None)
@@ -943,6 +969,9 @@ class _SkillLoopRunner(SelfReplyMixin):
                 scientific_decision = str(
                     getattr(_final_review, "scientific_decision", "") or ""
                 ).strip().lower()
+                review_source = str(
+                    getattr(_final_review, "review_source", "") or ""
+                ).strip()
                 report = getattr(_final_review, "planner_report", None)
                 if isinstance(report, dict):
                     planner_report = report
@@ -981,43 +1010,31 @@ class _SkillLoopRunner(SelfReplyMixin):
         stage_transition: dict = {}
         if (
             getattr(config, "workflow_mode", "staged") != "direct"
-            and _should_run_stage_transition(effective_status)
-        ):
-            stage_budget_exhausted = bool(
-                per_mission_budget is not None
-                and per_mission_budget.exceeded()
+            and _should_run_stage_transition(
+                effective_status,
+                planner_report,
+                mission_scope=mission_scope,
+                require_independent_review=require_independent_review,
+                review_source=review_source,
             )
-            if not stage_budget_exhausted:
-                self._current_sink = sink
-                self._set_usage_context(usage_mission_id or mission_id)
-                stage_guarded = self._set_budget_guard(
-                    _budget_reason_provider(per_mission_budget)
+        ):
+            self._current_sink = sink
+            self._set_usage_context(usage_mission_id or mission_id)
+            try:
+                stage_transition = self._decide_stage_transition(
+                    rounds_list=rounds_list,
+                    workdir=workdir,
+                    sink=sink,
+                    root_task_id=usage_mission_id or mission_id,
+                    mission_scope=mission_scope,
+                    open_ended=bool(getattr(config, "open_ended", False)),
+                    continuous_objective=str(
+                        getattr(config, "continuous_objective", "") or ""
+                    ),
                 )
-                try:
-                    stage_transition = self._decide_stage_transition(
-                        rounds_list=rounds_list,
-                        workdir=workdir,
-                        sink=sink,
-                        root_task_id=usage_mission_id or mission_id,
-                        mission_scope=mission_scope,
-                        open_ended=bool(getattr(config, "open_ended", False)),
-                        continuous_objective=str(
-                            getattr(config, "continuous_objective", "") or ""
-                        ),
-                    )
-                finally:
-                    self._current_sink = None
-                    for backend in stage_guarded:
-                        try:
-                            backend.set_budget_reason_provider(None)
-                        except Exception:  # noqa: BLE001
-                            pass
-                    self._set_usage_context(None)
-            else:
-                effective_status = "paused_budget"
-                effective_stop_kind = "budget_exhausted"
-                effective_recoverable = True
-                effective_reason = "per-mission budget exhausted before Manager stage decision"
+            finally:
+                self._current_sink = None
+                self._set_usage_context(None)
         return _Outcome(
             success=bool(outcome.successful and effective_status == "done"),
             status=effective_status,
@@ -1250,7 +1267,9 @@ def _codex_preflight_warning() -> str | None:
     # warning on every banner / `/doctor` run. Check whichever backend is
     # actually configured; "codex" (the default) keeps its exact original
     # message for backward compatibility.
-    backend = os.environ.get("ARGUS_SKILL_RUNNER_BACKEND") or "codex"
+    from ..core.knobs import resolve_role_backend
+
+    backend = resolve_role_backend("")
     bin_path = os.environ.get("ARGUS_SKILL_RUNNER_BIN") or shutil.which(backend)
     if not bin_path:
         if backend == "codex":
@@ -1262,7 +1281,11 @@ def _codex_preflight_warning() -> str | None:
     return None
 
 
-def _inbox_drainer_for(life_dir: Path):
+def _inbox_drainer_for(
+    life_dir: Path,
+    *,
+    project_root: Path | None = None,
+):
     """Return a `user_inbox` callable that drains pending messages from
     ``<life_dir>/inbox.jsonl``.
 
@@ -1275,12 +1298,38 @@ def _inbox_drainer_for(life_dir: Path):
 
     def _drain_one() -> str | None:
         try:
-            messages = drain_inbox_messages(life_dir, limit=1)
+            from ..skills.stage_checklists import current_stage
+
+            messages = drain_inbox_messages(
+                life_dir,
+                limit=1,
+                current_stage=current_stage(project_root or life_dir),
+            )
         except Exception:  # noqa: BLE001
             return None
         return messages[0] if messages else None
 
     return _drain_one
+
+
+def _pending_question_resolver_for(project_root: Path):
+    """Bind daemon inbox replies to the authoritative Manager answer path."""
+    state_root = Path(project_root)
+    if state_root.parent.name != "projects":
+        return None
+    sid = state_root.name
+    global_root = state_root.parent.parent
+
+    def _resolve(_item: Any, text: str) -> dict[str, Any] | None:
+        from ..webapi.manager_bridge import manager_message
+
+        return manager_message(
+            sid,
+            text,
+            global_root=global_root,
+        )
+
+    return _resolve
 
 
 def _resolve_runner_backend_name(
@@ -1374,28 +1423,18 @@ def _paper_mission_for_project_root(project_root: Path | str) -> bool:
     Missing/corrupt state is deliberately non-paper.  ``resolve_vertical`` has
     a compatibility fallback to ``research`` for undecided projects; using that
     fallback as a mission-type signal caused ordinary bounded tasks to pay for
-    paper idea search and inherit EMNLP guidance.  A persisted Manager decision
-    (or a valid explicit ``ARGUS_SKILL_VERTICAL`` override) is required here.
+    paper idea search and inherit EMNLP guidance. A persisted Manager decision
+    is required here.
     """
     try:
-        from ..skills.vertical_select import (
-            ENV_VERTICAL,
-            _persisted_vertical,
-            require_vertical,
-            resolve_vertical,
-        )
+        from ..skills.vertical_select import _persisted_vertical
         from ..verticals._base import load_vertical, vertical_completion_gate
 
         root = Path(project_root).expanduser()
         persisted = _persisted_vertical(root)
-        raw_override = str(os.environ.get(ENV_VERTICAL, "") or "").strip()
         if persisted is None:
-            if not raw_override:
-                return False
-            # Reject an invalid override instead of allowing resolve_vertical's
-            # compatibility fallback to turn it into `research`.
-            require_vertical(raw_override, project_root=root)
-        vertical = resolve_vertical(root)
+            return False
+        vertical = persisted
         return (
             vertical_completion_gate(
                 load_vertical(vertical, project_root=root)
@@ -1407,24 +1446,17 @@ def _paper_mission_for_project_root(project_root: Path | str) -> bool:
 
 
 def _workflow_mode_for_project_root(project_root: Path | str) -> str:
-    """Resolve the Manager-selected workflow contract; fail safe to staged."""
+    """Resolve the Manager-persisted workflow contract; fail safe to staged."""
     try:
-        from ..skills.vertical_select import resolve_vertical
-        from ..verticals._base import load_vertical, vertical_workflow_mode
+        from ..skills.vertical_select import resolve_workflow_mode
 
-        root = Path(project_root).expanduser()
-        vertical = resolve_vertical(root)
-        return vertical_workflow_mode(
-            load_vertical(vertical, project_root=root)
-        )
+        return resolve_workflow_mode(Path(project_root).expanduser())
     except Exception:  # noqa: BLE001
         return "staged"
 
 
 def _build_supervisor_config(
     *,
-    per_mission_cap_usd: float,
-    daily_cap_usd: float,
     global_daily_cap_usd: float,
     once: bool,
     max_missions: int,
@@ -1446,8 +1478,6 @@ def _build_supervisor_config(
 
     return LifeSupervisorConfig(
         budget=LifeBudget(
-            per_mission_cap_usd=per_mission_cap_usd,
-            daily_cap_usd=daily_cap_usd,
             global_daily_cap_usd=global_daily_cap_usd,
             max_missions=1 if once else max_missions,
         ),
@@ -1458,7 +1488,11 @@ def _build_supervisor_config(
             else None
         ),
         stop_event=stop_event,
-        user_inbox=_inbox_drainer_for(project_root),
+        user_inbox=_inbox_drainer_for(
+            project_root,
+            project_root=artifact_root or project_worktree or project_root,
+        ),
+        pending_question_resolver=_pending_question_resolver_for(project_root),
         runtime_context=runtime_context,
         continuous=continuous,
         continuous_objective=continuous_objective,
@@ -1479,8 +1513,6 @@ def run_life_supervisor(
     reviewer_model: str,
     once: bool,
     max_missions: int,
-    per_mission_cap_usd: float,
-    daily_cap_usd: float,
     global_daily_cap_usd: float,
     project_worktree: Path | None = None,
     artifact_root: Path | None = None,
@@ -1554,6 +1586,7 @@ def run_life_supervisor(
                         division.task,
                         division.proposed_domain,
                         execution_task=division.execution_task,
+                        workflow_mode=division.workflow_mode,
                     )
                 from ..manager.front_door import require_manager_execution_task
 
@@ -1568,8 +1601,6 @@ def run_life_supervisor(
                 continuous = False
                 continuous_objective = ""
         cfg = _build_supervisor_config(
-            per_mission_cap_usd=per_mission_cap_usd,
-            daily_cap_usd=daily_cap_usd,
             global_daily_cap_usd=global_daily_cap_usd,
             once=once,
             max_missions=max_missions,
@@ -1604,8 +1635,6 @@ def _invoke_supervisor(
     backend: str,
     once: bool,
     max_missions: int,
-    per_mission_cap_usd: float,
-    daily_cap_usd: float,
     global_daily_cap_usd: float,
     quiet: bool = False,
     seed_thread_id: str | None = None,
@@ -1662,9 +1691,7 @@ def _invoke_supervisor(
         f"- Engineer reasoning effort: {ns.engineer_reasoning_effort or '(default)'}\n"
         f"- Reviewer reasoning effort: {ns.reviewer_reasoning_effort or '(default)'}\n"
         f"- Max rounds per mission: {ns.max_rounds}\n"
-        f"- Per-mission budget cap: ${per_mission_cap_usd:.2f}\n"
-        f"- Daily budget cap: ${daily_cap_usd:.2f}\n"
-        f"- Global daily budget cap: ${global_daily_cap_usd:.2f}\n"
+        f"- Host-global daily budget cap: ${global_daily_cap_usd:.2f}\n"
         f"- Mode: {mode_label}\n"
         f"- Command workdir: {Path.cwd()}\n"
         f"- Harness artifact root: {_memory_project_root(mem)}\n"
@@ -1690,8 +1717,6 @@ def _invoke_supervisor(
         reviewer_model=ns.reviewer_model,
         once=once,
         max_missions=max_missions,
-        per_mission_cap_usd=per_mission_cap_usd,
-        daily_cap_usd=daily_cap_usd,
         global_daily_cap_usd=global_daily_cap_usd,
         project_worktree=getattr(mem, "project_worktree", None) or Path.cwd(),
         artifact_root=_memory_project_root(mem),

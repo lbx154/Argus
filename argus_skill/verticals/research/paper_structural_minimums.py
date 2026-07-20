@@ -40,15 +40,9 @@ MIN_INTEXT_CITES = 8
 MIN_CITED_BIB_ENTRIES = 8
 MIN_RELATED_WORK_CHARS = 800
 
-# IMAGE2_FIGURES.json role classification. Reviewer-blocking minimum:
-# EMNLP/ACL papers without (a) a teaser/hero/Figure-1 visual to anchor
-# the contribution AND (b) a pipeline/method/architecture diagram to
-# explain how the system works do not pass reviewer first-impression.
-# These two categories live in the bundled image-2 / framework-figure
-# studio skills (paper-illustration-image2.md +
-# paper-framework-figure-studio-pro.md). The gate fires when the agent
-# skipped invoking those skills (manifest missing, or no entry whose
-# ``name`` matches the role keywords).
+# Figure roles are reported to the reviewer, not used by the harness to choose
+# a renderer or prescribe a paper story. The canonical manifest is renderer
+# neutral; legacy IMAGE2_FIGURES.json remains readable for existing projects.
 _TEASER_KEYWORDS = ("teaser", "hero", "figure1", "figure_1", "fig1", "fig_1")
 _PIPELINE_KEYWORDS = (
     "pipeline", "method", "architecture", "framework",
@@ -64,7 +58,9 @@ _APPENDIX_TITLES = ("appendix", "appendices", "supplementary material",
                     "reproducibility appendix")
 
 
-_RE_INCLUDEGRAPHICS = re.compile(r"\\includegraphics\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}")
+_RE_INCLUDEGRAPHICS = re.compile(
+    r"\\(?:includegraphics|includesvg)\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}"
+)
 _RE_CITE = re.compile(r"\\cite[a-zA-Z*]*\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}")
 _RE_SECTION = re.compile(r"\\section\*?\s*\{([^}]+)\}")
 # `\label{fig:foo}` inside a `figure` environment — used to cross-check
@@ -75,6 +71,7 @@ _RE_FIG_LABEL = re.compile(r"\\label\s*\{\s*fig:([^}]+?)\s*\}")
 _RE_BIBKEY = re.compile(r"^\s*@\w+\s*\{\s*([^,\s]+)\s*,", re.MULTILINE)
 # `\appendix` command turns subsequent \section into Appendix A, B, …
 _RE_APPENDIX_CMD = re.compile(r"\\appendix\b")
+_RE_INPUT = re.compile(r"\\(?:input|include)\s*\{([^}]+)\}")
 
 # AAAI-only preamble/compliance probes (used only when the venue profile asks).
 # _RE_PDFINFO requires the mandatory /TemplateVersion key inside the block (an
@@ -109,6 +106,9 @@ class StructuralReport:
     has_teaser_figure: bool = False
     has_pipeline_figure: bool = False
     image2_role_summary: dict[str, str] = field(default_factory=dict)
+    figure_manifest_path: Path | None = None
+    figure_role_summary: dict[str, str] = field(default_factory=dict)
+    figure_renderer_summary: dict[str, str] = field(default_factory=dict)
     issues: list[StructuralIssue] = field(default_factory=list)
 
     @property
@@ -143,14 +143,21 @@ class StructuralReport:
         lines.append(f"  has conclusion: {self.has_conclusion}")
         lines.append(f"  has appendix: {self.has_appendix}")
         lines.append(
-            f"  image2 teaser/hero figure: {self.has_teaser_figure}; "
+            f"  reported teaser/hero figure: {self.has_teaser_figure}; "
             f"pipeline/method figure: {self.has_pipeline_figure}"
         )
-        if self.image2_role_summary:
+        if self.figure_role_summary:
             lines.append(
-                "  image2 role assignments: "
+                "  figure role assignments: "
                 + ", ".join(
-                    f"{n}={r}" for n, r in sorted(self.image2_role_summary.items())
+                    f"{n}={r}" for n, r in sorted(self.figure_role_summary.items())
+                )
+            )
+        if self.figure_renderer_summary:
+            lines.append(
+                "  figure renderers: "
+                + ", ".join(
+                    f"{n}={r}" for n, r in sorted(self.figure_renderer_summary.items())
                 )
             )
         return "\n".join(lines)
@@ -168,14 +175,55 @@ def _find_main_tex(project_root: Path) -> Path | None:
 
 
 def _read_all_tex(main_tex: Path) -> str:
-    """Concatenate main.tex plus every `paper/sections/*.tex` so cite/figure
-    scans see the whole body, not just the master file."""
-    parts = [main_tex.read_text(encoding="utf-8", errors="ignore")]
-    sections_dir = main_tex.parent / "sections"
-    if sections_dir.is_dir():
-        for tex in sorted(sections_dir.glob("*.tex")):
-            parts.append(tex.read_text(encoding="utf-8", errors="ignore"))
-    return "\n".join(parts)
+    r"""Read the actual recursive ``\input`` / ``\include`` graph."""
+    document_root = main_tex.parent.resolve()
+    paper_root = next(
+        (parent for parent in (document_root, *document_root.parents) if parent.name == "paper"),
+        document_root,
+    )
+    visited: set[Path] = set()
+
+    def resolve_include(raw: str, including: Path) -> Path | None:
+        candidate_raw = Path(raw.strip())
+        candidates = (
+            document_root / candidate_raw,
+            paper_root / candidate_raw,
+            including.parent / candidate_raw,
+        )
+        for candidate in candidates:
+            if candidate.suffix == "":
+                candidate = candidate.with_suffix(".tex")
+            resolved = candidate.resolve()
+            try:
+                resolved.relative_to(paper_root)
+            except ValueError:
+                continue
+            if resolved.is_file():
+                return resolved
+        return None
+
+    def expand(path: Path) -> str:
+        resolved = path.resolve()
+        if resolved in visited:
+            return ""
+        try:
+            resolved.relative_to(paper_root)
+        except ValueError:
+            return ""
+        if not resolved.is_file():
+            return ""
+        visited.add(resolved)
+        text = _strip_comments(
+            resolved.read_text(encoding="utf-8", errors="ignore")
+        )
+
+        def replace(match: re.Match[str]) -> str:
+            child = resolve_include(match.group(1), resolved)
+            return expand(child) if child is not None else match.group(0)
+
+        return _RE_INPUT.sub(replace, text)
+
+    return expand(main_tex)
 
 
 def _strip_comments(tex: str) -> str:
@@ -242,7 +290,12 @@ def _classify_image2_role(name: str) -> str | None:
 
 
 def _scan_image2_manifest(paper_dir: Path) -> tuple[
-    Path | None, bool, bool, dict[str, str]
+    Path | None,
+    bool,
+    bool,
+    dict[str, str],
+    list[str],
+    dict[str, tuple[str, str]],
 ]:
     """Read ``paper/figures/IMAGE2_FIGURES.json`` and return whether a
     teaser and pipeline figure each exist on disk.
@@ -256,20 +309,50 @@ def _scan_image2_manifest(paper_dir: Path) -> tuple[
     """
     manifest = paper_dir / "figures" / "IMAGE2_FIGURES.json"
     if not manifest.exists():
-        return None, False, False, {}
+        return None, False, False, {}, [], {}
+    project_root = paper_dir.parent.resolve()
+    try:
+        manifest.resolve().relative_to(project_root)
+    except ValueError:
+        return (
+            manifest,
+            False,
+            False,
+            {},
+            ["legacy manifest resolves outside project root"],
+            {},
+        )
     try:
         data = json.loads(manifest.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return manifest, False, False, {}
+    except (OSError, json.JSONDecodeError) as exc:
+        return (
+            manifest,
+            False,
+            False,
+            {},
+            [f"malformed legacy manifest: {exc}"],
+            {},
+        )
     figures = data.get("figures") if isinstance(data, dict) else None
-    if not isinstance(figures, list):
-        return manifest, False, False, {}
+    if not isinstance(figures, list) or not figures:
+        return (
+            manifest,
+            False,
+            False,
+            {},
+            ["legacy manifest has no figure entries"],
+            {},
+        )
 
     has_teaser = False
     has_pipeline = False
     role_summary: dict[str, str] = {}
+    issues: list[str] = []
+    real_entries = 0
+    records: dict[str, tuple[str, str]] = {}
     for entry in figures:
         if not isinstance(entry, dict):
+            issues.append("legacy figure entry is not an object")
             continue
         # Accept any of the conventional id fields. paper-illustration-image2
         # writes ``name``; paper-framework-figure-studio-pro writes
@@ -282,6 +365,7 @@ def _scan_image2_manifest(paper_dir: Path) -> tuple[
             or ""
         ).strip()
         if not name:
+            issues.append("legacy figure entry has no name/figure_id/id")
             continue
         file_field = str(entry.get("file") or entry.get("output_path") or "").strip()
         candidates: list[Path] = []
@@ -294,9 +378,22 @@ def _scan_image2_manifest(paper_dir: Path) -> tuple[
                 # paper-relative ones too.
                 candidates.append(paper_dir.parent / file_field)
                 candidates.append(paper_dir / file_field)
-        if not any(p.exists() for p in candidates):
+        contained_candidates: list[Path] = []
+        for candidate in candidates:
+            try:
+                candidate.resolve().relative_to(project_root)
+            except ValueError:
+                continue
+            contained_candidates.append(candidate)
+        if not any(p.is_file() for p in contained_candidates):
             role_summary[name] = "missing_file"
+            issues.append(f"{name}: file is missing or outside project root")
             continue
+        output_path = next(p.resolve() for p in contained_candidates if p.is_file())
+        output_relative = output_path.relative_to(project_root).as_posix()
+        output_hash = str(entry.get("output_sha256") or "").strip().lower()
+        records[name] = (output_relative, output_hash)
+        real_entries += 1
         role = _classify_image2_role(name)
         if role == "teaser":
             has_teaser = True
@@ -306,7 +403,182 @@ def _scan_image2_manifest(paper_dir: Path) -> tuple[
             role_summary[name] = "pipeline"
         else:
             role_summary[name] = "other"
-    return manifest, has_teaser, has_pipeline, role_summary
+    if real_entries == 0:
+        issues.append("legacy manifest has no real project-contained figure")
+    return manifest, has_teaser, has_pipeline, role_summary, issues, records
+
+
+@dataclass
+class _VisualManifestScan:
+    path: Path | None = None
+    legacy_image2_path: Path | None = None
+    has_teaser: bool = False
+    has_pipeline: bool = False
+    roles: dict[str, str] = field(default_factory=dict)
+    renderers: dict[str, str] = field(default_factory=dict)
+    outputs: set[str] = field(default_factory=set)
+    issues: list[StructuralIssue] = field(default_factory=list)
+    canonical: bool = False
+
+
+def _role_classification(figure_id: str, role: str) -> str:
+    explicit = role.strip().lower()
+    if explicit in {"teaser", "hero", "figure1", "fig1"}:
+        return "teaser"
+    if explicit in {
+        "pipeline",
+        "method",
+        "architecture",
+        "framework",
+        "overview",
+        "system",
+        "workflow",
+        "schematic",
+    }:
+        return "pipeline"
+    return _classify_image2_role(figure_id) or explicit or "other"
+
+
+def _is_image2_renderer(renderer: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", "", renderer.lower())
+    return normalized in {"image2", "gptimage2", "codeximage2"}
+
+
+def _scan_visual_manifest_locked(
+    project_root: Path,
+    paper_dir: Path,
+) -> _VisualManifestScan:
+    from .figure_provenance import (
+        FIGURE_PROVENANCE_PATH,
+        validate_figure_provenance,
+    )
+
+    canonical = project_root / FIGURE_PROVENANCE_PATH
+    if canonical.exists() or canonical.is_symlink():
+        provenance = validate_figure_provenance(project_root)
+        scan = _VisualManifestScan(
+            path=canonical,
+            canonical=True,
+            outputs=set(provenance.output_paths),
+        )
+        for issue in provenance.issues:
+            scan.issues.append(
+                StructuralIssue(
+                    code="invalid_figure_provenance",
+                    detail=(
+                        f"{issue.figure_id + ': ' if issue.figure_id else ''}"
+                        f"{issue.code}: {issue.detail}"
+                    ),
+                )
+            )
+        for entry in provenance.entries:
+            figure_id = str(entry.get("figure_id") or "").strip()
+            role = _role_classification(
+                figure_id,
+                str(entry.get("role") or ""),
+            )
+            renderer = str(entry.get("renderer") or "").strip()
+            scan.roles[figure_id] = role
+            scan.renderers[figure_id] = renderer
+            scan.has_teaser = scan.has_teaser or role == "teaser"
+            scan.has_pipeline = scan.has_pipeline or role == "pipeline"
+        image2_entries = [
+            entry
+            for entry in provenance.entries
+            if _is_image2_renderer(str(entry.get("renderer") or ""))
+        ]
+        if image2_entries:
+            (
+                legacy_path,
+                _legacy_teaser,
+                _legacy_pipeline,
+                _legacy_roles,
+                legacy_issues,
+                legacy_records,
+            ) = _scan_image2_manifest(paper_dir)
+            scan.legacy_image2_path = legacy_path
+            if legacy_path is None:
+                scan.issues.append(
+                    StructuralIssue(
+                        code="invalid_figure_provenance",
+                        detail=(
+                            "canonical image-2 entries require "
+                            "paper/figures/IMAGE2_FIGURES.json"
+                        ),
+                    )
+                )
+            scan.issues.extend(
+                StructuralIssue(
+                    code="invalid_figure_provenance",
+                    detail=detail,
+                )
+                for detail in legacy_issues
+            )
+            for entry in image2_entries:
+                figure_id = str(entry.get("figure_id") or "").strip()
+                canonical_output = str(entry.get("output_path") or "").strip()
+                canonical_hash = str(entry.get("output_sha256") or "").strip().lower()
+                legacy_record = legacy_records.get(figure_id)
+                if legacy_record is None:
+                    scan.issues.append(
+                        StructuralIssue(
+                            code="invalid_figure_provenance",
+                            detail=f"{figure_id}: missing matching legacy image-2 entry",
+                        )
+                    )
+                    continue
+                legacy_output, legacy_hash = legacy_record
+                if legacy_output != canonical_output or not legacy_hash:
+                    scan.issues.append(
+                        StructuralIssue(
+                            code="invalid_figure_provenance",
+                            detail=(
+                                f"{figure_id}: legacy image-2 output path/hash "
+                                "does not match canonical provenance"
+                            ),
+                        )
+                    )
+                elif legacy_hash != canonical_hash:
+                    scan.issues.append(
+                        StructuralIssue(
+                            code="invalid_figure_provenance",
+                            detail=f"{figure_id}: legacy image-2 hash mismatch",
+                        )
+                    )
+        return scan
+
+    legacy_path, has_teaser, has_pipeline, roles, legacy_issues, _records = (
+        _scan_image2_manifest(paper_dir)
+    )
+    if legacy_path is not None:
+        scan = _VisualManifestScan(
+            path=legacy_path,
+            legacy_image2_path=legacy_path,
+            has_teaser=has_teaser,
+            has_pipeline=has_pipeline,
+            roles=roles,
+            renderers={
+                figure_id: "image2"
+                for figure_id, role in roles.items()
+                if role != "missing_file"
+            },
+        )
+        scan.issues.extend(
+            StructuralIssue(
+                code="invalid_figure_provenance",
+                detail=detail,
+            )
+            for detail in legacy_issues
+        )
+        return scan
+    return _VisualManifestScan()
+
+
+def _scan_visual_manifest(project_root: Path, paper_dir: Path) -> _VisualManifestScan:
+    from .figure_provenance import figure_manifest_transaction
+
+    with figure_manifest_transaction(project_root):
+        return _scan_visual_manifest_locked(project_root, paper_dir)
 
 
 def _read_bib(paper_dir: Path) -> tuple[int, set[str]]:
@@ -327,10 +599,22 @@ def _read_bib(paper_dir: Path) -> tuple[int, set[str]]:
 def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
     from ...skills.venue_profiles import resolve_venue_profile
 
-    venue = resolve_venue_profile(project_root)
+    venue = None
+    venue_error: KeyError | None = None
+    try:
+        venue = resolve_venue_profile(project_root)
+    except KeyError as exc:
+        venue_error = exc
     main_tex = _find_main_tex(project_root)
     if main_tex is None:
         report = StructuralReport(main_tex_path=None)
+        if venue_error is not None:
+            report.issues.append(
+                StructuralIssue(
+                    code="unresolved_venue_profile",
+                    detail=str(venue_error),
+                )
+            )
         report.issues.append(
             StructuralIssue(
                 code="no_main_tex",
@@ -347,6 +631,13 @@ def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
     tex = _strip_comments(raw)
 
     report = StructuralReport(main_tex_path=main_tex)
+    if venue_error is not None:
+        report.issues.append(
+            StructuralIssue(
+                code="unresolved_venue_profile",
+                detail=str(venue_error),
+            )
+        )
 
     # Figures.
     figure_refs = [m.group(1) for m in _RE_INCLUDEGRAPHICS.finditer(tex)]
@@ -356,6 +647,15 @@ def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
             report.figures_missing_files.append(ref)
         else:
             report.figures_found += 1
+            try:
+                resolved.resolve().relative_to(project_root.resolve())
+            except ValueError:
+                report.issues.append(
+                    StructuralIssue(
+                        code="figure_path_escape",
+                        detail=f"figure resolves outside project root: {resolved}",
+                    )
+                )
 
     if report.figures_found < MIN_FIGURES:
         report.issues.append(
@@ -365,8 +665,7 @@ def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
                     f"only {report.figures_found} \\includegraphics figure(s) "
                     f"resolve to real files (minimum {MIN_FIGURES}); research "
                     "papers require at least one figure or system diagram — "
-                    "invoke the figure-spec, paper-illustration-image2, or "
-                    "paper-framework-figure-studio-pro skill before declaring "
+                    "use the research-visualization router before declaring "
                     "the draft done"
                 ),
             )
@@ -394,57 +693,18 @@ def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
         # never let the cross-check break structural validation itself
         pass
 
-    # IMAGE2_FIGURES.json role coverage. Teaser/hero anchors the
-    # contribution; pipeline/method explains how the system works. EMNLP
-    # papers without BOTH lose reviewer first-impression. Existing skills
-    # (paper-illustration-image2 + paper-framework-figure-studio-pro)
-    # produce the manifest — gate fires when the agent skipped them.
-    manifest_path, has_teaser, has_pipeline, role_summary = _scan_image2_manifest(
-        paper_dir
-    )
-    report.image2_manifest_path = manifest_path
-    report.has_teaser_figure = has_teaser
-    report.has_pipeline_figure = has_pipeline
-    report.image2_role_summary = role_summary
-    if manifest_path is None:
-        report.issues.append(
-            StructuralIssue(
-                code="missing_image2_manifest",
-                detail=(
-                    "paper/figures/IMAGE2_FIGURES.json not found — the "
-                    "paper-illustration-image2 and "
-                    "paper-framework-figure-studio-pro skills register "
-                    "generated figures here; an empty manifest means "
-                    "those skills were never invoked"
-                ),
-            )
-        )
-    else:
-        if not has_teaser:
-            report.issues.append(
-                StructuralIssue(
-                    code="missing_teaser_figure",
-                    detail=(
-                        "no teaser/hero/Figure-1 entry in IMAGE2_FIGURES.json — "
-                        "research drafts need a contribution-anchoring teaser; "
-                        "run the paper-illustration-image2 skill with a name "
-                        "containing 'teaser', 'hero', or 'figure1'"
-                    ),
-                )
-            )
-        if not has_pipeline:
-            report.issues.append(
-                StructuralIssue(
-                    code="missing_pipeline_figure",
-                    detail=(
-                        "no pipeline/method/architecture entry in "
-                        "IMAGE2_FIGURES.json — reviewers cannot understand a "
-                        "method without one; run the paper-framework-figure-"
-                        "studio-pro skill with a name containing 'pipeline', "
-                        "'method', 'architecture', or 'framework'"
-                    ),
-                )
-            )
+    visual_scan = _scan_visual_manifest(project_root, paper_dir)
+    report.figure_manifest_path = visual_scan.path
+    report.image2_manifest_path = visual_scan.legacy_image2_path
+    report.has_teaser_figure = visual_scan.has_teaser
+    report.has_pipeline_figure = visual_scan.has_pipeline
+    report.figure_role_summary = visual_scan.roles
+    report.figure_renderer_summary = visual_scan.renderers
+    report.image2_role_summary = visual_scan.roles
+    # Figure provenance is advisory metadata for reproducibility and renderer
+    # handoff. It is deliberately not a structural completion gate: the L2
+    # Reviewer judges whether the rendered figures are clear and attractive
+    # enough without creating provenance-driven polish loops.
 
     # Citations (body).
     for m in _RE_CITE.finditer(tex):
@@ -548,7 +808,8 @@ def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
     # profile's flags, so EMNLP/ACL projects (the default) never see them. They
     # activate only for venues whose preamble contract differs — currently
     # AAAI, whose aaai2026.sty is strict.
-    _append_venue_compliance_issues(report, tex, venue)
+    if venue is not None:
+        _append_venue_compliance_issues(report, tex, venue)
 
     return report
 

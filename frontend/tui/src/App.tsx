@@ -26,7 +26,7 @@ import {
 } from './input/editor.js';
 import { EMPTY_HISTORY, newer, older, remember, type History } from './input/history.js';
 import { applyCompletion, didYouMean, isSlash, parseCommand, parseEventViewArgs, parseResumeTarget, slashCompletions } from './input/slash.js';
-import { StaticHeader } from './components/Header.js';
+import { Header } from './components/Header.js';
 import { EventLog } from './components/EventLog.js';
 import { PromptBox } from './components/PromptBox.js';
 import { SlashMenu, slashMenuVisibleRows } from './components/SlashMenu.js';
@@ -362,7 +362,11 @@ export function App({
       try {
         const s = await api.snapshot();
         if (alive) {
-          setSnap(s);
+          setSnap((current) => (
+            current && JSON.stringify(current) === JSON.stringify(s)
+              ? current
+              : s
+          ));
           setSnapshotError('');
         }
       } catch (error) {
@@ -1116,7 +1120,7 @@ export function App({
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <StaticHeader width={terminal.columns} />
+      <Header width={terminal.columns} />
       {!slashMenuOpen ? <GuardianBanner alert={activeGuardianAlert(events)} /> : null}
       {replacement ? (
         <DaemonReplacementPicker state={replacement} width={terminal.columns} />
@@ -1128,9 +1132,9 @@ export function App({
             <MissionCockpit
               view={missionView}
               width={terminal.columns}
-              spentUsd={snap?.spend_usd}
-              spendStatus={snap?.spend_status}
-              dailyCapUsd={snap?.daemon.daily_cap_usd}
+              height={terminal.rows}
+              spentUsd={snap?.global_spend_usd}
+              spendStatus={snap?.global_spend_status}
               globalDailyCapUsd={snap?.daemon.global_daily_cap_usd}
               requestUsage={snap?.request_usage}
             />
@@ -1143,6 +1147,7 @@ export function App({
             mode="conversation"
             liveMessageId={managerRequestRef.current?.messageId}
             collapsed={slashMenuOpen || Boolean(panel)}
+            showIdle={!missionView}
           />
           {panel ? (
             <PanelView
@@ -1168,7 +1173,11 @@ export function App({
                   selected={Math.min(menuSel, comps.length - 1)}
                   maxVisible={slashMenuVisibleRows(terminal.rows)}
                 />
-                <PromptBox edit={edit} width={terminal.columns} />
+                <PromptBox
+                  edit={edit}
+                  width={terminal.columns}
+                  rowsBelow={slashMenuOpen ? 0 : 1}
+                />
               </Box>
               {!slashMenuOpen ? (
                 <Footer

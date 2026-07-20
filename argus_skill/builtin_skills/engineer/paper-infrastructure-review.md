@@ -51,7 +51,7 @@ Use this skill when a paper may contain local execution details that do not belo
 5. After a pass, run the surrounding gates affected by source changes:
    - the academic-language review thresholds
    - the `research.md` format-preflight requirements
-   - the full EMNLP submission contract near final readiness
+   - the selected venue's full submission contract near final readiness
 
 ## Response shape
 - State whether the paper-infrastructure review thresholds (leak_free, score) hold.

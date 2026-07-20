@@ -1,13 +1,10 @@
-import { fraction, type Spend } from '../lib/cost';
 import { money } from '../lib/format';
 import type { CostControlSnapshot, Daemon, RequestUsage } from '../api';
 
 /**
- * Spend gauge backed by the call-level usage ledger. The event stream contributes
- * only the most recent mission's cap bar, never the cumulative total.
+ * Host-global spend backed by the call-level usage ledger.
  */
 export function CostGauge({
-  spend,
   settledUsd,
   spendStatus,
   daemon,
@@ -15,7 +12,6 @@ export function CostGauge({
   requestUsage,
   costControl,
 }: {
-  spend: Spend;
   settledUsd: number | null | undefined;
   spendStatus?: string;
   daemon: Daemon | undefined;
@@ -23,22 +19,17 @@ export function CostGauge({
   requestUsage?: RequestUsage | null;
   costControl?: CostControlSnapshot | null;
 }) {
-  const cap = daemon?.per_mission_cap_usd ?? null;
-  const daily = daemon?.daily_cap_usd ?? null;
+  const cap = daemon?.global_daily_cap_usd ?? null;
   const total = settledUsd ?? 0;
   const incomplete = spendStatus === 'partial' || spendStatus === 'unpriced';
   const costText = settledUsd == null
     ? (incomplete ? spendStatus : money(0))
     : `${money(total)}${incomplete ? '+' : ''}`;
-  const frac = fraction(spend.last || 0, cap);
-  const pct = Math.round(frac * 100);
-  const barColor = frac >= 0.9 ? '#c77b72' : frac >= 0.66 ? '#c1a363' : '#8fa7b8';
   // Copilot bills per PREMIUM REQUEST (flat $0.04/req), NOT per token — so a
   // copilot daemon's whole dollar cost is (#requests * $0.04). Surface the
   // request count so a low $ reads as "few requests", not "broken meter".
   const isCopilot = (backendLabel || '').toLowerCase().includes('copilot');
   const reqs = requestUsage?.copilot.premium_requests ?? 0;
-  const breachRetryMinutes = Math.ceil((costControl?.fence_breach_remaining_seconds ?? 0) / 60);
 
   return (
     <div
@@ -54,7 +45,7 @@ export function CostGauge({
         <span className="text-[10px] text-ink-faint">
           {isCopilot ? `${reqs.toFixed(1)} premium req` : 'cumulative cost'}
           {incomplete ? ` · ${spendStatus}` : ''}
-          {daily ? ` · cap ${money(daily)}/d` : ''}
+          {cap ? ` · global cap ${money(cap)}/d` : ''}
         </span>
         {requestUsage ? (
           <span className="text-[10px] tabular-nums text-ink-faint">
@@ -62,24 +53,12 @@ export function CostGauge({
             {' · '}P {requestUsage.copilot.daily_calls}/{requestUsage.copilot.daily_cap || '∞'}
           </span>
         ) : null}
-        {costControl && (costControl.reserved_usd > 0 || costControl.unresolved_calls > 0 || (costControl.fence_breach_calls ?? 0) > 0) ? (
-          <span className={`text-[10px] tabular-nums ${costControl.unresolved_calls > 0 || (costControl.fence_breach_calls ?? 0) > 0 ? 'text-err' : 'text-ink-faint'}`}>
-            reserved {money(costControl.reserved_usd)} · in-flight {costControl.active_reservations} · unresolved {costControl.unresolved_calls} · fence breaches {costControl.fence_breach_calls ?? 0}{breachRetryMinutes > 0 ? ` · retry in ${breachRetryMinutes}m` : ''}
+        {costControl && (costControl.reserved_usd > 0 || costControl.unresolved_calls > 0) ? (
+          <span className={`text-[10px] tabular-nums ${costControl.unresolved_calls > 0 ? 'text-err' : 'text-ink-faint'}`}>
+            reserved {money(costControl.reserved_usd)} · in-flight {costControl.active_reservations} · unresolved {costControl.unresolved_calls}
           </span>
         ) : null}
       </div>
-      {cap ? (
-        <div className="flex flex-col gap-1">
-          <div className="h-1.5 w-24 overflow-hidden rounded-sm bg-line" title="last mission vs per-mission cap">
-            <div className="h-full transition-all" style={{ width: `${Math.max(2, pct)}%`, background: barColor }} />
-          </div>
-          <span className="text-[10px] tabular-nums text-ink-faint">
-            last {money(spend.last)}{incomplete ? '+' : ''} / {money(cap)}
-          </span>
-        </div>
-      ) : (
-        <span className="text-[10px] text-ink-faint">no cap</span>
-      )}
     </div>
   );
 }

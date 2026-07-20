@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.adapters.agent_cli_backend import _raw_backend_stop_kind
 from argus_skill.core.models import ReviewDecision, RunnerResult
+from argus_skill.adapters.agent_cli_backend import _raw_backend_stop_kind
 from argus_skill.engineer.runner import (
     EngineerConfig,
     SupervisedConfig,

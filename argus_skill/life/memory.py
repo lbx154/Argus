@@ -601,7 +601,6 @@ class EventJournal(Journal):
             etype == EventType.LIFE_MISSION_COMPLETED
             and str(row.get("status") or "") in {
                 "paused_provider_cooldown",
-                "paused_provider_fence",
             }
         ):
             kind = "provider_pause"
@@ -769,7 +768,6 @@ class BacklogItem:
     objective: str  # full instruction handed to the engineer
     status: str = "pending"
     priority: int = 100  # smaller = higher priority
-    max_cost_usd: float = 30.0
     tags: list[str] = field(default_factory=list)
     notes: str = ""
     started_ts: float | None = None
@@ -789,13 +787,12 @@ class BacklogItem:
     # When ``iterate`` is True the supervisor, after a successful
     # ``done`` verdict, hands the produced artefacts to a L2 reviewer agent. The reviewer is the only verdict authority;
     # there is no separate critic polish layer any more.
-    # for another mission cycle until either the cost budget or the
-    # cycle ceiling is hit. ``original_objective`` preserves the
+    # for another mission cycle until the cycle ceiling is hit.
+    # ``original_objective`` preserves the
     # operator's first-cycle instruction so subsequent cycles can be
     # framed as "polish what you already built".
     iterate: bool = True
     iteration_max_cycles: int = 6
-    iteration_budget_usd: float = 30.0
     iteration_cycles_done: int = 0
     iteration_cost_usd: float = 0.0
     original_objective: str = ""
@@ -818,6 +815,11 @@ class BacklogItem:
     plan_version: int = 0
     node_key: str = ""
     context_refs: list[dict[str, str]] = field(default_factory=list)
+    # Canonical Planner→Engineer handoff fields. ``objective`` says what to do;
+    # these fields bound completion and prevent a fresh session from reopening
+    # unrelated project history.
+    acceptance_check: str = ""
+    non_goals: list[str] = field(default_factory=list)
     superseded_by_plan_id: str = ""
     superseded_reason: str = ""
     authorization_id: str = ""
@@ -836,12 +838,10 @@ class BacklogItem:
         objective: str,
         item_id: str | None = None,
         priority: int = 100,
-        max_cost_usd: float = 30.0,
         tags: list[str] | None = None,
         notes: str = "",
         iterate: bool = True,
         iteration_max_cycles: int = 6,
-        iteration_budget_usd: float = 30.0,
         deps: list[str] | None = None,
         plan_id: str = "",
         plan_version: int = 0,
@@ -849,6 +849,8 @@ class BacklogItem:
         context_refs: list[dict[str, str]] | None = None,
         authorization_id: str = "",
         authorization_action: str = "",
+        acceptance_check: str = "",
+        non_goals: list[str] | None = None,
     ) -> "BacklogItem":
         objective = objective.strip()
         return cls(
@@ -857,12 +859,10 @@ class BacklogItem:
             title=title.strip(),
             objective=objective,
             priority=int(priority),
-            max_cost_usd=float(max_cost_usd),
             tags=list(tags or []),
             notes=notes.strip(),
             iterate=bool(iterate),
             iteration_max_cycles=int(iteration_max_cycles),
-            iteration_budget_usd=float(iteration_budget_usd),
             original_objective=objective,
             deps=list(deps or []),
             plan_id=str(plan_id),
@@ -875,6 +875,12 @@ class BacklogItem:
             ],
             authorization_id=str(authorization_id),
             authorization_action=str(authorization_action),
+            acceptance_check=str(acceptance_check or "").strip(),
+            non_goals=[
+                str(item).strip()
+                for item in (non_goals or [])
+                if str(item).strip()
+            ],
         )
 
     def to_jsonable(self) -> dict[str, Any]:
@@ -893,7 +899,6 @@ class BacklogItem:
             objective=objective,
             status=status,
             priority=int(row.get("priority", 100)),
-            max_cost_usd=float(row.get("max_cost_usd", 30.0)),
             tags=list(row.get("tags", [])),
             notes=str(row.get("notes", "")),
             started_ts=row.get("started_ts"),
@@ -902,7 +907,6 @@ class BacklogItem:
             pending_question=str(row.get("pending_question", "")),
             iterate=bool(row.get("iterate", False)),
             iteration_max_cycles=int(row.get("iteration_max_cycles", 6)),
-            iteration_budget_usd=float(row.get("iteration_budget_usd", 30.0)),
             iteration_cycles_done=int(row.get("iteration_cycles_done", 0)),
             iteration_cost_usd=float(row.get("iteration_cost_usd", 0.0)),
             original_objective=str(row.get("original_objective", objective)),
@@ -919,6 +923,12 @@ class BacklogItem:
                 {str(key): str(value) for key, value in ref.items()}
                 for ref in (row.get("context_refs", []) or [])
                 if isinstance(ref, dict)
+            ],
+            acceptance_check=str(row.get("acceptance_check", "")),
+            non_goals=[
+                str(item).strip()
+                for item in (row.get("non_goals", []) or [])
+                if str(item).strip()
             ],
             superseded_by_plan_id=str(row.get("superseded_by_plan_id", "")),
             superseded_reason=str(row.get("superseded_reason", "")),
@@ -1076,6 +1086,40 @@ class Backlog:
             self._save(items)
         return batch
 
+    def supersede_pending_for_replacement(
+        self,
+        *,
+        reason: str,
+        replacement_id: str,
+    ) -> tuple[str, ...]:
+        """Atomically retire pending work owned by a superseded objective.
+
+        Project bootstrap work is objective-independent and is preserved. A
+        running mission is also left untouched; Manager pipeline-yield ensures
+        replacement commits happen at a mission boundary in normal operation.
+        """
+        reason = str(reason).strip()
+        replacement_id = str(replacement_id).strip()
+        if not reason or not replacement_id:
+            raise ValueError("replacement supersession requires reason and id")
+        superseded: list[str] = []
+        with self._locked():
+            items = self._load()
+            now = time.time()
+            for item in items:
+                if item.status != "pending" or "bootstrap" in {
+                    str(tag).strip().lower() for tag in item.tags
+                }:
+                    continue
+                item.status = "superseded"
+                item.finished_ts = now
+                item.superseded_by_plan_id = replacement_id
+                item.superseded_reason = reason
+                superseded.append(item.id)
+            if superseded:
+                self._save(items)
+        return tuple(superseded)
+
     def apply_plan_revision(
         self,
         *,
@@ -1163,6 +1207,61 @@ class Backlog:
             added_ids=tuple(replacement_ids),
         )
 
+    def supersede_active_plan(
+        self,
+        *,
+        expected_plan_id: str,
+        expected_version: int,
+        supersede_item_ids: Iterable[str],
+        superseded_by_plan_id: str,
+        reason: str,
+    ) -> PlanRevisionResult:
+        """Atomically retire an active plan after a Manager stage rollback."""
+        expected_version = int(expected_version)
+        reason = str(reason).strip()
+        replacement_id = str(superseded_by_plan_id).strip()
+        supersede_ids = tuple(
+            dict.fromkeys(str(item_id) for item_id in supersede_item_ids)
+        )
+        if not str(expected_plan_id).strip():
+            raise ValueError("expected plan id must not be empty")
+        if not replacement_id:
+            raise ValueError("superseding plan identity must not be empty")
+        if not reason:
+            raise ValueError("plan supersede reason must not be empty")
+
+        with self._locked():
+            items = self._load()
+            active_ids = {
+                item.id
+                for item in items
+                if item.plan_id == expected_plan_id
+                and item.plan_version == expected_version
+                and item.status not in _TERMINAL_STATUSES
+            }
+            if not active_ids:
+                raise RuntimeError(
+                    "plan supersede conflict: expected active plan revision not found"
+                )
+            if set(supersede_ids) != active_ids:
+                raise ValueError(
+                    "plan supersede must retire every active item in the expected plan"
+                )
+            now = time.time()
+            for item in items:
+                if item.id not in active_ids:
+                    continue
+                item.status = "superseded"
+                item.finished_ts = now
+                item.superseded_by_plan_id = replacement_id
+                item.superseded_reason = reason
+            self._save(items)
+
+        return PlanRevisionResult(
+            superseded_ids=supersede_ids,
+            added_ids=(),
+        )
+
     def update(self, item_id: str, **fields: Any) -> BacklogItem | None:
         with self._locked():
             items = self._load()
@@ -1204,6 +1303,8 @@ class Backlog:
         self,
         item_id: str,
         answer: str,
+        *,
+        manager_decision: str = "",
     ) -> tuple[BacklogItem | None, BacklogItem | None]:
         """Atomically consume one pending question and enqueue its continuation."""
         with self._locked():
@@ -1211,19 +1312,33 @@ class Backlog:
             blocked = next((item for item in items if item.id == item_id), None)
             if blocked is None or not str(blocked.pending_question or "").strip():
                 return blocked, None
+            answer = answer.strip()
+            decision = manager_decision.strip()
+            guidance = f"Operator response:\n{answer}"
+            if decision:
+                guidance += f"\n\nManager interpretation and continuation decision:\n{decision}"
             continuation = BacklogItem.new(
                 title=blocked.title,
                 objective=(
                     f"{blocked.objective.strip()}\n\n"
-                    f"Operator reply to blocked question:\n{answer.strip()}"
+                    f"{guidance}"
                 ),
                 priority=blocked.priority,
-                max_cost_usd=blocked.max_cost_usd,
-                tags=[*blocked.tags, "operator-reply"],
+                tags=[*blocked.tags, "operator-reply", "manager-approved"],
                 notes=f"Continues blocked item {blocked.id}.",
                 iterate=blocked.iterate,
                 iteration_max_cycles=blocked.iteration_max_cycles,
-                iteration_budget_usd=blocked.iteration_budget_usd,
+                deps=list(blocked.deps),
+                plan_id=blocked.plan_id,
+                plan_version=blocked.plan_version,
+                node_key=(
+                    f"{blocked.node_key}-operator-answer"
+                    if blocked.node_key
+                    else ""
+                ),
+                context_refs=list(blocked.context_refs),
+                acceptance_check=blocked.acceptance_check,
+                non_goals=list(blocked.non_goals),
             )
             blocked.pending_question = ""
             items.append(continuation)

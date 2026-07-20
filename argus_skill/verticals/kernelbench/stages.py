@@ -42,25 +42,24 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         ("Mission file present",
          "test -f MISSION.md || test -f TASK.md"),
         ("Kernel target(s) / baseline present",
-         "{ test -d baseline && ls baseline/* 2>/dev/null | head -1 | grep -q .; } "
-         "|| test -d kernels || ls *.cu *.py 2>/dev/null | head -1 | grep -q ."),
+         "{python} -m argus_skill.verticals.path_evidence --project-root . "
+         "--glob 'baseline/*' --glob 'kernels/**/*' --glob '*.cu' --glob '*.py'"),
         ("Setup notes present",
-         "test -f mission/SETUP.md || test -f SETUP.md "
-         "|| ls *SETUP*.md 2>/dev/null | head -1 | grep -q ."),
+         "{python} -m argus_skill.verticals.path_evidence --project-root . "
+         "--glob 'mission/SETUP.md' --glob 'SETUP.md' --glob '*SETUP*.md'"),
         ("GROUND_TRUTH.md exists with content",
          "test -s research/GROUND_TRUTH.md"),
     ],
     "optimize": [
         _PIPELINE_CHECK,
         ("At least one kernel attempt scaffolded",
-         "ls attempts/*/* experiments/*/* 2>/dev/null | head -1 | grep -q ."),
+         "{python} -m argus_skill.verticals.path_evidence --project-root . "
+         "--glob 'attempts/*/*' --glob 'experiments/*/*'"),
     ],
     "measure": [
         _PIPELINE_CHECK,
         ("At least one scored kernel (correct + SOL recorded)",
-         "find attempts experiments -name '*.csv' -size +0c 2>/dev/null | head -1 | grep -q . "
-         "|| grep -rlsq -iE 'sol|speed.?of.?light|correct' "
-         "experiments attempts research 2>/dev/null"),
+         "{python} -m argus_skill.verticals.metric_evidence kernelbench --project-root ."),
     ],
     "report": [
         _PIPELINE_CHECK,

@@ -120,12 +120,24 @@ def _find_main_tex(project_root: Path) -> Path | None:
 
 
 def validate_reviewer_simulation(project_root: Path) -> SimulationReport:
-    venue = resolve_venue_profile(project_root)
+    venue = None
+    venue_error: KeyError | None = None
+    try:
+        venue = resolve_venue_profile(project_root)
+    except KeyError as exc:
+        venue_error = exc
     qpath = _find_questions(project_root)
     if qpath is None:
-        return SimulationReport(
-            questions_path=None,
-            issues=[SimulationIssue(
+        issues = []
+        if venue_error is not None:
+            issues.append(
+                SimulationIssue(
+                    code="unresolved_venue_profile",
+                    detail=str(venue_error),
+                )
+            )
+        issues.append(
+            SimulationIssue(
                 code="missing_reviewer_questions",
                 detail=(
                     f"paper/{QUESTIONS_FILENAME} not found — run the "
@@ -133,10 +145,21 @@ def validate_reviewer_simulation(project_root: Path) -> SimulationReport:
                     "produce a structured reviewer-question list before "
                     "advancing past draft"
                 ),
-            )],
+            )
+        )
+        return SimulationReport(
+            questions_path=None,
+            issues=issues,
         )
 
     report = SimulationReport(questions_path=qpath)
+    if venue_error is not None:
+        report.issues.append(
+            SimulationIssue(
+                code="unresolved_venue_profile",
+                detail=str(venue_error),
+            )
+        )
     try:
         data = json.loads(qpath.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -201,7 +224,8 @@ def validate_reviewer_simulation(project_root: Path) -> SimulationReport:
             code="too_few_questions",
             detail=(
                 f"only {report.questions_found} reviewer question(s) "
-                f"(minimum {MIN_QUESTIONS}); a real {venue.reviewer_persona} reviewer would "
+                f"(minimum {MIN_QUESTIONS}); a real "
+                f"{venue.reviewer_persona if venue is not None else 'venue'} reviewer would "
                 "raise more than that — see kill-argument and paper-"
                 "review-revision-loop skills for elicitation playbooks"
             ),

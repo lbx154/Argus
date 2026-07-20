@@ -66,7 +66,16 @@ class TaskSpec:
     impact_score: int = 0  # 0-5; parser accepts only high-value work
     impact_area: str = ""
     evidence: str = ""
+    # One decisive completion check plus explicit read-only inputs. These form
+    # the canonical Planner→Engineer context packet instead of forcing every
+    # fresh session to rediscover the whole project.
+    acceptance_check: str = ""
+    non_goals: list[str] = field(default_factory=list)
+    context_refs: list[dict[str, str]] = field(default_factory=list)
     scope: str = TASK_SCOPE_BOUNDED
+    # A mission expected to satisfy the current-stage gate must receive an
+    # independent Reviewer verdict so the Manager gets per-item evidence.
+    stage_closing: bool = False
     # --- DAG fields (optional; flat tasks leave both at their defaults) ----
     # ``key`` is this task's *local* reference name, unique within one batch
     # of ``new_tasks``. Sibling tasks point at it via ``deps``. The supervisor
@@ -78,6 +87,320 @@ class TaskSpec:
     deps: list[str] = field(default_factory=list)
     authorization_id: str = ""
     authorization_action: str = ""
+
+
+_TASK_PHASE_MARKERS: dict[str, tuple[str, ...]] = {
+    "grounding": (
+        "literature", "survey", "primary source", "candidate", "idea", "文献", "候选",
+    ),
+    "access": (
+        "access", "preflight", "environment", "availability", "license", "访问", "环境",
+    ),
+    "freeze": (
+        "preregister", "pre-register", "freeze", "contract", "预注册", "冻结",
+    ),
+    "execute": (
+        "run experiment", "execute", "inference", "training", "benchmark run", "gpu", "执行", "训练", "推理",
+    ),
+    "synthesize": (
+        "analysis", "claim-evidence", "write-up", "paper", "manuscript", "分析", "论文", "写作",
+    ),
+}
+
+_TASK_ARTIFACT_RE = re.compile(
+    r"(?<![A-Za-z0-9_.-])(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+"
+    r"\.(?:jsonl?|md|tsv|csv|py|tex|ya?ml)(?![A-Za-z0-9_.-])",
+    re.IGNORECASE,
+)
+
+
+def _task_granularity_issue(task: TaskSpec) -> str:
+    """Reject a whole-stage monolith that cannot fit one fresh session."""
+    text = " ".join(f"{task.title} {task.objective}".casefold().split())
+    phases = {
+        phase
+        for phase, markers in _TASK_PHASE_MARKERS.items()
+        if any(marker in text for marker in markers)
+    }
+    certification_only = (
+        any(marker in task.title.casefold() for marker in ("review", "certif", "audit", "审查", "认证", "审计"))
+        and any(marker in text for marker in ("reuse", "do not rerun", "without rerun", "复用", "不重跑"))
+    )
+    if len(task.context_refs) > 8:
+        return f"carries {len(task.context_refs)} context refs; maximum is 8"
+    output_artifacts = set(
+        _TASK_ARTIFACT_RE.findall(
+            f"{task.objective}\n{task.acceptance_check}"
+        )
+    )
+    if len(output_artifacts) > 4 and not certification_only:
+        return (
+            f"owns {len(output_artifacts)} named artifacts; split the work at "
+            "an artifact boundary (maximum 4)"
+        )
+    if len(phases) >= 4 and not certification_only:
+        return (
+            "combines too many decision phases in one Engineer session: "
+            + ", ".join(sorted(phases))
+        )
+    if len(task.objective) > 1400 and not certification_only:
+        return "objective is too broad for one fresh Engineer session"
+    return ""
+
+
+def _planner_task_granularity_issues(tasks: list[TaskSpec]) -> list[str]:
+    return [
+        f"{task.title}: {issue}"
+        for task in tasks
+        if (issue := _task_granularity_issue(task))
+    ]
+
+
+def _parse_context_refs(value: object) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    refs: list[dict[str, str]] = []
+    for raw in value[:12]:
+        if not isinstance(raw, dict):
+            continue
+        target = str(raw.get("ref") or "").strip()
+        if not target:
+            continue
+        refs.append({
+            "kind": str(raw.get("kind") or "artifact").strip() or "artifact",
+            "ref": target,
+            "why": str(raw.get("why") or "").strip(),
+            "content_hash": str(raw.get("content_hash") or "").strip(),
+        })
+    return refs
+
+
+def _requires_theorem_proof_contract(objective: str) -> bool:
+    """Return whether the operator made theorem proof a hard deliverable.
+
+    This is deliberately narrower than generic ``math`` detection.  Ordinary
+    open-problem campaigns may legitimately schedule bounded discovery work;
+    the guard activates only when the objective explicitly combines a hard
+    success requirement with a theorem/lemma and a complete proof.
+    """
+    text = " ".join(str(objective or "").lower().split())
+    hard = any(
+        marker in text
+        for marker in (
+            "hard success criterion",
+            "hard requirement",
+            "must actually be proved",
+            "must be proved",
+            "硬性成功标准",
+            "必须证明",
+        )
+    )
+    theorem = bool(
+        re.search(r"\b(?:theorem|lemma|proposition|corollary)\b", text)
+        or any(marker in text for marker in ("定理", "引理", "命题", "推论"))
+    )
+    proof = bool(
+        re.search(r"\b(?:complete|self-contained|rigorous)\b.{0,80}\bproof\b", text)
+        or re.search(r"\bproof\b.{0,80}\b(?:complete|self-contained|rigorous)\b", text)
+        or any(marker in text for marker in ("完整证明", "严格证明", "自包含证明"))
+    )
+    return hard and theorem and proof
+
+
+def _theorem_proof_task_issue(task: TaskSpec) -> str:
+    """Explain why one task cannot satisfy a hard theorem-proof objective."""
+    text = " ".join(
+        f"{task.title} {task.objective} {task.evidence}".lower().split()
+    )
+    has_statement = bool(
+        re.search(r"\b(?:theorem|lemma|proposition|corollary)\b", text)
+        or any(marker in text for marker in ("定理", "引理", "命题", "推论"))
+    )
+    has_proof = bool(
+        re.search(r"\b(?:proof|prove|proving)\b", text)
+        or "证明" in text
+    )
+    has_complete = any(
+        marker in text
+        for marker in (
+            "complete",
+            "self-contained",
+            "rigorous",
+            "完整",
+            "自包含",
+            "严格",
+        )
+    )
+    missing: list[str] = []
+    if not has_statement:
+        missing.append("a precisely stated theorem/lemma")
+    if not has_proof:
+        missing.append("a proof deliverable")
+    if not has_complete:
+        missing.append("complete/self-contained rigor")
+    if missing:
+        return "missing " + ", ".join(missing)
+
+    # A theorem-first mission may use these methods internally, but it cannot
+    # declare success on a fallback that the operator explicitly excluded.
+    acceptance_text = " ".join(task.objective.lower().split())
+    excluded_success_patterns = (
+        r"feasibility evidence only",
+        r"finite (?:verification|computation|enumeration) only",
+        r"bounded [^.]{0,100} evidence only",
+        r"resource[- ]limited [^.]{0,100} only",
+        r"otherwise classify [^.]{0,120} only",
+        r"仅(?:作为|算作|提供).{0,30}(?:有限|可行性|枚举|计算)证据",
+    )
+    for pattern in excluded_success_patterns:
+        if re.search(pattern, acceptance_text):
+            return "acceptance permits an excluded non-proof-only outcome"
+    return ""
+
+
+def _project_has_theorem_baseline(project_root: Path) -> bool:
+    """Whether the project already records a proved theorem to improve upon."""
+    ledger = project_root / "research" / "CLAIM_LEDGER.md"
+    try:
+        text = " ".join(ledger.read_text(encoding="utf-8").lower().split())
+    except OSError:
+        return False
+    return bool(
+        re.search(
+            r"(?:complete|proved|self-contained)[^|]{0,120}\btheorem\b",
+            text,
+        )
+        or re.search(
+            r"\btheorem\b[^|]{0,120}(?:complete|self-contained proof|proved)",
+            text,
+        )
+    )
+
+
+def _theorem_progression_task_issue(task: TaskSpec) -> str:
+    """Require an explicit dominance comparison once a theorem baseline exists."""
+    text = " ".join(
+        f"{task.title} {task.objective} {task.evidence}".lower().split()
+    )
+    references_claim_ledger = "claim_ledger" in text or "claim ledger" in text
+    references_lemma_graph = "lemma_graph" in text or "lemma graph" in text
+    if not (references_claim_ledger and references_lemma_graph):
+        return "missing CLAIM_LEDGER/LEMMA_GRAPH baseline comparison"
+
+    strict_progress_patterns = (
+        r"strictly strengthen",
+        r"strictly improve",
+        r"strict strengthening",
+        r"sharper .{0,80}(?:theorem|bound|constant)",
+        r"(?:improve|lower|reduce|replace).{0,80}(?:bound|constant)",
+        r"\bk\s*<\s*\d+",
+        r"weaken.{0,60}hypoth",
+        r"remove.{0,60}hypoth",
+        r"new .{0,40}bridge (?:lemma|theorem)",
+        r"(?:close|resolve).{0,60}(?:gap|open node|missing bridge)",
+        r"materially refine",
+        r"严格(?:加强|改进|推进|优于)",
+        r"更强(?:定理|结论|界)",
+    )
+    if not any(re.search(pattern, text) for pattern in strict_progress_patterns):
+        return (
+            "missing an explicit strict improvement over the strongest proved "
+            "ledger theorem"
+        )
+    return ""
+
+
+def _is_guarded_theorem_followup(
+    task: TaskSpec,
+    *,
+    qualifying_keys: set[str],
+) -> bool:
+    """Allow a stage-closing audit after a qualifying theorem dependency.
+
+    Dependency completion is the proof guard: the backlog cannot run this node
+    unless the theorem node reached ``done``. Requiring the audit objective to
+    repeat ``complete self-contained proof`` wording made semantically correct
+    DAGs fail admission even though the audit consumes, rather than reproves,
+    that theorem.
+    """
+    if (
+        not task.stage_closing
+        or not task.deps
+        or not any(dep in qualifying_keys for dep in task.deps)
+    ):
+        return False
+    text = " ".join(
+        f"{task.title} {task.objective} {task.evidence}".lower().split()
+    )
+    audit_like = any(
+        marker in text
+        for marker in (
+            "mechanism-overlap audit",
+            "mechanism overlap audit",
+            "overlap audit",
+            "novelty audit",
+            "audit and close",
+            "审计",
+        )
+    )
+    return audit_like
+
+
+def _hard_objective_task_issues(
+    continuous_objective: str,
+    tasks: list[TaskSpec],
+    *,
+    current_stage: str = "solve",
+    progression_required: bool = False,
+) -> list[str]:
+    if not _requires_theorem_proof_contract(continuous_objective):
+        return []
+    # The contract governs theorem-producing solve work. Scope and review may
+    # still need bounded statement/venue/audit closure so the accepted theorem
+    # can move through the ordinary staged lifecycle without being forced to
+    # prove a second theorem inside bookkeeping.
+    if str(current_stage or "").strip().lower() != "solve":
+        return []
+    basic_issues = [_theorem_proof_task_issue(task) for task in tasks]
+    progression_issues = [
+        (
+            _theorem_progression_task_issue(task)
+            if progression_required and not basic_issue
+            else ""
+        )
+        for task, basic_issue in zip(tasks, basic_issues)
+    ]
+    qualifying_keys = {
+        task.key
+        for task, basic_issue, progression_issue in zip(
+            tasks,
+            basic_issues,
+            progression_issues,
+        )
+        if task.key
+        and not basic_issue
+        and not progression_issue
+    }
+    issues: list[str] = []
+    for task, basic_issue, progression_issue in zip(
+        tasks,
+        basic_issues,
+        progression_issues,
+    ):
+        guarded_followup = _is_guarded_theorem_followup(
+            task,
+            qualifying_keys=qualifying_keys,
+        )
+        issue = basic_issue
+        if issue and guarded_followup:
+            issue = ""
+        if not issue and progression_required:
+            issue = progression_issue
+            if issue and guarded_followup:
+                issue = ""
+        if issue:
+            issues.append(f"{task.title}: {issue}")
+    return issues
 
 
 @dataclass(frozen=True)
@@ -94,6 +417,10 @@ class WaitingContract:
     wake_on: tuple[str, ...] = ()
     watched_paths: tuple[str, ...] = ()
     expires_at: float = 0.0
+    # True when only fresh operator input can change the blocker (for example,
+    # new credentials, a scope choice, or authorization for an additional
+    # mission/thesis).  Manager owns stage transitions, not operator scope.
+    operator_action_required: bool = False
 
 
 @dataclass(frozen=True)
@@ -394,6 +721,65 @@ class Planner:
                 ),
                 schema_repair_premium_requests=repair_premium_requests,
             )
+        active_stage = "solve"
+        project_root: Path | None = None
+        try:
+            from ..skills.harness_overlay import resolve_project_root
+            from ..skills.stage_checklists import current_stage
+
+            project_root = resolve_project_root()
+            active_stage = current_stage(project_root)
+        except Exception:  # noqa: BLE001 - fail closed on the proof contract
+            pass
+        hard_objective_issues = _hard_objective_task_issues(
+            continuous_objective,
+            parsed.new_tasks,
+            current_stage=active_stage,
+            progression_required=(
+                project_root is not None
+                and _project_has_theorem_baseline(project_root)
+            ),
+        )
+        if hard_objective_issues:
+            issue_text = "; ".join(hard_objective_issues[:6])
+            return replace(
+                parsed,
+                project_done=False,
+                reason=(
+                    "planner tasks violate the operator's hard objective contract; "
+                    "re-plan with a theorem statement, complete self-contained proof, "
+                    "and an explicit strict comparison to the strongest proved "
+                    f"ledger result when one exists: {issue_text}"
+                ),
+                new_tasks=[],
+                checklist_ops=[],
+                error=f"hard objective contract violation: {issue_text}",
+                input_tokens=input_tokens,
+                cached_input_tokens=cached_input_tokens,
+                output_tokens=output_tokens,
+                reasoning_output_tokens=reasoning_output_tokens,
+                premium_requests=premium_requests,
+            )
+        granularity_issues = _planner_task_granularity_issues(parsed.new_tasks)
+        if granularity_issues:
+            issue_text = "; ".join(granularity_issues[:6])
+            return replace(
+                parsed,
+                project_done=False,
+                reason=(
+                    "planner proposed a whole-stage task that cannot fit one fresh "
+                    "Engineer session; split at the next decision/artifact boundary "
+                    f"and preserve handoff through context_refs: {issue_text}"
+                ),
+                new_tasks=[],
+                checklist_ops=[],
+                error=f"task granularity violation: {issue_text}",
+                input_tokens=input_tokens,
+                cached_input_tokens=cached_input_tokens,
+                output_tokens=output_tokens,
+                reasoning_output_tokens=reasoning_output_tokens,
+                premium_requests=premium_requests,
+            )
         # The Planner OWNS the per-stage checklist: apply any authored ops to the
         # per-project store AFTER the verdict is parsed (so the NEXT cycle / the
         # next reviewer round sees them; never mid-round). Fail-soft: any error
@@ -469,14 +855,13 @@ class Planner:
             current_stage,
             format_stage_checklist,
         )
-        from ..skills.vertical_select import resolve_vertical
+        from ..skills.vertical_select import resolve_evidence_mode, resolve_vertical
         from ..verticals._base import (
             load_vertical,
             vertical_checklist_stage_order,
             vertical_completion_gate,
             vertical_role_banner,
             vertical_search_altitude,
-            vertical_workflow_mode,
         )
 
         _proot = resolve_project_root()
@@ -666,9 +1051,8 @@ class Planner:
             "   and any nearby evidence that might already cover the gap\n"
             "   under a different name. Do not flag a rollback on a typo.\n"
             "2. **Identify the EARLIEST broken stage**, not the latest one.\n"
-            "   If both `research.infra_shortlist` and `plan.infra_choice`\n"
-            "   are missing, the rollback target is `research`, not `plan` —\n"
-            "   the engineer cannot lock a choice without a shortlist.\n"
+            "   Infrastructure comparison and choice belong to `plan`; their "
+            "absence is not a reason to roll back a completed research stage.\n"
             "3. **REPORT the defect for the Manager.** Name the earliest broken\n"
             "   stage and the missing artifact in your verdict `reason` (and in\n"
             "   any structured blocker field) so the Manager can roll the stage\n"
@@ -825,14 +1209,69 @@ class Planner:
             "## Dynamic host policy\n"
             f"- Every task must have `impact_score >= {MIN_PLANNER_IMPACT_SCORE}`; "
             "the host rejects lower-impact tasks.\n"
+            "- A reversible project-local archive/quarantine with provenance is "
+            "ordinary Engineer work, not an external operator dependency. If both "
+            "archive and delete/overwrite would unblock progress, queue the safe "
+            "archive; require operator approval only for the destructive option.\n"
             "- The final output must match the provided planner schema and be JSON "
             "only, with no prose or Markdown fence.\n\n"
         )
 
+        objective_contract_block = (
+            "## Immutable objective acceptance contract\n"
+            "The operator's hard success criteria and explicit non-qualifying "
+            "outcomes are acceptance constraints, not an optimization hint. The "
+            "current-stage gate controls ordering but never lowers those criteria. "
+            "Do not enqueue a mission whose acceptance can be satisfied entirely "
+            "by an outcome the operator says does not count. Supporting searches, "
+            "probes, computation, and literature work may be internal steps inside "
+            "a qualifying mission; they are not a successful mission outcome by "
+            "themselves.\n\n"
+        )
+        if _requires_theorem_proof_contract(continuous_objective):
+            objective_contract_block += (
+                "### Active hard theorem-proof contract\n"
+                "Every queued solve mission MUST require all of the following as "
+                "its acceptance outcome: (1) a precisely quantified nontrivial "
+                "theorem, lemma, proposition, or corollary; (2) a complete "
+                "self-contained rigorous proof; (3) an updated lemma dependency "
+                "graph and claim ledger; and (4) independent Reviewer acceptance. "
+                "Enumeration, SAT/CP calibration, finite verification, literature "
+                "review, witness search, and resource-limited route pruning may be "
+                "used inside that mission, but MUST NOT be written as an alternative "
+                "successful fallback. If proof search fails, the mission fails or "
+                "remains unresolved and the next cycle changes proof strategy; it "
+                "does not close successfully as feasibility evidence.\n\n"
+            )
+            if _project_has_theorem_baseline(_proot):
+                objective_contract_block += (
+                    "### Monotone theorem progression is active\n"
+                    "This project already has at least one proved theorem in "
+                    "`research/CLAIM_LEDGER.md`. A further solve mission cannot "
+                    "succeed by independently re-deriving another weaker or "
+                    "incomparable known lemma. It MUST read both "
+                    "`research/CLAIM_LEDGER.md` and `research/LEMMA_GRAPH.md`, "
+                    "name the strongest baseline claim/node it consumes, and "
+                    "state the strict mathematical delta. Qualifying progress is "
+                    "one of: a stronger conclusion under the same hypotheses, "
+                    "the same conclusion under weaker hypotheses, a strictly "
+                    "improved explicit bound/constant, or a missing bridge lemma "
+                    "that enables a previously blocked proof chain. Known results "
+                    "may be used as premises but do not count as success unless "
+                    "the proved package strictly advances the recorded project "
+                    "boundary. A dependent overlap-audit node may follow a "
+                    "qualifying theorem node, but cannot substitute for it. "
+                    "A dependent `stage_closing` mechanism/novelty audit "
+                    "inherits the proof contract through that DAG dependency. "
+                    "It need not repeat the theorem's complete-proof wording in "
+                    "its own objective, but it cannot run unless the qualifying "
+                    "theorem dependency completed.\n\n"
+                )
+
         return (
             ground_truth_mandate(
                 "planner",
-                workflow_mode=vertical_workflow_mode(_vmod),
+                workflow_mode=resolve_evidence_mode(_proot),
             )
             + optimize_banner
             + research_target_block
@@ -841,6 +1280,7 @@ class Planner:
                 "argus-planner-role.md",
             )
             + host_policy_block
+            + objective_contract_block
             + stage_checklist
             + "\n\n"
             + stage_gate_block
@@ -860,8 +1300,6 @@ class Planner:
             # (exploit) when not saturated, so the normal path is unchanged.
             + meta_block
             + "\n\nOriginal operator request (immutable anchor):\n"
-            + continuous_objective.strip()
-            + "\n\nOperator's continuous goal (do not mutate the anchor above):\n"
             + continuous_objective.strip()
             + "\n\nJournal of completed work (most recent last):\n"
             + (journal_tail.strip() or "(no completed work yet — this is the first cycle)")
@@ -987,7 +1425,51 @@ def _parse_task_scope(value: object) -> str:
     return scope
 
 
-def _parse_waiting_contract(data: dict) -> WaitingContract | None:
+def _operator_action_required_for_wait(
+    *,
+    blocker_fingerprint: str,
+    recheck_condition: str,
+    waiting_reason: str,
+) -> bool:
+    """Fail closed when a waiting contract asks to expand operator scope.
+
+    Planner output is model-authored, so the explicit boolean is not enough by
+    itself.  Infer operator ownership for common scope-expansion language to
+    prevent a later Manager reconciliation call from inventing authorization.
+    """
+    text = " ".join(
+        (blocker_fingerprint, recheck_condition, waiting_reason)
+    ).casefold()
+    normalized = re.sub(r"[^a-z0-9]+", " ", text)
+    operator_terms = ("operator", "human", "user")
+    operator_actions = (
+        "authoriz",
+        "approval",
+        "credential",
+        "licensed",
+        "permission",
+        "provide",
+        "choose",
+        "decision",
+    )
+    if any(term in normalized for term in operator_terms) and any(
+        term in normalized for term in operator_actions
+    ):
+        return True
+    # An open-ended campaign objective is standing authority to choose another
+    # mechanism, benchmark, or paper framing inside that objective. Historical
+    # code inferred an operator-only blocker from phrases such as "no viable
+    # thesis" or "authorization exhausted", which let one NO-GO permanently
+    # stop autonomous research. Scope expansion must now be explicit in the
+    # structured field; prose about exhausted attempts is never sufficient.
+    return False
+
+
+def _parse_waiting_contract(
+    data: dict,
+    *,
+    waiting_reason: str = "",
+) -> WaitingContract | None:
     raw = data.get("waiting_contract")
     if not isinstance(raw, dict):
         return None
@@ -1023,6 +1505,10 @@ def _parse_waiting_contract(data: dict) -> WaitingContract | None:
         expires_at = max(0.0, float(raw.get("expires_at", 0.0) or 0.0))
     except (TypeError, ValueError):
         expires_at = 0.0
+    explicit_operator_action = _parse_json_bool(
+        raw.get("operator_action_required", False),
+        False,
+    )
     return WaitingContract(
         blocker_fingerprint=blocker_fingerprint[:200],
         recheck_condition=recheck_condition[:1600],
@@ -1040,6 +1526,14 @@ def _parse_waiting_contract(data: dict) -> WaitingContract | None:
         wake_on=wake_on,
         watched_paths=tuple(dict.fromkeys(watched_paths)),
         expires_at=expires_at,
+        operator_action_required=(
+            explicit_operator_action
+            or _operator_action_required_for_wait(
+                blocker_fingerprint=blocker_fingerprint,
+                recheck_condition=recheck_condition,
+                waiting_reason=waiting_reason,
+            )
+        ),
     )
 
 
@@ -1105,7 +1599,10 @@ def parse_planner_text(text: str) -> PlannerVerdict:
         restart_reason = reason or "planner requested daemon restart"
     waiting = _parse_json_bool(data.get("waiting", False), False)
     waiting_reason = str(data.get("waiting_reason", "")).strip() or reason
-    waiting_contract = _parse_waiting_contract(data)
+    waiting_contract = _parse_waiting_contract(
+        data,
+        waiting_reason=waiting_reason,
+    )
     tasks_raw = data.get("new_tasks") or []
     new_tasks: list[TaskSpec] = []
     raw_task_count = len(tasks_raw) if isinstance(tasks_raw, list) else 0
@@ -1118,7 +1615,20 @@ def parse_planner_text(text: str) -> PlannerVerdict:
             impact_score = _parse_impact_score(entry.get("impact_score"))
             impact_area = str(entry.get("impact_area", "")).strip()
             evidence = str(entry.get("evidence", "")).strip()
+            acceptance_check = str(
+                entry.get("acceptance_check") or evidence
+            ).strip()
+            non_goals = [
+                str(item).strip()
+                for item in (entry.get("non_goals") or [])
+                if str(item).strip()
+            ][:8]
+            context_refs = _parse_context_refs(entry.get("context_refs"))
             scope = _parse_task_scope(entry.get("scope"))
+            stage_closing = _parse_json_bool(
+                entry.get("stage_closing", False),
+                False,
+            )
             # Optional DAG fields; back-compat: a flat task simply omits them.
             key = str(entry.get("key") or "").strip()
             deps = [
@@ -1144,7 +1654,11 @@ def parse_planner_text(text: str) -> PlannerVerdict:
                     impact_score=impact_score,
                     impact_area=impact_area,
                     evidence=evidence,
+                    acceptance_check=acceptance_check,
+                    non_goals=non_goals,
+                    context_refs=context_refs,
                     scope=scope,
+                    stage_closing=stage_closing,
                     key=key,
                     deps=deps,
                     authorization_id=authorization_id,

@@ -24,7 +24,7 @@ import hashlib
 import json
 import secrets
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -106,6 +106,51 @@ def resolve_session_workdir(
             raise NotADirectoryError(f"legacy session cwd is not a directory: {resolved}")
         return resolved
     return fallback
+
+
+def migrate_legacy_session_workdir(
+    global_root: Path | None,
+    sid: str,
+    *,
+    state_dir: str | Path,
+    candidates: Iterable[str | Path | None],
+) -> Path:
+    """Persist a trustworthy execution root for an existing legacy session."""
+    fallback = Path(state_dir).expanduser().resolve()
+    with session_meta_lock(global_root, sid):
+        if not fallback.is_dir():
+            raise FileNotFoundError(
+                f"legacy session state directory is unavailable: {fallback}"
+            )
+        meta = read_session_meta(global_root, sid)
+        if meta is not None:
+            return resolve_session_workdir(meta, state_dir=fallback)
+        workdir: Path | None = None
+        for candidate in candidates:
+            raw = str(candidate or "").strip()
+            if not raw:
+                continue
+            try:
+                resolved = Path(raw).expanduser().resolve(strict=True)
+            except (OSError, RuntimeError):
+                continue
+            if resolved == fallback or fallback in resolved.parents:
+                continue
+            if resolved.is_dir():
+                workdir = resolved
+                break
+        if workdir is None:
+            raise FileNotFoundError(
+                "legacy session has no trustworthy workdir; resume it once "
+                "from its project directory"
+            )
+        meta = SessionMeta(
+            id=sid,
+            cwd=str(workdir),
+            workdir=str(workdir),
+        )
+        _write_session_meta_unlocked(global_root, meta)
+        return workdir
 
 
 def _meta_path(global_root: Path | None, sid: str) -> Path:

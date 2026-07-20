@@ -149,27 +149,36 @@ def _resolve_project_bundle(args: argparse.Namespace):
     if sid is None:
         return MemoryBundle.for_cwd(Path.cwd(), global_root=global_root)
     from ...core.session import (
-        SessionMeta,
+        migrate_legacy_session_workdir,
         read_session_meta,
         resolve_session_workdir,
-        write_session_meta,
     )
 
     state_dir = Path(global_root) / "projects" / sid
     meta = read_session_meta(global_root, sid)
-    if meta is None:
-        # Legacy cwd-fingerprint projects had no session.json. The explicit
-        # resume cwd is their only trustworthy worktree signal; persist it once
-        # so every later CLI/Web role uses the same root.
-        workdir = Path.cwd().resolve()
-        meta = SessionMeta(
-            id=sid,
-            cwd=str(workdir),
-            workdir=str(workdir),
-        )
-        write_session_meta(global_root, meta)
     try:
-        workdir = resolve_session_workdir(meta, state_dir=state_dir)
+        if meta is None:
+            # Prefer the last daemon workspace over the shell cwd. A Web/CLI
+            # restart may be initiated from the state directory, which must
+            # never become the execution root for a legacy external-worktree
+            # session.
+            from ...daemon.state import read_daemon_status
+
+            prior = read_daemon_status(state_dir).project_workdir
+            workdir = migrate_legacy_session_workdir(
+                global_root,
+                sid,
+                state_dir=state_dir,
+                candidates=(prior, Path.cwd()),
+            )
+        else:
+            workdir = resolve_session_workdir(meta, state_dir=state_dir)
+    except (OSError, RuntimeError) as exc:
+        raise core_paths.PathResolutionError(
+            f"session {sid} workdir is unavailable: {exc}"
+        ) from exc
+    try:
+        workdir = workdir.resolve(strict=True)
     except (OSError, RuntimeError) as exc:
         raise core_paths.PathResolutionError(
             f"session {sid} workdir is unavailable: {exc}"
@@ -235,7 +244,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     args.skill_stats = bool(args.skill_stats or args.skill_stats_json)
-    backend_default = os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex")
+    from ...core.knobs import resolve_role_backend
+
+    backend_default = resolve_role_backend("")
     continuous_error = _continuous_contract_error(
         continuous=bool(args.continuous),
         objective=str(getattr(args, "objective", "") or ""),
@@ -266,6 +277,8 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.setup)
         + bool(args.model_api_status)
         + bool(args.init_model_api)
+        + bool(args.install_ppt_master)
+        + bool(args.ppt_master_status)
         + bool(args.skill_stats)
         + bool(args.skill_cleanse)
         + bool(args.export_builtin_skills is not None)
@@ -276,12 +289,16 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.lifecycle_archive)
         + bool(getattr(args, "command", None))
     )
+    if getattr(args, "notify_stage", "") and not args.notify:
+        sys.stderr.write("argus-skill: --notify-stage requires --notify MSG\n")
+        return 2
     if action_flags > 1:
         sys.stderr.write(
             "argus-skill: --daemon / --daemon-fg / --daemon-stop / --status / "
             "--daemon-runbook / --config-help / --config-snapshot / "
             "--watch / --follow / --notify / --init-identity / "
             "--model-api-status / --init-model-api / --skill-stats / "
+            "--install-ppt-master / --ppt-master-status / "
             "--skill-cleanse / --export-builtin-skills / "
             "--evidence-chain-check / --anti-mediocrity-check / --lifecycle-status / "
             "wiki subcommands "
@@ -359,6 +376,10 @@ def main(argv: list[str] | None = None) -> int:
         return _run_with_path_resolution_errors(lambda: _cmd_model_api_status(args))
     if args.init_model_api:
         return _run_with_path_resolution_errors(lambda: _cmd_init_model_api(args))
+    if args.install_ppt_master:
+        return _run_with_path_resolution_errors(lambda: _cmd_install_ppt_master(args))
+    if args.ppt_master_status:
+        return _run_with_path_resolution_errors(lambda: _cmd_ppt_master_status(args))
     if args.skill_stats:
         return _run_with_path_resolution_errors(lambda: _cmd_skill_stats(args))
     if args.skill_cleanse:
@@ -408,10 +429,9 @@ def main(argv: list[str] | None = None) -> int:
 def _build_worker_config(args: argparse.Namespace):
     from ...daemon.life_worker import LifeWorkerConfig
     bundle = _resolve_project_bundle(args)
-    backend = getattr(args, "backend", None) or os.environ.get(
-        "ARGUS_SKILL_LIFE_BACKEND",
-        "codex",
-    )
+    from ...core.knobs import resolve_role_backend
+
+    backend = getattr(args, "backend", None) or resolve_role_backend("")
     from ...core.knobs import (
         resolve_budget_caps,
         resolve_role_model,
@@ -444,11 +464,8 @@ def _build_worker_config(args: argparse.Namespace):
         reviewer_reasoning_effort=resolve_role_reasoning_effort(
             "ARGUS_SKILL_REVIEWER_REASONING_EFFORT"
         ),
-        per_mission_cap_usd=budget.per_mission_cap_usd,
-        daily_cap_usd=budget.daily_cap_usd,
         global_daily_cap_usd=budget.global_daily_cap_usd,
         planner_task_iteration_max_cycles=int(os.environ.get("ARGUS_SKILL_PLANNER_TASK_ITERATION_MAX_CYCLES", "6")),
-        planner_task_iteration_budget_usd=float(os.environ.get("ARGUS_SKILL_PLANNER_TASK_ITERATION_BUDGET_USD", "30.0")),
         poll_interval=float(os.environ.get("ARGUS_SKILL_DAEMON_POLL_S", "5.0")),
         continuous=getattr(args, "continuous", False),
         continuous_objective=getattr(args, "objective", ""),
@@ -458,9 +475,11 @@ def _build_worker_config(args: argparse.Namespace):
 
 
 def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
+    from ...core.knobs import resolve_role_backend
     from ...daemon.commands import execute_daemon_command
     from ...daemon.life_worker import run_foreground, spawn_detached_daemon
-    backend_default = os.environ.get("ARGUS_SKILL_LIFE_BACKEND", "codex")
+
+    backend_default = resolve_role_backend("")
     continuous_error = _continuous_contract_error(
         continuous=bool(getattr(args, "continuous", False)),
         objective=str(getattr(args, "objective", "") or ""),
@@ -656,9 +675,36 @@ def _cmd_notify(args: argparse.Namespace) -> int:
         return 2
     bundle = _resolve_project_bundle(args)
     bundle.project.root.mkdir(parents=True, exist_ok=True)
-    inbox = bundle.project.root / "inbox.jsonl"
-    queue_inbox_message(bundle.project.root, msg, source="cli.notify")
-    print(f"argus-skill: queued nudge ({len(msg)} chars) → {inbox}")
+    target_stage = str(getattr(args, "notify_stage", "") or "").strip()
+    if target_stage:
+        from ...daemon.state import read_daemon_status
+        from ...skills.stage_checklists import normalize_stage_for_project
+
+        status = read_daemon_status(bundle.project.root)
+        stage_root = (
+            Path(status.project_workdir)
+            if status.project_workdir
+            else Path.cwd()
+        )
+        target_stage = normalize_stage_for_project(
+            stage_root,
+            target_stage,
+            require_known=True,
+        )
+        if not target_stage:
+            sys.stderr.write("argus-skill: --notify-stage is not valid for the active vertical\n")
+            return 2
+    queue_inbox_message(
+        bundle.project.root,
+        msg,
+        source="cli.notify",
+        stage=target_stage,
+    )
+    from .._inbox import inbox_path
+
+    inbox = inbox_path(bundle.project.root, target_stage)
+    suffix = f" (stage={target_stage})" if target_stage else ""
+    print(f"argus-skill: queued nudge ({len(msg)} chars){suffix} → {inbox}")
     return 0
 
 
@@ -905,7 +951,7 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
     # builtin pointer stub, so the agent workspace carries the real skill that
     # the vertical's REVIEWER_CHECKLISTS reference. ``--vertical`` overrides; by
     # default the active vertical is resolved from research/PIPELINE_STATE.json
-    # (env ARGUS_SKILL_VERTICAL wins) in the target/cwd. This is a standalone
+    # in the target/cwd. This is a standalone
     # operator command that may run outside a decided mission, so fall back to
     # the ``research`` seed when no vertical is resolvable (the mission-internal
     # readers all run post-bootstrap, where resolve_vertical is fail-hard).
@@ -917,7 +963,7 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
             vertical = resolve_vertical(Path.cwd())
         except VerticalResolutionError:
             vertical = "research"
-    if vertical and vertical != "research":
+    if vertical:
         result = seed_builtin_skills_for_vertical(
             target, vertical, overwrite=bool(args.apply)
         )
@@ -942,6 +988,30 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
     if skipped and not args.apply:
         print("  hint   : pass --apply to replace existing copied built-in skill files")
     return 0
+
+
+def _cmd_install_ppt_master(args: argparse.Namespace) -> int:
+    from ...tools.ppt_master import install_ppt_master
+
+    status = install_ppt_master(global_root=_resolve_global_root(args))
+    sys.stdout.write(
+        f"PPT Master ready at {status.skill_root}\n"
+        f"revision: {status.revision}\n"
+    )
+    return 0
+
+
+def _cmd_ppt_master_status(args: argparse.Namespace) -> int:
+    from ...tools.ppt_master import ppt_master_status
+
+    status = ppt_master_status(global_root=_resolve_global_root(args))
+    sys.stdout.write(
+        f"PPT Master: {status.detail}\n"
+        f"root: {status.root}\n"
+        f"skill: {status.skill_root}\n"
+        f"revision: {status.revision or 'unknown'}\n"
+    )
+    return 0 if status.valid and status.dependencies_installed else 1
 
 
 def _cmd_evidence_chain_check(args: argparse.Namespace) -> int:

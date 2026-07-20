@@ -1,5 +1,7 @@
 import WebSocket from 'ws';
 import { randomUUID } from 'node:crypto';
+import { homedir } from 'node:os';
+import { parse, resolve } from 'node:path';
 import type {
   ArtifactInfo,
   BacklogItem,
@@ -48,6 +50,17 @@ export interface JournalEntry {
   tags: string[];
   cost_usd?: number;
   extra?: Record<string, unknown>;
+}
+
+export function defaultExecutionWorkdir(
+  launchCwd: string,
+  home = homedir(),
+): string | undefined {
+  const resolvedLaunch = resolve(launchCwd);
+  if (resolvedLaunch === resolve(home) || resolvedLaunch === parse(resolvedLaunch).root) {
+    return undefined;
+  }
+  return resolvedLaunch;
 }
 
 export interface StatusView {
@@ -249,13 +262,16 @@ export class ApiClient {
     commandId = randomUUID(),
   ): Promise<CreatedDaemon> {
     const path = '/api/daemons';
-    const body = JSON.stringify({
+    const executionWorkdir = defaultExecutionWorkdir(launchCwd);
+    const payload: Record<string, unknown> = {
         objective,
         name,
         launch_cwd: launchCwd,
         command_id: commandId,
         expected_revision: expectedRevision,
-    });
+    };
+    if (executionWorkdir) payload.workdir = executionWorkdir;
+    const body = JSON.stringify(payload);
     const send = () => fetch(`${this.httpBase}${path}`, {
       method: 'POST',
       headers: {

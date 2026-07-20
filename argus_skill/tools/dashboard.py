@@ -669,8 +669,6 @@ def scrape_project_detail(life_dir: Path) -> dict:
     detail = {
         **base,
         "caps": {
-            "per_mission": (_read_json(life_dir / "daemon.status.json") or {}).get("per_mission_cap_usd"),
-            "daily": (_read_json(life_dir / "daemon.status.json") or {}).get("daily_cap_usd"),
             "global_daily": (_read_json(life_dir / "daemon.status.json") or {}).get("global_daily_cap_usd"),
             "global_daily_spend": global_daily_spend(global_root=global_root),
         },
@@ -704,8 +702,11 @@ def find_life_dir(fingerprint: str, roots: list[Path] | None = None) -> Path | N
 # speedrun artifacts and vice versa.
 _STAGE_ARTIFACTS: dict[str, list[str]] = {
     # research vertical
-    "research": ["research/RESEARCH_BRIEF.md", "research/LITERATURE_GROUNDING.json",
-                 "research/SOURCE_DISCOVERY.md", "research/TREND_INSIGHTS.md"],
+    "research": [
+        "research/RESEARCH_BRIEF.md",
+        "research/LITERATURE_GROUNDING.json",
+        "research/LIT_MATRIX.tsv",
+    ],
     "plan": ["research/EXPERIMENT_PLAN.md", "research/BASELINE_AND_BENCHMARK_PLAN.md",
              "paper/DRAFT_OUTLINE.md", "research/CLAIMS_TO_TEST.md"],
     "benchmark": ["experiments/BENCHMARK_PROVENANCE.json", "experiments/BENCHMARK_PROVENANCE.md",

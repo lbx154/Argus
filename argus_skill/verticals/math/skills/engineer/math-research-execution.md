@@ -2,13 +2,30 @@
 name: Math Research Execution
 description: Execute mathematical scope and solve work with honest result classification, statement fidelity, and optional real Lean compilation.
 category: math-research-execution
-version: 3
+version: 5
 ---
 
 MISSION TYPE: MATHEMATICS. Dynamically choose the path that fits the problem.
 Distinguish conjecture, finite or numerical evidence, natural-language proof,
 formal verification, known results, and original candidates. State the limits of
 every result and preserve the operator's `research_target_level`.
+
+If the active objective makes a theorem plus complete proof a hard success
+criterion, do not convert a failed proof search into a successful bounded
+evidence report. Computation and literature may guide discovery or catch errors,
+but the mission remains incomplete until it contains the precise theorem,
+complete self-contained proof, lemma dependency graph, claim ledger, and a
+handoff to the independent Reviewer. Preserve failed approaches as supporting
+logs, then pivot proof strategy inside the mission or return an unresolved
+failure; never relabel the excluded fallback as completion.
+
+If the claim ledger already contains a proved theorem, begin by naming the
+strongest theorem and lemma-graph node this mission consumes. The new theorem
+must explicitly dominate that baseline by strengthening the conclusion,
+weakening hypotheses, improving a quantitative bound, or proving a missing
+bridge that unlocks a blocked chain. Record the before/after comparison in the
+claim ledger. A self-contained proof of a known but weaker or incomparable fact
+does not complete the mission.
 
 When `research/PIPELINE_STATE.json` says the current stage is `scope`, use an
 artifact-first protocol:

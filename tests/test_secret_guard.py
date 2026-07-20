@@ -97,6 +97,55 @@ def test_redacts_values_under_structured_sensitive_keys() -> None:
     assert redacted["nested"]["status"] == "ok"
 
 
+def test_preserves_structured_tokenizer_metadata() -> None:
+    tokenizer_config = {
+        "bos_token": "<|im_start|>",
+        "eos_token": "<|im_end|>",
+        "pad_token": "<|endoftext|>",
+        "unk_token": "<unk>",
+        "mask_token": "<mask>",
+        "additional_special_tokens": ["<image>", "<video>"],
+    }
+
+    assert redact_secrets_record(tokenizer_config) == tokenizer_config
+
+
+def test_scrub_does_not_mutate_tokenizer_config_file(tmp_path: Path) -> None:
+    path = tmp_path / "checkpoint" / "tokenizer_config.json"
+    path.parent.mkdir(parents=True)
+    payload = {
+        "eos_token": "<|im_end|>",
+        "pad_token": "<|endoftext|>",
+        "tokenizer_class": "Qwen2Tokenizer",
+    }
+    original = json.dumps(payload, indent=2) + "\n"
+    path.write_text(original, encoding="utf-8")
+    now = time.time()
+    path.touch()
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=now - 5,
+    )
+
+    assert report.redacted_paths == ()
+    assert path.read_text(encoding="utf-8") == original
+
+
+def test_still_redacts_explicit_provider_token_keys() -> None:
+    redacted = redact_secrets_record({
+        "github_token": "github-secret-value",
+        "hf_token": "huggingface-secret-value",
+        "session_token": "session-secret-value",
+    })
+
+    assert redacted == {
+        "github_token": "<REDACTED:secret>",
+        "hf_token": "<REDACTED:secret>",
+        "session_token": "<REDACTED:secret>",
+    }
+
+
 def test_header_redaction_handles_crlf_and_does_not_recount_placeholders() -> None:
     redacted, count = redact_secrets_text_with_count(
         "Cookie: response-secret-value\r\nstatus: 200\r\n"
@@ -135,6 +184,255 @@ def test_scrubs_recent_text_artifacts_and_preserves_source_fixtures(
     assert "new-secret-value" not in recent.read_text(encoding="utf-8")
     assert "fake-test-value" in source.read_text(encoding="utf-8")
     assert "active-secret-value" in active_log.read_text(encoding="utf-8")
+
+
+def test_scrub_preserves_cue_schema_token_labels(tmp_path: Path) -> None:
+    schema = tmp_path / "flipt.schema.cue"
+    schema.write_text(
+        "#GitAuthentication: {\n"
+        "  token: access_token: string\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=time.time() - 5,
+    )
+
+    assert not report.changed
+    assert schema.read_text(encoding="utf-8") == (
+        "#GitAuthentication: {\n"
+        "  token: access_token: string\n"
+        "}\n"
+    )
+
+
+def test_scrub_skips_vendored_code_references_clones(tmp_path: Path) -> None:
+    recent = tmp_path / "response.headers"
+    recent.write_text("x-api-key: new-secret-value\nstatus: 200\n", encoding="utf-8")
+
+    vendored_repo = tmp_path / "code" / "references" / "some-upstream-repo"
+    vendored_repo.mkdir(parents=True)
+    vendored_file = vendored_repo / "fixture.json"
+    vendored_file.write_text(
+        '{"x-api-key": "vendored-fixture-secret"}\n', encoding="utf-8"
+    )
+    # Give the vendored clone a fresh mtime so the only reason it would be
+    # excluded is the vendored-directory skip, not the modified_since filter.
+    now = time.time()
+    (vendored_repo / "fixture.json").touch()
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=now - 5,
+    )
+
+    assert report.redacted_paths == ("response.headers",)
+    assert "vendored-fixture-secret" in vendored_file.read_text(encoding="utf-8")
+    # The vendored tree must not even be walked/counted.
+    assert report.scanned_files == 1
+
+
+def test_scrub_only_matches_known_secrets_in_project_huggingface_cache(
+    tmp_path: Path,
+) -> None:
+    recent = tmp_path / "response.headers"
+    recent.write_text("x-api-key: new-secret-value\n", encoding="utf-8")
+
+    cache_file = (
+        tmp_path
+        / "models"
+        / "huggingface"
+        / "hub"
+        / "models--example--model"
+        / "blobs"
+        / "upstream.json"
+    )
+    cache_file.parent.mkdir(parents=True)
+    cache_file.write_text(
+        '{"token": "public-tokenizer-schema-value", '
+        '"download_auth": "live-cache-secret-value"}\n',
+        encoding="utf-8",
+    )
+    now = time.time()
+    cache_file.touch()
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=now - 5,
+        known_values=("live-cache-secret-value",),
+    )
+
+    assert report.redacted_paths == (
+        "response.headers",
+        str(cache_file.relative_to(tmp_path)),
+    )
+    assert cache_file.read_text(encoding="utf-8") == (
+        '{"token": "public-tokenizer-schema-value", '
+        '"download_auth": "<REDACTED:known-secret>"}\n'
+    )
+    assert report.scanned_files == 2
+
+
+def test_scrub_skips_project_third_party_runtime_trees(tmp_path: Path) -> None:
+    recent = tmp_path / "response.headers"
+    recent.write_text("x-api-key: new-secret-value\n", encoding="utf-8")
+    runtime_payload = (
+        tmp_path
+        / "third_party"
+        / "runtime_deps"
+        / "huggingface_hub-0.34.4.dist-info"
+        / "METADATA"
+    )
+    reference_payload = (
+        tmp_path
+        / "third_party"
+        / "reference_sources"
+        / "transformers"
+        / "tokenizer_config.json"
+    )
+    runtime_payload.parent.mkdir(parents=True)
+    reference_payload.parent.mkdir(parents=True)
+    runtime_payload.write_text(
+        "client_secret: synthetic-wheel-fixture\n",
+        encoding="utf-8",
+    )
+    reference_payload.write_text(
+        '{"access_token":"synthetic-upstream-fixture"}\n',
+        encoding="utf-8",
+    )
+    now = time.time()
+    runtime_payload.touch()
+    reference_payload.touch()
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=now - 5,
+    )
+
+    assert report.redacted_paths == ("response.headers",)
+    assert runtime_payload.read_text(encoding="utf-8") == (
+        "client_secret: synthetic-wheel-fixture\n"
+    )
+    assert reference_payload.read_text(encoding="utf-8") == (
+        '{"access_token":"synthetic-upstream-fixture"}\n'
+    )
+    assert report.scanned_files == 1
+
+
+def test_scrub_skips_comparator_worker_runtime_overlay(tmp_path: Path) -> None:
+    recent = tmp_path / "response.headers"
+    recent.write_text("x-api-key: new-secret-value\n", encoding="utf-8")
+    metadata = (
+        tmp_path
+        / "experiments"
+        / "comparator_worker_env"
+        / "site"
+        / "huggingface_hub-0.36.0.dist-info"
+        / "METADATA"
+    )
+    metadata.parent.mkdir(parents=True)
+    metadata.write_text(
+        "Description: example client_secret: synthetic-package-text\n",
+        encoding="utf-8",
+    )
+    now = time.time()
+    metadata.touch()
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=now - 5,
+    )
+
+    assert report.redacted_paths == ("response.headers",)
+    assert metadata.read_text(encoding="utf-8") == (
+        "Description: example client_secret: synthetic-package-text\n"
+    )
+    assert report.scanned_files == 1
+
+
+def test_scrub_skips_immutable_acquisition_anchor_bodies(tmp_path: Path) -> None:
+    recent = tmp_path / "response.headers"
+    recent.write_text("x-api-key: new-secret-value\n", encoding="utf-8")
+    body = (
+        tmp_path
+        / "experiments"
+        / "runs"
+        / "frozen-run"
+        / "acquisition"
+        / "anchors"
+        / "publisher.body"
+    )
+    body.parent.mkdir(parents=True)
+    body.write_text(
+        "public documentation example client_secret=synthetic-page-value\n",
+        encoding="utf-8",
+    )
+    now = time.time()
+    body.touch()
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=now - 5,
+    )
+
+    assert report.redacted_paths == ("response.headers",)
+    assert body.read_text(encoding="utf-8") == (
+        "public documentation example client_secret=synthetic-page-value\n"
+    )
+    assert report.scanned_files == 1
+
+
+def test_artifact_scrub_preserves_synthetic_task_tokens(
+    tmp_path: Path,
+) -> None:
+    artifact = tmp_path / "research" / "runs" / "RAW_TRAJECTORIES.jsonl"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text(
+        json.dumps({
+            "task_id": "synthetic-auth-task",
+            "arguments": {"access_token": "access_token_abc123"},
+            "raw_output": (
+                '<tool_call>{"username":"mzhang",'
+                '"password":"SecurePass123"}</tool_call>'
+            ),
+            "executed_call": (
+                "trading_login(username='your_username',"
+                "password='your_password')"
+            ),
+        })
+        + "\n"
+        + json.dumps({
+            "task_id": "provider-credential-leak",
+            "github_token": "github-secret-value",
+        })
+        + "\n"
+        + json.dumps({
+            "task_id": "known-secret-leak",
+            "arguments": {"access_token": "live-environment-secret-123"},
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=time.time() - 5,
+        known_values=("live-environment-secret-123",),
+    )
+
+    rows = [json.loads(line) for line in artifact.read_text().splitlines()]
+    assert rows[0]["arguments"]["access_token"] == "access_token_abc123"
+    assert "SecurePass123" in rows[0]["raw_output"]
+    assert "your_password" in rows[0]["executed_call"]
+    assert rows[1]["github_token"] == "<REDACTED:secret>"
+    assert rows[2]["arguments"]["access_token"] == (
+        "<REDACTED:known-secret>"
+    )
+    assert report.redacted_paths == (
+        "research/runs/RAW_TRAJECTORIES.jsonl",
+    )
 
 
 def test_round_guard_surfaces_scrub_to_reviewer_context(tmp_path: Path) -> None:

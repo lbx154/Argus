@@ -25,12 +25,11 @@ disclosure.
 """
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
 
 import numpy as np
 
-from .backtest import BacktestResult, BacktestSpec
+from .backtest import BacktestResult, BacktestSpec, config_fingerprint
 from .factors import FactorRegistry, FactorSpec
 
 _DEFAULT_TX_COST_PER_TURNOVER = 0.0010  # 10 bps each side, applied to turnover
@@ -131,13 +130,14 @@ class ToyBacktestEngine:
     tx_cost_per_turnover: float = _DEFAULT_TX_COST_PER_TURNOVER
 
     def _config_hash(self, spec: BacktestSpec) -> str:
-        h = hashlib.sha256()
-        h.update(self.name.encode())
-        h.update(self.panel.data_snapshot.encode())
-        for fid in spec.factor_ids:
-            h.update(fid.encode())
-        h.update(spec.weighting.encode())
-        return h.hexdigest()[:16]
+        return config_fingerprint(
+            engine_name=self.name,
+            spec=spec,
+            engine_config={
+                "panel_data_snapshot": self.panel.data_snapshot,
+                "tx_cost_per_turnover": self.tx_cost_per_turnover,
+            },
+        )
 
     def _resolve_factor_columns(
         self, factor_ids: tuple[str, ...]

@@ -15,9 +15,7 @@ import {
 } from '../lib/configSurface';
 
 const BUDGET_FIELDS = [
-  { alias: 'per_mission_cap', env: 'ARGUS_SKILL_PER_MISSION_CAP_USD', label: 'Per mission', unit: 'USD' },
-  { alias: 'daily_cap', env: 'ARGUS_SKILL_DAILY_CAP_USD', label: 'Project daily', unit: 'USD' },
-  { alias: 'global_daily_cap', env: 'ARGUS_SKILL_GLOBAL_DAILY_CAP_USD', label: 'Global daily', unit: 'USD' },
+  { alias: 'global_daily_cap', env: 'ARGUS_SKILL_GLOBAL_DAILY_CAP_USD', label: 'Host-global daily', unit: 'USD' },
   { alias: 'codex_daily_requests', env: 'ARGUS_SKILL_CODEX_DAILY_CALL_CAP', label: 'Codex calls / day', unit: 'calls' },
   { alias: 'copilot_daily_requests', env: 'ARGUS_SKILL_COPILOT_DAILY_CALL_CAP', label: 'Copilot calls / day', unit: 'calls' },
   { alias: 'copilot_daily_premium', env: 'ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP', label: 'Copilot premium / day', unit: 'requests' },

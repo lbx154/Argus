@@ -217,8 +217,6 @@ export function renderEvent(ev: EventMsg): Rendered | null {
     return { role: 'system', label: 'Budget', glyph: '$', text: `budget denied — ${trunc(S(ev, 'reason') || S(ev, 'text'), 150)}`, tone: 'err', rule: true };
   if (t === 'budget.unpriced.blocked')
     return { role: 'system', label: 'Budget', glyph: '$', text: `budget blocked by unresolved cost — ${trunc(S(ev, 'reason') || S(ev, 'text'), 150)}`, tone: 'err', rule: true };
-  if (t === 'budget.fence_breach.blocked')
-    return { role: 'system', label: 'Budget', glyph: '$', text: `budget fence breach — ${trunc(S(ev, 'reason') || S(ev, 'text'), 150)}`, tone: 'err', rule: true };
   if (t === 'life.lifecycle.block') return null;
   if (t === 'life.daemon.idle_timeout')
     return { role: 'system', label: 'Watch', glyph: '🟦', text: trunc(S(ev, 'text') || 'idle timeout — standing by', 150), tone: 'dim' };

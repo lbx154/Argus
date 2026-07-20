@@ -23,6 +23,7 @@ import {
 } from '../../../core/src';
 import { COMMANDS } from '../../../core/src/commands';
 import { formatBytes } from '../lib/format';
+import { finishManagerMessage, managerMessageError } from '../lib/messageResult';
 import { filterPaletteItems, commandPaletteRows, type PaletteItem } from '../components/CommandPalette';
 import type { UsageRecordedEvent } from '../../../core/src/eventPayloads.generated';
 import {
@@ -250,6 +251,39 @@ describe('shared frontend core', () => {
     });
   });
 
+  it('surfaces Manager error results instead of silently dropping the reply', () => {
+    expect(managerMessageError({
+      kind: 'error',
+      reply: 'could not enqueue: provider quota reached',
+    })).toBe('could not enqueue: provider quota reached');
+    expect(managerMessageError({ kind: 'error', reply: '' })).toBe(
+      'Manager could not handle this message.',
+    );
+    expect(managerMessageError({ kind: 'chat', reply: 'hello' })).toBeNull();
+  });
+
+  it('notifies and refetches for streaming and blocking Manager errors without dispatching', () => {
+    const dispatchTask = vi.fn();
+    const notifyError = vi.fn();
+    const refetchTranscript = vi.fn();
+    const complete = (result: Record<string, unknown>) => finishManagerMessage(
+      result,
+      { dispatchTask, notifyError, refetchTranscript },
+    );
+
+    const streamingOnDone = complete;
+    streamingOnDone({ kind: 'error', reply: 'stream dispatch failed' });
+    const blockingFallbackResult = { kind: 'error', reply: 'blocking dispatch failed' };
+    complete(blockingFallbackResult);
+
+    expect(dispatchTask).not.toHaveBeenCalled();
+    expect(notifyError.mock.calls).toEqual([
+      ['stream dispatch failed'],
+      ['blocking dispatch failed'],
+    ]);
+    expect(refetchTranscript).toHaveBeenCalledTimes(2);
+  });
+
   it('selects live work first and gives replayed events one identity', () => {
     const rows = [
       { id: 'new', label: 'new', objective: '', last_active: 20, daemon_alive: false, daemon_pid: null, uptime_seconds: null },
@@ -316,7 +350,7 @@ describe('shared frontend core', () => {
   it('distinguishes mission completion from daemon liveness', () => {
     const view = deriveMissionView({
       session: { id: 's', display_name: '', objective: '', last_active: 0, cwd: '' },
-      daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x', per_mission_cap_usd: 1, daily_cap_usd: 2, global_daily_cap_usd: 0 },
+      daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x', global_daily_cap_usd: 0 },
       roles: [],
       backlog: [],
       recent_events: [],
@@ -378,7 +412,7 @@ describe('shared frontend core', () => {
   it('treats a fresh session with a lazy daemon as ready, not offline', () => {
     const view = deriveMissionView({
       session: { id: 's-fresh', display_name: '', objective: '', last_active: 0, cwd: '' },
-      daemon: { alive: false, pid: null, uptime_seconds: null, backend: null, per_mission_cap_usd: null, daily_cap_usd: null, global_daily_cap_usd: null },
+      daemon: { alive: false, pid: null, uptime_seconds: null, backend: null, global_daily_cap_usd: null },
       roles: [],
       backlog: [],
       recent_events: [],
@@ -390,7 +424,7 @@ describe('shared frontend core', () => {
   it('does not report armed work as active when the executor is absent', () => {
     const snapshot = {
       session: { id: 's', display_name: '', objective: '', last_active: 0, cwd: '' },
-      daemon: { alive: false, pid: null, uptime_seconds: null, backend: null, per_mission_cap_usd: null, daily_cap_usd: null, global_daily_cap_usd: null },
+      daemon: { alive: false, pid: null, uptime_seconds: null, backend: null, global_daily_cap_usd: null },
       roles: [],
       recent_events: [],
       backlog: [],
@@ -502,9 +536,9 @@ describe('shared frontend core', () => {
     view.mission.started_at = 100;
     const snapshot = {
       session: { id: 's', display_name: '', objective: '', created: 10, last_active: 0, cwd: '' },
-      daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x', per_mission_cap_usd: 1, daily_cap_usd: 2, global_daily_cap_usd: 3 },
+      daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x', global_daily_cap_usd: 3 },
       roles: [],
-      backlog: [{ id: 'solve', title: 'Solve', objective: '', status: 'running', priority: 100, max_cost_usd: 1, iterate: true, pending_question: '', started_ts: 100, finished_ts: null, deps: [], iteration_max_cycles: 1, iteration_cycles_done: 0 }],
+      backlog: [{ id: 'solve', title: 'Solve', objective: '', status: 'running', priority: 100, iterate: true, pending_question: '', started_ts: 100, finished_ts: null, deps: [], iteration_max_cycles: 1, iteration_cycles_done: 0 }],
       recent_events: [],
       continuous: { enabled: true, objective: 'Solve the problem' },
       mission_view: view,
@@ -546,8 +580,8 @@ describe('shared frontend core', () => {
     expect(eventMatchesView(alert, { tone: 'err', text: 'blocked — needs you' }, 'messages')).toBe(false);
     expect(eventMatchesView(alert, { tone: 'err', text: 'blocked — needs you' }, 'all', 'credentials')).toBe(true);
     const items = [
-      { id: 'run', title: 'running', objective: '', status: 'running', priority: 1, max_cost_usd: 1 },
-      { id: 'done', title: 'done', objective: '', status: 'done', priority: 2, max_cost_usd: 1 },
+      { id: 'run', title: 'running', objective: '', status: 'running', priority: 1 },
+      { id: 'done', title: 'done', objective: '', status: 'done', priority: 2 },
     ];
     expect(visibleBacklogItems(items, false).map((item) => item.id)).toEqual(['run']);
     expect(visibleBacklogItems(items, true).map((item) => item.id)).toEqual(['done']);

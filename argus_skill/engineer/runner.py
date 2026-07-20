@@ -23,13 +23,12 @@ import logging
 import os
 import re
 import time
+import uuid
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import Any, Callable, cast
 
-if TYPE_CHECKING:
-    from ..life.supervisor._config import MissionBudget
-
+from ..core.claim_synthesis import claim_synthesis_for_review
 from ..core.event_catalog import EventType
 from ..core.models import (
     LoopOutcome,
@@ -55,6 +54,10 @@ from ..core.stop_kinds import (
     stop_kind_from_external_interrupt,
 )
 from ..reviewer import Reviewer, ReviewerConfig
+from ..reviewer.failure_taxonomy import (
+    REPAIRABLE_FAILURE_LAYERS,
+    resolve_failure_layer,
+)
 from .background_subagents import (
     emit_subagent_cost_events,
     find_waitable_subagent,
@@ -70,15 +73,71 @@ from .external_work import (
     render_external_work_advisory,
     wait_for_external_work_cadence,
 )
+from .failure_signature import (
+    FailureSignature,
+    review_failure_signature,
+    signature_similarity,
+)
+from .long_job_policy import find_unmanaged_long_jobs
 from .self_review import (
     EngineerCompletionDecision,
     EngineerSkillMaintenanceOutcome,
     engineer_self_approved_review,
     parse_engineer_completion_decision,
-    verbatim_verification_output,
 )
 
 log = logging.getLogger(__name__)
+
+
+def _snapshot_wiki_pages(workdir: Path) -> dict[Path, bytes]:
+    """Capture the reviewer-protected wiki card bytes under this project."""
+    from ..wiki.auto_hooks import discover_wikis
+
+    snapshot: dict[Path, bytes] = {}
+    for wiki_root in discover_wikis(workdir):
+        pages_root = wiki_root / "pages"
+        if not pages_root.exists():
+            continue
+        for path in sorted(pages_root.rglob("*.md")):
+            if path.is_file():
+                snapshot[path] = path.read_bytes()
+    return snapshot
+
+
+def _restore_reviewer_wiki_page_edits(
+    workdir: Path,
+    snapshot: dict[Path, bytes],
+) -> list[str]:
+    """Revert direct reviewer writes; WikiRouter is the sole card writer."""
+    from ..wiki.auto_hooks import discover_wikis
+
+    current: set[Path] = set()
+    for wiki_root in discover_wikis(workdir):
+        pages_root = wiki_root / "pages"
+        if pages_root.exists():
+            current.update(path for path in pages_root.rglob("*.md") if path.is_file())
+    changed = sorted(
+        path
+        for path in current | set(snapshot)
+        if path not in snapshot
+        or path not in current
+        or path.read_bytes() != snapshot[path]
+    )
+    if not changed:
+        return []
+    for path in changed:
+        original = snapshot.get(path)
+        if original is None:
+            path.unlink(missing_ok=True)
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.name}.reviewer-restore-{uuid.uuid4().hex}")
+        try:
+            tmp.write_bytes(original)
+            os.replace(tmp, path)
+        finally:
+            tmp.unlink(missing_ok=True)
+    return [str(path.relative_to(workdir)) for path in changed]
 
 _POISONED_SESSION_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
     "empty output",
@@ -150,6 +209,9 @@ _ROUND_COMPACTION_LIMIT_ENV = "ARGUS_SKILL_ROUND_COMPACTION_LIMIT"
 _BG_SUBAGENT_ADVISORY_ENV = "ARGUS_SKILL_BG_SUBAGENT_ADVISORY"
 _DYNAMIC_PLAN_MODE_ENV = "ARGUS_SKILL_DYNAMIC_PLAN_MODE"
 _DYNAMIC_PLAN_CONFIRM_ROUNDS_ENV = "ARGUS_SKILL_DYNAMIC_PLAN_CONFIRM_ROUNDS"
+_REPEATED_FAILURE_THRESHOLD_ENV = "ARGUS_SKILL_REPEATED_FAILURE_THRESHOLD"
+_REPEATED_FAILURE_SIMILARITY_ENV = "ARGUS_SKILL_REPEATED_FAILURE_SIMILARITY"
+_COMPACT_CONTINUATION_PROMPTS_ENV = "ARGUS_SKILL_COMPACT_CONTINUATION_PROMPTS"
 _CONTINUE_WORK_SENTINEL = "CONTINUE_WORK:"
 _CONTINUE_WORK_MAX_CHARS = 500
 # Compatibility defaults for the retired resumed-thread policy. Autonomous
@@ -374,6 +436,84 @@ def _plan_signal_event(
     }
 
 
+_EARLIEST_BROKEN_STAGE_PATTERNS = (
+    re.compile(
+        r"(?i)\bearliest[_\s-]*broken[_\s-]*stage\b\s*(?:is|[:=])\s*`?([a-z0-9_-]+)"
+    ),
+    re.compile(
+        r"(?i)\bearliest\s+broken\s+stage\s+is\s+`?([a-z0-9_-]+)"
+    ),
+    re.compile(
+        r"(?i)\b(?:rollback|return|reopen)\b"
+        r"(?:\s+[a-z0-9_-]+){0,6}\s+(?:to\s+)?`?"
+        r"(research|plan|benchmark|run|analysis|draft|review|submission)\b"
+    ),
+)
+
+
+def _upstream_stage_reconciliation_target(
+    review: ReviewDecision,
+    *,
+    workdir: Path,
+) -> str:
+    """Return an earlier broken stage that must be adjudicated by Manager.
+
+    A Reviewer can discover that a run-stage mission is invalid because a
+    benchmark/plan artifact is broken. Continuing another Engineer round under
+    the later stage lets that Engineer bypass Manager stage ownership and may
+    execute work that the latest review explicitly forbids.  Detect both a
+    future structured field and the currently deployed prose form.
+    """
+    report = getattr(review, "planner_report", None)
+    report = report if isinstance(report, dict) else {}
+    candidate = str(report.get("earliest_broken_stage") or "").strip().lower()
+    text_parts = [
+        str(getattr(review, "reason", "") or ""),
+        str(getattr(review, "next_action", "") or ""),
+        str(report.get("blocker") or ""),
+        str(report.get("recommended_next") or ""),
+    ]
+    if not candidate:
+        joined = "\n".join(text_parts)
+        for pattern in _EARLIEST_BROKEN_STAGE_PATTERNS:
+            match = pattern.search(joined)
+            if match:
+                candidate = match.group(1).strip().lower().replace("-", "_")
+                break
+    if not candidate:
+        return ""
+    try:
+        from ..skills.stage_checklists import (
+            _active_vertical_checklist_defs,
+            current_stage,
+        )
+
+        active_stage = current_stage(workdir).strip().lower().replace("-", "_")
+        stage_order, _items = _active_vertical_checklist_defs(workdir)
+        order = [str(stage).strip().lower().replace("-", "_") for stage in stage_order]
+    except Exception:  # noqa: BLE001 - uncertain stage identity must not reroute
+        return ""
+    if (
+        candidate not in order
+        or active_stage not in order
+        or order.index(candidate) >= order.index(active_stage)
+    ):
+        return ""
+
+    if not isinstance(getattr(review, "planner_report", None), dict):
+        review.planner_report = report
+    report["stage_reconciliation_required"] = True
+    report["earliest_broken_stage"] = candidate
+    report["plan_signal"] = "reconsider"
+    if not str(report.get("plan_signal_reason") or "").strip():
+        report["plan_signal_reason"] = (
+            f"Reviewer identified upstream stage defect: current={active_stage}, "
+            f"earliest_broken_stage={candidate}. Manager rollback adjudication "
+            "is required before more Engineer work."
+        )
+    return candidate
+
+
 def _apply_round_secret_guard(
     *,
     workdir: Path,
@@ -543,6 +683,7 @@ def _event_has_successful_work_signal(event: dict) -> bool:
 class EngineerConfig:
     model: str
     reasoning_effort: str | None = None
+    initial_reasoning_effort: str | None = None
     extra_args: list[str] | None = None
     full_auto: bool = True
     skip_git_repo_check: bool = True
@@ -702,6 +843,19 @@ class SupervisedConfig:
     dynamic_plan_confirm_rounds: int = field(
         default_factory=lambda: _env_int(_DYNAMIC_PLAN_CONFIRM_ROUNDS_ENV, 2)
     )
+    # A repeated Reviewer blocker means the mission contract is not producing
+    # a new diagnostic action. End cleanly so L4 can replace the plan.
+    repeated_failure_threshold: int = field(
+        default_factory=lambda: _env_int(_REPEATED_FAILURE_THRESHOLD_ENV, 2)
+    )
+    repeated_failure_similarity: float = field(
+        default_factory=lambda: _env_float(_REPEATED_FAILURE_SIMILARITY_ENV, 0.62)
+    )
+    # Round 1 receives the full task/skill contract. Continuation rounds use
+    # Reviewer guidance plus the shared CHECKPOINT.md baton.
+    compact_continuation_prompts: bool = field(
+        default_factory=lambda: _env_bool(_COMPACT_CONTINUATION_PROMPTS_ENV, True)
+    )
     # Safe round-boundary budget since the last Reviewer-classified decision or
     # evidence increment. This never interrupts a live provider call.
     decision_progress_timeout_seconds: int = field(
@@ -751,6 +905,8 @@ class SupervisedConfig:
     # Ordinary Markdown file edited directly by Engineer and Reviewer. None
     # disables the shared checkpoint for callers that intentionally opt out.
     checkpoint_path: Path | None = None
+    # Mission-level canonical packet. Round handoffs are written beside it.
+    context_packet_path: str = ""
     # Kill a live Codex subprocess if it keeps emitting heartbeat/token
     # noise but makes no effective progress for a long time. Effective
     # progress means either a non-token Codex session event or a project file
@@ -800,6 +956,11 @@ class SupervisedConfig:
     # When a self-approved Engineer requests reusable skill maintenance, resume
     # that exact provider thread for one bounded create/update continuation.
     allow_engineer_skill_maintenance: bool = False
+    # Optional sequential-learning contract. The Engineer still authors the
+    # skill in its resumed session; the harness only ensures the requested
+    # create/update continuation is not accidentally omitted.
+    required_skill_action: str = ""
+    required_skill_name: str = ""
     # Retained only for source compatibility with older callers.
     review_deferral_limit: int = 0
 
@@ -811,6 +972,24 @@ class _SessionReadResult:
     progressed: bool
     compactions: int
     consumed_bytes: int
+
+
+def _is_project_progress_ignored_dir(parent: Path, name: str) -> bool:
+    """Exclude generated trees that can hide real experiment heartbeats.
+
+    Kernel projects commonly use target-specific environments such as
+    ``.venv-b200-tilelang`` instead of the exact ``.venv`` name. Walking one of
+    those environments can consume the watchdog's bounded file-scan budget
+    before it reaches a growing verifier log under ``research/raw``. Detect a
+    Python virtual environment by its standard ``pyvenv.cfg`` marker so custom
+    names are ignored without relying on an ever-growing name allowlist.
+    """
+    if name in _PROJECT_PROGRESS_IGNORE_DIRS:
+        return True
+    try:
+        return (parent / name / "pyvenv.cfg").is_file()
+    except OSError:
+        return False
 
 
 class _EffectiveProgressWatchdog:
@@ -989,7 +1168,7 @@ class _EffectiveProgressWatchdog:
         for dirpath, dirnames, filenames in walker:
             dirnames[:] = [
                 name for name in dirnames
-                if name not in _PROJECT_PROGRESS_IGNORE_DIRS
+                if not _is_project_progress_ignored_dir(Path(dirpath), name)
             ]
             for filename in filenames:
                 if scanned >= _PROJECT_PROGRESS_MAX_FILES:
@@ -1208,10 +1387,10 @@ class SupervisedEngineer:
         on_event: Callable[[dict], None] | None = None,
         seed_thread_id: str | None = None,
         scope: str = "",
-        per_mission_budget: "MissionBudget | None" = None,
         prepare_review_context: Callable[[], None] | None = None,
         review_completed_hook: Callable[[RoundRecord], None] | None = None,
         continue_adaptor: Callable[[list[RoundRecord]], str] | None = None,
+        reviewer_skill_block: str | None = None,
         engineer_skill_maintenance: Callable[
             [EngineerCompletionDecision, str | None, str],
             EngineerSkillMaintenanceOutcome,
@@ -1220,9 +1399,9 @@ class SupervisedEngineer:
         """Run the supervised loop.
 
         ``engineer_prompt_builder(next_action, include_static)`` is called once
-        per round with ``include_static=True``. Engineer and Reviewer both start
-        fresh provider sessions every round. Their continuity is the ordinary
-        shared Markdown checkpoint that they edit in sequence on disk; raw model
+        per round. Round 1 receives the static task/skill contract; continuation
+        rounds default to a compact Reviewer delta plus CHECKPOINT.md. Engineer
+        and Reviewer both start fresh provider sessions every round; raw model
         threads are never carried across a round or mission boundary.
 
         Returns ``(status, rounds, final_message, reason, last_thread_id)``.
@@ -1244,6 +1423,9 @@ class SupervisedEngineer:
         no_progress_streak = 0
         semantic_stall_streak = 0
         plan_reconsider_streak = 0
+        repeated_failure_streak = 0
+        last_failure_signature: FailureSignature | None = None
+        reviewer_next_action: str | None = None
         last_decision_progress_at = time.monotonic()
         backend_failure_streak = 0
         reviewer_backend_failure_streak = 0
@@ -1254,38 +1436,6 @@ class SupervisedEngineer:
         checkpoint_path = ensure_shared_checkpoint(supervised_config.checkpoint_path)
 
         for round_index in range(1, supervised_config.max_rounds + 1):
-            # F3: mid-mission cost circuit-breaker. Before doing any work this
-            # round, stop if the live per-mission spend has reached the cap.
-            # ``round_index > 1`` guarantees round 1 always runs (spend is 0 at
-            # entry); a misconfigured cap<=0 is a no-op via ``exceeded()``. This is
-            # a hard STOP, NOT a completion — the supervisor leaves the item pending
-            # and journals a budget_pause. CHECKPOINT.md stays on disk for the next
-            # fresh mission attempt.
-            if (
-                per_mission_budget is not None
-                and round_index > 1
-                and per_mission_budget.exceeded()
-            ):
-                _spent = per_mission_budget.spent()
-                _cap = per_mission_budget.cap_usd
-                if on_event:
-                    on_event({
-                        "type": "round.budget_exhausted",
-                        "round_index": round_index,
-                        "spent_usd": _spent,
-                        "cap_usd": _cap,
-                        "text": (
-                            f"per-mission cap ${_cap:.2f} reached "
-                            f"(spent ${_spent:.2f}) — pausing mission"
-                        ),
-                    })
-                return (
-                    "paused_budget",
-                    rounds,
-                    last_engineer_message,
-                    f"per-mission cap ${_cap:.2f} reached (spent ${_spent:.2f})",
-                    None,
-                )
             if on_event:
                 try:
                     emit_subagent_cost_events(workdir, on_event)
@@ -1293,7 +1443,14 @@ class SupervisedEngineer:
                     log.debug("subagent cost scan ignored an error", exc_info=True)
             # Cross-round role context comes from CHECKPOINT.md, not duplicated
             # free-form reviewer prose in the next Engineer prompt.
-            engineer_prompt = engineer_prompt_builder(None, True)
+            include_static = (
+                round_index == 1
+                or not supervised_config.compact_continuation_prompts
+            )
+            engineer_prompt = engineer_prompt_builder(
+                reviewer_next_action,
+                include_static,
+            )
             delta_tail: list[str] = []
             checkpoint_block = shared_checkpoint_instructions(
                 checkpoint_path,
@@ -1317,10 +1474,13 @@ class SupervisedEngineer:
                 on_event({
                     "type": EventType.ROUND_START,
                     "round_index": round_index,
-                    # Kept for readers of the historical event schema.
-                    "round": round_index,
-                    "round_max": supervised_config.max_rounds,
-                    "text": f"engineer round {round_index} (fresh session)",
+                        # Kept for readers of the historical event schema.
+                        "round": round_index,
+                        "round_max": supervised_config.max_rounds,
+                        "prompt_mode": "full" if include_static else "compact",
+                        "prompt_chars": len(engineer_prompt),
+                        "prompt_estimated_tokens": (len(engineer_prompt) + 3) // 4,
+                        "text": f"engineer round {round_index} (fresh session)",
                 })
             round_started_at = time.time()
             engineer_result, _round_compactions = self._run_engineer(
@@ -1328,6 +1488,11 @@ class SupervisedEngineer:
                 workdir=workdir,
                 run_label=f"engineer-r{round_index}",
                 resume_thread_id=None,
+                reasoning_effort=(
+                    self.engineer_config.initial_reasoning_effort
+                    if round_index == 1
+                    else self.engineer_config.reasoning_effort
+                ),
                 supervised_config=supervised_config,
                 on_event=on_event,
             )
@@ -1346,6 +1511,19 @@ class SupervisedEngineer:
                 raw_engineer_message,
                 known_values=known_secret_values(),
             )
+            if supervised_config.context_packet_path:
+                try:
+                    from ..life.context_packet import record_engineer_handoff
+
+                    record_engineer_handoff(
+                        mission_context_path=supervised_config.context_packet_path,
+                        round_index=round_index,
+                        engineer_summary=engineer_message,
+                        checkpoint_path=checkpoint_path,
+                        thread_id=str(round_thread_id or ""),
+                    )
+                except Exception:  # noqa: BLE001 - handoff persistence is fail-soft
+                    log.exception("failed to persist Engineer context packet")
             _secret_report, secret_guard_reviewer_note = _apply_round_secret_guard(
                 workdir=workdir,
                 modified_since=round_started_at,
@@ -1360,6 +1538,43 @@ class SupervisedEngineer:
                 pending_secret_guard_notes.append(secret_guard_reviewer_note)
                 del pending_secret_guard_notes[:-8]
             last_engineer_message = engineer_message or last_engineer_message
+            unmanaged_long_jobs: list[dict[str, Any]] = []
+            if supervised_config.engineer_log_path:
+                unmanaged_long_jobs = find_unmanaged_long_jobs(
+                    supervised_config.engineer_log_path,
+                    call_id=(
+                        str(getattr(engineer_result, "call_id", "") or "")
+                        if bool(
+                            getattr(engineer_result, "call_id_log_correlated", False)
+                        )
+                        else ""
+                    ),
+                    since=round_started_at,
+                )
+            unmanaged_long_job_note = ""
+            if unmanaged_long_jobs:
+                examples = "\n".join(
+                    f"- {row['classification']}: {row['command'][:500]}"
+                    for row in unmanaged_long_jobs[:5]
+                )
+                unmanaged_long_job_note = (
+                    "ARGUS LONG-JOB OWNERSHIP WARNING: this Engineer turn launched "
+                    "or busy-waited on a long job outside the durable subagent/job "
+                    "owner. Preserve any valid terminal artifacts, but classify the "
+                    "workflow defect as failure_layer=orchestration and require all "
+                    "future long/GPU launches through `python -m "
+                    "argus_skill.tools.subagent submit`. Do not interpret owner loss "
+                    "or missing finalization as scientific evidence.\n" + examples
+                )
+                if on_event:
+                    on_event({
+                        "type": "round.unmanaged_long_job",
+                        "round_index": round_index,
+                        "count": len(unmanaged_long_jobs),
+                        "operator_alert": True,
+                        "findings": unmanaged_long_jobs[:5],
+                        "text": unmanaged_long_job_note[:2000],
+                    })
 
             # Phase-2 instrumentation: emit ``round.main.completed`` so the
             # supervisor's _CostTrackingSink can fold engineer-side token
@@ -1662,134 +1877,98 @@ class SupervisedEngineer:
             )
             if (
                 completion_decision is not None
-                and completion_decision.requests_review_skip
+                and completion_decision.skill_action == "none"
+                and supervised_config.required_skill_action in {"create", "update"}
             ):
-                self_review_rejection = ""
-                verification_output = verbatim_verification_output(
-                    engineer_message
+                completion_decision = replace(
+                    completion_decision,
+                    skill_action=supervised_config.required_skill_action,
+                    skill_name=supervised_config.required_skill_name,
+                    skill_reason=(
+                        "Required sequential-learning update from this verified task"
+                    ),
                 )
-                if not supervised_config.allow_engineer_self_review:
-                    self_review_rejection = "Engineer self-review is disabled"
-                elif str(scope or "").strip().lower() == "final_submission":
-                    self_review_rejection = (
-                        "final_submission requires independent Reviewer certification"
-                    )
-                elif int(getattr(engineer_result, "exit_code", 0) or 0) != 0:
-                    self_review_rejection = "Engineer process did not exit successfully"
-                elif fatal_error:
-                    self_review_rejection = "Engineer reported a fatal backend error"
-                elif pending_secret_guard_notes:
-                    self_review_rejection = (
-                        "secret-guard findings require independent review"
-                    )
-                elif no_progress_streak:
-                    self_review_rejection = (
-                        "Engineer produced no successful work signal"
-                    )
-                elif not verification_output:
-                    self_review_rejection = (
-                        "missing non-empty `## Verification (verbatim)` output"
-                    )
-
-                if self_review_rejection:
-                    if on_event:
-                        on_event({
-                            "type": EventType.ENGINEER_SELF_REVIEW_REJECTED,
-                            "round_index": round_index,
-                            "round_max": supervised_config.max_rounds,
-                            "reason": self_review_rejection,
-                            "text": (
-                                "Engineer review waiver rejected; invoking Reviewer: "
-                                + self_review_rejection
-                            ),
-                        })
-                else:
-                    maintenance = EngineerSkillMaintenanceOutcome()
-                    if completion_decision.skill_action != "none":
-                        if (
-                            supervised_config.allow_engineer_skill_maintenance
-                            and engineer_skill_maintenance is not None
-                        ):
-                            try:
-                                maintenance = engineer_skill_maintenance(
-                                    completion_decision,
-                                    round_thread_id,
-                                    engineer_message,
-                                )
-                            except Exception as exc:  # noqa: BLE001
-                                log.exception(
-                                    "Engineer same-session skill maintenance failed"
-                                )
-                                maintenance = EngineerSkillMaintenanceOutcome(
-                                    attempted=True,
-                                    success=False,
-                                    summary=(
-                                        "failed: "
-                                        f"{type(exc).__name__}: {exc}"
-                                    ),
-                                    thread_id=round_thread_id,
-                                )
-                        else:
-                            maintenance = EngineerSkillMaintenanceOutcome(
-                                attempted=False,
-                                success=False,
-                                summary="requested but maintenance is disabled",
-                                thread_id=round_thread_id,
-                            )
-                    review = engineer_self_approved_review(
+            maintenance = EngineerSkillMaintenanceOutcome()
+            if (
+                completion_decision is not None
+                and completion_decision.skill_action != "none"
+                and engineer_skill_maintenance is not None
+            ):
+                try:
+                    maintenance = engineer_skill_maintenance(
                         completion_decision,
-                        maintenance_summary=maintenance.summary,
+                        round_thread_id,
+                        engineer_message,
                     )
-                    pending_secret_guard_notes.clear()
-                    if on_event:
-                        on_event({
-                            "type": EventType.ENGINEER_SELF_REVIEW_ACCEPTED,
-                            "round_index": round_index,
-                            "round_max": supervised_config.max_rounds,
-                            "reason": completion_decision.reason,
-                            "verification": completion_decision.verification,
-                            "skill_action": completion_decision.skill_action,
-                            "skill_maintenance_attempted": maintenance.attempted,
-                            "skill_maintenance_success": maintenance.success,
-                            "text": (
-                                "Engineer self-verification accepted; "
-                                "independent Reviewer waived"
-                            ),
-                        })
-                        on_event(_review_event_payload(
-                            review,
-                            round_index=round_index,
-                            round_max=supervised_config.max_rounds,
-                            text=(
-                                "review: skipped (Engineer self-verification) — "
-                                + review.reason
-                            ),
-                            review_skipped=True,
-                            review_source="engineer_self_review",
-                        ))
-                    record = RoundRecord(
+                except Exception as exc:  # noqa: BLE001
+                    log.exception("Engineer same-session skill maintenance failed")
+                    maintenance = EngineerSkillMaintenanceOutcome(
+                        attempted=True,
+                        success=False,
+                        summary=f"failed: {type(exc).__name__}: {exc}",
+                        thread_id=round_thread_id,
+                    )
+            if (
+                completion_decision is not None
+                and completion_decision.requests_review_skip
+                and supervised_config.allow_engineer_self_review
+            ):
+                # Engineer owns this judgment. The harness parses the explicit
+                # decision but does not second-guess it with extra gates.
+                review = engineer_self_approved_review(
+                    completion_decision,
+                    maintenance_summary=maintenance.summary,
+                )
+                pending_secret_guard_notes.clear()
+                if on_event:
+                    on_event({
+                        "type": EventType.ENGINEER_SELF_REVIEW_ACCEPTED,
+                        "round_index": round_index,
+                        "round_max": supervised_config.max_rounds,
+                        "reason": completion_decision.reason,
+                        "verification": completion_decision.verification,
+                        "skill_action": completion_decision.skill_action,
+                        "skill_maintenance_attempted": maintenance.attempted,
+                        "skill_maintenance_success": maintenance.success,
+                        "text": (
+                            "Engineer self-verification accepted; "
+                            "independent Reviewer waived"
+                        ),
+                    })
+                    on_event(_review_event_payload(
+                        review,
                         round_index=round_index,
-                        engineer_message=engineer_message,
-                        engineer_exit_code=engineer_result.exit_code,
-                        review=review,
-                        fatal_error=engineer_result.fatal_error,
-                    )
-                    rounds.append(record)
-                    if review_completed_hook is not None:
-                        try:
-                            review_completed_hook(record)
-                        except Exception:  # noqa: BLE001
-                            log.warning(
-                                "self-review completion hook failed",
-                                exc_info=True,
-                            )
-                    return (
-                        "done",
-                        rounds,
-                        last_engineer_message,
-                        review.reason,
-                        maintenance.thread_id or round_thread_id,
-                    )
+                        round_max=supervised_config.max_rounds,
+                        text=(
+                            "review: skipped (Engineer self-verification) — "
+                            + review.reason
+                        ),
+                        review_skipped=True,
+                        review_source="engineer_self_review",
+                    ))
+                record = RoundRecord(
+                    round_index=round_index,
+                    engineer_message=engineer_message,
+                    engineer_exit_code=engineer_result.exit_code,
+                    review=review,
+                    fatal_error=engineer_result.fatal_error,
+                )
+                rounds.append(record)
+                if review_completed_hook is not None:
+                    try:
+                        review_completed_hook(record)
+                    except Exception:  # noqa: BLE001
+                        log.warning(
+                            "self-review completion hook failed",
+                            exc_info=True,
+                        )
+                return (
+                    "done",
+                    rounds,
+                    last_engineer_message,
+                    review.reason,
+                    maintenance.thread_id or round_thread_id,
+                )
 
             if prepare_review_context is not None:
                 try:
@@ -1818,7 +1997,18 @@ class SupervisedEngineer:
                     "GPU quota / preemption, missing credentials, or a host that "
                     "stays unreachable after retries — return status=`blocked` with "
                     "a precise operator ask INSTEAD of `continue`. Do not keep "
-                    "looping on an unresolvable external dependency."
+                    "looping on an unresolvable external dependency.\n"
+                    "This also applies to an INTERNAL blocker: if the last 2+ "
+                    "rounds have independently re-derived the SAME root-cause "
+                    "finding that a frozen upstream artifact/contract (e.g. plan, "
+                    "run contract, curriculum, checklist) is defective and the fix "
+                    "requires a Manager-owned stage rollback or edit this mission's "
+                    "own scope forbids performing, do not keep re-verifying that "
+                    "same finding. Return status=`blocked` with `reason` naming the "
+                    "repeated finding and the exact stage/artifact that needs "
+                    "Manager-owned repair, so the mission ends now and control "
+                    "returns to the Planner/Manager instead of waiting for the "
+                    "hard round cap."
                 )
                 if on_event and round_index == supervised_config.soft_round_limit:
                     on_event({
@@ -1838,7 +2028,9 @@ class SupervisedEngineer:
             # the (cheap) reviewer leg — NOT discard the round and re-run the
             # (xhigh) engineer turn. We leave this inner loop with a real verdict,
             # or by failing loud once the reviewer-backend streak hits threshold.
+            reviewer_direct_write_violations = 0
             while True:
+                wiki_pages_before_review = _snapshot_wiki_pages(workdir)
                 reviewer_background_context = ""
                 if supervised_config.background_subagent_advisory:
                     try:
@@ -1869,6 +2061,7 @@ class SupervisedEngineer:
                                 for part in (
                                     engineer_message or "(no message)",
                                     *pending_secret_guard_notes,
+                                    unmanaged_long_job_note,
                                 )
                                 if part
                             )
@@ -1895,6 +2088,7 @@ class SupervisedEngineer:
                             )
                             else ""
                         ),
+                        preselected_skill_block=reviewer_skill_block,
                         resume_thread_id=None,
                         prior_static_fingerprint="",
                     )
@@ -1910,6 +2104,48 @@ class SupervisedEngineer:
                         failure_cause="environmental",
                         backend_unavailable=True,
                         backend_stop_kind="backend_unavailable",
+                    )
+                direct_wiki_edits = _restore_reviewer_wiki_page_edits(
+                    workdir,
+                    wiki_pages_before_review,
+                )
+                if direct_wiki_edits:
+                    reviewer_direct_write_violations += 1
+                    paths = ", ".join(direct_wiki_edits[:8])
+                    violation = (
+                        "Reviewer directly modified protected wiki card files "
+                        f"({paths}). Those writes were atomically reverted. "
+                        "Return the intended changes only through structured "
+                        "`wiki_ops`; WikiRouter is the sole writer for wiki/pages."
+                    )
+                    if violation not in pending_secret_guard_notes:
+                        pending_secret_guard_notes.append(violation)
+                    if on_event:
+                        on_event({
+                            "type": "wiki.reviewer_direct_write_reverted",
+                            "round_index": round_index,
+                            "paths": direct_wiki_edits,
+                            "operator_alert": True,
+                            "text": violation,
+                        })
+                    if reviewer_direct_write_violations < 3:
+                        continue
+                    review = ReviewDecision(
+                        status="blocked",
+                        reason=violation,
+                        next_action=(
+                            "Retry this Reviewer turn and express the same judgment "
+                            "through schema-valid wiki_ops."
+                        ),
+                        round_summary_markdown=(
+                            "# Reviewer write-boundary violation\n\n"
+                            f"- Reverted: {paths}\n"
+                        ),
+                        completion_summary_markdown="",
+                        failure_cause="environmental",
+                        backend_unavailable=True,
+                        backend_stop_kind="transient_error",
+                        backend_fatal_error=violation,
                     )
                 reviewer_fatal_error = str(
                     getattr(review, "backend_fatal_error", "") or ""
@@ -2152,6 +2388,53 @@ class SupervisedEngineer:
                 semantic_stall_streak,
             )
             planner_report = getattr(review, "planner_report", None)
+            upstream_stage_target = _upstream_stage_reconciliation_target(
+                review,
+                workdir=workdir,
+            )
+            planner_report = getattr(review, "planner_report", None)
+            failure_signature = review_failure_signature(review)
+            failure_similarity = 0.0
+            if failure_signature is None:
+                repeated_failure_streak = 0
+                last_failure_signature = None
+            elif last_failure_signature is None:
+                repeated_failure_streak = 1
+                last_failure_signature = failure_signature
+            else:
+                failure_similarity = signature_similarity(
+                    last_failure_signature,
+                    failure_signature,
+                )
+                if failure_similarity >= float(
+                    supervised_config.repeated_failure_similarity
+                ):
+                    repeated_failure_streak += 1
+                else:
+                    repeated_failure_streak = 1
+                last_failure_signature = failure_signature
+            repeated_failure_replan = bool(
+                failure_signature is not None
+                and supervised_config.repeated_failure_threshold > 0
+                and repeated_failure_streak
+                >= supervised_config.repeated_failure_threshold
+            )
+            repeated_failure_reason = ""
+            if repeated_failure_replan and not upstream_stage_target:
+                repeated_failure_reason = (
+                    "The same reviewed failure signature repeated "
+                    f"{repeated_failure_streak} times (similarity "
+                    f"{failure_similarity:.2f}). Stop rerunning the unchanged "
+                    "mission; replan into the cheapest targeted diagnostic or "
+                    "scoped repair, then return to the decisive gate."
+                )
+                report = dict(planner_report or {})
+                report["plan_signal"] = "reconsider"
+                report["plan_signal_reason"] = repeated_failure_reason
+                report["forward_progress"] = False
+                report["recommended_next"] = repeated_failure_reason
+                review.planner_report = report
+                planner_report = report
             reconsidered = (
                 review.status == "continue"
                 and isinstance(planner_report, dict)
@@ -2201,11 +2484,62 @@ class SupervisedEngineer:
                 fatal_error=engineer_result.fatal_error,
             )
             rounds.append(record)
+            reviewer_next_action = (
+                review.next_action if review.status == "continue" else None
+            )
             if review_completed_hook is not None:
                 try:
                     review_completed_hook(record)
                 except Exception:  # noqa: BLE001 - memory capture never owns verdict
                     log.warning("review completion hook failed", exc_info=True)
+
+            if upstream_stage_target:
+                reconciliation_reason = str(
+                    planner_report.get("plan_signal_reason")
+                    if isinstance(planner_report, dict)
+                    else ""
+                ).strip()
+                if on_event:
+                    on_event({
+                        "type": EventType.LIFE_PLAN_SIGNAL,
+                        "mode": "active",
+                        "signal": "stage_reconciliation",
+                        "confirmed": True,
+                        "target_stage": upstream_stage_target,
+                        "reason": reconciliation_reason,
+                        "round_index": round_index,
+                    })
+                return (
+                    "replan_requested",
+                    rounds,
+                    last_engineer_message,
+                    reconciliation_reason,
+                    None,
+                )
+
+            if repeated_failure_replan:
+                if on_event:
+                    on_event({
+                        "type": "round.failure_signature.repeated",
+                        "round_index": round_index,
+                        "round_max": supervised_config.max_rounds,
+                        "signature": failure_signature.digest,
+                        "streak": repeated_failure_streak,
+                        "similarity": round(failure_similarity, 3),
+                        "failure_cause": failure_signature.failure_cause,
+                        "unsatisfied_items": list(
+                            failure_signature.unsatisfied_items
+                        ),
+                        "operator_alert": True,
+                        "text": repeated_failure_reason,
+                    })
+                return (
+                    "replan_requested",
+                    rounds,
+                    last_engineer_message,
+                    repeated_failure_reason,
+                    None,
+                )
 
             if plan_reconsider_confirmed:
                 return (
@@ -2326,6 +2660,7 @@ class SupervisedEngineer:
         workdir: Path,
         run_label: str,
         resume_thread_id: str | None = None,
+        reasoning_effort: str | None = None,
         supervised_config: SupervisedConfig | None = None,
         on_event: Callable[[dict], None] | None = None,
     ) -> tuple[RunnerResult, int]:
@@ -2355,7 +2690,11 @@ class SupervisedEngineer:
                 prompt=prompt,
                 options=RunnerOptions(
                     model=self.engineer_config.model,
-                    reasoning_effort=self.engineer_config.reasoning_effort,
+                    reasoning_effort=(
+                        reasoning_effort
+                        if reasoning_effort is not None
+                        else self.engineer_config.reasoning_effort
+                    ),
                     extra_args=self.engineer_config.extra_args,
                     full_auto=self.engineer_config.full_auto,
                     skip_git_repo_check=self.engineer_config.skip_git_repo_check,
@@ -2419,9 +2758,38 @@ class SupervisedEngineer:
         if review.status == "done":
             return "done", review.reason or "Reviewer judged the objective complete."
         if review.status == "blocked":
+            failure_layer = resolve_failure_layer(
+                failure_layer=getattr(review, "failure_layer", ""),
+                failure_cause=getattr(review, "failure_cause", ""),
+            )
+            if (
+                failure_layer in REPAIRABLE_FAILURE_LAYERS
+                and not review.operator_question
+            ):
+                return (
+                    "replan_requested",
+                    f"Repairable {failure_layer} failure; scientific state is "
+                    "unchanged. Replan to repair the failed layer, validate it, "
+                    "and resume the scientific experiment. "
+                    + (review.reason or ""),
+                )
+            claim_synthesis = claim_synthesis_for_review(review)
+            if failure_layer == "scientific" and claim_synthesis is not None:
+                return (
+                    "replan_requested",
+                    "Valid scientific result routed to "
+                    f"{claim_synthesis['route']} / {claim_synthesis['action']}; "
+                    "do not discard the data or hold the campaign. "
+                    + (review.reason or ""),
+                )
             if review.failure_cause == "environmental" and not review.operator_question:
                 return "infra_blocked", review.reason or "Research infrastructure blocked progress."
             return "blocked", review.reason or "Reviewer blocked progress."
+        if review.status == "replan_requested":
+            return (
+                "replan_requested",
+                review.reason or "Reviewer requested a Manager-owned replacement plan.",
+            )
         if review.status in {
             "research_incomplete",
             "paused_no_breakthrough",

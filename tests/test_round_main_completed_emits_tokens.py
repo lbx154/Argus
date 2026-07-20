@@ -5,7 +5,7 @@ must emit ``round.main.completed`` carrying the engineer call's
 ``ReviewDecision``.
 
 Both fields feed the LifeSupervisor's ``_CostTrackingSink`` which is
-what enforces ``iteration_budget_usd``. Pre-fix, the cost sink only
+what feeds the host-global USD ledger. Pre-fix, the cost sink only
 ever saw the reviewer half (zeroed) and engineers got billed at $0,
 silently breaking iteration budget enforcement.
 

@@ -11,6 +11,25 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+_HIGH_CONFIDENCE_INLINE_SECRET_PATTERN = (
+    re.compile(
+        r"(?i)\b((?:x[_-]?)?api[_-]?key|client[_-]?secret|private[_-]?key)\b"
+        r"(['\"]?)([^\S\r\n]*[=:])"
+        r"(?![^\S\r\n]*['\"]?<REDACTED:)"
+        r"[^\S\r\n]*['\"]?([^\s'\",;]{8,})['\"]?"
+    ),
+    r"\1\2\3 <REDACTED:secret>",
+)
+_AMBIGUOUS_INLINE_SECRET_PATTERN = (
+    re.compile(
+        r"(?i)\b(secret|token|password|passwd|auth)\b"
+        r"(['\"]?)([^\S\r\n]*[=:])"
+        r"(?![^\S\r\n]*['\"]?<REDACTED:)"
+        r"[^\S\r\n]*['\"]?([^\s'\",;]{8,})['\"]?"
+    ),
+    r"\1\2\3 <REDACTED:secret>",
+)
+
 _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
         re.compile(
@@ -34,19 +53,17 @@ _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._\-+/=]{16,}"),
         "<REDACTED:token>",
     ),
-    (
-        re.compile(
-            r"(?i)\b(api[_-]?key|secret|token|password|passwd|auth)\b"
-            r"(['\"]?)([^\S\r\n]*[=:])"
-            r"(?![^\S\r\n]*['\"]?<REDACTED:)"
-            r"[^\S\r\n]*['\"]?([^\s'\",;]{8,})['\"]?"
-        ),
-        r"\1\2\3 <REDACTED:secret>",
-    ),
+    _HIGH_CONFIDENCE_INLINE_SECRET_PATTERN,
+    _AMBIGUOUS_INLINE_SECRET_PATTERN,
     (
         re.compile(r"(?i)\b([a-z][a-z0-9+.\-]*://)[^/\s:@]+:[^/\s@]+@"),
         r"\1<REDACTED:creds>@",
     ),
+)
+_ARTIFACT_SECRET_PATTERNS = tuple(
+    item
+    for item in _SECRET_PATTERNS
+    if item is not _AMBIGUOUS_INLINE_SECRET_PATTERN
 )
 _SENSITIVE_ENV_NAME = re.compile(
     r"(?i)(?:^|_)(?:api_?key|token|secret|password|passwd)(?:_|$)"
@@ -58,20 +75,68 @@ _SENSITIVE_RECORD_KEYS = {
     "client_secret",
     "clientsecret",
     "authorization",
+    "auth_token",
+    "authtoken",
+    "bearer_token",
+    "bearertoken",
+    "client_token",
+    "clienttoken",
     "cookie",
+    "github_token",
+    "gitlab_token",
+    "hf_token",
+    "huggingface_token",
     "id_token",
     "idtoken",
+    "oauth_token",
+    "oauthtoken",
     "password",
     "passwd",
     "private_key",
     "privatekey",
+    "private_token",
+    "privatetoken",
     "proxy_authorization",
     "refresh_token",
     "refreshtoken",
     "secret",
+    "session_token",
+    "sessiontoken",
+    "slack_token",
     "set_cookie",
     "token",
+    "telegram_token",
     "access_token",
+    "x_api_key",
+}
+# Artifact scrubbing runs after an Engineer turn and therefore sees benchmark
+# rows, replay fixtures, and scientific result packets.  Those schemas often
+# use generic task-state names such as ``access_token`` or ``password`` for
+# synthetic values.  Treating the field name alone as proof of a credential
+# corrupts immutable evidence and invalidates its hashes.  Live event payloads
+# keep the stricter policy above; on-disk artifact scrubbing only trusts keys
+# that identify provider credentials or protocol headers with high confidence.
+_HIGH_CONFIDENCE_ARTIFACT_RECORD_KEYS = {
+    "api_key",
+    "apikey",
+    "authorization",
+    "bearer_token",
+    "bearertoken",
+    "client_secret",
+    "clientsecret",
+    "cookie",
+    "github_token",
+    "gitlab_token",
+    "hf_token",
+    "huggingface_token",
+    "private_key",
+    "private_token",
+    "privatekey",
+    "privatetoken",
+    "proxy_authorization",
+    "set_cookie",
+    "slack_token",
+    "telegram_token",
     "x_api_key",
 }
 _IGNORE_DIRS = {
@@ -93,6 +158,7 @@ _SOURCE_SUFFIXES = {
     ".c",
     ".cc",
     ".cpp",
+    ".cue",
     ".go",
     ".h",
     ".hpp",
@@ -107,6 +173,19 @@ _SOURCE_SUFFIXES = {
 }
 _MAX_ARTIFACT_BYTES = 32 * 1024 * 1024
 _MAX_SCANNED_FILES = 10_000
+# These trees contain immutable upstream bytes rather than artifacts authored
+# during an engineer round. Scanning them both wastes the bounded scan budget
+# and can corrupt structured upstream data whose schema legitimately uses
+# credential-like keys such as ``token``.
+_NON_ARTIFACT_TREE_PARTS = {
+    ("code", "references"),
+    ("experiments", "comparator_worker_env"),
+    ("third_party", "reference_sources"),
+    ("third_party", "runtime_deps"),
+}
+_KNOWN_SECRET_ONLY_TREE_PREFIXES = {
+    ("models", "huggingface"),
+}
 _TEXT_ARTIFACT_SUFFIXES = {
     "",
     ".csv",
@@ -142,6 +221,16 @@ class ArtifactChangedDuringScrubError(OSError):
     pass
 
 
+def _is_non_artifact_tree(parts: tuple[str, ...]) -> bool:
+    if parts in _NON_ARTIFACT_TREE_PARTS:
+        return True
+    return (
+        len(parts) >= 5
+        and parts[:2] == ("experiments", "runs")
+        and parts[-2:] == ("acquisition", "anchors")
+    )
+
+
 def known_secret_values(
     env: Mapping[str, str] | None = None,
 ) -> tuple[str, ...]:
@@ -154,6 +243,33 @@ def known_secret_values(
         and len(str(value)) >= 8
         and "\n" not in str(value)
     }
+    vault_candidates = [
+        Path(str(source.get("ARGUS_SKILL_CAPABILITY_VAULT") or "")).expanduser(),
+        Path.home() / ".argus-skill" / "capabilities" / "model_api.json",
+    ]
+    for path in vault_candidates:
+        if not str(path) or not path.is_file():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+
+        def collect(obj: Any, key: str = "") -> None:
+            if isinstance(obj, dict):
+                for name, value in obj.items():
+                    collect(value, str(name))
+            elif isinstance(obj, list):
+                for value in obj:
+                    collect(value, key)
+            elif (
+                isinstance(obj, str)
+                and len(obj) >= 8
+                and _SENSITIVE_ENV_NAME.search(key)
+            ):
+                values.add(obj)
+
+        collect(payload)
     return tuple(sorted(values, key=len, reverse=True))
 
 
@@ -162,11 +278,12 @@ def redact_secrets_text_with_count(
     *,
     known_values: Iterable[str] = (),
     include_patterns: bool = True,
+    redact_ambiguous_record_keys: bool = True,
 ) -> tuple[str, int]:
     if not isinstance(text, str) or not text:
         return text, 0
     stripped = text.strip()
-    if stripped.startswith(("{", "[")):
+    if include_patterns and stripped.startswith(("{", "[")):
         try:
             parsed = json.loads(text)
         except (json.JSONDecodeError, TypeError):
@@ -175,6 +292,7 @@ def redact_secrets_text_with_count(
             redacted_record = redact_secrets_record(
                 parsed,
                 known_values=known_values,
+                redact_ambiguous_record_keys=redact_ambiguous_record_keys,
             )
             if redacted_record != parsed:
                 rendered = json.dumps(
@@ -203,6 +321,7 @@ def redact_secrets_text_with_count(
                 redacted_record = redact_secrets_record(
                     record,
                     known_values=known_values,
+                    redact_ambiguous_record_keys=redact_ambiguous_record_keys,
                 )
                 if redacted_record != record:
                     changed_records += 1
@@ -228,7 +347,12 @@ def redact_secrets_text_with_count(
             out = out.replace(value, "<REDACTED:known-secret>")
             replacements += count
     if include_patterns:
-        for pattern, replacement in _SECRET_PATTERNS:
+        patterns = (
+            _SECRET_PATTERNS
+            if redact_ambiguous_record_keys
+            else _ARTIFACT_SECRET_PATTERNS
+        )
+        for pattern, replacement in patterns:
             out, count = pattern.subn(replacement, out)
             replacements += count
     return out, replacements if out != text else 0
@@ -238,10 +362,12 @@ def redact_secrets_text(
     text: str,
     *,
     known_values: Iterable[str] = (),
+    redact_ambiguous_record_keys: bool = True,
 ) -> str:
     return redact_secrets_text_with_count(
         text,
         known_values=known_values,
+        redact_ambiguous_record_keys=redact_ambiguous_record_keys,
     )[0]
 
 
@@ -249,38 +375,61 @@ def redact_secrets_record(
     obj: Any,
     *,
     known_values: Iterable[str] = (),
+    redact_ambiguous_record_keys: bool = True,
 ) -> Any:
     if isinstance(obj, str):
-        return redact_secrets_text(obj, known_values=known_values)
+        return redact_secrets_text(
+            obj,
+            known_values=known_values,
+            redact_ambiguous_record_keys=redact_ambiguous_record_keys,
+        )
     if isinstance(obj, list):
         return [
-            redact_secrets_record(value, known_values=known_values)
+            redact_secrets_record(
+                value,
+                known_values=known_values,
+                redact_ambiguous_record_keys=redact_ambiguous_record_keys,
+            )
             for value in obj
         ]
     if isinstance(obj, tuple):
         return tuple(
-            redact_secrets_record(value, known_values=known_values)
+            redact_secrets_record(
+                value,
+                known_values=known_values,
+                redact_ambiguous_record_keys=redact_ambiguous_record_keys,
+            )
             for value in obj
         )
     if isinstance(obj, set):
         return [
-            redact_secrets_record(value, known_values=known_values)
+            redact_secrets_record(
+                value,
+                known_values=known_values,
+                redact_ambiguous_record_keys=redact_ambiguous_record_keys,
+            )
             for value in obj
         ]
     if isinstance(obj, dict):
         redacted: dict[Any, Any] = {}
         for key, value in obj.items():
             normalized_key = re.sub(r"[^a-z0-9]+", "_", str(key).casefold()).strip("_")
-            sensitive_key = (
+            strict_sensitive_key = (
                 normalized_key in _SENSITIVE_RECORD_KEYS
-                or normalized_key.endswith((
-                    "apikey",
-                    "api_key",
-                    "password",
-                    "passwd",
-                    "secret",
-                    "token",
-                ))
+                or normalized_key.endswith(
+                    ("apikey", "api_key", "password", "passwd", "secret")
+                )
+            )
+            artifact_sensitive_key = (
+                normalized_key in _HIGH_CONFIDENCE_ARTIFACT_RECORD_KEYS
+                or normalized_key.endswith(
+                    ("apikey", "api_key", "client_secret", "private_key")
+                )
+            )
+            sensitive_key = (
+                strict_sensitive_key
+                if redact_ambiguous_record_keys
+                else artifact_sensitive_key
             )
             if sensitive_key and isinstance(value, str):
                 redacted[key] = (
@@ -290,6 +439,7 @@ def redact_secrets_record(
                 redacted[key] = redact_secrets_record(
                     value,
                     known_values=known_values,
+                    redact_ambiguous_record_keys=redact_ambiguous_record_keys,
                 )
         return redacted
     return obj
@@ -340,6 +490,13 @@ def scrub_recent_text_artifacts(
     walker = os.walk(root, topdown=True, onerror=_walk_error)
     for dirpath, dirnames, filenames in walker:
         dirnames[:] = [name for name in dirnames if name not in _IGNORE_DIRS]
+        try:
+            rel_dir_parts = Path(dirpath).relative_to(root).parts
+        except ValueError:
+            rel_dir_parts = ()
+        if _is_non_artifact_tree(rel_dir_parts):
+            dirnames[:] = []
+            continue
         for filename in filenames:
             if scanned_files >= _MAX_SCANNED_FILES:
                 truncated = True
@@ -379,11 +536,19 @@ def scrub_recent_text_artifacts(
                 errors.append(f"{relative}: {type(exc).__name__}")
                 continue
             scanned_files += 1
-            include_patterns = path.suffix.casefold() not in _SOURCE_SUFFIXES
+            known_secret_only = any(
+                rel_dir_parts[: len(prefix)] == prefix
+                for prefix in _KNOWN_SECRET_ONLY_TREE_PREFIXES
+            )
+            include_patterns = (
+                not known_secret_only
+                and path.suffix.casefold() not in _SOURCE_SUFFIXES
+            )
             redacted, count = redact_secrets_text_with_count(
                 text,
                 known_values=known_values,
                 include_patterns=include_patterns,
+                redact_ambiguous_record_keys=False,
             )
             if not count or redacted == text:
                 continue
@@ -409,9 +574,3 @@ def scrub_recent_text_artifacts(
         errors=tuple(errors),
         truncated=truncated,
     )
-    "id_token",
-    "idtoken",
-    "private_key",
-    "privatekey",
-    "refresh_token",
-    "refreshtoken",

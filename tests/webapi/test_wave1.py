@@ -31,7 +31,7 @@ def _make_project(root: Path, sid: str = "s-w1000001") -> Path:
     (life / "backlog.jsonl").write_text(
         json.dumps({"id": "item1", "title": "tune kernel", "objective": "tune the kernel",
                     "status": "pending", "priority": 100, "iterate": True,
-                    "max_cost_usd": 30.0, "ts": time.time()}) + "\n",
+                    "ts": time.time()}) + "\n",
         encoding="utf-8",
     )
     (life / "journal.jsonl").write_text(
@@ -53,15 +53,36 @@ def ctx(tmp_path: Path):
     return tmp_path, "s-w1000001", life, TestClient(server.create_app(global_root=tmp_path))
 
 
-def test_create_daemon_persists_launch_cwd(tmp_path: Path) -> None:
+def test_create_daemon_separates_launch_cwd_from_execution_workdir(
+    tmp_path: Path,
+) -> None:
     launch = tmp_path / "workspace"
     launch.mkdir()
     created = server.create_daemon("", launch_cwd=str(launch), global_root=tmp_path)
     meta = read_session_meta(tmp_path, created["sid"])
     assert meta is not None
     assert meta.launch_cwd == str(launch.resolve())
-    assert meta.workdir == str(launch.resolve())
+    assert meta.workdir == str((tmp_path / "workspaces" / created["sid"]).resolve())
     assert meta.origin == "web"
+
+
+def test_create_daemon_honours_explicit_execution_workdir(tmp_path: Path) -> None:
+    launch = tmp_path / "launch"
+    workdir = tmp_path / "execution"
+    launch.mkdir()
+    workdir.mkdir()
+
+    created = server.create_daemon(
+        "",
+        launch_cwd=str(launch),
+        workdir=str(workdir),
+        global_root=tmp_path,
+    )
+
+    meta = read_session_meta(tmp_path, created["sid"])
+    assert meta is not None
+    assert meta.launch_cwd == str(launch.resolve())
+    assert meta.workdir == str(workdir.resolve())
 
 
 def test_launch_cwd_update_preserves_existing_session_name(tmp_path: Path) -> None:
@@ -173,6 +194,7 @@ def test_set_project_workdir_allows_live_idempotent_rebind(
     workspace.mkdir()
     created = server.create_daemon(
         launch_cwd=str(workspace),
+        workdir=str(workspace),
         global_root=tmp_path,
     )
     monkeypatch.setattr(
@@ -864,7 +886,7 @@ def test_backlog_dispose_done_and_skip(ctx) -> None:
     LifeMemory.open(life).backlog  # ensure store readable
     (life / "backlog.jsonl").open("a").write(
         json.dumps({"id": "item2", "title": "x", "objective": "x", "status": "pending",
-                    "priority": 100, "max_cost_usd": 30.0, "ts": time.time()}) + "\n"
+                    "priority": 100, "ts": time.time()}) + "\n"
     )
     r2 = client.post(f"/api/projects/{sid}/backlog/item2/dispose", json={"op": "skip"})
     assert r2.json()["item"]["status"] == "skipped"

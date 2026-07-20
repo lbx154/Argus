@@ -7,8 +7,17 @@ the Manager to derive an objective from the first substantive user prompt.
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
+from types import SimpleNamespace
 
-from argus_skill.daemon.life_worker import _apply_continuous_suppression
+from argus_skill.daemon.life_worker import (
+    _apply_continuous_suppression,
+    _rearm_operator_drain_for_resume,
+)
+from argus_skill.daemon.state import (
+    read_continuous_state,
+    write_continuous_config,
+)
 
 # ---- parser: the daemon-level opt-in flag exists, off by default -----------
 
@@ -116,3 +125,48 @@ def test_resume_continuous_entry_allowed_with_special_prompt(monkeypatch):
         lambda: (True, ""),
     )
     assert core._lifetime_entry_error(_args(resume_continuous=True)) == ""
+
+
+def test_resume_continuous_rearms_operator_drain_stop(tmp_path: Path) -> None:
+    write_continuous_config(
+        tmp_path,
+        enabled=True,
+        objective="continue the campaign",
+    )
+    write_continuous_config(
+        tmp_path,
+        enabled=False,
+        objective="continue the campaign",
+        done_reason="operator drain-stop",
+    )
+
+    state = _rearm_operator_drain_for_resume(
+        cfg=SimpleNamespace(continuous=False, resume_continuous=True),
+        runtime_root=tmp_path,
+        state=read_continuous_state(tmp_path),
+    )
+
+    assert state.enabled is True
+    assert state.objective == "continue the campaign"
+    assert state.done_reason == ""
+
+
+def test_resume_continuous_preserves_operator_authority_hold(
+    tmp_path: Path,
+) -> None:
+    write_continuous_config(
+        tmp_path,
+        enabled=False,
+        objective="continue the campaign",
+        done_reason="operator authority hold: new scope is not authorized",
+    )
+    before = read_continuous_state(tmp_path)
+
+    state = _rearm_operator_drain_for_resume(
+        cfg=SimpleNamespace(continuous=False, resume_continuous=True),
+        runtime_root=tmp_path,
+        state=before,
+    )
+
+    assert state == before
+    assert read_continuous_state(tmp_path) == before

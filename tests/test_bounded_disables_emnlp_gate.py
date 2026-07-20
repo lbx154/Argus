@@ -64,8 +64,6 @@ def test_worker_unresolved_unbounded_project_does_not_assume_emnlp(tmp_path: Pat
 
 def test_bounded_disables_full_paper_gate(tmp_path: Path):
     cfg = _build_runtime_supervisor_config(
-        per_mission_cap_usd=10.0,
-        daily_cap_usd=180.0,
         global_daily_cap_usd=0.0,
         once=False,
         max_missions=1,
@@ -84,8 +82,6 @@ def test_bounded_disables_full_paper_gate(tmp_path: Path):
 
 def test_unresolved_unbounded_project_does_not_assume_emnlp(tmp_path: Path):
     cfg = _build_runtime_supervisor_config(
-        per_mission_cap_usd=10.0,
-        daily_cap_usd=180.0,
         global_daily_cap_usd=0.0,
         once=False,
         max_missions=1,
@@ -109,8 +105,6 @@ def _config_for_vertical(tmp_path: Path, vertical: str, *, open_ended: bool = Tr
     root = tmp_path / "life"
     persist_vertical(root, vertical)  # the Manager's decision, persisted
     return _build_runtime_supervisor_config(
-        per_mission_cap_usd=10.0,
-        daily_cap_usd=180.0,
         global_daily_cap_usd=0.0,
         once=False,
         max_missions=1,

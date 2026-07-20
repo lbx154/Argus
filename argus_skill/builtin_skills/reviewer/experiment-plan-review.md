@@ -22,27 +22,31 @@ always apply; dimension 6 (RL config sanity) applies only to RL/preference
 post-training plans — omit `rl_config_sanity` from the output for non-RL plans.
 
 1. **Method competitiveness**
-   - Is the proposed method a plausible contribution, or is it too trivial (bag-of-words, logistic regression) for the target venue?
-   - Does it use available compute appropriately (e.g., if GPUs are available, is the method GPU-worthy)?
-   - Is there a clear mechanism that differentiates it from baselines?
+   - Is the proposed method, system, theorem, diagnostic, characterization,
+     evaluation, or data contribution non-trivial for the target venue?
+   - Does the plan use resources appropriate to the question rather than merely
+     maximizing available compute?
+   - Is the contribution or research insight clearly differentiated from prior work?
 
 2. **Baseline strength**
-   - Are there at least 3 non-trivial baselines?
-   - Is there at least one strong published baseline (not just no-op and random)?
+   - Does the plan include the strongest relevant published, standard, or system
+     comparison needed to interpret the claim?
    - Would a reviewer say "but did you compare against X?" for an obvious X?
-   - Are baselines given fair resource budgets (same model, same decoding, same budget)?
+   - Are comparisons given fair and documented resource/data/protocol budgets?
 
 3. **Evaluation fairness**
-   - Is the comparison apples-to-apples? Same model backbone, same prompts, same budget?
+   - Is the comparison apples-to-apples on the factors the claim holds fixed?
    - Are ablations designed to isolate the proposed mechanism (not compare trained vs untrained)?
    - Are metrics appropriate for the task?
    - Is there a plan for statistical significance testing?
 
 4. **Benchmark adequacy**
-   - Are there at least 3 independent benchmark sources (not variants of one dataset)?
-   - Are benchmarks real/published (not locally invented synthetic tasks for final evidence)?
-   - Is the task count sufficient (≥200 per condition for meaningful statistics)?
-   - Do benchmarks cover different aspects of the method's claimed contribution?
+   - Does every final empirical claim include at least one appropriate public
+     benchmark, dataset, task suite, challenge, or official evaluation release?
+   - Are synthetic/generated diagnostics supplementary rather than the sole final evidence?
+   - Is the selected source/task/repeat/model scope justified by the claim and
+     uncertainty analysis rather than a fixed quota?
+   - Do the public evidence sources test the aspects needed by the stated claim?
 
 5. **Feasibility and scope**
    - Can the experiments be completed with available compute in reasonable time?
@@ -138,12 +142,13 @@ Return JSON:
 
 ## Hard blockers (auto-fail regardless of score)
 - No baselines defined at all
-- Only one benchmark source
 - Proposed method is a known standard technique with no novel mechanism
 - Ablation compares trained model vs untrained/random (not a fair ablation)
 - No evaluation metrics defined
-- Custom training loop when an established framework would work (see training-infrastructure-guide.md)
-- Custom model.generate() loop for >100 examples when vLLM/SGLang would work (see inference-infrastructure-guide.md)
+- Unjustified custom infrastructure that changes the comparison while claiming
+  to test only a model/method contribution. Custom infrastructure is allowed
+  when it is necessary for or part of the research contribution and is validated
+  against a trusted reference.
 
 ### RL post-training auto-fails (structurally unlearnable configs)
 For PPO/GRPO/RLVR/DPO/reasoning-RL plans, reject before any GPU spend if:
@@ -170,8 +175,8 @@ matching in-flight collapse signatures these configs produce.
 ## Infrastructure check
 If the plan involves training (SFT, RLHF, DPO, RL, pretraining, adapter tuning):
 - Does it name a specific framework (LLaMA-Factory, TRL, SLIME, OpenRLHF, etc.)?
-- If it plans a custom training loop, is there a justification for why no framework works?
-- Flag as issue if it plans to write training from scratch without justification.
+- If it plans a custom training loop, is that required by the research question,
+  and is it validated against a trusted implementation?
 - **RUN CONTRACT (single source of truth, anti-drift):** before approving GPU
   budget, require the plan freeze to emit a machine-readable
   `research/RUN_CONTRACT.json` (via `python -m argus_skill.skills.run_contract
@@ -183,6 +188,6 @@ If the plan involves training (SFT, RLHF, DPO, RL, pretraining, adapter tuning):
   curriculum. Flag as issue if a training plan has no frozen RUN_CONTRACT.
 
 If the plan involves inference on >100 examples:
-- Does it plan to use vLLM, SGLang, TGI, or an API with batching?
-- If it plans bare `model.generate()` in a for-loop, flag as issue.
-- Flag as issue if no inference engine is mentioned for large-scale evaluation.
+- Does it name an execution path appropriate to its latency/throughput/correctness
+  objective? Batch engines are preferred for throughput studies, while custom or
+  per-example paths are valid when required by the research design.

@@ -68,11 +68,18 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="research.literature",
             statement=(
-                "Literature grounding lists at least 10 recent high-quality papers "
-                "and at least 3 classic anchor papers, with verifiable venue/URL "
-                "and a paper-relevant summary for each."
+                "The canonical literature ledger covers the claims the project "
+                "actually depends on: the nearest competing methods, the relevant "
+                "lineage/classic anchors, contradictory or negative evidence, and "
+                "the unresolved frontier. Each retained source has a verifiable "
+                "primary URL and a project-relevant implication. Judge connected "
+                "claim coverage, not a fixed paper or query count."
             ),
-            evidence_hint="research/LITERATURE_GROUNDING.json, research/LIT_MATRIX.tsv",
+            evidence_hint=(
+                "research/LITERATURE_GROUNDING.json (canonical); "
+                "research/LIT_MATRIX.tsv is generated with "
+                "`python -m argus_skill.verticals.research.literature_ledger sync`"
+            ),
         ),
         ChecklistItem(
             id="research.brief",
@@ -101,29 +108,22 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="research.signal_derisk",
             statement=(
-                "Before leaving the research stage, the locked idea passed a REAL "
-                "judgemental minimal experiment (<=10 min, <=$1 cheap screen) on a "
-                "model/data this box can actually run: research/SIGNAL_DERISK.json "
-                "records verdict=pass where proposed_metric BEATS a REPRODUCED, "
-                "competitive baseline_metric by at least min_meaningful_delta in the "
-                "success_direction (the method provably wins on a cheap slice or its "
-                "faithful proxy — not merely that a phenomenon moves), within budget "
-                "(cost_usd<=1.0, duration_s<=600), and research/SIGNAL_DERISK_LOG.txt "
-                "carries the verbatim commands + raw outputs of that run. Numbers "
-                "are COMPUTED from the run, never estimated. A dead result "
-                "(proposed does not beat the reproduced baseline by the margin, wrong "
-                "direction, a straw-man baseline, or the model cannot even exhibit "
-                "the behaviour the idea needs) means PIVOT the "
-                "idea and re-run the de-risk — it is NOT allowed to enter the plan "
-                "stage. The reviewer may run `python -m "
-                "argus_skill.skills.signal_derisk validate` as a consistency "
-                "and provenance diagnostic; the reviewer, not that command's "
-                "exit code, decides whether the active checklist is satisfied."
+                "Before leaving research, the locked idea survives the cheapest REAL "
+                "falsification probe that tests its binding premise on this machine. "
+                "The Planner authors the evidence contract for the research shape: a "
+                "comparative method may use measured baseline/proposed deltas; a "
+                "systems or architecture idea may test fidelity plus the claimed "
+                "resource/stability signal; theoretical or survey work uses its own "
+                "decisive counterexample/coverage test. Prefer <=10 minutes / <=$1 "
+                "when faithful, but do not substitute a toy proxy merely to meet that "
+                "budget. Preserve commands and raw outputs. A failed necessary premise "
+                "forces pivot; a passed wiring-only smoke does not prove the thesis. "
+                "`argus_skill.skills.signal_derisk validate` is available only for "
+                "the default scalar-comparison shape and never decides quality."
             ),
             evidence_hint=(
-                "research/SIGNAL_DERISK.json (verdict=pass, non-degenerate delta in "
-                "success_direction, in budget) + research/SIGNAL_DERISK_LOG.txt "
-                "(real commands + raw outputs)"
+                "Planner-authored research.signal_derisk evidence paths; for the "
+                "default scalar shape use research/SIGNAL_DERISK.json + raw log"
             ),
         ),
         ChecklistItem(
@@ -133,44 +133,6 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "shallow-cloned locally with origin URL and commit recorded."
             ),
             evidence_hint="code/references/<repo>/.git/config + a notes file",
-        ),
-        ChecklistItem(
-            id="research.infra_shortlist",
-            statement=(
-                "If the project will involve gradient-based training or "
-                "large-scale inference, an initial training-infra and "
-                "inference-infra shortlist is recorded. Each shortlisted "
-                "framework must be (a) actively maintained (last release or "
-                "default-branch commit in 2026 or later), (b) a real, "
-                "non-trivial open-source repository — not a snippet, gist, "
-                "or 'starter template'; framework selection is a *find*, "
-                "not a *write*, exercise, and (c) verified by actually "
-                "cloning the repo under `code/references/<repo>/` and "
-                "reading its `README` / `docs/` / example scripts so the "
-                "shortlist rationale reflects how the framework is meant "
-                "to be used. **Critically, the README must be scanned for "
-                "supersession / migration hints** — phrases like \"now "
-                "supported by X\", \"moved to X\", \"superseded by X\", "
-                "\"recommended\", \"upstreamed into X\", \"deprecated, use X\", "
-                "\"this repo is archived\", or a top-of-readme note pointing "
-                "at a successor project. If such a hint exists, the "
-                "shortlist row must (i) add the named successor as its "
-                "own candidate, (ii) compare the two in the rationale, "
-                "and (iii) usually pick the successor unless there is a "
-                "concrete reason to stay on the older repo (e.g. the "
-                "successor does not yet support the specific algorithm "
-                "this project needs). The shortlist must anchor against "
-                "the bundled `argus_builtin_skills/engineer/training-"
-                "infrastructure-guide.md`, add at least one candidate the "
-                "agent independently discovered, and note any guide entry "
-                "that turned out stale and must be excluded."
-            ),
-            evidence_hint=(
-                "research/INFRA_SHORTLIST.md (cites URL + last-commit-date + "
-                "paper if any + a 1-line note on whether the README points "
-                "at a successor) plus the actual cloned repos under "
-                "`code/references/`"
-            ),
         ),
     ),
     "plan": _checklist(
@@ -188,9 +150,12 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             id="plan.benchmark",
             statement=(
                 "The evaluation-source and comparator plan matches the empirical "
-                "domain. Computational benchmark projects name at least 3 "
-                "independent real benchmark families (not 3 splits of the same "
-                "dataset), with URL, license, task count, and capability tested. "
+                "domain. Every final empirical claim includes at least one "
+                "appropriate public benchmark, dataset, task suite, challenge, or "
+                "official evaluation release with URL, version, license/access, "
+                "evaluation unit, metric, and claim tested. The number of public "
+                "sources, tasks, models, and repeats is justified by the claim scope "
+                "and uncertainty method rather than a universal quota. "
                 "Clinical or mechanism projects instead enumerate every real public "
                 "data source, comparator/control, and planned cohort, including "
                 "source URL (or the prospective registry plan), license/access "
@@ -213,21 +178,19 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             id="plan.infra_choice",
             statement=(
                 "If training or large-scale inference is required, a final "
-                "training-infra and inference-infra choice is locked in (one "
-                "framework per axis, picked from research.infra_shortlist) with "
-                "an explicit rationale tying each choice to the project's domain "
-                "(e.g. diffusion RL post-training vs LLM SFT vs agent RL) and to "
-                "the resource budget. The chosen frameworks must be 2026+-active, "
-                "open-source, **actually cloned and readme-studied**, and "
-                "explicitly NOT a self-written stub or starter template. Cite "
-                "the chosen project's repo URL, last release/commit date, and "
-                "(if from a paper) the paper. Record both the final choice and "
-                "any explicitly-rejected alternative with a one-line reason."
+                "training-infra and inference-infra choice is locked in after the "
+                "idea survives research de-risk. Compare only credible candidates "
+                "that materially differ for this workload; reuse previously "
+                "certified framework evidence when current. Clone and inspect the "
+                "chosen framework and any code-critical comparator, not an arbitrary "
+                "quota. The choice must be maintained, open-source, non-trivial, and "
+                "compatible with the method and resource budget; record the decisive "
+                "tradeoff and one rejected alternative. Do not write a custom "
+                "trainer/inference stub when a suitable maintained framework exists."
             ),
             evidence_hint=(
-                "research/INFRA_CHOICE.md + research/EXPERIMENT_PLAN.md "
-                "`## Infra` section + the actually-cloned framework repo under "
-                "`code/references/<chosen-framework>/`"
+                "research/INFRA_CHOICE.md (short comparison + final choice) + "
+                "research/EXPERIMENT_PLAN.md `## Infra` + chosen repo evidence"
             ),
         ),
         ChecklistItem(
@@ -295,44 +258,45 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="benchmark.environment_preflight",
             statement=(
-                "Before the first real scoring call, the engineer ran the "
+                "Before the first real evidence-producing call, the engineer ran the "
                 "Environment Readiness Gate (`argus_builtin_skills/engineer/"
                 "environment-readiness-gate.md`) and captured the verbatim "
                 "output to `experiments/runs/<run_id>/preflight.txt`. The "
-                "preflight must show: project `.venv` active (NOT the Argus "
-                "framework venv), `CUDA_VISIBLE_DEVICES` matches the vault, "
-                "every chosen-framework `import` succeeds, `torch.cuda.is_"
-                "available()` is True, HF/Torch cache env vars point under "
-                "`<project>/models/`, the base model weights are on disk, "
-                "and any reward/scoring API route returns a non-empty test "
-                "response. No preflight evidence ⇒ this item fails ⇒ no "
-                "downstream benchmark item can be ticked."
+                "preflight verifies only resources the experiment actually uses: "
+                "the declared project environment, required framework/compiler "
+                "imports, public data access, evaluator availability, storage, and "
+                "the selected compute backend. CUDA, HF caches, model weights, or API "
+                "routes are required only when the run uses them. No applicable "
+                "preflight evidence means downstream benchmark items remain open."
             ),
             evidence_hint="experiments/runs/<run_id>/preflight.txt",
         ),
         ChecklistItem(
             id="benchmark.tasks",
             statement=(
-                "Each selected benchmark family has runnable task files prepared "
-                "with their official gold answers (not hand-written placeholders) "
-                "and a deterministic loader."
+                "Each selected public evidence source has a reproducible loader or "
+                "retrieval path and its official labels, outcomes, evaluator, or "
+                "analysis semantics. Locally generated diagnostics are clearly "
+                "separated and never presented as the public benchmark."
             ),
-            evidence_hint="benchmarks/<family>/tasks.jsonl + loader",
+            evidence_hint="public benchmark/data manifest + loader/evaluator",
         ),
         ChecklistItem(
             id="benchmark.provenance",
             statement=(
-                "Benchmark provenance lists ≥3 independent real benchmark families "
-                "with version/date, license, split, task count, evaluation harness, "
-                "and an execution-readiness status."
+                "Benchmark provenance lists every selected public source with "
+                "version/date, license/access, split or cohort, evaluation unit, "
+                "metric/evaluator, filtering, claim tested, and execution-readiness. "
+                "Coverage breadth is justified by the claim; no fixed source count "
+                "or task count is imposed."
             ),
             evidence_hint="experiments/BENCHMARK_PROVENANCE.md and .json",
         ),
         ChecklistItem(
             id="benchmark.smoke",
             statement=(
-                "A small smoke run produced at least one real scored row per "
-                "benchmark family so the eval harness is known to work end-to-end."
+                "A faithful smoke run produced real evidence through each distinct "
+                "evaluation path that the main experiment depends on."
             ),
             evidence_hint="experiments/**/smoke/*.jsonl",
         ),
@@ -361,35 +325,27 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="run.environment_preflight",
             statement=(
-                "Every pilot / full / ablation launch is preceded by a fresh "
-                "Environment Readiness Gate run (`argus_builtin_skills/"
-                "engineer/environment-readiness-gate.md`). The verbatim "
-                "preflight output is captured to `experiments/runs/<run_id>/"
-                "preflight.txt` for THAT run_id — not reused from an earlier "
-                "run. Required signals: project `.venv` active, "
-                "`CUDA_VISIBLE_DEVICES` matches the vault, framework imports "
-                "succeed, `torch.cuda.is_available()` True, HF/Torch caches "
-                "rooted under `<project>/models/`, base model weights present, "
-                "API routes test-called. A run launched without a fresh "
-                "preflight is treated as wasted budget and rolled back."
+                "Each pilot/full/ablation launch has a fresh, run-specific "
+                "Environment Readiness Gate transcript. Verify only resources that "
+                "run actually uses (environment, data/evaluator, storage, GPU/model/API "
+                "as applicable); an applicable failed or missing preflight means the "
+                "run is uncertified."
             ),
             evidence_hint="experiments/runs/<run_id>/preflight.txt (per run)",
         ),
         ChecklistItem(
             id="run.model_instruct_not_base",
             statement=(
-                "Every method/baseline that must follow prompts, format answers, "
-                "or do reasoning RL/eval runs on an INSTRUCTION-TUNED checkpoint "
-                "(`-Instruct`/`-Chat`/`-IT`), not the same-size base/pretrained "
-                "model — e.g. `Qwen3.5-9B-Instruct`, not `Qwen3.5-9B-base`. A base "
-                "checkpoint has no instruction-following prior, so near-chance or "
-                "format-collapsed outputs read as a dead method when the real "
-                "cause is the wrong model. The manifest's declared model id and "
-                "the preflight weights path must name the instruct variant. A base "
-                "model is acceptable only when the experiment is explicitly about "
-                "base-model behaviour and says so; otherwise fail this item."
+                "Prompt-following/reasoning methods use an instruction/post-trained "
+                "checkpoint: the manifest model ID, model-card evidence, and actual "
+                "checkpoint/weights path loaded in preflight must agree. A base model "
+                "is allowed only for an explicitly base-model experiment. N/A for "
+                "non-LLM work or tasks requiring no instruction following."
             ),
-            evidence_hint="experiments/<run>/manifest.json model id ends in an instruct/chat variant",
+            evidence_hint=(
+                "manifest model ID + model-card evidence + preflight loaded "
+                "checkpoint/weights path"
+            ),
         ),
         ChecklistItem(
             id="run.manifests",
@@ -403,31 +359,30 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="run.matrix",
             statement=(
-                "Proposed method, the strongest feasible literature baseline, and "
-                "all planned ablations have completed on every selected benchmark "
-                "family — not just one slice."
+                "The proposed contribution, strongest relevant comparisons, and "
+                "claim-critical controls/ablations have completed on the selected "
+                "public evidence sources, or have explicit evidence-backed "
+                "exclusions."
             ),
             evidence_hint="experiments/**/scored.jsonl across all method × family cells",
         ),
         ChecklistItem(
             id="run.scale",
             statement=(
-                "Results are full-scale evidence, not pilot or synthetic — every "
-                "row labelled as final is from a real benchmark execution."
+                "Final empirical claims include executed public benchmark/data "
+                "evidence at a scale justified by the claim and uncertainty method. "
+                "Synthetic/generated diagnostics are labeled supplementary and are "
+                "not the sole final evidence."
             ),
             evidence_hint="experiments/**/manifest.json declares scale=full",
         ),
         ChecklistItem(
             id="run.score_variance",
             statement=(
-                "Scored rows reflect a real scoring distribution. The reviewer "
-                "must spot-check at least one `scored_rows.jsonl` per benchmark "
-                "family and confirm that the `score` column varies across rows. "
-                "A file with >3 rows whose scores are all identical (e.g. all "
-                "1.0 or all 0.0) is treated as stub evidence — fail this item "
-                "and require the engineer to wire in the real scorer (see "
-                "`benchmark.evaluator_authentic`) before declaring the run "
-                "stage done."
+                "Spot-check scored rows per evidence family. A file with >3 rows "
+                "and one identical score throughout is stub evidence unless the "
+                "official task genuinely permits that outcome; require the authentic "
+                "scorer before completing run."
             ),
             evidence_hint=(
                 "`jq -r .score experiments/runs/<id>/results/<family>/scored_rows.jsonl"
@@ -437,26 +392,12 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="run.method_diagnosis_recall",
             statement=(
-                "Before declaring any method DEAD on an underperformance / no-go "
-                "result, attribute the cause from the EXECUTED run's own manifest "
-                "+ diagnostics, NOT from the fact that it matched the plan (a plan "
-                "can itself be underpowered). Identify the method family from the "
-                "plan/manifest; if a method-specific failure-mode skill exists for "
-                "it (a matched or known `*-diagnosis` / `*-collapse` playbook — "
-                "e.g. for RL/preference post-training, "
-                "`rl-training-collapse-diagnosis`), CONSULT it before configuring "
-                "the run AND before judging the result, and apply ITS signatures "
-                "and thresholds — do not re-derive them here. Classify the "
-                "outcome as exactly one of `misconfigured_run` (re-run with the "
-                "correction the skill names; do NOT record the idea as dead), "
-                "`method_failure` (one fair, well-configured run STILL lost — the "
-                "method may be retired), or `infeasible_under_budget` (a fair "
-                "regime is unreachable within compute/budget; not an experimental "
-                "refutation of the idea). Do not demand endless reruns: once one "
-                "fair run exists, or the regime is infeasible, let the verdict "
-                "stand, and never authorize another rerun without a named, "
-                "artifact-backed diagnosis (generic 'more scale' is not one). "
-                "N/A when no method-specific diagnosis skill applies."
+                "Before killing an underperforming method, use its executed manifest/"
+                "diagnostics and any applicable `*-diagnosis` skill. Classify exactly "
+                "as `misconfigured_run`, `method_failure`, or "
+                "`infeasible_under_budget`; rerun only for a named artifact-backed "
+                "correction, not generic more scale. N/A when no method-specific "
+                "diagnosis applies."
             ),
             evidence_hint=(
                 "experiments/<run>/manifest.json executed knobs + progress.jsonl "
@@ -468,36 +409,13 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="run.learning_validity",
             statement=(
-                "The MIRROR of method_diagnosis_recall, guarding the opposite "
-                "error: before citing a high / rising / flat / stable reward (or "
-                "any metric trend) as evidence that a run is healthy / "
-                "learning / successful, JUSTIFY that inference — do not treat a "
-                "good-looking reward as success by default. The reviewer must "
-                "rule out the invalid explanations for the signal using the "
-                "matched `*-diagnosis` / `*-collapse` skill (for RL/preference "
-                "post-training, `rl-training-collapse-diagnosis`) and the "
-                "harness's advisory run-health signals: memorisation of a tiny "
-                "admitted / curriculum-repeated set (check the DISTINCT-TASK "
-                "count, not just the reward level), reward-ceiling saturation, "
-                "zero-advantage / zero-variance collapse, a buffer-diluted "
-                "variance metric that only LOOKS healthy "
-                "(`variance_metric_masks_saturation`), evaluator leakage, and "
-                "reward hacking. Treat advisory tokens such as "
-                "`low_task_diversity`, `reward_ceiling_saturation`, "
-                "`variance_metric_masks_saturation`, `zero_advantage` as facts "
-                "to ADDRESS with evidence, NOT as automatic verdicts. You MAY "
-                "mark this satisfied for a legitimately easy / converged run or "
-                "an intentionally tiny / smoke / memorisation-bounded run, but "
-                "ONLY with evidence that NARROWS the claim accordingly — e.g. "
-                "held-out / generalisation evidence, distinct-task coverage "
-                "sufficient for the stated claim, non-saturated "
-                "advantage/variance, or an explicit statement that the result "
-                "shows only 'solves this fixed small set', not general learning. "
-                "An unqualified 'healthy / converged' verdict on a saturated, "
-                "memorised, or reward-hacked run is NOT satisfied. N/A when no "
-                "metric trend is being used as evidence of learning/success "
-                "(e.g. a pure infra/wiring probe), or no method-specific "
-                "diagnosis skill applies."
+                "Before treating a metric trend as learning, use the applicable "
+                "diagnosis skill and evidence to rule out memorisation (including "
+                "distinct-task coverage), saturation, zero variance/advantage, "
+                "leakage, and reward hacking. Address `low_task_diversity` and "
+                "`variance_metric_masks_saturation` as evidence signals, not automatic "
+                "verdicts; narrow claims for intentional smoke/easy runs. N/A for "
+                "pure wiring probes or when no learning claim/diagnosis applies."
             ),
             evidence_hint=(
                 "experiments/<run>/progress.jsonl reward/advantage/variance "
@@ -509,22 +427,11 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="run.gpu_saturation",
             statement=(
-                "GPU-bound training / inference runs must actually saturate the "
-                "allocated cards per the Hardware saturation contract in "
-                "`argus_builtin_skills/engineer/training-infrastructure-guide.md`. "
-                "Two things are required: (1) the run RECORDS real hardware "
-                "telemetry — peak VRAM per GPU, observed GPU util%, and throughput "
-                "(step time or samples/sec) — in its manifest/status/progress, not "
-                "left null or absent; and (2) those numbers show MEANINGFUL "
-                "saturation on every allocated card — aim for ≳70% VRAM in steady "
-                "state. A run that leaves allocated A100/H100-class cards "
-                "persistently idle or at ≲55% VRAM (e.g. a `gpu_memory_utilization` "
-                "/ batch / `num_generations` / sequence-length default left low) is "
-                "wasted budget: fail this item and require the engineer to raise the "
-                "saturation knobs and rerun, rather than band-aiding the generated "
-                "run scripts. N/A only for API-route / no-GPU experiments, or a run "
-                "explicitly bounded as a smoke/ablation that records the deliberate "
-                "reason for going small."
+                "GPU runs record per-card peak VRAM, utilization, and throughput and "
+                "use allocated hardware meaningfully under the training-infrastructure "
+                "saturation contract. Persistently idle/low-use cards require a named "
+                "bounded reason or reconfiguration. N/A for no-GPU/API work and "
+                "explicit small smoke/ablations."
             ),
             evidence_hint=(
                 "experiments/<run>/{manifest,status}.json or progress.jsonl record "
@@ -537,17 +444,11 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="run.plan_execution_contract_match",
             statement=(
-                "Every full-scale (`scale=full`) training run faithfully "
-                "EXECUTES the frozen research/RUN_CONTRACT.json: the run "
-                "manifest cites the contract_hash, and the launched learning "
-                "rate, group size / num_generations, total steps, batch size, "
-                "model id, and curriculum hash match the contract — no drift. "
-                "The subagent pre-launch interlock refuses a drifting or "
-                "contract-less full-scale RL launch, so a run that reached GPU "
-                "without a matching contract is wasted budget. Re-verify with "
-                "`python -m argus_skill.skills.run_contract check-launch ...`. "
-                "This is a provenance/anti-drift check, not a science verdict. "
-                "N/A for non-training projects or explicitly-bounded pilots."
+                "Every `scale=full` training launch cites the frozen RUN_CONTRACT "
+                "hash and matches its model, curriculum, and launch knobs; "
+                "`check-launch` must pass before GPU work. This is anti-drift "
+                "provenance, not a science verdict. N/A for non-training work or "
+                "explicit bounded pilots."
             ),
             evidence_hint=(
                 "experiments/<run>/manifest.json contract_hash matches "
@@ -557,20 +458,11 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="run.curriculum_feasibility_packet",
             statement=(
-                "Before each full-scale run committed GPU, a FEASIBILITY "
-                "PACKET was produced on the EXACT curriculum the run consumes "
-                "(same content hash, post-decontamination, with the real "
-                "repetition factor): it shows the distinct-task count is large "
-                "vs the planned rollout volume (NOT a memorisation regime) AND "
-                "a short probe was non-saturating (advantage span > 0, reward "
-                "not pinned at the ceiling, within-group reward contrast "
-                "present) — OR the run is explicitly labelled smoke_only and is "
-                "NOT cited as general-learning evidence. This closes the gap "
-                "where a readiness screen validated a different slice than the "
-                "full run consumed, so the run saturated mid-flight at zero "
-                "advantage. Build/check with `python -m "
-                "argus_skill.skills.run_contract build-packet` then "
-                "`check-launch`. N/A for non-training projects."
+                "Before full training, a feasibility packet matches the exact "
+                "post-decontamination curriculum hash/repetition and shows adequate "
+                "distinct-task diversity plus a non-saturated real probe; otherwise "
+                "label the run `smoke_only` and never cite it as general learning. "
+                "Build/check through run_contract. N/A for non-training work."
             ),
             evidence_hint=(
                 "feasibility packet JSON whose curriculum_hash == the run's, "
@@ -639,11 +531,16 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="draft.figures",
             statement=(
-                "At least one core conceptual figure is generated via image-2 with "
-                "preserved prompt, sidecar, sha256, and inspect/review JSON; data "
-                "figures are generated from raw results, not hand-drawn."
+                "The paper's figures are clear, readable at final size, visually "
+                "coherent, and attractive enough for the venue. Use a good-enough "
+                "standard: minor stylistic imperfections are not blockers, and do "
+                "not request repeated regeneration unless a figure is unreadable, "
+                "factually wrong, visibly broken, or seriously harms the paper."
             ),
-            evidence_hint="paper/figures/*.png + .json sidecars + paper/figures/IMAGE2_FIGURES.json",
+            evidence_hint=(
+                "paper/main.pdf rendered pages and the actual figure files; optional "
+                "FIGURE_PROVENANCE.json may help locate the source renderer"
+            ),
         ),
     ),
     "review": _checklist(
@@ -760,6 +657,44 @@ def _normalize_stage(stage: str | None) -> str:
     return str(stage).strip().lower()
 
 
+def _active_vertical_stage_aliases(project_root) -> dict[str, str]:
+    import os
+
+    if project_root is None:
+        project_root = os.environ.get("ARGUS_SKILL_PROJECT_ROOT") or "."
+    try:
+        from ..verticals._base import load_vertical, vertical_stage_aliases
+        from .vertical_select import resolve_checklist_vertical
+
+        vertical = resolve_checklist_vertical(project_root)
+        if vertical is None:
+            return {}
+        return vertical_stage_aliases(load_vertical(vertical, project_root=project_root))
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def normalize_stage_for_project(
+    project_root: Path | str,
+    stage: str | None,
+    *,
+    require_known: bool = False,
+) -> str:
+    """Canonicalize a stage name using the active vertical's aliases."""
+    normalized = _normalize_stage(stage)
+    aliases = _active_vertical_stage_aliases(project_root)
+    seen: set[str] = set()
+    while normalized in aliases and normalized not in seen:
+        seen.add(normalized)
+        normalized = _normalize_stage(aliases[normalized])
+    if require_known:
+        order, _items = _active_vertical_checklist_defs(project_root)
+        known = {_normalize_stage(item) for item in order}
+        if normalized not in known:
+            return ""
+    return normalized
+
+
 def current_stage(project_root: Path | str = ".") -> str:
     """Read ``research/PIPELINE_STATE.json`` and return the current stage.
 
@@ -779,7 +714,10 @@ def current_stage(project_root: Path | str = ".") -> str:
         payload = None
     order, items = _active_vertical_checklist_defs(project_root)
     fallback = _normalize_stage(order[0]) if order else "research"
-    stage = _normalize_stage(payload.get("current_stage") if isinstance(payload, dict) else None)
+    stage = normalize_stage_for_project(
+        project_root,
+        payload.get("current_stage") if isinstance(payload, dict) else None,
+    )
     if stage in {_normalize_stage(s) for s in order}:
         return stage
     return fallback
@@ -827,7 +765,7 @@ def _set_stage(
     state_path = root / "research" / "PIPELINE_STATE.json"
     raw_order, items = _active_vertical_checklist_defs(project_root)
     order = [_normalize_stage(s) for s in raw_order]
-    target = _normalize_stage(target_stage)
+    target = normalize_stage_for_project(project_root, target_stage)
     # Stage EXISTENCE is governed by STAGE_ORDER, not CHECKLIST_ITEMS: a
     # Manager-authored data domain has a full stage `order` but an EMPTY items dict
     # (the Planner authors per-stage items into research/CHECKLISTS.json, which is
@@ -845,7 +783,10 @@ def _set_stage(
         payload = {}
 
     fallback_prev = order[0] if order else "research"
-    previous = _normalize_stage(payload.get("current_stage") or fallback_prev)
+    previous = normalize_stage_for_project(
+        project_root,
+        payload.get("current_stage") or fallback_prev,
+    )
     if previous not in order:
         previous = fallback_prev
 
@@ -861,6 +802,8 @@ def _set_stage(
             f"rollback target {target!r} must be strictly earlier than current "
             f"stage {previous!r}"
         )
+    # ``reset`` is reserved for a Manager-confirmed replacement objective. It
+    # may legally land on the same first stage to clear stale completion state.
 
     payload["current_stage"] = target
 
@@ -900,25 +843,48 @@ def _set_stage(
     # ``done`` in place (project reads as complete) and must NOT be reopened.
     if direction != "complete":
         target_record = stages.get(target)
-        if (
+        if direction == "reset":
+            if not isinstance(target_record, dict):
+                target_record = {}
+                stages[target] = target_record
+            target_record["status"] = "in_progress"
+        elif (
             isinstance(target_record, dict)
             and str(target_record.get("status") or "").lower() == "done"
         ):
             target_record["status"] = "in_progress"
 
-    now_iso = _dt.datetime.now(_dt.timezone.utc).isoformat()
+    # Canonical RFC3339 UTC.  ``datetime.isoformat()`` emits ``+00:00``;
+    # execution packets and cross-language verifiers commonly require the
+    # equivalent but canonical trailing ``Z`` representation.  Existing
+    # history remains valid and untouched; every new Manager transition uses Z.
+    now_iso = (
+        _dt.datetime.now(_dt.timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
     history = payload.get("stage_history")
     if not isinstance(history, list):
         history = []
         payload["stage_history"] = history
-    history.append({
+    history_entry = {
         "at": now_iso,
         "from_stage": previous,
         "to_stage": target,
         "direction": direction,
         "reason": reason,
         "by": by,
-    })
+    }
+    ground_truth_path = root / "research" / "GROUND_TRUTH.md"
+    if direction == "advance" and ground_truth_path.is_file():
+        import hashlib as _hashlib
+
+        history_entry["ground_truth_snapshot"] = {
+            "sha256": _hashlib.sha256(ground_truth_path.read_bytes()).hexdigest(),
+            "observed_pipeline_stage": previous,
+            "pipeline_revision": len(history),
+        }
+    history.append(history_entry)
 
     if legacy_rollback_history:
         rb_history = payload.get("rollback_history")
@@ -970,7 +936,7 @@ def advance_stage(
     """
     raw_order, _items = _active_vertical_checklist_defs(project_root)
     order = [_normalize_stage(s) for s in raw_order]
-    target = _normalize_stage(target_stage)
+    target = normalize_stage_for_project(project_root, target_stage)
     if target not in order:
         raise ValueError(f"unknown stage {target_stage!r}")
     cur_norm = _normalize_stage(current_stage(project_root))
@@ -1034,6 +1000,30 @@ def rollback_stage(
         reason=reason,
         by=rolled_back_by,
         direction="rollback",
+        downgrade_downstream=True,
+        legacy_rollback_history=True,
+    )
+
+
+def reset_stage_for_replacement_intent(
+    project_root: Path | str,
+    *,
+    target_stage: str,
+    reason: str,
+    reset_by: str = "manager",
+) -> str:
+    """Restart a staged pipeline for a Manager-confirmed replacement objective.
+
+    Unlike an evidence rollback, this may target the current stage itself. The
+    superseded objective's downstream statuses are downgraded and the target is
+    made actionable immediately.
+    """
+    return _set_stage(
+        project_root,
+        target_stage=target_stage,
+        reason=reason,
+        by=reset_by,
+        direction="reset",
         downgrade_downstream=True,
         legacy_rollback_history=True,
     )
@@ -1152,9 +1142,8 @@ def _resolve_checklist_venue(project_root) -> VenueProfile:
     """Resolve the venue profile for checklist rendering.
 
     ``project_root`` may be None (resolved from env/cwd, matching how the
-    overlay locates the project). A missing target venue keeps the historical
-    EMNLP default; an unknown non-empty venue propagates ``KeyError`` so it
-    cannot be silently certified against the wrong rules.
+    overlay locates the project). Missing or unknown venue selection propagates
+    ``KeyError`` so it cannot be silently certified against unrelated rules.
     """
     import os
 
@@ -1187,10 +1176,11 @@ def _unresolved_venue_checklist(
         f"{header}\n\n"
         "### venue resolution\n"
         f"- [ ] `venue.profile` — {error}. `target_venue` must name a real "
-        "publication venue, not planning commentary. Choose a built-in venue or "
-        "research a non-built-in venue and write `research/VENUE_PROFILE.json` "
-        "from official instructions. Never grade against the EMNLP default while "
-        f"this is unresolved. {instruction}"
+        "publication venue, not planning commentary. If no venue was specified, "
+        "live-search domain-appropriate CCF-A conferences whose deadline has not "
+        "passed, record the official CCF/CFP/deadline evidence in "
+        "`research/VENUE_SELECTION.md`, and write `research/VENUE_PROFILE.json` "
+        f"from the selected official author kit. {instruction}"
     )
 
 
@@ -1489,6 +1479,7 @@ def format_stage_checklist(
     *,
     role: str = "engineer",
     project_root=None,
+    scope: str = "",
 ) -> str:
     """Render the checklist for ``stage`` as prompt-injectable markdown.
 
@@ -1535,7 +1526,19 @@ def format_stage_checklist(
             "Do not mark the stage complete until required checklist items load."
         )
 
-    if role_norm == "reviewer":
+    scope_norm = (scope or "").strip().lower().replace("-", "_")
+    if role_norm == "reviewer" and scope_norm == "bounded":
+        framing = (
+            "You are the L2 reviewer for a bounded mission. Verify the mission's "
+            "explicit acceptance criteria and only the checklist items materially "
+            "touched by this mission. Unrelated open items belong to later bounded "
+            "missions: report them honestly, but do not use them to keep this "
+            "mission running. Reply `done` when this bounded objective is satisfied; "
+            "the Manager separately keeps the project stage on HOLD until every "
+            "stage item is certified. Do not run any `validate-*` shell command — "
+            "there isn't one. Read the relevant artifacts yourself."
+        )
+    elif role_norm == "reviewer":
         framing = (
             "You are the L2 reviewer. Verify each item by reading the cited "
             "evidence. Reply `continue` if any item is unmet; reply `done` only "
@@ -1610,6 +1613,32 @@ def _full_pipeline_title(project_root) -> str:
     return "## Full pipeline checklist (final submission gate)\n"
 
 
+def _full_pipeline_requires_venue(project_root) -> bool:
+    """Return whether the active vertical is a paper/venue pipeline.
+
+    Metric and software verticals must never be replaced by the unresolved-venue
+    checklist merely because they have no ``target_venue``.  Venue resolution is
+    meaningful only for ``completion_gate == "full_paper"``.
+    """
+    import os
+
+    if project_root is None:
+        project_root = os.environ.get("ARGUS_SKILL_PROJECT_ROOT") or "."
+    try:
+        from ..verticals._base import load_vertical, vertical_completion_gate
+        from .vertical_select import resolve_checklist_vertical
+
+        vertical = resolve_checklist_vertical(project_root)
+        if vertical is None:
+            return True
+        return (
+            vertical_completion_gate(load_vertical(vertical, project_root=project_root))
+            == "full_paper"
+        )
+    except Exception:  # noqa: BLE001 — preserve historical paper-safe fallback
+        return True
+
+
 def format_full_pipeline_checklist(
     *,
     role: str = "reviewer",
@@ -1646,14 +1675,16 @@ def format_full_pipeline_checklist(
         if not items:
             continue
         blocks.append(f"### {stage}\n{_render_items(items, annotations)}")
-    try:
-        body = _apply_venue_to_checklist_body(
-            "\n\n".join(blocks), _resolve_checklist_venue(project_root)
-        )
-    except KeyError as exc:
-        body = _unresolved_venue_checklist(
-            header,
-            role=role_norm,
-            error=exc,
-        )
+    body = "\n\n".join(blocks)
+    if _full_pipeline_requires_venue(project_root):
+        try:
+            body = _apply_venue_to_checklist_body(
+                body, _resolve_checklist_venue(project_root)
+            )
+        except KeyError as exc:
+            body = _unresolved_venue_checklist(
+                header,
+                role=role_norm,
+                error=exc,
+            )
     return _augment(body, role_norm, project_root, overlay_present=overlay_present)

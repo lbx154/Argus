@@ -23,12 +23,11 @@ portfolio's OWN return (no index excess), disclosing this in ``warnings``.
 """
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from ...backtest import BacktestResult, BacktestSpec
+from ...backtest import BacktestResult, BacktestSpec, config_fingerprint
 from . import data as _data
 
 #: Resolve a spec to a qlib ``(datetime, instrument)`` score Series.
@@ -70,12 +69,22 @@ class QlibCnEngine:
     name: str = "qlib-cn@v1"
 
     def _config_hash(self, spec: BacktestSpec) -> str:
-        h = hashlib.sha256()
-        for part in (self.name, self.provider_uri, str(self.topk), str(self.n_drop),
-                     str(self.open_cost), str(self.close_cost), str(self.min_cost),
-                     str(self.impact_cost), str(self.limit_threshold), *spec.factor_ids):
-            h.update(str(part).encode())
-        return h.hexdigest()[:16]
+        return config_fingerprint(
+            engine_name=self.name,
+            spec=spec,
+            engine_config={
+                "provider_uri": self.provider_uri,
+                "topk": self.topk,
+                "n_drop": self.n_drop,
+                "benchmark": self.benchmark,
+                "account": self.account,
+                "open_cost": self.open_cost,
+                "close_cost": self.close_cost,
+                "min_cost": self.min_cost,
+                "impact_cost": self.impact_cost,
+                "limit_threshold": self.limit_threshold,
+            },
+        )
 
     def _cost_metadata(self) -> dict[str, Any]:
         """Audit payload matching the predeclared base model in plan/COST_MODEL.json."""
@@ -193,7 +202,6 @@ class QlibCnEngine:
         if close is None or len(close) == 0:
             raise ValueError("qlib returned no close prices for forward alignment")
         inst_level = "instrument" if "instrument" in close.index.names else close.index.names[0]
-        date_level = "datetime" if "datetime" in close.index.names else close.index.names[1]
         close_wide = close["$close"].unstack(inst_level)
         close_wide.index = pd.to_datetime(close_wide.index)
         close_wide = close_wide.sort_index().reindex(columns=instruments)

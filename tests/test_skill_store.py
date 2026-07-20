@@ -67,6 +67,51 @@ def test_legacy_provisional_frontmatter_loads_as_active(tmp_path: Path) -> None:
     assert "provisional:" not in path.read_text(encoding="utf-8")
 
 
+def test_large_skill_uses_progressive_disclosure(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_INLINE_BODY_MAX_CHARS", "1200")
+    path = tmp_path / "skills" / "long.md"
+    path.parent.mkdir(parents=True)
+    content = (
+        "# Long Skill\n\n"
+        "Core instructions.\n\n"
+        "## Setup\n\n"
+        + ("setup detail " * 300)
+        + "\n\n## Verification\n\n"
+        + ("verification detail " * 300)
+    )
+    path.write_text(
+        "---\nname: Long\ndescription: long skill\ncategory: test\n---\n\n"
+        + content,
+        encoding="utf-8",
+    )
+    store = SkillStore(path.parent)
+    skill = store.load(str(path))
+
+    rendered = store.render_skill(skill)
+
+    assert "Progressive skill disclosure" in rendered
+    assert str(path) in rendered
+    assert "## Setup" in rendered
+    assert "## Verification" in rendered
+    assert len(rendered) < len(content)
+    assert store.render_skill(skill, full=True) == content.strip()
+
+
+def test_small_skill_still_renders_in_full(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_INLINE_BODY_MAX_CHARS", "1200")
+    skill = Skill(
+        name="Small",
+        description="small",
+        category="test",
+        content="# Small\n\nComplete instructions.",
+        path=str(tmp_path / "small.md"),
+    )
+    assert SkillStore(tmp_path).render_skill(skill) == skill.content
+
+
 def test_find_relevant_returns_high_fit_skill(tmp_path: Path) -> None:
     skills_dir = tmp_path / "skills"
     _write_skill(skills_dir, "set-up-nginx", "configure nginx", "nginx")
@@ -184,7 +229,7 @@ def test_find_relevant_fatal_without_keyword_match_returns_none(
     assert store.last_match_output_tokens == 0
 
 
-def test_find_relevant_cache_hit_resets_previous_token_counts(tmp_path: Path) -> None:
+def test_find_relevant_caches_until_skill_library_changes(tmp_path: Path) -> None:
     skills_dir = tmp_path / "skills"
     _write_skill(skills_dir, "set-up-nginx", "configure nginx static site", "nginx")
 
@@ -198,6 +243,17 @@ def test_find_relevant_cache_hit_resets_previous_token_counts(tmp_path: Path) ->
             input_tokens=101,
             cached_input_tokens=11,
             output_tokens=7,
+        ),
+    )
+    backend.queue(
+        "matcher",
+        CannedResponse(
+            message=json.dumps({
+                "matched": [{"name": "set-up-nginx", "fit": "high", "why": "exact"}],
+            }),
+            input_tokens=90,
+            cached_input_tokens=20,
+            output_tokens=5,
         ),
     )
     store = SkillStore(skills_dir, runner=backend, matcher_model="m")
@@ -215,3 +271,25 @@ def test_find_relevant_cache_hit_resets_previous_token_counts(tmp_path: Path) ->
     assert store.last_match_input_tokens == 0
     assert store.last_match_cached_input_tokens == 0
     assert store.last_match_output_tokens == 0
+    assert [label for label, _prompt, _options in backend.history] == ["matcher"]
+
+    # Self-evolution changes the summary fingerprint, so the same task rematches
+    # immediately and can see the newly-created skill instead of using stale cache.
+    _write_skill(
+        skills_dir,
+        "nginx-healthcheck",
+        "verify nginx health and static-site delivery",
+        "nginx healthcheck",
+    )
+    matched_after_update, tokens_after_update = store.find_relevant(
+        "install nginx and serve a static site"
+    )
+    assert matched_after_update is not None
+    assert tokens_after_update == 95
+    assert store.last_match_input_tokens == 90
+    assert store.last_match_cached_input_tokens == 20
+    assert store.last_match_output_tokens == 5
+    assert [label for label, _prompt, _options in backend.history] == [
+        "matcher",
+        "matcher",
+    ]

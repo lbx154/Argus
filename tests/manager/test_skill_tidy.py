@@ -151,13 +151,20 @@ def test_write_skill_to_vertical(isolated_source) -> None:
     assert dest.exists()
 
 
+def test_write_skill_to_research_vertical(isolated_source) -> None:
+    root, _builtin = isolated_source
+    dest = skill_tidy.write_skill_to_source(
+        _skill("figure repair"), "vertical", vertical="research", role="engineer"
+    )
+    assert dest == (
+        root / "verticals" / "research" / "skills" / "engineer" / "figure-repair.md"
+    )
+    assert dest.exists()
+
+
 def test_write_skill_invalid_vertical_returns_none(isolated_source) -> None:
     assert skill_tidy.write_skill_to_source(
         _skill("x"), "vertical", vertical="bogus"
-    ) is None
-    # research has no skill dir either
-    assert skill_tidy.write_skill_to_source(
-        _skill("x"), "vertical", vertical="research"
     ) is None
 
 

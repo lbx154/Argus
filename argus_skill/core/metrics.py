@@ -319,13 +319,6 @@ def metrics_snapshot(
     ]
     provider_overrun_calls = sum(value > 0.0 for value in provider_overruns)
     provider_overrun_usd = sum(provider_overruns)
-    provider_fences = {
-        enforcement: sum(
-            row.get("fields", {}).get("fence_enforcement") == enforcement
-            for row in provider
-        )
-        for enforcement in ("hard", "soft", "unsupported", "none")
-    }
 
     commands = _metric_rows(rows, "daemon.command")
     command_applied = sum(
@@ -397,7 +390,6 @@ def metrics_snapshot(
             "p95_duration_ms": provider_p95_ms,
             "overrun_calls": provider_overrun_calls,
             "overrun_usd": provider_overrun_usd,
-            "fences": provider_fences,
         },
         "daemon_commands": {
             "applied": command_applied,
@@ -439,11 +431,6 @@ def render_prometheus(snapshot: dict[str, Any]) -> str:
         f'argus_provider_budget_overrun_calls {provider["overrun_calls"]}',
         "# TYPE argus_provider_budget_overrun_usd gauge",
         f'argus_provider_budget_overrun_usd {provider["overrun_usd"]}',
-        "# TYPE argus_provider_fences_total gauge",
-        *[
-            f'argus_provider_fences_total{{enforcement="{enforcement}"}} {count}'
-            for enforcement, count in provider["fences"].items()
-        ],
         "# TYPE argus_daemon_commands_total gauge",
         f'argus_daemon_commands_total{{status="applied"}} {commands["applied"]}',
         f'argus_daemon_commands_total{{status="failed"}} {commands["failed"]}',

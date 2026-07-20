@@ -49,11 +49,26 @@ class _ReplanRunner:
         )
 
 
+class _StageReplanRunner(_ReplanRunner):
+    def execute(self, **_kwargs):
+        outcome = super().execute(**_kwargs)
+        outcome.stage_transition = {
+            "action": "rollback",
+            "target_stage": "benchmark",
+            "reason": "Reviewer found an upstream benchmark defect",
+        }
+        outcome.planner_report["stage_reconciliation_required"] = True
+        outcome.planner_report["earliest_broken_stage"] = "benchmark"
+        return outcome
+
+
 class _PlannerRunner:
     def __init__(self, response: str) -> None:
         self.response = response
+        self.last_prompt = ""
 
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+        self.last_prompt = prompt
         return RunnerResult(exit_code=0, agent_messages=[self.response])
 
 
@@ -155,6 +170,26 @@ def _supervisor(tmp_path, *, runner=None, planner_response: str | None = None):
     return supervisor, sink
 
 
+def _stage_reconciliation_waiting_verdict() -> str:
+    return json.dumps(
+        {
+            "project_done": False,
+            "reason": "current stage blocks prerequisite repair",
+            "restart_daemon": False,
+            "restart_reason": "",
+            "waiting": True,
+            "waiting_reason": "Manager must reconcile the stage",
+            "waiting_contract": {
+                "blocker_fingerprint": "stage-blocker",
+                "recheck_condition": "Manager resolves the stage",
+                "recheck_token": "stage-blocker-v1",
+                "stage_reconciliation_required": True,
+            },
+            "new_tasks": [],
+        }
+    )
+
+
 def _seed_plan(supervisor: LifeSupervisor):
     current = supervisor.memory.backlog.add(
         BacklogItem.new(
@@ -228,6 +263,227 @@ def test_replan_outcome_requeues_current_item_instead_of_failing(tmp_path) -> No
     assert outcome["planner_report"]["plan_signal"] == "reconsider"
     rows = {item.id: item for item in supervisor.memory.backlog.all()}
     assert rows[current.id].status == "pending"
+
+
+def test_stage_reconciled_replan_retires_invalid_current_item(tmp_path) -> None:
+    supervisor, _sink = _supervisor(tmp_path, runner=_StageReplanRunner())
+    current, _stale = _seed_plan(supervisor)
+
+    outcome = supervisor.tick()
+
+    assert outcome is not None
+    assert outcome["status"] == "replan_requested"
+    rows = {item.id: item for item in supervisor.memory.backlog.all()}
+    assert rows[current.id].status == "failed"
+    assert "manager rollback to benchmark" in rows[current.id].last_error
+
+
+def test_stage_reconciliation_hold_keeps_plan_and_calls_manager_once(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    supervisor, _sink = _supervisor(
+        tmp_path,
+        planner_response=_stage_reconciliation_waiting_verdict(),
+    )
+    current, stale = _seed_plan(supervisor)
+    _isolate_planning(supervisor, monkeypatch)
+    reconciliations: list[object] = []
+
+    def reconcile(verdict):
+        reconciliations.append(verdict)
+        return "hold"
+
+    monkeypatch.setattr(
+        supervisor,
+        "_reconcile_open_ended_planner_waiting",
+        reconcile,
+    )
+
+    result = supervisor._plan_next_work(revision_request=_revision_request())
+
+    assert result == "planner_retry"
+    assert len(reconciliations) == 1
+    rows = {item.id: item for item in supervisor.memory.backlog.all()}
+    assert rows[current.id].status == "pending"
+    assert rows[stale.id].status == "pending"
+    assert not any(
+        event["type"] == "life.plan.revision.rolled_back"
+        for event in _sink.events
+    )
+
+
+def test_revision_wait_without_explicit_request_still_checks_reconciliation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    planner_response = _stage_reconciliation_waiting_verdict().replace(
+        '"stage_reconciliation_required": true',
+        '"stage_reconciliation_required": false',
+    )
+    supervisor, _sink = _supervisor(
+        tmp_path,
+        planner_response=planner_response,
+    )
+    _seed_plan(supervisor)
+    _isolate_planning(supervisor, monkeypatch)
+    reconciliations: list[object] = []
+
+    def reconcile(verdict):
+        reconciliations.append(verdict)
+        return ""
+
+    monkeypatch.setattr(
+        supervisor,
+        "_reconcile_open_ended_planner_waiting",
+        reconcile,
+    )
+
+    supervisor._plan_next_work(revision_request=_revision_request())
+
+    assert len(reconciliations) == 1
+
+
+def test_planning_cycle_drains_operator_input_while_waiting(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    supervisor, sink = _supervisor(
+        tmp_path,
+        planner_response=_single_replacement_verdict(),
+    )
+    messages = iter(["GPU 1 is now allocated", None])
+    supervisor.config.user_inbox = lambda: next(messages)
+    deactivated: list[bool] = []
+    monkeypatch.setattr(
+        supervisor,
+        "_deactivate_planner_waiting_contract",
+        lambda: deactivated.append(True),
+    )
+    _isolate_planning(supervisor, monkeypatch)
+
+    assert supervisor._plan_next_work() is True
+
+    drained = [
+        event for event in sink.events if event["type"] == "life.inbox.drained"
+    ]
+    assert drained[-1]["messages"] == ["GPU 1 is now allocated"]
+    assert deactivated
+    assert "LIVE OPERATOR GUIDANCE" in supervisor.planner_runner.last_prompt
+    assert "GPU 1 is now allocated" in supervisor.planner_runner.last_prompt
+
+
+def test_pending_operator_question_defers_planner_without_calling_it(tmp_path) -> None:
+    supervisor, sink = _supervisor(
+        tmp_path,
+        planner_response=_single_replacement_verdict(),
+    )
+    blocked = BacklogItem.new(title="Need GPU", objective="Run the matrix")
+    blocked.status = "failed"
+    blocked.pending_question = "Which GPU is approved?"
+    supervisor.memory.backlog.add(blocked)
+
+    summary = supervisor.run()
+
+    assert summary["stopped_by"] == "pending_operator_question"
+    assert supervisor.planner_runner.last_prompt == ""
+    deferred = [
+        event
+        for event in sink.events
+        if event["type"] == "life.planner.deferred"
+    ]
+    assert deferred[-1]["reason"] == "waiting for operator answer"
+    assert deferred[-1]["item_ids"] == [blocked.id]
+
+
+def test_operator_inbox_resolves_single_pending_question_through_manager(
+    tmp_path,
+) -> None:
+    supervisor, sink = _supervisor(
+        tmp_path,
+        planner_response=_single_replacement_verdict(),
+    )
+    blocked = BacklogItem.new(title="Need GPU", objective="Run the matrix")
+    blocked.status = "failed"
+    blocked.pending_question = "Which GPU is approved?"
+    supervisor.memory.backlog.add(blocked)
+    messages = iter(["GPU 6 is approved", None])
+    supervisor.config.user_inbox = lambda: next(messages)
+
+    def resolve(item, message):
+        original, continuation = supervisor.memory.backlog.continue_with_operator_reply(
+            item.id,
+            message,
+            manager_decision="Use physical GPU 6 exclusively.",
+        )
+        return {
+            "resolved": original is not None and continuation is not None,
+            "item": continuation.to_jsonable() if continuation else None,
+        }
+
+    supervisor.config.pending_question_resolver = resolve
+
+    assert supervisor._resolve_pending_question_from_inbox([blocked]) is True
+    rows = supervisor.memory.backlog.all()
+    original = next(item for item in rows if item.id == blocked.id)
+    continuation = next(item for item in rows if item.id != blocked.id)
+    assert original.pending_question == ""
+    assert continuation.status == "pending"
+    assert "GPU 6 is approved" in continuation.objective
+    assert "Use physical GPU 6 exclusively." in continuation.objective
+    drained = [
+        event for event in sink.events if event["type"] == "life.inbox.drained"
+    ]
+    assert drained[-1]["messages"] == ["GPU 6 is approved"]
+
+
+def test_pending_question_resolution_drains_only_one_inbox_message(
+    tmp_path,
+) -> None:
+    supervisor, _sink = _supervisor(
+        tmp_path,
+        planner_response=_single_replacement_verdict(),
+    )
+    blocked = BacklogItem.new(title="Need GPU", objective="Run the matrix")
+    blocked.status = "failed"
+    blocked.pending_question = "Which GPU is approved?"
+    supervisor.memory.backlog.add(blocked)
+    messages = iter(["GPU 6 is approved", "Keep batch size unchanged", None])
+    supervisor.config.user_inbox = lambda: next(messages)
+    supervisor.config.pending_question_resolver = lambda _item, _message: {
+        "resolved": True
+    }
+
+    assert supervisor._resolve_pending_question_from_inbox([blocked]) is True
+    assert next(messages) == "Keep batch size unchanged"
+
+
+def test_non_answer_inbox_message_is_still_routed_through_manager(
+    tmp_path,
+) -> None:
+    supervisor, _sink = _supervisor(
+        tmp_path,
+        planner_response=_single_replacement_verdict(),
+    )
+    blocked = BacklogItem.new(title="Need GPU", objective="Run the matrix")
+    blocked.status = "failed"
+    blocked.pending_question = "Which GPU is approved?"
+    supervisor.memory.backlog.add(blocked)
+    supervisor.config.user_inbox = lambda: "Show current status"
+    routed: list[str] = []
+
+    def route(_item, message):
+        routed.append(message)
+        return {"kind": "chat", "resolved": False}
+
+    supervisor.config.pending_question_resolver = route
+
+    assert supervisor._resolve_pending_question_from_inbox([blocked]) is False
+    assert routed == ["Show current status"]
+    current = next(
+        item for item in supervisor.memory.backlog.all() if item.id == blocked.id
+    )
+    assert current.pending_question == "Which GPU is approved?"
 
 
 def test_replan_planner_atomically_replaces_active_revision(
@@ -384,6 +640,8 @@ def test_backlog_metadata_discloses_context_references_not_payloads(tmp_path) ->
         plan_id="plan-b",
         plan_version=2,
         node_key="discover",
+        acceptance_check="research/replacement.json records a reviewed decision",
+        non_goals=["do not rerun the obsolete route"],
         context_refs=[
             {
                 "kind": "artifact",
@@ -398,6 +656,9 @@ def test_backlog_metadata_discloses_context_references_not_payloads(tmp_path) ->
 
     assert "plan-b v2" in rendered
     assert "node_key: discover" in rendered
+    assert "decisive_acceptance_check" in rendered
+    assert "research/replacement.json records a reviewed decision" in rendered
+    assert "do not rerun the obsolete route" in rendered
     assert "Open only as needed" in rendered
     assert "research/NO_GO.md" in rendered
     assert "records why the prior route failed" in rendered

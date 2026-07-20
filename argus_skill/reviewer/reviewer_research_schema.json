@@ -9,6 +9,7 @@
         "done",
         "continue",
         "blocked",
+        "replan_requested",
         "research_incomplete",
         "paused_no_breakthrough",
         "exhausted_current_methods"
@@ -148,6 +149,21 @@
     "scientific_decision": {
       "type": ["string", "null"],
       "enum": ["go", "pivot", "no_go", "undecided", null]
+    },
+    "failure_layer": {
+      "type": ["string", "null"],
+      "enum": [
+        "platform",
+        "orchestration",
+        "evaluator",
+        "evidence_packaging",
+        "scientific",
+        "operator",
+        "unknown",
+        "",
+        null
+      ]
+    },
     },
     "progress_class": {
       "type": "string",
@@ -519,6 +535,7 @@
     "failure_cause",
     "failure_source",
     "scientific_decision",
+    "failure_layer",
     "progress_class",
     "control",
     "scope",

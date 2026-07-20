@@ -1,56 +1,35 @@
 \section{Limitations and Future Work}
 \label{sec:limitations}
 
-\paragraph{No controlled component attribution.}
-The six benchmark records were produced under different task protocols, hardware,
-and research histories. They show task-level outcomes but do not estimate the
-causal contribution of the runtime relative to a single-agent baseline. Controlled
-ablations under common budgets are required before claiming that role separation,
-bounded memory, or the review gate improves performance.
+\paragraph{Attribution and task sequence.}
+The SWE-Bench Pro experiment compares the complete \systemname runtime with Direct
+Copilot. Reviewer routing is adaptive, the 22 Waves follow one task order, and
+per-Wave Direct-Copilot Token/time records are unavailable. The current results
+therefore characterize whole-system behavior over this sequence. Matched
+frozen-state runs, randomized task orders, and randomized review routing will
+separate the contributions of persistent state, role separation, and review.
 
-\paragraph{Fallible completion authority.}
-The Reviewer is the sole mission-level completion authority, and it is itself a
-model. It can accept an incomplete result or reject a finished one. Shared artifacts,
-execution-log access, structured checklists, and fail-closed handling of reviewer
-backend failures reduce ambiguity, but they do not provide an independent oracle.
-Future work should measure Reviewer calibration and study secondary
-checks that strengthen verdict quality without creating conflicting completion
-authorities.
+\paragraph{Generality across models, domains, and evaluators.}
+The seven benchmark arenas use different metrics, hardware, and execution
+protocols, while the mathematical analysis follows one vertical campaign. Results
+are interpreted in their native units rather than combined into a universal score.
+Repeated campaigns, additional backbones, and external domain review will measure
+how the runtime transfers across task families and research standards.
 
-\paragraph{Incomplete provenance.}
-Only two of the six public benchmark results currently have committed
-artifact-digest metadata; four are website snapshots. Even the digest-backed rows
-reference external artifact bytes that are not committed in this repository.
-Publishing retrievable bundles tied to named commits is necessary for full
-third-party reproduction.
+\paragraph{Metric calibration and model transfer.}
+The efficiency analysis labels whole role calls by mission purpose; finer segment
+labels would sharpen the reasoning, action, and verification factors. Reviewer
+sensitivity and false-acceptance rate require randomized routing with an external
+verifier, and the counterfactual reuse value $G_K$ requires paired future tasks with
+and without a state update. The runtime-to-model path is currently a training
+direction: held-out trajectory splits and scaffold-removal studies will measure how
+much of the long-horizon control loop can be internalized by the model.
 
-\paragraph{Benchmark-specific integrity.}
-Randomization, execution-log checks, and artifact inspection can prevent known
-forms of metric gaming, but every new benchmark introduces a different exploit
-surface. A leaked evaluation set, an unrandomized input distribution, or an
-unobserved side channel may defeat existing checks. Measurement integrity must be
-reassessed per arena.
-
-\paragraph{Model and resource dependence.}
-\system{} relies on external coding-and-reasoning backends and inherits their
-capability, latency, availability, and pricing. Reservation-backed budgets bound
-spend but do not make continuous operation inexpensive. Performance also depends on
-access to task-specific compute such as GPUs, and the current GPU lease is an
-explicit operator- or agent-invoked tool rather than an automatic scheduler.
-
-\paragraph{Runtime state can degrade.}
-Persistent memory, skills, verifiers, and routing decisions can be wrong or become
-stale. Their inspectable and versioned form makes revision possible, but does not
-guarantee that the effective capability state improves monotonically. Longitudinal
-evaluation should track regressions, retirements, repeated failures, and the useful
-lifetime of retained procedures.
-
-\paragraph{Research-output counts are not quality measures.}
-The 41-artifact inventory records production breadth, not peer-review acceptance,
-novelty, correctness, or impact. External expert review and artifact-level
-replication are needed to assess scientific quality.
-
-The immediate evaluation priorities are therefore: (1) run controlled ablations
-against common agent baselines; (2) extend the task suite; (3) measure interruption
-recovery, repeated-work reduction, and Reviewer calibration; and (4) report
-longitudinal capability regressions alongside improvements.
+\paragraph{Paper-production trajectories are observational.}
+The six paper projects were selected from one shared research environment and do
+not include a matched human-authoring baseline. Campaign-hours overlap in calendar
+time, stored review snapshots are model-generated rather than independent human
+reviews, and runtime logging evolved across projects. The case study therefore
+supports end-to-end lifecycle and recovery claims, not paper acceptance, scientific
+novelty, or superiority to human research teams. Recorded costs in the public data
+also exclude utility calls without a priced event.

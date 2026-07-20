@@ -87,7 +87,6 @@ export function TaskDetailModal({
             </section>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <Metric label="priority" value={`p${item.priority}`} />
-              <Metric label="budget" value={`$${item.max_cost_usd.toFixed(2)}`} />
               <Metric label="started" value={when(item.started_ts)} />
               <Metric label="finished" value={when(item.finished_ts)} />
             </div>
@@ -105,7 +104,7 @@ export function TaskDetailModal({
                 <div className="grid grid-cols-3 gap-2">
                   <Metric label="mode" value={item.iterate ? 'auto-iterate' : 'single pass'} />
                   <Metric label="cycles" value={`${item.iteration_cycles_done ?? 0}/${item.iteration_max_cycles ?? '—'}`} />
-                  <Metric label="spend / cap" value={`$${(item.iteration_cost_usd ?? 0).toFixed(2)} / $${(item.iteration_budget_usd ?? 0).toFixed(2)}`} />
+                  <Metric label="cost" value={`$${(item.iteration_cost_usd ?? 0).toFixed(2)}`} />
                 </div>
               </section>
             ) : null}

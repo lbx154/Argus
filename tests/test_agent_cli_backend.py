@@ -21,6 +21,7 @@ import json
 import sys
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 from types import ModuleType
 from typing import Any
 
@@ -41,8 +42,6 @@ class ArgusRunnerOptions:
     reasoning_effort: str = "medium"
     dangerous_yolo: bool = False
     full_auto: bool = False
-    max_budget_usd: float | None = None
-    max_ai_credits: int | None = None
     skip_git_repo_check: bool = False
     sandbox_mode: str | None = None
     extra_args: list[str] | None = None
@@ -263,6 +262,62 @@ def test_run_exec_translates_options_and_result(
     assert result.call_id_log_correlated is True
 
 
+def test_usage_context_keeps_explicit_global_budget_root(tmp_path: Path) -> None:
+    backend = AgentCliBackend(backend="codex")
+    project = tmp_path / "state" / "projects" / "s-test"
+    global_root = tmp_path / "state"
+
+    backend.set_usage_context(
+        project_root=project,
+        global_root=global_root,
+        mission_id="mission-1",
+    )
+
+    assert backend._usage_context_snapshot() == (
+        project,
+        "mission-1",
+        global_root,
+    )
+
+
+def test_run_exec_passes_global_budget_root_to_cost_control(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = AgentCliBackend(backend="codex")
+    project = tmp_path / "state" / "projects" / "s-test"
+    global_root = tmp_path / "state"
+    backend.set_usage_context(
+        project_root=project,
+        global_root=global_root,
+        mission_id="mission-1",
+    )
+    captured: dict[str, Any] = {}
+
+    def deny_after_capture(**kwargs):
+        captured.update(kwargs)
+        return None, "captured reservation"
+
+    monkeypatch.setattr(
+        "argus_skill.core.cost_control.cost_control_enabled",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "argus_skill.core.cost_control.reserve_call_budget",
+        deny_after_capture,
+    )
+
+    result = backend.run_exec(
+        prompt="test",
+        options=RunnerOptions(working_dir=str(tmp_path)),
+        run_label="manager-frontdoor-classify",
+    )
+
+    assert result.exit_code == -1
+    assert captured["project_root"] == project
+    assert captured["global_root"] == global_root
+
+
 def test_completed_run_exec_counts_after_mission_process_is_killed(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
@@ -312,8 +367,6 @@ def test_run_exec_atomically_reserves_and_settles_call_cost(
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
     monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
     monkeypatch.setenv("ARGUS_SKILL_CODEX_GUARD", "0")
-    monkeypatch.setenv("ARGUS_SKILL_PER_MISSION_CAP_USD", "1")
-    monkeypatch.setenv("ARGUS_SKILL_DAILY_CAP_USD", "2")
     monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "1")
     backend = AgentCliBackend(backend="codex")
     backend.set_usage_context(project_root=project, mission_id="mission-1")
@@ -364,7 +417,7 @@ def test_run_exec_atomically_reserves_and_settles_call_cost(
     assert provider_metric["fields"]["call_id"] == result.call_id
 
 
-def test_single_call_overrun_is_recorded_with_unsupported_codex_fence(
+def test_single_call_overrun_is_recorded_in_usd(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -373,8 +426,6 @@ def test_single_call_overrun_is_recorded_with_unsupported_codex_fence(
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
     monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
     monkeypatch.setenv("ARGUS_SKILL_CODEX_GUARD", "0")
-    monkeypatch.setenv("ARGUS_SKILL_PER_MISSION_CAP_USD", "0.01")
-    monkeypatch.setenv("ARGUS_SKILL_DAILY_CAP_USD", "0.01")
     monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "0.01")
     backend = AgentCliBackend(backend="codex")
     backend.set_usage_context(project_root=project, mission_id="mission-overrun")
@@ -401,73 +452,19 @@ def test_single_call_overrun_is_recorded_with_unsupported_codex_fence(
         run_label="engineer-r1",
     )
 
-    assert captured["options"].max_budget_usd is None
-    assert captured["options"].max_ai_credits is None
     assert result.cost_usd == pytest.approx(0.03)
     rows = [
         json.loads(line)
         for line in (project / "events.jsonl").read_text().splitlines()
     ]
-    created = next(row for row in rows if row["type"] == "budget.reservation.created")
     settled = next(row for row in rows if row["type"] == "budget.reservation.settled")
-    assert created["fence_enforcement"] == "unsupported"
-    assert "no per-call token or dollar limit" in created["fence_reason"]
     assert settled["overrun_usd"] == pytest.approx(0.02)
-    assert settled["fence_breached"] is True
     metrics = [
         json.loads(line)
         for line in (root / "metrics.jsonl").read_text().splitlines()
     ]
     provider_metric = next(row for row in metrics if row["name"] == "provider.call")
     assert provider_metric["fields"]["overrun_usd"] == pytest.approx(0.02)
-    assert provider_metric["fields"]["fence_enforcement"] == "unsupported"
-
-
-def test_claude_reservation_is_forwarded_as_cli_dollar_fence(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    root = tmp_path / "home"
-    project = root / "projects" / "p1"
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
-    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
-    monkeypatch.setenv("ARGUS_SKILL_PER_MISSION_CAP_USD", "0.25")
-    monkeypatch.setenv("ARGUS_SKILL_DAILY_CAP_USD", "0.25")
-    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "0.25")
-    backend = AgentCliBackend(backend="claude")
-    backend.set_usage_context(project_root=project, mission_id="mission-claude")
-    captured: dict[str, Any] = {}
-
-    def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
-        captured["options"] = kwargs["options"]
-        return _make_argus_result(
-            json_events=[{
-                "type": "token_count",
-                "input_tokens": 1_000,
-                "output_tokens": 100,
-            }],
-            thread_id="claude-fence-thread",
-        )
-
-    monkeypatch.setattr(
-        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
-    )
-
-    backend.run_exec(
-        prompt="bounded claude call",
-        options=RunnerOptions(model="gpt-5.6-sol"),
-        run_label="reviewer",
-    )
-
-    assert captured["options"].max_budget_usd == pytest.approx(0.25)
-    assert captured["options"].max_ai_credits is None
-    rows = [
-        json.loads(line)
-        for line in (project / "events.jsonl").read_text().splitlines()
-    ]
-    created = next(row for row in rows if row["type"] == "budget.reservation.created")
-    assert created["fence_enforcement"] == "hard"
-    assert created["fence_limit_usd"] == pytest.approx(0.25)
 
 
 def test_unpriced_call_blocks_next_provider_spawn(
@@ -626,32 +623,34 @@ def test_run_exec_writes_full_agent_io_log(
     )
 
     rows = [json.loads(line) for line in log_path.read_text().splitlines()]
+    raw_rows = [
+        json.loads(line)
+        for line in (tmp_path / "agent_io.jsonl").read_text().splitlines()
+    ]
     assert all(row["event_schema_version"] == 1 for row in rows)
     assert all("event_validation" not in row for row in rows)
     assert [row["type"] for row in rows] == [
         "agent.io.start",
-        "agent.io.stream",
-        "agent.io.stream",
         "agent.io.complete",
         "usage.recorded",
     ]
-    assert [row["io_kind"] for row in rows[:-1]] == [
-        "start",
-        "stream",
-        "stream",
-        "complete",
+    assert [row["type"] for row in raw_rows] == [
+        "agent.io.stream",
+        "agent.io.stream",
     ]
+    assert [row["io_kind"] for row in rows[:-1]] == ["start", "complete"]
+    assert [row["io_kind"] for row in raw_rows] == ["stream", "stream"]
     assert rows[0]["prompt"] == "full prompt text"
     assert rows[0]["run_label"] == "manager"
-    assert [row["stream"] for row in rows if row["type"] == "agent.io.stream"] == [
+    assert [row["stream"] for row in raw_rows] == [
         "stdout",
         "stderr",
     ]
-    assert rows[1]["stream"] == "stdout"
-    assert rows[1]["model"] == "gpt-5.5"
-    assert rows[1]["line"].startswith('{"type"')
-    assert rows[2]["stream"] == "stderr"
-    assert rows[2]["model"] == "gpt-5.5"
+    assert raw_rows[0]["stream"] == "stdout"
+    assert raw_rows[0]["model"] == "gpt-5.5"
+    assert raw_rows[0]["line"].startswith('{"type"')
+    assert raw_rows[1]["stream"] == "stderr"
+    assert raw_rows[1]["model"] == "gpt-5.5"
     assert "agent_messages" not in rows[-2]
     assert "stdout_lines" not in rows[-2]
     assert "stderr_lines" not in rows[-2]
@@ -724,12 +723,16 @@ def test_full_agent_io_batches_raw_stream_writes(
         run_label="engineer-r1",
     )
 
-    rows = [json.loads(line) for line in log_path.read_text().splitlines()]
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "agent_io.jsonl").read_text().splitlines()
+    ]
     assert sum(batch_sizes) == 1_000
     assert len(batch_sizes) < 10
     assert sum(row["type"] == "agent.io.stream" for row in rows) == 1_000
+    control_rows = [json.loads(line) for line in log_path.read_text().splitlines()]
     assert "json_events" not in next(
-        row for row in rows if row["type"] == "agent.io.complete"
+        row for row in control_rows if row["type"] == "agent.io.complete"
     )
 
 
@@ -776,8 +779,12 @@ def test_full_io_persists_prompt_once_not_as_user_message_echo(
     )
 
     rows = [json.loads(line) for line in log_path.read_text().splitlines()]
+    raw_rows = [
+        json.loads(line)
+        for line in (tmp_path / "agent_io.jsonl").read_text().splitlines()
+    ]
     start = next(row for row in rows if row["type"] == "agent.io.start")
-    streams = [row for row in rows if row["type"] == "agent.io.stream"]
+    streams = [row for row in raw_rows if row["type"] == "agent.io.stream"]
     assert start["prompt"] == prompt
     assert len(streams) == 1
     assert "assistant.message_delta" in streams[0]["line"]
@@ -850,6 +857,78 @@ def test_copilot_run_exec_uses_exact_session_store_tokens(
     assert event["usage"]["models"][0]["session_id"] == "session-1"
     assert event["usage"]["models"][0]["cost_usd"] == pytest.approx(0.161605)
     assert event["pricing"]["cost_usd"] == pytest.approx(0.161605)
+
+
+def test_copilot_resumed_premium_counter_without_baseline_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_LOG", str(tmp_path / "events.jsonl"))
+    backend = AgentCliBackend(backend="copilot")
+    raw_totals = iter((15.0, 22.5))
+
+    def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
+        return _make_argus_result(
+            agent_messages=["OK"],
+            json_events=[{
+                "type": "result",
+                "usage": {"premiumRequests": next(raw_totals)},
+            }],
+            thread_id="resumed-session",
+        )
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+    )
+    monkeypatch.setattr(
+        "argus_skill.adapters.agent_cli_backend.capture_copilot_usage_cursor",
+        lambda: object(),
+    )
+    monkeypatch.setattr(
+        "argus_skill.adapters.agent_cli_backend.read_copilot_usage_since",
+        lambda cursor, session_id: None,
+    )
+    options = RunnerOptions(model="gpt-5.6-sol", working_dir=str(tmp_path))
+
+    first = backend.run_exec(
+        prompt="first after restart",
+        options=options,
+        run_label="manager-frontdoor-classify",
+        resume_thread_id="resumed-session",
+    )
+    second = backend.run_exec(
+        prompt="second after restart",
+        options=options,
+        run_label="planner",
+        resume_thread_id="resumed-session",
+    )
+
+    assert first.premium_requests == 0.0
+    assert first.premium_requests_present is False
+    assert first.pricing_status == "partial"
+    assert first.cost_usd is None
+    assert second.premium_requests == pytest.approx(7.5)
+    assert second.premium_requests_present is True
+    assert second.pricing_status == "priced"
+    assert second.cost_usd == pytest.approx(0.30)
+
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "usage.jsonl").read_text().splitlines()
+    ]
+    assert rows[0]["premium_requests"] is None
+    assert rows[0]["pricing_status"] == "partial"
+    assert rows[1]["premium_requests"] == pytest.approx(7.5)
+    assert rows[1]["cost_usd"] == pytest.approx(0.30)
+    complete_rows = [
+        json.loads(line)
+        for line in (tmp_path / "events.jsonl").read_text().splitlines()
+        if '"type":"agent.io.complete"' in line
+    ]
+    assert complete_rows[0]["premium_requests"] is None
+    assert complete_rows[0]["premium_requests_present"] is False
+    assert complete_rows[1]["premium_requests"] == pytest.approx(7.5)
+    assert complete_rows[1]["premium_requests_present"] is True
 
 
 def test_copilot_acp_session_model_overrides_mislabeled_usage_row(

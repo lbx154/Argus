@@ -78,6 +78,75 @@ def _prompt(label: str, default: str = "", secret: bool = False) -> str:
     return val if val else default
 
 
+_SUPPORTED_AGENT_BACKENDS = ("copilot", "codex", "claude")
+_BACKEND_INSTALL_COMMANDS = {
+    "copilot": "npm install -g @github/copilot",
+    "codex": "npm install -g @openai/codex",
+    "claude": "npm install -g @anthropic-ai/claude-code",
+}
+
+
+def _configured_runner_backend() -> str:
+    """Return the explicit or persisted shared backend, if valid."""
+    from ..core.knob_store import read_persisted_knobs
+
+    persisted = read_persisted_knobs()
+    for value in (
+        os.environ.get("ARGUS_SKILL_RUNNER_BACKEND"),
+        os.environ.get("ARGUS_SKILL_LIFE_BACKEND"),
+        persisted.get("ARGUS_SKILL_RUNNER_BACKEND"),
+        persisted.get("ARGUS_SKILL_LIFE_BACKEND"),
+    ):
+        normalized = str(value or "").strip().lower()
+        if normalized in _SUPPORTED_AGENT_BACKENDS:
+            return normalized
+    return ""
+
+
+def _configure_runner_backend() -> str | None:
+    """Select and persist the agent CLI used by every role."""
+    from ..core.knob_store import write_persisted_knob
+
+    available = [name for name in _SUPPORTED_AGENT_BACKENDS if shutil.which(name)]
+    configured = _configured_runner_backend()
+    if configured and configured in available:
+        default = configured
+    elif len(available) == 1:
+        default = available[0]
+    else:
+        default = next((name for name in ("codex", "copilot", "claude") if name in available), "codex")
+
+    print(_bold("  Step 1: Agent CLI Backend"))
+    print()
+    detected = ", ".join(available) if available else "none"
+    print(_dim(f"  Detected on PATH: {detected}"))
+    selected = _prompt("Backend (copilot/codex/claude)", default).lower()
+    if selected not in _SUPPORTED_AGENT_BACKENDS:
+        print(_yellow(f"  Unknown backend '{selected}', using {default}."))
+        selected = default
+
+    executable = shutil.which(selected)
+    if executable is None:
+        print(_yellow(f"  `{selected}` CLI is not installed."))
+        print(_dim(f"    Install it with: {_BACKEND_INSTALL_COMMANDS[selected]}"))
+        if selected == "copilot":
+            print(_dim("    Then authenticate with: copilot login"))
+        print()
+        return None
+
+    if not write_persisted_knob("ARGUS_SKILL_RUNNER_BACKEND", selected):
+        print(_yellow("  Could not persist the selected backend."))
+        print()
+        return None
+
+    print()
+    print(f"  {_green('✓')} Agent backend → {selected} ({executable})")
+    if selected == "copilot":
+        print(_dim("    Requires an active subscription and `copilot login`."))
+    print()
+    return selected
+
+
 def _detect_gpus() -> list[dict]:
     """Detect available GPUs via nvidia-smi."""
     try:
@@ -822,8 +891,14 @@ def _configure_author(existing: dict | None) -> dict | None:
     return {"name": name, "email": email}
 
 
-def _summary(routes: dict[str, dict], gpu: dict, keepalive: dict | None = None,
-             experiment_api: bool = False, author: dict | None = None) -> None:
+def _summary(
+    routes: dict[str, dict],
+    gpu: dict,
+    keepalive: dict | None = None,
+    experiment_api: bool = False,
+    author: dict | None = None,
+    backend: str = "codex",
+) -> None:
     """Print final summary."""
     print(_bold("═" * 60))
     print(_bold("  Configuration Summary"))
@@ -833,6 +908,8 @@ def _summary(routes: dict[str, dict], gpu: dict, keepalive: dict | None = None,
         who = f"{author.get('name', '')} <{author.get('email', '')}>"
         print(f"  {_cyan('Author'):30s} {who}")
         print()
+    print(f"  {_cyan('Agent backend'):30s} {backend}")
+    print()
     for name in ("planner", "engineer", "reviewer"):
         r = routes.get(name, {})
         model = r.get("model", "not configured")
@@ -867,8 +944,12 @@ def run_setup() -> int:
     print()
     author = _configure_author(existing_author)
 
-    # Step 1: Check if all 3 agents share the same API
-    print(_bold("  Step 1: API Configuration"))
+    backend = _configure_runner_backend()
+    if backend is None:
+        return 2
+
+    # Step 2: Check if all 3 agents share the same API
+    print(_bold("  Step 2: API Configuration"))
     print()
     share = _prompt(
         "Do all 3 agents share the same API endpoint? (y/n)",
@@ -940,37 +1021,45 @@ def run_setup() -> int:
         )
         routes["text"] = routes["engineer"]
 
-    # Step 1b: Experiment API access
-    print(_bold("  Step 1b: Experiment API access"))
+    # Step 2b: Experiment API access
+    print(_bold("  Step 2b: Experiment API access"))
     print()
     experiment_api = _configure_experiment_api(routes)
 
-    # Step 2: GPU
-    print(_bold("  Step 2: GPU Resources"))
+    # Step 3: GPU
+    print(_bold("  Step 3: GPU Resources"))
     print()
     gpus = _detect_gpus()
     gpu_config = _configure_gpus(gpus, existing_gpu)
 
-    # Step 2b: GPU keep-alive (anti-reclaim)
+    # Step 3b: GPU keep-alive (anti-reclaim)
     existing_keepalive = _load_existing_keepalive()
     keepalive_config = _configure_gpu_keepalive(gpus, gpu_config, existing_keepalive)
 
-    # Step 3: codex CLI config
-    print(_bold("  Step 3: Codex CLI Configuration"))
-    print()
-    print(_dim("  argus-skill drives the `codex` CLI for every L1 round."))
-    print(_dim("  The wizard can seed ~/.codex/config.toml and ~/.codex/auth.json"))
-    print(_dim("  from the API you just entered so codex talks to the same endpoint."))
-    print()
-    engineer_route = routes.get("engineer") or routes.get("text") or {}
-    codex_base_url = engineer_route.get("base_url", "")
-    codex_api_key = engineer_route.get("api_key", "")
-    codex_model = engineer_route.get("model", "gpt-5.5")
     codex_paths: tuple[Path, Path] | None = None
-    if codex_base_url and codex_api_key:
-        codex_paths = _seed_codex_config(codex_base_url, codex_api_key, codex_model)
+    if backend == "codex":
+        # Step 4: codex CLI config
+        print(_bold("  Step 4: Codex CLI Configuration"))
+        print()
+        print(_dim("  argus-skill drives the `codex` CLI for every L1 round."))
+        print(_dim("  The wizard can seed ~/.codex/config.toml and ~/.codex/auth.json"))
+        print(_dim("  from the API you just entered so codex talks to the same endpoint."))
+        print()
+        engineer_route = routes.get("engineer") or routes.get("text") or {}
+        codex_base_url = engineer_route.get("base_url", "")
+        codex_api_key = engineer_route.get("api_key", "")
+        codex_model = engineer_route.get("model", "gpt-5.5")
+        if codex_base_url and codex_api_key:
+            codex_paths = _seed_codex_config(codex_base_url, codex_api_key, codex_model)
+        else:
+            print(_yellow("  Skipped: no engineer API endpoint configured."))
+            print()
     else:
-        print(_yellow("  Skipped: no engineer API endpoint configured."))
+        print(_bold("  Step 4: Agent CLI Authentication"))
+        print()
+        print(_dim(f"  Argus will authenticate through the `{backend}` CLI."))
+        if backend == "copilot":
+            print(_dim("  Run `copilot login` before launching Argus if needed."))
         print()
 
     # Save
@@ -998,11 +1087,19 @@ def run_setup() -> int:
                 )
             )
 
-    _check_codex_prereq()
+    if backend == "codex":
+        _check_codex_prereq()
     print()
 
     # Summary
-    _summary(routes, gpu_config, keepalive_config, experiment_api, author)
+    _summary(
+        routes,
+        gpu_config,
+        keepalive_config,
+        experiment_api,
+        author,
+        backend,
+    )
 
     print(_green("  ✓ Setup complete! To start working on a project:"))
     print()

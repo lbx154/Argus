@@ -59,6 +59,7 @@ from ..core.metrics import (
 from ..core.provider_quota import provider_usage_snapshot
 from ..core.session import (
     SessionMeta,
+    migrate_legacy_session_workdir,
     normalize_session_name,
     read_session_meta,
     resolve_session_workdir,
@@ -80,9 +81,11 @@ from ..daemon.life_worker import (
     _workspace_start_error,
     read_continuous_state,
     read_daemon_status,
-    spawn_detached_daemon,
     stop_daemon,
     write_continuous_config,  # noqa: F401 - compatibility export
+)
+from ..daemon.life_worker import (
+    spawn_detached_daemon_clean as spawn_detached_daemon,
 )
 from ..life.memory import BacklogItem, LifeMemory, _read_jsonl_tail_history
 from ..manager.front_door import (
@@ -251,7 +254,7 @@ def _enqueue_task_unlocked(
         return None
     from ..apps._life_actions import DEFAULT_LIFE_CONFIG
 
-    iterate, cycles, budget, cleaned = parse_add_flags(
+    iterate, cycles, cleaned = parse_add_flags(
         text,
         defaults=DEFAULT_LIFE_CONFIG,
     )
@@ -268,7 +271,6 @@ def _enqueue_task_unlocked(
             item_id=item_id,
             iterate=iterate,
             iteration_max_cycles=cycles,
-            iteration_budget_usd=budget,
         )
 
     item = manager_bounded_handoff(
@@ -344,28 +346,19 @@ def answer_pending_question(
     *,
     global_root: Path | str | None = None,
 ) -> dict[str, Any] | None:
-    """Continue one blocked item without routing its answer through Manager."""
-    life_dir = project_life_dir(sid, global_root=global_root)
-    if life_dir is None:
-        return None
-    answer = text.strip()
-    mem = LifeMemory.open(life_dir)
-    blocked, continuation = mem.backlog.continue_with_operator_reply(
+    """Route one blocked-item answer through the Manager authority boundary."""
+    from .manager_bridge import manager_answer_pending_question
+
+    return manager_answer_pending_question(
+        sid,
         item_id,
-        answer,
+        text,
+        global_root=global_root,
     )
-    if blocked is None:
-        return None
-    if continuation is None:
-        return {"error": "question is no longer pending"}
-    return {
-        "answered_item_id": blocked.id,
-        "item": continuation.to_jsonable(),
-    }
 
 
 def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConfig:
-    """Minimal daemon config from the current env caps/backend — mirrors what a
+    """Minimal daemon config from the current global cap/backend — mirrors what a
     fresh CLI launch would enforce. Resolve role models/efforts through the
     SAME persisted/env/vault precedence used by /config and the CLI; leaving
     these fields at ``LifeWorkerConfig``'s dataclass defaults silently launched
@@ -382,7 +375,16 @@ def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConf
         global_root=global_root,
     )
     meta = read_session_meta(global_root, life_dir.name)
-    project_workdir = resolve_session_workdir(meta, state_dir=life_dir)
+    if meta is None:
+        prior = read_daemon_status(life_dir).project_workdir
+        project_workdir = migrate_legacy_session_workdir(
+            global_root,
+            life_dir.name,
+            state_dir=life_dir,
+            candidates=(prior,),
+        )
+    else:
+        project_workdir = resolve_session_workdir(meta, state_dir=life_dir)
 
     return LifeWorkerConfig(
         life_dir=life_dir,
@@ -403,14 +405,9 @@ def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConf
         reviewer_reasoning_effort=resolve_role_reasoning_effort(
             "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
         ),
-        per_mission_cap_usd=budget.per_mission_cap_usd,
-        daily_cap_usd=budget.daily_cap_usd,
         global_daily_cap_usd=budget.global_daily_cap_usd,
         planner_task_iteration_max_cycles=int(
             os.environ.get("ARGUS_SKILL_PLANNER_TASK_ITERATION_MAX_CYCLES", "6")
-        ),
-        planner_task_iteration_budget_usd=float(
-            os.environ.get("ARGUS_SKILL_PLANNER_TASK_ITERATION_BUDGET_USD", "30.0")
         ),
     )
 
@@ -525,9 +522,28 @@ def start_project_daemon(
     if st.alive:
         _clear_daemon_admission(life_dir)
         return {"rc": 0, "already_alive": True, "daemon": _daemon_dict(st)}
-    config = _worker_config_from_env(life_dir, root)
+    try:
+        config = _worker_config_from_env(life_dir, root)
+    except (OSError, RuntimeError) as exc:
+        return {
+            "rc": 3,
+            "already_alive": False,
+            "error": f"daemon workdir is unavailable: {exc}",
+            "daemon": _daemon_dict(read_daemon_status(life_dir)),
+        }
     if resume_continuous:
         continuous = read_continuous_state(life_dir)
+        if (
+            not continuous.enabled
+            and continuous.objective.strip()
+            and continuous.done_reason.strip().lower().startswith("operator ")
+        ):
+            write_continuous_config(
+                life_dir,
+                enabled=True,
+                objective=continuous.objective,
+            )
+            continuous = read_continuous_state(life_dir)
         if continuous.enabled:
             config.continuous_objective = continuous.objective
             config.resume_continuous = True
@@ -717,6 +733,7 @@ def replace_project_daemon(
 def create_daemon(
     objective: str = "", *, name: str = "",
     launch_cwd: str = "",
+    workdir: str = "",
     global_root: Path | str | None = None,
 ) -> dict[str, Any]:
     """Mint a brand-new daemon (session). The objective is OPTIONAL: creating a
@@ -727,9 +744,10 @@ def create_daemon(
     first real task (via POST /message), so an empty daemon leaves no idle
     executor. When an objective IS given, it's armed as a self-directed campaign
     and the daemon starts immediately when admission capacity is available (the
-    web equivalent of ``--new --continuous --objective``). Without an explicit
-    workdir, output goes to ``<ARGUS_SKILL_HOME>/workspaces/<sid>`` — never the
-    Argus source checkout or process cwd. At the host-wide
+    web equivalent of ``--new --continuous --objective``). ``launch_cwd`` is
+    discovery/UI metadata only; without an explicit execution ``workdir``, output
+    goes to ``<ARGUS_SKILL_HOME>/workspaces/<sid>`` — never the Argus source
+    checkout or process cwd. At the host-wide
     daemon cap, the session and objective stay persisted and the response carries
     replacement candidates for an explicit operator choice. Blocking-ish (fs +
     fork) — call from a threadpool. Returns the new sid + daemon status.
@@ -743,23 +761,31 @@ def create_daemon(
     now = _time.time()
     requested_objective = (objective or "").strip()
     life_dir = root / "projects" / sid
+    if workdir:
+        effective_workdir = str(
+            Path(workdir).expanduser().resolve(strict=True)
+        )
+    else:
+        default_workdir = root / "workspaces" / sid
+        default_workdir.mkdir(parents=True, exist_ok=True)
+        effective_workdir = str(default_workdir.resolve(strict=True))
+    if not Path(effective_workdir).is_dir():
+        raise ValueError(f"workdir is not a directory: {effective_workdir}")
     if launch_cwd:
         effective_launch_cwd = str(
             Path(launch_cwd).expanduser().resolve(strict=True)
         )
     else:
-        default_workdir = root / "workspaces" / sid
-        default_workdir.mkdir(parents=True, exist_ok=True)
-        effective_launch_cwd = str(default_workdir.resolve(strict=True))
+        effective_launch_cwd = effective_workdir
     if not Path(effective_launch_cwd).is_dir():
-        raise ValueError(f"workdir is not a directory: {effective_launch_cwd}")
+        raise ValueError(f"launch cwd is not a directory: {effective_launch_cwd}")
     meta = SessionMeta(
         id=sid,
         display_name=normalize_session_name(name),
         created=now,
         last_active=now,
         cwd=str(life_dir),
-        workdir=effective_launch_cwd,
+        workdir=effective_workdir,
         objective="",
         launch_cwd=effective_launch_cwd,
         origin="web",
@@ -808,7 +834,7 @@ def create_daemon(
         "spawned": bool(start_result is not None and rc == 0),
         "daemon": daemon,
         "objective": obj,
-        "workdir": effective_launch_cwd,
+        "workdir": effective_workdir,
     }
     if start_result is not None:
         response["start"] = start_result
@@ -1394,7 +1420,7 @@ def get_config(
     project_state_dir: Path | str | None = None,
     global_root: Path | str | None = None,
 ) -> dict[str, Any]:
-    """Runtime settings snapshot with project-file-backed USD budgets."""
+    """Runtime settings snapshot with the host-global USD budget."""
     snapshot = build_config_snapshot(env=os.environ)
     if project_state_dir is None:
         return snapshot
@@ -1405,17 +1431,9 @@ def get_config(
         global_root=global_root,
     )
     values = {
-        "ARGUS_SKILL_PER_MISSION_CAP_USD": (
-            budget.per_mission_cap_usd,
-            "project:budget.json",
-        ),
-        "ARGUS_SKILL_DAILY_CAP_USD": (
-            budget.daily_cap_usd,
-            "project:budget.json",
-        ),
         "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": (
             budget.global_daily_cap_usd,
-            "global:global_budget.json",
+            "global:config.json",
         ),
     }
     for row in snapshot.get("operator_knobs", []):
@@ -1457,8 +1475,6 @@ _CONFIG_ALIASES = {
     "reviewer_effort": "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
     "planner_effort": "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
     "manager_effort": "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
-    "per_mission_cap": "ARGUS_SKILL_PER_MISSION_CAP_USD",
-    "daily_cap": "ARGUS_SKILL_DAILY_CAP_USD",
     "global_daily_cap": "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD",
     "max_daemons": "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
     "daemon_limit": "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
@@ -1487,37 +1503,8 @@ def set_operator_config(
     if env_name not in allowed:
         raise ValueError(f"config key is not cockpit-editable: {raw}")
     val = normalize_cockpit_knob_value(env_name, value)
-    budget_fields = {
-        "ARGUS_SKILL_PER_MISSION_CAP_USD": "per_mission_cap_usd",
-        "ARGUS_SKILL_DAILY_CAP_USD": "daily_cap_usd",
-    }
-    if env_name in budget_fields:
-        if project_state_dir is None:
-            raise ValueError("project budget requires a project state directory")
-        from ..core.project_budget import update_project_budget
-
-        update_project_budget(
-            project_state_dir,
-            **{budget_fields[env_name]: val},
-        )
-        return {
-            "name": env_name,
-            "value": val,
-            "source": "project:budget.json",
-            "restart_required": True,
-        }
-    if env_name == "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD":
-        if global_root is None:
-            raise ValueError("global budget requires a global root")
-        from ..core.project_budget import update_global_budget
-
-        update_global_budget(global_root, global_daily_cap_usd=val)
-        return {
-            "name": env_name,
-            "value": val,
-            "source": "global:global_budget.json",
-            "restart_required": True,
-        }
+    # Budget caps are ordinary config.json knobs now (budget.json retired) — they
+    # fall through to the generic knob_store write path below like any other knob.
     if not write_persisted_knob(env_name, val):
         raise RuntimeError(f"config setting could not be persisted: {env_name}")
     os.environ[env_name] = val
@@ -1525,8 +1512,6 @@ def set_operator_config(
 
 
 _BUDGET_BATCH_ALIASES = frozenset({
-    "per_mission_cap",
-    "daily_cap",
     "global_daily_cap",
     "codex_daily_requests",
     "copilot_daily_requests",
@@ -1555,33 +1540,13 @@ def set_budget_config(
             env_name,
             str(values[alias]),
         )
-    from ..core.project_budget import write_project_budget
-
-    project_values = {
-        "per_mission_cap_usd": normalized.pop("ARGUS_SKILL_PER_MISSION_CAP_USD"),
-        "daily_cap_usd": normalized.pop("ARGUS_SKILL_DAILY_CAP_USD"),
-    }
-    global_value = normalized.pop("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD")
+    # Budget caps are ordinary config.json knobs now (budget.json retired) — write
+    # the whole normalized batch (caps + quota knobs) to the knob_store.
+    for key, value in normalized.items():
+        os.environ[key] = value
     if not write_persisted_knobs(normalized):
         raise RuntimeError("budget settings could not be persisted")
-    from ..core.project_budget import write_global_budget
-
-    global_budget = write_global_budget(
-        global_root,
-        {"global_daily_cap_usd": global_value},
-    )
-    project_budget = write_project_budget(project_state_dir, project_values)
-    return {
-        "values": {
-            **normalized,
-            "ARGUS_SKILL_PER_MISSION_CAP_USD": str(project_budget.per_mission_cap_usd),
-            "ARGUS_SKILL_DAILY_CAP_USD": str(project_budget.daily_cap_usd),
-            "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": str(
-                global_budget.global_daily_cap_usd
-            ),
-        },
-        "restart_required": True,
-    }
+    return {"values": dict(normalized), "restart_required": True}
 
 
 def set_identity(
@@ -1924,6 +1889,7 @@ def create_app(
         objective: str = ""
         name: str = ""
         launch_cwd: str = ""
+        workdir: str = ""
 
     class _LaunchCwdIn(BaseModel):
         launch_cwd: str
@@ -2109,6 +2075,7 @@ def create_app(
                 "objective": body.objective,
                 "name": body.name,
                 "launch_cwd": body.launch_cwd,
+                "workdir": body.workdir,
             },
             command_id=body.command_id or None,
             expected_revision=body.expected_revision,
@@ -2117,6 +2084,7 @@ def create_app(
                 body.objective,
                 name=body.name,
                 launch_cwd=body.launch_cwd,
+                workdir=body.workdir,
                 global_root=global_root,
             ),
         )
@@ -2363,12 +2331,13 @@ def create_app(
             raise HTTPException(status_code=404, detail="unknown backlog item")
         if result.get("error"):
             raise HTTPException(status_code=409, detail=result["error"])
-        result["daemon"] = await run_in_threadpool(
-            start_project_daemon,
-            sid,
-            global_root=project_root,
-            reclaim_idle=True,
-        )
+        if result.get("resolved"):
+            result["daemon"] = await run_in_threadpool(
+                start_project_daemon,
+                sid,
+                global_root=project_root,
+                reclaim_idle=True,
+            )
         return result
 
     @app.post("/api/projects/{sid}/message", dependencies=[Depends(_require_auth)])
@@ -2387,7 +2356,14 @@ def create_app(
             manager_message, sid, body.text, global_root=project_root
         )
         # A task classification lazily spawns the executor, mirroring /tasks.
-        if result.get("kind") == "task" and not result.get("daemon_alive"):
+        starts_executor = (
+            result.get("kind") == "task"
+            or (
+                result.get("kind") == "pending_question"
+                and bool(result.get("resolved"))
+            )
+        )
+        if starts_executor and not result.get("daemon_alive"):
             result["daemon"] = await run_in_threadpool(
                 start_project_daemon, sid, global_root=project_root,
                 resume_continuous=bool(result.get("continuous")),
@@ -2437,9 +2413,16 @@ def create_app(
                 )
                 # Mirror the blocking endpoint: a task classification lazily spawns
                 # the executor so streamed dispatch behaves like /message + /tasks.
+                starts_executor = (
+                    result.get("kind") == "task"
+                    or (
+                        result.get("kind") == "pending_question"
+                        and bool(result.get("resolved"))
+                    )
+                )
                 if (
                     not cancel_event.is_set()
-                    and result.get("kind") == "task"
+                    and starts_executor
                     and not result.get("daemon_alive")
                 ):
                     try:

@@ -10,7 +10,7 @@ This is a thin ORCHESTRATION layer — it reuses the real machinery, adding only
 the user-facing *division* step:
 
   * decide     → ``Manager.decide_vertical`` — an explicit built-in env choice is
-                 reused directly; otherwise a tool-free Fast Router picks a clear
+                 reused directly; otherwise the Manager's tool-free fast pass picks a clear
                  existing vertical in one model request. Only uncertainty/new-domain
                  cases escalate to one bounded grounded call (no keyword classifier;
                  see ``manager/domain_author.py``)
@@ -27,6 +27,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,7 +49,7 @@ from .domain_author import VerticalDecision, VerticalDecisionError
 
 # Verticals that run a lean optimize/speedrun loop rather than the paper pipeline.
 _OPTIMIZE_VERTICALS = frozenset(
-    {"speedrun", "nanochat", "nanogpt_speedrun", "kernelbench"}
+    {"speedrun", "kernel_engineering", "nanochat", "nanogpt_speedrun", "kernelbench"}
 )
 
 log = logging.getLogger(__name__)
@@ -62,6 +63,28 @@ _DEFAULT_GROUNDED_ROUTE_MAX_PROMPT_CHARS = 32_000
 _SESSION_FILE = ".manager_session.json"
 _SESSION_LOCK = ".manager_session.lock"
 _PIPELINE_LOCK = ".manager_pipeline.lock"
+_PIPELINE_YIELD_FILE = ".manager_pipeline_yield.json"
+
+
+def _manager_backend_failure(result: Any) -> tuple[bool, str]:
+    """Return Manager failure status and its best diagnostic.
+
+    stderr is retained diagnostic output, not an independent failure signal.
+    Required Manager output is validated separately by each consumer.
+    """
+    fatal = str(getattr(result, "fatal_error", "") or "").strip()
+    failed = bool(
+        int(getattr(result, "exit_code", 0) or 0) != 0
+        or getattr(result, "turn_failed", False)
+        or fatal
+    )
+    if not failed or fatal:
+        return failed, fatal
+    stderr = "\n".join(
+        map(str, getattr(result, "stderr_lines", None) or [])
+    ).strip()
+    return True, stderr
+
 
 def _manager_reasoning_effort() -> str:
     for key in (
@@ -172,6 +195,69 @@ def manager_pipeline_lock(root: Path | str):
         finally:
             if fcntl is not None:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def request_manager_pipeline_yield(root: Path | str) -> str:
+    """Ask the daemon to leave the next mission boundary open for Manager."""
+    path = Path(root) / _PIPELINE_YIELD_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    token = uuid.uuid4().hex
+    payload = {
+        "schema_version": 1,
+        "token": token,
+        "pid": os.getpid(),
+        "requested_at": time.time(),
+    }
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{token}.tmp")
+    tmp.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+    return token
+
+
+def _clear_pipeline_yield_if_token(path: Path, token: str) -> bool:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(payload, dict) or str(payload.get("token") or "") != token:
+        return False
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        return False
+    return True
+
+
+def clear_manager_pipeline_yield(root: Path | str, token: str) -> bool:
+    return _clear_pipeline_yield_if_token(
+        Path(root) / _PIPELINE_YIELD_FILE,
+        token,
+    )
+
+
+def manager_pipeline_yield_requested(root: Path | str) -> bool:
+    """Return whether a live Manager request is waiting for the boundary."""
+    path = Path(root) / _PIPELINE_YIELD_FILE
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        token = str(payload.get("token") or "")
+        pid = int(payload.get("pid") or 0)
+        requested_at = float(payload.get("requested_at") or 0.0)
+    except (FileNotFoundError, OSError, json.JSONDecodeError, TypeError, ValueError):
+        return False
+    if not token or pid <= 0:
+        _clear_pipeline_yield_if_token(path, token)
+        return False
+    try:
+        os.kill(pid, 0)
+    except (ProcessLookupError, PermissionError):
+        _clear_pipeline_yield_if_token(path, token)
+        return False
+    if requested_at <= 0 or time.time() - requested_at > _pipeline_lock_timeout_s() + 60:
+        _clear_pipeline_yield_if_token(path, token)
+        return False
+    return True
 
 
 @contextmanager
@@ -318,7 +404,8 @@ class _ManagerSession:
                     run_label=run_label,
                     resume_thread_id=tid,
                 )
-                if tid and result_has_missing_resume_target(result):
+                failed, _detail = _manager_backend_failure(result)
+                if tid and failed and result_has_missing_resume_target(result):
                     try:
                         self._session_path.unlink(missing_ok=True)
                     except OSError:
@@ -385,6 +472,7 @@ class Division:
     kind: str                # "research" | "optimize" | "custom"
     regular: bool            # True = maps to a preset pipeline; False = free-form
     stages: list[str]        # the vertical's Stage template (engine advances current_stage)
+    workflow_mode: str = "staged"
     execution_task: str = ""
     # Set when the Manager AUTHORED a new data domain for a task that fit no
     # preset vertical. ``pending_confirmation`` means the proposal has NOT been
@@ -403,6 +491,7 @@ class Division:
         if self.kind == "custom":
             tag = "new domain"
         return (f"[manager] {self.kind} task ({tag}) → vertical={self.vertical}, "
+                f"workflow={self.workflow_mode}, "
                 f"{len(self.stages)} stage(s): {' → '.join(self.stages)}")
 
 
@@ -426,6 +515,9 @@ class StageTransition:
     source: str = "manager_llm"
     # Non-secret parser/runtime code for log triage (never raw model output).
     diagnostic: str = ""
+    # True only when an authoritative Manager HOLD satisfies a persisted
+    # Planner waiting condition and requests immediate replanning.
+    resolves_wait: bool = False
 
 
 def _read_json_object(path: Path) -> dict[str, Any] | None:
@@ -644,12 +736,8 @@ class Manager:
                 ),
                 run_label="manager-research-target",
             )
-        detail = str(getattr(result, "fatal_error", "") or "").strip()
-        if int(getattr(result, "exit_code", 0) or 0) != 0 or detail:
-            if not detail:
-                detail = "\n".join(
-                    map(str, getattr(result, "stderr_lines", None) or [])
-                ).strip()
+        failed, detail = _manager_backend_failure(result)
+        if failed:
             raise VerticalDecisionError(
                 "Manager research-target backend failed"
                 + (f": {detail}" if detail else "")
@@ -672,9 +760,7 @@ class Manager:
     ) -> VerticalDecision:
         """Choose the vertical for ``task``.
 
-        A valid built-in named by ``ARGUS_SKILL_VERTICAL`` is an explicit operator
-        decision, so it is reused directly without giving the domain author a
-        chance to replace it with a task-specific DATA domain. Otherwise a compact,
+        Every formal task is classified by the Manager itself. A compact,
         tool-free model request chooses a clear existing vertical directly. Invalid,
         low-confidence, explicitly uncertain, or potentially-new-domain answers
         escalate once to the bounded grounded repository-inspection prompt.
@@ -687,33 +773,8 @@ class Manager:
         is missing / not a valid choice, RAISES ``VerticalDecisionError``. There is
         NO keyword classifier and NO silent fallback to the research default.
         """
-        explicit_builtin = vertical_select.explicit_builtin_vertical()
-        if explicit_builtin is not None:
-            from ..verticals._base import (
-                load_vertical,
-                vertical_research_target_levels,
-            )
-
-            target_levels = vertical_research_target_levels(
-                load_vertical(explicit_builtin, project_root=self.project_root)
-            )
-            return VerticalDecision(
-                choice="existing",
-                vertical=explicit_builtin,
-                execution_task=task.strip(),
-                research_target_level=(
-                    self._decide_research_target(
-                        task,
-                        root_task_id=root_task_id,
-                        supported_levels=target_levels,
-                    )
-                    if target_levels
-                    else ""
-                ),
-            )
-
         # Routing is intentionally isolated from the persistent Manager chat
-        # session. Reusing prior conversation would violate the Fast Router's
+        # session. Reusing prior conversation would violate the fast pass's
         # strict context bound and make cost depend on unrelated earlier turns.
         backend = self.runner
         if backend is None:
@@ -748,14 +809,6 @@ class Manager:
             or getattr(self.runner, "_backend_name", "")
             or ""
         ).strip().lower()
-
-        def _failure_detail(result: Any) -> str:
-            detail = str(getattr(result, "fatal_error", "") or "").strip()
-            if not detail:
-                detail = "\n".join(
-                    map(str, getattr(result, "stderr_lines", None) or [])
-                ).strip()
-            return detail
 
         with self._task_usage_scope(root_task_id):
             fast_prompt = ""
@@ -803,10 +856,10 @@ class Manager:
                         skip_git_repo_check=True,
                         extra_args=fast_extra_args,
                     ),
-                    run_label="manager-vertical-fast-route",
+                    run_label="manager-classify-fast",
                 )
-                fast_detail = _failure_detail(fast_result)
-                if int(getattr(fast_result, "exit_code", 0) or 0) != 0 or fast_detail:
+                fast_failed, fast_detail = _manager_backend_failure(fast_result)
+                if fast_failed:
                     raise VerticalDecisionError(
                         "Manager fast-route backend failed"
                         + (f": {fast_detail}" if fast_detail else "")
@@ -825,8 +878,10 @@ class Manager:
                     return VerticalDecision(
                         choice="existing",
                         vertical=fast_route.vertical,
+                        workflow_mode=fast_route.workflow_mode,
                         execution_task=task.strip(),
                         research_target_level=fast_route.research_target_level,
+                        target_venue=fast_route.target_venue,
                     )
                 log.info(
                     "Manager fast route escalated to grounded routing: %s",
@@ -878,10 +933,10 @@ class Manager:
                     skip_git_repo_check=True,
                     extra_args=grounded_extra_args,
                 ),
-                run_label="manager-vertical-grounded",
+                run_label="manager-classify-grounded",
             )
-        detail = _failure_detail(result)
-        if int(getattr(result, "exit_code", 0) or 0) != 0 or detail:
+        failed, detail = _manager_backend_failure(result)
+        if failed:
             raise VerticalDecisionError(
                 "Manager grounded-route backend failed"
                 + (f": {detail}" if detail else "")
@@ -925,6 +980,8 @@ class Manager:
             return "optimize"
         if vertical in ("research", "quant"):
             return "research"
+        if vertical == "software":
+            return "software"
         return "custom"  # a project-local (Manager-authored) data domain
 
     # ---- triage: which vertical/kind, and is this a real task? ----
@@ -1024,6 +1081,7 @@ class Manager:
         decision: VerticalDecision,
         *,
         ask_on_new_domain: bool = False,
+        force_stage_reset: bool = False,
         _lock_held: bool = False,
     ) -> Division:
         """Commit a previously computed decision without another model call."""
@@ -1033,7 +1091,28 @@ class Manager:
                 task,
                 decision,
                 ask_on_new_domain=ask_on_new_domain,
+                force_stage_reset=force_stage_reset,
             )
+
+    def _refresh_agents_runtime_contract(
+        self,
+        *,
+        objective: str,
+        vertical: str,
+    ) -> None:
+        """Refresh only the Manager-owned block of an existing AGENTS.md."""
+        try:
+            from ..tools.new_auto_research_project import (
+                refresh_agents_runtime_contract,
+            )
+
+            refresh_agents_runtime_contract(
+                self.project_root,
+                objective=objective,
+                vertical=vertical,
+            )
+        except Exception:  # noqa: BLE001 — Manager commit remains authoritative
+            log.exception("manager: failed to refresh AGENTS.md runtime contract")
 
     def _commit_vertical_decision_locked(
         self,
@@ -1041,6 +1120,7 @@ class Manager:
         decision: VerticalDecision,
         *,
         ask_on_new_domain: bool,
+        force_stage_reset: bool = False,
     ) -> Division:
         old_vertical = vertical_select._persisted_vertical(self.project_root)
         if decision.choice == "new":
@@ -1049,6 +1129,7 @@ class Manager:
                 division = Division(
                     task=task, vertical=proposal.name, kind="custom",
                     regular=True, stages=list(proposal.stages),
+                    workflow_mode=decision.workflow_mode,
                     execution_task=decision.execution_task,
                     proposed_domain=proposal, pending_confirmation=True,
                 )
@@ -1059,6 +1140,18 @@ class Manager:
                 proposal,
                 _old_vertical=old_vertical,
                 execution_task=decision.execution_task,
+                workflow_mode=decision.workflow_mode,
+            )
+            if force_stage_reset:
+                vertical_select.reset_stage_for_new_intent(
+                    self.project_root,
+                    old_vertical=old_vertical,
+                    new_vertical=division.vertical,
+                    force_replacement=True,
+                )
+            self._refresh_agents_runtime_contract(
+                objective=division.execution_task or task,
+                vertical=division.vertical,
             )
             self._apply_vertical_decision_rendering(decision)
             return division
@@ -1070,11 +1163,14 @@ class Manager:
                 self.project_root,
                 vertical,
                 research_target_level=decision.research_target_level or None,
+                workflow_mode=decision.workflow_mode,
+                target_venue=decision.target_venue or None,
             )
             vertical_select.reset_stage_for_new_intent(
                 self.project_root,
                 old_vertical=old_vertical,
                 new_vertical=vertical,
+                force_replacement=force_stage_reset,
             )
         division = Division(
             task=task,
@@ -1082,7 +1178,12 @@ class Manager:
             kind=self._kind_for(vertical),
             regular=True,
             stages=stages,
+            workflow_mode=decision.workflow_mode,
             execution_task=decision.execution_task,
+        )
+        self._refresh_agents_runtime_contract(
+            objective=division.execution_task or task,
+            vertical=division.vertical,
         )
         self._apply_vertical_decision_rendering(decision)
         return division
@@ -1094,6 +1195,7 @@ class Manager:
         *,
         _old_vertical: str | None = None,
         execution_task: str = "",
+        workflow_mode: str = "staged",
         _lock_held: bool = False,
     ) -> Division:
         """Write the authored data domain to disk and persist it as the active
@@ -1114,6 +1216,7 @@ class Manager:
                 proposal,
                 _old_vertical=_old_vertical,
                 execution_task=execution_task,
+                workflow_mode=workflow_mode,
             )
 
     def _commit_domain_locked(
@@ -1123,6 +1226,7 @@ class Manager:
         *,
         _old_vertical: str | None,
         execution_task: str,
+        workflow_mode: str,
     ) -> Division:
         from ..verticals._data_domain import write_data_domain
 
@@ -1143,7 +1247,11 @@ class Manager:
                 stages=list(proposal.stages),
                 created_by="manager",
             )
-            persist_vertical(self.project_root, proposal.name)
+            persist_vertical(
+                self.project_root,
+                proposal.name,
+                workflow_mode=workflow_mode,
+            )
             vertical_select.reset_stage_for_new_intent(
                 self.project_root,
                 old_vertical=_old_vertical,
@@ -1156,6 +1264,7 @@ class Manager:
                 execution_task
                 or str(getattr(proposal, "execution_task", "") or "")
             ),
+            workflow_mode=workflow_mode,
             pending_confirmation=False,
         )
 
@@ -1441,6 +1550,7 @@ class Manager:
             fallback_empty_stage_decision,
             final_stage_completion_decision,
             parse_stage_decision,
+            reject_certified_ground_truth_snapshot_rollback,
         )
 
         root = Path(project_root) if project_root is not None else self.project_root
@@ -1704,7 +1814,10 @@ class Manager:
                     )
             if not str(raw or "").strip():
                 decision = fallback_empty_stage_decision(
-                    review, current_stage=cur, stage_order=order
+                    review,
+                    current_stage=cur,
+                    stage_order=order,
+                    checklist_contract=checklist_contract,
                 )
             else:
                 try:
@@ -1745,6 +1858,11 @@ class Manager:
                         })
                 decision = parse_stage_decision(
                     raw, current_stage=cur, stage_order=order
+                )
+                decision = reject_certified_ground_truth_snapshot_rollback(
+                    decision,
+                    project_root=root,
+                    current_stage=cur,
                 )
             if not open_ended:
                 _completion_vertical = resolve_vertical(root)
@@ -1792,7 +1910,8 @@ class Manager:
                     diagnostic="stage_write_illegal_target",
                 )
             return StageTransition("advance", decision.target_stage, decision.reason,
-                                   cur, "manager_llm", decision.diagnostic)
+                                   cur, "manager_llm", decision.diagnostic,
+                                   decision.resolves_wait)
 
         if decision.action == "complete":
             try:
@@ -1804,7 +1923,8 @@ class Manager:
                     diagnostic="stage_write_illegal_target",
                 )
             return StageTransition("complete", decision.target_stage, decision.reason,
-                                   cur, "manager_llm", decision.diagnostic)
+                                   cur, "manager_llm", decision.diagnostic,
+                                   decision.resolves_wait)
 
         if decision.action == "rollback":
             try:
@@ -1817,10 +1937,12 @@ class Manager:
                     diagnostic="stage_write_illegal_target",
                 )
             return StageTransition("rollback", decision.target_stage, decision.reason,
-                                   cur, "manager_llm", decision.diagnostic)
+                                   cur, "manager_llm", decision.diagnostic,
+                                   decision.resolves_wait)
 
         return StageTransition("hold", cur, decision.reason or "manager held",
-                               cur, "manager_llm", decision.diagnostic)
+                               cur, "manager_llm", decision.diagnostic,
+                               decision.resolves_wait)
 
     # ---- skill-library tidy-up (the Manager is the "janitor") ----
     def classify_skill_placement(self, *, content: str, task: str) -> Any:

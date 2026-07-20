@@ -232,8 +232,7 @@ def _first_alpha_token(text: str) -> str:
 _CONFIG_ROLE_KNOBS = frozenset({"backend", "model", "effort"})
 _CONFIG_GLOBAL_KNOBS = frozenset(
     {
-        "per_mission_cap",
-        "daily_cap",
+        "global_daily_cap",
         "max_daemons",
         "codex_daily_requests",
         "copilot_daily_requests",
@@ -308,11 +307,7 @@ def build_config_intent_prompt(text: str) -> str:
         "o3, gemini-3.5 (any id the backend supports)\n"
         "    effort   — a role's reasoning effort: low | medium | high | max | xhigh\n"
         "  GLOBAL (no role):\n"
-        "    per_mission_cap — the STANDING default USD cap applied to EVERY "
-        "future mission (a dollar amount). A budget stated for ONE specific / "
-        'current run ("这轮就给 200", "for this mission only", "this run gets '
-        '$50") is a per-mission TASK constraint, NOT a settings write — answer NONE.\n'
-        "    daily_cap       — the STANDING default USD cap per local day (a dollar amount)\n"
+        "    global_daily_cap — the sole host-global USD cap per local day\n"
         "    max_daemons     — maximum background daemons running at once (non-negative integer)\n"
         "    codex_daily_requests — host-wide Codex provider-call cap per local day\n"
         "    copilot_daily_requests — host-wide Copilot provider-call cap per local day\n"
@@ -330,7 +325,7 @@ def build_config_intent_prompt(text: str) -> str:
         "answer NONE.\n\n"
         "If it IS a settings-change request, reply with EXACTLY one line:\n"
         "SET <knob> <roles> <value>\n"
-        "  <knob>  = backend | model | effort | per_mission_cap | daily_cap | "
+        "  <knob>  = backend | model | effort | global_daily_cap | "
         "max_daemons | codex_daily_requests | copilot_daily_requests | "
         "copilot_daily_premium | safe_mode | show_reasoning | telegram\n"
         "  <roles> = for backend/model/effort: a comma-separated list drawn from "
@@ -468,7 +463,7 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
         "CONFIG: SET only when the operator asks to change an Argus STANDING "
         "cockpit default. Role knobs: backend|model|effort for "
         "manager,planner,engineer,reviewer or ALL. Global knobs: "
-        "per_mission_cap,daily_cap,max_daemons,codex_daily_requests,"
+        "global_daily_cap,max_daemons,codex_daily_requests,"
         "copilot_daily_requests,copilot_daily_premium,safe_mode,show_reasoning,"
         "telegram. Questions, mentions, recommendations, and settings/budgets "
         "limited to this one task are NONE. Default NONE.\n\n"

@@ -137,4 +137,15 @@ def parse_frontmatter(text: str, cls: type[T]) -> T:
     # longer declares so old entries still load instead of raising TypeError.
     known = {f.name for f in fields(cls)}
     data = {k: v for k, v in data.items() if k in known}
+    if cls is PageCard:
+        # Runtime Engineers may write concise wiki pages while the schema grows.
+        # Fill only structural defaults so legacy/minimal cards remain indexable.
+        data.setdefault("tags", [])
+        data.setdefault("sources", [])
+        data.setdefault("related_runs", [])
+        data.setdefault("related_projects", [])
+        data.setdefault("revisit_after", None)
+        data.setdefault("created_at", date.today())
+        data.setdefault("last_reviewed_at", data["created_at"])
+        data.setdefault("reviewer_note", "")
     return cls(**data)

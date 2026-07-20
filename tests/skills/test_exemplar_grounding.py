@@ -66,6 +66,12 @@ def _seed_exemplar(root: Path, slug: str, *, with_figs: bool = True,
 
 
 def _seed_passing(root: Path, *, with_conformance: bool = False) -> None:
+    research = root / "research"
+    research.mkdir(parents=True, exist_ok=True)
+    (research / "PIPELINE_STATE.json").write_text(
+        json.dumps({"vertical": "research", "target_venue": "EMNLP"}),
+        encoding="utf-8",
+    )
     style_ref = root / "paper" / "style_ref"
     style_ref.mkdir(parents=True, exist_ok=True)
     e1 = _seed_exemplar(root, "best2024-awesome")

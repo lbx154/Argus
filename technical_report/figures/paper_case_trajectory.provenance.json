@@ -1,0 +1,28 @@
+{
+  "figure_id": "representative-paper-trajectory",
+  "reader_question": "How does one Argus campaign recover from failed hypotheses and late submission defects?",
+  "claim": "The representative campaign uses seven early no-go rollbacks, a scientific scope pivot, and two late submission repairs to reach a completed manuscript.",
+  "evidence": [
+    "stage_transitions.csv",
+    "mm_hallucination_trace.json"
+  ],
+  "encoding": "An actual Stage-versus-time trace carries the main visual, with six campaign statistics above it and five role-resolved episodes below.",
+  "scope": "One 163.6-hour multimodal-hallucination campaign; role labels summarize structured events rather than private model reasoning.",
+  "target_size": "12 x 5.2 inch source canvas; approximately 2.9 inches high at manuscript width",
+  "visual_style": "shared Argus anime-editorial palette, cream paper, mountain-ridge motif, reusable role characters, and rollback red reserved for failure transitions",
+  "character_assets": [
+    "assets/anime/manager.svg",
+    "assets/anime/planner.svg",
+    "assets/anime/engineer.svg",
+    "assets/anime/reviewer.svg"
+  ],
+  "editable_source": [
+    "build_paper_case_study.py",
+    "paper_case_trajectory.html"
+  ],
+  "export": [
+    "paper_case_trajectory.pdf",
+    "paper_case_trajectory.svg",
+    "paper_case_trajectory.png"
+  ]
+}

@@ -31,6 +31,7 @@ from argus_skill.engineer.runner import (
     SupervisedEngineer,
 )
 from argus_skill.reviewer import Reviewer, ReviewerConfig
+from argus_skill.skills.vertical_select import persist_vertical
 
 _LOG_PATH = "/abs/global/projects/deadbeef/events.jsonl"
 _CALL_ID = "0123456789abcdef"
@@ -42,8 +43,16 @@ def _build(
     call_id: str = "",
     monkeypatch=None,
     measured: bool = False,
+    workflow_mode: str | None = "staged",
+    scope: str = "",
+    main_error: str | None = None,
 ) -> str:
     if monkeypatch is not None:
+        if workflow_mode is not None:
+            monkeypatch.setattr(
+                "argus_skill.skills.vertical_select.resolve_evidence_mode",
+                lambda _root: workflow_mode,
+            )
         if measured:
             monkeypatch.setenv("ARGUS_SKILL_MEASURED_MODE", "1")
         else:
@@ -56,10 +65,11 @@ def _build(
         round_index=4,
         session_id=None,
         main_summary="HANDOFF: did X. artifact at out.json",
-        main_error=None,
+        main_error=main_error,
         prior_checkpoint={},
         engineer_log_path=path,
         engineer_call_id=call_id,
+        scope=scope,
     )
 
 
@@ -68,14 +78,10 @@ def _build(
 # --------------------------------------------------------------------------- #
 def test_audit_section_present_when_log_path_set(monkeypatch) -> None:
     p = _build(_LOG_PATH, monkeypatch=monkeypatch)
-    assert "Engineer execution-log audit" in p
+    assert "Engineer execution log (on-demand)" in p
     assert _LOG_PATH in p
-    # concrete grep recipe pointing the reviewer at the engineer.progress events
-    assert "engineer.progress" in p
-    assert "grep" in p
-    # process red flags it must catch
-    assert "use_attach" in p
-    assert "HARDCODE" in p.upper()
+    assert "Do not read or grep it routinely" in p
+    assert "use_attach" not in p
 
 
 def test_no_audit_section_when_log_path_empty(monkeypatch) -> None:
@@ -85,7 +91,12 @@ def test_no_audit_section_when_log_path_empty(monkeypatch) -> None:
 
 
 def test_audit_recipes_scope_searches_to_current_engineer_call(monkeypatch) -> None:
-    p = _build(_LOG_PATH, call_id=_CALL_ID, monkeypatch=monkeypatch)
+    p = _build(
+        _LOG_PATH,
+        call_id=_CALL_ID,
+        monkeypatch=monkeypatch,
+        scope="final_submission",
+    )
 
     assert f"Current engineer call id: `{_CALL_ID}`" in p
     assert f"'{sys.executable}' -I -m argus_skill.tools.event_log_query" in p
@@ -96,11 +107,44 @@ def test_audit_recipes_scope_searches_to_current_engineer_call(monkeypatch) -> N
 
 
 def test_missing_call_id_keeps_legacy_unscoped_recipes(monkeypatch) -> None:
-    p = _build(_LOG_PATH, monkeypatch=monkeypatch)
+    p = _build(_LOG_PATH, monkeypatch=monkeypatch, scope="final_submission")
 
     assert "Current engineer call id:" not in p
     assert "grep -nE 'use_attach" in p
     assert "grep -nE 'pytest" in p
+
+
+def test_proportional_research_uses_compact_on_demand_audit(monkeypatch) -> None:
+    p = _build(
+        _LOG_PATH,
+        call_id=_CALL_ID,
+        monkeypatch=monkeypatch,
+        workflow_mode="proportional",
+    )
+
+    assert "Engineer execution log (on-demand)" in p
+    assert "Do not read or grep it routinely" in p
+    assert _CALL_ID in p
+    assert "use_attach" not in p
+    assert "grep recipes" not in p.lower()
+
+
+def test_manager_staged_research_uses_compact_on_demand_audit(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    persist_vertical(tmp_path, "research", workflow_mode="staged")
+    monkeypatch.setenv("ARGUS_SKILL_PROJECT_ROOT", str(tmp_path))
+
+    p = _build(
+        _LOG_PATH,
+        call_id=_CALL_ID,
+        monkeypatch=monkeypatch,
+        workflow_mode=None,
+    )
+
+    assert "Engineer execution log (on-demand)" in p
+    assert "Do not read or grep it routinely" in p
 
 
 def test_empty_path_is_byte_for_byte_legacy_prompt() -> None:
@@ -127,15 +171,30 @@ def test_measured_mode_audit_is_red_flag_only(monkeypatch) -> None:
     p = _build(_LOG_PATH, monkeypatch=monkeypatch, measured=True)
     # measured framing is still injected
     assert "MEASURED-BENCHMARK MODE" in p
-    # the audit section is present but explicitly red-flag-only there
-    assert "Engineer execution-log audit" in p
-    assert "RED-FLAG-ONLY" in p
+    assert "Engineer execution log (on-demand)" in p
+    assert "grep recipes" not in p.lower()
 
 
-def test_paper_mode_audit_is_audit_by_default(monkeypatch) -> None:
-    p = _build(_LOG_PATH, monkeypatch=monkeypatch, measured=False)
+def test_final_submission_uses_full_process_audit(monkeypatch) -> None:
+    p = _build(
+        _LOG_PATH,
+        monkeypatch=monkeypatch,
+        measured=False,
+        scope="final_submission",
+    )
     assert "RED-FLAG-ONLY" not in p
     assert "Decide WHEN to dig" in p
+    assert "use_attach" in p
+
+
+def test_engineer_error_uses_full_process_audit(monkeypatch) -> None:
+    p = _build(
+        _LOG_PATH,
+        monkeypatch=monkeypatch,
+        main_error="worker exited unexpectedly",
+    )
+    assert "Engineer execution-log audit" in p
+    assert "grep recipes" in p.lower()
 
 
 # --------------------------------------------------------------------------- #

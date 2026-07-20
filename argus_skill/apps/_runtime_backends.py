@@ -146,21 +146,20 @@ class _MemoryRunner:
         benchmark_path = root / "experiments" / "BENCHMARK_PROVENANCE.md"
 
         if not state_path.exists():
-            # Do NOT hardcode the venue — a run configured for AAAI (or any other
-            # venue via ARGUS_SKILL_VENUE) was previously written as EMNLP here and
-            # then graded/formatted against EMNLP rules. Resolve the venue the same
-            # way the rest of the system does (ARGUS_SKILL_VENUE env > default), so
-            # the harness records the operator's configured venue rather than
-            # asserting one.
+            # Do NOT hardcode a venue. Preserve an explicit env/local profile when
+            # present; otherwise leave target_venue absent so the research loop
+            # performs live selection among currently-open CCF-A venues.
             from ..skills.venue_profiles import resolve_venue_profile
 
-            target_venue = resolve_venue_profile(root).key
+            try:
+                target_venue = resolve_venue_profile(root).key
+            except KeyError:
+                target_venue = None
             state = {
                 "current_stage": "plan",
                 "mission_type": "research-bootstrap",
                 "project": title,
                 "objective": objective,
-                "target_venue": target_venue,
                 "stages": {
                     "research": {
                         "status": "done",
@@ -181,6 +180,8 @@ class _MemoryRunner:
                     "submission": {"status": "missing"},
                 },
             }
+            if target_venue:
+                state["target_venue"] = target_venue
             self._write_text(
                 state_path,
                 json.dumps(state, indent=2, sort_keys=True) + "\n",

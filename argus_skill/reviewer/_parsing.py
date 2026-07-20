@@ -12,8 +12,9 @@ from typing import Any, cast
 
 from ..core.models import ReviewDecision, ReviewStatus
 from ..core.research_contract import adapt_legacy_research_result_payload
+from .failure_taxonomy import normalize_failure_layer
 
-_BASE_REVIEW_STATUSES = {"done", "continue", "blocked"}
+_BASE_REVIEW_STATUSES = {"done", "continue", "blocked", "replan_requested"}
 _RESEARCH_PAUSE_STATUSES = {
     "research_incomplete",
     "paused_no_breakthrough",
@@ -124,6 +125,7 @@ def parse_decision_text(
         validator_id=validator_id,
         repair_paths=repair_paths,
         scientific_decision=_parse_scientific_decision(parsed),
+        failure_layer=normalize_failure_layer(parsed.get("failure_layer")),
         # Legacy replay compatibility only. Current Reviewer schemas no longer
         # expose these fields; live Reviewers edit the injected paths directly.
         skill_ops=_parse_skill_ops(parsed),
@@ -619,6 +621,8 @@ def _parse_next_action(parsed: dict, *, status: str) -> str | None:
         return "No further action needed. Objective complete."
     if status == "blocked":
         return "Need additional user input before continuing."
+    if status == "replan_requested":
+        return "Return control to the Planner/Manager for a replacement plan."
     if status == "continue":
         return "Continue implementation and include clear completion evidence."
     return None

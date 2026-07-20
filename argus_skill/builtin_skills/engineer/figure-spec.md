@@ -12,15 +12,12 @@ created_at: 2026-06-01T00:00:00+00:00
 > Renderer script copied verbatim to
 > `argus_skill/builtin_skills/engineer/figure_spec_scripts/figure_renderer.py`.
 
-## When to use this vs `paper-illustration-image2`
+## When to use this renderer
 
-| Use figure-spec when | Use paper-illustration-image2 when |
-|---|---|
-| Architecture / system diagram | Method overview teaser |
-| Workflow / pipeline diagram | Conceptual figure |
-| Audit cascade / data flow | Qualitative example visual |
-| ER / dependency graph | Schematic with stylistic content |
-| Anything where labels, colors, arrow targets must be **exactly** as specified and the figure must be **editable** post-render | Anything where the visual feel matters more than exact node placement |
+Use FigureSpec when architecture, workflow, audit cascade, ER/dependency graphs,
+labels, colors, and arrow targets must be exact and editable. The Research
+Visualization Router decides whether FigureSpec, browser SVG, diagrams, PPT
+Master, data-chart tooling, or image-2 best fits a paper figure.
 
 The two skills are complementary; both can live in the same paper.
 Data/metric/result plots stay with matplotlib (the existing
@@ -155,13 +152,12 @@ group-box rendering automatically; the spec only declares topology.
 
 ## Anti-patterns
 
-- ❌ Using this for teaser / conceptual figures — image-2 produces
-  more inviting visuals; use that instead and register in
-  `paper/figures/IMAGE2_FIGURES.json`
+- ❌ Using it automatically for every teaser/conceptual figure — first route by
+  semantics and available capability through Research Visualization Router.
 - ❌ Hand-editing the SVG — your changes are lost the next time
   someone re-renders. Edit the spec.
-- ❌ Embedding arbitrary inline SVG / raster in a node — keep the
-  spec abstract; if you need raster content, switch to image-2
+- ❌ Embedding arbitrary inline SVG / raster in a node — keep the spec abstract;
+  if raster content is essential, return to the router.
 - ❌ Using this for data plots — matplotlib already covers that
   better
 
@@ -170,6 +166,7 @@ group-box rendering automatically; the spec only declares topology.
 - Renders to `paper/figures/<name>.svg`
 - Spec lives at `paper/figures/<name>.spec.json` so future re-renders
   are reproducible and visible in `git diff`
+- Optionally register the spec/renderer in `FIGURE_PROVENANCE.json` for handoff.
 - Add the SVG to LaTeX with `\includegraphics{figures/<name>.svg}`
   (most modern TeX engines handle SVG directly; for older toolchains,
   convert to PDF with `inkscape --export-type=pdf`)

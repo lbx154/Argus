@@ -115,13 +115,20 @@ campaign。运行时把可靠性作为一等问题处理：有界的 mission/每
 
 Argus 要求 Python 3.11+ 和至少一个受支持的 agent CLI。
 
+GitHub Copilot 订阅用户先安装并登录官方 CLI：
+
+```bash
+npm install -g @github/copilot
+copilot login
+```
+
 ```bash
 git clone https://github.com/lbx154/argus-skill.git
 cd argus-skill
 python -m venv .venv
 . .venv/bin/activate
 pip install -e .
-argus-skill --setup
+argus-skill --setup  # PATH 中只有 Copilot 时自动选择并持久化 copilot backend
 ```
 
 如果尚无机器策略，setup 向导会自动生成一份受信任的基础策略，并且绝不会覆盖 operator

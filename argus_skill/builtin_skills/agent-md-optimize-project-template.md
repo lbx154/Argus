@@ -12,10 +12,12 @@ AGENTS.md Optimize Project Template
 - Use this when the project's deliverable is a NUMBER, not a paper: push a single
   benchmark metric in the right direction (GPU kernel speed-of-light %, speedrun
   validation bits-per-byte, wall-clock time-to-target-loss) on real hardware.
-- Use it for the optimize verticals: `kernelbench`, `speedrun`, `nanochat`,
-  `nanogpt_speedrun`. These are lean optimize loops — setup → optimize → measure →
-  report — with no literature review, no draft, no reviewer paper simulation, and
-  no submission packaging.
+- Use it for the optimize verticals: `kernel_engineering`, `kernelbench`,
+  `speedrun`, `nanochat`, `nanogpt_speedrun`. These are lean metric/code loops
+  with no literature review, no draft, no reviewer paper simulation, and no
+  submission packaging. `kernel_engineering` adds explicit scope/environment/
+  baseline/validation stages because a production kernel change must prove its
+  toolchain and integration surface before claiming speed.
 
 ## When NOT to use
 - Do not use this when the deliverable is a research paper / report. Use the
@@ -61,12 +63,15 @@ score.
 
 ## Binding playbooks and completion contract
 - Read the active vertical's `role_banner` (the optimize vertical your objective
-  routes to: `kernelbench` / `speedrun` / `nanochat` / `nanogpt_speedrun`) — it
+  routes to: `kernel_engineering` / `kernelbench` / `speedrun` / `nanochat` /
+  `nanogpt_speedrun`) — it
   states the exact metric, hardware budget, correctness rule, and stop condition
   for this task. Treat it as the authoritative mission contract.
 - Read the optimize skills under `./argus_builtin_skills/engineer/` before
   touching the scorer:
-  - `./argus_builtin_skills/engineer/sol-kernel-sota-optimization.md` and
+  - the active vertical's `engineer/kernel-environment-first-engineering.md`
+    for production/repository kernel work, plus
+    `./argus_builtin_skills/engineer/sol-kernel-sota-optimization.md` and
     `./argus_builtin_skills/engineer/b200-kernelbench-runtime.md` for GPU-kernel
     speed-of-light optimization,
   - `./argus_builtin_skills/engineer/nanogpt-speedrun-h100-sota.md` for the

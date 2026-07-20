@@ -111,7 +111,7 @@ After the manuscript exists, write `paper/style_ref/STRUCTURE_CONFORMANCE.md` an
 9. After the final body draft exists, write `paper/style_ref/STRUCTURE_CONFORMANCE.md` and `paper/style_ref/STRUCTURE_CONFORMANCE.json` from the actual `paper/main.tex` section order.
 10. Run:
    - self-audit the exemplar-grounding and structure-blueprint requirement; the L2 reviewer verifies these artifacts directly against the draft stage checklist.
-11. If validation fails, fix the missing PDF/text/hash/profile/suitability/blueprint evidence before paper drafting continues. Final readiness later self-audits the full EMNLP submission contract, which also checks structure conformance.
+11. If validation fails, fix the missing PDF/text/hash/profile/suitability/blueprint evidence before paper drafting continues. Final readiness later self-audits the selected venue's full submission contract, which also checks structure conformance.
 
 ## Hard rules
 - Never treat an ACL Anthology URL as enough. The PDF and text extract must exist locally.

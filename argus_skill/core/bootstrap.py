@@ -159,6 +159,7 @@ def inspect_project_bootstrap(
         bootstrap_objective = _research_bootstrap_objective(
             root,
             profile_name=research_profile.name if research_profile is not None else "",
+            missing_artifacts=research_missing_artifacts,
         )
         missing_artifacts.extend(research_missing_artifacts)
         prefix = (
@@ -236,18 +237,32 @@ def _should_bootstrap_research(profile: object | None) -> bool:
     return profile is not None
 
 
-def _research_bootstrap_objective(root: Path, *, profile_name: str = "") -> str:
+def _research_bootstrap_objective(
+    root: Path,
+    *,
+    profile_name: str = "",
+    missing_artifacts: tuple[str, ...] = _RESEARCH_BOOTSTRAP_ARTIFACTS,
+) -> str:
     profile_note = (
         f" for the active research profile `{profile_name}`"
         if profile_name
         else ""
     )
+    missing = ", ".join(f"`{path}`" for path in missing_artifacts) or "(none)"
+    git_step = (
+        "initialize git with `git init`, then "
+        if not (root / ".git").exists()
+        else ""
+    )
+    state_rule = (
+        " Before touching `research/PIPELINE_STATE.json`, re-check it at execution "
+        "time because the Manager may create it after this mission is queued. If it "
+        "exists, treat it as read-only and never rewrite `vertical`, "
+        "`workflow_mode`, `target_venue`, `current_stage`, or any stage status."
+    )
     return (
         "Seed a research bootstrap mission"
-        f"{profile_note} for this empty project root: initialize git with "
-        "`git init`, then create `research/PIPELINE_STATE.json`, "
-        "`research/RESEARCH_BRIEF.md`, `research/EXPERIMENT_PLAN.md`, "
-        "`research/CLAIMS_TO_TEST.md`, `research/GO_NO_GO.md`, and "
-        "`experiments/BENCHMARK_PROVENANCE.md` as the starting auto-research "
-        f"ledger for `{root.name}`."
+        f"{profile_note} for this project root: {git_step}create only these "
+        f"missing starting-ledger artifacts: {missing}.{state_rule} Do not "
+        "regenerate or normalize existing artifacts."
     )

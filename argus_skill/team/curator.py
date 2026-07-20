@@ -38,7 +38,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from . import leaderboard, pool, registry, roster, task_board
+from . import completion, leaderboard, pool, registry, roster, task_board
 
 log = logging.getLogger(__name__)
 
@@ -120,7 +120,9 @@ class Curator:
                  now_fn: Callable[[], float] = time.time,
                  make_proc: Callable[..., Any] | None = None,
                  distill_fn: Callable[[str], str] | None = None,
-                 distill_interval_s: float = 1260.0) -> None:
+                 distill_interval_s: float = 1260.0,
+                 completion_fn: Callable[[str], str] | None = None,
+                 conversation_root: Path | None = None) -> None:
         self.project_root = Path(project_root)
         self.default_width = int(default_width)
         self.tick_s = float(tick_s)
@@ -131,6 +133,8 @@ class Curator:
         self._make_proc = make_proc or self._default_make_proc
         self._distill_fn = distill_fn
         self.distill_interval_s = float(distill_interval_s)
+        self._completion_fn = completion_fn
+        self.conversation_root = Path(conversation_root) if conversation_root is not None else None
         self._children: dict[str, TrackedTeammate] = {}
         self._adopted_roots: set[str] = set()  # roots whose roster orphans were adopted
         self._fold_mtime: dict[str, float] = {}  # per-root shards mtime at last fold
@@ -368,6 +372,13 @@ class Curator:
         cwd = Path(marker.get("cwd") or root)
         self._adopt_orphans(root, now=now)  # reclaim prior-daemon teammates first
         self._maybe_fold(root)
+        if task_board.count_in_flight(root) == 0 and not self.live_owner_ids(root):
+            completion.publish_if_complete(
+                root,
+                marker=marker,
+                conversation_root=self.conversation_root,
+                summarize=self._completion_fn,
+            )
         doc = pool.read(root)
         state = doc.get("state", "running")
         if state in ("draining", "dissolved"):

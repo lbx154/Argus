@@ -8,14 +8,14 @@ Current runtime layout::
 
     ~/.argus-skill/
     ├─ identity.md
-    ├─ global_budget.json
+    ├─ config.json
+    ├─ tools/
     ├─ skills/
     │   └─ *_archive/
     └─ projects/
         └─ <fingerprint>/
             ├─ events.jsonl
             ├─ backlog.jsonl
-            ├─ budget.json
             ├─ skills/
             ├─ continuous.json
             ├─ events.jsonl
@@ -63,6 +63,7 @@ __all__ = [
     "daemon_pid_path",
     "skills_global_root",
     "skills_archive_root",
+    "tools_root",
     "projects_root",
     "project_root",
     "project_memory_path",
@@ -140,8 +141,8 @@ def config_path() -> Path:
     """``~/.argus-skill/config.json`` — persisted operator knob overrides
     (backend / model / reasoning-effort switches made via natural language or
     ``/backend``, ``/config``), read by :mod:`argus_skill.core.knob_store`.
-    Global (not per-project), same footing as ``identity_path``. Project USD
-    budgets live separately in ``projects/<id>/budget.json``."""
+    Global (not per-project), same footing as ``identity_path``. The host-global
+    daily USD cap is stored here; projects have no separate budgets."""
     return global_root() / "config.json"
 
 
@@ -175,6 +176,11 @@ def skills_global_root() -> Path:
 
 def skills_archive_root() -> Path:
     return global_root() / "skills" / "_archive"
+
+
+def tools_root() -> Path:
+    """Return the root for optional, externally versioned tool installations."""
+    return global_root() / "tools"
 
 
 def projects_root() -> Path:

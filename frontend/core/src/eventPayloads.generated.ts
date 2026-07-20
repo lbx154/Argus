@@ -38,7 +38,8 @@ export interface AgentIoCompleteEvent extends EventMsg {
   "cache_write_tokens"?: number;
   "output_tokens"?: number;
   "reasoning_output_tokens"?: number;
-  "premium_requests"?: number;
+  "premium_requests"?: number | null;
+  "premium_requests_present"?: boolean;
   "total_nano_aiu"?: number | null;
 }
 
@@ -107,10 +108,6 @@ export interface BudgetReservationCreatedEvent extends EventMsg {
   "provider"?: string;
   "model"?: string;
   "run_label"?: string;
-  "fence_enforcement"?: "hard" | "soft" | "unsupported" | "none";
-  "fence_limit_usd"?: number | null;
-  "fence_limit_ai_credits"?: number | null;
-  "fence_reason"?: string;
 }
 
 export interface BudgetReservationDeniedEvent extends EventMsg {
@@ -131,11 +128,6 @@ export interface BudgetReservationSettledEvent extends EventMsg {
   "amount_usd"?: number;
   "cost_usd"?: number | null;
   "overrun_usd"?: number | null;
-  "fence_breached"?: boolean;
-  "fence_enforcement"?: "hard" | "soft" | "unsupported" | "none";
-  "fence_limit_usd"?: number | null;
-  "fence_limit_ai_credits"?: number | null;
-  "fence_reason"?: string;
   "pricing_status": string;
 }
 
@@ -156,20 +148,6 @@ export interface BudgetUnpricedBlockedEvent extends EventMsg {
   "provider"?: string;
   "model"?: string;
   "run_label"?: string;
-}
-
-export interface BudgetFenceBreachBlockedEvent extends EventMsg {
-  type: "budget.fence_breach.blocked";
-  payload_schema_version?: 1;
-  "call_id": string;
-  "project_id"?: string;
-  "mission_id"?: string | null;
-  "provider": string;
-  "model"?: string;
-  "run_label"?: string;
-  "breach_call_id"?: string;
-  "overrun_usd"?: number;
-  "reason": string;
 }
 
 export interface LifeMissionStartedEvent extends EventMsg {
@@ -283,7 +261,7 @@ export interface LifePlannerStartEvent extends EventMsg {
 export interface LifePlannerVerdictEvent extends EventMsg {
   type: "life.planner.verdict";
   payload_schema_version?: 1;
-  "status": "planned" | "completed" | "research_incomplete" | "paused_budget" | "paused_no_breakthrough" | "exhausted_current_methods" | "provider_cooldown" | "provider_fence" | "infra_blocked" | "error";
+  "status": "planned" | "completed" | "research_incomplete" | "paused_budget" | "paused_no_breakthrough" | "exhausted_current_methods" | "provider_cooldown" | "infra_blocked" | "error";
   "success": boolean;
   "recoverable": boolean;
   "reason": string;
@@ -359,6 +337,24 @@ export interface LifeInboxDrainedEvent extends EventMsg {
   payload_schema_version?: 1;
   "count": number;
   "messages": Array<string>;
+}
+
+export interface LifeOperatorQuestionPendingEvent extends EventMsg {
+  type: "life.operator_question.pending";
+  payload_schema_version?: 1;
+  "item_id": string;
+  "title"?: string;
+  "question": string;
+  "agent_layer"?: string;
+}
+
+export interface LifeOperatorQuestionAnsweredEvent extends EventMsg {
+  type: "life.operator_question.answered";
+  payload_schema_version?: 1;
+  "item_id": string;
+  "continuation_item_id": string;
+  "question": string;
+  "manager_decision": string;
 }
 
 export interface EngineerProgressEvent extends EventMsg {
@@ -890,7 +886,6 @@ export interface EventPayloadByType {
   "budget.reservation.settled": BudgetReservationSettledEvent;
   "budget.reservation.released": BudgetReservationReleasedEvent;
   "budget.unpriced.blocked": BudgetUnpricedBlockedEvent;
-  "budget.fence_breach.blocked": BudgetFenceBreachBlockedEvent;
   "life.mission.started": LifeMissionStartedEvent;
   "life.mission.completed": LifeMissionCompletedEvent;
   "round.start": RoundStartEvent;
@@ -906,6 +901,8 @@ export interface EventPayloadByType {
   "life.planner.task_skipped": LifePlannerTaskSkippedEvent;
   "life.manager.intent.completed": LifeManagerIntentCompletedEvent;
   "life.inbox.drained": LifeInboxDrainedEvent;
+  "life.operator_question.pending": LifeOperatorQuestionPendingEvent;
+  "life.operator_question.answered": LifeOperatorQuestionAnsweredEvent;
   "engineer.progress": EngineerProgressEvent;
   "skill.created": SkillCreatedEvent;
   "skill.updated": SkillUpdatedEvent;

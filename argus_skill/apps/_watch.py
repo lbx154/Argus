@@ -227,8 +227,6 @@ class _BudgetLineCache:
             global_cost_text = f"${global_spend:.2f}"
         signature = (
             _path_signature(journal_path),
-            budget.per_mission_cap_usd,
-            budget.daily_cap_usd,
             budget.global_daily_cap_usd,
             global_spend,
             global_status,
@@ -236,12 +234,13 @@ class _BudgetLineCache:
         )
         if signature != self.signature:
             self.signature = signature
-            remaining = budget.remaining_today(journal)
+            if budget.global_daily_cap_usd <= 0:
+                self.line = f"budget   : global daily disabled (spent {global_cost_text})"
+                return self.line
+            remaining = max(0.0, budget.global_daily_cap_usd - global_spend)
             tail = " (paused)" if remaining <= 0 else ""
             self.line = (
                 "budget   : "
-                f"per-mission ${budget.per_mission_cap_usd:.2f} · "
-                f"daily ${budget.daily_cap_usd:.2f} · "
                 f"global {global_cost_text}/"
                 f"${budget.global_daily_cap_usd:.2f} · "
                 f"remaining ${remaining:.2f}{tail}"

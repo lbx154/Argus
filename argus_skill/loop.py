@@ -21,10 +21,13 @@ End-to-end shape:
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
 import os
+import re
 import uuid
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -58,15 +61,181 @@ _ADAPTATION_FAILURE_CAUSES: frozenset[str] = frozenset({
 })
 
 
+def _reviewer_engineer_skill_pointer(
+    skill: Skill,
+    rendered_skill: str,
+) -> str:
+    """Compact reference to the Engineer's matched skill for L2 review.
+
+    The Reviewer already receives the objective and authoritative stage checklist.
+    Reinjecting the full Engineer playbook duplicates thousands of tokens on every
+    Reviewer tool turn. Keep provenance and an on-demand path without prescribing
+    a second read of the whole skill.
+    """
+    description = " ".join(str(skill.description or "").split())[:80]
+    path = str(skill.path or "").replace("`", "'")
+    digest = hashlib.sha256(rendered_skill.encode("utf-8")).hexdigest()[:16]
+    lines = [
+        "## Engineer skill pointer (on demand)",
+        f"- Used by Engineer: `{skill.name}`",
+        f"- Expected version/hash: `{skill.version}` / `sha256:{digest}`",
+    ]
+    if description:
+        lines.append(f"- Purpose: {description}")
+    if path:
+        lines.append(f"- Source: `{path}`")
+    lines.append(
+        "- Do not read it by default. If needed for a material claim, verify this "
+        "hash first; current objective/artifacts remain authoritative."
+    )
+    return "\n".join(lines)
+
+
+# Generic words that distinguish neither software tasks nor reusable skills.
+# In particular, project/framework names and playbook boilerplate must not make
+# the oldest, most-used skill look universally relevant.
+_TRANSFER_STOPWORDS: frozenset[str] = frozenset({
+    "add", "and", "application", "change", "code", "complete", "current",
+    "existing", "feature", "fix", "flipt", "for", "from", "implementation",
+    "instance", "into", "new", "not", "one", "problem", "production",
+    "project", "repair", "repository", "request", "software", "statement",
+    "support", "task", "tests", "that", "the", "this", "through", "use",
+    "used", "using", "when", "where", "with", "wire", "wiring",
+})
+_TRANSFER_TOKEN_ALIASES: dict[str, str] = {
+    "cached": "cache",
+    "caches": "cache",
+    "caching": "cache",
+    "config": "configuration",
+    "configured": "configuration",
+    "configuring": "configuration",
+    "evaluations": "evaluation",
+    "initialized": "initialize",
+    "initialization": "initialize",
+    "initializing": "initialize",
+    "middlewares": "middleware",
+}
+
+
+def _env_float_setting(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_int_setting(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _transfer_terms(text: object) -> list[str]:
+    """Return normalized, discriminative terms for cheap Skill retrieval."""
+    terms: list[str] = []
+    for raw in re.findall(r"[a-z][a-z0-9_]{2,}", str(text or "").lower()):
+        term = _TRANSFER_TOKEN_ALIASES.get(raw, raw)
+        if term in _TRANSFER_STOPWORDS:
+            continue
+        terms.append(term)
+    return terms
+
+
+def _nearest_transfer_scores(
+    task: str,
+    summaries: list[dict[str, Any]],
+) -> list[float]:
+    """Rank reusable Skills from stable semantic fields only.
+
+    ``task_history`` is intentionally excluded. It records prior uses, including
+    weak nearest-skill fallbacks, so feeding it back into retrieval creates a
+    self-reinforcing failure mode where an early generic Skill gradually appears
+    relevant to every later task.
+    """
+    task_counts = Counter(_transfer_terms(task))
+    if not summaries:
+        return []
+
+    docs: list[dict[str, float]] = []
+    for summary in summaries:
+        weights: dict[str, float] = {}
+        for key, field_weight in (
+            ("name", 4.0),
+            ("description", 2.0),
+            ("category", 1.0),
+        ):
+            counts = Counter(_transfer_terms(summary.get(key)))
+            for term, count in counts.items():
+                weights[term] = weights.get(term, 0.0) + field_weight * (
+                    1.0 + math.log(float(count))
+                )
+        docs.append(weights)
+
+    document_frequency = Counter(
+        term for weights in docs for term in weights
+    )
+    n_docs = float(len(docs))
+
+    def idf(term: str) -> float:
+        return math.log((n_docs + 1.0) / (document_frequency[term] + 1.0)) + 1.0
+
+    task_vector = {
+        term: (1.0 + math.log(float(count))) * idf(term)
+        for term, count in task_counts.items()
+    }
+    task_norm = math.sqrt(sum(value * value for value in task_vector.values()))
+    scores: list[float] = []
+    for weights in docs:
+        doc_vector = {term: value * idf(term) for term, value in weights.items()}
+        doc_norm = math.sqrt(sum(value * value for value in doc_vector.values()))
+        if not task_norm or not doc_norm:
+            scores.append(0.0)
+            continue
+        dot = sum(
+            task_vector.get(term, 0.0) * value
+            for term, value in doc_vector.items()
+        )
+        scores.append(dot / (task_norm * doc_norm))
+    return scores
+
+
 @dataclass
 class SkillLoopConfig:
     """All knobs for one SkillLoop.run invocation, in one place."""
     engineer_model: str | None = "gpt-5.5"
     reviewer_model: str | None = None  # default: same as engineer (cheap)
     matcher_model: str | None = None   # default: same as engineer
+    # Direct/bounded work starts at high. A Reviewer-requested second round
+    # escalates to ``engineer_reasoning_effort`` (xhigh by default). Staged and
+    # paper missions retain xhigh from round one.
+    engineer_initial_reasoning_effort: str | None = "high"
     engineer_reasoning_effort: str | None = "xhigh"
-    reviewer_reasoning_effort: str = "xhigh"
-    matcher_reasoning_effort: str | None = "high"
+    reviewer_reasoning_effort: str = "high"
+    matcher_reasoning_effort: str | None = "low"
+    # Cheap task-conditioning pass over the closest matched skill. This is a
+    # single no-tool input/output request, not a Scientist or execution agent.
+    skill_adapter_model: str | None = None
+    skill_adapter_reasoning_effort: str = "low"
+    skill_adapter_enabled: bool = True
+    skill_adapter_max_bullets: int = 8
+    nearest_transfer_min_score: float = field(
+        default_factory=lambda: _env_float_setting(
+            "ARGUS_SKILL_NEAREST_TRANSFER_MIN_SCORE", 0.12
+        )
+    )
+    nearest_transfer_max_bullets: int = 4
+    # Evaluation/continuous-learning mode: completed tasks are asked to retain
+    # only durable reusable learning. ``force_post_task_learning`` restores the
+    # legacy every-task create/update contract for controlled ablations.
+    require_post_task_learning: bool = field(
+        default_factory=lambda: (
+            os.environ.get("ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING", "0")
+            .strip()
+            .lower()
+            in {"1", "true", "yes", "on"}
+        )
+    )
     max_rounds: int = 500
     no_progress_threshold: int = 2
     # Anti-livelock escalation thresholds threaded into SupervisedConfig: at
@@ -86,7 +255,6 @@ class SkillLoopConfig:
     # strategy generation.
     adaptive_rejection_threshold: int = 2
     adaptive_skill_max_triggers: int = 2
-    adaptive_skill_max_cost_usd: float = 5.0
     # Legacy proposal compatibility only. Current Reviewers edit the injected
     # project skill path directly and their output schema has no skill_ops.
     skill_ops_enabled: bool = False
@@ -129,8 +297,33 @@ class SkillLoopConfig:
             not in {"0", "false", "no", "off"}
         )
     )
-    # ``direct`` skips skill/wiki preflight ceremony for a bounded one-off
-    # deliverable; the Engineer and Reviewer still run normally.
+    skill_maintenance_reasoning_effort: str = field(
+        default_factory=lambda: os.environ.get(
+            "ARGUS_SKILL_MAINTENANCE_REASONING_EFFORT", "low"
+        )
+    )
+    # ``require_post_task_learning`` asks for selective durable learning. This
+    # stronger compatibility flag restores the legacy every-task create/update
+    # requirement for controlled evaluations only.
+    force_post_task_learning: bool = field(
+        default_factory=lambda: (
+            os.environ.get("ARGUS_SKILL_FORCE_POST_TASK_LEARNING", "0")
+            .strip()
+            .lower()
+            in {"1", "true", "yes", "on"}
+        )
+    )
+    engineer_file_read_budget: int = field(
+        default_factory=lambda: _env_int_setting(
+            "ARGUS_SKILL_ENGINEER_FILE_READ_BUDGET", 12
+        )
+    )
+    engineer_test_run_budget: int = field(
+        default_factory=lambda: _env_int_setting(
+            "ARGUS_SKILL_ENGINEER_TEST_RUN_BUDGET", 3
+        )
+    )
+    # Manager-selected execution topology. Every mode still uses skill/wiki.
     workflow_mode: str = "staged"
     # Explicit signal that this mission is a long-horizon academic-paper /
     # submission task. When True the engineer prompt carries the
@@ -140,6 +333,9 @@ class SkillLoopConfig:
     # Ordinary Markdown file edited directly by Engineer and Reviewer as the
     # shared baton between fresh per-round sessions. None disables it.
     checkpoint_path: Path | None = None
+    # Canonical machine-readable mission packet created by the supervisor.
+    # Every fresh role session reads/writes versioned round handoffs beside it.
+    context_packet_path: str = ""
     # Absolute path to this project's engineer execution log
     # (``<life_dir>/events.jsonl``), threaded down to SupervisedConfig so the
     # reviewer can grep HOW the engineer produced its result (process-correctness
@@ -174,6 +370,24 @@ class SkillLoopConfig:
         if env:
             return env
         return self.matcher_model or self.engineer_model
+
+    def resolved_skill_adapter_model(self) -> str:
+        env = os.environ.get("ARGUS_SKILL_ADAPTER_MODEL", "").strip()
+        return env or self.skill_adapter_model or self.engineer_model or ""
+
+    def resolved_skill_adapter_reasoning_effort(self) -> str:
+        env = os.environ.get(
+            "ARGUS_SKILL_ADAPTER_REASONING_EFFORT", ""
+        ).strip()
+        return env or self.skill_adapter_reasoning_effort or "low"
+
+    def resolved_initial_engineer_effort(self) -> str | None:
+        if self.workflow_mode != "direct" or self.paper_mission:
+            return self.engineer_reasoning_effort
+        env = os.environ.get(
+            "ARGUS_SKILL_ENGINEER_INITIAL_REASONING_EFFORT", ""
+        ).strip()
+        return env or self.engineer_initial_reasoning_effort
 
 
 class SkillLoop:
@@ -235,6 +449,9 @@ class SkillLoop:
             engineer_config=EngineerConfig(
                 model=self.config.engineer_model,
                 reasoning_effort=self.config.engineer_reasoning_effort,
+                initial_reasoning_effort=(
+                    self.config.resolved_initial_engineer_effort()
+                ),
                 extra_args=self.config.extra_args,
                 full_auto=self.config.full_auto,
                 skip_git_repo_check=self.config.skip_git_repo_check,
@@ -257,7 +474,7 @@ class SkillLoop:
     def run(self, task: str, *, workdir: Path | None = None, seed_thread_id: str | None = None,
             objective_for_skill: str | None = None,
             original_objective: str | None = None,
-            scope: str = "", per_mission_budget: Any | None = None) -> LoopOutcome:
+            scope: str = "") -> LoopOutcome:
         """Run one mission end-to-end.
 
         ``task`` is the *full* prompt the engineer sees (typically a long
@@ -274,7 +491,6 @@ class SkillLoop:
         """
         workdir = Path(workdir) if workdir else Path.cwd()
         run_id = self.config.session_id or f"run-{uuid.uuid4().hex}"
-        direct_workflow = self.config.workflow_mode == "direct"
         from .skills.adaptation import (
             adaptation_state_path,
             append_method_ledger,
@@ -295,7 +511,7 @@ class SkillLoop:
             vertical_module,
             "scientist",
         )
-        if self.config.wiki_ops_enabled and not direct_workflow:
+        if self.config.wiki_ops_enabled:
             from .wiki.lifecycle import ensure_project_wiki
 
             ensure_project_wiki(
@@ -310,21 +526,63 @@ class SkillLoop:
             "text": f"task: {skill_task[:120]}",
         })
 
+        # Venue selection/format research must happen BEFORE skill matching. If a
+        # missing/non-built-in venue is researched after matcher exclusion, the
+        # same mission still hides the newly relevant venue-specific skills.
+        if os.environ.get("ARGUS_SKILL_VENUE_RESEARCH", "1").strip().lower() not in (
+            "0", "false", "no", "off",
+        ):
+            try:
+                from .skills.stage_checklists import current_stage as _vr_stage
+                from .skills.venue_research import (
+                    needs_venue_research,
+                    research_venue_profile,
+                )
+                from .skills.vertical_select import _persisted_vertical as _vr_vert
+
+                if (
+                    self.config.paper_mission
+                    and (_vr_vert(workdir) or "research") == "research"
+                    and (_vr_stage(workdir) or "").strip().lower()
+                    in {"research", "plan", "benchmark", "run", "analysis"}
+                    and needs_venue_research(workdir)
+                ):
+                    self._emit({
+                        "type": "venue.research.started",
+                        "text": "codex live web-search: selecting/researching target venue",
+                    })
+                    _ok = research_venue_profile(
+                        self.engineer_runner,
+                        workdir,
+                        model=self.config.engineer_model,
+                    )
+                    self._emit({
+                        "type": "venue.research.completed",
+                        "text": (
+                            "built research/VENUE_PROFILE.json"
+                            if _ok else
+                            "venue research produced no profile (venue remains unresolved)"
+                        ),
+                        "ok": _ok,
+                    })
+            except Exception:  # noqa: BLE001 — venue research never blocks the loop
+                log.debug("venue-research hook skipped", exc_info=True)
+
         # Step 1: matcher (role mission — shared scaffold across all roles).
         # Suppress the other venue's paper skills so an AAAI project never
         # matches the EMNLP drafting/preflight/router/review skills (and the
-        # newly-added AAAI siblings never dilute EMNLP matching). Resolves
-        # from research/PIPELINE_STATE.json target_venue; EMNLP by default.
+        # AAAI siblings never dilute EMNLP matching). Resolution comes from an
+        # explicit env/local/PIPELINE_STATE venue; unresolved projects exclude
+        # all venue-specific skills rather than defaulting to EMNLP.
         from .skills.venue_profiles import venue_excluded_skill_files
 
-        if direct_workflow:
-            from .skills.role_match import RoleSkillMatch
-
-            match = RoleSkillMatch(role="engineer")
-        else:
-            match = self.skill_router.select(
-                skill_task, extra_exclude=venue_excluded_skill_files(workdir)
-            )
+        match = self.skill_router.select(
+            skill_task,
+            extra_exclude=venue_excluded_skill_files(workdir),
+            # Every formal Argus workflow exercises Skill matching, including
+            # the initial empty-library task used to bootstrap self-evolution.
+            force_empty_match=True,
+        )
         matcher_tokens = match.input_tokens + match.output_tokens
         matcher_input_tokens = match.input_tokens
         matcher_cached_input_tokens = match.cached_input_tokens
@@ -335,12 +593,34 @@ class SkillLoop:
         primary_skills: list[Skill] = list(match.primary_skills)
         reference_skills: list[Skill] = list(match.reference_skills)
         skill: Skill | None = match.primary
+        strict_skill_hit = skill is not None
+        # Reuse this one matcher result for Reviewer context too. Engineer-role
+        # references are Reviewer-owned skills; the Engineer's own strict hit
+        # becomes read-only context for Reviewer. This avoids a second matcher
+        # call before every review round.
+        reviewer_skill_block = render_skill_playbook(
+            self.skill_store,
+            reference_skills[:1],
+            [],
+        )
+        if strict_skill_hit and skill is not None:
+            pointer = _reviewer_engineer_skill_pointer(
+                skill,
+                self.skill_store.render_skill(skill),
+            )
+            reviewer_skill_block = (
+                f"{reviewer_skill_block}\n\n{pointer}"
+                if reviewer_skill_block
+                else pointer
+            )
+        nearest_transfer_fallback = False
+        low_confidence_transfer_hint = ""
         skill_distilled = False
         distill_result = None
 
         # Scientist tool on miss: author one reusable playbook, persist it in the
         # project layer immediately, and inject that exact version into this mission.
-        if skill is None and not direct_workflow:
+        if skill is None and not self.config.engineer_skill_maintenance_enabled:
             try:
                 from .skills.scientist import SkillScientist
 
@@ -378,10 +658,161 @@ class SkillLoop:
             except Exception:  # noqa: BLE001
                 log.debug("Scientist skill generation skipped", exc_info=True)
 
+        if skill is None and self.config.require_post_task_learning:
+            loaded: list[tuple[dict[str, Any], Skill]] = []
+            for summary in self.skill_store.list_summaries():
+                path = str(summary.get("path") or "").strip()
+                if not path:
+                    continue
+                try:
+                    candidate = self.skill_store.load(path)
+                except Exception:  # noqa: BLE001 - one stale skill must not block transfer
+                    continue
+                if self.skill_store.role_for(candidate) not in {"engineer", "general"}:
+                    continue
+                loaded.append((summary, candidate))
+            scores = _nearest_transfer_scores(
+                skill_task,
+                [summary for summary, _candidate in loaded],
+            )
+            candidates = [
+                (score, candidate.name.casefold(), candidate)
+                for score, (_summary, candidate) in zip(scores, loaded)
+            ]
+            if candidates:
+                candidates.sort(key=lambda item: (-item[0], item[1]))
+                score, _name, candidate = candidates[0]
+                candidate_scores = [
+                    {"name": item.name, "score": round(candidate_score, 6)}
+                    for candidate_score, _candidate_name, item in candidates[:3]
+                ]
+                if score >= max(0.0, self.config.nearest_transfer_min_score):
+                    skill = candidate
+                    primary_skills = [skill]
+                    nearest_transfer_fallback = True
+                    text = (
+                        f"no high-fit skill; transfer fallback selected nearest "
+                        f"`{skill.name}` (static semantic score={score:.3f})"
+                    )
+                else:
+                    low_confidence_transfer_hint = (
+                        "## Low-confidence transfer hint\n"
+                        f"Nearest prior skill: {candidate.name} "
+                        f"(score {score:.3f}, below reuse threshold).\n"
+                        "- Treat this only as an analogy, not a task playbook.\n"
+                        "- Reuse project conventions and verification discipline only.\n"
+                        "- Derive implementation details from the current repository.\n"
+                        "- Ignore domain-specific steps that do not independently fit."
+                    )
+                    text = (
+                        f"no high-fit skill; nearest `{candidate.name}` scored "
+                        f"{score:.3f} below threshold; injecting compact hint only"
+                    )
+                self._emit({
+                    "type": "match.info",
+                    "selection_method": "static-semantic-tfidf",
+                    "score": round(score, 6),
+                    "candidate_scores": candidate_scores,
+                    "text": text,
+                })
+
         skill_text = render_skill_playbook(
             self.skill_store, primary_skills, reference_skills
         )
+        if low_confidence_transfer_hint:
+            skill_text = (
+                low_confidence_transfer_hint
+                + (f"\n\n{skill_text}" if skill_text else "")
+            )
         skill_name = skill.name if skill else None
+        learning_target_name = skill.name if strict_skill_hit and skill is not None else ""
+        if skill is not None and self.config.skill_adapter_enabled:
+            source_skill_text = self.skill_store.render_skill(skill, full=True)
+            adapter_reasoning_effort = (
+                self.config.resolved_skill_adapter_reasoning_effort()
+            )
+            max_bullets = (
+                self.config.nearest_transfer_max_bullets
+                if nearest_transfer_fallback
+                else self.config.skill_adapter_max_bullets
+            )
+            adapter_prompt = (
+                "You are a low-cost Skill Adapter. Rewrite the reusable skill below "
+                "into a concise guideline for the CURRENT task. Do not solve the "
+                "task, use tools, inspect files, create artifacts, or discuss the "
+                "adaptation process. Preserve the skill's valid mechanism, replace "
+                "generic placeholders with task-relevant abstractions, remove "
+                "irrelevant steps, and output only the adapted guideline in at most "
+                f"{max(1, int(max_bullets))} short bullets.\n\n"
+                f"## Current task\n{skill_task}\n\n"
+                f"## Closest reusable skill: {skill.name}\n{source_skill_text}"
+            )
+            self._emit({
+                "type": EventType.SKILL_TRANSFER_STARTED,
+                "skill_name": skill.name,
+                "model": self.config.resolved_skill_adapter_model(),
+                "reasoning_effort": adapter_reasoning_effort,
+                "text": f"adapting matched skill {skill.name} to current task",
+            })
+            adapter_extra_args = list(self.config.extra_args or [])
+            adapter_sandbox: str | None = "read-only"
+            if str(getattr(self.engineer_runner, "_backend_name", "") or "").lower() == "copilot":
+                adapter_sandbox = None
+                adapter_extra_args.extend([
+                    "--no-custom-instructions",
+                    "--disable-builtin-mcps",
+                    "--available-tools=",
+                ])
+            try:
+                transfer_result = gateway_run_exec(
+                    self.engineer_runner,
+                    prompt=adapter_prompt,
+                    options=RunnerOptions(
+                        model=self.config.resolved_skill_adapter_model() or None,
+                        reasoning_effort=adapter_reasoning_effort,
+                        extra_args=adapter_extra_args or None,
+                        sandbox_mode=adapter_sandbox,
+                        skip_git_repo_check=True,
+                        full_auto=False,
+                        dangerous_yolo=False,
+                    ),
+                    run_label="skill-adapter",
+                    resume_thread_id=None,
+                )
+                adapted = str(
+                    getattr(transfer_result, "last_agent_message", "") or ""
+                ).strip()
+                if (
+                    int(getattr(transfer_result, "exit_code", 0) or 0) == 0
+                    and not getattr(transfer_result, "fatal_error", None)
+                    and adapted
+                ):
+                    skill_text = (
+                        "## Task-adapted skill guideline\n"
+                        f"Source skill: {skill.name}\n\n{adapted}"
+                    )
+                    distill_result = transfer_result
+                    self._emit({
+                        "type": EventType.SKILL_TRANSFER_COMPLETED,
+                        "skill_name": skill.name,
+                        "success": True,
+                        "text": f"adapted skill {skill.name} for current task",
+                    })
+                else:
+                    self._emit({
+                        "type": EventType.SKILL_TRANSFER_COMPLETED,
+                        "skill_name": skill.name,
+                        "success": False,
+                        "text": "skill adapter failed; using original skill",
+                    })
+            except Exception:  # noqa: BLE001 - original skill remains a safe fallback
+                log.debug("skill adapter failed", exc_info=True)
+                self._emit({
+                    "type": EventType.SKILL_TRANSFER_COMPLETED,
+                    "skill_name": skill.name,
+                    "success": False,
+                    "text": "skill adapter raised; using original skill",
+                })
         adaptation_file: Path | None = None
         adaptation_disabled = False
         adaptation_state: dict[str, Any] = {
@@ -433,6 +864,8 @@ class SkillLoop:
             nonlocal skill, skill_text, skill_name, skill_distilled
             nonlocal distill_result, adaptation_triggers
             nonlocal adaptation_spent
+            if self.config.engineer_skill_maintenance_enabled:
+                return ""
             persistent_adaptation = adaptation_file is not None
             if persistent_adaptation:
                 if not rounds or adaptation_disabled:
@@ -470,25 +903,7 @@ class SkillLoop:
                     0,
                     int(self.config.adaptive_skill_max_triggers or 0),
                 )
-                max_cost = max(
-                    0.0,
-                    float(self.config.adaptive_skill_max_cost_usd or 0.0),
-                )
                 if adaptation_triggers >= max_triggers:
-                    rejection_streak.clear()
-                    persist_adaptation_state()
-                    return ""
-                remaining_cost = max_cost - adaptation_spent
-                if max_cost > 0 and remaining_cost <= 0:
-                    append_method_ledger(
-                        workdir,
-                        {
-                            "status": "cost_cap_reached",
-                            "trigger_index": adaptation_triggers,
-                            "review_rounds": review_rounds,
-                            "failure_reasons": failure_reasons,
-                        },
-                    )
                     rejection_streak.clear()
                     persist_adaptation_state()
                     return ""
@@ -502,7 +917,6 @@ class SkillLoop:
                 if skill is None or interval == 0 or len(rounds) % interval:
                     return ""
                 recent = rounds[-interval:]
-                remaining_cost = None
                 review_rounds = [rec.round_index for rec in recent]
                 failure_reasons = [rec.review.reason for rec in recent]
                 evidence = "\n".join(
@@ -517,14 +931,9 @@ class SkillLoop:
                 parse_mechanism_change,
             )
 
-            spent_before_call = adaptation_spent
             if persistent_adaptation:
                 adaptation_triggers += 1
                 rejection_streak.clear()
-                if max_cost > 0:
-                    # Reserve the full remaining allowance before provider spawn.
-                    # A crash may waste budget, but can never reset and overspend it.
-                    adaptation_spent = max_cost
                 persist_adaptation_state()
             self._emit({
                 "type": EventType.SKILL_SCIENTIST_ADAPTATION_STARTED,
@@ -538,7 +947,6 @@ class SkillLoop:
                 model=self.config.engineer_model,
                 reasoning_effort=self.config.engineer_reasoning_effort,
                 role_banner=scientist_adaptation_banner,
-                max_budget_usd=remaining_cost,
             )
             raw_skill = scientist.distill_alternative(
                 skill_task,
@@ -559,9 +967,8 @@ class SkillLoop:
                 if math.isfinite(settled_cost) and settled_cost >= 0
                 else None
             )
-            if persistent_adaptation and max_cost > 0:
-                if result_cost is not None:
-                    adaptation_spent = spent_before_call + settled_cost
+            if persistent_adaptation and result_cost is not None:
+                adaptation_spent += settled_cost
                 persist_adaptation_state()
             if not raw_skill:
                 if persistent_adaptation:
@@ -667,49 +1074,6 @@ class SkillLoop:
         # feature's prompt is explicitly paper-ideation ("candidate discovery for
         # a paper") — firing it there wastes a live-web-search call (and rate-
         # limit budget) on a mission that will never read IDEA_CANDIDATES.md.
-        # Venue-format research: if target_venue is a NON-standard venue (not
-        # EMNLP/AAAI) with no cached profile yet, run ONE codex live-web-search
-        # round to build research/VENUE_PROFILE.json so the paper is graded
-        # against the RIGHT venue instead of the EMNLP default. Fail-open +
-        # run-once (cached by the file). Opt-out via ARGUS_SKILL_VENUE_RESEARCH=0.
-        if os.environ.get("ARGUS_SKILL_VENUE_RESEARCH", "1").strip().lower() not in (
-            "0", "false", "no", "off",
-        ):
-            try:
-                from .skills.stage_checklists import current_stage as _vr_stage
-                from .skills.venue_research import (
-                    needs_venue_research,
-                    research_venue_profile,
-                )
-                from .skills.vertical_select import _persisted_vertical as _vr_vert
-
-                if (
-                    self.config.paper_mission
-                    and (_vr_vert(workdir) or "research") == "research"
-                    and (_vr_stage(workdir) or "").strip().lower() == "research"
-                    and needs_venue_research(workdir)
-                ):
-                    self._emit({
-                        "type": "venue.research.started",
-                        "text": "codex live web-search: researching non-standard venue format",
-                    })
-                    _ok = research_venue_profile(
-                        self.engineer_runner,
-                        workdir,
-                        model=self.config.engineer_model,
-                    )
-                    self._emit({
-                        "type": "venue.research.completed",
-                        "text": (
-                            "built research/VENUE_PROFILE.json"
-                            if _ok else
-                            "venue research produced no profile (falling back to default)"
-                        ),
-                        "ok": _ok,
-                    })
-            except Exception:  # noqa: BLE001 — venue research never blocks the loop
-                log.debug("venue-research hook skipped", exc_info=True)
-
         # Selection is untouched; fail-open + run-once. Opt-out via
         # ARGUS_SKILL_IDEA_SEARCH=0. Recorded on the event stream so operators
         # (cockpit / --follow / events.jsonl) see the extra candidate source.
@@ -740,7 +1104,16 @@ class SkillLoop:
                     _n = _augment_ideas(
                         self.engineer_runner,
                         workdir,
-                        direction=task,
+                        # Candidate discovery needs the clean research direction,
+                        # not the Engineer's full task prelude. Passing ``task``
+                        # leaked machine special prompts (for example "/root is
+                        # ephemeral; put durable artifacts under /data") into the
+                        # "Research direction" field and caused the search agent to
+                        # relocate an assigned project instead of researching it.
+                        direction=(
+                            self.config.continuous_objective.strip()
+                            or request_anchor
+                        ),
                         model=self.config.engineer_model,
                     )
                     self._emit({
@@ -767,10 +1140,12 @@ class SkillLoop:
                 original_request=request_anchor,
                 include_static=include_static,
                 role_banner=engineer_role_banner,
-                allow_self_review=(
-                    self.config.engineer_self_review_enabled
-                    and str(scope or "").strip().lower() != "final_submission"
-                ),
+                allow_self_review=self.config.engineer_self_review_enabled,
+                matched_skill_name=learning_target_name,
+                require_post_task_learning=self.config.require_post_task_learning,
+                force_post_task_learning=self.config.force_post_task_learning,
+                file_read_budget=self.config.engineer_file_read_budget,
+                test_run_budget=self.config.engineer_test_run_budget,
             )
             guidance: list[str] = []
             if self.extra_guidance_provider is not None:
@@ -793,8 +1168,11 @@ class SkillLoop:
             return (
                 prompt
                 + "\n\n## LIVE MANAGER / OPERATOR DIRECTIVES — HIGHEST PRIORITY\n"
-                + "These directives supersede stale plans, checklists, and prior "
-                "review guidance. Act on them in this round before lower-priority work.\n"
+                + "These directives may stop, narrow, or correct the current mission. "
+                + "They do not silently broaden a structured bounded task or cross its "
+                + "pipeline stage. If a directive materially replaces the current "
+                + "bounded objective, preserve state, update CHECKPOINT.md, and request "
+                + "Reviewer/Planner replanning instead of executing the new scope here.\n"
                 + "\n".join(f"- {item}" for item in guidance)
             )
 
@@ -811,6 +1189,19 @@ class SkillLoop:
             )
 
         def capture_reviewed_round(record: RoundRecord) -> None:
+            if self.config.context_packet_path:
+                try:
+                    from .life.context_packet import record_reviewed_handoff
+
+                    record_reviewed_handoff(
+                        mission_context_path=self.config.context_packet_path,
+                        round_index=record.round_index,
+                        engineer_summary=record.engineer_message,
+                        review=record.review,
+                        checkpoint_path=self.config.checkpoint_path,
+                    )
+                except Exception:  # noqa: BLE001 - handoff persistence is fail-soft
+                    log.exception("failed to persist reviewed context packet")
             if not self.config.wiki_ops_enabled:
                 return
             from .wiki.lifecycle import capture_reviewed_round as _capture
@@ -893,7 +1284,9 @@ class SkillLoop:
                     prompt=prompt,
                     options=RunnerOptions(
                         model=self.config.engineer_model,
-                        reasoning_effort=self.config.engineer_reasoning_effort,
+                        reasoning_effort=(
+                            self.config.skill_maintenance_reasoning_effort
+                        ),
                         extra_args=extra_args or None,
                         full_auto=False,
                         dangerous_yolo=False,
@@ -1007,6 +1400,7 @@ class SkillLoop:
                 backend_failure_backoff_seconds=self.config.backend_failure_backoff_seconds,
                 session_id=self.config.session_id,
                 checkpoint_path=self.config.checkpoint_path,
+                context_packet_path=self.config.context_packet_path,
                 engineer_log_path=self.config.engineer_log_path,
                 allow_engineer_self_review=(
                     self.config.engineer_self_review_enabled
@@ -1014,15 +1408,24 @@ class SkillLoop:
                 allow_engineer_skill_maintenance=(
                     self.config.engineer_skill_maintenance_enabled
                 ),
+                required_skill_action=(
+                    ("update" if learning_target_name else "create")
+                    if (
+                        self.config.require_post_task_learning
+                        and self.config.force_post_task_learning
+                    )
+                    else ""
+                ),
+                required_skill_name=learning_target_name,
             ),
             workdir=workdir,
             on_event=self.on_event,
             seed_thread_id=seed_thread_id,
             scope=scope,
-            per_mission_budget=per_mission_budget,
             prepare_review_context=prepare_review_context,
             review_completed_hook=capture_reviewed_round,
             continue_adaptor=adapt_after_rejections,
+            reviewer_skill_block=reviewer_skill_block,
             engineer_skill_maintenance=maintain_skill_with_engineer,
         )
 
@@ -1138,7 +1541,12 @@ class SkillLoop:
                 )
                 or self.config.resolved_matcher_model()
             )
-            distiller_model = str(self.config.engineer_model or "")
+            transfer_used = bool(distill_result is not None and skill is not None)
+            distiller_model = str(
+                self.config.resolved_skill_adapter_model()
+                if transfer_used and not skill_distilled
+                else (self.config.engineer_model or "")
+            )
             distiller_input_tokens = int(getattr(distill_result, "input_tokens", 0) or 0)
             distiller_cached_input_tokens = int(
                 getattr(distill_result, "cached_input_tokens", 0) or 0
@@ -1167,7 +1575,7 @@ class SkillLoop:
             }
             self._emit({
                 "type": EventType.SKILL_COST_COMPLETED,
-                "agent_layer": "scientist",
+                "agent_layer": "skill_transfer" if transfer_used else "scientist",
                 "matcher_model": matcher_model,
                 "distiller_model": distiller_model,
                 "matcher": matcher_usage,
@@ -1204,7 +1612,11 @@ class SkillLoop:
             self._emit({
                 "type": EventType.SKILL_OUTCOME,
                 "skill_name": skill_name or "",
-                "skill_hit": bool(skill_name) and not skill_distilled,
+                "skill_hit": bool(strict_skill_hit),
+                "nearest_transfer_fallback": bool(nearest_transfer_fallback),
+                "low_confidence_transfer_hint": bool(
+                    low_confidence_transfer_hint
+                ),
                 "skill_distilled": bool(skill_distilled),
                 "matcher_model": matcher_model,
                 "distiller_model": distiller_model,
@@ -1252,6 +1664,11 @@ class SkillLoop:
         include_static: bool = True,
         role_banner: str = "",
         allow_self_review: bool = False,
+        matched_skill_name: str = "",
+        require_post_task_learning: bool = False,
+        force_post_task_learning: bool = False,
+        file_read_budget: int = 12,
+        test_run_budget: int = 3,
     ) -> str:
         # STATIC remains byte-stable for provider prefix caching. Autonomous
         # Engineer calls are always fresh and receive the full prompt.
@@ -1284,9 +1701,13 @@ class SkillLoop:
             "continues. A measured failure or build is progress; pure reading without "
             "an artifact or measurement is not.\n"
             "Work in the current directory. Unless required, do not write "
-            "planning/spec/brief documents, initialize Git, "
-            "create branches/worktrees, commit, spawn subagents, or invoke meta-workflow "
-            "playbooks."
+            "planning/spec/brief documents, initialize Git, branch/worktree, commit, "
+            "spawn subagents, or invoke meta-workflows.\n"
+            f"Budget: inspect about {max(1, int(file_read_budget))} relevant files "
+            "before editing and avoid rereads; run at most "
+            f"{max(1, int(test_run_budget))} focused verification commands plus the "
+            "decisive verifier. Exceed only after a concrete failure or code change. "
+            "Ignore `.autors` unless retaining durable learning."
         )
         sections.append(
             "## Required output\n"
@@ -1294,20 +1715,17 @@ class SkillLoop:
             "in a fenced block, then `## Summary` (at most 8 bullets). Do not "
             "paraphrase evidence.\n\n"
             + (
-                "You have authority to waive an independent Reviewer only when "
-                "you judge this mission bounded and low-risk, all requested work "
-                "is complete, decisive local verification passed, and no unresolved "
-                "failure or judgment-heavy claim remains. Simple inspections, "
-                "small deterministic repairs, and narrow checks are typical cases. "
-                "Otherwise require review. If a reusable Engineer skill should be "
-                "created or updated from the verified trajectory, request it here; "
-                "the harness will resume this same session once for skill maintenance.\n"
+                "Use `review=skip` only for low-risk bounded work with a passing "
+                "verifier. Require review for failures, risky cross-module changes, "
+                "or unsettled judgment. Do not spawn a Reviewer subagent; for "
+                "`review=required`, yield for a fresh Reviewer session. Request skill "
+                "maintenance only for durable learning.\n"
                 if allow_self_review
                 else
-                "Independent review is required for this mission; set `review` to "
-                "`required`.\n"
+                "`review=required`; don't spawn Reviewer subagents. Yield for fresh "
+                "Reviewer session.\n"
             )
-            + "Your FINAL line must be exactly:\n"
+            + "Final line exactly:\n"
             'ARGUS_ENGINEER_DECISION: {"review":"skip|required",'
             '"reason":"<brief judgment>","verification":"<what passed>",'
             '"skill_action":"none|create|update","skill_name":"<required for '
@@ -1316,11 +1734,45 @@ class SkillLoop:
             "The marker is not evidence; keep literal evidence in the fenced "
             "Verification block."
         )
+        if require_post_task_learning and force_post_task_learning:
+            required_action = "update" if matched_skill_name else "create"
+            target = (
+                f" the matched skill `{matched_skill_name}`"
+                if matched_skill_name
+                else " one reusable Engineer skill"
+            )
+            sections.append(
+                "## Required self-evolution\n"
+                "After verification, request `skill_action=" + required_action + "` for"
+                + target
+                + "; the harness resumes this session to author it. Also retain one "
+                "concise `.autors/<project>/wiki/` note with the reusable mechanism, "
+                "failed approach, and decisive verification."
+            )
+        elif require_post_task_learning:
+            sections.append(
+                "## Selective self-evolution\n"
+                "Use `skill_action=create|update` only for a verified durable mechanism "
+                "that changes future work; otherwise use `skill_action=none`. Write a "
+                "wiki note only for similarly durable project knowledge."
+            )
         static_text = "\n\n".join(sections)
         delta_text = "\n\n".join(delta_sections)
         if include_static:
             return static_text + ("\n\n" + delta_text if delta_text else "")
-        # Kept for source compatibility; autonomous calls always request full text.
-        return delta_text
+        compact = (
+            "## Continuation turn\n"
+            "Read the shared CHECKPOINT.md first. Execute its current Next Action "
+            "and the Reviewer guidance below. Do not repeat an unchanged failing "
+            "command; reduce it to the cheapest decisive diagnostic. The original "
+            "task, active vertical, and repository instructions remain binding.\n\n"
+            "## Required output\n"
+            "End with a concise Verification and Summary, then the exact final line:\n"
+            'ARGUS_ENGINEER_DECISION: {"review":"skip|required",'
+            '"reason":"<brief>","verification":"<result>",'
+            '"skill_action":"none","skill_name":"",'
+            '"skill_reason":""}'
+        )
+        return compact + ("\n\n" + delta_text if delta_text else "")
 
 __all__ = ["SkillLoop", "SkillLoopConfig"]

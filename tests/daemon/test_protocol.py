@@ -13,6 +13,7 @@ from argus_skill.daemon.life_worker import (
 from argus_skill.daemon.protocol import (
     DAEMON_CAPABILITIES,
     DAEMON_PROTOCOL_MAJOR,
+    DAEMON_PROTOCOL_MINOR,
     DAEMON_PROTOCOL_NAME,
     daemon_protocol_compatibility,
 )
@@ -25,10 +26,14 @@ def test_daemon_status_sidecar_carries_protocol_and_runtime_identity(
     from argus_skill.core.daemon_lock import acquire_global_daemon_lock
 
     monkeypatch.delenv("ARGUS_SKILL_SOURCE_ROOT", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_REQUIRE_CLEAN_SOURCE", raising=False)
     payload = _daemon_status_payload(
         LifeWorkerConfig(life_dir=tmp_path, backend="memory"),
         started_at_iso="2026-07-11T00:00:00+00:00",
     )
+    # This test exercises protocol serialization rather than the repository's
+    # in-progress release manifest while the test suite itself edits files.
+    payload["runtime"]["release_matches_source"] = None
     with acquire_global_daemon_lock(pid_path=tmp_path / "daemon.pid"):
         (tmp_path / "daemon.status.json").write_text(
             json.dumps(payload),
@@ -42,6 +47,29 @@ def test_daemon_status_sidecar_carries_protocol_and_runtime_identity(
     assert status.runtime is not None
     assert status.runtime["source_root"]
     assert daemon_protocol_compatibility(status) == (True, "")
+
+
+def test_clean_source_policy_rejects_dirty_runtime(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    monkeypatch.setenv("ARGUS_SKILL_REQUIRE_CLEAN_SOURCE", "1")
+    status = SimpleNamespace(
+        alive=True,
+        protocol_name=DAEMON_PROTOCOL_NAME,
+        protocol_major=DAEMON_PROTOCOL_MAJOR,
+        protocol_minor=DAEMON_PROTOCOL_MINOR,
+        capabilities=DAEMON_CAPABILITIES,
+        runtime={
+            "source_root_matches_config": None,
+            "release_matches_source": None,
+            "release_id": "",
+            "worktree": {"dirty": True, "detached": False},
+        },
+    )
+    assert daemon_protocol_compatibility(status) == (
+        False,
+        "daemon loaded a dirty or detached source checkout",
+    )
 
 
 def test_running_legacy_daemon_is_explicitly_incompatible(tmp_path: Path) -> None:

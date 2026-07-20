@@ -41,24 +41,30 @@ class ResolvedKnob:
 
 @dataclass(frozen=True)
 class BudgetCaps:
-    """The three runtime budget caps shared by every launch surface."""
+    """The sole host-global runtime budget cap."""
 
-    per_mission_cap_usd: float
-    daily_cap_usd: float
     global_daily_cap_usd: float
 
 
 BUDGET_KNOB_DEFAULTS: dict[str, str] = {
-    "ARGUS_SKILL_PER_MISSION_CAP_USD": "30.0",
-    "ARGUS_SKILL_DAILY_CAP_USD": "180.0",
-    "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "30.0",
+    "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "20000.0",
 }
+
+# Daemon count is not provider concurrency: every backend still obeys its own
+# host-wide call/concurrency guard. Keep this high enough for independent
+# long-running projects while those lower-level guards control actual load.
+DEFAULT_MAX_ACTIVE_DAEMONS = 64
 
 
 #: The operator control surface. Defaults verified against read-sites 2026-06-26.
 KNOBS: tuple[Knob, ...] = (
     # --- backend / runner ---
-    Knob("ARGUS_SKILL_LIFE_BACKEND", "codex", "agent backend: codex | claude | memory (test only)", "backend"),
+    Knob(
+        "ARGUS_SKILL_LIFE_BACKEND",
+        "codex",
+        "agent backend: codex | copilot | claude | memory (test only)",
+        "backend",
+    ),
     Knob("ARGUS_SKILL_RUNNER_BIN", "(agent CLI on PATH)", "absolute path to the agent CLI binary", "backend"),
     Knob("ARGUS_SKILL_ENGINEER_BACKEND", "(=LIFE_BACKEND)", "per-role backend override for the engineer", "backend", cockpit=True),
     Knob("ARGUS_SKILL_REVIEWER_BACKEND", "(=LIFE_BACKEND)", "per-role backend override for the reviewer", "backend", cockpit=True),
@@ -100,31 +106,31 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_PLANNER_REASONING_EFFORT", "xhigh", "planner reasoning effort", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_SELF_REASONING_EFFORT", "xhigh", "foreground Manager SELF chat/read-only reply effort", "reasoning"),
     Knob("ARGUS_SKILL_PLAN_PREVIEW_REASONING_EFFORT", "low", "interactive /plan preview effort; execution planning keeps the planner setting", "reasoning"),
+    Knob("ARGUS_SKILL_ENGINEER_INITIAL_REASONING_EFFORT", "high", "direct-task first-round Engineer effort; later rounds use the Engineer effort", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh", "engineer reasoning effort: low|medium|high|xhigh", "reasoning", cockpit=True),
-    Knob("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "xhigh", "reviewer reasoning effort", "reasoning", cockpit=True),
+    Knob("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "high", "reviewer reasoning effort", "reasoning", cockpit=True),
+    Knob("ARGUS_SKILL_ADAPTER_REASONING_EFFORT", "low", "matched-skill adaptation reasoning effort", "reasoning"),
+    Knob("ARGUS_SKILL_MAINTENANCE_REASONING_EFFORT", "low", "post-task skill-maintenance reasoning effort", "reasoning"),
     # --- budget ---
-    Knob("ARGUS_SKILL_PER_MISSION_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_PER_MISSION_CAP_USD"], "legacy migration value; project budget.json is authoritative", "budget", cockpit=True),
-    Knob("ARGUS_SKILL_DAILY_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_DAILY_CAP_USD"], "legacy migration value; project budget.json is authoritative", "budget", cockpit=True),
-    Knob("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"], "legacy migration value; global_budget.json is authoritative", "budget", cockpit=True),
+    Knob("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"], "host-global daily USD cap across all projects", "budget", cockpit=True),
     Knob("ARGUS_SKILL_COST_CONTROL", "on", "atomic per-call cost reservation and settlement", "budget"),
-    Knob("ARGUS_SKILL_PER_CALL_CAP_USD", "5.0", "maximum USD envelope reserved for one provider call (0 uses all remaining)", "budget"),
-    Knob("ARGUS_SKILL_CONTROL_PLANE_CALL_CAP_USD", "1.0", "maximum USD envelope for one Manager/router/simple control-plane call", "budget", cockpit=True),
     Knob("ARGUS_SKILL_UNPRICED_COST_POLICY", "block", "handling for unresolved call cost: block | allow", "budget", cockpit=True),
-    Knob("ARGUS_SKILL_FENCE_BREACH_POLICY", "block", "handling after a provider exceeds its reserved fence: block | allow", "budget"),
-    Knob("ARGUS_SKILL_FENCE_BREACH_COOLDOWN_S", "900", "seconds to block that provider after a priced fence overrun", "budget"),
     Knob("ARGUS_SKILL_COPILOT_GUARD", "on", "cross-project Copilot premium/call/concurrency circuit breaker", "budget"),
     Knob("ARGUS_SKILL_CODEX_GUARD", "on", "cross-project Codex daily-call circuit breaker", "budget"),
     Knob("ARGUS_SKILL_CODEX_DAILY_CALL_CAP", "300", "host-wide Codex provider-call cap per local day", "budget", cockpit=True),
-    Knob("ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP", "100", "host-wide Copilot premium-request cap per local day", "budget", cockpit=True),
-    Knob("ARGUS_SKILL_COPILOT_DAILY_CALL_CAP", "300", "host-wide Copilot provider-call cap per local day", "budget", cockpit=True),
-    Knob("ARGUS_SKILL_COPILOT_HOURLY_CALL_CAP", "60", "host-wide Copilot provider-call cap per rolling hour", "budget"),
-    Knob("ARGUS_SKILL_COPILOT_MAX_CONCURRENCY", "2", "maximum concurrent Copilot calls across all Argus projects", "budget"),
-    Knob("ARGUS_SKILL_MAX_ACTIVE_DAEMONS", "2", "host-wide active daemon cap", "budget", cockpit=True),
+    Knob("ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP", "10000", "host-wide Copilot premium-request cap per local day", "budget", cockpit=True),
+    Knob("ARGUS_SKILL_COPILOT_DAILY_CALL_CAP", "10000", "host-wide Copilot provider-call cap per local day", "budget", cockpit=True),
+    Knob("ARGUS_SKILL_COPILOT_HOURLY_CALL_CAP", "10000", "host-wide Copilot provider-call cap per rolling hour", "budget"),
+    Knob("ARGUS_SKILL_COPILOT_MAX_CONCURRENCY", "10000", "maximum concurrent Copilot calls across all Argus projects", "budget"),
+    Knob("ARGUS_SKILL_MAX_ACTIVE_DAEMONS", str(DEFAULT_MAX_ACTIVE_DAEMONS), "host-wide active daemon cap", "budget", cockpit=True),
     Knob("ARGUS_SKILL_SUBAGENT_FAMILY_FAILURE_STREAK_LIMIT", "3", "consecutive unresolved subagent-job failures (same experiment family) before the L4 planner circuit-breaks further retries", "budget"),
     Knob("ARGUS_SKILL_SUBAGENT_FAMILY_FAILURE_WINDOW_HOURS", "72.0", "trailing window (hours) the subagent family failure streak is computed over", "budget"),
     # --- mission / lifecycle ---
-    Knob("ARGUS_SKILL_VERTICAL", "(unset → research; see LANES #1)", "force a vertical: nanochat|nanogpt_speedrun|kernelbench|speedrun|research|math", "mission"),
     Knob("ARGUS_SKILL_MAX_ROUNDS", "500", "max engineer rounds per mission", "mission"),
+    Knob("ARGUS_SKILL_NEAREST_TRANSFER_MIN_SCORE", "0.12", "minimum semantic score for injecting a full nearest-skill fallback", "mission"),
+    Knob("ARGUS_SKILL_FORCE_POST_TASK_LEARNING", "0", "force every task to create/update a skill; selective learning is default", "mission"),
+    Knob("ARGUS_SKILL_ENGINEER_FILE_READ_BUDGET", "12", "soft first-pass relevant-file inspection budget", "mission"),
+    Knob("ARGUS_SKILL_ENGINEER_TEST_RUN_BUDGET", "3", "soft focused verification-run budget before the final verifier", "mission"),
     Knob("ARGUS_SKILL_BOUNDED_DAG_MODEL", "auto", "compact model for decomposing Manager bounded tasks into backlog DAG nodes", "mission"),
     Knob("ARGUS_SKILL_BOUNDED_DAG_REASONING_EFFORT", "low", "reasoning effort for bounded DAG decomposition", "mission"),
     Knob("ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS", "0", "optional wall-clock cap for one Engineer turn; disabled by default", "mission"),
@@ -134,6 +140,9 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_DECISION_PROGRESS_TIMEOUT_SECONDS", "1800", "safe round-boundary seconds without reviewer-classified decision/evidence progress (0=off)", "mission"),
     Knob("ARGUS_SKILL_MANAGER_LOCK_TIMEOUT_S", "120", "bounded wait for the shared Manager session lock before failing open to a no-session call", "mission"),
     Knob("ARGUS_SKILL_CHECKPOINT_PERSIST", "true", "persist the reviewer checkpoint across missions/restarts", "mission"),
+    Knob("ARGUS_SKILL_REPEATED_FAILURE_THRESHOLD", "2", "matching reviewed failure signatures before ending the mission for L4 replanning", "mission"),
+    Knob("ARGUS_SKILL_REPEATED_FAILURE_SIMILARITY", "0.62", "semantic overlap required to count two reviewed blockers as the same failure", "mission"),
+    Knob("ARGUS_SKILL_COMPACT_CONTINUATION_PROMPTS", "true", "send the full Engineer task/skill contract only on round 1; later rounds use reviewer guidance plus CHECKPOINT.md", "mission"),
     Knob("ARGUS_SKILL_DAEMON_AUTO_RESTART", "0", "blue/green self-handoff on source change (default OFF)", "lifecycle"),
     Knob("ARGUS_SKILL_AUTOCOMMIT_SKILLS", "off", "let end-of-mission skill tidy-up git-commit distilled skills to the argus repo (default OFF — never auto-commits the operator's working tree)", "lifecycle"),
     Knob("ARGUS_SKILL_PER_MISSION_DISTILL", "off", "promote eligible runtime skills after EACH mission (default OFF)", "lifecycle"),
@@ -199,7 +208,6 @@ _NON_NEGATIVE_INT_KNOBS = frozenset(
     }
 )
 _NON_NEGATIVE_FLOAT_KNOBS = frozenset({
-    "ARGUS_SKILL_CONTROL_PLANE_CALL_CAP_USD",
     "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP",
 })
 _SENSITIVE_MARKERS = ("TOKEN", "KEY", "SECRET", "PASSWORD", "AUTH")
@@ -248,6 +256,55 @@ def _parse_budget_value(name: str, raw: str) -> float:
     return value
 
 
+def _migrate_legacy_budget_into_config(
+    project_state_dir: object | None,
+    global_root: object | None,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> None:
+    """One-time: preserve a pre-existing host-global budget in config.json."""
+    from .knob_store import read_persisted_knobs, write_persisted_knobs
+
+    persisted = read_persisted_knobs()
+    env_map = env if env is not None else os.environ
+
+    def _have(name: str) -> bool:
+        return bool(str(env_map.get(name, "") or "").strip()) or name in persisted
+
+    name = "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"
+    if _have(name):
+        return
+
+    import json as _json
+    from pathlib import Path
+
+    def _load(path: object) -> dict | None:
+        try:
+            data = _json.loads(Path(str(path)).read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _fmt(value: float) -> str:
+        return repr(int(value)) if float(value).is_integer() else repr(float(value))
+
+    groot = global_root
+    if groot is None and project_state_dir is not None:
+        p = Path(str(project_state_dir)).expanduser()
+        groot = p.parent.parent if p.parent.name == "projects" else None
+    if groot is None:
+        return
+    payload = _load(Path(str(groot)).expanduser() / "global_budget.json")
+    if payload is None or "global_daily_cap_usd" not in payload:
+        return
+    try:
+        value = float(payload["global_daily_cap_usd"])
+    except (TypeError, ValueError):
+        return
+    if value != float(BUDGET_KNOB_DEFAULTS[name]):
+        write_persisted_knobs({name: _fmt(value)})
+
+
 def resolve_budget_caps(
     *,
     project_state_dir: object | None = None,
@@ -255,35 +312,16 @@ def resolve_budget_caps(
     env: Mapping[str, str] | None = None,
     persisted: Mapping[str, str] | None = None,
 ) -> BudgetCaps:
-    """Resolve budget caps once for CLI, daemon, and Web launch paths.
+    """Resolve budget caps from the knob layer — ``config.json`` is the single source.
 
-    Production callers pass ``project_state_dir`` and read ``budget.json``.
-    The env/persisted path remains only for compatibility and one-time migration.
+    Precedence is ``env`` > persisted ``config.json`` > default. The retired
+    ``global_budget.json`` is read ONCE (via
+    ``_migrate_legacy_budget_into_config``) only to migrate a pre-existing
+    operator budget into config.json so an upgrade never silently resets caps;
+    ``project_state_dir``/``global_root`` are used solely to locate that file.
     """
-    if project_state_dir is not None:
-        from pathlib import Path
-
-        from .project_budget import read_global_budget, read_project_budget
-
-        budget = read_project_budget(project_state_dir, migrate_env=env)
-        if global_root is None:
-            project_path = Path(str(project_state_dir)).expanduser()
-            global_root = (
-                project_path.parent.parent
-                if project_path.parent.name == "projects"
-                else None
-            )
-        if global_root is None:
-            from .paths import global_root as default_global_root
-
-            global_root = default_global_root()
-        global_budget = read_global_budget(global_root, migrate_env=env)
-        return BudgetCaps(
-            per_mission_cap_usd=budget.per_mission_cap_usd,
-            daily_cap_usd=budget.daily_cap_usd,
-            global_daily_cap_usd=global_budget.global_daily_cap_usd,
-        )
     if persisted is None:
+        _migrate_legacy_budget_into_config(project_state_dir, global_root, env=env)
         from .knob_store import read_persisted_knobs
 
         persisted = read_persisted_knobs()
@@ -297,20 +335,8 @@ def resolve_budget_caps(
         )
         return _parse_budget_value(name, resolved.value)
 
-    caps = BudgetCaps(
-        per_mission_cap_usd=_value("ARGUS_SKILL_PER_MISSION_CAP_USD"),
-        daily_cap_usd=_value("ARGUS_SKILL_DAILY_CAP_USD"),
-        global_daily_cap_usd=_value("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"),
-    )
-    if global_root is None:
-        return caps
-    from .project_budget import read_global_budget
-
-    global_budget = read_global_budget(global_root, migrate_env=env)
     return BudgetCaps(
-        per_mission_cap_usd=caps.per_mission_cap_usd,
-        daily_cap_usd=caps.daily_cap_usd,
-        global_daily_cap_usd=global_budget.global_daily_cap_usd,
+        global_daily_cap_usd=_value("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"),
     )
 
 

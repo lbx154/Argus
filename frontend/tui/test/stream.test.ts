@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ApiClient, parseSSEFrames, taskDispatchMessage } from '../src/api.js';
+import {
+  ApiClient,
+  defaultExecutionWorkdir,
+  parseSSEFrames,
+  taskDispatchMessage,
+} from '../src/api.js';
 import { messageId, mergeFragment, renderEvent } from '../src/eventRender.js';
 import { buildEventLines, partitionEventLines } from '../src/eventLines.js';
 
@@ -182,7 +187,7 @@ test('task dispatch reports executor admission failures instead of claiming work
       kind: 'task',
       item: {
         id: 'x', title: 'run benchmark', objective: '', status: 'pending',
-        priority: 1, max_cost_usd: 5,
+        priority: 1,
       },
       daemon: { rc: 2, error: 'background executor limit 2 reached' },
     }),
@@ -193,7 +198,7 @@ test('task dispatch reports executor admission failures instead of claiming work
       kind: 'task',
       item: {
         id: 'y', title: 'new experiment', objective: '', status: 'pending',
-        priority: 1, max_cost_usd: 5,
+        priority: 1,
       },
       daemon: {
         rc: 2,
@@ -263,10 +268,20 @@ test('Ink can create a global daemon with auth, name, and objective', async () =
       objective: 'reproduce benchmark',
       name: 'Kernel run',
       launch_cwd: '/work/kernel',
+      workdir: '/work/kernel',
     });
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('fresh daemons isolate broad launch roots but keep project directories', () => {
+  assert.equal(defaultExecutionWorkdir('/home/alice', '/home/alice'), undefined);
+  assert.equal(defaultExecutionWorkdir('/', '/home/alice'), undefined);
+  assert.equal(
+    defaultExecutionWorkdir('/home/alice/project', '/home/alice'),
+    '/home/alice/project',
+  );
 });
 
 test('Ink retries one malformed HTTP create with the same command id', async () => {

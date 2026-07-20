@@ -43,6 +43,28 @@ def source_revision() -> str | None:
     return revision or None
 
 
+@lru_cache(maxsize=1)
+def source_worktree_state() -> dict[str, Any]:
+    root = source_root()
+    try:
+        branch = subprocess.run(
+            ["git", "symbolic-ref", "--short", "-q", "HEAD"],
+            cwd=root, check=False, capture_output=True, text=True, timeout=1.0,
+        ).stdout.strip()
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=root, check=False, capture_output=True, text=True, timeout=2.0,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {"git_available": False, "branch": None, "detached": None, "dirty": None}
+    return {
+        "git_available": status.returncode == 0,
+        "branch": branch or None,
+        "detached": not bool(branch),
+        "dirty": bool(status.stdout.strip()) if status.returncode == 0 else None,
+    }
+
+
 def runtime_identity() -> dict[str, Any]:
     configured_root = os.environ.get("ARGUS_SKILL_SOURCE_ROOT", "").strip()
     loaded_root = source_root()
@@ -56,6 +78,7 @@ def runtime_identity() -> dict[str, Any]:
             else Path(configured_root).expanduser().resolve() == loaded_root
         ),
         "revision": source_revision(),
+        "worktree": source_worktree_state(),
         "pid": os.getpid(),
         "python_version": platform.python_version(),
         "executable": sys.executable,
@@ -64,4 +87,4 @@ def runtime_identity() -> dict[str, Any]:
     }
 
 
-__all__ = ["runtime_identity", "source_revision", "source_root"]
+__all__ = ["runtime_identity", "source_revision", "source_root", "source_worktree_state"]

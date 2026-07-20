@@ -675,6 +675,7 @@ def test_planner_waiting_records_external_dependency_status(tmp_path: Path) -> N
 
     assert LifeSupervisor._plan_next_work(sup) == "awaiting_external"
 
+    assert sup._idle_since is None
     assert any(s.startswith("awaiting external dependency:") for s in statuses)
     waiting_events = [
         e for e in emitted

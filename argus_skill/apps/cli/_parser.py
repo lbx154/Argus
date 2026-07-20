@@ -201,6 +201,13 @@ def build_parser() -> argparse.ArgumentParser:
              "engineer round picks it up as operator guidance)",
     )
     cockpit_grp.add_argument(
+        "--notify-stage",
+        default="",
+        metavar="STAGE",
+        help="deliver --notify only when the active pipeline reaches this stage "
+             "(vertical aliases such as profiling→optimize are canonicalized)",
+    )
+    cockpit_grp.add_argument(
         "--follow",
         action="store_true",
         help="stream daemon events to terminal in real-time "
@@ -263,6 +270,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="import OPENAI_* / Codex config into the private capability vault "
              "(~/.argus-skill/capabilities/model_api.json, mode 0600)",
+    )
+    capability_grp.add_argument(
+        "--install-ppt-master",
+        action="store_true",
+        help="install the pinned MIT-licensed PPT Master toolkit and Python dependencies",
+    )
+    capability_grp.add_argument(
+        "--ppt-master-status",
+        action="store_true",
+        help="show the installed PPT Master path, revision, and dependency status",
     )
 
     skills_grp = parser.add_argument_group("skill admin")

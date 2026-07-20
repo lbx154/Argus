@@ -2,7 +2,7 @@
 name: NanoChat Autoresearch Hands-on Trace
 description: A concrete NanoChat-autoresearch (Recursive "First Steps" Task 1) process trace on a single B200, written as the operator's OWN known-good operating procedure for the DUAL of a speedrun — FIX the 300s single-GPU budget, MINIMIZE the mean validation bits-per-byte (val_bpb) over N seeds, editing only train.py against a frozen scorer. The spine is a per-candidate measured causal chain bound to real numbers from a real 50-candidate live run (vanilla@64 1.053 → floor 0.9890): measured(val_bpb mean±sd over N seeds vs the SEED-NOISE floor) → decompose(effective_tokens-in-300s × quality-per-token; where on the loss curve does 300s land) → pick the binding lever (throughput vs per-token quality) → ONE coordinated change → re-measure → classify miss (real signal vs sub-noise jitter) → bank / stack-as-a-BUNDLE. The live run's two expensive errors — deciding accept/reject on differences smaller than its own seed noise, and testing single levers greedily so synergistic structure never assembled — are demoted to the nails. Does NOT contain the reference SOTA recipe.
 category: benchmark-training-fixed-budget-lm
-version: 2
+version: 3
 created_at: 2026-06-18T00:00:00+00:00
 ---
 
@@ -60,6 +60,21 @@ teaches the method that *derives* one.
 > never-seen trick — see `NanoChat Autoresearch SOTA Optimization` §0. (Anti-cheat: general
 > technique only, never the reference recipe.)
 
+## Run economy — one confident screen, not a seed farm
+
+One official experiment spends the complete 300-second training budget: **at least five minutes
+of GPU time, plus compile and evaluation overhead**. The default candidate protocol is therefore
+**one clean run / one seed**. Diagnose the binding constraint, choose a mechanism you believe in,
+run it once, and make a decisive research call from the measured trajectory and endpoint.
+
+Do not spend 3, 5, or 10 repeated seeds on every ordinary candidate. Use a small repeat set once
+to calibrate the retained baseline; repeat a candidate only when its first clean result is
+mechanistically credible and clearly promising, near the live best, or ready for final
+certification. A clear regression needs no repeat. A sub-noise near-tie is not promoted; either
+move to the next stronger idea or reserve confirmation for the rare candidate worth the extra
+GPU budget. **Confidence means committing to a diagnosis-backed experiment, not buying certainty
+with repetitive runs or declaring noise a win.**
+
 ## What "process data" means here — the chain to learn
 
 Record each candidate as one linked block. Learn the shape; it is a teaching exemplar, not a
@@ -82,6 +97,92 @@ CAND <name, ON TOP OF which floor, and which lever CLASS(es) it changes>
                revert this lever | hold as a synergy-candidate to retry inside a bundle
   → next:      next COORDINATED change, chosen by the binding constraint
 ```
+
+## 2026-07-17 collaborative autoresearch-at-home B200 trace
+
+This second real trace sharpened the procedure for the community
+`autoresearch-at-home` scaffold. It is evidence about operating the loop, not a recipe to copy.
+
+### Detect the scaffold before enforcing invariants
+
+Two legitimate nanochat shapes exist:
+
+- **Collaborative at-home:** editable `train.py`; frozen `prepare.py`; local
+  `coordinator.py`; `results.tsv`; data/tokenizer under `~/.cache/autoresearch`.
+- **Legacy benchmark:** editable solution/train artifact; frozen `lib.py`; external runner.
+
+Freeze the harness that actually exists. Requiring `lib.py` in a `prepare.py` repository creates
+fake setup work; treating `prepare.py` as editable invalidates the score. Never hard-code another
+project's absolute path: use the canonical workdir supplied by the runtime, and do not `cd` into a
+different campaign's repository.
+
+### A swarm best is source material until the local verifier reproduces it
+
+The collaborative loop is:
+
+```text
+THINK from live results/insights/hypotheses
+→ pull hardware-tier/global best source
+→ reproduce locally under the frozen scorer
+→ CLAIM before editing
+→ run
+→ PUBLISH result + insight + next hypothesis, including discard/crash
+→ refresh the live best every five experiments
+```
+
+Adopting source is not adopting a number. In this trace the live best was `0.899885` from a B200
+shared-trigram source, but the source imported FA-4 components absent from the repository lock.
+The first local launch therefore crashed before training. FA3 also loaded but had no SM100 kernel
+image. Neither event was a model result, and substituting SDPA/FA3 would have changed the
+benchmark.
+
+After explicit operator authorization, the runtime was made reproducible by pinning the missing
+Python distributions and a concrete upstream FA-4 source revision, then smoke-testing real B200
+forward+backward before the full scorer. One observed compatible set was
+`apache-tvm-ffi==0.1.12`, `einops==0.8.2`, `nvidia-cutlass-dsl==4.4.2`,
+`kernels==0.16.0`, plus the legacy FA-4 Hub source revision
+`7f952e7e7ec1787ad1f7d209d0bdefdb34747af2`. This is historical provenance, not a forever-latest
+recommendation: pin the exact set that the adopted source demonstrably runs with.
+
+### Process-repeat variance is not seed variance
+
+Three fresh sequential processes of the retained artifact, each with default seed 42 and the
+unchanged 300-second scorer, produced:
+
+```text
+0.903871, 0.903664, 0.903917
+mean = 0.9038173333333333
+same-seed process-repeat sample sd = 0.000134767701
+```
+
+This establishes execution repeatability on that host. It does **not** estimate cross-seed
+variance. Record both separately when seeds are part of the protocol; never replace either with
+a generic `0.001` or `0.002` folklore constant. A near-tie cannot be banked until it clears the
+locally measured gate appropriate to the claim.
+
+Security scrubbing can rewrite completed text logs. If that changes file digests after the run,
+update the manifest's `source_log_sha256` values from the scrubbed artifacts and rerun the
+consistency check. Do not waste another 300-second scorer run when the numeric evidence is already
+valid and only the provenance digest is stale.
+
+### Throughput bought more steps but deleted quality-per-token
+
+The profiler identified matrix work as the throughput lever. A preregistered architecture screen
+halved MLP expansion only in layers 0–3 while preserving late-layer width:
+
+```text
+retained:   94.4M params, 3141 steps, 463.2M tokens, val_bpb 0.904052
+candidate:  84.9M params, 3387 steps, 499.4M tokens, val_bpb 0.905753
+```
+
+The candidate bought about 7–8% more updates and materially less VRAM, but regressed BPB. The
+throughput mechanism was confirmed; the research hypothesis was refuted. Early MLP capacity was
+not expendable: extra tokens did not repay the quality-per-token loss. The updated direction is
+capacity-preserving compute reduction — sharing, factorization, or another co-designed mechanism
+that reduces backward cost without deleting representational width.
+
+This is the dual decomposition doing its job: a faster step is only useful if the net endpoint
+improves. Throughput is evidence, never the reward.
 
 ## My run: the concrete operations
 
@@ -119,8 +220,9 @@ and makes the noise gate **your** job. Skipping it is the single most expensive 
 ```bash
 cd /home/argustest/nanochat-mission-b200
 ./eval_solution.sh train.py 1            # vanilla baseline, 1 seed (fast signal)
-# THEN, the step everyone skips — measure the instrument's noise:
-./eval_solution.sh train.py 5            # SAME vanilla, 5 seeds -> the seed-to-seed sd
+# ONE-TIME calibration — enough to estimate whether the instrument is stable:
+./eval_solution.sh train.py 3            # SAME vanilla, 3 seeds -> initial seed-to-seed sd
+# Extend to 5 only if N=3 is unstable or a final claim needs tighter uncertainty.
 ```
 
 ```text
@@ -212,9 +314,9 @@ CAND <candidate near the floor>
                a040 0.002330 / a041 0.002640 — ALL on deltas of 0.0002-0.0008. With a seed-sd
                plausibly ≥0.001, those promote/reject calls were noise. ~5 hours / ~25 candidates
                (a022→a046) shuffled inside a ~1.002-1.005 band that was statistically ONE point.
-  operator role: the daemon screens at 1-seed; the OPERATOR runs the multi-seed confirmation, and
-               ONLY for a SOTA-level candidate. Do not multi-seed every screen; do not bank a
-               sub-noise screen as a floor.
+  operator role: the daemon screens at 1-seed; the OPERATOR runs a SMALL multi-seed confirmation,
+               and ONLY for a SOTA-level candidate. Do not multi-seed every screen; do not bank a
+               sub-noise screen as a floor. Start at N=3; extend only when the evidence warrants it.
   stack:       maintain a current-best train.py; ADD each REAL winning lever onto it and co-tune;
                revert only a lever that measurably (>σ) hurts. Never revert to bare vanilla.
 ```

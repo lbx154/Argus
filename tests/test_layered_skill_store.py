@@ -122,6 +122,25 @@ def test_load_dispatches_to_owning_layer(tmp_path: Path) -> None:
     assert layered.load(g.path).name == "g"
 
 
+def test_render_skill_full_flag_dispatches_to_owning_layer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_INLINE_BODY_MAX_CHARS", "1200")
+    layered = _layered(tmp_path)
+    skill = Skill(
+        name="long-global",
+        description="large shared playbook",
+        category="x",
+        content="# Long Global\n\n" + ("detailed shared procedure " * 300),
+    )
+    layered.global_.save(skill)
+    loaded = layered.load(skill.path)
+
+    assert "Progressive skill disclosure" in layered.render_skill(loaded)
+    assert layered.render_skill(loaded, full=True) == loaded.content.strip()
+
+
 # --- writes ---------------------------------------------------------------
 
 def test_save_distilled_lands_in_project_by_default(tmp_path: Path) -> None:
@@ -284,13 +303,37 @@ def test_find_relevant_prefers_project_when_names_collide(
     assert "project flavor" in matched[0].description
 
 
-def test_find_relevant_returns_none_when_both_layers_empty(
+def test_find_relevant_short_circuits_when_both_layers_empty(
     tmp_path: Path,
 ) -> None:
-    layered = _layered(tmp_path)
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    layered = _layered(tmp_path, runner=backend, matcher_model="m")
     matched, tokens = layered.find_relevant("anything")
     assert matched is None
     assert tokens == 0
+    assert backend.history == []
+
+
+def test_find_relevant_can_force_match_when_both_layers_empty(
+    tmp_path: Path,
+) -> None:
+    backend = MemoryBackend()
+    backend.queue(
+        "matcher",
+        CannedResponse(
+            message='{"matched": []}',
+            input_tokens=8,
+            output_tokens=2,
+        ),
+    )
+    layered = _layered(tmp_path, runner=backend, matcher_model="m")
+
+    matched, tokens = layered.find_relevant("anything", force_empty_match=True)
+
+    assert matched is None
+    assert tokens == 10
+    assert len(backend.history) == 1
 
 
 def test_layer_summaries_rejects_unknown_layer(tmp_path: Path) -> None:

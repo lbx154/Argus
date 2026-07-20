@@ -1,6 +1,7 @@
 """The merged cockpit front-door classifier (life.router.classify_front_door).
 
 ONE model call decides config intent, operator control, and SELF/TEAM routing.
+It never chooses a vertical; every formal task goes to Manager classification.
 """
 from __future__ import annotations
 
@@ -76,22 +77,6 @@ def test_front_door_reuses_team_lifetime_from_the_same_model_call() -> None:
 
     assert decision == (None, None, "complex")
     assert lifetimes == ["standing"]
-
-
-def test_front_door_reuses_obvious_builtin_vertical_and_target() -> None:
-    verticals: list[dict[str, str]] = []
-    decision = classify_front_door(
-        "持续证明一个未解决的 Erdős 问题",
-        run_exec=_exec(
-            "CONFIG: NONE\nCONTROL: NONE\nSTEER_DIRECTIVE: NONE\n"
-            "ROUTE: TEAM\nLIFETIME: STANDING\n"
-            "NAME: Erdős 证明\nVERTICAL: math\nTARGET: PUBLISHABLE"
-        ),
-        vertical_sink=verticals.append,
-    )
-
-    assert decision == (None, None, "complex")
-    assert verticals == [{"vertical": "math", "target": "publishable"}]
 
 
 def test_front_door_pure_greeting_can_finish_from_one_model_call() -> None:

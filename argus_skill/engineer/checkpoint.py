@@ -39,6 +39,7 @@ def shared_checkpoint_instructions(path: Path | None, *, role: str) -> str:
     if path is None:
         return ""
     checkpoint = str(Path(path).expanduser().resolve())
+    packet = str(Path(path).expanduser().resolve().parent / "latest.json")
     if role == "reviewer":
         action = (
             "The Engineer already edited it this round. Verify against artifacts, "
@@ -51,7 +52,12 @@ def shared_checkpoint_instructions(path: Path | None, *, role: str) -> str:
         )
     return (
         "## Shared checkpoint — edit the file directly\n"
-        f"Path: `{checkpoint}`\n\n"
+        f"Canonical context packet: `{packet}`\n"
+        f"Human-editable projection: `{checkpoint}`\n\n"
+        "Read the canonical packet first. Treat its mission objective, acceptance "
+        "check, non-goals, context references, and latest sealed Reviewer decision "
+        "as authoritative. Open only the referenced artifacts unless new evidence "
+        "requires expanding the search.\n\n"
         f"{action}\n\n"
         "It is current state, not a log: rewrite stale text. Actually edit the file; "
         "do not emit checkpoint JSON or merely describe an edit."

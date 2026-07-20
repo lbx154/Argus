@@ -41,7 +41,6 @@ describe('CostGauge', () => {
   it('renders missing usage as partial instead of $0.00', () => {
     const markup = renderToStaticMarkup(
       React.createElement(CostGauge, {
-        spend: { total: 0, missions: 0, last: 0 },
         settledUsd: null,
         spendStatus: 'partial',
         daemon: undefined,
@@ -51,28 +50,22 @@ describe('CostGauge', () => {
     expect(markup).not.toContain('$0.00');
   });
 
-  it('surfaces provider fence breaches as a cost-control error', () => {
+  it('surfaces unresolved global cost as a cost-control error', () => {
     const markup = renderToStaticMarkup(
       React.createElement(CostGauge, {
-        spend: { total: 1, missions: 1, last: 1 },
         settledUsd: 1,
         daemon: undefined,
         costControl: {
           day: '2026-07-11',
           active_reservations: 0,
           reserved_usd: 0,
-          unresolved_calls: 0,
+          unresolved_calls: 1,
           unresolved: [],
-          fence_breach_calls: 1,
-          fence_breaches: [],
-          fence_breach_remaining_seconds: 600,
           policy: 'block',
-          fence_breach_policy: 'block',
         },
       }),
     );
-    expect(markup).toContain('fence breaches 1');
-    expect(markup).toContain('retry in 10m');
+    expect(markup).toContain('unresolved 1');
     expect(markup).toContain('text-err');
   });
 });

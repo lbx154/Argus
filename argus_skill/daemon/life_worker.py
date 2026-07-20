@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -321,6 +322,7 @@ __all__ = [
     "stop_daemon",
     "wait_for_daemon_status",
     "spawn_detached_daemon",
+    "spawn_detached_daemon_clean",
     "run_handoff_child",
     "read_continuous_state",
     "read_continuous_config",
@@ -398,6 +400,36 @@ def _preflight_route_on_codex(route: str) -> bool:
         return True
 
 
+def _rearm_operator_drain_for_resume(
+    *,
+    cfg: LifeWorkerConfig,
+    runtime_root: Path,
+    state: ContinuousConfigState,
+) -> ContinuousConfigState:
+    """Re-arm only the temporary state created by ``--daemon-stop --drain``.
+
+    Drain intentionally disables continuous mode so the current mission can
+    finish without a new one starting.  A supervisor then restarts with
+    ``--resume-continuous``; treating the disabled file literally creates an
+    alive-but-idle daemon.  Other disabled reasons remain authoritative and are
+    never auto-resumed (operator holds, normal completion, manual stop, etc.).
+    """
+    if (
+        not getattr(cfg, "continuous", False)
+        and getattr(cfg, "resume_continuous", False)
+        and not state.enabled
+        and state.done_reason == "operator drain-stop"
+        and state.objective.strip()
+    ):
+        write_continuous_config(
+            runtime_root,
+            enabled=True,
+            objective=state.objective,
+        )
+        return read_continuous_state(runtime_root)
+    return state
+
+
 def required_codex_routes(required: Iterable[str] | None = None) -> list[str]:
     """The subset of preflight routes that will hit the codex/Azure model_api.
 
@@ -456,28 +488,7 @@ class LifeWorker:
     """
 
     def __init__(self, config: LifeWorkerConfig) -> None:
-        # budget.json is authoritative even when a handoff payload carries stale
-        # in-memory caps from the previous process.
-        from ..core.project_budget import (
-            GlobalBudget,
-            ProjectBudget,
-            budget_path,
-            global_budget_path,
-            read_project_budget,
-            write_global_budget,
-            write_project_budget,
-        )
-
-        if budget_path(config.life_dir).exists():
-            read_project_budget(config.life_dir)
-        else:
-            write_project_budget(
-                config.life_dir,
-                ProjectBudget(
-                    per_mission_cap_usd=config.per_mission_cap_usd,
-                    daily_cap_usd=config.daily_cap_usd,
-                ),
-            )
+        # The host-global daily cap is the only monetary budget.
         budget_global_root = (
             Path(config.global_root).expanduser()
             if config.global_root is not None
@@ -487,19 +498,12 @@ class LifeWorker:
                 else config.life_dir
             )
         )
-        if not global_budget_path(budget_global_root).exists():
-            write_global_budget(
-                budget_global_root,
-                GlobalBudget(config.global_daily_cap_usd),
-            )
         from ..core.knobs import resolve_budget_caps
 
         caps = resolve_budget_caps(
             project_state_dir=config.life_dir,
             global_root=budget_global_root,
         )
-        config.per_mission_cap_usd = caps.per_mission_cap_usd
-        config.daily_cap_usd = caps.daily_cap_usd
         config.global_daily_cap_usd = caps.global_daily_cap_usd
         self.config = config
         self._stop = threading.Event()
@@ -544,11 +548,71 @@ class LifeWorker:
             # missing. Ignoring is a no-op on Windows anyway.
             pass
 
-    def _seed_project_agents_and_venv(self, project_root: Path) -> None:
-        """Seed ``AGENTS.md`` and a per-project ``.venv`` for a continuous-mode
-        bootstrap, matching the standalone launcher. Idempotent: skips each
-        artifact that already exists so a re-bootstrap never clobbers operator
-        or engineer edits.
+    @staticmethod
+    def _active_manager_objective(memory: Any) -> str:
+        """Return the highest-priority active Manager objective, if one exists.
+
+        Bounded work lives in the backlog rather than ``continuous.json``.  The
+        old bootstrap read only ``LifeWorkerConfig.continuous_objective``, so a
+        real bounded Manager handoff was invisible and ``AGENTS.md`` silently
+        fell back to the generic EMNLP demo objective.  Manager-created backlog
+        items preserve the authoritative handoff in ``original_objective``;
+        prefer that value and ignore the bootstrap task itself.
+        """
+        try:
+            items = list(memory.backlog.all())
+        except Exception:  # noqa: BLE001 — bootstrap remains best-effort
+            log.exception("daemon: failed to inspect backlog for Manager objective")
+            return ""
+        active = [
+            item
+            for item in items
+            if str(getattr(item, "status", "")) in {"pending", "running"}
+            and str(getattr(item, "title", "")) != "bootstrap empty project root"
+        ]
+        active.sort(
+            key=lambda item: (
+                int(getattr(item, "priority", 100)),
+                float(getattr(item, "ts", 0.0) or 0.0),
+            )
+        )
+        for item in active:
+            objective = str(
+                getattr(item, "original_objective", "")
+                or getattr(item, "objective", "")
+            ).strip()
+            if objective:
+                return objective
+        return ""
+
+    @staticmethod
+    def _manager_owned_goal_text(objective: str) -> str:
+        """Render a bootstrap goal without freezing stale runtime authority."""
+        snapshot = " ".join(str(objective or "").split())
+        authority = (
+            "The latest Manager-authored execution objective supplied with the "
+            "current mission is authoritative. This generated bootstrap file is "
+            "workflow guidance only: do not reinterpret, broaden, or replace that "
+            "objective, and do not treat this bootstrap-time snapshot as newer "
+            "than a later Manager instruction."
+        )
+        if snapshot:
+            return f"{authority} Bootstrap-time Manager objective: {snapshot}"
+        return (
+            f"{authority} No Manager-authored objective was active at bootstrap; "
+            "wait for the Manager objective instead of inventing a default paper, "
+            "benchmark, theorem, or optimization target."
+        )
+
+    def _seed_project_agents_and_venv(
+        self,
+        project_root: Path,
+        *,
+        objective: str | None = None,
+    ) -> None:
+        """Seed ``AGENTS.md`` and a per-project ``.venv`` for a daemon-managed
+        bootstrap. Existing AGENTS content is preserved except for the small
+        Argus-managed runtime block; other artifacts remain create-once.
 
         The AGENTS contract is chosen by vertical: optimize-family verticals
         (kernelbench / speedrun / nanochat / nanogpt_speedrun) get the lean
@@ -560,37 +624,25 @@ class LifeWorker:
         """
         from ..skills.builtins import builtin_skill_source_path
         from ..skills.vertical_select import (
-            DEFAULT_VERTICAL,
-            ENV_VERTICAL,
-            _is_project_data_domain,
-            _known_vertical,
             _persisted_vertical,
         )
         from ..tools.new_auto_research_project import (
             init_project_venv,
             load_template_text,
+            refresh_agents_runtime_contract,
             render_agents_md,
         )
 
-        objective = (self.config.continuous_objective or "").strip()
-        # The Manager AGENT decides the vertical (supervisor _resolve_vertical_once
-        # / the divide below persist it); an operator-forced ``ARGUS_SKILL_VERTICAL``
-        # env var is the OTHER legitimate source, with the SAME precedence
-        # ``resolve_vertical`` uses (explicit non-default env wins over the
-        # persisted state) — this only decides which TEMPLATE to render, it never
-        # PERSISTS a guess (seeding must not pre-empt the Manager). Before EITHER
-        # resolves (a fresh mission, no env override), ``vertical`` is None and we
-        # fall back to the research template; the Manager's real vertical persists
-        # next and the reviewer loads its checklists from there.
-        env_vertical = _known_vertical(os.environ.get(ENV_VERTICAL), project_root)
-        persisted_vertical = _persisted_vertical(project_root)
-        if env_vertical is not None and not (
-            env_vertical == DEFAULT_VERTICAL
-            and _is_project_data_domain(persisted_vertical, project_root)
-        ):
-            vertical = env_vertical
-        else:
-            vertical = persisted_vertical
+        manager_objective = (
+            self.config.continuous_objective
+            if objective is None
+            else objective
+        )
+        manager_objective = str(manager_objective or "")
+        rendered_objective = self._manager_owned_goal_text(manager_objective)
+        # The Manager is the sole vertical authority. Before it persists a
+        # decision, bootstrap deliberately has no vertical classification.
+        vertical = _persisted_vertical(project_root)
         # The paper/auto-research contract is seeded ONLY on a POSITIVE research
         # signal — a research vertical the Manager has already confirmed, or an
         # operator-configured research profile (ARGUS_SKILL_RESEARCH_PROFILE = the
@@ -626,7 +678,6 @@ class LifeWorker:
 
         agents_path = project_root / "AGENTS.md"
         if not agents_path.exists():
-            objective_arg = objective or None
             if not is_research:
                 template_path = (
                     builtin_skill_source_path()
@@ -636,7 +687,7 @@ class LifeWorker:
                 agents_md = render_agents_md(
                     template_text,
                     project_name=project_root.name,
-                    objective=objective_arg,
+                    objective=rendered_objective,
                     non_goals=(
                         "Do not produce a paper, venue submission, literature "
                         "review, or LaTeX draft. Do not fabricate, hand-edit, or "
@@ -657,9 +708,14 @@ class LifeWorker:
                 agents_md = render_agents_md(
                     template_text,
                     project_name=project_root.name,
-                    objective=objective_arg,
+                    objective=rendered_objective,
                 )
             agents_path.write_text(agents_md, encoding="utf-8")
+        refresh_agents_runtime_contract(
+            project_root,
+            objective=manager_objective,
+            vertical=vertical or "",
+        )
 
         if not (project_root / ".venv").exists():
             init_project_venv(project_root)
@@ -669,24 +725,30 @@ class LifeWorker:
         # gets the active vertical's OWN domain skills (real bodies overwrite any
         # builtin pointer stub) alongside the cross-vertical skills. This is the
         # tree the reviewer agent reads when ``stage_check`` prints
-        # ``Load skill: argus_builtin_skills/<role>/<name>.md``. Idempotent:
-        # only seeded when the dir is absent, so a re-bootstrap never clobbers
-        # operator/engineer edits.
+        # ``Load skill: argus_builtin_skills/<role>/<name>.md``. Seeding is
+        # is additive for common skills and refreshes the active vertical's
+        # version-controlled read-only source, so newly shipped vertical skills
+        # reach existing projects without replacing unrelated local files.
         from ..skills.builtins import (
             DEFAULT_PROJECT_BUILTIN_SKILLS_DIR,
             seed_builtin_skills,
             seed_builtin_skills_for_vertical,
+            seed_vertical_skills,
         )
 
         skills_target = project_root / DEFAULT_PROJECT_BUILTIN_SKILLS_DIR
-        if not skills_target.exists():
+        try:
+            if vertical:
+                seed_builtin_skills_for_vertical(skills_target, vertical)
+            else:
+                seed_builtin_skills(skills_target)
+        except Exception:  # noqa: BLE001 — best-effort, never break bootstrap
+            log.exception("daemon: failed to seed builtin skills during bootstrap")
+        if vertical and self.config.project_fingerprint:
             try:
-                if vertical and vertical != "research":
-                    seed_builtin_skills_for_vertical(skills_target, vertical)
-                else:
-                    seed_builtin_skills(skills_target)
+                seed_vertical_skills(Path(self.config.life_dir) / "skills", vertical)
             except Exception:  # noqa: BLE001 — best-effort, never break bootstrap
-                log.exception("daemon: failed to seed builtin skills during bootstrap")
+                log.exception("daemon: failed to seed vertical runtime skills")
 
     def _seed_bootstrap_task(
         self,
@@ -725,7 +787,7 @@ class LifeWorker:
             return False
 
         # Seed the reusable GPU/experiment scaffolds into ``code/`` so a
-        # continuous-mode project bootstraps with the same starter helpers
+        # daemon-managed project bootstraps with the same starter helpers
         # the standalone launcher provides. overwrite=False never clobbers
         # files the engineer has already written on a re-bootstrap.
         try:
@@ -734,13 +796,21 @@ class LifeWorker:
         except Exception:  # noqa: BLE001
             log.exception("daemon: failed to seed starter code during bootstrap")
 
-        # Every continuous-mode project must also get an ``AGENTS.md`` (the
+        # Every daemon-managed project must also get an ``AGENTS.md`` (the
         # engineer prompt instructs the agent to read it — without it the agent
         # burns rounds on ``sed: can't read AGENTS.md``) and a per-project
         # ``.venv`` (so the agent pip-installs experiment deps into an overlay
         # rather than the framework venv). Both are no-ops when already present.
         try:
-            self._seed_project_agents_and_venv(Path(preflight.project_root))
+            manager_objective = self._active_manager_objective(memory)
+            if not manager_objective:
+                manager_objective = str(
+                    self.config.continuous_objective or ""
+                ).strip()
+            self._seed_project_agents_and_venv(
+                Path(preflight.project_root),
+                objective=manager_objective,
+            )
         except Exception:  # noqa: BLE001
             log.exception("daemon: failed to seed AGENTS.md / venv during bootstrap")
 
@@ -749,12 +819,10 @@ class LifeWorker:
                 title=title,
                 objective=preflight.bootstrap_objective,
                 priority=0,
-                max_cost_usd=5.0,
                 tags=["bootstrap", "project"],
                 notes=preflight.event_text,
                 iterate=False,
                 iteration_max_cycles=1,
-                iteration_budget_usd=5.0,
             )
             memory.backlog.add(item)
             return True
@@ -781,6 +849,8 @@ class LifeWorker:
             hard_grace_s=float(os.environ.get("ARGUS_TEAMMATE_HARD_GRACE_S", "600")),
             distill_fn=self._curator_distill_fn(runner),
             distill_interval_s=float(os.environ.get("ARGUS_SKILL_CURATOR_DISTILL_INTERVAL_S", "1260")),
+            completion_fn=self._team_completion_summary_fn(runner),
+            conversation_root=self.config.life_dir,
         )
 
     def _curator_distill_fn(self, runner: Any) -> Any:
@@ -809,6 +879,33 @@ class LifeWorker:
 
         return _distill
 
+    def _team_completion_summary_fn(self, runner: Any) -> Any:
+        """Use the Manager backend for one concise Team completion chat summary."""
+        backend = getattr(runner, "manager_backend", None) or getattr(runner, "backend", None)
+        if backend is None:
+            return None
+        from ..core.knobs import resolve_role_model
+
+        model = resolve_role_model("manager", role_env="ARGUS_SKILL_MODEL")
+        workdir = str(self.config.project_workdir) if self.config.project_workdir else None
+
+        def _summarize(prompt: str) -> str:
+            result = gateway_run_exec(
+                backend,
+                prompt=prompt,
+                options=RunnerOptions(
+                    model=model or None,
+                    reasoning_effort="low",
+                    skip_git_repo_check=True,
+                    full_auto=True,
+                    working_dir=workdir,
+                ),
+                run_label="manager.team_summary",
+            )
+            return getattr(result, "last_agent_message", "") or ""
+
+        return _summarize
+
     def run_forever(self) -> int:
         self._install_signal_handlers()
         self._started_at = time.time()
@@ -819,6 +916,8 @@ class LifeWorker:
         # import argus_skill.
         _argus_python = os.environ.get("ARGUS_SKILL_PYTHON") or sys.executable
         os.environ.setdefault("ARGUS_SKILL_PYTHON", _argus_python)
+        if self.config.global_root is not None:
+            os.environ["ARGUS_SKILL_HOME"] = str(self.config.global_root.resolve())
         # Also prepend the venv bin dir to PATH so bare `python` resolves
         # to the venv interpreter in child shells.
         _venv_bin = str(Path(_argus_python).resolve().parent)
@@ -923,6 +1022,11 @@ class LifeWorker:
         # (--continuous / --resume-continuous) or the operator re-arms it live.
         resume_intent = bool(cfg.continuous or getattr(cfg, "resume_continuous", False))
         _boot = read_continuous_state(runtime_root)
+        _boot = _rearm_operator_drain_for_resume(
+            cfg=cfg,
+            runtime_root=runtime_root,
+            state=_boot,
+        )
         _suppress = {
             "active": bool(_boot.enabled) and not resume_intent,
             "objective": (_boot.objective or "").strip(),
@@ -1051,10 +1155,51 @@ class LifeWorker:
                         or getattr(runner, "backend", None),
                         manager_session_root=runtime_root,
                     )
-                from ..manager.front_door import require_manager_execution_task
+                from ..manager.front_door import (
+                    objective_update_requires_stage_reset,
+                    require_manager_execution_task,
+                )
+                from ..skills.vertical_select import _persisted_vertical
 
                 decision = mgr.decide_vertical(source_objective)
                 execution_task = require_manager_execution_task(decision)
+                prior_vertical = _persisted_vertical(
+                    cfg.project_workdir or runtime_root
+                )
+                prior_handoff = _read_manager_handoff_identity(runtime_root)
+                if prior_handoff is None and prior_vertical:
+                    prior_handoff = _legacy_manager_handoff_identity(
+                        runtime_root,
+                        objective=expected_state.objective,
+                        vertical=prior_vertical,
+                    )
+                prior_vertical_name = str(prior_vertical or "").strip()
+                next_vertical_name = str(
+                    getattr(decision, "vertical", "") or ""
+                ).strip()
+                objective_changed = bool(
+                    prior_handoff
+                    and prior_handoff.get("objective_sha256")
+                    != _objective_sha256(execution_task)
+                )
+                replacement_intent = bool(
+                    prior_handoff
+                    and (
+                        bool(
+                            prior_vertical_name
+                            and next_vertical_name
+                            and prior_vertical_name != next_vertical_name
+                        )
+                        or (
+                            objective_changed
+                            and objective_update_requires_stage_reset(
+                                expected_state.objective,
+                                source_objective,
+                                execution_task,
+                            )
+                        )
+                    )
+                )
                 if self._operator_stop_requested:
                     raise RuntimeError("operator stop requested during Manager handoff")
                 target_enabled = True if cfg.continuous else expected_state.enabled
@@ -1065,8 +1210,22 @@ class LifeWorker:
                         source_objective,
                         decision,
                         ask_on_new_domain=False,
+                        force_stage_reset=replacement_intent,
                         _lock_held=True,
                     )
+                    if replacement_intent:
+                        supersede = getattr(
+                            mem.backlog,
+                            "supersede_pending_for_replacement",
+                            None,
+                        )
+                        if callable(supersede):
+                            committed["superseded_ids"] = supersede(
+                                reason=(
+                                    "operator replaced the standing Manager objective"
+                                ),
+                                replacement_id=intent_id,
+                            )
 
                 lock_factory = getattr(mgr, "pipeline_lock", None)
                 pipeline_lock = (
@@ -1090,18 +1249,37 @@ class LifeWorker:
                             if target_enabled
                             else None
                         )
-                    sink.append({
+                    completed_event = {
                         "type": "life.manager.intent.completed",
                         "agent_layer": "manager",
                         "intent_id": intent_id,
+                        "item_id": intent_id,
                         "source": "daemon_boot",
                         "continuous_generation": expected_state.generation + 1,
+                        "objective": source_objective,
                         "execution_task": execution_task,
                         "vertical": getattr(division, "vertical", ""),
                         "kind": getattr(division, "kind", ""),
                         "stages": list(getattr(division, "stages", []) or []),
                         "text": "manager completed daemon objective handoff",
-                    })
+                    }
+                    try:
+                        live_stage = str(mgr.current_stage() or "").strip()
+                    except Exception:  # noqa: BLE001 - event enrichment is best effort
+                        live_stage = ""
+                    if live_stage:
+                        completed_event["current_stage"] = live_stage
+                    sink.append(completed_event)
+                    for item_id in committed.get("superseded_ids", ()):
+                        sink.append({
+                            "type": "life.plan.node.superseded",
+                            "item_id": item_id,
+                            "superseded_by_plan_id": intent_id,
+                            "reason": (
+                                "operator replaced the standing Manager objective"
+                            ),
+                            "source": "manager_intent_replacement",
+                        })
                     _write_manager_handoff_identity(
                         runtime_root,
                         objective=execution_task,
@@ -1176,6 +1354,24 @@ class LifeWorker:
             )
         ):
             self._seed_bootstrap_task(mem, sink, bootstrap_preflight_pending)
+
+        # Existing projects may already have a generated AGENTS.md. Refresh only
+        # its managed runtime block on every daemon boot/resume; operator and
+        # Engineer edits outside the markers remain untouched.
+        if cfg.project_workdir is not None:
+            try:
+                from ..skills.vertical_select import _persisted_vertical
+                from ..tools.new_auto_research_project import (
+                    refresh_agents_runtime_contract,
+                )
+
+                refresh_agents_runtime_contract(
+                    cfg.project_workdir,
+                    objective=str(init_objective or ""),
+                    vertical=_persisted_vertical(cfg.project_workdir) or "",
+                )
+            except Exception:  # noqa: BLE001 — runtime refresh is best-effort
+                log.exception("daemon: failed to refresh AGENTS.md runtime contract")
 
         # Build supervisor policy only AFTER Manager.divide() has persisted the
         # vertical.  Mission typing is fail-safe (non-paper until a
@@ -1279,6 +1475,11 @@ class LifeWorker:
             while not self._stop.is_set():
                 summary: dict = {}
                 try:
+                    from ..manager._core import manager_pipeline_yield_requested
+
+                    if manager_pipeline_yield_requested(runtime_root):
+                        self._stop.wait(0.2)
+                        continue
                     manager = getattr(runner, "manager", None)
                     lock_factory = getattr(manager, "pipeline_lock", None)
                     pipeline_lock = (
@@ -1468,6 +1669,7 @@ class LifeWorker:
             return
         chunk = max(0.5, float(poll_interval))
         inbox = Path(runtime_root) / "inbox.jsonl"
+        offset_file = Path(runtime_root) / "inbox.offset"
 
         def _inbox_size() -> int:
             try:
@@ -1475,7 +1677,18 @@ class LifeWorker:
             except OSError:
                 return 0
 
+        def _inbox_offset() -> int:
+            try:
+                return max(
+                    0,
+                    int(offset_file.read_text(encoding="utf-8").strip() or "0"),
+                )
+            except (OSError, ValueError):
+                return 0
+
         baseline = _inbox_size()
+        if _inbox_offset() < baseline:
+            return
         remaining = float(total_seconds)
         while remaining > 0 and not self._stop.is_set():
             self._stop.wait(timeout=min(chunk, remaining))
@@ -1608,6 +1821,7 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
         else os.environ.get("ARGUS_SKILL_WORKDIR")
     )
     ns.manager_session_root = str(cfg.life_dir)
+    ns.global_root = str(cfg.global_root or core_paths.global_root())
     # Canonical per-session state directory for checkpoint + execution log.
     # This must not be re-derived by hashing project_workdir.
     ns.project_state_dir = str(cfg.life_dir)
@@ -1678,8 +1892,7 @@ def _worker_runtime_context(
         "## Runtime info\n"
         f"- Engineer model: {cfg.engineer_model}\n"
         f"- Reviewer model: {cfg.reviewer_model}\n"
-        f"- Budget: ${cfg.per_mission_cap_usd:.0f}/mission, ${cfg.daily_cap_usd:.0f}/day, "
-        f"${cfg.global_daily_cap_usd:.0f}/day global\n"
+        f"- Host-global daily budget: ${cfg.global_daily_cap_usd:.0f}\n"
         "\n"
         "## Python environments (CRITICAL)\n"
         f"- argus-skill commands: `{argus_python}`\n"
@@ -1725,8 +1938,10 @@ def _build_supervisor_config(
     from ..apps._runtime import (
         _inbox_drainer_for,
         _paper_mission_for_project_root,
+        _pending_question_resolver_for,
     )
     from ..life.telemetry import telemetry_interval_from_env
+    from ..manager._core import manager_pipeline_yield_requested
 
     paper_mission = _paper_mission_for_project_root(
         cfg.project_workdir or runtime_root
@@ -1734,19 +1949,20 @@ def _build_supervisor_config(
 
     return LifeSupervisorConfig(
         budget=LifeBudget(
-            per_mission_cap_usd=cfg.per_mission_cap_usd,
-            daily_cap_usd=cfg.daily_cap_usd,
             global_daily_cap_usd=cfg.global_daily_cap_usd,
             max_missions=64,
         ),
         planner_task_iteration_max_cycles=cfg.planner_task_iteration_max_cycles,
-        planner_task_iteration_budget_usd=cfg.planner_task_iteration_budget_usd,
         subagent_family_failure_streak_limit=cfg.subagent_family_failure_streak_limit,
         subagent_family_failure_window_hours=cfg.subagent_family_failure_window_hours,
         poll_interval_seconds=2.0,
         project_worktree=cfg.project_workdir,
         stop_event=stop_event,
-        user_inbox=_inbox_drainer_for(runtime_root),
+        user_inbox=_inbox_drainer_for(
+            runtime_root,
+            project_root=cfg.project_workdir or runtime_root,
+        ),
+        pending_question_resolver=_pending_question_resolver_for(runtime_root),
         runtime_context=_worker_runtime_context(cfg, paper_mission=paper_mission),
         continuous=init_continuous,
         continuous_objective=init_objective,
@@ -1754,6 +1970,9 @@ def _build_supervisor_config(
         paper_mission=paper_mission,
         full_paper_gate=paper_mission and cfg.continuous_open_ended,
         continuous_config_provider=continuous_provider,
+        manager_pipeline_yield_provider=(
+            lambda: manager_pipeline_yield_requested(runtime_root)
+        ),
         planner_runtime_context_provider=planner_runtime_context_provider,
         planner_restart_handler=planner_restart_handler,
         post_mission_hook=post_mission_hook,
@@ -1792,19 +2011,19 @@ class _DaemonSink:
 # ---------------------------------------------------------------------------
 
 def _max_active_daemons(config: LifeWorkerConfig) -> int:
-    """Host-wide daemon cap; conservative by default for Copilot accounts."""
+    """Host-wide daemon cap; provider guards separately control call concurrency."""
     try:
-        from ..core.knob_store import persisted_knob
+        from ..core.knobs import DEFAULT_MAX_ACTIVE_DAEMONS, resolve_knob
 
-        default = 2
-        raw = (
-            os.environ.get("ARGUS_SKILL_MAX_ACTIVE_DAEMONS")
-            or persisted_knob("ARGUS_SKILL_MAX_ACTIVE_DAEMONS")
-            or str(default)
+        raw = resolve_knob(
+            "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
+            str(DEFAULT_MAX_ACTIVE_DAEMONS),
         )
-        return max(0, int(raw))
+        return max(0, int(raw.value))
     except Exception:  # noqa: BLE001
-        return 2
+        from ..core.knobs import DEFAULT_MAX_ACTIVE_DAEMONS
+
+        return DEFAULT_MAX_ACTIVE_DAEMONS
 
 
 def _daemon_global_root(config: LifeWorkerConfig) -> Path:
@@ -1884,6 +2103,22 @@ def _workspace_start_error(config: LifeWorkerConfig) -> str:
                 "session workdir changed during daemon startup; retry with "
                 f"{authoritative}"
             )
+    else:
+        prior_status = read_daemon_status(config.life_dir)
+        prior_raw = str(prior_status.project_workdir or "").strip()
+        if prior_raw:
+            try:
+                prior = Path(prior_raw).expanduser().resolve(strict=True)
+            except (OSError, RuntimeError):
+                return (
+                    "legacy session's previous workdir is unavailable; "
+                    f"restore or explicitly migrate {prior_raw}"
+                )
+            if prior != configured:
+                return (
+                    "legacy session workdir changed during daemon startup; "
+                    f"persist or retry with {prior}"
+                )
     owner = _active_workspace_owner(config, target_workdir=configured)
     if owner is not None:
         return (
@@ -1975,6 +2210,45 @@ def spawn_detached_daemon(config: LifeWorkerConfig, *, quiet: bool = False) -> i
         release_workspace_lease=_release_daemon_workspace_lease,
         quiet=quiet,
     )
+
+
+def spawn_detached_daemon_clean(
+    config: LifeWorkerConfig,
+    *,
+    quiet: bool = False,
+) -> int:
+    """Spawn through a fresh interpreter before the POSIX double-fork.
+
+    WebAPI is multi-threaded. Forking it directly can inherit Python locks in a
+    permanently locked state even after inherited file descriptors are closed.
+    A short-lived exec helper starts from a clean interpreter and performs the
+    existing admission-checked double-fork there.
+    """
+    if getattr(sys, "frozen", False):
+        return spawn_detached_daemon(config, quiet=quiet)
+    env = os.environ.copy()
+    env["ARGUS_BINARY_MODE"] = "cli"
+    try:
+        completed = subprocess.run(  # noqa: S603
+            [sys.executable, "-m", "argus_skill.daemon.spawn_helper"],
+            input=json.dumps(_config_payload(config)),
+            text=True,
+            capture_output=True,
+            cwd=str(config.project_workdir or Path.cwd()),
+            env=env,
+            close_fds=True,
+            timeout=15.0,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        if not quiet:
+            sys.stderr.write(f"argus-skill: clean daemon launcher failed: {exc}\n")
+        return 2
+    if completed.returncode != 0 and not quiet:
+        detail = (completed.stderr or completed.stdout or "").strip()
+        if detail:
+            sys.stderr.write(detail + "\n")
+    return int(completed.returncode)
 
 
 def run_foreground(config: LifeWorkerConfig) -> int:

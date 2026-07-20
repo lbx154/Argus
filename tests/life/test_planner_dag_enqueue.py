@@ -14,9 +14,9 @@ import json
 from pathlib import Path
 
 from argus_skill.core.models import RunnerResult
-from argus_skill.life.memory import LifeMemory
-from argus_skill.life.supervisor._constants import PLAN_AWAITING, PLAN_RETRY
+from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.life.supervisor._config import LifeSupervisorConfig
+from argus_skill.life.supervisor._constants import PLAN_AWAITING, PLAN_RETRY
 from argus_skill.life.supervisor._core import LifeSupervisor
 from argus_skill.life.supervisor._helpers import _resolve_task_dep_ids
 from argus_skill.planner import WaitingContract
@@ -91,9 +91,18 @@ class _NullRunner:
 
 
 class _WaitingThenManagerRunner:
-    def __init__(self, *, reconcile: bool, manager_action: str) -> None:
+    def __init__(
+        self,
+        *,
+        reconcile: bool,
+        manager_action: str,
+        manager_resolves_wait: bool = False,
+        operator_action_required: bool = False,
+    ) -> None:
         self.reconcile = reconcile
         self.manager_action = manager_action
+        self.manager_resolves_wait = manager_resolves_wait
+        self.operator_action_required = operator_action_required
         self.manager_calls = 0
         self.planner_calls = 0
 
@@ -115,6 +124,7 @@ class _WaitingThenManagerRunner:
                     "recheck_condition": "the cluster admits the profile job",
                     "recheck_token": "maintenance-v1",
                     "stage_reconciliation_required": self.reconcile,
+                    "operator_action_required": self.operator_action_required,
                     "allow_verification_probe": False,
                     "recheck_after_seconds": 0,
                 },
@@ -133,6 +143,7 @@ class _WaitingThenManagerRunner:
                     if self.manager_action == "rollback"
                     else "the live external job is correctly owned by measure"
                 ),
+                "resolves_wait": self.manager_resolves_wait,
             }
         return RunnerResult(
             exit_code=0,
@@ -157,7 +168,6 @@ def _make_supervisor(tmp_path: Path, monkeypatch, verdict_json: str) -> LifeSupe
         paper_mission=False,
         full_paper_gate=False,
         open_ended=False,
-        planner_task_iteration_budget_usd=123.0,
     )
     sink = _NullSink()
     sup = LifeSupervisor(
@@ -179,7 +189,6 @@ def _make_supervisor(tmp_path: Path, monkeypatch, verdict_json: str) -> LifeSupe
     monkeypatch.setattr(sup, "_effective_full_paper_gate", lambda *_a, **_k: False)
     monkeypatch.setattr(sup, "_planner_runtime_with_idle_note", lambda: "")
     # Budget always plentiful.
-    monkeypatch.setattr(config.budget, "remaining_today", lambda *_a, **_k: 1000.0)
     return sup
 
 
@@ -189,6 +198,8 @@ def _make_waiting_supervisor(
     *,
     reconcile: bool,
     manager_action: str,
+    manager_resolves_wait: bool = False,
+    operator_action_required: bool = False,
 ) -> tuple[LifeSupervisor, _WaitingThenManagerRunner, Path]:
     project = tmp_path / "project"
     project.mkdir()
@@ -209,6 +220,8 @@ def _make_waiting_supervisor(
     backend = _WaitingThenManagerRunner(
         reconcile=reconcile,
         manager_action=manager_action,
+        manager_resolves_wait=manager_resolves_wait,
+        operator_action_required=operator_action_required,
     )
     memory = LifeMemory.open(tmp_path / "life")
     config = LifeSupervisorConfig(
@@ -236,7 +249,6 @@ def _make_waiting_supervisor(
     monkeypatch.setattr(sup, "_recent_no_progress_failures", lambda: {})
     monkeypatch.setattr(sup, "_effective_full_paper_gate", lambda *_a, **_k: False)
     monkeypatch.setattr(sup, "_planner_runtime_with_idle_note", lambda: "")
-    monkeypatch.setattr(config.budget, "remaining_today", lambda *_a, **_k: 1000.0)
     return sup, backend, project
 
 
@@ -307,6 +319,43 @@ def test_planner_wait_stage_mismatch_rolls_back_before_idling(
     assert contract_state["active"] is False
 
 
+def test_live_background_job_wait_becomes_overlap_work(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import os
+
+    sup, _backend, project = _make_waiting_supervisor(
+        tmp_path,
+        monkeypatch,
+        reconcile=False,
+        manager_action="hold",
+    )
+    registry = project / ".argus_subagents"
+    registry.mkdir()
+    (registry / "measure-live.json").write_text(json.dumps({
+        "task_id": "measure-live",
+        "description": "full measurement",
+        "mode": "supervised",
+        "state": "running",
+        "last_supervisor_health": "healthy",
+        "last_supervisor_decision": "continue",
+        "last_supervisor_concern": "",
+        "monitor_interval": 120,
+        "worker_pid": os.getpid(),
+    }))
+
+    assert sup._plan_next_work() is True
+    pending = sup.memory.backlog.pending()
+    assert len(pending) == 1
+    assert pending[0].title == "Advance independent work while background job runs"
+    assert "Do not poll" in pending[0].objective
+    assert any(
+        event.get("type") == "life.planner.wait_overridden"
+        for event in sup._test_sink.events  # type: ignore[attr-defined]
+    )
+
+
 def test_genuine_external_wait_holds_and_reconciles_at_bounded_cadence(
     tmp_path,
     monkeypatch,
@@ -332,6 +381,82 @@ def test_genuine_external_wait_holds_and_reconciles_at_bounded_cadence(
     contract_state = sup._load_planner_waiting_contract_state()
     assert contract_state is not None
     assert contract_state["active"] is True
+
+
+def test_manager_hold_can_resolve_wait_without_moving_stage(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    sup, backend, project = _make_waiting_supervisor(
+        tmp_path,
+        monkeypatch,
+        reconcile=True,
+        manager_action="hold",
+        manager_resolves_wait=True,
+    )
+    sup._persist_planner_waiting_contract(WaitingContract(
+        blocker_fingerprint="cluster:maintenance",
+        recheck_condition="the cluster admits the profile job",
+        recheck_token="maintenance-v1",
+        stage_reconciliation_required=True,
+    ))
+
+    assert sup._plan_next_work() == PLAN_RETRY
+    state = json.loads(
+        (project / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
+    )
+    assert state["current_stage"] == "measure"
+    assert backend.manager_calls == 1
+    contract_state = sup._load_planner_waiting_contract_state()
+    assert contract_state is not None
+    assert contract_state["active"] is False
+    resolution = contract_state.get("manager_resolution")
+    assert isinstance(resolution, dict)
+    assert resolution["reason"] == "the live external job is correctly owned by measure"
+    note = sup._planner_wait_resolution_runtime_note()
+    assert "AUTHORITATIVE MANAGER WAIT RESOLUTION" in note
+    assert "do not claim this Manager authorization/directive is absent" in note
+    decisions = [
+        event
+        for event in sup._test_sink.events  # type: ignore[attr-defined]
+        if event.get("type") == "life.manager.stage_decision"
+    ]
+    assert decisions and decisions[-1]["resolves_wait"] is True
+
+    # Re-persisting the same blocker must retain the resolution note until the
+    # Planner actually moves on to a non-waiting verdict.
+    sup._persist_planner_waiting_contract(WaitingContract(
+        blocker_fingerprint="cluster:maintenance",
+        recheck_condition="the cluster admits the profile job",
+        recheck_token="maintenance-v1",
+        stage_reconciliation_required=True,
+    ))
+    assert "AUTHORITATIVE MANAGER WAIT RESOLUTION" in (
+        sup._planner_wait_resolution_runtime_note()
+    )
+    sup._clear_planner_wait_resolution()
+    assert sup._planner_wait_resolution_runtime_note() == ""
+
+
+def test_operator_only_wait_cannot_be_resolved_by_manager(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    sup, backend, _project = _make_waiting_supervisor(
+        tmp_path,
+        monkeypatch,
+        reconcile=True,
+        manager_action="hold",
+        manager_resolves_wait=True,
+        operator_action_required=True,
+    )
+
+    assert sup._plan_next_work() == PLAN_AWAITING
+    assert backend.manager_calls == 0
+    state = sup._load_planner_waiting_contract_state()
+    assert state is not None
+    assert state["active"] is True
+    assert state["operator_action_required"] is True
 
 
 def test_new_explicit_stage_request_bypasses_wait_cadence(
@@ -438,6 +563,61 @@ def test_event_wait_still_short_circuits_when_control_binding_fails(
     )
 
 
+def test_revision_stage_mismatch_rolls_back_and_retires_old_plan(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    sup, backend, project = _make_waiting_supervisor(
+        tmp_path,
+        monkeypatch,
+        reconcile=True,
+        manager_action="rollback",
+    )
+    current = sup.memory.backlog.add(BacklogItem.new(
+        item_id="current",
+        title="current benchmark route",
+        objective="execute the invalid benchmark route",
+        plan_id="plan-a",
+        plan_version=1,
+        node_key="current",
+    ))
+    follow_up = sup.memory.backlog.add(BacklogItem.new(
+        item_id="follow-up",
+        title="dependent benchmark work",
+        objective="continue the invalid benchmark route",
+        deps=[current.id],
+        plan_id="plan-a",
+        plan_version=1,
+        node_key="follow-up",
+    ))
+    revision_request = {
+        "status": "replan_requested",
+        "item_id": current.id,
+        "expected_plan_id": "plan-a",
+        "expected_plan_version": 1,
+        "planner_report": {
+            "plan_signal": "reconsider",
+            "plan_signal_reason": "current stage makes the repair illegal",
+            "evidence_files": [],
+        },
+    }
+
+    assert sup._plan_next_work(revision_request=revision_request) == PLAN_RETRY
+
+    state = json.loads(
+        (project / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
+    )
+    assert state["current_stage"] == "optimize"
+    rows = {item.id: item for item in sup.memory.backlog.all()}
+    assert rows[current.id].status == "superseded"
+    assert rows[follow_up.id].status == "superseded"
+    assert backend.manager_calls == 1
+    assert any(
+        event.get("type") == "life.plan.revision.rolled_back"
+        for event in sup._test_sink.events  # type: ignore[attr-defined]
+    )
+
+
 def test_dag_verdict_maps_keys_to_real_item_ids(tmp_path, monkeypatch) -> None:
     sup = _make_supervisor(tmp_path, monkeypatch, _dag_verdict_json())
 
@@ -462,12 +642,51 @@ def test_dag_verdict_maps_keys_to_real_item_ids(tmp_path, monkeypatch) -> None:
     assert all(item.plan_id.startswith("plan-") for item in items.values())
     assert {item.plan_version for item in items.values()} == {1}
     assert {item.node_key for item in items.values()} == {"a", "b", "c"}
-    assert all(item.max_cost_usd == 123.0 for item in items.values())
-    assert all(item.iteration_budget_usd == 123.0 for item in items.values())
 
     # And the DAG actually schedules: a/b are ready, c is gated until both done.
     ready_titles = {it.title for it in sup.memory.backlog.ready()}
     assert ready_titles == {"run seed 0", "run seed 1"}
+
+
+def test_stage_closing_planner_task_persists_required_review_tags(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    payload = json.loads(_dag_verdict_json())
+    payload["new_tasks"] = [payload["new_tasks"][0]]
+    payload["new_tasks"][0]["stage_closing"] = True
+    sup = _make_supervisor(tmp_path, monkeypatch, json.dumps(payload))
+
+    assert sup._plan_next_work() is True
+
+    [item] = sup.memory.backlog.all()
+    assert "stage_closing" in item.tags
+    assert "review:required" in item.tags
+
+
+def test_stage_closing_task_is_not_deduped_by_prior_unreviewed_task(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    payload = json.loads(_dag_verdict_json())
+    payload["new_tasks"] = [payload["new_tasks"][0]]
+    payload["new_tasks"][0]["stage_closing"] = True
+    sup = _make_supervisor(tmp_path, monkeypatch, json.dumps(payload))
+    prior = BacklogItem.new(
+        title=payload["new_tasks"][0]["title"],
+        objective=payload["new_tasks"][0]["objective"],
+        tags=["planner", "scope:bounded"],
+    )
+    sup.memory.backlog.add(prior)
+    sup.memory.backlog.mark_done(prior.id)
+
+    assert sup._plan_next_work() is True
+
+    items = sup.memory.backlog.all()
+    assert len(items) == 2
+    stage_closing = [item for item in items if "review:required" in item.tags]
+    assert len(stage_closing) == 1
+    assert stage_closing[0].status == "pending"
 
 
 def test_planner_can_enqueue_dynamic_math_route_as_a_dag(tmp_path, monkeypatch) -> None:

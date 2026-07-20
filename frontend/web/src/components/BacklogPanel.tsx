@@ -76,9 +76,6 @@ export function BacklogPanel({
                     {typeof it.priority === 'number' && (
                       <span className="text-[10px] text-ink-faint">p{it.priority}</span>
                     )}
-                    {it.max_cost_usd > 0 && (
-                      <span className="text-[10px] text-ink-faint">${it.max_cost_usd}</span>
-                    )}
                     {iterating && <span className="text-[10px] text-blue-sky">↻ iterating</span>}
                   </div>
                 </div>

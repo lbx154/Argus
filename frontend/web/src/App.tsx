@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { artifactRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useTranscript, useJournal, useGitDiff } from './hooks';
+import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useTranscript, useJournal, useGitDiff } from './hooks';
 import { api, type EventMsg, type ProjectRow } from './api';
 import { TopBar, type ThemeMode } from './components/TopBar';
 import { EventStream } from './components/EventStream';
@@ -32,6 +32,7 @@ import { activeGuardianAlert } from './lib/guardian';
 import { projectMissionView } from '../../core/src/missionView';
 import { useQueryClient } from '@tanstack/react-query';
 import { dispatchWebCommand, type WebCommandHandlers } from './lib/webCommands';
+import { finishManagerMessage } from './lib/messageResult';
 import { COMMANDS, parseEventViewArgs } from '../../core/src/commands';
 import { type EventViewFilter } from '../../core/src/events';
 import { eventViewReducer, initialEventViewState } from './lib/eventView';
@@ -435,6 +436,7 @@ export default function App() {
   const gitDiffQ = useGitDiff(loadedSid, workspaceView === 'mission');
   const { events, connected } = useEventStream(loadedSid, eventView.reconnectKey);
   const artifactRefreshKey = useMemo(() => artifactRefreshEventKey(events), [events]);
+  const snapshotRefreshKey = useMemo(() => snapshotRefreshEventKey(events), [events]);
   useEffect(() => {
     if (!loadedSid || !artifactRefreshKey) return;
     void queryClient.invalidateQueries({
@@ -442,11 +444,27 @@ export default function App() {
       exact: true,
     });
   }, [artifactRefreshKey, loadedSid, queryClient]);
+  useEffect(() => {
+    if (!loadedSid || !snapshotRefreshKey) return;
+    void queryClient.invalidateQueries({
+      queryKey: ['snapshot', loadedSid],
+      exact: true,
+    });
+  }, [loadedSid, queryClient, snapshotRefreshKey]);
   const guardianAlert = useMemo(() => activeGuardianAlert(events), [events]);
   const transcriptQ = useTranscript(loadedSid, workspaceView === 'activity', 120);
   const journalQ = useJournal(activeSid, 20, overlay === 'inspector');
   const pendingReply = useMemo<PendingReply | null>(() => {
-    const row = (snap?.pending_questions ?? []).find((item) => {
+    const rows: Array<Record<string, unknown>> = [
+      ...(snap?.pending_questions ?? []),
+      ...(snap?.backlog ?? []).map<Record<string, unknown>>((item) => ({
+        id: item.id,
+        title: item.title,
+        objective: item.objective,
+        pending_question: item.pending_question,
+      })),
+    ];
+    const row = rows.find((item) => {
       const id = String(item.id ?? '').trim();
       const question = String(item.pending_question ?? item.question ?? item.text ?? '').trim();
       return Boolean(id && question);
@@ -457,7 +475,7 @@ export default function App() {
       title: String(row.title ?? row.objective ?? 'Blocked task'),
       question: String(row.pending_question ?? row.question ?? row.text),
     };
-  }, [snap?.pending_questions]);
+  }, [snap?.backlog, snap?.pending_questions]);
   useEffect(() => {
     if (!pendingReply || !activeSid) {
       setPendingReplyOpen(false);
@@ -863,6 +881,17 @@ export default function App() {
       snapQ.refetch?.();
     };
 
+    const finishMessage = (result: Record<string, unknown>) => {
+      if (!isCurrent()) return;
+      finishManagerMessage(result, {
+        dispatchTask,
+        notifyError: (error) => notify('error', error),
+        refetchTranscript: () => {
+          void transcriptQ.refetch();
+        },
+      });
+    };
+
     // Dispatch the streaming work fire-and-forget so the draft clears immediately.
     // Errors that surface during the stream are surfaced via notify().
     void (async () => {
@@ -882,8 +911,7 @@ export default function App() {
             onDone: (result) => {
               if (!isCurrent()) return;
               showManagerText(result.reply);
-              if (result.kind === 'task') dispatchTask(result);
-              void transcriptQ.refetch();
+              finishMessage(result);
             },
             onError: (err) => {
               if (isCurrent()) streamErr = err;
@@ -901,8 +929,7 @@ export default function App() {
             const result = await api.message(requestSid, text, controller.signal);
             if (!isCurrent()) return;
             showManagerText(result.reply);
-            if (result.kind === 'task') dispatchTask(result);
-            void transcriptQ.refetch();
+            finishMessage(result);
           } catch (error) {
             if (!isCurrent()) return;
             notify('error', `Message failed: ${errorText(error)}`);
@@ -926,6 +953,13 @@ export default function App() {
     setPendingReplyBusy(true);
     try {
       const result = await api.answerPending(activeSid, pendingReply.id, text);
+      if (result.resolved === false) {
+        notify(
+          'info',
+          String(result.reply || 'Manager needs a more specific answer.'),
+        );
+        return;
+      }
       setPendingReplyOpen(false);
       await snapQ.refetch();
       if (result.daemon && Number(result.daemon.rc ?? 0) !== 0) {
@@ -934,7 +968,10 @@ export default function App() {
           `Answer queued, but the daemon did not start: ${result.daemon.error || 'operator action required'}`,
         );
       } else {
-        notify('success', 'Answer sent directly to the blocked task.');
+        notify(
+          'success',
+          String(result.reply || 'Manager delivered your answer to the team.'),
+        );
       }
     } catch (error) {
       notify('error', `Could not send answer: ${errorText(error)}`);

@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+from argus_skill.core import copilot_guard
 from argus_skill.core.copilot_guard import (
     acquire_copilot_permit,
     copilot_guard_snapshot,
     release_denied_permit,
 )
+
+
+def test_default_guard_caps_are_10000() -> None:
+    assert copilot_guard._DEFAULT_DAILY_PREMIUM_CAP == 10_000.0
+    assert copilot_guard._DEFAULT_DAILY_CALL_CAP == 10_000
+    assert copilot_guard._DEFAULT_HOURLY_CALL_CAP == 10_000
+    assert copilot_guard._DEFAULT_MAX_CONCURRENCY == 10_000
 
 
 def _enable(monkeypatch, tmp_path) -> None:

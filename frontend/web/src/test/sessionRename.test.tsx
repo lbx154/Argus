@@ -24,8 +24,6 @@ function snapshot(): Snapshot {
       pid: null,
       uptime_seconds: null,
       backend: null,
-      per_mission_cap_usd: null,
-      daily_cap_usd: null,
       global_daily_cap_usd: null,
     },
     roles: [],

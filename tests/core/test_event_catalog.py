@@ -59,6 +59,25 @@ def test_envelope_normalization_versions_events_and_marks_invalid_known_rows() -
     ]
 
 
+def test_daemon_manager_intent_legacy_fields_are_normalized() -> None:
+    event = normalize_event_envelope({
+        "type": EventType.LIFE_MANAGER_INTENT_COMPLETED,
+        "intent_id": "intent-daemon-1",
+        "execution_task": "Optimize the kernel",
+        "vertical": "software",
+        "kind": "software",
+        "stages": ["delivery"],
+        "event_validation": {
+            "status": "invalid",
+            "errors": ["missing required fields: item_id, objective"],
+        },
+    })
+
+    assert event["item_id"] == "intent-daemon-1"
+    assert event["objective"] == "Optimize the kernel"
+    assert "event_validation" not in event
+
+
 def test_payload_schema_validates_types_and_payload_versions() -> None:
     invalid = normalize_event_envelope({
         "type": EventType.AGENT_IO_COMPLETE,
@@ -79,6 +98,15 @@ def test_payload_schema_validates_types_and_payload_versions() -> None:
     })
     assert usage["payload_schema_version"] == 2
     assert "event_validation" not in usage
+
+    unknown_resumed_premium = normalize_event_envelope({
+        "type": EventType.AGENT_IO_COMPLETE,
+        "call_id": "call-3",
+        "run_label": "manager-frontdoor-classify",
+        "premium_requests": None,
+        "premium_requests_present": False,
+    })
+    assert "event_validation" not in unknown_resumed_premium
 
 
 def test_unknown_vertical_events_remain_extensible_and_legacy_aliases_are_explicit() -> None:

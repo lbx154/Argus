@@ -16,11 +16,11 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
-from .event_catalog import EventType, canonical_event_type
 from ..life.mission_outcome import (
     mission_outcome_class,
     mission_outcome_dimensions,
 )
+from .event_catalog import EventType, canonical_event_type
 
 MISSION_VIEW_FILE = "mission-view.json"
 MISSION_VIEW_LOCK_FILE = "mission-view.lock"
@@ -401,14 +401,26 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
     mission = view.setdefault("mission", {})
 
     if event_type == EventType.LIFE_MANAGER_INTENT_COMPLETED:
+        item_id = _text(event, "item_id") or _text(event, "intent_id")
+        objective = _text(event, "objective", 2000) or _text(event, "execution_task", 2000)
         mission.update({
-            "id": _text(event, "item_id"),
-            "title": _text(event, "objective", 180),
-            "objective": _text(event, "objective", 2000),
+            "id": item_id,
+            "title": objective[:180],
+            "objective": objective,
             "status": "framed",
         })
+        current_stage = _text(event, "current_stage")
         stages = event.get("stages")
-        if isinstance(stages, list) and stages and not _text(view.get("stage", {}), "id"):
+        if current_stage:
+            view["stage"] = {
+                "id": current_stage,
+                "label": current_stage.replace("_", " ").title(),
+            }
+        elif (
+            isinstance(stages, list)
+            and stages
+            and not _text(view.get("stage", {}), "id")
+        ):
             stage = str(stages[0] or "").strip()
             view["stage"] = {"id": stage, "label": stage.replace("_", " ").title()}
         _set_role(view, "manager", "done", "Goal framed", ts)
@@ -494,6 +506,14 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
             "started_at": ts,
             "completed_at": None,
         })
+        # Review state is mission-scoped.  Without an explicit reset, a newly
+        # started mission inherits the previous mission's accepted/rejected
+        # verdict in mission-view.json until its first review finishes.  The
+        # execution loop does not use that stale projection for adjudication,
+        # but operators and supervision tooling must not mistake it for current
+        # evidence.
+        view["review"] = {"status": "", "reason": "", "rejected_attempts": 0}
+        _set_role(view, "reviewer", "waiting", "Awaiting engineer handoff", ts)
         _set_role(view, "engineer", "active", "Starting mission", ts)
         _timeline(view, event, role="engineer", title="Mission started", detail=_text(event, "title"), tone="info")
 

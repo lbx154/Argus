@@ -1,0 +1,32 @@
+{
+  "schema": "argus-swebench-pro-reviewer-mechanism/v1",
+  "tasks": 731,
+  "routing": {
+    "external_reviewer_tasks": 466,
+    "external_reviewer_share": 0.6374829001367989,
+    "engineer_self_review_tasks": 265,
+    "engineer_self_review_share": 0.3625170998632011
+  },
+  "external_reviewer_outcomes": {
+    "first_review_accepted": 388,
+    "first_review_blocked": 35,
+    "revision_requested": 43,
+    "official_verifier_resolved_after_revision": 34,
+    "reviewer_accepted_after_revision": 22,
+    "not_reviewer_accepted_after_revision": 21
+  },
+  "descriptive_workload": {
+    "external_reviewer_mean_solve_input_tokens": 3050524.993562232,
+    "self_review_mean_solve_input_tokens": 1107991.354716981,
+    "external_reviewer_mean_active_seconds": 591.243137573553,
+    "self_review_mean_active_seconds": 328.8488990755119
+  },
+  "definitions": {
+    "external_reviewer": "At least one model call labeled Reviewer in the accepted Argus trajectory.",
+    "engineer_self_review": "No model call labeled Reviewer; the Engineer used the configured self-review path.",
+    "revision_requested": "An independent-review trajectory contains a Reviewer revision verdict.",
+    "reviewer_accepted_after_revision": "A revision-requested trajectory later ends with a Reviewer status done.",
+    "official_verifier_resolved_after_revision": "A revision-requested task has final official resolved=1, independent of the final Reviewer status."
+  },
+  "interpretation": "Reviewer routing is task-dependent rather than randomized; group-level accuracy or cost differences are descriptive, not a causal ablation."
+}

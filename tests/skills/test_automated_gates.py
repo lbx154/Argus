@@ -46,6 +46,12 @@ def _seed_minimal_paper(root: Path) -> None:
         MIN_QUESTIONS,
         QUESTIONS_FILENAME,
     )
+    research = root / "research"
+    research.mkdir(parents=True, exist_ok=True)
+    (research / "PIPELINE_STATE.json").write_text(
+        json.dumps({"vertical": "research", "target_venue": "EMNLP"}),
+        encoding="utf-8",
+    )
     paper = root / "paper"
     figs = paper / "figures"
     figs.mkdir(parents=True, exist_ok=True)
@@ -385,6 +391,20 @@ def test_run_stage_gates_surfaces_structural_break(tmp_path: Path) -> None:
     assert chain_result.is_blocking is True
 
 
+def test_run_stage_gates_draft_blocks_unresolved_venue(tmp_path: Path) -> None:
+    _seed_minimal_paper(tmp_path)
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps({"vertical": "research", "current_stage": "draft"}),
+        encoding="utf-8",
+    )
+
+    results = run_stage_gates(tmp_path, stage="draft")
+
+    structural = next(r for r in results if r.name == "paper_structural_minimums")
+    assert structural.is_blocking is True
+    assert "unresolved_venue_profile" in structural.detail
+
+
 def test_run_stage_gates_advisory_does_not_block_even_with_zero_baseline(tmp_path: Path) -> None:
     # No baseline aggregate at all → in the OLD F3 this would block as
     # "baseline_not_reproduced". In the new advisory model it does NOT.
@@ -498,7 +518,8 @@ def test_automated_gates_cli_json_includes_kind(tmp_path: Path, capsys) -> None:
 def test_stage_check_advisory_finding_does_not_fail_exit_code(tmp_path: Path) -> None:
     (tmp_path / "research").mkdir()
     (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
-        json.dumps({"current_stage": "run"}), encoding="utf-8"
+        json.dumps({"current_stage": "run", "target_venue": "EMNLP"}),
+        encoding="utf-8"
     )
     # Single bundle: advisory finding will note "1 family, no baseline"
     # but advisory NEVER blocks.
@@ -521,7 +542,8 @@ def test_stage_check_advisory_finding_does_not_fail_exit_code(tmp_path: Path) ->
 def test_stage_check_structural_break_does_fail_exit_code(tmp_path: Path) -> None:
     (tmp_path / "research").mkdir()
     (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
-        json.dumps({"current_stage": "draft"}), encoding="utf-8"
+        json.dumps({"current_stage": "draft", "target_venue": "EMNLP"}),
+        encoding="utf-8"
     )
     _write_claims_tsv(
         tmp_path,
