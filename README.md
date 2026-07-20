@@ -210,16 +210,21 @@ The same launch also finds stale project daemons and schedules a drain-and-resum
 upgrade: an active mission reaches its normal reviewed boundary before the new
 daemon takes over, with no mid-mission `SIGKILL`.
 
-Argus targets three interchangeable agent-CLI backends:
+Argus targets four interchangeable agent-CLI backends:
 
 | Backend | Configuration value | Installation | Authentication |
 |---|---|---|---|
 | GitHub Copilot CLI | `copilot` | `npm install -g @github/copilot` (Node.js ≥ 22) | Interactive GitHub device authorization |
 | OpenAI Codex CLI | `codex` (default) | `npm install -g @openai/codex` | See [`docs/API_CONFIG.md`](docs/API_CONFIG.md) |
 | Claude Code | `claude` | `npm install -g @anthropic-ai/claude-code` | Interactive login |
+| OpenCode | `opencode` | `curl -fsSL https://opencode.ai/install \| bash` | `opencode auth login` or provider environment variables |
 
 Set `ARGUS_SKILL_RUNNER_BACKEND`, or switch the backend and model from the
 cockpit without restarting the project.
+
+OpenCode model IDs use its `provider/model` form. When Argus has only a bare
+model name configured, the OpenCode backend defers to OpenCode's own selected
+model instead of passing an invalid `--model` value.
 
 ## Technical Report, Limitations, and Provenance
 

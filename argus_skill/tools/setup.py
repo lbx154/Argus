@@ -78,11 +78,12 @@ def _prompt(label: str, default: str = "", secret: bool = False) -> str:
     return val if val else default
 
 
-_SUPPORTED_AGENT_BACKENDS = ("copilot", "codex", "claude")
+_SUPPORTED_AGENT_BACKENDS = ("copilot", "codex", "claude", "opencode")
 _BACKEND_INSTALL_COMMANDS = {
     "copilot": "npm install -g @github/copilot",
     "codex": "npm install -g @openai/codex",
     "claude": "npm install -g @anthropic-ai/claude-code",
+    "opencode": "curl -fsSL https://opencode.ai/install | bash",
 }
 
 
@@ -105,32 +106,44 @@ def _configured_runner_backend() -> str:
 
 def _configure_runner_backend() -> str | None:
     """Select and persist the agent CLI used by every role."""
+    from ..agent_cli.runner_backend import resolve_runner_bin
     from ..core.knob_store import write_persisted_knob
 
-    available = [name for name in _SUPPORTED_AGENT_BACKENDS if shutil.which(name)]
+    available = [
+        name for name in _SUPPORTED_AGENT_BACKENDS if resolve_runner_bin(name)
+    ]
     configured = _configured_runner_backend()
     if configured and configured in available:
         default = configured
     elif len(available) == 1:
         default = available[0]
     else:
-        default = next((name for name in ("codex", "copilot", "claude") if name in available), "codex")
+        default = next(
+            (
+                name
+                for name in ("codex", "copilot", "claude", "opencode")
+                if name in available
+            ),
+            "codex",
+        )
 
     print(_bold("  Step 1: Agent CLI Backend"))
     print()
     detected = ", ".join(available) if available else "none"
     print(_dim(f"  Detected on PATH: {detected}"))
-    selected = _prompt("Backend (copilot/codex/claude)", default).lower()
+    selected = _prompt("Backend (copilot/codex/claude/opencode)", default).lower()
     if selected not in _SUPPORTED_AGENT_BACKENDS:
         print(_yellow(f"  Unknown backend '{selected}', using {default}."))
         selected = default
 
-    executable = shutil.which(selected)
+    executable = resolve_runner_bin(selected)
     if executable is None:
         print(_yellow(f"  `{selected}` CLI is not installed."))
         print(_dim(f"    Install it with: {_BACKEND_INSTALL_COMMANDS[selected]}"))
         if selected == "copilot":
             print(_dim("    Then authenticate with: copilot login"))
+        elif selected == "opencode":
+            print(_dim("    Then authenticate with: opencode auth login"))
         print()
         return None
 
@@ -1060,6 +1073,8 @@ def run_setup() -> int:
         print(_dim(f"  Argus will authenticate through the `{backend}` CLI."))
         if backend == "copilot":
             print(_dim("  Run `copilot login` before launching Argus if needed."))
+        elif backend == "opencode":
+            print(_dim("  Run `opencode auth login` before launching Argus if needed."))
         print()
 
     # Save

@@ -3,7 +3,7 @@
 argus-skill's loop is deliberately backend-agnostic — it talks to a
 ``RunnerBackend`` (Protocol) defined in ``argus_skill.core.ports``. The
 deterministic ``MemoryBackend`` is fine for tests, but for *real* runs
-we need to drive the actual codex / claude / copilot CLI.
+we need to drive the actual codex / claude / copilot / opencode CLI.
 
 ArgusBot already ships a battle-tested subprocess wrapper —
 ``agent_cli.agent_cli_runner.AgentCliRunner`` — that handles JSON event
@@ -116,6 +116,16 @@ _PROGRESS_STREAM_MARKERS = (
     '"tool.result"',
     '"type":"result"',
     '"type": "result"',
+    '"type":"text"',
+    '"type": "text"',
+    '"type":"tool_use"',
+    '"type": "tool_use"',
+    '"type":"step_start"',
+    '"type": "step_start"',
+    '"type":"step_finish"',
+    '"type": "step_finish"',
+    '"type":"reasoning"',
+    '"type": "reasoning"',
 )
 _PROVIDER_COOLDOWN_PATTERNS = (
     "rate limit",
@@ -494,7 +504,7 @@ def _jsonl_append_lines(
 # --- ArgusBot import (lazy, with friendly error) ---------------------------
 
 def _import_argusbot():
-    """Resolve the codex/claude/copilot CLI runner shipped with argus-skill.
+    """Resolve the supported agent CLI runner shipped with argus-skill.
 
     Prefers the vendored copy under ``argus_skill.agent_cli`` (no
     separate install step). Falls back to a top-level ``agent_cli``
@@ -513,6 +523,7 @@ def _import_argusbot():
             BACKEND_CLAUDE,
             BACKEND_CODEX,
             BACKEND_COPILOT,
+            BACKEND_OPENCODE,
             DEFAULT_RUNNER_BACKEND,
             default_runner_bin,
             normalize_runner_backend,
@@ -529,6 +540,7 @@ def _import_argusbot():
                 BACKEND_CLAUDE,
                 BACKEND_CODEX,
                 BACKEND_COPILOT,
+                BACKEND_OPENCODE,
                 DEFAULT_RUNNER_BACKEND,
                 default_runner_bin,
                 normalize_runner_backend,
@@ -545,6 +557,7 @@ def _import_argusbot():
         "BACKEND_CLAUDE": BACKEND_CLAUDE,
         "BACKEND_CODEX": BACKEND_CODEX,
         "BACKEND_COPILOT": BACKEND_COPILOT,
+        "BACKEND_OPENCODE": BACKEND_OPENCODE,
         "DEFAULT_RUNNER_BACKEND": DEFAULT_RUNNER_BACKEND,
         "default_runner_bin": default_runner_bin,
         "normalize_runner_backend": normalize_runner_backend,
@@ -558,7 +571,7 @@ class AgentCliBackend:
     """``RunnerBackend`` implementation that shells out to a real CLI.
 
     Construct once with the runner backend choice ("codex" / "claude" /
-    "copilot") and any cross-call defaults (e.g. ``default_extra_args``
+    "copilot" / "opencode") and any cross-call defaults (e.g. ``default_extra_args``
     for ``-c "config_profile=..."``), then pass the same instance to
     every ``SkillLoop`` actor (author / engineer / reviewer). Each
     ``run_exec`` call spawns a fresh subprocess.
@@ -571,10 +584,10 @@ class AgentCliBackend:
     enough).
 
     Args:
-        backend: which CLI to drive ("codex" / "claude" / "copilot").
+        backend: which CLI to drive ("codex" / "claude" / "copilot" / "opencode").
             Defaults to ArgusBot's default (codex).
         runner_bin: explicit path to the CLI binary. Default: resolve
-            from ``$PATH`` (e.g. ``codex`` / ``claude`` / ``copilot``).
+            from ``$PATH`` (e.g. ``codex`` / ``claude`` / ``copilot`` / ``opencode``).
         default_extra_args: appended to every command (after
             ``options.extra_args``). Useful for global ``-c`` flags.
         before_exec: called before each subprocess spawn. ArgusBot uses
@@ -924,6 +937,11 @@ class AgentCliBackend:
                         token_usage=usage,
                         premium_requests=premium,
                         total_nano_aiu=result.total_nano_aiu,
+                        provider_cost_usd=(
+                            usage.provider_cost_usd
+                            if self._backend_name == "opencode"
+                            else None
+                        ),
                         thread_id=result.thread_id,
                         model_usage=result.model_usage,
                         error=persisted_error,
@@ -1718,15 +1736,23 @@ class AgentCliBackend:
             raw_usage = extract_token_usage(
                 getattr(argus_result, "json_events", None)
             )
-            (
-                input_tokens,
-                cached_input_tokens,
-                output_tokens,
-                reasoning_output_tokens,
-            ) = self._usage_delta_for_thread(
-                thread_id=argus_result.thread_id or resume_thread_id,
-                raw_totals=raw_usage.as_tuple(),
-            )
+            if raw_usage.source == "cumulative":
+                (
+                    input_tokens,
+                    cached_input_tokens,
+                    output_tokens,
+                    reasoning_output_tokens,
+                ) = self._usage_delta_for_thread(
+                    thread_id=argus_result.thread_id or resume_thread_id,
+                    raw_totals=raw_usage.as_tuple(),
+                )
+            else:
+                (
+                    input_tokens,
+                    cached_input_tokens,
+                    output_tokens,
+                    reasoning_output_tokens,
+                ) = raw_usage.as_tuple()
         raw_premium, premium_requests_present = _extract_copilot_premium_requests(
             getattr(argus_result, "json_events", None)
         )
@@ -1795,6 +1821,7 @@ class AgentCliBackend:
             ),
             premium_requests_present=premium_requests_present,
             usage_model=usage_model,
+            cost_usd=raw_usage.provider_cost_usd,
             total_nano_aiu=(
                 copilot_usage.total_nano_aiu
                 if copilot_usage is not None
@@ -1960,7 +1987,7 @@ def build_agent_cli_backend_from_env() -> AgentCliBackend:
 
     Honours:
 
-      * ``ARGUS_SKILL_RUNNER_BACKEND`` — "codex" / "claude" / "copilot"
+      * ``ARGUS_SKILL_RUNNER_BACKEND`` — "codex" / "claude" / "copilot" / "opencode"
         (default: codex)
       * ``ARGUS_SKILL_RUNNER_BIN``     — path to the CLI binary
       * ``ARGUS_SKILL_RUNNER_EXTRA_ARGS`` — space-separated default args

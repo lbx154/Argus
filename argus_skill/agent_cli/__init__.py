@@ -1,4 +1,4 @@
-"""Vendored low-level codex/claude/copilot CLI driver.
+"""Vendored low-level codex/claude/copilot/opencode CLI driver.
 
 Only three modules survive from the historical upstream ArgusBot
 ``agent_cli`` package: :mod:`agent_cli_runner`, :mod:`runner_backend`

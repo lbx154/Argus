@@ -372,7 +372,7 @@ def _preflight_route_on_codex(route: str) -> bool:
     EN: Uses the SAME canonical resolution as the role runners
     (``core.knobs.resolve_role_backend``: ``ARGUS_SKILL_{ROLE}_BACKEND`` →
     ``ARGUS_SKILL_RUNNER_BACKEND`` → ``ARGUS_SKILL_LIFE_BACKEND`` → persisted
-    knob store → codex). A role pinned to copilot/claude authenticates through
+    knob store → codex). A role pinned to copilot/claude/opencode authenticates through
     its OWN CLI (the copilot subscription / claude), NOT the ``model_api`` vault
     — so probing its Azure route is a FALSE gate. Reading the resolver (not raw
     ``os.environ``) is load-bearing: a non-interactive launcher (the web
@@ -446,7 +446,7 @@ def _rearm_operator_drain_for_resume(
 def required_codex_routes(required: Iterable[str] | None = None) -> list[str]:
     """The subset of preflight routes that will hit the codex/Azure model_api.
 
-    Roles routed to copilot/claude are excluded (they never touch the Azure
+    Roles routed to copilot/claude/opencode are excluded (they never touch the Azure
     vault). When this returns ``[]`` the daemon can skip the vault preflight
     entirely — e.g. a fully copilot-backed run needs no Azure routes at all.
     返回真正会打到 codex/Azure model_api 的预检路由子集；copilot/claude 的角色被排除。
@@ -1447,12 +1447,12 @@ class LifeWorker:
         # model_api route is misconfigured (e.g. wrong deployment
         # name → 404 on every mission, observed 2026-06-01: 47 min /
         # $2.50 doom loop). Only routes that actually run on the codex/Azure
-        # backend are probed — roles pinned to copilot/claude authenticate via
-        # their own CLI (copilot subscription / claude), not the model_api vault,
+        # backend are probed — roles pinned to copilot/claude/opencode authenticate
+        # via their own CLI, not the model_api vault,
         # so a fully copilot-backed run needs NO Azure routes and skips this.
         # memory backend (tests) skips. Override: ARGUS_SKILL_SKIP_VAULT_PREFLIGHT=1.
-        # 只探测真正跑在 codex/Azure 后端的路由；固定到 copilot/claude 的角色用自己的
-        # CLI 认证，不走 model_api vault，故全 copilot 运行无需 Azure 路由、直接跳过。
+        # 只探测真正跑在 codex/Azure 后端的路由；固定到其他 agent CLI 的角色用自己的
+        # CLI 认证，不走 model_api vault，故无需 Azure 路由时直接跳过。
         if os.environ.get(
             "ARGUS_SKILL_SKIP_VAULT_PREFLIGHT", ""
         ).strip() not in ("1", "true", "yes"):
@@ -1460,7 +1460,7 @@ class LifeWorker:
             if not codex_routes:
                 log.info(
                     "vault preflight skipped: no required route runs on the codex "
-                    "backend (roles on copilot/claude authenticate via their own CLI)"
+                    "backend (other agent CLIs authenticate independently)"
                 )
             else:
                 from ..core.vault_preflight import (

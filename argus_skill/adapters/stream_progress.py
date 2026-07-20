@@ -1,4 +1,4 @@
-"""Forward codex/claude/copilot stream-json lines as ``engineer.progress`` events.
+"""Forward agent CLI stream-json lines as ``engineer.progress`` events.
 
 ArgusBot's ``AgentCliRunner`` invokes its ``event_callback(stream, line)``
 once per stdout/stderr line. Stdout, when running with the JSON event
@@ -93,7 +93,7 @@ def _action_summary(kind: str, text: str, item: dict[str, Any]) -> str:
 
 
 def _extract_text(item: dict[str, Any]) -> str:
-    """Best-effort text extraction across codex/claude/copilot dialects."""
+    """Best-effort text extraction across supported CLI dialects."""
     text = item.get("text")
     if isinstance(text, str) and text.strip():
         return text.strip()
@@ -364,6 +364,72 @@ def make_stream_progress_callback(
                 text = _extract_text(message)
                 if text:
                     _emit_progress(kind="agent_message", text=text, actor=actor)
+            return
+
+        # OpenCode dialect: text and completed tool parts are emitted as
+        # top-level events with the provider payload under ``part``.
+        if et in {"text", "reasoning"}:
+            part = event.get("part")
+            if isinstance(part, dict):
+                part_text = part.get("text")
+                if isinstance(part_text, str) and part_text.strip():
+                    kind = "reasoning" if et == "reasoning" else "agent_message"
+                    _emit_progress(kind=kind, text=part_text.strip(), actor=actor)
+            return
+
+        if et == "tool_use":
+            part = event.get("part")
+            if not isinstance(part, dict):
+                return
+            tool = str(part.get("tool") or "tool").strip()
+            state = part.get("state")
+            state = state if isinstance(state, dict) else {}
+            raw_input = state.get("input")
+            if isinstance(raw_input, (dict, list)):
+                try:
+                    rendered_input = json.dumps(raw_input, ensure_ascii=False)
+                except (TypeError, ValueError):
+                    rendered_input = str(raw_input)
+            else:
+                rendered_input = str(raw_input or "")
+            title = str(state.get("title") or "").strip()
+            text = title or (tool + (f": {rendered_input}" if rendered_input else ""))
+            metadata = state.get("metadata")
+            metadata = metadata if isinstance(metadata, dict) else {}
+            exit_code = metadata.get("exit")
+            status = str(state.get("status") or "").strip()
+            adapted_kind = "command_execution" if tool == "bash" else "tool_use"
+            adapted_item = {
+                "type": adapted_kind,
+                "name": tool,
+                "command": (
+                    raw_input.get("command", "")
+                    if tool == "bash" and isinstance(raw_input, dict)
+                    else ""
+                ),
+                "status": (
+                    "failed"
+                    if status in {"error", "failed"}
+                    or (isinstance(exit_code, int) and exit_code != 0)
+                    else status
+                ),
+                "exit_code": exit_code,
+                "aggregated_output": state.get("output") or "",
+            }
+            if ledger is not None:
+                _record_failure_if_any(ledger, adapted_kind, adapted_item)
+            extra = {
+                "status": adapted_item["status"],
+                "exit_code": exit_code,
+                "output_excerpt": _extract_output_excerpt(adapted_item),
+                "action_summary": _action_summary(adapted_kind, text, adapted_item),
+            }
+            _emit_progress(
+                kind=adapted_kind,
+                text=text,
+                actor=actor,
+                extra=extra,
+            )
             return
 
         # Copilot dialect: incremental ``assistant.message_delta`` events

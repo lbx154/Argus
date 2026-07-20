@@ -1,7 +1,7 @@
 """Sanity tests for the vendored ``agent_cli`` module.
 
 After dropping ArgusBot as an external optional dependency, argus-skill
-must be able to drive the codex/claude/copilot CLI using nothing more
+must be able to drive the codex/claude/copilot/opencode CLI using nothing more
 than its own wheel. These tests fail loudly if the vendored copy ever
 gets dropped or its public surface diverges from what
 ``argus_skill.adapters.agent_cli_backend`` expects.
@@ -23,15 +23,20 @@ def test_vendored_runner_backend_constants() -> None:
         BACKEND_CLAUDE,
         BACKEND_CODEX,
         BACKEND_COPILOT,
+        BACKEND_OPENCODE,
         DEFAULT_RUNNER_BACKEND,
         normalize_runner_backend,
     )
     assert BACKEND_CODEX == "codex"
     assert BACKEND_CLAUDE == "claude"
     assert BACKEND_COPILOT == "copilot"
-    assert DEFAULT_RUNNER_BACKEND in {BACKEND_CODEX, BACKEND_CLAUDE, BACKEND_COPILOT}
+    assert BACKEND_OPENCODE == "opencode"
+    assert DEFAULT_RUNNER_BACKEND in {
+        BACKEND_CODEX, BACKEND_CLAUDE, BACKEND_COPILOT, BACKEND_OPENCODE,
+    }
     assert normalize_runner_backend("CODEX") == BACKEND_CODEX
     assert normalize_runner_backend("copilot") == BACKEND_COPILOT
+    assert normalize_runner_backend("opencod") == BACKEND_OPENCODE
 
 
 def test_agent_cli_backend_resolver_uses_vendored_module() -> None:
@@ -49,6 +54,7 @@ def test_agent_cli_backend_resolver_uses_vendored_module() -> None:
         "BACKEND_CLAUDE",
         "BACKEND_CODEX",
         "BACKEND_COPILOT",
+        "BACKEND_OPENCODE",
         "DEFAULT_RUNNER_BACKEND",
         "default_runner_bin",
         "normalize_runner_backend",

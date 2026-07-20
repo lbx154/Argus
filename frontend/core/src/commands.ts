@@ -46,7 +46,7 @@ export const COMMANDS: SlashCommand[] = [
   { id: 'attach', name: '/attach', arg: '<id|prefix>', argument: 'required', desc: 'follow another project (read the stream)', group: 'Sessions & diagnostics', kind: 'action' },
   { id: 'rename', name: '/rename', arg: '<name>', argument: 'required', desc: 'rename the current conversation', group: 'Sessions & diagnostics', kind: 'action' },
   { id: 'doctor', name: '/doctor', argument: 'none', desc: "diagnose 'why isn't anything running'", group: 'Sessions & diagnostics', kind: 'panel' },
-  { id: 'backend', name: '/backend', arg: '[codex|claude|copilot]', argument: 'optional', desc: 'view or change the shared runner backend', group: 'Configuration', kind: 'action' },
+  { id: 'backend', name: '/backend', arg: '[codex|claude|copilot|opencode]', argument: 'optional', desc: 'view or change the shared runner backend', group: 'Configuration', kind: 'action' },
   { id: 'config', name: '/config', arg: '[key=value …]', argument: 'optional', desc: 'view or change runtime settings', group: 'Configuration', kind: 'panel' },
   { id: 'identity', name: '/identity', arg: '[set <text>]', argument: 'optional', desc: 'view or replace the operator identity card', group: 'Configuration', kind: 'panel' },
   { id: 'reset', name: '/reset', argument: 'none', desc: 'drop the warm Manager conversation context', group: 'Configuration', kind: 'action' },

@@ -19,6 +19,7 @@ from .runner_backend import (
     BACKEND_CLAUDE,
     BACKEND_CODEX,
     BACKEND_COPILOT,
+    BACKEND_OPENCODE,
     DEFAULT_RUNNER_BACKEND,
     RunnerBackend,
     default_runner_bin,
@@ -52,6 +53,8 @@ _ENGINEER_TURN_MAX_SECONDS_ENV = "ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS"
 _DEFAULT_ENGINEER_TURN_MAX_SECONDS = 0
 _SCIENTIST_TURN_MAX_SECONDS_ENV = "ARGUS_SKILL_SCIENTIST_TURN_MAX_SECONDS"
 _DEFAULT_SCIENTIST_TURN_MAX_SECONDS = 0
+_OPENCODE_CONFIG_CONTENT_ENV = "OPENCODE_CONFIG_CONTENT"
+_OPENCODE_READ_ONLY_AGENT = "argus-read-only"
 
 _READ_ONLY_FLAG_SWITCHES = frozenset({
     "--allow-all",
@@ -65,11 +68,14 @@ _READ_ONLY_FLAG_SWITCHES = frozenset({
     "--dangerously-bypass-approvals-and-sandbox",
     "--dangerously-bypass-hook-trust",
     "--dangerously-skip-permissions",
+    "--auto",
     "--full-auto",
     "--permission-mode",
     "--sandbox",
     "--tools",
     "--yolo",
+    "--agent",
+    "--dir",
     "-C",
     "-s",
     "--add-dir",
@@ -80,6 +86,8 @@ _READ_ONLY_VALUE_SWITCHES = frozenset({
     "--allowed-tools",
     "--allowedTools",
     "--available-tools",
+    "--agent",
+    "--dir",
     "--permission-mode",
     "--sandbox",
     "--tools",
@@ -181,6 +189,53 @@ def _incomplete_turn_error(stderr_lines: list[str]) -> str:
     if nonempty:
         return nonempty[-1]
     return "Agent CLI exited without completing a model turn."
+
+
+def _opencode_read_only_env() -> dict[str, str]:
+    """Inject a final-precedence OpenCode agent that cannot invoke write tools."""
+    env = sandboxed_child_env()
+    raw = str(env.get(_OPENCODE_CONFIG_CONTENT_ENV) or "").strip()
+    if raw:
+        try:
+            config = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"{_OPENCODE_CONFIG_CONTENT_ENV} must be valid JSON for "
+                "read-only OpenCode calls"
+            ) from exc
+        if not isinstance(config, dict):
+            raise ValueError(
+                f"{_OPENCODE_CONFIG_CONTENT_ENV} must contain a JSON object"
+            )
+    else:
+        config = {}
+
+    configured_agents = config.get("agent")
+    if configured_agents is None:
+        agents: dict[str, object] = {}
+    elif isinstance(configured_agents, dict):
+        agents = dict(configured_agents)
+    else:
+        raise ValueError(
+            f"{_OPENCODE_CONFIG_CONTENT_ENV}.agent must contain a JSON object"
+        )
+    agents[_OPENCODE_READ_ONLY_AGENT] = {
+        "description": "Argus read-only inspection agent.",
+        "mode": "primary",
+        "permission": {
+            "*": "deny",
+            "read": "allow",
+            "glob": "allow",
+            "grep": "allow",
+        },
+    }
+    config["agent"] = agents
+    env[_OPENCODE_CONFIG_CONTENT_ENV] = json.dumps(
+        config,
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+    return env
 
 
 InactivityCallback = Callable[[InactivitySnapshot], InactivityDecision]
@@ -332,7 +387,7 @@ class AgentCliRunner:
             text=True,
             bufsize=1,
             cwd=options.working_dir or None,
-            env=sandboxed_child_env() if options.sandbox_mode else None,
+            env=self._child_env(options),
             start_new_session=os.name != "nt",
         )
         if self._prompt_via_stdin():
@@ -569,6 +624,50 @@ class AgentCliRunner:
         stdout_thread.join(timeout=2.0)
         stderr_thread.join(timeout=2.0)
 
+        if (
+            self.backend == BACKEND_OPENCODE
+            and process.returncode == 0
+            and not watchdog_terminated
+            and not turn_completed
+            and not turn_failed
+            and fatal_error is None
+            and thread_id
+        ):
+            recovered_events, recovery_error = self._recover_opencode_events(
+                thread_id=thread_id,
+                observed_events=list(events),
+                options=options,
+            )
+            if recovery_error is not None:
+                turn_failed = True
+                fatal_error = recovery_error
+            else:
+                for event in recovered_events:
+                    json_event_count += 1
+                    if self._retain_json_event(event):
+                        events.append(event)
+                    messages_before = len(agent_messages)
+                    (
+                        thread_id,
+                        turn_completed,
+                        turn_failed,
+                        fatal_error,
+                    ) = self._consume_opencode_event(
+                        event=event,
+                        thread_id=thread_id,
+                        agent_messages=agent_messages,
+                        turn_completed=turn_completed,
+                        turn_failed=turn_failed,
+                        fatal_error=fatal_error,
+                    )
+                    callback = options.on_agent_message
+                    if callback is not None and len(agent_messages) > messages_before:
+                        for message in agent_messages[messages_before:]:
+                            try:
+                                callback(message)
+                            except Exception:  # noqa: BLE001 — UI callback must not break the turn
+                                pass
+
         if watchdog_terminated:
             turn_failed = True
             if watchdog_reason and fatal_error is None:
@@ -687,6 +786,10 @@ class AgentCliRunner:
             return self._build_copilot_command(
                 resume_thread_id=resume_thread_id, options=options
             )
+        if self.backend == BACKEND_OPENCODE:
+            return self._build_opencode_command(
+                resume_thread_id=resume_thread_id, options=options
+            )
         return self._build_codex_command(resume_thread_id=resume_thread_id, options=options)
 
     def _apply_sandbox_policy(self, options: RunnerOptions) -> RunnerOptions:
@@ -704,7 +807,7 @@ class AgentCliRunner:
         explicit ``sandbox_mode`` was already chosen, or for non-codex backends —
         so the default path stays byte-for-byte unchanged.
         """
-        if self.backend in (BACKEND_CLAUDE, BACKEND_COPILOT):
+        if self.backend in (BACKEND_CLAUDE, BACKEND_COPILOT, BACKEND_OPENCODE):
             return options
         if options.sandbox_mode is not None:
             return options
@@ -932,6 +1035,43 @@ class AgentCliRunner:
         # 拼进 stdin prompt。
         return command
 
+    def _build_opencode_command(
+        self,
+        *,
+        resume_thread_id: str | None,
+        options: RunnerOptions,
+    ) -> list[str]:
+        command = [self.agent_bin, "run", "--format", "json"]
+        model = str(options.model or "").strip()
+        provider, separator, model_id = model.partition("/")
+        if separator and provider and model_id:
+            command.extend(["--model", model])
+        if options.reasoning_effort:
+            command.extend(["--variant", options.reasoning_effort])
+        if options.working_dir:
+            command.extend(["--dir", options.working_dir])
+        if options.sandbox_mode == "read-only":
+            command.extend(["--agent", _OPENCODE_READ_ONLY_AGENT])
+        elif options.dangerous_yolo or options.full_auto:
+            command.append("--dangerously-skip-permissions")
+        if options.file_specs:
+            for file_spec in options.file_specs:
+                command.extend(["--file", file_spec])
+        merged_extra_args = [*self.default_extra_args]
+        if options.extra_args:
+            merged_extra_args.extend(options.extra_args)
+        if options.sandbox_mode == "read-only":
+            merged_extra_args = _read_only_extra_args(
+                merged_extra_args, backend=BACKEND_OPENCODE,
+            )
+        if merged_extra_args:
+            command.extend(merged_extra_args)
+        if resume_thread_id:
+            command.extend(["--session", resume_thread_id])
+        # With no positional message, ``opencode run`` reads the prompt from
+        # stdin. This avoids exposing prompts in argv and supports large schemas.
+        return command
+
     def _effective_prompt(
         self,
         *,
@@ -941,16 +1081,16 @@ class AgentCliRunner:
     ) -> str:
         """Prompt actually delivered to the backend (via stdin).
 
-        Copilot has no ``--output-schema`` flag, so the compact JSON Schema +
+        Copilot and OpenCode have no ``--output-schema`` flag, so the compact JSON Schema +
         strict "reply with ONLY schema-valid JSON" contract is appended to the
         prompt itself (skipped on a resumed thread, where the contract already
         lives in the conversation). codex/claude carry the schema out-of-band
         via their own flags, so their prompt is returned unchanged.
         """
-        if self.backend != BACKEND_COPILOT:
+        if self.backend not in (BACKEND_COPILOT, BACKEND_OPENCODE):
             return prompt
         if options.output_schema_path and not resume_thread_id:
-            suffix = self._copilot_schema_suffix(options.output_schema_path)
+            suffix = self._prompt_schema_suffix(options.output_schema_path)
             if suffix:
                 return prompt + suffix
         return prompt
@@ -981,12 +1121,169 @@ class AgentCliRunner:
             return
 
     def _prompt_via_stdin(self) -> bool:
-        # All three backends (codex/claude/copilot) receive the prompt through
+        # All agent CLI backends receive the prompt through
         # stdin. Passing a large prompt via argv trips the kernel per-arg limit
         # (E2BIG / OSError: [Errno 7] Argument list too long); stdin has no such
         # cap. codex uses a trailing ``-``, claude runs ``-p`` print-mode with no
-        # value, copilot omits ``-p`` entirely — each then reads prompt on stdin.
+        # value, and copilot/opencode omit a prompt argument entirely.
         return True
+
+    def _child_env(self, options: RunnerOptions) -> dict[str, str] | None:
+        if not options.sandbox_mode:
+            return None
+        if (
+            self.backend == BACKEND_OPENCODE
+            and options.sandbox_mode == "read-only"
+        ):
+            return _opencode_read_only_env()
+        return sandboxed_child_env()
+
+    def _recover_opencode_events(
+        self,
+        *,
+        thread_id: str,
+        observed_events: list[dict],
+        options: RunnerOptions,
+    ) -> tuple[list[dict], str | None]:
+        """Recover a completed OpenCode turn when its JSON stream ends early."""
+        message_id = ""
+        for event in reversed(observed_events):
+            if event.get("type") != "step_start":
+                continue
+            part = event.get("part")
+            if not isinstance(part, dict):
+                continue
+            candidate = part.get("messageID")
+            if isinstance(candidate, str) and candidate.strip():
+                message_id = candidate.strip()
+                break
+        if not message_id:
+            return [], "OpenCode stream ended before exposing the current message identity."
+
+        command = [self._resolve_executable(self.agent_bin), "export", thread_id]
+        try:
+            exported = subprocess.run(
+                command,
+                cwd=options.working_dir or None,
+                env=self._child_env(options),
+                text=True,
+                capture_output=True,
+                timeout=30.0,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return [], "OpenCode session export timed out after an incomplete event stream."
+        except OSError as exc:
+            return [], f"OpenCode session export failed: {exc}"
+        if exported.returncode != 0:
+            return (
+                [],
+                f"OpenCode session export exited with code {exported.returncode} "
+                "after an incomplete event stream.",
+            )
+        try:
+            payload = json.loads(exported.stdout)
+        except json.JSONDecodeError:
+            return [], "OpenCode session export returned invalid JSON."
+        if not isinstance(payload, dict):
+            return [], "OpenCode session export returned an invalid payload."
+        messages = payload.get("messages")
+        if not isinstance(messages, list):
+            return [], "OpenCode session export did not contain messages."
+
+        start_index: int | None = None
+        for index, item in enumerate(messages):
+            if not isinstance(item, dict):
+                continue
+            info = item.get("info")
+            if (
+                isinstance(info, dict)
+                and info.get("role") == "assistant"
+                and info.get("id") == message_id
+            ):
+                start_index = index
+                break
+        if start_index is None:
+            return (
+                [],
+                "OpenCode session export did not contain the current assistant message.",
+            )
+
+        observed_part_ids = {
+            part_id
+            for event in observed_events
+            if isinstance(event.get("part"), dict)
+            for part_id in [event["part"].get("id")]
+            if isinstance(part_id, str) and part_id
+        }
+        recovered: list[dict] = []
+        for item in messages[start_index:]:
+            if not isinstance(item, dict):
+                continue
+            info = item.get("info")
+            if not isinstance(info, dict):
+                continue
+            role = info.get("role")
+            if role == "user":
+                break
+            if role != "assistant":
+                continue
+
+            session_id = str(info.get("sessionID") or thread_id)
+            parts = item.get("parts")
+            parts = parts if isinstance(parts, list) else []
+            has_finish_part = False
+            for part in parts:
+                if not isinstance(part, dict):
+                    continue
+                part_id = part.get("id")
+                if isinstance(part_id, str) and part_id in observed_part_ids:
+                    continue
+                part_type = str(part.get("type") or "").strip()
+                if part_type not in {"text", "step-finish", "step_finish"}:
+                    continue
+                if part_type in {"step-finish", "step_finish"}:
+                    has_finish_part = True
+                recovered.append(
+                    {
+                        "type": part_type.replace("-", "_"),
+                        "sessionID": session_id,
+                        "part": part,
+                    }
+                )
+
+            error = info.get("error")
+            if isinstance(error, dict) and error:
+                recovered.append(
+                    {
+                        "type": "error",
+                        "sessionID": session_id,
+                        "error": error,
+                    }
+                )
+                continue
+
+            finish = str(info.get("finish") or "").strip()
+            if finish and not has_finish_part:
+                finish_part = {
+                    "type": "step-finish",
+                    "sessionID": session_id,
+                    "messageID": info.get("id"),
+                    "reason": finish,
+                    "cost": info.get("cost"),
+                    "tokens": info.get("tokens"),
+                }
+                recovered.append(
+                    {
+                        "type": "step_finish",
+                        "sessionID": session_id,
+                        "part": finish_part,
+                    }
+                )
+
+        if not recovered:
+            return [], "OpenCode session export contained no recoverable current-turn events."
+        return recovered, None
 
     @staticmethod
     def _resolve_executable(executable: str) -> str:
@@ -1041,10 +1338,10 @@ class AgentCliRunner:
         parsed = json.loads(raw)
         return json.dumps(parsed, ensure_ascii=True, separators=(",", ":"))
 
-    def _copilot_schema_suffix(self, schema_path: str) -> str:
+    def _prompt_schema_suffix(self, schema_path: str) -> str:
         """Prompt-embedded output contract for backends without a schema flag.
 
-        EN: Copilot has no ``--output-schema``. Append the compact JSON Schema +
+        EN: Copilot and OpenCode have no ``--output-schema``. Append the compact JSON Schema +
         a strict "reply with ONLY schema-valid JSON" instruction so the
         reviewer/planner verdict parses instead of degrading to a prose reply
         (which the strict parser rejects → the reviewer, the sole done-authority,
@@ -1095,6 +1392,15 @@ class AgentCliRunner:
             )
         if self.backend == BACKEND_COPILOT:
             return self._consume_copilot_event(
+                event=event,
+                thread_id=thread_id,
+                agent_messages=agent_messages,
+                turn_completed=turn_completed,
+                turn_failed=turn_failed,
+                fatal_error=fatal_error,
+            )
+        if self.backend == BACKEND_OPENCODE:
+            return self._consume_opencode_event(
                 event=event,
                 thread_id=thread_id,
                 agent_messages=agent_messages,
@@ -1243,6 +1549,59 @@ class AgentCliRunner:
         turn_failed = True
         if fatal_error is None:
             fatal_error = f"Copilot CLI exited with code {exit_code}."
+        return thread_id, turn_completed, turn_failed, fatal_error
+
+    @staticmethod
+    def _consume_opencode_event(
+        *,
+        event: dict,
+        thread_id: str | None,
+        agent_messages: list[str],
+        turn_completed: bool,
+        turn_failed: bool,
+        fatal_error: str | None,
+    ) -> tuple[str | None, bool, bool, str | None]:
+        session_id = event.get("sessionID")
+        if isinstance(session_id, str) and session_id.strip():
+            thread_id = session_id
+
+        event_type = str(event.get("type") or "").strip()
+        part = event.get("part")
+        part = part if isinstance(part, dict) else {}
+        if event_type == "text":
+            text = part.get("text")
+            if isinstance(text, str) and text.strip():
+                agent_messages.append(text.strip())
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        if event_type == "error":
+            turn_failed = True
+            error = event.get("error")
+            error = error if isinstance(error, dict) else {}
+            data = error.get("data")
+            data = data if isinstance(data, dict) else {}
+            message = (
+                data.get("message")
+                or error.get("message")
+                or event.get("message")
+            )
+            if fatal_error is None and isinstance(message, str) and message.strip():
+                fatal_error = message.strip()
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        if event_type != "step_finish":
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        reason = str(part.get("reason") or "").strip().lower()
+        if reason in {"tool-calls", "tool_calls"}:
+            return thread_id, turn_completed, turn_failed, fatal_error
+        if reason == "stop":
+            turn_completed = True
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        turn_failed = True
+        if fatal_error is None:
+            fatal_error = f"OpenCode runner reported {reason or 'unknown'}."
         return thread_id, turn_completed, turn_failed, fatal_error
 
     @staticmethod

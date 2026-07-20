@@ -78,6 +78,9 @@ def model_price_for(model: str) -> ModelPrice | None:
     normalized = str(model or "").strip().lower()
     if not normalized:
         return None
+    provider, separator, provider_model = normalized.partition("/")
+    if separator and provider == "openai" and provider_model:
+        normalized = provider_model
     exact = MODEL_PRICES_USD_PER_MTOK.get(normalized)
     if exact is not None:
         return exact

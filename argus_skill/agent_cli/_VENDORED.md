@@ -9,7 +9,8 @@ This directory is a vendored copy of the **ArgusBot** package
 ## Why vendored
 
 `argus_skill.adapters.agent_cli_backend` and `argus_skill.apps._life_repl` need
-the codex/claude/copilot CLI dialect handler from ArgusBot. We vendor the
+the codex/claude/copilot CLI dialect handler from ArgusBot. Argus additionally
+maintains its OpenCode dialect in this copy. We vendor the
 module so end users do not need a separate `pip install 'argus-skill[codex]'`
 step — `pip install argus-skill` is sufficient to drive the codex CLI.
 
@@ -38,6 +39,5 @@ find "$DST" -name __pycache__ -type d -exec rm -rf {} +
 
 ## Local edits
 
-Do not edit files in this directory directly — they are owned upstream and
-will be overwritten on the next refresh. Patches go in
-`argus_skill/adapters/agent_cli_backend.py` (subclass / wrapper) instead.
+Keep local dialect extensions explicit and covered by tests; reapply them when
+refreshing the upstream-owned base.

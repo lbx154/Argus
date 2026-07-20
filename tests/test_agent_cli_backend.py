@@ -101,6 +101,7 @@ def fake_agent_cli(monkeypatch: pytest.MonkeyPatch) -> None:
     backend_mod.__dict__["BACKEND_CLAUDE"] = "claude"
     backend_mod.__dict__["BACKEND_CODEX"] = "codex"
     backend_mod.__dict__["BACKEND_COPILOT"] = "copilot"
+    backend_mod.__dict__["BACKEND_OPENCODE"] = "opencode"
     backend_mod.__dict__["DEFAULT_RUNNER_BACKEND"] = "codex"
 
     def default_runner_bin() -> str | None:
@@ -1654,6 +1655,79 @@ def test_run_exec_reports_delta_for_resumed_cumulative_thread(
         100,
         30,
     )
+
+
+def test_run_exec_preserves_resumed_opencode_per_step_usage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = AgentCliBackend(backend="opencode")
+    raw_usages = [
+        {
+            "input": 100,
+            "output": 10,
+            "cache": {"read": 20, "write": 0},
+            "cost": 0.01,
+        },
+        {
+            "input": 150,
+            "output": 20,
+            "cache": {"read": 30, "write": 0},
+            "cost": 0.02,
+        },
+    ]
+
+    def fake_run_exec(
+        self: Any,
+        *,
+        prompt: Any,
+        resume_thread_id: Any,
+        options: Any,
+        run_label: str,
+    ) -> AgentRunResult:
+        usage = raw_usages.pop(0)
+        return _make_argus_result(
+            thread_id="ses-opencode",
+            json_events=[
+                {
+                    "type": "step_finish",
+                    "part": {
+                        "tokens": {
+                            key: value for key, value in usage.items() if key != "cost"
+                        },
+                        "cost": usage["cost"],
+                    },
+                },
+            ],
+        )
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+    )
+
+    first = backend.run_exec(
+        prompt="first",
+        options=RunnerOptions(model="openai/gpt-5.4"),
+        run_label="engineer-r1",
+    )
+    second = backend.run_exec(
+        prompt="second",
+        options=RunnerOptions(model="openai/gpt-5.4"),
+        run_label="engineer-r2",
+        resume_thread_id="ses-opencode",
+    )
+
+    assert (first.input_tokens, first.cached_input_tokens, first.output_tokens) == (
+        120,
+        20,
+        10,
+    )
+    assert (second.input_tokens, second.cached_input_tokens, second.output_tokens) == (
+        180,
+        30,
+        20,
+    )
+    assert first.cost_usd == pytest.approx(0.01)
+    assert second.cost_usd == pytest.approx(0.02)
 
 
 def test_run_exec_default_watchdog_options_are_inert():

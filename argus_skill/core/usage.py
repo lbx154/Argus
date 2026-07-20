@@ -195,6 +195,7 @@ def build_usage_record(
     token_usage: TokenUsage | None = None,
     premium_requests: float | None = None,
     total_nano_aiu: int | None = None,
+    provider_cost_usd: float | None = None,
     thread_id: str | None = None,
     model_usage: Iterable[dict[str, Any]] | None = None,
     error: str = "",
@@ -228,6 +229,11 @@ def build_usage_record(
         cost_basis = (
             "premium_request" if premium_quote.cost_usd is not None else "none"
         )
+    elif provider_cost_usd is not None:
+        pricing_status = "priced"
+        pricing_tier = "provider_reported"
+        cost_usd = max(0.0, float(provider_cost_usd))
+        cost_basis = "provider_reported"
     else:
         quote = quote_token_usage(
             model,

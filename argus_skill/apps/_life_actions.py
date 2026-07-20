@@ -11,6 +11,8 @@ from typing import Any, Mapping, Sequence
 
 from ..life import BacklogItem
 
+_LIFE_BACKENDS = ("codex", "claude", "copilot", "opencode", "memory")
+
 
 def format_backlog_list(mem: Any, *, include_all: bool) -> str:
     items = mem.backlog.all() if include_all else [
@@ -167,7 +169,7 @@ def render_run_command(
     parser.add_argument("--once", action="store_true")
     parser.add_argument(
         "--backend",
-        choices=("codex",),
+        choices=_LIFE_BACKENDS,
         default=chat_state.get("backend", "codex"),
     )
     parser.add_argument(
@@ -354,9 +356,14 @@ def render_backend_cmd(tokens: Sequence[str], chat_state: dict[str, Any]) -> str
     from ..daemon.life_worker import ContinuousConfigState
 
     if not tokens:
-        return f"backend: {chat_state.get('backend')}  (memory or codex)"
+        return (
+            f"backend: {chat_state.get('backend')}  "
+            f"({' | '.join(_LIFE_BACKENDS)})"
+        )
     new = tokens[0].lower()
-    if new in {"codex", "memory"}:
+    if new == "opencod":
+        new = "opencode"
+    if new in _LIFE_BACKENDS:
         state = chat_state.get("continuous_state")
         if isinstance(state, ContinuousConfigState):
             continuous = state.enabled
@@ -369,7 +376,10 @@ def render_backend_cmd(tokens: Sequence[str], chat_state: dict[str, Any]) -> str
             return error
         chat_state["backend"] = new
         return f"backend: {new}"
-    return f"backend {new!r} is not available. Use `codex` or `memory`."
+    return (
+        f"backend {new!r} is not available. "
+        f"Use one of: {', '.join(_LIFE_BACKENDS)}."
+    )
 
 
 def _continuous_session_error(

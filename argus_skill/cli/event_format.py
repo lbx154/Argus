@@ -56,7 +56,7 @@ _EVENT_ICONS: dict[str, str] = {
     EventType.LOOP_START:  "🚀",
     EventType.LOOP_DONE:   "🏁",
     EventType.ROUND_START: "🔁",
-    # Live codex/claude/copilot stream progress (one beat per
+    # Live agent-CLI stream progress (one beat per
     # ``item.completed`` JSON event the backend emits).
     EventType.ENGINEER_PROGRESS: "◆",
     # Repeated-tool-failure interrupt: the failed-tool ledger fires this
@@ -497,7 +497,7 @@ _PROGRESS_KIND_BADGE = {
 
 
 def _render_engineer_progress(event: dict[str, Any]) -> str:
-    """Live codex/claude/copilot stream beat — one item per call."""
+    """Live agent-CLI stream beat — one item per call."""
     kind = str(event.get("kind") or "message").strip()
     text = str(event.get("text") or "").strip()
     badge = _PROGRESS_KIND_BADGE.get(kind, "•")

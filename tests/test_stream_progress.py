@@ -267,6 +267,36 @@ def test_copilot_tool_call_and_result_emit_progress() -> None:
     assert "tool_result" in kinds
 
 
+def test_opencode_text_and_tool_events_emit_progress() -> None:
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+    cb("main.stdout", json.dumps({
+        "type": "tool_use",
+        "part": {
+            "tool": "bash",
+            "state": {
+                "status": "completed",
+                "input": {"command": "pwd"},
+                "output": "/repo\n",
+                "metadata": {"exit": 0},
+                "title": "Print working directory",
+            },
+        },
+    }))
+    cb("main.stdout", json.dumps({
+        "type": "text",
+        "part": {"text": "/repo"},
+    }))
+
+    progress = [e for e in sink.events if e["type"] == "engineer.progress"]
+    assert [event["kind"] for event in progress] == [
+        "command_execution",
+        "agent_message",
+    ]
+    assert progress[0]["exit_code"] == 0
+    assert progress[1]["text"] == "/repo"
+
+
 def test_copilot_message_deltas_are_throttled_but_final_is_flushed() -> None:
     sink = _RecordingSink()
     cb = make_stream_progress_callback(
