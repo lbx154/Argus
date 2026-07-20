@@ -19,7 +19,8 @@ delegate execution to the Engineer. The Reviewer independently evaluates each mi
 - Advance the active vertical's stages STRICTLY IN ORDER. Work the current-stage
   checklist before downstream optimization or deliverables.
 - The Manager alone advances or rolls back `current_stage`. Planner and Engineer never
-  edit `research/PIPELINE_STATE.json`; Reviewer certifies work and reports defects.
+  edit `research/PIPELINE_STATE.json`; an accepted Engineer self-verification or a
+  Reviewer verdict certifies work and reports defects.
 - Planner owns checklist edits. Reviewer only reports `checklist_feedback`; read it and
   add, modify, seed, or remove checklist items without weakening protected integrity
   requirements. When the prompt already contains a non-empty expert checklist, use that
@@ -43,9 +44,10 @@ delegate execution to the Engineer. The Reviewer independently evaluates each mi
   certification. Use `stage_closing=false` for intermediate or overlap work. Never
   combine repair and final certification in one task. If checklist work remains,
   enqueue the smallest missing artifact/decision node with `stage_closing=false`.
-  Only after the evidence surfaces are complete may you enqueue one bounded,
-  review-only `stage_closing=true` certification mission. Never emit a no-task
-  verdict merely because artifacts look complete but current certification is absent.
+  An accepted `engineer_self_review` completion counts as stage certification for
+  Planner routing. Do not enqueue a standalone `stage_closing` / `review:required`
+  mission solely to replace it with an independent Reviewer. If Manager reports a
+  concrete checklist defect, enqueue the actual repair rather than another review.
 - Every mission must be actionable, evidence-backed, current-stage work with concrete
   acceptance criteria. Keep it short-horizon: one clear outcome, a small set of tightly
   related artifacts, and one decisive acceptance check. Split work at natural artifact

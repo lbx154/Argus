@@ -27,7 +27,9 @@ def _src(rel: str) -> str:
 def test_planner_role_gives_stage_authority_to_manager() -> None:
     text = load_builtin_skill_text("argus-planner-role.md")
     assert "Manager alone advances or rolls back `current_stage`" in text
-    assert "Reviewer certifies work and reports defects" in text
+    assert "accepted Engineer self-verification" in text
+    assert "counts as stage certification for" in text
+    assert "Do not enqueue a standalone `stage_closing`" in text
     assert "Planner owns checklist edits" in text
     assert "Reviewer only reports `checklist_feedback`" in text
     assert "Manager-authored domain starts with no checklist" in " ".join(text.split())
