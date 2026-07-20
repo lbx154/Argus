@@ -8,6 +8,7 @@ from pathlib import Path
 
 from argus_skill.verticals.kernel_engineering.frontier_watch import (
     STAGES,
+    canonicalize,
     ledger_path,
     main,
     snapshot_path,
@@ -124,6 +125,20 @@ def test_record_and_check_cli_write_snapshot_and_append_ledger(
     assert "evidence recorded as of" in capsys.readouterr().out
 
 
+def test_check_rejects_snapshot_not_bound_to_latest_ledger(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    stage = "scope"
+    snapshot = canonicalize(_record(stage=stage), stage=stage)
+    target = snapshot_path(tmp_path, stage)
+    target.parent.mkdir(parents=True)
+    target.write_text(json.dumps(snapshot), encoding="utf-8")
+
+    assert main(["check", "--project-root", str(tmp_path), "--stage", stage]) == 2
+    assert "FRONTIER_WATCH.jsonl" in capsys.readouterr().err
+
+
 def test_record_cli_accepts_stdin(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(sys, "stdin", StringIO(json.dumps(_record(stage="scope"))))
     assert (
@@ -143,9 +158,14 @@ def test_record_cli_accepts_stdin(tmp_path: Path, monkeypatch) -> None:
     assert snapshot_path(tmp_path, "scope").is_file()
 
 
-def test_every_kernel_stage_has_machine_and_reviewer_frontier_gate() -> None:
-    for stage in STAGES:
+def test_frontier_gate_is_event_driven_not_required_at_every_stage() -> None:
+    for stage in ("scope", "report"):
         commands = "\n".join(command for _label, command in STAGE_CHECKS[stage])
         assert "frontier_watch check" in commands
         ids = {item.id for item in CHECKLIST_ITEMS[stage]}
         assert f"{stage}.frontier_current" in ids
+    for stage in set(STAGES) - {"scope", "report"}:
+        commands = "\n".join(command for _label, command in STAGE_CHECKS[stage])
+        assert "frontier_watch check" not in commands
+        ids = {item.id for item in CHECKLIST_ITEMS[stage]}
+        assert f"{stage}.frontier_current" not in ids

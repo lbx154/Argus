@@ -465,6 +465,11 @@ def _worker_vault_preflight_routes(worker_backend: str) -> list[str]:
     return required_codex_routes()
 
 
+def _effective_runner_backend(runner: Any, configured_backend: str) -> str:
+    backend = getattr(runner, "backend", None)
+    return str(getattr(backend, "backend", "") or configured_backend)
+
+
 def _apply_continuous_suppression(
     state: dict,
     enabled: bool,
@@ -1480,7 +1485,9 @@ class LifeWorker:
 
         log.info(
             "daemon: ready (life_dir=%s backend=%s pid=%d)",
-            runtime_root, cfg.backend, os.getpid(),
+            runtime_root,
+            _effective_runner_backend(runner, cfg.backend),
+            os.getpid(),
         )
         # Use the LifeStderrSink shape only inside ``run`` if verbose
         # debug ever needed; default sink emits to log.

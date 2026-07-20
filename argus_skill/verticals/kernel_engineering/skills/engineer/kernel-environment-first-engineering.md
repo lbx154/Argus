@@ -25,9 +25,10 @@ library.
 
 ## Continuous online frontier loop
 
-Online research is mandatory in **every stage**, not only initial research.
-Search at stage entry, refresh after repeated mechanism failures, refresh before
-changing direction, and refresh immediately before a PR or final report:
+Online research is event-driven, not repeated mechanically at every stage. Search
+when selecting scope, after relevant upstream/toolchain changes or repeated
+mechanism failures, before changing direction, and immediately before a PR or
+final report:
 
 1. Search the target repository's latest main, releases, open/merged PRs,
    issues, benchmark changes, and maintainer discussion.
@@ -55,9 +56,11 @@ Read the full protocol at
 `argus_skill/verticals/kernel_engineering/references/frontier-search-protocol.md`.
 If the network is unavailable, record the blocker and continue only local work
 that does not claim current-frontier completeness; the stage cannot pass.
-Within one unchanged stage, reuse the recorded frontier snapshot. Refresh only
-when entering another stage, changing mechanism/toolchain, observing relevant
-new upstream information, or preparing the final report/PR boundary.
+Reuse the recorded frontier snapshot while the target, mechanism, toolchain, and
+relevant public facts remain unchanged. A stage transition alone is not a refresh
+trigger. `FRONTIER_WATCH.jsonl` is append-only audit output: never load it in full.
+Use the current snapshot plus `frontier_watch check`, which verifies its ledger
+binding without injecting the ledger into model context.
 
 ## IDGL: Idea–Diagnosis–Gate Loop
 

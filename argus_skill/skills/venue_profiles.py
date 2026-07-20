@@ -608,11 +608,26 @@ def venue_excluded_skill_files(project_root: Path) -> set[str]:
     try:
         active = resolve_venue_profile(project_root)
     except KeyError:
-        log.error(
-            "unknown venue for %s; excluding all venue-specific skills until "
-            "the venue is corrected",
-            project_root,
+        configured_venue = (
+            os.environ.get(_VENUE_ENV)
+            or _venue_key_from_pipeline_state(project_root)
+            or (
+                VENUE_PROFILE_FILENAME
+                if venue_profile_path(project_root).is_file()
+                else ""
+            )
         )
+        if configured_venue:
+            log.error(
+                "unknown venue for %s; excluding all venue-specific skills until "
+                "the venue is corrected",
+                project_root,
+            )
+        else:
+            log.debug(
+                "no venue selected for %s; excluding venue-specific skills",
+                project_root,
+            )
         return {
             filename
             for profile in VENUE_PROFILES.values()

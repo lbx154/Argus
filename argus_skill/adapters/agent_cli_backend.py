@@ -652,6 +652,11 @@ class AgentCliBackend:
         self._usage_mission_id: str | None = None
         self._known_secret_values = known_secret_values()
 
+    @property
+    def backend(self) -> str:
+        """Effective CLI backend after executable-availability fallback."""
+        return str(self._backend_name)
+
     def set_acp_scope(self, scope: str) -> None:
         setter = getattr(self._argus_runner, "set_acp_scope", None)
         if callable(setter):

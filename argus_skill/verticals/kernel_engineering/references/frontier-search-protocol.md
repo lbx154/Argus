@@ -2,10 +2,11 @@
 
 ## Purpose
 
-Keep every stage grounded in the current public frontier. Online research is a
-decision input, not a one-time literature stage. Search at stage entry, refresh
-after repeated mechanism failures or before a route change, and refresh again
-before an upstream PR/report. Refresh is event-driven, not timer-driven.
+Keep decisions grounded in the current public frontier without rerunning the same
+research at every stage. Search when selecting scope, refresh after relevant
+upstream/toolchain changes, repeated mechanism failures, or before a route change,
+and refresh again before an upstream PR/report. Refresh is event-driven, not
+stage- or timer-driven.
 
 ## Required search surfaces
 
@@ -39,8 +40,10 @@ repositories, or standards. Record secondary sources only as discovery aids.
 
 ## Evidence artifact
 
-Create one fresh snapshot per stage at `research/frontier/<stage>.json` and
-append it with the provided recorder to `research/FRONTIER_WATCH.jsonl`.
+Create a fresh snapshot for each real refresh trigger at
+`research/frontier/<stage>.json` and append it with the provided recorder to
+`research/FRONTIER_WATCH.jsonl`. A stage transition alone does not require a new
+snapshot. The JSONL file is append-only audit output; never load it in full.
 
 ```bash
 python -m argus_skill.verticals.kernel_engineering.frontier_watch template \
@@ -56,6 +59,8 @@ Each snapshot must contain concise focused queries, checked surfaces, sources
 that support the decision, material findings and actions, or an explicit
 `no_material_update=true` with a decision-impact explanation. Reviewer judgment,
 not fixed query/source counts, decides whether the evidence is sufficient.
+`frontier_watch check` validates both the current snapshot and its latest
+same-stage ledger record, so agents and reviewers do not need to read the ledger.
 
 ## Decision discipline
 

@@ -11,13 +11,15 @@ created_at: 2026-07-18T00:00:00+00:00
 
 Review artifacts and raw command output; do not trust the Engineer summary.
 
-## Hard frontier-freshness gate
+## Event-driven frontier-freshness gate
 
-For the active stage, require `research/frontier/<stage>.json` to pass
-`frontier_watch check`. Independently inspect material cited sources.
-Fail/continue when the snapshot is from another stage, offline, templated, lacks the
-target-repository/toolchain/research-frontier surfaces, relies mainly on
-secondary commentary, or does not state how findings affect the current plan.
+Require a fresh `research/frontier/<stage>.json` when scope is selected, a
+relevant upstream/toolchain fact changes, repeated failures or a mechanism pivot
+trigger re-search, or work reaches the PR/report boundary. Independently inspect
+material cited sources. For a required refresh, fail/continue when the snapshot
+is from another stage, offline, templated, lacks the target-repository/toolchain/
+research-frontier surfaces, relies mainly on secondary commentary, or does not
+state how findings affect the current plan.
 
 Require a refresh after repeated mechanism failures, before a substantial route
 change, and before an upstream PR/final performance claim.
@@ -27,6 +29,8 @@ supported choice.
 
 Do not request another frontier refresh when the stage, route, environment, and
 relevant public facts are unchanged.
+Never ask the Engineer to read `FRONTIER_WATCH.jsonl` in full. Audit the current
+snapshot and use `frontier_watch check` to verify the append-only ledger binding.
 
 ## Hard execution-versus-idea gate
 

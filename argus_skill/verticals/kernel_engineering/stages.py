@@ -91,7 +91,7 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     ],
 }
 
-for _stage in STAGE_ORDER:
+for _stage in ("scope", "report"):
     STAGE_CHECKS[_stage].insert(
         1,
         (
@@ -174,7 +174,8 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
     ),
 }
 
-for _stage, (_skill, _instructions, _artifacts) in tuple(REVIEWER_CHECKLISTS.items()):
+for _stage in ("scope", "report"):
+    _skill, _instructions, _artifacts = REVIEWER_CHECKLISTS[_stage]
     _frontier_artifact = f"research/frontier/{_stage}.json"
     REVIEWER_CHECKLISTS[_stage] = (
         _skill,
@@ -300,7 +301,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
     ),
 }
 
-for _stage in STAGE_ORDER:
+for _stage in ("scope", "report"):
     CHECKLIST_ITEMS[_stage] = (
         ChecklistItem(
             id=f"{_stage}.frontier_current",
@@ -311,9 +312,10 @@ for _stage in STAGE_ORDER:
                 "records that no material update was found."
             ),
             evidence_hint=(
-                f"research/frontier/{_stage}.json and research/FRONTIER_WATCH.jsonl; "
+                f"research/frontier/{_stage}.json; "
                 f"validate with `python -m argus_skill.verticals.kernel_engineering."
-                f"frontier_watch check --stage {_stage}`"
+                f"frontier_watch check --stage {_stage}` (the command verifies the "
+                "append-only ledger binding without loading the JSONL into context)"
             ),
         ),
         *CHECKLIST_ITEMS[_stage],
@@ -331,16 +333,16 @@ def role_banner(role: str) -> str:
         "package/compiler/configuration is an execution blocker, never a failed kernel "
         "idea: keep execution_status/failure_class separate from idea_status. Correctness "
         "precedes timing; only isolated real-hardware measurements "
-        "support a speed claim. CONTINUOUS FRONTIER WATCH: every stage must perform "
-        "fresh online research across upstream work, official toolchains, and recent "
-        "papers/author implementations; refresh at stage entry, after repeated failures, "
-        "mechanism pivots, and before a PR. This is not a paper pipeline and not "
+        "support a speed claim. CONTINUOUS FRONTIER WATCH is event-driven: search when "
+        "selecting scope, after relevant upstream/toolchain changes or repeated failures, "
+        "on mechanism pivots, and before a PR/report. Reuse current evidence across "
+        "unchanged intermediate stages. This is not a paper pipeline and not "
         "SOL-ExecBench.\n"
     )
     if role == "planner":
         return common + (
             "Plan environment and baseline work before implementation. Require a reuse "
-            "decision, capability audit, and stage-fresh frontier search; schedule custom "
+            "decision, capability audit, and trigger-fresh frontier search; schedule custom "
             "infrastructure only after the canonical project/vendor path and current "
             "public frontier are shown insufficient. If unmodified baseline correctness "
             "is reproducibly red, close the impossible no-edit mission with replan and "
@@ -360,8 +362,8 @@ def role_banner(role: str) -> str:
     if role == "engineer":
         return common + (
             "Run the environment audit first, repair the audited environment in an "
-            "isolated/pinned way, run the current-stage frontier search, reproduce "
-            "baseline, then profile and optimize.\n"
+            "isolated/pinned way, refresh frontier evidence only when a real trigger "
+            "applies, reproduce baseline, then profile and optimize.\n"
         )
     return common
 

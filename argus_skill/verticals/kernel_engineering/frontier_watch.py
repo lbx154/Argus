@@ -177,6 +177,42 @@ def write_record(project_root: Path, stage: str, record: dict[str, Any]) -> Path
     return target
 
 
+def latest_ledger_record(project_root: Path, stage: str) -> dict[str, Any] | None:
+    """Return the latest same-stage audit row without retaining the full ledger."""
+    latest: dict[str, Any] | None = None
+    try:
+        lines = ledger_path(project_root).open("r", encoding="utf-8")
+    except OSError:
+        return None
+    with lines:
+        for raw in lines:
+            try:
+                row = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict) and row.get("stage") == stage:
+                latest = row
+    return latest
+
+
+def validate_ledger_binding(
+    project_root: Path,
+    *,
+    stage: str,
+    snapshot: dict[str, Any],
+) -> list[str]:
+    latest = latest_ledger_record(project_root, stage)
+    if latest is None:
+        return [f"no {stage!r} record exists in FRONTIER_WATCH.jsonl"]
+    if latest != snapshot:
+        return [
+            f"latest {stage!r} FRONTIER_WATCH.jsonl record does not match "
+            "the current snapshot; use `frontier_watch record` instead of "
+            "editing either artifact directly"
+        ]
+    return []
+
+
 def template(stage: str) -> dict[str, Any]:
     now = datetime.now(UTC)
     return {
@@ -270,6 +306,13 @@ def main(argv: list[str] | None = None) -> int:
     errors = validate_record(
         record,
         expected_stage=args.stage,
+    )
+    errors.extend(
+        validate_ledger_binding(
+            root,
+            stage=args.stage,
+            snapshot=record,
+        )
     )
     if errors:
         for error in errors:

@@ -13,6 +13,7 @@ import pytest
 
 from argus_skill.daemon import life_worker
 from argus_skill.daemon.life_worker import (
+    _effective_runner_backend,
     _preflight_route_on_codex,
     required_codex_routes,
 )
@@ -102,6 +103,18 @@ def test_missing_default_codex_uses_copilot_without_vault_probe(
     monkeypatch.setenv("PATH", str(tmp_path))
 
     assert required_codex_routes() == []
+
+
+def test_effective_runner_backend_uses_instantiated_fallback() -> None:
+    from types import SimpleNamespace
+
+    from argus_skill.adapters.agent_cli_backend import AgentCliBackend
+
+    runner = SimpleNamespace(
+        backend=AgentCliBackend(backend="copilot", runner_bin="copilot")
+    )
+
+    assert _effective_runner_backend(runner, "codex") == "copilot"
 
 
 def test_text_route_follows_runner_default(monkeypatch) -> None:
