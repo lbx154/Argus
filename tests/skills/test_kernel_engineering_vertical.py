@@ -76,6 +76,9 @@ def test_kernel_engineering_vertical_skills_are_packaged(tmp_path: Path) -> None
     assert "ncu counter replay" in engineer_text
     assert "low-overhead timeline" in reviewer_text
     assert "focused ncu sections after the leverage gate" in reviewer_text
+    assert "reviewer-controlled try recall" in reviewer_text
+    assert "before the final round" in reviewer_text
+    assert "replan_requested" in reviewer_text
 
 
 def test_kernel_optimize_stage_requires_leverage_gate() -> None:

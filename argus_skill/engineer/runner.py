@@ -2143,6 +2143,7 @@ class SupervisedEngineer:
                         objective=objective,
                         original_objective=original_objective or objective,
                         round_index=round_index,
+                        round_max=supervised_config.max_rounds,
                         session_id=supervised_config.session_id,
                         main_summary=(
                             "\n\n".join(

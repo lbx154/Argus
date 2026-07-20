@@ -188,13 +188,22 @@ ladder and its stop conditions.
    Record `execution_status`, `failure_class`, and `idea_status` separately.
    Source editing is unlocked only when `LEVERAGE.json` says `proceed`, unless
    new evidence changes the measured end-to-end share or the required MDE.
+   Use the full reviewed Engineer–Reviewer exploration budget (normally three
+   rounds; follow the live `Round: x/y`) for a direction whose candidate is
+   correct and path-covered but not yet faster. Try 1 builds the functional
+   candidate; intermediate Tries use measured regression/profile evidence and
+   current primary sources to change a material mechanism; the final Try
+   implements the strongest remaining evidence-backed design. Do not spend
+   later Tries on an unchanged rerun or cosmetic knob sweep.
    Before the run, check the ledger for an equivalent mechanism/config and write
    the one-line claim being tested. After the run, retain a compact result and
    reusable insight; do not paste raw logs into the next Engineer prompt.
    Before assigning `supported` or `refuted`, record baseline identity,
    candidate commit plus dirty-diff hash, and dispatch/trace evidence that the
    benchmark shapes actually entered the changed code path.
-   Change the mechanism before endlessly sweeping knobs. A compile or runtime
+   A candidate can be performance-refuted without refuting the broader direction.
+   Preserve the candidate no-go, then change the mechanism before endlessly
+   sweeping knobs. A compile or runtime
    error must be classified:
    - environment/toolchain mismatch;
    - unsupported architecture/API;

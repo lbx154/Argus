@@ -40,9 +40,9 @@ class _CapturingRunner:
 _MARKER = "ENGINEER_FINAL_MARKER_42abc"
 
 
-def _capture_prompt() -> str:
+def _capture_prompt(*, round_max: int | None = 3) -> str:
     runner = _CapturingRunner()
-    Reviewer(runner=runner).evaluate(
+    kwargs = dict(
         objective="minimize val_bpb",
         round_index=1,
         session_id=None,
@@ -52,6 +52,9 @@ def _capture_prompt() -> str:
         active_skill_id="some_skill",
         prev_review_summary="prior review notes",
     )
+    if round_max is not None:
+        kwargs["round_max"] = round_max
+    Reviewer(runner=runner).evaluate(**kwargs)
     assert runner.prompt is not None
     return runner.prompt
 
@@ -71,6 +74,16 @@ def test_prev_review_and_skill_still_rendered_once() -> None:
     assert prompt.count("previous_review_summary") == 1
     assert "prior review notes" in prompt
     assert "some_skill" in prompt
+
+
+def test_reviewer_sees_round_budget() -> None:
+    assert "Round: 1/3" in _capture_prompt()
+
+
+def test_reviewer_round_budget_fallback_omits_denominator() -> None:
+    prompt = _capture_prompt(round_max=None)
+    assert "Round: 1\n" in prompt
+    assert "Round: 1/0" not in prompt
 
 
 def test_evaluate_signature_drops_reasoning_summary() -> None:

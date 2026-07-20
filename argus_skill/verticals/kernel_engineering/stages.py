@@ -150,7 +150,11 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "project/vendor primitive. Compile/runtime failures must be attributed to code "
         "versus environment before abandoning the mechanism. Every attempt must have "
         "OUTCOME.json with separate execution_status, failure_class, and idea_status; "
-        "environment/toolchain/infrastructure failures cannot refute an idea.",
+        "environment/toolchain/infrastructure failures cannot refute an idea. A correct "
+        "but slower/noisy candidate before the final Reviewer round keeps the direction "
+        "open and requires a materially distinct next Try. Optimize closes only with a "
+        "retained winner; final evidence-backed exhaustion requests replanning instead "
+        "of advancing a failed candidate to validate/report.",
         ["attempts/", "attempts/*/LEVERAGE.json", "research/ENVIRONMENT_AUDIT.json", "research/BASELINE_RESULT.json"],
     ),
     "validate": (
@@ -268,7 +272,11 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "records correctness, timing, and a two-axis OUTCOME.json. Environment, "
                 "dependency, toolchain, permission, or benchmark-infrastructure failures "
                 "leave the idea untested or inconclusive; only a valid executed result "
-                "may support or refute it."
+                "may support or refute that exact candidate. A correct but slower/noisy "
+                "candidate uses the remaining Reviewer-controlled Try budget (normally "
+                "three rounds) for materially distinct engineering. The stage passes only for a retained "
+                "candidate; an exhausted direction replans instead of advancing a no-go "
+                "through validate/report."
             ),
             evidence_hint=(
                 "attempts/<id>/OUTCOME.json, CHANGES.md, and raw test/benchmark artifacts; "
@@ -347,7 +355,10 @@ def role_banner(role: str) -> str:
             "public frontier are shown insufficient. If unmodified baseline correctness "
             "is reproducibly red, close the impossible no-edit mission with replan and "
             "create a scoped correctness-repair task that may edit only the selected "
-            "kernel/backend/autotune surface. Never queue another unchanged full gate.\n"
+            "kernel/backend/autotune surface. Never queue another unchanged full gate. "
+            "For optimize, keep one bounded mission open across its full reviewed Try budget; "
+            "a first correct-but-slower candidate does not close the direction or justify "
+            "validate/report. Follow the final Reviewer retain-or-exhaust decision.\n"
         )
     if role == "reviewer":
         return common + (

@@ -440,6 +440,7 @@ class Reviewer:
         main_summary: str,
         main_error: str | None,
         config: ReviewerConfig,
+        round_max: int = 0,
         planner_review_instruction: str = "",
         active_skill_id: str | None = None,
         prev_review_summary: str = "",
@@ -518,6 +519,7 @@ class Reviewer:
             operator_messages=operator_messages or [],
             planner_review_instruction=planner_review_instruction,
             round_index=round_index,
+            round_max=round_max,
             session_id=session_id,
             main_summary=main_summary,
             main_error=main_error,
@@ -744,6 +746,7 @@ class Reviewer:
         session_id: str | None,
         main_summary: str,
         main_error: str | None,
+        round_max: int = 0,
         active_skill_id: str | None = None,
         prev_review_summary: str = "",
         raw_evidence: str = "",
@@ -1237,14 +1240,18 @@ class Reviewer:
             + f"{checkpoint_block}"
             + f"{escalate_block}"
             + f"{engineer_log_audit_block}"
-            + f"Round: {round_index}\n"
-            f"Session ID: {session_id or 'none'}\n"
-            f"{shared_context_block}"
-            f"{background_block}"
-            f"Main agent fatal error: {error_text}\n\n"
-            "Main agent last summary:\n"
-            f"{main_summary}\n\n"
-            f"{evidence_block}"
+            + (
+                f"Round: {round_index}/{round_max}\n"
+                if round_max > 0
+                else f"Round: {round_index}\n"
+            )
+            + f"Session ID: {session_id or 'none'}\n"
+            + f"{shared_context_block}"
+            + f"{background_block}"
+            + f"Main agent fatal error: {error_text}\n\n"
+            + "Main agent last summary:\n"
+            + f"{main_summary}\n\n"
+            + f"{evidence_block}"
         )
         objective_context = (
             f"{(original_objective or objective).strip()}\n"

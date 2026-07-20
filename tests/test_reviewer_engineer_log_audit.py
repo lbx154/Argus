@@ -226,10 +226,12 @@ class _CapturingReviewer:
     def __init__(self) -> None:
         self.seen_log_path: str | None = None
         self.seen_call_id: str | None = None
+        self.seen_round_max: int | None = None
 
     def evaluate(self, **kwargs) -> ReviewDecision:
         self.seen_log_path = kwargs.get("engineer_log_path")
         self.seen_call_id = kwargs.get("engineer_call_id")
+        self.seen_round_max = kwargs.get("round_max")
         return ReviewDecision(
             status="done",
             reason="ok",
@@ -271,6 +273,7 @@ def test_config_path_is_threaded_into_evaluate(tmp_path: Path) -> None:
     )
     assert reviewer.seen_log_path == _LOG_PATH
     assert reviewer.seen_call_id == _CALL_ID
+    assert reviewer.seen_round_max == 1
 
 
 def test_gateway_synthesized_call_id_uses_legacy_unscoped_audit(
