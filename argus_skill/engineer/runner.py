@@ -2882,11 +2882,21 @@ class SupervisedEngineer:
                 )
             claim_synthesis = claim_synthesis_for_review(review)
             if failure_layer == "scientific" and claim_synthesis is not None:
+                advance = bool(
+                    claim_synthesis.get("advance_to_analysis_or_report")
+                )
                 return (
                     "replan_requested",
                     "Valid scientific result routed to "
                     f"{claim_synthesis['route']} / {claim_synthesis['action']}; "
-                    "do not discard the data or hold the campaign. "
+                    + (
+                        "develop the independently defensible publication thesis. "
+                        if advance
+                        else (
+                            "preserve the data, but do not auto-draft a paper; "
+                            "diagnose implementation adequacy or pivot the research. "
+                        )
+                    )
                     + (review.reason or ""),
                 )
             if review.failure_cause == "environmental" and not review.operator_question:

@@ -15,18 +15,18 @@ contribution shape. Use `research/VENUE_PROFILE.json`,
 `research/VENUE_SELECTION.md`, and the official author kit rather than assuming
 EMNLP or AAAI.
 
-A method improvement, system, theorem, diagnostic, characterization,
-interpretability result, benchmark/data contribution, clean null, negative
-result, and boundary finding are all legitimate when they have research value
-and appropriate evidence.
+A method, system, theorem, diagnostic, characterization, interpretability,
+benchmark/data, negative, or boundary contribution is legitimate only when it
+supports a clear, venue-relevant thesis. Honest evidence is necessary but does
+not by itself create publication value.
 
 ## Reviewer stance
 
 - Be skeptical about unsupported claims, not biased toward positive results.
 - Do not reward a PDF merely for existing.
-- Do not automatically reject diagnostic, null, negative, single-benchmark, or
-  focused mechanism studies. Judge whether the evidence is sufficient for the
-  exact scope of the contribution.
+- Do not automatically accept or reject a contribution by result sign. For a
+  negative/boundary paper, require a surprising and independently useful insight,
+  plus evidence that rules out ordinary implementation inadequacy.
 - Broader claims require broader validation; narrow claims may be supported by a
   focused public benchmark plus decisive controls.
 - Every weakness must identify a concrete repair or a justified scope boundary.
@@ -55,7 +55,8 @@ Score each dimension 1–5.
 2. **Claim-evidence alignment**
    - Does every headline, numerical, comparative, causal, or generalization claim
      map to authentic evidence?
-   - Are nulls, losses, contradictions, and limitations preserved?
+   - Are claim-critical nulls, losses, contradictions, and limitations preserved,
+     while secondary dead ends remain in audit artifacts or appendices?
    - Is claim scope no broader than the evidence?
 
 3. **Experiment or proof integrity**
@@ -86,7 +87,7 @@ Score each dimension 1–5.
    - Does the abstract state problem, gap, contribution shape, evidence, and
      implication honestly?
    - Does the paper have one coherent thesis?
-   - Are negative or diagnostic results framed as findings rather than apologies?
+   - Does every major section strengthen or explain the same thesis?
 
 7. **Venue format and visual evidence**
    - Does the paper follow the selected venue's current official template,
@@ -135,8 +136,13 @@ and no hard blocker.
 - private infrastructure/secrets leaked into rendered prose;
 - paper value depends only on relabeling a weak result rather than a genuine
   insight.
+- the paper proposes a method as its contribution while its own evidence defeats
+  that method, without a separate insight strong enough to justify publication;
+- underperformance is treated as scientific evidence without a credible
+  implementation-adequacy audit.
 
-A clean negative, null, diagnostic, or boundary result is not a hard blocker.
+A negative, null, diagnostic, or boundary result is not a blocker by sign; lack
+of standalone insight is.
 
 ## Output contract
 

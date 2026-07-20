@@ -42,7 +42,9 @@ def test_explicit_emnlp_floor_remains_available(tmp_path: Path) -> None:
     emnlp = format_stage_checklist(
         "draft", role="reviewer", project_root=_project(tmp_path, "EMNLP")
     )
-    assert "EMNLP/ACL long-paper sections" in emnlp
+    assert "EMNLP 2026 two-column paper sections" in emnlp
+    assert "Conclusion, Limitations, Ethical Considerations" in emnlp
+    assert "up to 8 pages" in emnlp
     assert "References starts on page 9 or later" in emnlp
 
 

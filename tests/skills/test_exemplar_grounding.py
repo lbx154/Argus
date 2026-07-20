@@ -468,46 +468,14 @@ def test_format_facts_skipped_when_primary_unset(tmp_path: Path) -> None:
     assert "format_facts_diverge_from_primary_exemplar" not in codes
 
 
-# ---------------------------------------------------------------------------
-# automated_gates wiring
-# ---------------------------------------------------------------------------
-
-
-def test_automated_gates_wires_exemplar_grounding(tmp_path: Path) -> None:
+def test_exemplar_grounding_is_optional_not_an_automated_gate() -> None:
     from argus_skill.skills.automated_gates import (
         GATE_KINDS,
         STAGE_GATES,
         gates_for_stage,
-        run_stage_gates,
     )
 
     for stage in ("draft", "review", "submission"):
-        assert "exemplar_grounding" in STAGE_GATES[stage]
-        assert "exemplar_grounding" in gates_for_stage(stage)
-    assert "exemplar_grounding" not in STAGE_GATES["analysis"]
-    assert GATE_KINDS["exemplar_grounding"] == "structural"
-
-    # Empty workdir at draft → structural failure.
-    results = run_stage_gates(tmp_path, stage="draft")
-    eg = next(r for r in results if r.name == "exemplar_grounding")
-    assert eg.passed is False
-    assert eg.is_blocking is True
-
-
-def test_run_stage_gates_submission_requires_conformance(tmp_path: Path) -> None:
-    """At submission stage, even a passing pre-draft grounding fails
-    until STRUCTURE_CONFORMANCE.json is added."""
-    _seed_passing(tmp_path, with_conformance=False)
-    from argus_skill.skills.automated_gates import run_stage_gates
-    results = run_stage_gates(tmp_path, stage="submission")
-    eg = next(r for r in results if r.name == "exemplar_grounding")
-    assert eg.passed is False
-    assert "STRUCTURE_CONFORMANCE" in eg.detail or "structure_conformance" in eg.detail
-
-
-def test_run_stage_gates_submission_passes_with_conformance(tmp_path: Path) -> None:
-    _seed_passing(tmp_path, with_conformance=True)
-    from argus_skill.skills.automated_gates import run_stage_gates
-    results = run_stage_gates(tmp_path, stage="submission")
-    eg = next(r for r in results if r.name == "exemplar_grounding")
-    assert eg.passed is True, eg.detail
+        assert "exemplar_grounding" not in STAGE_GATES[stage]
+        assert "exemplar_grounding" not in gates_for_stage(stage)
+    assert "exemplar_grounding" not in GATE_KINDS

@@ -360,7 +360,6 @@ def test_run_stage_gates_review_clean_project_passes_structural(tmp_path: Path) 
         "paper_structural_minimums",
         "reviewer_simulation",
         "experiment_audit",
-        "exemplar_grounding",
         "run_evidence_health",
     ]
     # Structural passes, no block.
@@ -385,7 +384,6 @@ def test_run_stage_gates_surfaces_structural_break(tmp_path: Path) -> None:
     assert names == [
         "evidence_chain",
         "paper_structural_minimums",
-        "exemplar_grounding",
     ]
     chain_result = next(r for r in results if r.name == "evidence_chain")
     assert chain_result.is_blocking is True

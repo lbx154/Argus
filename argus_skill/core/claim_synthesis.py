@@ -26,6 +26,11 @@ _BOUNDARY = frozenset({
     "partial_result",
     "lean_local_verification",
 })
+_INTERNAL_REPORT = frozenset({
+    "structured_failure_report",
+    "honest_final_report",
+    "exhausted_current_methods",
+})
 
 
 def claim_route_for_result(result_class: str) -> str:
@@ -43,6 +48,7 @@ def build_claim_synthesis(
     research_result: object,
     planner_report: object = None,
     step_back: object = None,
+    scientific_decision: object = None,
 ) -> dict[str, Any] | None:
     result = normalize_research_result(research_result)
     if result is None:
@@ -55,17 +61,32 @@ def build_claim_synthesis(
     headline = str(report.get("headline") or "").strip()
     if not headline:
         headline = str(reflection.get("surprises") or "").strip()
-    action = "expand_and_write" if route == "supported_positive" else "write_up_current"
+    result_class = result["result_class"]
+    explicitly_publishable = (
+        str(scientific_decision or "").strip().lower() == "go"
+        and result["significance_status"] in {"publishable", "doctoral"}
+        and bool(headline)
+        and result_class not in _INTERNAL_REPORT
+    )
+    if route == "supported_positive":
+        action = "expand_and_write"
+        advance = True
+    elif explicitly_publishable:
+        action = "develop_publication_thesis"
+        advance = True
+    else:
+        action = "diagnose_or_pivot"
+        advance = False
     return {
         "schema_version": 1,
         "route": route,
         "action": action,
-        "result_class": result["result_class"],
+        "result_class": result_class,
         "headline": headline[:1200],
         "evidence": list(result["evidence"]),
         "limitations": list(result["limitations"]),
         "scientific_result_valid": True,
-        "advance_to_analysis_or_report": True,
+        "advance_to_analysis_or_report": advance,
     }
 
 
@@ -74,6 +95,7 @@ def claim_synthesis_for_review(review: object) -> dict[str, Any] | None:
         research_result=getattr(review, "research_result", None),
         planner_report=getattr(review, "planner_report", None),
         step_back=getattr(review, "step_back", None),
+        scientific_decision=getattr(review, "scientific_decision", None),
     )
 
 

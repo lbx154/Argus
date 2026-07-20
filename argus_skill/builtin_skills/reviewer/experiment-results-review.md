@@ -17,36 +17,26 @@ Review experiment results as a senior ML researcher would before allowing the te
 
 ## When the method did NOT beat the baseline
 
-A loss to the baseline is a decision point, **not an automatic kill**. Do NOT
-immediately pivot to a different idea. Work the ladder in order:
+A loss is a root-cause and research-value decision point.
 
-1. **Reflect on WHY**, with specific evidence from the runs, and classify the cause:
-   - **Fixable** — a config/implementation bug, under-tuned hyperparameters, too
-     few steps/samples, a decoding or eval mismatch, or a missing ablation control.
-   - **Baseline artifact** — the baseline is unfairly strong, or the comparison is
-     not apples-to-apples (a fair re-run may change the verdict).
-   - **Genuine null / limited effect** — the mechanism does not help (here), and
-     no cheap change is likely to flip it.
-2. **Decide**:
-   - If the cause is **Fixable** or a **Baseline artifact** and the fix is
-     concrete and fits the remaining operator-approved budget, recommend
-     **ONE more targeted optimization / re-run pass** aimed at exactly that fix.
-     Name the single change and the metric that must move.
-   - If the cause is a **genuine null / limited effect** with no credible cheap
-     fix, **do NOT pivot** — recommend proceeding to **write the paper on the
-     current results** as an honest negative / limited-gain finding: report where
-     the method helps and where it does not, keep all negative and failed runs,
-     and frame the contribution as the diagnostic / negative result itself.
-3. **Bound it**: at most ONE reflect→optimize pass per idea before this decision
-   is final. A second unmoved result routes to write-up, **not** another retry —
-   this is the guardrail against sunk-cost commit-bias.
-4. Reserve a **full-direction pivot** only when the results support neither a win
-   nor an honest negative-result paper (e.g. the run is broken or inconclusive,
-   not a clean negative).
+1. **Audit engineering adequacy.** Inspect source and executed artifacts, not the
+   Engineer's confidence. Check reference parity, actual configuration,
+   optimization/tuning, model/data capacity, evaluator semantics, fair budgets,
+   dropped failures, and diagnostics tied to the proposed mechanism.
+2. **Classify the cause:** misconfigured, under-engineered, unfair comparison,
+   genuine method failure, or infeasible under the available resources.
+3. **Choose the next action by evidence and information gain:**
+   - repair or optimize when a concrete credible change could give the idea a
+     fairer test;
+   - pivot when the original thesis is unsupported and a stronger direction is
+     available;
+   - recommend publication only when the negative/boundary result supports a
+     surprising, robust, independently valuable thesis beyond "the method failed."
 
-Record the reflection, the cause classification, and the chosen next step
-(`optimize_once` / `write_up_current` / `pivot`) in `verdict` and
-`claim_recommendations`.
+There is no fixed number of optimization passes. Stop when credible fixes are
+exhausted or no longer worth their cost, not because a retry counter fired.
+Preserve all valid evidence internally, but do not force every negative run into
+the manuscript.
 
 ## Six review dimensions
 
@@ -68,7 +58,8 @@ Score each 1–5. Score 3+ on all dimensions = pass.
    - Is the observed effect, null, diagnostic pattern, or boundary meaningful for
      the stated research question?
    - Are there regimes where the contribution helps, fails, or changes interpretation?
-   - Are null results (no improvement) honestly reported?
+   - Are claim-critical null results honestly represented without turning the
+     paper into an exhaustive failure log?
 
 4. **Claim support**
    - Do the numbers actually support the intended paper claims?
@@ -85,8 +76,7 @@ Score each 1–5. Score 3+ on all dimensions = pass.
 6. **Completeness**
    - Are all planned conditions/baselines/benchmarks represented in results?
    - Are there missing runs that would change the conclusions?
-   - Are error cases and failure modes analyzed?
-   - Is there a null-result benchmark that shows where the method doesn't work?
+   - Are error cases and failure modes analyzed where they explain the thesis?
 
 ## Output format
 

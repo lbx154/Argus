@@ -26,8 +26,8 @@ executed evidence. A final claim needs completed scored rows for every required
 method and baseline condition. Label pilots and diagnostics explicitly.
 
 For compared rows verify compatible source, split/cohort, metric, evaluator,
-model/backend, and budget. Preserve failed/null outcomes unless the experimental
-plan gave a valid exclusion rule.
+model/backend, and budget. Preserve failed/null outcomes in the canonical audit
+record unless the experimental plan gave a valid exclusion rule.
 
 ## 2. Build one reproducible analysis program
 
@@ -81,6 +81,14 @@ different natural evidence shape.
 Map every planned claim to `supported`, `weak`, `rejected`, `missing`, or
 `contradicted`. Missing evidence becomes a named experiment, ablation, robustness
 slice, or claim downgrade—not an estimate.
+
+Then select the publication thesis. The paper is not the evidence inventory:
+
+- keep every claim-critical comparison that could change the thesis;
+- keep misconfigured runs out of scientific conclusions;
+- move secondary dead ends and exhaustive diagnostics to internal artifacts or
+  an appendix when useful;
+- return to research/plan if no independently valuable thesis survives.
 
 ## 4. Route and build figures
 
@@ -143,9 +151,12 @@ inventory table.
 - exact missing evidence and claim wording changes.
 
 `research/NARRATIVE_REPORT.md` carries problem framing, literature gap,
-protocol, supported/rejected claims, limitations, and the intended figure/table
-inventory. Internal paths, commands, GPU/cache details, route names, hashes, and
-daemon mechanics stay in provenance artifacts—not manuscript prose.
+one-sentence thesis, supported/rejected claims, strongest accept/reject arguments,
+limitations, and the intended figure/table inventory. It must not present a
+method as the contribution while making that method's failure the main message
+unless a separate, compelling insight supports that framing. Internal paths,
+commands, GPU/cache details, route names, hashes, and daemon mechanics stay in
+provenance artifacts—not manuscript prose.
 
 ## 7. Refresh and verify
 

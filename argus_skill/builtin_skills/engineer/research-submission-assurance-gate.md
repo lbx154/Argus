@@ -92,8 +92,8 @@ Use `PASS | WARN | FAIL | BLOCKED | ERROR | NOT_APPLICABLE`.
 
 - Cover material premises, nearest competitors, foundations, contradictions,
   and the frontier with verified primary sources.
-- Require at least 35 verified BibTeX entries and at least 30 unique cited keys,
-  in addition to claim-complete coverage and venue-specific formatting.
+- Require verified, claim-complete bibliography coverage appropriate to the
+  paper; do not impose a universal entry count.
 - Block invented citations, missing bibliography entries, citation dumping, and
   metadata contradictions.
 
@@ -131,8 +131,9 @@ Use `PASS | WARN | FAIL | BLOCKED | ERROR | NOT_APPLICABLE`.
 - authentic public evidence for empirical claims;
 - claim-proportional scale and uncertainty;
 - strongest relevant comparisons;
-- at least 35 verified BibTeX entries and 30 unique cited keys;
-- honest positive/negative/diagnostic/boundary framing;
+- verified, claim-complete bibliography coverage;
+- one defensible publication thesis; negative/boundary framing passes only when
+  it carries standalone insight and implementation inadequacy has been ruled out;
 - current manuscript, reviews, figures, and package;
 - full-pipeline L2 Reviewer certification.
 

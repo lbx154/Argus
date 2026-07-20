@@ -226,11 +226,11 @@ REVIEWER_CHECKLISTS_EMNLP: dict[str, tuple[str, str, list[str]]] = {
         "4. Claim support — does data actually support each claim?\n"
         "5. Baseline competitiveness — are the strongest relevant comparisons fair?\n"
         "6. Completeness — are all claim-relevant conditions represented or explained?\n"
-        "Judge the research value of the valid result, not only whether the method "
-        "won. A positive, negative, diagnostic, null, or boundary finding may "
-        "proceed to analysis when it answers an important question with appropriate "
-        "evidence. Recommend one corrective rerun only for a concrete validity "
-        "defect; pivot when the result is broken, inconclusive, or lacks research value.",
+        "Before a losing method proceeds, audit implementation adequacy against "
+        "reference behavior, executed configuration, evaluator semantics, and "
+        "credible optimization opportunities. Preserve valid negative evidence, "
+        "but proceed toward publication only when it supports a standalone "
+        "venue-relevant thesis; otherwise repair or pivot. Do not use a fixed retry count.",
         ["paper/artifacts/results_table.tsv", "paper/artifacts/significance.tsv"],
     ),
     "analysis": (
@@ -302,11 +302,11 @@ _AAAI_STAGE_OVERRIDES: dict[str, tuple[str, str, list[str]]] = {
         "4. Claim support — does data actually support each claim?\n"
         "5. Baseline competitiveness — are the strongest relevant comparisons fair?\n"
         "6. Completeness — are all claim-relevant conditions represented or explained?\n"
-        "Judge the research value of the valid result, not only whether the method "
-        "won. A positive, negative, diagnostic, null, or boundary finding may "
-        "proceed to analysis when it answers an important question with appropriate "
-        "evidence. Recommend one corrective rerun only for a concrete validity "
-        "defect; pivot when the result is broken, inconclusive, or lacks research value.",
+        "Before a losing method proceeds, audit implementation adequacy against "
+        "reference behavior, executed configuration, evaluator semantics, and "
+        "credible optimization opportunities. Preserve valid negative evidence, "
+        "but proceed toward publication only when it supports a standalone "
+        "venue-relevant thesis; otherwise repair or pivot. Do not use a fixed retry count.",
         ["paper/artifacts/results_table.tsv", "paper/artifacts/significance.tsv"],
     ),
     "review": (
@@ -453,11 +453,11 @@ def build_reviewer_checklists(
             "4. Claim support — does data actually support each claim?\n"
             "5. Baseline competitiveness — are the strongest relevant comparisons fair?\n"
             "6. Completeness — are all claim-relevant conditions represented or explained?\n"
-            f"Judge the research value for {persona}, not only whether the method "
-            "won. A positive, negative, diagnostic, null, or boundary finding may "
-            "proceed when it answers an important question with appropriate "
-            "evidence. Recommend one corrective rerun only for a concrete validity "
-            "defect; pivot when the result is broken, inconclusive, or lacks research value.",
+            f"Judge the research value for {persona}. Before a losing method proceeds, "
+            "audit implementation adequacy and credible optimization opportunities. "
+            "Preserve valid negative evidence, but proceed toward publication only "
+            "when it supports a standalone venue-relevant thesis; otherwise repair "
+            "or pivot. Do not use a fixed retry count.",
             ["paper/artifacts/results_table.tsv", "paper/artifacts/significance.tsv"],
         ),
         "review": (

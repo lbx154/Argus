@@ -779,8 +779,8 @@ class Reviewer:
         from ..verticals._base import (
             load_vertical,
             vertical_completion_gate,
-            vertical_role_banner,
             vertical_requires_independent_review,
+            vertical_role_banner,
             vertical_search_altitude,
         )
 
@@ -882,6 +882,11 @@ class Reviewer:
                 "results, finite verification, local Lean verification, "
                 "novelty-unverified work, and honest/structured failure reports are "
                 "artifacts, not mission success. For NON-BOUNDED project-level "
+                "routing, a genuinely novel negative or boundary result may set "
+                "`significance_status=publishable` and `scientific_decision=go` only "
+                "when it supports a standalone venue-relevant thesis; use a precise "
+                "result class such as partial_result/counterexample rather than "
+                "structured_failure_report. For NON-BOUNDED project-level "
                 "completion only, when the current cycle should end without that "
                 "result, use `research_incomplete`, "
                 "`paused_no_breakthrough`, or `exhausted_current_methods`; these "
@@ -1155,10 +1160,14 @@ class Reviewer:
             "independently state support, surprises, new questions, and cheap "
             "alternative directions; use null only when nothing was measured.\n"
             "- Every valid measured result must identify the strongest supported "
-            "finding in `planner_report.headline`. A clean negative, null, boundary, "
-            "or diagnostic result is paper evidence: recommend analysis/write-up "
-            "instead of holding the campaign merely because the original positive "
-            "hypothesis failed.\n"
+            "finding in `planner_report.headline`. Preserve clean negative, null, "
+            "boundary, and diagnostic evidence, but do not automatically turn it "
+            "into a paper. First audit implementation adequacy and plausible repairs. "
+            "Recommend publication work only when the result supports a standalone, "
+            "venue-relevant thesis beyond 'we tried and it failed'; otherwise set "
+            "`scientific_decision` to pivot/no_go and request a replacement plan. "
+            "There is no fixed retry count: judge further engineering by the diagnosed "
+            "cause, expected information gain, and remaining resources.\n"
             "- `failure_cause` classifies non-done outcomes. Reusable skill/wiki "
             "learning must already have been edited directly during this Reviewer "
             "turn, except Wiki pages, which must use the schema's structured "

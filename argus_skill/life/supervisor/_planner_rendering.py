@@ -113,9 +113,11 @@ class PlannerRenderingMixin:
         headline = str(claim.get("headline") or "").strip()[:1200]
         if not route or not action:
             return ""
+        advance = bool(claim.get("advance_to_analysis_or_report"))
         lines = [
             "    VALID_RESULT→CLAIM: "
-            f"route={route} action={action} advance_to_analysis_or_report=true"
+            f"route={route} action={action} "
+            f"advance_to_analysis_or_report={str(advance).lower()}"
         ]
         if headline:
             lines.append(f"      strongest_supported_finding: {headline}")

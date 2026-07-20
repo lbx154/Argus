@@ -41,10 +41,9 @@ This skill supports:
 4. **Use the strongest relevant comparisons.** Reproduce or faithfully compare
    against the closest feasible published baseline, standard method, or accepted
    reference implementation. Do not pad the matrix with arbitrary weak baselines.
-5. **Positive results are not required.** A supported improvement, a clean null,
-   a boundary condition, a failure mechanism, or a diagnostic result may all be
-   publishable when the question is important and the evidence changes
-   understanding or practice.
+5. **Publication value is required.** A clean null, boundary, or failure
+   mechanism is publishable only when it yields a surprising, robust,
+   decision-relevant insight that is not explained by weak implementation.
 
 ## Before execution
 
@@ -109,8 +108,8 @@ human cohort, or systems measurement.
    supported effect, futility, sufficient precision, or the declared maximum;
    retain every observation regardless of the stopping decision.
 3. **Monitor without steering toward success.** Preserve crashes, nulls,
-   exclusions, and failed cases. Do not change thresholds or remove difficult
-   examples after seeing results.
+   exclusions, and failed cases in the audit trail. Do not change thresholds or
+   remove difficult examples after seeing results.
 4. **Use background execution when useful.** Long jobs may run through the
    supervised subagent system, a scheduler, or the project's native runner.
    Parallelism is optional and must follow real resource and file-ownership
@@ -126,8 +125,12 @@ human cohort, or systems measurement.
    - `inconclusive`: evidence cannot answer the question;
    - `infeasible_under_budget`: a fair test is outside the current allocation.
 
-Only `misconfigured_run` justifies an automatic corrective rerun. A clean
-negative result is evidence, not a pipeline failure.
+Before `supported_negative` or `supported_boundary`, perform an implementation
+adequacy audit: reference parity, executed configuration, evaluator semantics,
+optimization/tuning, data, and resource sufficiency. A concrete under-engineering
+diagnosis justifies targeted repair while expected information gain exceeds its
+cost. There is no universal retry cap. A valid negative result is evidence, but
+does not automatically advance to drafting.
 
 ## Public benchmark provenance
 
@@ -156,7 +159,9 @@ The run stage is ready for review when:
 - raw artifacts regenerate the reported aggregates;
 - uncertainty, variance, or repeatability is handled in a way appropriate to the
   data-generating process;
-- positive, negative, and contradictory outcomes are all retained;
+- positive, negative, and contradictory outcomes are retained in canonical
+  evidence;
+- underperformance has a reviewer-audited implementation diagnosis;
 - the result scope does not exceed the evidence.
 
 ## Response shape

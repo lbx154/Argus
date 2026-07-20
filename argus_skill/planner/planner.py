@@ -12,8 +12,8 @@ removed entirely — the L2 reviewer subsumed its responsibility.
 """
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import logging
 import os
 import re
@@ -915,11 +915,10 @@ class Planner:
                 "`paper/RESULT_PLACEHOLDERS.md` listing each placeholder, its "
                 "owning source artifact, and the backfill condition, so a later "
                 "analysis/draft mission can find and fill every TBD.\n"
-                "4. Ground before/with drafting: if exemplar/style grounding "
-                "artifacts do not exist yet, the mission's first step is to study "
-                "the exemplars and write the blueprint (the `exemplar_grounding` "
-                "gate is structural at draft — pre-empting it avoids a later "
-                "rewrite). This is not a results restriction.\n"
+                "4. Ground style proportionally: inspect one or two relevant venue "
+                "papers when that would improve the draft, but do not create exemplar-"
+                "conformance schemas or copy another paper's section sequence. The "
+                "project's thesis and evidence determine the structure.\n"
                 "5. Do NOT let drafting starve experiment monitoring: the mission "
                 "(or the next cycle) must still do one lightweight run-health "
                 "check on the live run each cycle.\n"

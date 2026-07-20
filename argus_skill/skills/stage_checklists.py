@@ -90,20 +90,14 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             evidence_hint="research/RESEARCH_BRIEF.md",
         ),
         ChecklistItem(
-            id="research.rejection",
-            statement=(
-                "At least one mediocre / already-done idea is explicitly rejected "
-                "with reasoning, not silently skipped."
-            ),
-            evidence_hint="research/IDEA_REJECTION_LOG.md",
-        ),
-        ChecklistItem(
             id="research.go_no_go",
             statement=(
-                "A GO / NO-GO verdict is written for whether this thesis is worth "
-                "the experiment budget, with pivot criteria if conditions fail."
+                "The project states why its proposed thesis would matter to the "
+                "target community, what evidence could falsify it, and whether it is "
+                "worth the experiment budget. A paper-shaped deliverable is not itself "
+                "a reason to continue."
             ),
-            evidence_hint="research/GO_NO_GO.md",
+            evidence_hint="research/RESEARCH_BRIEF.md and research/GO_NO_GO.md",
         ),
         ChecklistItem(
             id="research.signal_derisk",
@@ -125,14 +119,6 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "Planner-authored research.signal_derisk evidence paths; for the "
                 "default scalar shape use research/SIGNAL_DERISK.json + raw log"
             ),
-        ),
-        ChecklistItem(
-            id="research.references",
-            statement=(
-                "Reference repos that will be reused or compared against are "
-                "shallow-cloned locally with origin URL and commit recorded."
-            ),
-            evidence_hint="code/references/<repo>/.git/config + a notes file",
         ),
     ),
     "plan": _checklist(
@@ -191,66 +177,6 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             evidence_hint=(
                 "research/INFRA_CHOICE.md (short comparison + final choice) + "
                 "research/EXPERIMENT_PLAN.md `## Infra` + chosen repo evidence"
-            ),
-        ),
-        ChecklistItem(
-            id="plan.rl_config",
-            statement=(
-                "If (and only if) the method is RL / preference post-training "
-                "(PPO/GRPO/RLVR/DPO/reasoning-RL), the plan pins a learnable RL "
-                "config a senior RL researcher would approve at a glance: group "
-                "size / `num_generations` large enough for within-group reward "
-                "contrast (>=4, never 1); a reward that actually varies across "
-                "rollouts at the starting policy (not constant-by-construction) "
-                "with a verifiable correctness signal and a validated "
-                "answer-extractor; `max_completion_length` set as large as the "
-                "context/compute budget allows (truncation kills the reward; "
-                "over-length only costs throughput) and at minimum clearing the "
-                "benchmark's p95 gold-answer/reasoning length with headroom (e.g. "
-                "NOT 256–512 for competition-math/`\\boxed{}` reasoning); an "
-                "RL-scale learning rate (<< SFT) "
-                "with sane KL/clip; enough steps to show learning (not just a "
-                "smoke); and an init/warm-start matched to the reward (no "
-                "cold-start format RL on a bare base model). If the plan claims "
-                "RL LEARNING / GENERALISATION, the admitted training set + "
-                "curriculum must carry enough DISTINCT-TASK DIVERSITY to make "
-                "that claim meaningful: a set so small or so repeated that a "
-                "handful of distinct task ids cover all rollouts (e.g. a few "
-                "admitted ids with curriculum-repeat over the same ids) is a "
-                "memorisation regime, the same non-learnable class as "
-                "`num_generations=1` — fail it for a learning claim. A tiny / "
-                "repeated set is acceptable ONLY if the plan explicitly bounds "
-                "the objective to a smoke/wiring/warmup or an avowed "
-                "memorisation experiment, not general learning. N/A for non-RL "
-                "plans."
-            ),
-            evidence_hint=(
-                "research/EXPERIMENT_PLAN.md `## RL config` / training config + "
-                "argus_builtin_skills/reviewer/experiment-plan-review.md "
-                "(RL post-training auto-fails) + "
-                "argus_builtin_skills/engineer/rl-training-collapse-diagnosis.md"
-            ),
-        ),
-        ChecklistItem(
-            id="plan.run_contract",
-            statement=(
-                "If the project runs training (RL / SFT / post-training), the "
-                "plan freeze emits a machine-readable RUN CONTRACT "
-                "(research/RUN_CONTRACT.json) that is the SINGLE SOURCE OF "
-                "TRUTH for the locked launch knobs: instruct model id, learning "
-                "rate, group size / num_generations, total steps, train batch "
-                "size, and the curriculum (slice id + content hash + "
-                "distinct-task count + seed). It carries a contract_hash over "
-                "those fields so every full-scale run manifest can cite a "
-                "provenance anchor. Freeze it with `python -m "
-                "argus_skill.skills.run_contract freeze ...`. Without it the "
-                "launch knobs drift from the plan (e.g. an LR copied from a "
-                "framework reference doc) and a multi-hour run gets retired "
-                "post-hoc. N/A for projects with no training run."
-            ),
-            evidence_hint=(
-                "research/RUN_CONTRACT.json (non-empty, self-consistent "
-                "contract_hash) consistent with research/EXPERIMENT_PLAN.md"
             ),
         ),
     ),
@@ -334,20 +260,6 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             evidence_hint="experiments/runs/<run_id>/preflight.txt (per run)",
         ),
         ChecklistItem(
-            id="run.model_instruct_not_base",
-            statement=(
-                "Prompt-following/reasoning methods use an instruction/post-trained "
-                "checkpoint: the manifest model ID, model-card evidence, and actual "
-                "checkpoint/weights path loaded in preflight must agree. A base model "
-                "is allowed only for an explicitly base-model experiment. N/A for "
-                "non-LLM work or tasks requiring no instruction following."
-            ),
-            evidence_hint=(
-                "manifest model ID + model-card evidence + preflight loaded "
-                "checkpoint/weights path"
-            ),
-        ),
-        ChecklistItem(
             id="run.manifests",
             statement=(
                 "Each long-running experiment writes manifest.json, status.json, "
@@ -392,81 +304,20 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="run.method_diagnosis_recall",
             statement=(
-                "Before killing an underperforming method, use its executed manifest/"
-                "diagnostics and any applicable `*-diagnosis` skill. Classify exactly "
-                "as `misconfigured_run`, `method_failure`, or "
-                "`infeasible_under_budget`; rerun only for a named artifact-backed "
-                "correction, not generic more scale. N/A when no method-specific "
-                "diagnosis applies."
+                "Before calling an underperforming idea a scientific failure, audit "
+                "whether the implementation is faithful and competitive: compare "
+                "against trusted reference behavior, inspect actual executed knobs "
+                "and loaded checkpoint identity/capability when relevant, inspect "
+                "evaluator semantics, diagnose optimization/tuning/capacity/data "
+                "limits, and test concrete plausible repairs when their information "
+                "gain justifies the cost. Classify the outcome as misconfigured, "
+                "under-engineered, genuine method failure, or infeasible. Do not use "
+                "a fixed retry count, generic extra scale, or passing unit tests as a "
+                "substitute for this diagnosis."
             ),
             evidence_hint=(
-                "experiments/<run>/manifest.json executed knobs + progress.jsonl "
-                "diagnostics, read THROUGH the matched method-diagnosis skill; "
-                "for RL see "
-                "argus_builtin_skills/engineer/rl-training-collapse-diagnosis.md"
-            ),
-        ),
-        ChecklistItem(
-            id="run.learning_validity",
-            statement=(
-                "Before treating a metric trend as learning, use the applicable "
-                "diagnosis skill and evidence to rule out memorisation (including "
-                "distinct-task coverage), saturation, zero variance/advantage, "
-                "leakage, and reward hacking. Address `low_task_diversity` and "
-                "`variance_metric_masks_saturation` as evidence signals, not automatic "
-                "verdicts; narrow claims for intentional smoke/easy runs. N/A for "
-                "pure wiring probes or when no learning claim/diagnosis applies."
-            ),
-            evidence_hint=(
-                "experiments/<run>/progress.jsonl reward/advantage/variance "
-                "series + the rl_training_health advisory signals + the "
-                "distinct-task id count from reward_trace.jsonl, read THROUGH "
-                "argus_builtin_skills/engineer/rl-training-collapse-diagnosis.md"
-            ),
-        ),
-        ChecklistItem(
-            id="run.gpu_saturation",
-            statement=(
-                "GPU runs record per-card peak VRAM, utilization, and throughput and "
-                "use allocated hardware meaningfully under the training-infrastructure "
-                "saturation contract. Persistently idle/low-use cards require a named "
-                "bounded reason or reconfiguration. N/A for no-GPU/API work and "
-                "explicit small smoke/ablations."
-            ),
-            evidence_hint=(
-                "experiments/<run>/{manifest,status}.json or progress.jsonl record "
-                "peak_vram / gpu_util% / throughput per card; cross-check "
-                "`nvidia-smi` during the run shows ≳70% VRAM on allocated GPUs. "
-                "See argus_builtin_skills/engineer/training-infrastructure-guide.md "
-                "(Hardware saturation contract)."
-            ),
-        ),
-        ChecklistItem(
-            id="run.plan_execution_contract_match",
-            statement=(
-                "Every `scale=full` training launch cites the frozen RUN_CONTRACT "
-                "hash and matches its model, curriculum, and launch knobs; "
-                "`check-launch` must pass before GPU work. This is anti-drift "
-                "provenance, not a science verdict. N/A for non-training work or "
-                "explicit bounded pilots."
-            ),
-            evidence_hint=(
-                "experiments/<run>/manifest.json contract_hash matches "
-                "research/RUN_CONTRACT.json; launched knobs == contract"
-            ),
-        ),
-        ChecklistItem(
-            id="run.curriculum_feasibility_packet",
-            statement=(
-                "Before full training, a feasibility packet matches the exact "
-                "post-decontamination curriculum hash/repetition and shows adequate "
-                "distinct-task diversity plus a non-saturated real probe; otherwise "
-                "label the run `smoke_only` and never cite it as general learning. "
-                "Build/check through run_contract. N/A for non-training work."
-            ),
-            evidence_hint=(
-                "feasibility packet JSON whose curriculum_hash == the run's, "
-                "tied to research/RUN_CONTRACT.json"
+                "reference reproduction + implementation source + executed manifests "
+                "+ diagnostics + targeted repair results; use the matched diagnosis skill"
             ),
         ),
     ),
@@ -498,24 +349,39 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             ),
             evidence_hint="paper/EVIDENCE_GAPS.json",
         ),
+        ChecklistItem(
+            id="analysis.thesis",
+            statement=(
+                "The evidence supports one defensible, venue-relevant thesis. Internal "
+                "records preserve all valid outcomes, but the proposed paper is a "
+                "selective argument: claim-critical contrary evidence remains visible; "
+                "misconfigured runs, exploratory dead ends, and secondary diagnostics "
+                "are kept in audit artifacts or an appendix rather than dumped into "
+                "the main narrative. If the original method claim failed and no "
+                "standalone insight remains, return to research/plan instead of drafting."
+            ),
+            evidence_hint="research/NARRATIVE_REPORT.md + paper/CLAIM_GRAPH.json + raw evidence inventory",
+        ),
     ),
     "draft": _checklist(
         ChecklistItem(
             id="draft.tex",
             statement=(
-                "paper/main.tex exists with the EMNLP/ACL long-paper sections in "
-                "the standard order (Abstract, Introduction, Related Work, Method, "
-                "Experimental Setup, Results, Analysis / Ablation, Failure Cases, "
-                "Conclusion, Limitations, Ethics, Reproducibility appendix)."
+                "paper/main.tex uses the selected venue's official structure and tells "
+                "one coherent argument. The title, abstract, introduction, method, and "
+                "experiments all serve the same thesis; the paper does not introduce "
+                "a method as its contribution and then make that method's failure the "
+                "main conclusion without an independently valuable insight."
             ),
-            evidence_hint="paper/main.tex",
+            evidence_hint="paper/main.tex + research/VENUE_PROFILE.json + research/NARRATIVE_REPORT.md",
         ),
         ChecklistItem(
             id="draft.pdf",
             statement=(
                 "paper/main.pdf compiles cleanly: no '??' citations, no undefined "
-                "references, no Overfull \\hbox > 5pt, no LaTeX errors, body is "
-                "7.5-8.0 pages, References starts on page 9 or later."
+                "references, no material overflow, and no LaTeX errors. Its body and "
+                "back matter obey the selected venue's actual page and format rules; "
+                "do not pad a weak argument to fill a historical page quota."
             ),
             evidence_hint="paper/main.pdf + paper/main.log",
         ),
@@ -564,12 +430,11 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="review.tables",
             statement=(
-                "Tables follow the style guide (footnotesize, tabcolsep 3-4pt, "
-                "arraystretch 1.15, bold winning values) and the body has one "
-                "main cross-benchmark results table (table*) covering every "
-                "family × method cell."
+                "Tables are readable and organized around the paper's claims. They "
+                "include every comparison needed to assess the thesis, but do not "
+                "force an irrelevant cross-benchmark matrix or a universal house style."
             ),
-            evidence_hint="paper/main.tex table* envs + caption",
+            evidence_hint="paper/main.tex tables + canonical result artifacts",
         ),
         ChecklistItem(
             id="review.citations",
@@ -592,12 +457,26 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "outside reviewer identify the evaluated system, baselines, task "
                 "source, metrics, evaluated model/backend, and budget; every "
                 "headline claim is tied to reported evidence; no unsupported hype, "
-                "template LLM openings, or repeated not-X-but-Y caveats. The "
+                "template LLM openings, experiment-report narration, or repeated "
+                "not-X-but-Y caveats. Limitations bound the thesis instead of becoming "
+                "the paper's central message. The "
                 "model-backed reviewer (academic_language_review) is advisory "
                 "input — this checklist, judged by the reviewer agent, is the "
                 "source of truth."
             ),
             evidence_hint="paper/main.tex Abstract/Introduction/Method + paper/ACADEMIC_LANGUAGE_REVIEW.json (advisory)",
+        ),
+        ChecklistItem(
+            id="review.publication_value",
+            statement=(
+                "As a venue reviewer, identify the strongest accept argument before "
+                "passing. A valid experiment, transparent failure report, or complete "
+                "artifact bundle is not enough: the manuscript must deliver a clear "
+                "insight, capable method/system, theorem, or genuinely surprising and "
+                "decision-relevant boundary. A weak result cannot be rescued by "
+                "renaming it a diagnostic."
+            ),
+            evidence_hint="paper/main.tex + paper/main.pdf + canonical evidence",
         ),
     ),
     "submission": _checklist(
@@ -1185,28 +1064,48 @@ def _unresolved_venue_checklist(
 
 
 def _apply_venue_to_checklist_body(body: str, venue: VenueProfile) -> str:
-    """Rewrite the EMNLP-literal floor items for a non-EMNLP venue.
-
-    The floor (``STAGE_CHECKLISTS``) is authored EMNLP-first. ``harness_overlay``
-    is additive-only and cannot relax the floor, so the venue switch MUST happen
-    here in the framework floor itself — otherwise an AAAI paper is failed by the
-    EMNLP page-9 / "Anonymous EMNLP Submission" floor. EMNLP renders unchanged.
-    """
-    if venue.key == "EMNLP":
-        return body
+    """Render the generic paper floor with the selected venue's real rules."""
+    persona = venue.reviewer_persona
+    page_phrase = (
+        (
+            f"up to {venue.body_page_limit} pages, References starts on "
+            f"page {venue.references_min_page} or later"
+        )
+        if venue.has_fixed_page_budget
+        else venue.page_budget_line()
+    )
+    section_label = (
+        f"{venue.display_name} two-column paper sections"
+        if venue.layout_format_persona.startswith("two-column")
+        else f"{venue.display_name} journal-article sections"
+    )
+    body = body.replace(
+        "paper/main.tex uses the selected venue's official structure",
+        f"paper/main.tex uses the official {section_label}",
+    )
+    body = body.replace(
+        "Its body and back matter obey the selected venue's actual page and "
+        "format rules",
+        f"Its body and back matter obey {page_phrase}",
+    )
+    body = body.replace(
+        "The title, abstract, introduction, method, and experiments all serve "
+        "the same thesis;",
+        f"Required venue end matter: {venue.draft_section_tail()}. The title, "
+        "abstract, introduction, method, and experiments all serve the same thesis;",
+    )
     if venue.key == "FRONTIERS_SLEEP":
         replacements = {
             (
-                "paper/main.tex exists with the EMNLP/ACL long-paper sections in "
-                "the standard order (Abstract, Introduction, Related Work, Method, "
-                "Experimental Setup, Results, Analysis / Ablation, Failure Cases, "
-                "Conclusion, Limitations, Ethics, Reproducibility appendix)."
+                "paper/main.tex uses the official Frontiers in Sleep journal-article "
+                "sections and tells one coherent argument."
             ): (
-                "paper/main.tex exists with the Frontiers in Sleep Hypothesis and "
+                "paper/main.tex uses the Frontiers in Sleep Hypothesis and "
                 "Theory sections in a coherent order: one-paragraph Abstract, "
                 "Introduction, subject-relevant evidence and theory subsections, "
                 "discriminating tests or proposed study, Discussion, Conclusion, "
-                "required declarations, and References."
+                "required declarations, and References. The article tells one "
+                "coherent argument."
             ),
             (
                 "Every BibTeX entry is verified through a scholarly source (arXiv, "
@@ -1229,18 +1128,6 @@ def _apply_venue_to_checklist_body(body: str, venue: VenueProfile) -> str:
                 "name, version, model, source, use, and author responsibility)."
             ),
             (
-                "Tables follow the style guide (footnotesize, tabcolsep 3-4pt, "
-                "arraystretch 1.15, bold winning values) and the body has one main "
-                "cross-benchmark results table (table*) covering every family × "
-                "method cell."
-            ): (
-                "Tables are editable, readable at normal review zoom, use concise "
-                "headings and self-contained captions, and keep executed evidence, "
-                "uncertainty, interpretation limits, and planned work distinct. No "
-                "cross-benchmark or winner-highlighting table is required unless "
-                "the manuscript actually makes comparative benchmark claims."
-            ),
-            (
                 "Each related-work paragraph cites the specific papers it discusses; "
                 "no mega-paragraphs dumping all citations, no citations buried in "
                 "the bibliography with no local discussion."
@@ -1248,31 +1135,6 @@ def _apply_venue_to_checklist_body(body: str, venue: VenueProfile) -> str:
                 "Each evidence or prior-theory paragraph cites the specific papers "
                 "it discusses; no citation dumping and no bibliography entries "
                 "without a reader-facing role in the manuscript."
-            ),
-            (
-                "Academic prose reads like a real EMNLP paper, not generic agent "
-                "output: the Abstract states problem, gap, method, evidence, and "
-                "implication (no result-first opening, no validator-checklist "
-                "phrasing); the Introduction grounds the gap in cited prior work, "
-                "then gives the method insight, a quantified result preview, and a "
-                "contribution roadmap before Related Work; the Method/Setup lets an "
-                "outside reviewer identify the evaluated system, baselines, task "
-                "source, metrics, evaluated model/backend, and budget; every headline "
-                "claim is tied to reported evidence; no unsupported hype, template "
-                "LLM openings, or repeated not-X-but-Y caveats. The model-backed "
-                "reviewer (academic_language_review) is advisory input — this "
-                "checklist, judged by the reviewer agent, is the source of truth."
-            ): (
-                "Academic prose reads like a real Frontiers in Sleep Hypothesis and "
-                "Theory article: the single-paragraph Abstract states the problem, "
-                "gap, testable hypothesis, status and uncertainty of evidence, "
-                "discriminating test, and bounded implication; the Introduction "
-                "grounds the gap in cited sleep/circadian work; the body separates "
-                "prior theory, original analysis, interpretation, alternatives, "
-                "falsifiers, and planned work; every headline claim is evidence-bound; "
-                "and no unsupported efficacy, causal, priority, or treatment claim "
-                "appears. The model-backed language review is advisory input; the L2 "
-                "reviewer decides against this checklist."
             ),
             (
                 "Final PDF, BibTeX, supplementary material, and (if required) "
@@ -1299,6 +1161,17 @@ def _apply_venue_to_checklist_body(body: str, venue: VenueProfile) -> str:
         }
         for old, new in replacements.items():
             body = body.replace(old, new)
+        body = body.replace(
+            "Academic prose reads like a real EMNLP paper, not generic agent output:",
+            "Academic prose reads like a real Frontiers in Sleep Hypothesis and "
+            "Theory article:",
+        )
+        body = body.replace(
+            "the Method/Setup lets an outside reviewer identify the evaluated system, "
+            "baselines, task source, metrics, evaluated model/backend, and budget;",
+            "the body separates prior theory, original analysis, interpretation, "
+            "alternatives, falsifiers, and planned work;",
+        )
     if venue.requires_real_author_metadata:
         body = body.replace(
             "The compiled PDF uses the anonymous EMNLP/ACL author block (no "
@@ -1313,24 +1186,7 @@ def _apply_venue_to_checklist_body(body: str, venue: VenueProfile) -> str:
             "paper/main.tex author/address/correspondence/contribution fields + "
             "compiled PDF metadata",
         )
-    persona = venue.reviewer_persona
-    page_phrase = (
-        (
-            f"up to {venue.body_page_limit} pages, References starts on "
-            f"page {venue.references_min_page} or later"
-        )
-        if venue.has_fixed_page_budget
-        else venue.page_budget_line()
-    )
-    section_label = (
-        f"{venue.display_name} two-column paper sections"
-        if venue.layout_format_persona.startswith("two-column")
-        else f"{venue.display_name} journal-article sections"
-    )
     substitutions = {
-        "EMNLP/ACL long-paper sections": section_label,
-        "Conclusion, Limitations, Ethics, Reproducibility appendix": venue.draft_section_tail(),
-        "7.5-8.0 pages, References starts on page 9 or later": page_phrase,
         "reads like a real EMNLP paper": f"reads like a real {persona} paper",
         "anonymous EMNLP/ACL author block": f"anonymous {persona} author block",
         "'Anonymous EMNLP Submission' + acl review mode": (

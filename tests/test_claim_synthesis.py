@@ -18,28 +18,30 @@ def _result(result_class: str) -> dict:
     }
 
 
-def test_verified_negative_routes_to_write_up() -> None:
+def test_verified_negative_does_not_auto_route_to_write_up() -> None:
     packet = build_claim_synthesis(
         research_result=_result("structured_failure_report"),
         planner_report={"headline": "Reasoning hurts on the measured regime."},
     )
     assert packet is not None
     assert packet["route"] == "supported_negative"
-    assert packet["action"] == "write_up_current"
-    assert packet["advance_to_analysis_or_report"] is True
+    assert packet["action"] == "diagnose_or_pivot"
+    assert packet["advance_to_analysis_or_report"] is False
 
 
-def test_verified_boundary_routes_to_write_up() -> None:
+def test_verified_boundary_needs_explicit_publication_judgment() -> None:
     packet = build_claim_synthesis(
         research_result=_result("partial_result"),
         planner_report={"headline": "The mechanism helps only on long contexts."},
+        scientific_decision="go",
     )
     assert packet is not None
     assert packet["route"] == "supported_boundary"
-    assert packet["action"] == "write_up_current"
+    assert packet["action"] == "develop_publication_thesis"
+    assert packet["advance_to_analysis_or_report"] is True
 
 
-def test_scientific_negative_replans_to_reporting_not_hold() -> None:
+def test_scientific_negative_replans_to_diagnosis_not_drafting() -> None:
     review = ReviewDecision(
         status="blocked",
         reason="the registered positive effect was not observed",
@@ -59,15 +61,17 @@ def test_scientific_negative_replans_to_reporting_not_hold() -> None:
         max_rounds=10,
     )
     assert status == "replan_requested"
-    assert "write_up_current" in reason
+    assert "diagnose_or_pivot" in reason
+    assert "do not auto-draft" in reason
 
 
 def test_planner_rendering_surfaces_claim_and_evidence() -> None:
     rendered = PlannerRenderingMixin._render_claim_synthesis({
         "route": "supported_negative",
-        "action": "write_up_current",
+        "action": "diagnose_or_pivot",
         "headline": "A valid null result changes the paper claim.",
         "evidence": ["experiments/run/scores.json"],
+        "advance_to_analysis_or_report": False,
     })
-    assert "advance_to_analysis_or_report=true" in rendered
+    assert "advance_to_analysis_or_report=false" in rendered
     assert "scores.json" in rendered

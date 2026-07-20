@@ -30,19 +30,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from ..verticals.research.experiment_audit_gate import validate_experiment_audit
+from ..verticals.research.method_differentiation import validate_method_differentiation
+from ..verticals.research.paper_structural_minimums import validate_paper_structural_minimums
+from ..verticals.research.reviewer_simulation import validate_reviewer_simulation
+from ..verticals.research.run_evidence_health import validate_run_evidence_health
 from .anti_mediocrity import (
     collect_mediocrity_finding,
     format_finding,
 )
 from .evidence_chain import validate_evidence_chain
-from ..verticals.research.exemplar_grounding import validate_exemplar_grounding
-from ..verticals.research.experiment_audit_gate import validate_experiment_audit
-from ..verticals.research.method_differentiation import validate_method_differentiation
-from ..verticals.research.paper_structural_minimums import validate_paper_structural_minimums
-from ..verticals.research.reviewer_simulation import validate_reviewer_simulation
 from .rl_training_health import validate_rl_training_health
 from .rl_training_plots import validate_rl_training_plots
-from ..verticals.research.run_evidence_health import validate_run_evidence_health
 
 GateName = Literal[
     "evidence_chain",
@@ -50,7 +49,6 @@ GateName = Literal[
     "paper_structural_minimums",
     "reviewer_simulation",
     "experiment_audit",
-    "exemplar_grounding",
     "run_evidence_health",
     "rl_training_plots",
     "rl_training_health",
@@ -78,16 +76,6 @@ GateKind = Literal["structural", "advisory"]
 # JSON+MD artifacts at analysis / review / submission. Anti-fab: the
 # gate only enforces that the audit exists and is structured; the
 # verdict itself (pass/warn/fail) is the reviewer's call.
-#
-# ``exemplar_grounding`` forces the agent to actually study 2+ top-venue
-# EMNLP/ACL exemplars BEFORE drafting: download PDFs, hash them, record
-# their figure inventory, write a thick STYLE_PROFILE.md, lock a primary
-# exemplar via EXEMPLAR_SUITABILITY.json, and write a concrete
-# PAPER_STRUCTURE_BLUEPRINT.md. At submission stage, STRUCTURE_CONFORMANCE
-# is also enforced (every final section maps to an exemplar phase). The
-# v1 failure mode "doesn't even count as 八股" was this gate missing —
-# the paper-exemplar-pdf-learning skill already specified the artifacts;
-# nobody enforced.
 #
 # ``run_evidence_health`` walks evidence bundles for
 # ``raw_status: "call_failed"`` in per-task verifier outputs.
@@ -145,7 +133,6 @@ STAGE_GATES: dict[str, tuple[GateName, ...]] = {
     "draft": (
         "evidence_chain",
         "paper_structural_minimums",
-        "exemplar_grounding",
     ),
     "review": (
         "evidence_chain",
@@ -153,7 +140,6 @@ STAGE_GATES: dict[str, tuple[GateName, ...]] = {
         "paper_structural_minimums",
         "reviewer_simulation",
         "experiment_audit",
-        "exemplar_grounding",
         "run_evidence_health",
     ),
     "submission": (
@@ -162,7 +148,6 @@ STAGE_GATES: dict[str, tuple[GateName, ...]] = {
         "paper_structural_minimums",
         "reviewer_simulation",
         "experiment_audit",
-        "exemplar_grounding",
         "run_evidence_health",
     ),
 }
@@ -176,7 +161,6 @@ GATE_KINDS: dict[GateName, GateKind] = {
     "paper_structural_minimums": "structural",
     "reviewer_simulation": "structural",
     "experiment_audit": "structural",
-    "exemplar_grounding": "structural",
     "run_evidence_health": "structural",
     # rl_training_plots is dual-kind: advisory at `run`, structural at
     # `analysis`. The per-call kind in _run_rl_training_plots is the source
@@ -517,40 +501,6 @@ def _run_method_differentiation(
     )
 
 
-def _run_exemplar_grounding(
-    project_root: Path, *, require_conformance: bool
-) -> GateResult:
-    """Structural gate: top-venue exemplar PDFs studied + style profile
-    + blueprint exist; primary exemplar locked. At submission we also
-    require STRUCTURE_CONFORMANCE.json (final-section ↔ exemplar phase
-    map)."""
-    report = validate_exemplar_grounding(
-        project_root, require_conformance=require_conformance,
-    )
-    if report.ok:
-        return GateResult(
-            name="exemplar_grounding",
-            kind="structural",
-            passed=True,
-            summary=(
-                f"{report.exemplar_count} exemplar(s), primary="
-                f"{report.primary_exemplar or '?'}, style {report.style_profile_chars}c, "
-                f"blueprint {report.blueprint_chars}c"
-            ),
-            detail="",
-        )
-    return GateResult(
-        name="exemplar_grounding",
-        kind="structural",
-        passed=False,
-        summary=(
-            f"{len(report.issues)} exemplar-grounding violation(s); "
-            f"{report.exemplar_count} exemplar(s) recorded"
-        ),
-        detail=report.to_text(),
-    )
-
-
 def _run_experiment_audit(project_root: Path) -> GateResult:
     """Structural gate: paper/EXPERIMENT_AUDIT.{md,json} must exist and
     cover the five required integrity checks. Verdict text (pass/warn/
@@ -674,13 +624,6 @@ def run_stage_gates(
             results.append(_run_reviewer_simulation(project_root))
         elif gate == "experiment_audit":
             results.append(_run_experiment_audit(project_root))
-        elif gate == "exemplar_grounding":
-            # STRUCTURE_CONFORMANCE.json is a post-draft artifact, so we
-            # only enforce it at the submission stage.
-            results.append(_run_exemplar_grounding(
-                project_root,
-                require_conformance=(stage == "submission"),
-            ))
         elif gate == "run_evidence_health":
             results.append(_run_run_evidence_health(project_root))
         elif gate == "rl_training_plots":

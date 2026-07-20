@@ -24,6 +24,7 @@ def _isolate_project_vertical_env(
 ) -> None:
     monkeypatch.delenv("ARGUS_SKILL_PROJECT_ROOT", raising=False)
     monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "research")
+    monkeypatch.setenv("ARGUS_SKILL_VENUE", "EMNLP")
     monkeypatch.chdir(tmp_path)
 
 
@@ -165,6 +166,7 @@ def test_stage_checklist_completeness() -> None:
 
     analysis_ids = {item.id for item in STAGE_CHECKLISTS["analysis"]}
     assert "analysis.claims" in analysis_ids
+    assert "analysis.thesis" in analysis_ids
 
     draft_ids = {item.id for item in STAGE_CHECKLISTS["draft"]}
     assert "draft.pdf" in draft_ids
@@ -173,6 +175,7 @@ def test_stage_checklist_completeness() -> None:
     review_ids = {item.id for item in STAGE_CHECKLISTS["review"]}
     assert "review.infrastructure" in review_ids
     assert "review.placeholders" in review_ids
+    assert "review.publication_value" in review_ids
 
     submission_ids = {item.id for item in STAGE_CHECKLISTS["submission"]}
     assert "submission.upstream" in submission_ids
@@ -435,70 +438,19 @@ def test_run_stage_checklist_has_generic_method_diagnosis_recall() -> None:
     assert "diagnosis" in statement.lower()
     assert "max_completion_length" not in statement
     assert "num_generations" not in statement
-    # Still bounds the loop with the three attribution labels.
-    for verdict in ("misconfigured_run", "method_failure", "infeasible_under_budget"):
-        assert verdict in statement
-    # Conditional so it never blocks a run with no method-specific skill.
-    assert "N/A" in statement
+    assert "under-engineered" in statement
+    assert "trusted reference" in statement
+    assert "fixed retry count" in statement
 
 
 # --- RL plan-config sanity item --------------------------------------------
 
 
-def test_plan_stage_checklist_has_conditional_rl_config_item() -> None:
-    """The plan stage must let the L2 reviewer tick an RL-config sanity item so
-    structurally-unlearnable RL configs (e.g. group size 1, zero-variance
-    reward) are caught before any GPU is spent.
-    """
+def test_universal_checklist_excludes_method_specific_rl_forms() -> None:
+    plan_ids = {item.id for item in STAGE_CHECKLISTS["plan"]}
+    run_ids = {item.id for item in STAGE_CHECKLISTS["run"]}
 
-    items = STAGE_CHECKLISTS["plan"]
-    by_id = {item.id: item for item in items}
-    assert "plan.rl_config" in by_id
-    item = by_id["plan.rl_config"]
-    # Conditional so it never blocks a non-RL plan.
-    assert "only if" in item.statement.lower()
-    assert "N/A for non-RL" in item.statement
-    # Names the at-a-glance failure modes.
-    assert "num_generations" in item.statement
-    assert "max_completion_length" in item.statement
-
-
-def test_run_stage_checklist_has_learning_validity_mirror_item() -> None:
-    """The run stage must carry the MIRROR of method_diagnosis_recall: a
-    domain-agnostic item that forces the reviewer to justify the reward->learning
-    inference (rule out memorisation / saturation / reward-hacking) before
-    accepting a run as healthy. This closes the looks-healthy blind spot without
-    hardcoding numeric research thresholds.
-    """
-
-    items = STAGE_CHECKLISTS["run"]
-    by_id = {item.id: item for item in items}
-    assert "run.learning_validity" in by_id
-    statement = by_id["run.learning_validity"].statement
-    # Guards the positive (looks-healthy) direction, not the dead direction.
-    assert "memori" in statement.lower()
-    assert "distinct" in statement.lower()
-    # Treats advisory signals as facts to address, not as automatic verdicts.
-    assert "low_task_diversity" in statement
-    assert "variance_metric_masks_saturation" in statement
-    # Domain-agnostic: points at a diagnosis SKILL, no hardcoded RL knobs / numbers.
-    assert "diagnosis" in statement.lower()
-    assert "num_generations" not in statement
-    assert "max_completion_length" not in statement
-    # Has an escape hatch so legitimately-easy/converged runs are not blanket-vetoed.
-    assert "N/A" in statement
-
-
-def test_plan_rl_config_item_requires_training_set_diversity() -> None:
-    """The RL-config sanity item must also name training-set / distinct-task
-    diversity as a learnability precondition, conditioned on the claimed
-    objective so it does not blanket-fail intentional smoke / memorisation runs.
-    """
-
-    items = STAGE_CHECKLISTS["plan"]
-    by_id = {item.id: item for item in items}
-    statement = by_id["plan.rl_config"].statement
-    assert "diversity" in statement.lower() or "distinct-task" in statement.lower()
-    assert "memorisation" in statement.lower()
-    # Objective-conditioned escape: tiny/smoke/memorisation runs still allowed.
-    assert "smoke" in statement.lower()
+    assert "plan.rl_config" not in plan_ids
+    assert "plan.run_contract" not in plan_ids
+    assert "run.learning_validity" not in run_ids
+    assert "run.curriculum_feasibility_packet" not in run_ids

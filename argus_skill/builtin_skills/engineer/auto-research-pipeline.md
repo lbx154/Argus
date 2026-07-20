@@ -22,11 +22,13 @@ Valid contribution shapes include:
 - interpretability or causal analysis;
 - a diagnostic, characterization, taxonomy, evaluation, or benchmark/data
   contribution;
-- a rigorous negative result, null result, limitation, or boundary condition;
+- a rigorous negative or boundary result only when it yields a surprising,
+  robust, independently useful insight rather than merely documenting failure;
 - a reproducible systems or efficiency finding.
 
-The acceptance question is whether the work has research value and evidence
-appropriate to its claim, not whether it reports a positive metric gain.
+The acceptance question is whether the work has a strong thesis and evidence
+appropriate to it. Positive metrics are not mandatory, but a completed
+experiment or honest failure report is not automatically a paper.
 
 ## Non-negotiable research bar
 
@@ -34,7 +36,8 @@ appropriate to its claim, not whether it reports a positive metric gain.
   strongest relevant prior work.
 - State one clear thesis or research question and the result that would support,
   weaken, or refute it.
-- Preserve negative, contradictory, and failed evidence.
+- Preserve negative, contradictory, and failed evidence in the internal audit
+  trail. Paper selection remains a scientific judgment.
 - Do not manufacture novelty, benchmarks, labels, results, citations, or
   provenance.
 - Final empirical evidence must include at least one appropriate public
@@ -108,8 +111,7 @@ From analysis onward:
 
 ## Final research-paper contract
 
-A project may finish with a positive, negative, diagnostic, characterization,
-or boundary contribution when:
+A project may finish with a paper only when:
 
 - the research question is important and literature-grounded;
 - the result is falsifiable and supported by authentic evidence;
@@ -117,15 +119,22 @@ or boundary contribution when:
 - the strongest relevant comparisons and confounds are handled fairly;
 - uncertainty and repeatability are appropriate to the data-generating process;
 - claims are scoped to what was actually measured or proved;
-- the bibliography contains at least 35 verified BibTeX entries and the paper
-  source cites at least 30 unique keys;
+- the paper has one coherent, venue-relevant thesis and a clear strongest accept
+  argument;
+- a method paper's implementation has received a fair, competitive engineering
+  effort before scientific failure is inferred;
+- negative or boundary evidence is the paper's contribution only when its
+  insight stands independently of the failed implementation;
+- bibliography coverage is claim-complete and verified, without a universal
+  entry count;
 - the paper follows the selected venue's current official template and rules;
 - citations, figures, tables, reviews, and submission artifacts are current;
 - the L2 Reviewer certifies the full pipeline checklist.
 
-A method losing to a baseline is not an automatic pivot. If the run is valid and
-the loss, null, or boundary changes understanding or practice, preserve it and
-write the strongest honest paper supported by the evidence.
+A method losing to a baseline triggers implementation and research diagnosis,
+not automatic write-up. Preserve the result; optimize, repair, or pivot according
+to the diagnosed cause and expected information gain. Draft only after Reviewer
+certifies an independently defensible publication thesis.
 
 ## Research figure contract
 
@@ -158,8 +167,8 @@ write the strongest honest paper supported by the evidence.
   `research/GO_NO_GO.md`.
 - Run the cheapest faithful falsification or characterization probe of the
   binding premise.
-- Diagnostic and negative-result directions are allowed when they answer an
-  important question.
+- Negative-result directions are locked only when the expected finding would be
+  independently valuable and distinguishable from implementation weakness.
 
 ### 2. Plan
 
@@ -186,20 +195,27 @@ write the strongest honest paper supported by the evidence.
 - Run every claim-relevant condition or record an evidence-backed exclusion.
 - Classify outcomes as supported positive, supported negative, supported
   boundary, misconfigured, inconclusive, or infeasible under budget.
+- Underperformance must receive an implementation-adequacy audit and credible
+  targeted optimization when justified; no fixed retry count substitutes for
+  scientific judgment.
 
 ### 5. Analysis
 
 - Regenerate all aggregates from raw artifacts.
 - Map claims to evidence.
-- Keep losing, null, and contradictory comparisons visible.
+- Keep claim-critical losing, null, and contradictory comparisons visible in the
+  evidence record and paper. Keep secondary dead ends in audit artifacts or an
+  appendix instead of dumping every run into the main story.
+- Select one defensible thesis before drafting. If no strong thesis survives,
+  return to research/plan.
 - Produce the required data and conceptual figures through the Research
   Visualization Router; image-2 is conditional on capability and renderer choice.
 
 ### 6. Draft
 
 - Use the selected `research/VENUE_PROFILE.json` and official author kit.
-- Write the paper around the supported research value, whether positive,
-  negative, diagnostic, or boundary.
+- Write the paper around one supported insight. Do not introduce a method as the
+  contribution and then center the manuscript on why it failed.
 - Do not pad to a historical EMNLP/AAAI shape.
 
 ### 7. Review
