@@ -418,7 +418,11 @@ export const api = {
     sid: string,
     text: string,
     handlers: {
-      onPhase?: (label: string, role: string) => void;
+      onPhase?: (
+        label: string,
+        role: string,
+        meta: { heartbeat: boolean; quietS: number },
+      ) => void;
       onDelta?: (block: string, messageId: string) => void;
       onDone?: (result: StreamDone) => void;
       onError?: (err: Error) => void;
@@ -435,7 +439,17 @@ export const api = {
     if (!res.body) throw new Error('Manager stream returned no response body');
     const dispatch = (f: SSEFrame) => {
       if (signal?.aborted) return;
-      if (f.type === 'phase') handlers.onPhase?.(String(f.label ?? ''), String(f.role ?? 'manager'));
+      if (f.type === 'phase') {
+        const quietS = Number(f.quiet_s ?? 0);
+        handlers.onPhase?.(
+          String(f.label ?? ''),
+          String(f.role ?? 'manager'),
+          {
+            heartbeat: f.heartbeat === true,
+            quietS: Number.isFinite(quietS) ? quietS : 0,
+          },
+        );
+      }
       else if (f.type === 'delta') handlers.onDelta?.(String(f.text ?? ''), String(f.message_id ?? ''));
       else if (f.type === 'done') handlers.onDone?.((f.result ?? {}) as StreamDone);
       else if (f.type === 'error') handlers.onError?.(new Error(String(f.error ?? 'stream error')));

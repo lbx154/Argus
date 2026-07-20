@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import quote
@@ -817,6 +818,14 @@ def test_schedule_daemon_upgrade_deduplicates_and_uses_long_boundary_wait(
         lambda project_id, **kwargs: starts.append((project_id, kwargs))
         or {"rc": 0},
     )
+    locks = []
+
+    @contextmanager
+    def execution_lock(path, *, blocking=True):
+        locks.append((path, blocking))
+        yield True
+
+    monkeypatch.setattr(server, "daemon_command_execution_lock", execution_lock)
 
     class ImmediateThread:
         def __init__(self, *, target, name, daemon):
@@ -837,12 +846,14 @@ def test_schedule_daemon_upgrade_deduplicates_and_uses_long_boundary_wait(
             "drain": True,
             "drain_timeout": 7 * 24 * 60 * 60,
             "force": False,
+            "preserve_upgrade_request": True,
         },
     )]
     assert starts == [(
         sid,
         {"global_root": root, "resume_continuous": True},
     )]
+    assert locks == [(life, True)]
     assert not (life / server.project_state.DAEMON_UPGRADE_REQUEST_FILE).exists()
 
 
@@ -902,6 +913,110 @@ def test_pending_daemon_upgrade_survives_webapi_restart(
     assert writes == [(life, {"enabled": True, "objective": "resume me"})]
     assert starts == [(sid, {"global_root": root, "resume_continuous": True})]
     assert not (life / server.project_state.DAEMON_UPGRADE_REQUEST_FILE).exists()
+
+
+def test_explicit_stop_cancels_scheduled_restart_without_resurrection(
+    ctx,
+    monkeypatch,
+) -> None:
+    root, sid, life = ctx
+    source = root / "checkout"
+    source.mkdir()
+    request = {
+        "schema_version": 1,
+        "sid": sid,
+        "expected_pid": 321,
+        "source_root": str(source),
+        "resume_continuous": True,
+        "objective": "keep running",
+        "reason": "release mismatch",
+        "requested_at": 1,
+    }
+    server._write_daemon_upgrade_request(life, request)
+    monkeypatch.setattr(server, "runtime_identity", lambda: {"source_root": str(source)})
+    status = server.DaemonStatus(
+        alive=True,
+        pid=321,
+        started_at_iso=None,
+        uptime_seconds=1.0,
+        life_dir=life,
+    )
+    monkeypatch.setattr(server, "read_daemon_status", lambda path: status)
+    monkeypatch.setattr(
+        server,
+        "daemon_protocol_compatibility",
+        lambda value: (False, "release mismatch"),
+    )
+    monkeypatch.setattr(
+        server,
+        "daemon_runtime_owned_by_current_source",
+        lambda value: True,
+    )
+
+    def explicit_stop_wins(path, **kwargs):
+        (life / server.project_state.DAEMON_UPGRADE_REQUEST_FILE).unlink()
+        return 0
+
+    monkeypatch.setattr(server, "stop_daemon", explicit_stop_wins)
+    starts = []
+    monkeypatch.setattr(
+        server,
+        "start_project_daemon",
+        lambda *args, **kwargs: starts.append((args, kwargs)) or {"rc": 0},
+    )
+
+    result = server._complete_scheduled_daemon_upgrade(
+        sid,
+        life_dir=life,
+        global_root=root,
+    )
+
+    assert result == {
+        "rc": 0,
+        "upgraded": False,
+        "reason": "upgrade was cancelled by a newer daemon command",
+    }
+    assert starts == []
+
+
+def test_webapi_startup_resumes_pending_daemon_upgrades(
+    ctx,
+    monkeypatch,
+) -> None:
+    root, sid, life = ctx
+    monkeypatch.setattr(
+        project_state,
+        "daemon_upgrade_pending",
+        lambda path: Path(path) == life,
+    )
+    scheduled = []
+    monkeypatch.setattr(
+        server,
+        "schedule_project_daemon_upgrade",
+        lambda project_id, **kwargs: scheduled.append((project_id, kwargs))
+        or {"rc": 0, "scheduled": True},
+    )
+
+    assert server.reconcile_pending_daemon_upgrades([root]) == [sid]
+    assert scheduled == [(sid, {"global_root": root})]
+
+
+def test_webapi_startup_hook_runs_daemon_upgrade_reconciliation(
+    ctx,
+    monkeypatch,
+) -> None:
+    root, _sid, _life = ctx
+    calls = []
+    monkeypatch.setattr(
+        server,
+        "reconcile_pending_daemon_upgrades",
+        lambda roots: calls.append(roots) or [],
+    )
+
+    with TestClient(server.create_app(global_root=root)):
+        pass
+
+    assert calls == [[root.resolve()]]
 
 
 def test_schedule_daemon_upgrade_retries_after_thread_start_failure(

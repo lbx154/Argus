@@ -1206,6 +1206,13 @@ def test_manager_stream_heartbeat_uses_real_silence_and_stops_on_done() -> None:
     assert frames[2]["quiet_s"] == 10  # reset by the genuine delta at t=111
 
 
+def test_manager_stream_heartbeat_defaults_to_five_seconds(monkeypatch) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_MANAGER_STREAM_HEARTBEAT_S", raising=False)
+    assert server._manager_stream_heartbeat_seconds() == 5.0
+    monkeypatch.setenv("ARGUS_SKILL_MANAGER_STREAM_HEARTBEAT_S", "invalid")
+    assert server._manager_stream_heartbeat_seconds() == 5.0
+
+
 def test_message_stream_emits_phase_delta_done(client: TestClient, monkeypatch) -> None:
     """A streamed chat turn: the endpoint forwards each on_fragment(phase|delta)
     live, then a final ``done`` frame carrying the classification + reply."""

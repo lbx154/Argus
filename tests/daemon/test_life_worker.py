@@ -32,6 +32,7 @@ from argus_skill.daemon.life_worker import (
     stop_daemon,
 )
 from argus_skill.daemon.state import (
+    DAEMON_UPGRADE_REQUEST_FILE,
     daemon_drain_requested,
     request_daemon_drain,
 )
@@ -484,6 +485,14 @@ def test_life_worker_uses_global_config_without_project_budget_file(
 
 def test_stop_daemon_returns_1_when_no_daemon(tmp_path: Path) -> None:
     assert stop_daemon(tmp_path) == 1
+
+
+def test_explicit_stop_cancels_pending_daemon_upgrade(tmp_path: Path) -> None:
+    request = tmp_path / DAEMON_UPGRADE_REQUEST_FILE
+    request.write_text('{"schema_version": 1}\\n', encoding="utf-8")
+
+    assert stop_daemon(tmp_path) == 1
+    assert not request.exists()
 
 
 def test_clean_spawn_execs_helper_without_inheriting_parent_fds(

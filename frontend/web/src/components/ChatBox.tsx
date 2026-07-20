@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { THINKING_LINES, rotateByTick, spinnerFrame } from '../lib/soul';
+import { spinnerFrame } from '../lib/soul';
+import { thinkingStatusLine } from '../../../core/src/thinking';
 import { slashCompletions, applyCompletion } from '../../../core/src/commands';
 import {
   clampSlashCompletionSelection,
@@ -30,6 +31,8 @@ export function ChatBox({
   focusSignal,
   embedded = false,
   phase = '',
+  heartbeat = false,
+  quietS = 0,
   startedAt = 0,
   slashSelection,
   onSlashSelectionChange,
@@ -43,6 +46,8 @@ export function ChatBox({
   focusSignal?: number;
   embedded?: boolean;
   phase?: string;
+  heartbeat?: boolean;
+  quietS?: number;
   startedAt?: number;
   slashSelection: number;
   onSlashSelectionChange: (n: number) => void;
@@ -58,10 +63,7 @@ export function ChatBox({
     const id = setInterval(() => setThinkTick((t) => t + 1), 120);
     return () => clearInterval(id);
   }, [pending]);
-  const rawPhase = phase || `${rotateByTick(THINKING_LINES, thinkTick)}…`;
-  const thinkingLine = rawPhase.includes('[SESSION HANDOFF')
-    ? 'Manager context refreshed · working on your message…'
-    : rawPhase.replace(/^Manager\s*·\s*/i, '').slice(0, 100);
+  const thinkingLine = thinkingStatusLine(phase, thinkTick, heartbeat, quietS);
   const elapsedS = startedAt ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000)) : 0;
 
   useEffect(() => {

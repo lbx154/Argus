@@ -1,7 +1,8 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { theme } from '../theme.js';
-import { spinnerFrame, rotateByTick, THINKING_LINES } from '../soul.js';
+import { spinnerFrame } from '../soul.js';
+import { thinkingStatusLine } from '../../../core/src/thinking.js';
 
 /**
  * The live "Argus is thinking" line shown while a Manager turn is in flight —
@@ -10,12 +11,21 @@ import { spinnerFrame, rotateByTick, THINKING_LINES } from '../soul.js';
  * single biggest cure for the "frozen screen" feel: the operator always sees
  * Argus is alive and working, never a dead terminal.
  */
-export function ThinkingLine({ tick, phase, elapsedS }: { tick: number; phase: string; elapsedS: number }) {
+export function ThinkingLine({
+  tick,
+  phase,
+  elapsedS,
+  heartbeat = false,
+  quietS = 0,
+}: {
+  tick: number;
+  phase: string;
+  elapsedS: number;
+  heartbeat?: boolean;
+  quietS?: number;
+}) {
   const spin = spinnerFrame(tick);
-  const raw = phase || `${rotateByTick(THINKING_LINES, tick)}…`;
-  const body = raw.includes('[SESSION HANDOFF')
-    ? 'Manager context refreshed · working on your message…'
-    : raw.replace(/^Manager\s*·\s*/i, '').slice(0, 100);
+  const body = thinkingStatusLine(phase, tick, heartbeat, quietS);
   return (
     <Box flexDirection="column" marginTop={1}>
       <Text wrap="truncate-end">

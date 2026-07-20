@@ -72,7 +72,11 @@ from ..core.session import (
     write_session_meta,
 )
 from ..core.transcript import read_turns
-from ..daemon.commands import DaemonCommandReceipt, execute_daemon_command
+from ..daemon.commands import (
+    DaemonCommandReceipt,
+    daemon_command_execution_lock,
+    execute_daemon_command,
+)
 from ..daemon.life_worker import (
     DaemonStatus,
     LifeWorkerConfig,
@@ -210,11 +214,11 @@ def _manager_stream_heartbeat_seconds() -> float:
     bridge can verify (the Manager turn is still alive and ACP has emitted
     nothing new). Set ``ARGUS_SKILL_MANAGER_STREAM_HEARTBEAT_S=0`` to disable.
     """
-    raw = os.environ.get("ARGUS_SKILL_MANAGER_STREAM_HEARTBEAT_S", "10")
+    raw = os.environ.get("ARGUS_SKILL_MANAGER_STREAM_HEARTBEAT_S", "5")
     try:
         return max(0.0, float(raw))
     except (TypeError, ValueError):
-        return 10.0
+        return 5.0
 
 
 def _iter_manager_stream_items(
@@ -1132,35 +1136,60 @@ def _complete_scheduled_daemon_upgrade(
             drain=True,
             drain_timeout=7 * 24 * 60 * 60,
             force=False,
+            preserve_upgrade_request=True,
         )
         if stop_rc not in {0, 1}:
             error = "daemon is still draining at its mission boundary"
             _record_daemon_upgrade_error(life_dir, request, error)
             return {"rc": 2, "error": error}
 
-    resume_continuous = bool(request.get("resume_continuous"))
-    objective = str(request.get("objective") or "")
-    if resume_continuous:
-        write_continuous_config(
-            life_dir,
-            enabled=True,
-            objective=objective,
+    with daemon_command_execution_lock(life_dir) as acquired:
+        if not acquired:
+            return {"rc": 2, "error": "daemon command lock unavailable"}
+        request = _read_daemon_upgrade_request(life_dir)
+        if request is None:
+            return {
+                "rc": 0,
+                "upgraded": False,
+                "reason": "upgrade was cancelled by a newer daemon command",
+            }
+        status = read_daemon_status(life_dir)
+        if status.alive:
+            compatible, _ = daemon_protocol_compatibility(status)
+            if daemon_runtime_owned_by_current_source(status) and compatible is True:
+                _daemon_upgrade_request_path(life_dir).unlink(missing_ok=True)
+                return {
+                    "rc": 0,
+                    "upgraded": False,
+                    "reason": "daemon is already current",
+                }
+            error = "another daemon became active before scheduled restart"
+            _record_daemon_upgrade_error(life_dir, request, error)
+            return {"rc": 2, "error": error}
+
+        resume_continuous = bool(request.get("resume_continuous"))
+        objective = str(request.get("objective") or "")
+        if resume_continuous:
+            write_continuous_config(
+                life_dir,
+                enabled=True,
+                objective=objective,
+            )
+        started = start_project_daemon(
+            sid,
+            global_root=_global_root(global_root),
+            resume_continuous=resume_continuous,
         )
-    started = start_project_daemon(
-        sid,
-        global_root=_global_root(global_root),
-        resume_continuous=resume_continuous,
-    )
-    if started is None or int(started.get("rc") or 0) != 0:
-        error = (
-            "daemon restart returned no result"
-            if started is None
-            else str(started.get("error") or f"daemon restart returned {started!r}")
-        )
-        _record_daemon_upgrade_error(life_dir, request, error)
-        return {"rc": 2, "error": error}
-    _daemon_upgrade_request_path(life_dir).unlink(missing_ok=True)
-    return {**started, "upgraded": True}
+        if started is None or int(started.get("rc") or 0) != 0:
+            error = (
+                "daemon restart returned no result"
+                if started is None
+                else str(started.get("error") or f"daemon restart returned {started!r}")
+            )
+            _record_daemon_upgrade_error(life_dir, request, error)
+            return {"rc": 2, "error": error}
+        _daemon_upgrade_request_path(life_dir).unlink(missing_ok=True)
+        return {**started, "upgraded": True}
 
 
 def schedule_project_daemon_upgrade(
@@ -1240,6 +1269,36 @@ def schedule_project_daemon_upgrade(
             _SCHEDULED_DAEMON_UPGRADES.discard(key)
         raise
     return {"rc": 0, "scheduled": True, "reason": reason}
+
+
+def reconcile_pending_daemon_upgrades(
+    roots: list[Path],
+) -> list[str]:
+    """Resume durable upgrade requests whenever the WebAPI starts."""
+    scheduled: list[str] = []
+    for root in roots:
+        projects = root / "projects"
+        try:
+            life_dirs = [path for path in projects.iterdir() if path.is_dir()]
+        except FileNotFoundError:
+            continue
+        except OSError:
+            log.exception("cannot scan pending daemon upgrades root=%s", root)
+            continue
+        for life_dir in life_dirs:
+            if not project_state.daemon_upgrade_pending(life_dir):
+                continue
+            try:
+                result = schedule_project_daemon_upgrade(
+                    life_dir.name,
+                    global_root=root,
+                )
+            except Exception:
+                log.exception("cannot resume daemon upgrade sid=%s", life_dir.name)
+                continue
+            if result is not None and result.get("scheduled") is True:
+                scheduled.append(life_dir.name)
+    return scheduled
 
 
 def update_project(
@@ -1961,6 +2020,10 @@ def create_app(
         if cache_control:
             response.headers["Cache-Control"] = cache_control
         return response
+
+    @app.on_event("startup")
+    def _resume_pending_daemon_upgrades() -> None:
+        reconcile_pending_daemon_upgrades(roots)
 
     @app.on_event("shutdown")
     def _shutdown_warm_manager_clients() -> None:

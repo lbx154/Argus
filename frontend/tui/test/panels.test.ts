@@ -358,6 +358,31 @@ test('pending Manager line exposes stop-waiting help at narrow widths', async ()
   }
 });
 
+test('Manager heartbeat keeps rotating Argus phrases while reporting real silence', async () => {
+  const first = await renderNode(
+    React.createElement(ThinkingLine, {
+      tick: 2,
+      phase: 'Manager · waiting for the next model event · 12s quiet',
+      heartbeat: true,
+      quietS: 12,
+      elapsedS: 12,
+    }),
+    100,
+  );
+  const second = await renderNode(
+    React.createElement(ThinkingLine, {
+      tick: 22,
+      phase: 'Manager · waiting for the next model event · 14s quiet',
+      heartbeat: true,
+      quietS: 14,
+      elapsedS: 14,
+    }),
+    100,
+  );
+  assert.match(first.replace(/\s+/g, ' '), /turning it over… · Manager alive · 12s quiet/);
+  assert.match(second.replace(/\s+/g, ' '), /consulting a hundred eyes… · Manager alive · 14s quiet/);
+});
+
 test('slash menu scales with terminal height while retaining a bounded ceiling', () => {
   assert.equal(slashMenuVisibleRows(16), 3);
   assert.equal(slashMenuVisibleRows(20), 7);

@@ -427,3 +427,25 @@ test('Ink Manager requests forward AbortSignal and suppress frames after cancell
     globalThis.fetch = originalFetch;
   }
 });
+
+test('Ink Manager stream preserves heartbeat metadata for phrase rotation', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(
+    'data: {"type":"phase","role":"manager","label":"Manager · waiting","heartbeat":true,"quiet_s":15}\n\n',
+    { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+  )) as typeof fetch;
+  try {
+    const api = new ApiClient({ host: '127.0.0.1', port: 8799, project: 's-test' });
+    const phases: Array<{ label: string; heartbeat: boolean; quietS: number }> = [];
+    await api.messageStream('wait', {
+      onPhase: (label, _role, meta) => phases.push({ label, ...meta }),
+    });
+    assert.deepEqual(phases, [{
+      label: 'Manager · waiting',
+      heartbeat: true,
+      quietS: 15,
+    }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

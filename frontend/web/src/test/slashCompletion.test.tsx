@@ -59,4 +59,26 @@ describe('slash completion menu', () => {
     expect(html).toContain(`aria-activedescendant="${slashCompletionOptionId('find')}"`);
     expect(html).toContain(`id="${SLASH_COMPLETION_LISTBOX_ID}"`);
   });
+
+  it('renders rotating Argus heartbeat copy with honest quiet time', () => {
+    const html = renderToStaticMarkup(
+      <ChatBox
+        value=""
+        onChange={() => undefined}
+        onSend={() => false}
+        onCancel={() => undefined}
+        disabled={false}
+        pending
+        phase="Manager · waiting for the next model event · 10s quiet"
+        heartbeat
+        quietS={10}
+        startedAt={Date.now() - 10_000}
+        slashSelection={0}
+        onSlashSelectionChange={() => undefined}
+      />,
+    );
+    expect(html).toContain('Manager alive');
+    expect(html).toContain('10s quiet');
+    expect(html).toContain('turning it over');
+  });
 });

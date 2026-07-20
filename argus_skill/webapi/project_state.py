@@ -35,11 +35,11 @@ from ..daemon.protocol import (
     daemon_protocol_compatibility,
     daemon_runtime_owned_by_current_source,
 )
+from ..daemon.state import DAEMON_UPGRADE_REQUEST_FILE
 from ..life.memory import LifeMemory
 from .protocol import SNAPSHOT_SCHEMA_VERSION
 
 DAEMON_ADMISSION_FILE = "daemon.admission.json"
-DAEMON_UPGRADE_REQUEST_FILE = "daemon.upgrade-request.json"
 _PROJECT_INDEX_LABEL_CHARS = 180
 _PROJECT_INDEX_OBJECTIVE_CHARS = 1_000
 

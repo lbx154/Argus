@@ -140,6 +140,8 @@ export function App({
   // elapsed + phase) so the terminal never looks frozen while Argus works.
   const [pending, setPending] = useState(false);
   const [phase, setPhase] = useState('');
+  const [phaseHeartbeat, setPhaseHeartbeat] = useState(false);
+  const [phaseQuietS, setPhaseQuietS] = useState(0);
   const [startedAt, setStartedAt] = useState(0);
   const [tick, setTick] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
@@ -169,6 +171,8 @@ export function App({
     managerRequestRef.current = null;
     setPending(false);
     setPhase('');
+    setPhaseHeartbeat(false);
+    setPhaseQuietS(0);
     setStartedAt(0);
     return cancelled;
   };
@@ -761,12 +765,18 @@ export function App({
     try {
       try {
         await api.messageStream(text, {
-          onPhase: (label) => {
-            if (isCurrent()) setPhase(label);
+          onPhase: (label, _role, meta) => {
+            if (!isCurrent()) return;
+            setPhase(label);
+            setPhaseHeartbeat(meta.heartbeat);
+            setPhaseQuietS(meta.quietS);
           },
           onDelta: (block, messageId) => {
             if (!isCurrent()) return;
             gotDelta = true;
+            setPhase('');
+            setPhaseHeartbeat(false);
+            setPhaseQuietS(0);
             const activeMessageId = messageId || replyId;
             const request = managerRequestRef.current;
             if (request?.id === requestId) request.messageId = activeMessageId;
@@ -819,6 +829,8 @@ export function App({
       if (managerRequestRef.current?.id === requestId) {
         managerRequestRef.current = null;
         setPending(false);
+        setPhaseHeartbeat(false);
+        setPhaseQuietS(0);
       }
     }
   };
@@ -1164,6 +1176,8 @@ export function App({
                 <ThinkingLine
                   tick={tick}
                   phase={phase}
+                  heartbeat={phaseHeartbeat}
+                  quietS={phaseQuietS}
                   elapsedS={Math.max(0, Math.floor((Date.now() - startedAt) / 1000))}
                 />
               )}

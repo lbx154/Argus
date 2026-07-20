@@ -127,6 +127,17 @@ def _execution_lock(root: Path, *, blocking: bool) -> Iterator[bool]:
         lock.release()
 
 
+@contextmanager
+def daemon_command_execution_lock(
+    root: Path | str,
+    *,
+    blocking: bool = True,
+) -> Iterator[bool]:
+    """Serialize lifecycle work with every CLI/Web daemon command."""
+    with _execution_lock(Path(root).expanduser(), blocking=blocking) as acquired:
+        yield acquired
+
+
 def _read_state(root: Path) -> dict[str, Any]:
     path = root / COMMAND_STATE_FILE
     try:
@@ -400,7 +411,7 @@ def execute_daemon_command(
     if receipt.status in {"applied", "failed", "rejected"}:
         return receipt
     path = Path(root).expanduser()
-    with _execution_lock(
+    with daemon_command_execution_lock(
         path,
         blocking=receipt.status != "running",
     ) as acquired:
@@ -480,6 +491,7 @@ __all__ = [
     "claim_daemon_command",
     "command_status",
     "daemon_command_snapshot",
+    "daemon_command_execution_lock",
     "execute_daemon_command",
     "submit_daemon_command",
 ]

@@ -155,6 +155,11 @@ export interface SSEFrame {
   [k: string]: unknown;
 }
 
+export interface ManagerPhaseMeta {
+  heartbeat: boolean;
+  quietS: number;
+}
+
 /** The final ``done`` frame's payload — the same shape blocking ``message()`` returns. */
 export interface StreamDone {
   kind?: string;
@@ -409,7 +414,7 @@ export class ApiClient {
   async messageStream(
     text: string,
     handlers: {
-      onPhase?: (label: string, role: string) => void;
+      onPhase?: (label: string, role: string, meta: ManagerPhaseMeta) => void;
       onDelta?: (block: string, messageId: string) => void;
       onDone?: (result: StreamDone) => void;
       onError?: (err: Error) => void;
@@ -426,7 +431,17 @@ export class ApiClient {
     if (!res.body) throw new Error('Manager stream returned no response body');
     const dispatch = (frame: SSEFrame) => {
       if (signal?.aborted) return;
-      if (frame.type === 'phase') handlers.onPhase?.(String(frame.label ?? ''), String(frame.role ?? 'manager'));
+      if (frame.type === 'phase') {
+        const quietS = Number(frame.quiet_s ?? 0);
+        handlers.onPhase?.(
+          String(frame.label ?? ''),
+          String(frame.role ?? 'manager'),
+          {
+            heartbeat: frame.heartbeat === true,
+            quietS: Number.isFinite(quietS) ? quietS : 0,
+          },
+        );
+      }
       else if (frame.type === 'delta') handlers.onDelta?.(String(frame.text ?? ''), String(frame.message_id ?? ''));
       else if (frame.type === 'done') handlers.onDone?.((frame.result ?? {}) as StreamDone);
       else if (frame.type === 'error') handlers.onError?.(new Error(String(frame.error ?? 'stream error')));

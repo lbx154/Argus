@@ -190,6 +190,8 @@ export default function App() {
   const [pendingReplyBusy, setPendingReplyBusy] = useState(false);
   const promptedReplyRef = useRef('');
   const [managerPhase, setManagerPhase] = useState('');
+  const [managerPhaseHeartbeat, setManagerPhaseHeartbeat] = useState(false);
+  const [managerPhaseQuietS, setManagerPhaseQuietS] = useState(0);
   const [managerStartedAt, setManagerStartedAt] = useState(0);
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [taskItemId, setTaskItemId] = useState<string | null>(null);
@@ -250,6 +252,8 @@ export default function App() {
     messageRequestRef.current = null;
     setChatPending(false);
     setManagerPhase('');
+    setManagerPhaseHeartbeat(false);
+    setManagerPhaseQuietS(0);
     setManagerStartedAt(0);
     return cancelled;
   }, []);
@@ -843,6 +847,8 @@ export default function App() {
 
     setChatPending(true);
     setManagerPhase('');
+    setManagerPhaseHeartbeat(false);
+    setManagerPhaseQuietS(0);
     setManagerStartedAt(Date.now());
     setLocalConversationEvents((current) => [
       ...current,
@@ -900,12 +906,18 @@ export default function App() {
       try {
         try {
           await api.messageStream(requestSid, text, {
-            onPhase: (label) => {
-              if (isCurrent()) setManagerPhase(label);
+            onPhase: (label, _role, meta) => {
+              if (!isCurrent()) return;
+              setManagerPhase(label);
+              setManagerPhaseHeartbeat(meta.heartbeat);
+              setManagerPhaseQuietS(meta.quietS);
             },
             onDelta: (block, messageId) => {
               if (!isCurrent()) return;
               gotDelta = true;
+              setManagerPhase('');
+              setManagerPhaseHeartbeat(false);
+              setManagerPhaseQuietS(0);
               showManagerText(block, messageId);
             },
             onDone: (result) => {
@@ -940,6 +952,8 @@ export default function App() {
           messageRequestRef.current = null;
           setChatPending(false);
           setManagerPhase('');
+          setManagerPhaseHeartbeat(false);
+          setManagerPhaseQuietS(0);
           setManagerStartedAt(0);
         }
       }
@@ -1152,6 +1166,8 @@ export default function App() {
                     focusSignal={composerFocus}
                     embedded
                     phase={managerPhase}
+                    heartbeat={managerPhaseHeartbeat}
+                    quietS={managerPhaseQuietS}
                     startedAt={managerStartedAt}
                     slashSelection={slashSelection}
                     onSlashSelectionChange={setSlashSelection}

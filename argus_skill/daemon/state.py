@@ -27,6 +27,7 @@ log = logging.getLogger(__name__)
 _GLOBAL_DAILY_SPEND_IMPL = global_daily_spend
 _TEST_ALLOW_MEMORY_CONTINUOUS_ENV = "ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS"
 _DRAIN_REQUEST_FILE = "daemon.drain-request.json"
+DAEMON_UPGRADE_REQUEST_FILE = "daemon.upgrade-request.json"
 
 
 def _truthy_env(name: str, default: str = "1") -> bool:
@@ -681,6 +682,7 @@ def stop_daemon(
     drain: bool = False,
     drain_timeout: float = 1800.0,
     force: bool = False,
+    preserve_upgrade_request: bool = False,
 ) -> int:
     """Stop the running daemon.
 
@@ -702,11 +704,13 @@ def stop_daemon(
     Returns 0 on graceful stop, 1 if no daemon was running, 2 on timeout.
     """
     status = read_daemon_status(life_dir)
+    resolved_dir = status.life_dir
+    if not preserve_upgrade_request:
+        (resolved_dir / DAEMON_UPGRADE_REQUEST_FILE).unlink(missing_ok=True)
     if not status.alive or status.pid is None:
         sys.stderr.write("argus-skill: no daemon is running for this life-dir.\n")
         return 1
     pid = status.pid
-    resolved_dir = status.life_dir
     forced_descendants: set[int] = (
         set(_descendant_pids(pid)) if force else set()
     )
@@ -808,6 +812,7 @@ def stop_daemon(
     return 2
 
 __all__ = [
+    "DAEMON_UPGRADE_REQUEST_FILE",
     "ContinuousConfigState", "DaemonStatus",
     "continuous_mode_error", "format_budget_status",
     "read_continuous_config", "read_continuous_state",
