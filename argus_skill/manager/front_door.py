@@ -901,6 +901,14 @@ def _extract_chat_reply_text(msg: str) -> str:
     if msg.startswith("{") and msg.endswith("}"):
         try:
             data = json.loads(msg)
+            # Pending-question resolution consumes this structured Manager
+            # decision downstream. Do not collapse it to its operator-facing
+            # ``reply`` field before that parser sees it.
+            if (
+                isinstance(data.get("is_answer"), bool)
+                and isinstance(data.get("resolved"), bool)
+            ):
+                return msg
             for key in ("reply", "message", "text", "answer", "response"):
                 val = data.get(key)
                 if isinstance(val, str) and val.strip():
