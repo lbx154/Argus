@@ -18,6 +18,10 @@ from argus_skill.tools.image_tool import (
     _require_route,
 )
 
+from ._reviewer_runner_fallback import (
+    run_reviewer_prompt_via_runner,
+    runner_fallback_enabled,
+)
 from ._review_contract_constants import (
     PAPER_INFRASTRUCTURE_REVIEW_GENERATED_BY,
     PAPER_INFRASTRUCTURE_REVIEW_HISTORY_PATH,
@@ -257,36 +261,54 @@ def _run_model_review(
     timeout: float,
     venue: VenueProfile,
 ) -> dict[str, Any]:
-    route = _require_route("reviewer", env)
     prompt = _review_prompt(
         source_text_by_path=source_text_by_path, threshold=threshold, venue=venue
     )
     prompt_sha256 = review_sha256_text(prompt)
-    endpoint = "/responses"
     try:
-        data = _json_request(
-            route,
-            endpoint,
-            {"model": route.model, "input": [{"role": "user", "content": prompt}]},
-            timeout=timeout,
-        )
-        raw_text = _parse_responses_text(data)
-    except ApiError as exc:
-        if exc.status not in (400, 404):
+        route = _require_route("reviewer", env)
+    except ImageToolError:
+        # No OpenAI-compatible reviewer route configured. This gate is a pure
+        # TEXT judgement (manuscript prose, never figures), so fall back to the
+        # fleet agent-CLI runner (e.g. copilot) instead of hard-blocking the
+        # paper. Restore the historic block with
+        # ARGUS_SKILL_REVIEWER_DISABLE_RUNNER_FALLBACK=1.
+        if not runner_fallback_enabled(env):
             raise
-        endpoint = "/chat/completions"
-        data = _json_request(
-            route,
-            endpoint,
-            {"model": route.model, "messages": [{"role": "user", "content": prompt}]},
-            timeout=timeout,
+        raw_text, review_model = run_reviewer_prompt_via_runner(
+            prompt,
+            run_label="research.paper_infrastructure_review",
+            working_dir=str(root),
+            env=env,
         )
-        raw_text = _parse_chat_text(data)
+        endpoint = "runner"
+    else:
+        review_model = route.model
+        endpoint = "/responses"
+        try:
+            data = _json_request(
+                route,
+                endpoint,
+                {"model": route.model, "input": [{"role": "user", "content": prompt}]},
+                timeout=timeout,
+            )
+            raw_text = _parse_responses_text(data)
+        except ApiError as exc:
+            if exc.status not in (400, 404):
+                raise
+            endpoint = "/chat/completions"
+            data = _json_request(
+                route,
+                endpoint,
+                {"model": route.model, "messages": [{"role": "user", "content": prompt}]},
+                timeout=timeout,
+            )
+            raw_text = _parse_chat_text(data)
     if not raw_text:
         raise PaperInfrastructureReviewError("reviewer model returned no text")
     parsed = _parse_json_object_from_text(raw_text)
     parsed["raw_review_text"] = raw_text
-    parsed["model"] = route.model
+    parsed["model"] = review_model
     parsed["endpoint"] = endpoint
     parsed["reviewed_root"] = str(root)
     parsed[REVIEW_PROMPT_SHA256_FIELD] = prompt_sha256
