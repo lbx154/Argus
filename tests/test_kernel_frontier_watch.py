@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import json
 import sys
 from datetime import UTC, datetime, timedelta
@@ -14,6 +15,7 @@ from argus_skill.verticals.kernel_engineering.frontier_watch import (
     snapshot_path,
     template,
     validate_record,
+    write_record,
 )
 from argus_skill.verticals.kernel_engineering.stages import CHECKLIST_ITEMS, STAGE_CHECKS
 
@@ -120,6 +122,12 @@ def test_record_and_check_cli_write_snapshot_and_append_ledger(
     assert snapshot_path(tmp_path, "baseline").is_file()
     assert ledger_path(tmp_path).is_file()
     assert len(ledger_path(tmp_path).read_text(encoding="utf-8").splitlines()) == 1
+    ledger_record = json.loads(
+        ledger_path(tmp_path).read_text(encoding="utf-8")
+    )
+    assert ledger_record["kind"] == "frontier_snapshot_binding"
+    assert "queries" not in ledger_record
+    assert "sources" not in ledger_record
 
     assert main(["check", "--project-root", str(tmp_path), "--stage", "baseline"]) == 0
     assert "evidence recorded as of" in capsys.readouterr().out
@@ -137,6 +145,64 @@ def test_check_rejects_snapshot_not_bound_to_latest_ledger(
 
     assert main(["check", "--project-root", str(tmp_path), "--stage", stage]) == 2
     assert "FRONTIER_WATCH.jsonl" in capsys.readouterr().err
+
+
+def test_record_compacts_and_archives_legacy_full_ledger(
+    tmp_path: Path,
+) -> None:
+    legacy = canonicalize(_record(stage="scope"), stage="scope")
+    ledger = ledger_path(tmp_path)
+    ledger.parent.mkdir(parents=True)
+    original = (json.dumps(legacy, sort_keys=True) + "\n").encode()
+    ledger.write_bytes(original)
+
+    current = canonicalize(_record(stage="report"), stage="report")
+    write_record(tmp_path, "report", current)
+
+    rows = [
+        json.loads(line)
+        for line in ledger.read_text(encoding="utf-8").splitlines()
+    ]
+    assert [row["kind"] for row in rows] == [
+        "frontier_snapshot_binding",
+        "frontier_snapshot_binding",
+    ]
+    assert ledger.stat().st_size < len(original)
+    archives = list(
+        (tmp_path / "research" / "raw").glob(
+            "frontier_watch_legacy_full-*.jsonl.gz"
+        )
+    )
+    assert len(archives) == 1
+    assert gzip.decompress(archives[0].read_bytes()) == original
+
+
+def test_record_repairs_corrupt_legacy_archive_before_replacing_ledger(
+    tmp_path: Path,
+) -> None:
+    legacy = canonicalize(_record(stage="scope"), stage="scope")
+    ledger = ledger_path(tmp_path)
+    ledger.parent.mkdir(parents=True)
+    original = (json.dumps(legacy, sort_keys=True) + "\n").encode()
+    ledger.write_bytes(original)
+    digest = __import__("hashlib").sha256(original).hexdigest()
+    archive = (
+        tmp_path
+        / "research"
+        / "raw"
+        / f"frontier_watch_legacy_full-{digest[:16]}.jsonl.gz"
+    )
+    archive.parent.mkdir(parents=True)
+    archive.write_bytes(b"truncated")
+
+    current = canonicalize(_record(stage="report"), stage="report")
+    write_record(tmp_path, "report", current)
+
+    assert gzip.decompress(archive.read_bytes()) == original
+    assert all(
+        json.loads(line)["kind"] == "frontier_snapshot_binding"
+        for line in ledger.read_text(encoding="utf-8").splitlines()
+    )
 
 
 def test_record_cli_accepts_stdin(tmp_path: Path, monkeypatch) -> None:
