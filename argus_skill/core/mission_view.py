@@ -1331,7 +1331,78 @@ def merge_mission_view_snapshot(
     return view
 
 
-def _enrich_skill_content(root: Path, view: dict[str, Any]) -> None:
+def _mission_for_timestamp(
+    backlog: list[Mapping[str, Any]],
+    timestamp: float,
+) -> tuple[str, str]:
+    candidates: list[Mapping[str, Any]] = []
+    for item in backlog:
+        started = _number(item, "started_ts")
+        finished = _number(item, "finished_ts")
+        if started is None or timestamp < started:
+            continue
+        if finished is not None and timestamp > finished + 5.0:
+            continue
+        candidates.append(item)
+    if not candidates:
+        return "", ""
+    selected = max(
+        candidates,
+        key=lambda item: float(item.get("started_ts") or 0.0),
+    )
+    return (
+        str(selected.get("id") or ""),
+        str(selected.get("title") or "")[:240],
+    )
+
+
+def _discover_project_skills(
+    root: Path,
+    view: dict[str, Any],
+    backlog: list[Mapping[str, Any]],
+) -> None:
+    skill_root = root / "skills"
+    if not skill_root.is_dir():
+        return
+    from ..skills.store import Skill
+
+    rows = view.setdefault("learned_skills", [])
+    known_paths = {
+        str(row.get("path") or "")
+        for row in rows
+        if isinstance(row, dict)
+    }
+    for path in sorted(skill_root.rglob("*.md")):
+        if "_history" in path.parts or path.name.startswith("."):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+            parsed = Skill.parse(text, str(path))
+            modified = path.stat().st_mtime
+        except (OSError, ValueError):
+            continue
+        if parsed.protected or str(path) in known_paths:
+            continue
+        mission_id, mission_title = _mission_for_timestamp(backlog, modified)
+        rows.append({
+            "id": parsed.skill_id or path.stem,
+            "name": parsed.name or path.stem,
+            "version": parsed.version,
+            "scope": "project",
+            "path": str(path),
+            "status": "active",
+            "updated_at": modified,
+            "mission_id": mission_id,
+            "mission_title": mission_title,
+        })
+
+
+def _enrich_skill_content(
+    root: Path,
+    view: dict[str, Any],
+    backlog: list[Mapping[str, Any]],
+) -> None:
+    _discover_project_skills(root, view, backlog)
     allowed_roots = [(root / "skills").resolve()]
     if root.parent.name == "projects":
         allowed_roots.append((root.parent.parent / "skills").resolve())
@@ -1380,7 +1451,11 @@ def snapshot_mission_view(root: Path | str, **kwargs: Any) -> dict[str, Any]:
         view = merge_mission_view_snapshot(view, **kwargs)
         _write_unlocked(path, view)
         response = json.loads(json.dumps(view))
-        _enrich_skill_content(path, response)
+        _enrich_skill_content(
+            path,
+            response,
+            list(kwargs.get("backlog") or []),
+        )
         return response
 
 

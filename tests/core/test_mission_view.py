@@ -275,6 +275,50 @@ def test_load_discards_legacy_derived_certification(tmp_path: Path) -> None:
     assert load_mission_view(tmp_path)["achievement"] is None
 
 
+def test_snapshot_discovers_project_skill_and_attributes_mission(
+    tmp_path: Path,
+) -> None:
+    skill_path = tmp_path / "skills" / "measured-repair.md"
+    skill_path.parent.mkdir()
+    skill_path.write_text(
+        "---\nname: Measured repair\ndescription: Preserve measured repair evidence.\n"
+        "---\n\n# Measured repair\n\nReuse the verified repair sequence.\n",
+        encoding="utf-8",
+    )
+    modified = skill_path.stat().st_mtime
+
+    view = snapshot_mission_view(
+        tmp_path,
+        session={"objective": "Repair the evaluator"},
+        daemon={},
+        roles=[],
+        backlog=[{
+            "id": "mission-repair",
+            "title": "Repair evaluator",
+            "objective": "Repair the evaluator",
+            "status": "done",
+            "started_ts": modified - 10,
+            "finished_ts": modified + 10,
+        }],
+        continuous={},
+    )
+
+    assert view["learned_skills"] == [{
+        "id": "measured-repair",
+        "name": "Measured repair",
+        "version": 1,
+        "scope": "project",
+        "path": str(skill_path),
+        "status": "active",
+        "updated_at": modified,
+        "mission_id": "mission-repair",
+        "mission_title": "Repair evaluator",
+        "content": skill_path.read_text(encoding="utf-8"),
+        "content_truncated": False,
+    }]
+    assert load_mission_view(tmp_path)["learned_skills"] == []
+
+
 def test_free_text_is_display_only_and_never_changes_review_state(tmp_path: Path) -> None:
     view = emit(
         tmp_path,
