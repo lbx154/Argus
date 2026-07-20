@@ -1,0 +1,159 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" data-pptx-page-role="content">
+  <defs>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" viewBox="0 0 10 10"><polygon points="0,0 10,5 0,10" fill="#4477AA"/></marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" viewBox="0 0 10 10"><polygon points="0,0 10,5 0,10" fill="#228833"/></marker>
+    <marker id="arrow-amber" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" viewBox="0 0 10 10"><polygon points="0,0 10,5 0,10" fill="#CCBB44"/></marker>
+    <marker id="arrow-purple" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" viewBox="0 0 10 10"><polygon points="0,0 10,5 0,10" fill="#AA3377"/></marker>
+    <marker id="arrow-red" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" viewBox="0 0 10 10"><polygon points="0,0 10,5 0,10" fill="#EE6677"/></marker>
+  </defs>
+  <rect id="background" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#FBFCFE"/>
+
+  <g id="header" data-pptx-bounds="40 24 1200 84">
+    <rect x="40" y="29" width="7" height="38" rx="3.5" fill="#228833"/>
+    <text x="61" y="58" font-family="Microsoft YaHei, Arial, sans-serif" font-size="36" font-weight="700" fill="#25364A">Argus 修复后状态机：每条等待路径都有退出边</text>
+    <text x="61" y="91" font-family="Microsoft YaHei, Arial, sans-serif" font-size="20" fill="#25364A">跨范围、等待和失败路径分别由原子提交、自动唤醒、有限熔断或人工仲裁终止。</text>
+    <text x="1240" y="43" text-anchor="end" font-family="Consolas, monospace" font-size="13" font-weight="700" fill="#228833">FIG. 1 · REPAIRED CONTROL PLANE</text>
+    <line x1="1028" y1="58" x2="1240" y2="58" stroke="#CBD5E1" stroke-width="1"/>
+    <text x="1240" y="82" text-anchor="end" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" fill="#25364A">绿色＝推进 · 红色＝fail-closed · 紫色＝权威仲裁</text>
+  </g>
+
+  <g id="control-layer" data-pptx-bounds="40 120 900 126">
+    <rect x="40" y="120" width="46" height="126" rx="8" fill="#4477AA"/>
+    <text x="63" y="174" text-anchor="middle" font-family="Consolas, monospace" font-size="20" font-weight="700" fill="#FBFCFE">01</text>
+    <text x="63" y="199" text-anchor="middle" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15" font-weight="700" fill="#FBFCFE">控制</text>
+    <rect x="100" y="120" width="840" height="126" rx="10" fill="#F1F5F9" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="116" y="143" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15" font-weight="700" fill="#4477AA">CONTROL AUTHORITY · stage 只有一个写入者</text>
+
+    <rect x="120" y="160" width="150" height="64" rx="7" fill="#FBFCFE" stroke="#AA3377" stroke-width="2"/>
+    <text x="195" y="190" text-anchor="middle" font-family="Microsoft YaHei, Arial, sans-serif" font-size="20" font-weight="700" fill="#25364A">Operator</text>
+    <text x="195" y="212" text-anchor="middle" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" fill="#25364A">目标 · 授权 · 回答</text>
+
+    <rect x="330" y="160" width="170" height="64" rx="7" fill="#FBFCFE" stroke="#AA3377" stroke-width="2"/>
+    <text x="415" y="189" text-anchor="middle" font-family="Microsoft YaHei, Arial, sans-serif" font-size="20" font-weight="700" fill="#25364A">Manager</text>
+    <text x="415" y="211" text-anchor="middle" font-family="Consolas, monospace" font-size="13" fill="#25364A">ADVANCE · HOLD · ROLLBACK</text>
+
+    <rect x="560" y="160" width="150" height="64" rx="7" fill="#FBFCFE" stroke="#4477AA" stroke-width="2"/>
+    <text x="635" y="190" text-anchor="middle" font-family="Microsoft YaHei, Arial, sans-serif" font-size="20" font-weight="700" fill="#25364A">Planner</text>
+    <text x="635" y="212" text-anchor="middle" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" fill="#25364A">新 DAG / replacement</text>
+
+    <rect x="770" y="160" width="150" height="64" rx="7" fill="#228833" fill-opacity="0.08" stroke="#228833" stroke-width="2"/>
+    <text x="845" y="188" text-anchor="middle" font-family="Microsoft YaHei, Arial, sans-serif" font-size="17" font-weight="700" fill="#25364A">Atomic commit</text>
+    <text x="845" y="211" text-anchor="middle" font-family="Consolas, monospace" font-size="13" fill="#228833">validate → write-all</text>
+
+    <line x1="270" y1="192" x2="322" y2="192" stroke="#AA3377" stroke-width="2.5" stroke-dasharray="8 4 2 4" marker-end="url(#arrow-purple)"/>
+    <line x1="500" y1="192" x2="552" y2="192" stroke="#4477AA" stroke-width="2.5" marker-end="url(#arrow-blue)"/>
+    <line x1="710" y1="192" x2="762" y2="192" stroke="#228833" stroke-width="2.5" marker-end="url(#arrow-green)"/>
+  </g>
+
+  <g id="execution-layer" data-pptx-bounds="40 262 900 190">
+    <rect x="40" y="262" width="46" height="190" rx="8" fill="#228833"/>
+    <text x="63" y="345" text-anchor="middle" font-family="Consolas, monospace" font-size="20" font-weight="700" fill="#FBFCFE">02</text>
+    <text x="63" y="370" text-anchor="middle" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15" font-weight="700" fill="#FBFCFE">执行</text>
+    <rect x="100" y="262" width="840" height="190" rx="10" fill="#F1F5F9" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="116" y="286" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15" font-weight="700" fill="#228833">BACKLOG RECONCILIATION · 无 ready 节点时也执行清理</text>
+
+    <rect x="120" y="312" width="190" height="92" rx="8" fill="#FBFCFE" stroke="#228833" stroke-width="2"/>
+    <text x="215" y="339" text-anchor="middle" font-family="Microsoft YaHei, Arial, sans-serif" font-size="18" font-weight="700" fill="#25364A">Backlog Reconciler</text>
+    <text x="215" y="363" text-anchor="middle" font-family="Consolas, monospace" font-size="13" fill="#25364A">next_pending + claim_next</text>
+    <text x="215" y="385" text-anchor="middle" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" fill="#228833">SCC / dead deps → skipped</text>
+
+    <rect x="385" y="312" width="175" height="92" rx="8" fill="#FBFCFE" stroke="#228833" stroke-width="2"/>
+    <text x="472" y="350" text-anchor="middle" font-family="Microsoft YaHei, Arial, sans-serif" font-size="20" font-weight="700" fill="#25364A">Engineer</text>
+    <text x="472" y="378" text-anchor="middle" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15" fill="#25364A">修复 · 实验 · 证据</text>
+
+    <rect x="650" y="312" width="175" height="92" rx="8" fill="#FBFCFE" stroke="#25364A" stroke-width="2"/>
+    <text x="737" y="350" text-anchor="middle" font-family="Microsoft YaHei, Arial, sans-serif" font-size="20" font-weight="700" fill="#25364A">Reviewer</text>
+    <text x="737" y="378" text-anchor="middle" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15" fill="#25364A">验收 · next_action</text>
+
+    <line x1="310" y1="358" x2="377" y2="358" stroke="#228833" stroke-width="2.5" marker-end="url(#arrow-green)"/>
+    <text x="343" y="344" text-anchor="middle" font-family="Consolas, monospace" font-size="13" fill="#228833">ready</text>
+    <line x1="560" y1="358" x2="642" y2="358" stroke="#228833" stroke-width="2.5" marker-end="url(#arrow-green)"/>
+    <text x="601" y="344" text-anchor="middle" font-family="Consolas, monospace" font-size="13" fill="#228833">evidence</text>
+    <path d="M737 404 C737 438 472 438 472 412" fill="none" stroke="#228833" stroke-width="2.5" marker-end="url(#arrow-green)"/>
+    <text x="605" y="437" text-anchor="middle" font-family="Consolas, monospace" font-size="13" fill="#228833">continue_same_scope → round+1</text>
+
+    <rect x="842" y="312" width="78" height="92" rx="8" fill="#EE6677" fill-opacity="0.08" stroke="#EE6677" stroke-width="2"/>
+    <text x="881" y="343" text-anchor="middle" font-family="Consolas, monospace" font-size="15" font-weight="700" fill="#EE6677">CB</text>
+    <text x="881" y="365" text-anchor="middle" font-family="Consolas, monospace" font-size="13" fill="#25364A">retry=3</text>
+    <text x="881" y="386" text-anchor="middle" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" fill="#25364A">fail-closed</text>
+  </g>
+
+  <g id="persistent-layer" data-pptx-bounds="40 468 900 166">
+    <rect x="40" y="468" width="46" height="166" rx="8" fill="#CCBB44"/>
+    <text x="63" y="539" text-anchor="middle" font-family="Consolas, monospace" font-size="20" font-weight="700" fill="#25364A">03</text>
+    <text x="63" y="564" text-anchor="middle" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15" font-weight="700" fill="#25364A">退出</text>
+    <rect x="100" y="468" width="840" height="166" rx="10" fill="#F1F5F9" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="116" y="492" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15" font-weight="700" fill="#CCBB44">PERSISTENT STATE EXITS · 自动唤醒与人工边界分离</text>
+
+    <rect x="120" y="516" width="180" height="88" rx="8" fill="#FBFCFE" stroke="#AA3377" stroke-width="2"/>
+    <text x="210" y="544" text-anchor="middle" font-family="Consolas, monospace" font-size="18" font-weight="700" fill="#AA3377">stage = S</text>
+    <text x="210" y="568" text-anchor="middle" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" fill="#25364A">HOLD → 当前 item 终结</text>
+    <text x="210" y="587" text-anchor="middle" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" fill="#25364A">新 intent → 重开 done stage</text>
+
+    <rect x="330" y="516" width="180" height="88" rx="8" fill="#FBFCFE" stroke="#CCBB44" stroke-width="2" stroke-dasharray="6 3"/>
+    <text x="420" y="543" text-anchor="middle" font-family="Microsoft YaHei, Arial, sans-serif" font-size="17" font-weight="700" fill="#25364A">Auto-resume</text>
+    <text x="420" y="568" text-anchor="middle" font-family="Consolas, monospace" font-size="13" fill="#25364A">budget/provider/daemon</text>
+    <text x="420" y="587" text-anchor="middle" font-family="Consolas, monospace" font-size="13" fill="#228833">attempt → attempt+1</text>
+
+    <rect x="540" y="516" width="180" height="88" rx="8" fill="#FBFCFE" stroke="#AA3377" stroke-width="2" stroke-dasharray="8 4 2 4"/>
+    <text x="630" y="543" text-anchor="middle" font-family="Microsoft YaHei, Arial, sans-serif" font-size="17" font-weight="700" fill="#25364A">Operator answer</text>
+    <text x="630" y="568" text-anchor="middle" font-family="Consolas, monospace" font-size="13" fill="#25364A">failed ID → continuation</text>
+    <text x="630" y="587" text-anchor="middle" font-family="Consolas, monospace" font-size="13" fill="#228833">rewire(all live deps)</text>
+
+    <rect x="750" y="516" width="170" height="88" rx="8" fill="#FBFCFE" stroke="#4477AA" stroke-width="2" stroke-dasharray="6 3"/>
+    <text x="835" y="543" text-anchor="middle" font-family="Microsoft YaHei, Arial, sans-serif" font-size="17" font-weight="700" fill="#25364A">Daemon upgrade</text>
+    <text x="835" y="568" text-anchor="middle" font-family="Consolas, monospace" font-size="13" fill="#25364A">drain request → return</text>
+    <text x="835" y="587" text-anchor="middle" font-family="Consolas, monospace" font-size="13" fill="#228833">recheck every 5s</text>
+  </g>
+
+  <g id="cross-layer-transitions" data-pptx-bounds="260 224 610 304">
+    <path d="M845 224 L845 250 L215 250 L215 304" fill="none" stroke="#228833" stroke-width="2.5" marker-end="url(#arrow-green)"/>
+    <text x="545" y="245" text-anchor="middle" font-family="Consolas, monospace" font-size="13" fill="#228833">atomic batch → reconciled backlog</text>
+    <path d="M737 312 C730 270 520 250 415 224" fill="none" stroke="#AA3377" stroke-width="2.5" stroke-dasharray="8 4 2 4" marker-end="url(#arrow-purple)"/>
+    <text x="642" y="272" text-anchor="middle" font-family="Consolas, monospace" font-size="13" fill="#AA3377">done / replan_requested</text>
+    <path d="M415 224 C415 266 540 276 635 224" fill="none" stroke="#4477AA" stroke-width="2.5" marker-end="url(#arrow-blue)"/>
+    <text x="525" y="286" text-anchor="middle" font-family="Consolas, monospace" font-size="13" fill="#4477AA">versioned replacement</text>
+    <path d="M881 404 L881 456 L210 508" fill="none" stroke="#EE6677" stroke-width="2.5" marker-end="url(#arrow-red)"/>
+    <path d="M472 404 L472 458 L420 508" fill="none" stroke="#CCBB44" stroke-width="2.5" stroke-dasharray="6 3" marker-end="url(#arrow-amber)"/>
+    <path d="M737 404 L737 458 L630 508" fill="none" stroke="#AA3377" stroke-width="2.5" stroke-dasharray="8 4 2 4" marker-end="url(#arrow-purple)"/>
+  </g>
+
+  <g id="liveness-invariants" data-pptx-bounds="962 120 278 330">
+    <rect x="962" y="120" width="278" height="330" rx="10" fill="#FBFCFE" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="982" y="151" font-family="Microsoft YaHei, Arial, sans-serif" font-size="20" font-weight="700" fill="#25364A">活性不变量</text>
+    <line x1="982" y1="164" x2="1220" y2="164" stroke="#CBD5E1" stroke-width="1"/>
+    <text x="982" y="194" font-family="Consolas, monospace" font-size="15" fill="#25364A">cycle → reject | skipped</text>
+    <text x="982" y="224" font-family="Consolas, monospace" font-size="15" fill="#25364A">replan[v] → CAS → v+1</text>
+    <text x="982" y="254" font-family="Consolas, monospace" font-size="15" fill="#25364A">filtered × 3 → fail-closed</text>
+    <text x="982" y="284" font-family="Consolas, monospace" font-size="15" fill="#25364A">external pause → attempt+1</text>
+    <text x="982" y="314" font-family="Consolas, monospace" font-size="15" fill="#25364A">answer → rewire(deps)</text>
+    <text x="982" y="344" font-family="Consolas, monospace" font-size="15" fill="#25364A">no-runner → backoff(15…300s)</text>
+    <line x1="982" y1="365" x2="1220" y2="365" stroke="#CBD5E1" stroke-width="1"/>
+    <text x="982" y="390" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" font-weight="700" fill="#228833">安全性质</text>
+    <text x="982" y="411" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" fill="#25364A">任何 pending/waiting 分量最终进入</text>
+    <text x="982" y="430" font-family="Consolas, monospace" font-size="13" fill="#25364A">running | skipped | failed | human</text>
+  </g>
+
+  <g id="model-spend-and-legend" data-pptx-bounds="962 468 278 166">
+    <rect x="962" y="468" width="278" height="166" rx="10" fill="#F1F5F9" stroke="#CBD5E1" stroke-width="1.5"/>
+    <text x="982" y="499" font-family="Consolas, monospace" font-size="20" font-weight="700" fill="#4477AA">MODEL SPEND</text>
+    <text x="982" y="520" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" fill="#25364A">仅模型 / API 调用</text>
+    <text x="982" y="536" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" fill="#25364A">不含 GPU 与基础设施成本</text>
+    <line x1="982" y1="546" x2="1220" y2="546" stroke="#CBD5E1" stroke-width="1"/>
+    <line x1="982" y1="563" x2="1035" y2="563" stroke="#228833" stroke-width="2.5" marker-end="url(#arrow-green)"/>
+    <text x="1050" y="569" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" fill="#25364A">正常推进</text>
+    <line x1="982" y1="588" x2="1035" y2="588" stroke="#CCBB44" stroke-width="2.5" stroke-dasharray="6 3" marker-end="url(#arrow-amber)"/>
+    <text x="1050" y="594" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" fill="#25364A">可恢复等待</text>
+    <line x1="1133" y1="563" x2="1186" y2="563" stroke="#EE6677" stroke-width="2.5" marker-end="url(#arrow-red)"/>
+    <text x="1200" y="569" text-anchor="end" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" fill="#25364A">熔断</text>
+    <line x1="1133" y1="588" x2="1186" y2="588" stroke="#AA3377" stroke-width="2.5" stroke-dasharray="8 4 2 4" marker-end="url(#arrow-purple)"/>
+    <text x="1200" y="594" text-anchor="end" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" fill="#25364A">仲裁</text>
+    <text x="982" y="620" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" font-weight="700" fill="#228833">结论：无隐式无限循环。</text>
+  </g>
+
+  <g id="footer" data-pptx-bounds="40 676 1200 24">
+    <line x1="40" y1="676" x2="1240" y2="676" stroke="#CBD5E1" stroke-width="1"/>
+    <text x="40" y="696" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" fill="#25364A">图 1｜修复后的控制权、任务执行、Backlog reconciliation 与持久状态退出边。</text>
+    <text x="1240" y="696" text-anchor="end" font-family="Consolas, monospace" font-size="13" fill="#228833">LIVENESS-SAFE STATE MACHINE</text>
+  </g>
+</svg>
