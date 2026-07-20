@@ -27,7 +27,7 @@ def _exec(answer: str, exit_code: int = 0):
             label in prompt
             for label in (
                 "CONFIG:", "CONTROL:", "AUTHORIZATION:", "STEER_DIRECTIVE:",
-                "ROUTE:", "LIFETIME:", "GREETING:", "NAME:",
+                "ROUTE:", "GREETING:", "NAME:",
             )
         )
         return _FakeResult(answer, exit_code)
@@ -43,7 +43,7 @@ def test_front_door_prompt_has_a_strict_token_efficiency_budget() -> None:
         label in prompt
         for label in (
             "CONFIG:", "CONTROL:", "AUTHORIZATION:", "STEER_DIRECTIVE:",
-            "ROUTE:", "LIFETIME:", "GREETING:", "NAME:",
+            "ROUTE:", "GREETING:", "NAME:",
         )
     )
     assert "VERTICAL:" not in prompt
@@ -51,6 +51,8 @@ def test_front_door_prompt_has_a_strict_token_efficiency_budget() -> None:
     assert "WORKFLOW:" not in prompt
     assert "FAST_REPLY:" not in prompt
     assert "ACTIVE_MISSION: YES" in prompt
+    assert "LIFETIME:" not in prompt
+    assert "BOUNDED" not in prompt
 
 
 def test_name_axis_reports_concise_title_without_changing_route_contract() -> None:
@@ -74,6 +76,21 @@ def test_front_door_reuses_team_lifetime_from_the_same_model_call() -> None:
         run_exec=_exec(
             "CONFIG: NONE\nCONTROL: NONE\nROUTE: TEAM\n"
             "LIFETIME: STANDING\nNAME: Kernel 持续优化"
+        ),
+        lifetime_sink=lifetimes.append,
+    )
+
+    assert decision == (None, None, "complex")
+    assert lifetimes == ["standing"]
+
+
+def test_front_door_ignores_bounded_lifetime_for_team() -> None:
+    lifetimes: list[str] = []
+    decision = classify_front_door(
+        "完成一份报告",
+        run_exec=_exec(
+            "CONFIG: NONE\nCONTROL: NONE\nROUTE: TEAM\n"
+            "LIFETIME: BOUNDED\nNAME: 报告"
         ),
         lifetime_sink=lifetimes.append,
     )

@@ -46,7 +46,7 @@ def _front_door_classify(
     """ONE merged LLM call for the Manager front-door: returns
     ``(ConfigIntent | None, control | None, route)``.
 
-    Reuses that same call's task-lifetime verdict. It never treats
+    TEAM work is always cached as standing/continuous. It never treats
     classifier output as an operator-facing reply: every SELF message reaches
     the real Manager model.
     Fail-soft: no runner, no manager, or any error → ``(None, None, "complex")``
@@ -99,16 +99,7 @@ def _front_door_classify(
             control = None
         normalized_route = route if route in ("simple", "complex") else "complex"
         if normalized_route == "complex":
-            lifetime = next(
-                (
-                    value
-                    for value in lifetime_decisions
-                    if value in {"bounded", "standing"}
-                ),
-                "",
-            )
-            if lifetime:
-                chat_state["_frontdoor_lifetime"] = lifetime
+            chat_state["_frontdoor_lifetime"] = "standing"
         elif intent is None and control not in {"abort", "no_dispatch", "steer"}:
             greeting_reply = next(
                 (

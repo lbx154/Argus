@@ -616,7 +616,7 @@ def test_manager_handoff_failure_persists_and_streams_error_reply(
     )
 
 
-def test_active_mission_message_cannot_enqueue_even_if_classified_team(
+def test_active_mission_team_message_uses_continuous_dispatch(
     tmp_path: Path, monkeypatch,
 ) -> None:
     sid = "s-active001"
@@ -634,12 +634,20 @@ def test_active_mission_message_cannot_enqueue_even_if_classified_team(
         seen["classify"] += 1
         return None, None, "complex"
 
-    def direct_manager_reply(mem, body, state, **kwargs):
-        seen["route"] = kwargs.get("route")
-        return "current mission is still running"
-
     monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(front_door, "manager_triage", direct_manager_reply)
+    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
+
+    def promote(mem, body, chat_state, **kwargs):
+        seen["promoted"] = body
+        chat_state.setdefault("config", {})["continuous"] = True
+        return True
+
+    def enqueue(mem, body, chat_state, **kwargs):
+        seen["enqueued"] = body
+        return None, True, 123
+
+    monkeypatch.setattr(dispatch, "maybe_promote_to_continuous", promote)
+    monkeypatch.setattr(dispatch, "enqueue_mission", enqueue)
 
     result = manager_bridge.manager_message(
         sid,
@@ -647,14 +655,15 @@ def test_active_mission_message_cannot_enqueue_even_if_classified_team(
         global_root=tmp_path,
     )
 
-    assert result["kind"] == "chat"
-    assert result["reply"] == "current mission is still running"
+    assert result["kind"] == "task"
+    assert result["continuous"] is True
     assert seen["classify"] == 1
-    assert seen["route"] == "simple"
+    assert seen["promoted"] == "你怎么不动了？"
+    assert seen["enqueued"] == "你怎么不动了？"
     assert len(memory.backlog.all()) == 1
 
 
-def test_mission_claimed_during_classification_cannot_enqueue_second_item(
+def test_mission_claimed_during_classification_still_uses_continuous_dispatch(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -672,12 +681,20 @@ def test_mission_claimed_during_classification_cannot_enqueue_second_item(
 
     monkeypatch.setattr(config_intent, "_front_door_classify", classify)
     monkeypatch.setattr(front_door, "manager_triage", lambda *a, **k: None)
+
+    def promote(mem, body, chat_state, **kwargs):
+        chat_state.setdefault("config", {})["continuous"] = True
+        return True
+
+    monkeypatch.setattr(
+        dispatch,
+        "maybe_promote_to_continuous",
+        promote,
+    )
     monkeypatch.setattr(
         dispatch,
         "enqueue_mission",
-        lambda *a, **k: (_ for _ in ()).throw(
-            AssertionError("claim-during-classification must not enqueue")
-        ),
+        lambda *a, **k: (None, True, 456),
     )
 
     result = manager_bridge.manager_message(
@@ -686,8 +703,8 @@ def test_mission_claimed_during_classification_cannot_enqueue_second_item(
         global_root=tmp_path,
     )
 
-    assert result["kind"] == "chat"
-    assert "not dispatched" in str(result["reply"])
+    assert result["kind"] == "task"
+    assert result["continuous"] is True
     assert len(memory.backlog.all()) == 1
 
 
@@ -794,13 +811,14 @@ def test_simple_route_reply_failure_never_falls_through_to_task_dispatch(
     assert LifeMemory.open(life).backlog.all() == []
 
 
-def test_team_message_runs_manager_lifetime_decision_before_enqueue(
+def test_team_message_validates_continuous_before_resume_and_enqueue(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     sid = "s-standing-front-door"
     _make_project(tmp_path, sid)
     manager_bridge._STATES.clear()
+    manager_bridge._chat_state_for(sid).setdefault("config", {})["continuous"] = True
     seen: dict[str, object] = {}
 
     monkeypatch.setattr(
@@ -820,7 +838,13 @@ def test_team_message_runs_manager_lifetime_decision_before_enqueue(
         seen["continuous_at_enqueue"] = chat_state["config"]["continuous"]
         return None, False, None
 
+    def resume(mem):
+        assert seen["promoted_body"] == "keep researching this conjecture"
+        seen["resumed"] = True
+        return False
+
     monkeypatch.setattr(dispatch, "maybe_promote_to_continuous", promote)
+    monkeypatch.setattr(dispatch, "resume_done_lifecycle_for_team_dispatch", resume)
     monkeypatch.setattr(dispatch, "enqueue_mission", enqueue)
 
     result = manager_bridge.manager_message(
@@ -831,6 +855,7 @@ def test_team_message_runs_manager_lifetime_decision_before_enqueue(
 
     assert seen["promoted_body"] == "keep researching this conjecture"
     assert seen["root_task_id"]
+    assert seen["resumed"] is True
     assert seen["continuous_at_enqueue"] is True
     assert result["kind"] == "task"
     assert result["item"] is None

@@ -33,6 +33,7 @@ from argus_skill.daemon.life_worker import (
 )
 from argus_skill.daemon.state import (
     DAEMON_UPGRADE_REQUEST_FILE,
+    _daemon_status_payload,
     daemon_drain_requested,
     request_daemon_drain,
 )
@@ -112,6 +113,15 @@ def test_read_daemon_status_returns_not_alive_on_missing_pid(tmp_path: Path) -> 
     assert status.alive is False
     assert status.pid is None
     assert status.life_dir == tmp_path
+
+
+def test_daemon_status_payload_preserves_life_backend(tmp_path: Path) -> None:
+    payload = _daemon_status_payload(
+        LifeWorkerConfig(life_dir=tmp_path, backend="memory"),
+        started_at_iso="2026-07-20T00:00:00+00:00",
+    )
+
+    assert payload["life_backend"] == "memory"
 
 
 def test_drain_signal_does_not_interrupt_active_mission(
