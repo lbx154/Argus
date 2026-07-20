@@ -61,6 +61,7 @@ _SAFE_BUILTIN_UPGRADE_DIGESTS = {
         "8b5fe2aa69301225535893d5bb5f350bac0666b9b91d309321c1e28a88814b8f",
     },
     "engineer/figure-spec.md": {
+        "3261a0c5f71d318bf212e0b485480503ccb1f30b278b9e07db756f5f2a942398",
         "e46107aac72e6e7b23ecf645492f786262a3e32f679f62500b8142e7e58b5629",
     },
     "engineer/paper-chart-styling.md": {
@@ -77,9 +78,11 @@ _SAFE_BUILTIN_UPGRADE_DIGESTS = {
         "e7cde5309b287eb75f91fd8f0c9400341910fb1eeb556a2d3ec78d6accd3a2c5",
     },
     "engineer/presentation-master.md": {
+        "3b70d2fd3ec0bd00d6a6090238d44b20c4cbcf239b8e2290acdea65c84f47847",
         "a78fab7703be6727a6cbf6e27ba8b397630908268135b89e6a88c34dda16662e",
     },
     "engineer/research-results-analysis-and-figures.md": {
+        "749e2dccdca0fe72b51cf658dfd389c9b47f73a63fb4a512226fbef3d91cba62",
         "41c046a4a4c6e89eaa063bdd1804a114792d4ae54051c0ac16f950e47eb8af9c",
         "d2529cf7bf29486dcc3e8ae5baca15d04e4e0a1368c2c99d2e4dda4d7bf481af",
         "4f0baf6ce7b0de2da3790fd51ef04d957e210f525b4761c12e498d893baf0186",

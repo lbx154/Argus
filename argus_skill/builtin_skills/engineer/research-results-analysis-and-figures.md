@@ -1,8 +1,8 @@
 ---
 name: Research Results Analysis And Figures
-description: Turn raw experiment outputs into evidence-grounded tables, claims, and paper figures without inventing missing numbers. Use the research vertical's unified visualization router for every visual.
+description: Turn raw experiment outputs into evidence-grounded tables, claims, and paper figures, and route every visual across PPT Master, HTML/SVG, ECharts, Recharts, Vega, FigureSpec, matplotlib, or optional image-2. Use PPT Master as a first-class polished editable route for non-data paper figures when installed; never invent missing numbers.
 category: research-analysis
-version: 2
+version: 3
 created_at: 2026-07-19T00:00:00+00:00
 ---
 
@@ -92,10 +92,17 @@ Then use `Research Visualization Router`:
 - data/result charts normally use matplotlib;
 - Vega/ECharts/Recharts/Plotly/HTML are valid when their semantics add value and
   they follow the fixed browser-render contract;
-- exact topology uses FigureSpec, Mermaid/Graphviz, or Draw.io;
-- slide-like editable composition may use PPT Master;
+- polished conceptual, method, architecture, teaser, or graphical-abstract
+  composition should consider installed PPT Master first when visual hierarchy,
+  icons, callouts, grouped modules, or editable design handoff matter;
+- simple exact topology may use FigureSpec, Mermaid/Graphviz, or Draw.io after
+  the router compares it with PPT Master and browser-native SVG;
 - image-2 is optional and selected only when configured and scientifically
   appropriate.
+
+Do not default to matplotlib for a non-data conceptual or method diagram merely
+because it is installed. Matplotlib is the ordinary statistical-chart route,
+not the universal fallback for paper graphics.
 
 Optionally record renderer/source metadata in `FIGURE_PROVENANCE.json` when it
 helps later repair. This metadata is not a paper-readiness gate. Image-2 outputs

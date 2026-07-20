@@ -1,8 +1,8 @@
 ---
 name: Research Visualization Router
-description: Select and execute the best evidence-preserving renderer for research figures across image-2, matplotlib, Vega, ECharts, Recharts/React, Plotly, HTML/SVG, FigureSpec, Mermaid/Graphviz, Draw.io, and PPT Master. Use for any research-paper figure, teaser, method diagram, architecture, data chart, qualitative visual, or interactive supplement.
+description: Use before rendering any research-paper visual. Select among installed PPT Master, HTML/SVG, ECharts, Recharts/React, Vega, Plotly, FigureSpec, diagrams, matplotlib, and optional image-2. Prefer PPT Master for polished editable non-data conceptual/method/architecture figures when available; image-2 is not required.
 category: research-visualization
-version: 1
+version: 2
 created_at: 2026-07-19T00:00:00+00:00
 protected: true
 ---
@@ -27,12 +27,20 @@ This Argus synthesis draws on permissively licensed official workflows:
 
 ```bash
 "${ARGUS_SKILL_PYTHON:-python}" -m argus_skill --model-api-status
+"${ARGUS_SKILL_BIN:-argus-skill}" --ppt-master-status
 ```
 
 Use the reported `image` and `image_review` availability. Do not inspect the
 capability vault or infer availability from prose. An unavailable image route is
 not a project blocker when a truthful deterministic renderer can express the
 same research content.
+
+The PPT Master status is independent of model API status. It succeeds only when
+the pinned toolkit is complete, clean, and has dependencies recorded for the
+active Python. A successful status means PPT Master is usable even when every
+image route is unavailable. Read its adapter and upstream routing workflow
+before choosing a renderer. If status fails, continue with another truthful
+deterministic route rather than blocking the paper.
 
 ## 2. Write the figure brief before choosing a tool
 
@@ -60,13 +68,15 @@ hashes, and provenance.
 | Existing React/Recharts research component | Preserve it; fixed numeric dimensions, seeded data, animation off, browser export |
 | Existing Plotly analysis | Kaleido with pinned Plotly/Kaleido/Chrome and local assets |
 | Bespoke HTML/D3/Observable Plot | Native SVG plus structural snapshot and browser screenshot |
-| Exact method/architecture topology | FigureSpec, Mermaid/Graphviz, or Draw.io |
-| Slide-like editable composition | Installed PPT Master; retain SVG/design spec and editable PPTX |
-| Expressive conceptual teaser | image-2 when configured and evidence-faithful; otherwise deterministic SVG/HTML/PPT route |
+| Polished conceptual/method/architecture figure with visual hierarchy, icons, callouts, or grouped modules | Installed PPT Master; retain source SVG/design spec, editable PPTX, and rendered paper asset |
+| Simple exact method/architecture topology | FigureSpec, Mermaid/Graphviz, or Draw.io after comparing the richer routes |
+| Expressive conceptual teaser | image-2 when configured and evidence-faithful; otherwise installed PPT Master or deterministic HTML/SVG |
 | Visual that inherently requires unavailable generative media | Mark blocked or redesign the claim; never fabricate an output |
 
 Do not introduce React for a simple line plot. Do not use a dashboard screenshot
 as a paper figure when the underlying SVG or declarative spec can be exported.
+Do not default to matplotlib for a non-data conceptual or method diagram merely
+because it is installed; use it for ordinary statistical charts.
 
 ## 4. Browser-render contract
 

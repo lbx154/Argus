@@ -1,8 +1,8 @@
 ---
-name: PPT Master (Argus adapter)
-description: Run the complete installed hugohe3/ppt-master workflow to generate editable PPTX decks, create reusable templates, fill native PPTX templates, or enhance finished decks. Use whenever the operator requests slides, a presentation, PPT/PPTX, a pitch deck, or explicitly mentions ppt-master.
+name: PPT Master for Presentations and Paper Figures (Argus adapter)
+description: Use the installed hugohe3/ppt-master workflow for polished editable research-paper conceptual, method, architecture, teaser, and graphical-abstract figures as well as PPTX decks and templates. This is a first-class deterministic visual route when image-2 is unavailable; it does not require a generative image model.
 category: visual-communication
-version: 2
+version: 3
 created_at: 2026-07-19T00:00:00+00:00
 ---
 
@@ -12,15 +12,30 @@ This is a thin adapter to the **complete upstream PPT Master installation**, not
 a summary or replacement workflow. Upstream is MIT-licensed and pinned by Argus
 to commit `2e29f3d3cfc379c689b07027d0fa776b9ff79291`.
 
+## When to use
+
+Use PPT Master when a paper or presentation needs deliberate visual hierarchy,
+editable composition, icons, callouts, grouped modules, or richer layout than a
+simple box-and-arrow renderer provides. Paper-facing uses include conceptual
+figures, method overviews, architecture diagrams, teasers, and graphical
+abstracts. The toolkit can produce these through SVG/design-spec/PPTX routes
+without image-2 or another generative image backend.
+
+Do not use PPT Master merely to restyle an ordinary statistical chart. Use the
+research visualization router to compare it with HTML/SVG, ECharts/Recharts,
+FigureSpec, and other installed deterministic routes before rendering.
+
 ## Locate and load the real skill
 
 ```bash
 PPT_MASTER_ROOT="${ARGUS_SKILL_HOME:-$HOME/.argus-skill}/tools/ppt-master"
 SKILL_DIR="$PPT_MASTER_ROOT/skills/ppt-master"
-test -f "$SKILL_DIR/SKILL.md"
+"${ARGUS_SKILL_BIN:-argus-skill}" --ppt-master-status
 ```
 
-If the check fails, stop and report that the operator must run:
+The status command validates the pinned revision, required toolkit files, clean
+checkout, and dependencies for the active Python. If it fails, stop and report
+that the operator must run:
 
 ```bash
 ${ARGUS_SKILL_BIN:-argus-skill} --install-ppt-master
@@ -28,7 +43,7 @@ ${ARGUS_SKILL_BIN:-argus-skill} --install-ppt-master
 
 Do not silently clone, update, or replace the toolkit inside a mission.
 
-Before doing any presentation work:
+Before doing any PPT Master work:
 
 1. Read `$SKILL_DIR/SKILL.md`.
 2. Read `$SKILL_DIR/workflows/routing.md`.
