@@ -118,9 +118,7 @@ def test_continuous_dispatch_persists_only_manager_handoff(memory):
     assert payload["objective"] == "managed: operator request"
 
 
-def test_lifetime_promotion_sets_pending_handoff(memory, monkeypatch):
-    runner = SimpleNamespace(classify_needs_continuous=lambda body: True)
-    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda state, mem: runner)
+def test_lifetime_promotion_sets_pending_handoff(memory):
     state = {"backend": "codex"}
 
     assert dispatch.maybe_promote_to_continuous(memory, "keep researching", state)
@@ -129,18 +127,115 @@ def test_lifetime_promotion_sets_pending_handoff(memory, monkeypatch):
     assert state["continuous_objective"] == ""
 
 
-def test_lifetime_promotion_keeps_explicit_bounded_task(memory, monkeypatch):
-    runner = SimpleNamespace(classify_needs_continuous=lambda body: False)
-    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda state, mem: runner)
+def test_lifetime_promotion_revalidates_existing_continuous_state(
+    memory, monkeypatch,
+):
+    from argus_skill.daemon.state import write_continuous_config
+
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
+    write_continuous_config(
+        memory.project.root,
+        enabled=True,
+        objective="existing campaign",
+    )
+    state = {
+        "backend": "codex",
+        "config": {"continuous": False},
+    }
+
+    assert dispatch.maybe_promote_to_continuous(memory, "keep researching", state)
+    assert state["config"]["continuous"] is True
+    assert state["continuous_objective"] == "existing campaign"
+    assert "_continuous_pending_manager_handoff" not in state
+
+
+def test_lifetime_promotion_repairs_stale_continuous_cache(memory, monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
+    state = {
+        "backend": "codex",
+        "config": {"continuous": True},
+    }
+
+    assert dispatch.maybe_promote_to_continuous(memory, "new campaign", state)
+    assert state["_continuous_pending_manager_handoff"] is True
+    assert state["continuous_objective"] == ""
+
+
+def test_lifetime_promotion_forces_explicit_bounded_task_to_continuous(memory):
+    state = {"backend": "codex", "_frontdoor_lifetime": "bounded"}
+
+    assert dispatch.maybe_promote_to_continuous(memory, "one report", state)
+    assert state["config"]["continuous"] is True
+    assert "_frontdoor_lifetime" not in state
+
+
+def test_lifetime_promotion_validates_the_life_backend(memory, monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "memory")
+    monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "memory")
+    monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "0")
     state = {"backend": "codex"}
 
-    assert not dispatch.maybe_promote_to_continuous(memory, "one report", state)
+    with pytest.raises(
+        front_door.ManagerHandoffError,
+        match="ARGUS_SKILL_LIFE_BACKEND=memory cannot plan",
+    ):
+        dispatch.maybe_promote_to_continuous(memory, "one report", state)
+
     assert "config" not in state
 
 
-def test_lifetime_promotion_reuses_frontdoor_verdict_without_second_call(
+def test_lifetime_promotion_validates_the_active_daemon_backend(
     memory, monkeypatch,
 ):
+    from argus_skill.daemon import life_worker
+
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
+    monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "0")
+    monkeypatch.setattr(
+        life_worker,
+        "read_daemon_status",
+        lambda life_dir: SimpleNamespace(
+            alive=True,
+            backend="copilot",
+            life_backend="memory",
+        ),
+    )
+    state = {"backend": "codex"}
+
+    with pytest.raises(
+        front_door.ManagerHandoffError,
+        match="ARGUS_SKILL_LIFE_BACKEND=memory cannot plan",
+    ):
+        dispatch.maybe_promote_to_continuous(memory, "one report", state)
+
+    assert "config" not in state
+
+
+def test_team_bounded_verdict_dispatches_through_continuous_handoff(
+    memory, monkeypatch,
+):
+    monkeypatch.setattr(
+        dispatch,
+        "_plan_bounded_execution",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("TEAM dispatch must not invoke bounded DAG planning")
+        ),
+    )
+    state = {"backend": "codex", "_frontdoor_lifetime": "bounded"}
+
+    assert dispatch.maybe_promote_to_continuous(memory, "one report", state)
+    item, _, _ = dispatch.enqueue_mission(memory, "one report", state)
+
+    assert item is None
+    assert memory.backlog.all() == []
+    payload = json.loads(
+        (memory.project.root / "continuous.json").read_text(encoding="utf-8")
+    )
+    assert payload["enabled"] is True
+    assert payload["objective"] == "managed: one report"
+
+
+def test_lifetime_promotion_never_calls_a_second_classifier(memory, monkeypatch):
     monkeypatch.setattr(
         front_door,
         "_ensure_manager_runner",
@@ -152,7 +247,7 @@ def test_lifetime_promotion_reuses_frontdoor_verdict_without_second_call(
     bounded = {"backend": "codex", "_frontdoor_lifetime": "bounded"}
 
     assert dispatch.maybe_promote_to_continuous(memory, "keep going", standing)
-    assert not dispatch.maybe_promote_to_continuous(memory, "one report", bounded)
+    assert dispatch.maybe_promote_to_continuous(memory, "one report", bounded)
     assert "_frontdoor_lifetime" not in standing
     assert "_frontdoor_lifetime" not in bounded
 

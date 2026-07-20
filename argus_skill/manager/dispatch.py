@@ -335,39 +335,35 @@ def maybe_promote_to_continuous(
     *,
     root_task_id: str | None = None,
 ) -> bool:
-    """Let Manager choose STANDING lifetime for an open-ended team task."""
-    frontdoor_lifetime = str(
-        chat_state.pop("_frontdoor_lifetime", "") or ""
-    ).strip().lower()
-    if frontdoor_lifetime == "bounded":
-        return False
-    if frontdoor_lifetime == "standing":
-        is_standing = True
-    else:
-        runner = front_door._ensure_manager_runner(chat_state, mem)
-        classify = getattr(runner, "classify_needs_continuous", None)
-        if runner is None or not callable(classify):
-            return False
+    """Promote every TEAM task to vertical-aware continuous planning."""
+    del root_task_id
+    chat_state.pop("_frontdoor_lifetime", None)
 
-        is_standing = True
-        try:
-            if root_task_id is None or not front_door._accepts_keyword(
-                classify,
-                "root_task_id",
-            ):
-                is_standing = bool(classify(body))
-            else:
-                is_standing = bool(classify(body, root_task_id=root_task_id))
-            if not is_standing:
-                return False
-        except Exception:  # noqa: BLE001 - substantive team work defaults to standing
-            pass
+    from ..core.knobs import resolve_role_backend
+    from ..daemon.life_worker import (
+        continuous_mode_error,
+        read_continuous_state,
+        read_daemon_status,
+    )
 
-    from ..daemon.life_worker import continuous_mode_error
-
-    backend = str(chat_state.get("backend") or "codex")
-    if continuous_mode_error(backend, True, body):
-        return False
+    life_dir = Path(front_door._life_dir_for(mem))
+    daemon_status = read_daemon_status(life_dir)
+    backend = (
+        str(daemon_status.life_backend or "")
+        if daemon_status.alive
+        else resolve_role_backend("")
+    )
+    error = continuous_mode_error(backend or resolve_role_backend(""), True, body)
+    if error:
+        raise front_door.ManagerHandoffError(error)
+    persisted = read_continuous_state(life_dir)
+    if persisted.enabled and persisted.objective.strip():
+        chat_state.setdefault("config", dict(DEFAULT_MANAGER_CONFIG))[
+            "continuous"
+        ] = True
+        chat_state["continuous_objective"] = persisted.objective
+        chat_state.pop("_continuous_pending_manager_handoff", None)
+        return True
 
     chat_state.setdefault("config", dict(DEFAULT_MANAGER_CONFIG))[
         "continuous"

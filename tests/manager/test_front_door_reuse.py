@@ -6,8 +6,9 @@ from argus_skill.manager.config_intent import _front_door_classify
 
 
 class _Manager:
-    def __init__(self, *, route: str) -> None:
+    def __init__(self, *, route: str, lifetime: str = "standing") -> None:
         self.route = route
+        self.lifetime = lifetime
 
     def classify_front_door(
         self,
@@ -18,7 +19,7 @@ class _Manager:
         name_sink=None,
     ):
         if self.route == "complex" and lifetime_sink is not None:
-            lifetime_sink("standing")
+            lifetime_sink(self.lifetime)
         if self.route == "simple" and greeting_sink is not None:
             greeting_sink("你好，我是 Argus Manager。")
         if name_sink is not None:
@@ -39,6 +40,24 @@ def test_front_door_wrapper_caches_team_lifetime_for_dispatch() -> None:
     assert decision == (None, None, "complex")
     assert state["_frontdoor_lifetime"] == "standing"
     assert "_frontdoor_vertical" not in state
+
+
+def test_front_door_wrapper_forces_team_to_standing() -> None:
+    state: dict = {}
+
+    decision = _front_door_classify(
+        object(),
+        "write one report",
+        state,
+        ensure_runner=lambda *_args: SimpleNamespace(
+            manager=_Manager(route="complex", lifetime="bounded")
+        ),
+    )
+
+    assert decision == (None, None, "complex")
+    assert state["_frontdoor_lifetime"] == "standing"
+
+
 def test_front_door_wrapper_carries_one_turn_greeting_reply() -> None:
     state: dict = {"_frontdoor_lifetime": "stale"}
 

@@ -342,6 +342,7 @@ def _daemon_status_payload(config: Any, *, started_at_iso: str) -> dict[str, Any
         "pid": os.getpid(),
         "started_at_iso": started_at_iso,
         "backend": backend,
+        "life_backend": str(config.backend or ""),
         "life_dir": str(config.life_dir),
         "project_workdir": (
             str(config.project_workdir)
@@ -362,6 +363,7 @@ class DaemonStatus:
     life_dir: Path
     project_workdir: str = ""
     backend: str | None = None
+    life_backend: str | None = None
     global_daily_cap_usd: float | None = None
     protocol_name: str = ""
     protocol_major: int | None = None
@@ -485,6 +487,7 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
         alive = False
     started_iso: str | None = None
     backend: str | None = None
+    life_backend: str | None = None
     project_workdir = ""
     global_daily_cap_usd: float | None = None
     protocol_name = ""
@@ -505,6 +508,7 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
                 )
             started_iso = data.get("started_at_iso")
             backend = data.get("backend")
+            life_backend = data.get("life_backend")
             project_workdir = str(data.get("project_workdir") or "")
             raw_global_daily = data.get("global_daily_cap_usd")
             if raw_global_daily is not None:
@@ -537,6 +541,7 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
         life_dir=life_dir,
         project_workdir=project_workdir,
         backend=backend,
+        life_backend=life_backend,
         global_daily_cap_usd=global_daily_cap_usd,
         protocol_name=protocol_name,
         protocol_major=protocol_major,

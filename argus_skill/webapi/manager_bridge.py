@@ -1096,10 +1096,6 @@ def manager_message(
                 "reply": reply,
             }
 
-        if (active_mission or mission_is_running(mem)) and control != "abort":
-            _phase("Manager · responding while the current mission continues")
-            route = "simple"
-
         if control == "no_dispatch":
             route = "simple"
 
@@ -1234,27 +1230,8 @@ def manager_message(
                 message_id=f"{turn_id}-argus",
             )
             return {"kind": "chat", "reply": reply}
-        if mission_is_running(mem):
-            reply = (
-                "[not dispatched] A mission became active while this message "
-                "was being handled; it was not added to the backlog."
-            )
-            _fragment("delta", {"text": reply})
-            try:
-                append_turn(life_dir, "argus", reply)
-            except Exception:  # noqa: BLE001
-                pass
-            _emit_ui_turn(
-                life_dir,
-                "argus",
-                reply,
-                message_id=f"{turn_id}-argus",
-            )
-            return {"kind": "chat", "reply": reply}
-
-        # 2) TEAM/complex — let Manager own lifetime before enqueue. Chat and
-        # simple one-turn work already returned above, so ambiguity defaults to
-        # STANDING; only an explicit Manager BOUNDED verdict remains one-shot.
+        # 2) TEAM/complex — always enter the vertical-aware continuous lifecycle.
+        # Chat and simple one-turn work already returned above.
         #
         # If the project lifecycle is ``done``, auto-resume it so the new
         # work can actually be picked up by the daemon.  Quarantined/archived
@@ -1263,15 +1240,14 @@ def manager_message(
         if _cancelled():
             return _cancelled_result()
         try:
+            _phase("Manager · validating continuous planning")
+            maybe_promote_to_continuous(
+                mem,
+                body,
+                chat_state,
+                root_task_id=root_task_id,
+            )
             resume_done_lifecycle_for_team_dispatch(mem)
-            if not chat_state.get("config", {}).get("continuous", False):
-                _phase("Manager · deciding task lifetime")
-                maybe_promote_to_continuous(
-                    mem,
-                    body,
-                    chat_state,
-                    root_task_id=root_task_id,
-                )
             item, daemon_alive, daemon_pid = enqueue_mission(
                 mem,
                 body,

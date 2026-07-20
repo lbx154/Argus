@@ -434,7 +434,7 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
     """Merged cockpit front door: classify once and reuse every cheap decision."""
     cleaned = (text or "").strip()
     return (
-        "Classify ONLY the current operator message on eight independent axes. "
+        "Classify ONLY the current operator message on seven independent axes. "
         "You do NOT choose the task vertical or execution workflow; the Manager "
         "does that later for every formal task.\n"
         f"ACTIVE_MISSION: {'YES' if active_mission else 'NO'}\n\n"
@@ -463,22 +463,18 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
         "ROUTE: SELF for conversation, read-only inspection/explanation/status, or "
         "control. TEAM for persistent file/artifact changes, commands, research, or "
         "engineering. Small one-shot artifacts are TEAM. If unsure, TEAM.\n\n"
-        "LIFETIME: TEAM only. BOUNDED has one concrete natural finish line. STANDING "
-        "is open-ended continuous improvement/search/monitoring. SELF=>NONE; "
-        "ambiguous TEAM=>STANDING.\n\n"
         "GREETING: GREETING only when the entire message is a pure greeting with "
         "no question, request, context reference, or other content. Otherwise NONE. "
         "This is a control token, never prose, and never changes ROUTE.\n\n"
         "NAME: concise title in the message language; 2-12 Chinese characters or "
         "2-8 words, core subject/action only, no polite framing, quotes, punctuation, "
         "or session id.\n\n"
-        "Reply with EXACTLY eight lines and nothing else:\n"
+        "Reply with EXACTLY seven lines and nothing else:\n"
         "CONFIG: <SET <knob> <roles> <value> | NONE>\n"
         "CONTROL: <ABORT | NO_DISPATCH | STEER | NONE>\n"
         "AUTHORIZATION: <AUTHORIZE <allowed-action[,allowed-action]> | NONE>\n"
         "STEER_DIRECTIVE: <Manager-authored team directive | NONE>\n"
         "ROUTE: <SELF | TEAM>\n"
-        "LIFETIME: <BOUNDED | STANDING | NONE>\n"
         "GREETING: <GREETING | NONE>\n"
         "NAME: <concise conversation title>\n"
         "SET syntax: SET <knob> <comma-separated roles|ALL|-> <verbatim value>.\n\n"
@@ -520,7 +516,6 @@ def classify_front_door(
     authorization_line = _line_after_prefix(answer, "AUTHORIZATION:")
     steering_line = _line_after_prefix(answer, "STEER_DIRECTIVE:")
     route_line = _line_after_prefix(answer, "ROUTE:")
-    lifetime_line = _line_after_prefix(answer, "LIFETIME:")
     greeting_line = _line_after_prefix(answer, "GREETING:")
     name_line = _line_after_prefix(answer, "NAME:")
     intent = _parse_config_line(config_line) if config_line is not None else None
@@ -549,13 +544,12 @@ def classify_front_door(
                 authorization_sink(authorization)
             except Exception:  # noqa: BLE001 - advisory metadata never owns routing
                 pass
-    lifetime_token = _first_alpha_token(lifetime_line).upper()
     lifetime: LifetimeIntent | None = None
     if route == "complex":
-        if lifetime_token in {"BOUNDED", "ONE_SHOT", "ONESHOT"}:
-            lifetime = "bounded"
-        elif lifetime_token in {"STANDING", "CONTINUOUS", "PERSIST", "PERSISTENT"}:
-            lifetime = "standing"
+        # TEAM work always enters the vertical-aware continuous lifecycle. Ignore
+        # stale/incorrect BOUNDED model output instead of silently selecting the
+        # generic bounded DAG Planner.
+        lifetime = "standing"
     if callable(lifetime_sink) and lifetime is not None:
         try:
             lifetime_sink(lifetime)
