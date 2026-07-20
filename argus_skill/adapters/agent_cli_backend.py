@@ -896,6 +896,11 @@ class AgentCliBackend:
                     else None
                 )
             )
+            provider_cost_usd = (
+                usage.provider_cost_usd
+                if usage.provider_cost_usd is not None
+                else result.cost_usd
+            )
             if usage_project_root is not None:
                 try:
                     from ..core.usage import (
@@ -938,7 +943,7 @@ class AgentCliBackend:
                         premium_requests=premium,
                         total_nano_aiu=result.total_nano_aiu,
                         provider_cost_usd=(
-                            usage.provider_cost_usd
+                            provider_cost_usd
                             if self._backend_name == "opencode"
                             else None
                         ),

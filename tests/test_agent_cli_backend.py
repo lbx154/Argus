@@ -263,6 +263,50 @@ def test_run_exec_translates_options_and_result(
     assert result.call_id_log_correlated is True
 
 
+def test_opencode_success_persists_provider_reported_cost(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = AgentCliBackend(backend="opencode")
+    project = tmp_path / ".argus"
+    backend.set_usage_context(project_root=project)
+
+    monkeypatch.setattr(
+        backend._argus_runner.__class__,
+        "run_exec",
+        lambda self, **kwargs: _make_argus_result(
+            json_events=[{
+                "type": "step_finish",
+                "part": {
+                    "tokens": {
+                        "input": 100,
+                        "output": 20,
+                        "reasoning": 5,
+                        "cache": {"read": 40, "write": 0},
+                    },
+                    "cost": 0.0123,
+                    "reason": "stop",
+                },
+            }],
+            thread_id="opencode-cost-thread",
+        ),
+        raising=True,
+    )
+
+    result = backend.run_exec(
+        prompt="priced OpenCode call",
+        options=RunnerOptions(model="anthropic/claude-sonnet-4-5"),
+        run_label="engineer-r1",
+    )
+
+    usage_row = json.loads((project / "usage.jsonl").read_text().strip())
+    assert result.cost_usd == pytest.approx(0.0123)
+    assert result.pricing_status == "priced"
+    assert usage_row["cost_usd"] == pytest.approx(0.0123)
+    assert usage_row["pricing_tier"] == "provider_reported"
+    assert usage_row["cost_basis"] == "provider_reported"
+
+
 def test_usage_context_keeps_explicit_global_budget_root(tmp_path: Path) -> None:
     backend = AgentCliBackend(backend="codex")
     project = tmp_path / "state" / "projects" / "s-test"
