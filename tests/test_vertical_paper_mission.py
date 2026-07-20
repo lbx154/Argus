@@ -11,9 +11,16 @@ from __future__ import annotations
 
 import pytest
 
-from argus_skill.apps._runtime import _paper_mission_for_project_root
+from argus_skill.apps._runtime import (
+    _independent_review_required_for_project_root,
+    _paper_mission_for_project_root,
+)
 from argus_skill.skills.vertical_select import persist_vertical
-from argus_skill.verticals._base import load_vertical, vertical_completion_gate
+from argus_skill.verticals._base import (
+    load_vertical,
+    vertical_completion_gate,
+    vertical_requires_independent_review,
+)
 
 OPTIMIZE = [
     "kernel_engineering",
@@ -31,17 +38,21 @@ def test_optimize_verticals_are_not_paper(vertical: str) -> None:
 
 def test_research_is_paper() -> None:
     assert vertical_completion_gate(load_vertical("research")) == "full_paper"
+    assert vertical_requires_independent_review(load_vertical("research")) is True
 
 
 def test_undecided_project_is_not_implicitly_paper(tmp_path) -> None:
     assert _paper_mission_for_project_root(tmp_path) is False
+    assert _independent_review_required_for_project_root(tmp_path) is False
 
 
 def test_persisted_research_project_is_paper(tmp_path) -> None:
     persist_vertical(tmp_path, "research")
     assert _paper_mission_for_project_root(tmp_path) is True
+    assert _independent_review_required_for_project_root(tmp_path) is True
 
 
 def test_persisted_bounded_vertical_is_not_paper(tmp_path) -> None:
     persist_vertical(tmp_path, "kernelbench")
     assert _paper_mission_for_project_root(tmp_path) is False
+    assert _independent_review_required_for_project_root(tmp_path) is False

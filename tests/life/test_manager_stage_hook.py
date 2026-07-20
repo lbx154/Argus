@@ -1391,3 +1391,32 @@ def test_execute_path_disables_self_review_when_independent_review_required(
         )
 
     assert captured.get("engineer_self_review_enabled") is False
+
+
+def test_execute_path_disables_self_review_for_research_vertical(
+    tmp_path: Path,
+) -> None:
+    captured: dict = {}
+
+    class _SpyConfig:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+            raise _ConfigKwargsCaptured(kwargs)
+
+    persist_vertical(tmp_path, "research")
+    runner = _SkillLoopRunner.__new__(_SkillLoopRunner)
+    runner._allow_chat_fast_path = False
+    runner._SkillLoopConfig = _SpyConfig
+    runner._args = SimpleNamespace(
+        engineer_model="stub-model",
+        reviewer_model="stub-model",
+        max_rounds=1,
+        workdir=str(tmp_path),
+        open_ended=True,
+        continuous_objective="complete the current research stage",
+    )
+
+    with pytest.raises(_ConfigKwargsCaptured):
+        runner.execute(objective="run the bounded premise probe", sink=_Sink())
+
+    assert captured.get("engineer_self_review_enabled") is False

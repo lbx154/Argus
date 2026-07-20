@@ -13,6 +13,8 @@ OPTIONAL hooks System (B) — the markdown stage checklists in
   markdown checklist items (default: research's ``STAGE_CHECKLISTS``).
 * ``role_banner(role: str) -> str`` — top-of-prompt framing for
   planner/reviewer/engineer (default ``""``).
+* ``REQUIRE_INDEPENDENT_REVIEW: bool`` — disable Engineer review waivers for
+  every mission in this vertical (default ``False``).
 * ``completion_gate: str`` — ``"full_paper"`` (research) | ``"metric"``
   (speedrun) | ``"none"`` (default ``"full_paper"``).
 
@@ -197,6 +199,11 @@ def vertical_role_banner(mod: VerticalDefinition, role: str) -> str:
     return result if isinstance(result, str) else ""
 
 
+def vertical_requires_independent_review(mod: VerticalDefinition) -> bool:
+    """Return whether every mission in this vertical requires a Reviewer."""
+    return bool(getattr(mod, "REQUIRE_INDEPENDENT_REVIEW", False))
+
+
 def vertical_completion_gate(mod: VerticalDefinition) -> str:
     """Return ``mod.completion_gate`` or the default ``"full_paper"``."""
     gate = getattr(mod, "completion_gate", None)
@@ -289,6 +296,7 @@ __all__ = [
     "vertical_checklist_items",
     "vertical_checklist_optional_stages",
     "vertical_role_banner",
+    "vertical_requires_independent_review",
     "vertical_completion_gate",
     "vertical_research_target_levels",
     "vertical_workflow_mode",
