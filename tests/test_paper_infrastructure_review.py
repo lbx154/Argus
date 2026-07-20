@@ -5,7 +5,10 @@ from pathlib import Path
 
 from argus_skill.verticals.research.paper_infrastructure_review import (
     REQUIRED_CHECKED_SCOPES,
+    PaperInfrastructureReviewError,
     generate_paper_infrastructure_review,
+)
+from argus_skill.verticals.research.paper_infrastructure_review import (
     main as paper_infrastructure_review_main,
 )
 
@@ -108,3 +111,42 @@ def test_cli_resolves_venue_from_project_root_not_cwd(
     assert rc == 0
     assert observed["venue"] == "AAAI"
     assert json.loads(out)["structural_status"] == "ok"
+
+
+def test_runner_failure_produces_blocked_review_artifact(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    paper_dir = tmp_path / "paper"
+    paper_dir.mkdir()
+    (paper_dir / "main.tex").write_text(
+        "\\section{Intro}\nHello.\n",
+        encoding="utf-8",
+    )
+    research_dir = tmp_path / "research"
+    research_dir.mkdir()
+    (research_dir / "PIPELINE_STATE.json").write_text(
+        '{"vertical":"research","target_venue":"EMNLP"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "argus_skill.verticals.research.paper_infrastructure_review.collect_latex_source_paths",
+        lambda root: (["paper/main.tex"], []),
+    )
+    monkeypatch.setattr(
+        "argus_skill.verticals.research.paper_infrastructure_review._read_source_texts",
+        lambda root, paths: {"paper/main.tex": "Hello."},
+    )
+    monkeypatch.setattr(
+        "argus_skill.verticals.research.paper_infrastructure_review._run_model_review",
+        lambda **kwargs: (_ for _ in ()).throw(
+            PaperInfrastructureReviewError("runner failed")
+        ),
+    )
+
+    result = generate_paper_infrastructure_review(tmp_path, write=False)
+
+    assert result["structural_status"] == "blocked"
+    assert "model_review_unavailable" in {
+        issue["code"] for issue in result["blocking_issues"]
+    }

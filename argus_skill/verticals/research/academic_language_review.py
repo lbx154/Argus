@@ -20,10 +20,7 @@ from argus_skill.tools.image_tool import (
     _require_route,
 )
 
-from ._reviewer_runner_fallback import (
-    run_reviewer_prompt_via_runner,
-    runner_fallback_enabled,
-)
+from ...skills.venue_profiles import VenueProfile, resolve_venue_profile
 from ._review_contract_constants import (
     ACADEMIC_LANGUAGE_REVIEW_GENERATED_BY,
     ACADEMIC_LANGUAGE_REVIEW_HISTORY_PATH,
@@ -33,7 +30,11 @@ from ._review_contract_constants import (
     review_sha256_json,
     review_sha256_text,
 )
-from ...skills.venue_profiles import VenueProfile, resolve_venue_profile
+from ._reviewer_runner_fallback import (
+    ReviewerRunnerError,
+    run_reviewer_prompt_via_runner,
+    runner_fallback_enabled,
+)
 
 PAPER_MAIN_TEX_PATH = Path("paper/main.tex")
 ACADEMIC_LANGUAGE_REVIEW_JSON_PATH = Path("paper/ACADEMIC_LANGUAGE_REVIEW.json")
@@ -767,12 +768,16 @@ def _run_model_review(
         # ARGUS_SKILL_REVIEWER_DISABLE_RUNNER_FALLBACK=1.
         if not runner_fallback_enabled(env):
             raise
-        raw_text, review_model = run_reviewer_prompt_via_runner(
-            prompt,
-            run_label="research.academic_language_review",
-            working_dir=str(root),
-            env=env,
-        )
+        try:
+            raw_text, review_model = run_reviewer_prompt_via_runner(
+                prompt,
+                run_label="research.academic_language_review",
+                working_dir=str(root),
+                env=env,
+                timeout=timeout,
+            )
+        except ReviewerRunnerError as exc:
+            raise AcademicLanguageReviewError(str(exc)) from exc
         endpoint = "runner"
     else:
         review_model = route.model

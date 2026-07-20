@@ -15,22 +15,28 @@ executes the rest of Argus, mirroring the fail-soft philosophy of the vision
 missing rather than hard-blocking).
 
 Set ``ARGUS_SKILL_REVIEWER_DISABLE_RUNNER_FALLBACK=1`` to restore the historic
-hard-block behaviour (require the model-API route). Overrides:
+hard-block behaviour (require the model-API route). The fallback uses the same
+canonical Reviewer role configuration as the resident fleet:
 
-* ``ARGUS_SKILL_REVIEWER_RUNNER_BACKEND`` — runner backend to drive the review
-  (``codex`` / ``claude`` / ``copilot``); falls back to
-  ``ARGUS_SKILL_RUNNER_BACKEND`` and finally ``copilot``.
+* ``ARGUS_SKILL_REVIEWER_BACKEND`` — runner backend to drive the review
+  (``codex`` / ``claude`` / ``copilot``), with the normal shared/persisted
+  fallback chain.
+* ``ARGUS_SKILL_REVIEWER_RUNNER_BIN`` — role-specific runner binary, falling
+  back to ``ARGUS_SKILL_RUNNER_BIN``.
 * ``ARGUS_SKILL_REVIEWER_MODEL`` — model id to request (default: the backend's
   configured default).
-* ``ARGUS_SKILL_REVIEWER_REASONING_EFFORT`` — default ``high``.
+* ``ARGUS_SKILL_REVIEWER_REASONING_EFFORT`` — normal persisted role effort,
+  default ``high`` for this gate.
 """
 from __future__ import annotations
 
+import math
 import os
+import shlex
+import time
 from typing import Mapping
 
 _DISABLE_ENV = "ARGUS_SKILL_REVIEWER_DISABLE_RUNNER_FALLBACK"
-_BACKEND_ENV = "ARGUS_SKILL_REVIEWER_RUNNER_BACKEND"
 _MODEL_ENV = "ARGUS_SKILL_REVIEWER_MODEL"
 _EFFORT_ENV = "ARGUS_SKILL_REVIEWER_REASONING_EFFORT"
 
@@ -45,6 +51,10 @@ _RUNNER_PREAMBLE = (
 )
 
 
+class ReviewerRunnerError(RuntimeError):
+    """Raised when the configured fleet Reviewer cannot return a valid turn."""
+
+
 def runner_fallback_enabled(env: Mapping[str, str] | None = None) -> bool:
     """Whether the agent-runner fallback may close the reviewer gate.
 
@@ -55,12 +65,32 @@ def runner_fallback_enabled(env: Mapping[str, str] | None = None) -> bool:
     return str(source.get(_DISABLE_ENV, "")).strip().lower() not in _TRUE_TOKENS
 
 
+def _resolve_reviewer_runner_bin(source: Mapping[str, str]) -> str | None:
+    candidates = (
+        "ARGUS_SKILL_REVIEWER_RUNNER_BIN",
+        "ARGUS_SKILL_RUNNER_BIN",
+    )
+    for name in candidates:
+        value = str(source.get(name, "") or "").strip()
+        if value:
+            return value
+    from ...core.knob_store import read_persisted_knobs
+
+    persisted = read_persisted_knobs()
+    for name in candidates:
+        value = str(persisted.get(name, "") or "").strip()
+        if value:
+            return value
+    return None
+
+
 def run_reviewer_prompt_via_runner(
     prompt: str,
     *,
     run_label: str,
     working_dir: str | None = None,
     env: Mapping[str, str] | None = None,
+    timeout: float,
 ) -> tuple[str, str]:
     """Run the reviewer PROMPT through the fleet agent-CLI runner.
 
@@ -73,36 +103,100 @@ def run_reviewer_prompt_via_runner(
 
     # Imported lazily so the review modules stay importable in environments that
     # never exercise the runner fallback (e.g. unit tests, docs builds).
-    from ...adapters.agent_cli_backend import AgentCliBackend
+    from ...adapters.agent_cli_backend import AgentCliBackend, _strip_legacy_codex_profile_args
+    from ...agent_cli.runner_backend import normalize_runner_backend
+    from ...core.knobs import (
+        resolve_knob,
+        resolve_role_backend,
+        resolve_role_model,
+        resolve_role_reasoning_effort,
+    )
     from ...core.models import RunnerOptions
     from ...core.run_gateway import run_exec as gateway_run_exec
 
-    backend_name = (
-        str(source.get(_BACKEND_ENV, "")).strip()
-        or str(source.get("ARGUS_SKILL_RUNNER_BACKEND", "")).strip()
-        or "copilot"
-    )
-    model = str(source.get(_MODEL_ENV, "")).strip() or None
-    effort = str(source.get(_EFFORT_ENV, "")).strip() or "high"
+    try:
+        timeout_s = float(timeout)
+    except (TypeError, ValueError) as exc:
+        raise ReviewerRunnerError(f"invalid reviewer timeout {timeout!r}") from exc
+    if not math.isfinite(timeout_s) or timeout_s <= 0:
+        raise ReviewerRunnerError(f"reviewer timeout must be positive; got {timeout!r}")
 
-    backend = AgentCliBackend(backend=backend_name)
-    result = gateway_run_exec(
-        backend,
-        prompt=_RUNNER_PREAMBLE + prompt,
-        options=RunnerOptions(
-            model=model,
-            reasoning_effort=effort,
-            skip_git_repo_check=True,
-            full_auto=True,
-            working_dir=working_dir,
-        ),
-        run_label=run_label,
-    )
+    try:
+        backend_name = normalize_runner_backend(
+            resolve_role_backend("reviewer", env=source)
+        )
+        model = (
+            resolve_role_model(
+                "reviewer",
+                role_env=_MODEL_ENV,
+                env=source,
+            ).strip()
+            or None
+        )
+        effort = resolve_role_reasoning_effort(
+            _EFFORT_ENV,
+            env=source,
+            default="high",
+        )
+        runner_bin = _resolve_reviewer_runner_bin(source)
+        raw_extra = resolve_knob(
+            "ARGUS_SKILL_RUNNER_EXTRA_ARGS",
+            "",
+            env=source,
+        ).value
+        extra_args = _strip_legacy_codex_profile_args(
+            shlex.split(raw_extra) if raw_extra else None
+        )
+    except Exception as exc:
+        raise ReviewerRunnerError(
+            f"invalid reviewer runner configuration: {type(exc).__name__}: {exc}"
+        ) from exc
+    deadline = time.monotonic() + timeout_s
+
+    def _timeout_reason() -> str | None:
+        if time.monotonic() >= deadline:
+            return f"reviewer timeout after {timeout_s:.1f}s"
+        return None
+
+    try:
+        backend = AgentCliBackend(
+            backend=backend_name,
+            runner_bin=runner_bin,
+            default_extra_args=extra_args,
+        )
+        result = gateway_run_exec(
+            backend,
+            prompt=_RUNNER_PREAMBLE + prompt,
+            options=RunnerOptions(
+                model=model,
+                reasoning_effort=effort,
+                skip_git_repo_check=True,
+                full_auto=True,
+                working_dir=working_dir,
+                external_interrupt_reason_provider=_timeout_reason,
+                watchdog_hard_idle_seconds=max(1, math.ceil(timeout_s)),
+            ),
+            run_label=run_label,
+        )
+    except Exception as exc:
+        raise ReviewerRunnerError(
+            f"reviewer runner could not start: {type(exc).__name__}: {exc}"
+        ) from exc
+
+    exit_code = int(getattr(result, "exit_code", -1))
+    fatal_error = str(getattr(result, "fatal_error", "") or "").strip()
+    if exit_code != 0 or fatal_error:
+        detail = fatal_error or f"runner exited with code {exit_code}"
+        raise ReviewerRunnerError(f"reviewer runner failed: {detail}")
     raw_text = (getattr(result, "last_agent_message", "") or "").strip()
     if not raw_text:
-        raise RuntimeError("reviewer runner returned no text")
+        raise ReviewerRunnerError("reviewer runner returned no text")
     model_label = f"runner:{backend_name}:{model or 'default'}"
     return raw_text, model_label
 
 
-__all__ = ["runner_fallback_enabled", "run_reviewer_prompt_via_runner"]
+__all__ = [
+    "ReviewerRunnerError",
+    "runner_fallback_enabled",
+    "run_reviewer_prompt_via_runner",
+]
