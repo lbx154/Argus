@@ -747,6 +747,163 @@ def test_daemon_upgrade_restarts_from_current_web_release(ctx, monkeypatch) -> N
     assert calls == [sid]
 
 
+def test_daemon_upgrade_schedule_returns_before_boundary_drain(
+    ctx,
+    monkeypatch,
+) -> None:
+    root, sid, _life = ctx
+    calls = []
+    monkeypatch.setattr(
+        server,
+        "schedule_project_daemon_upgrade",
+        lambda project_id, **kwargs: calls.append((project_id, kwargs))
+        or {"rc": 0, "scheduled": True, "reason": "release mismatch"},
+    )
+    client = TestClient(server.create_app(global_root=root))
+
+    response = client.post(f"/api/projects/{sid}/daemon/upgrade-schedule")
+
+    assert response.status_code == 200
+    assert response.json()["scheduled"] is True
+    assert calls == [(sid, {"global_root": root})]
+
+
+def test_schedule_daemon_upgrade_deduplicates_and_uses_long_boundary_wait(
+    ctx,
+    monkeypatch,
+) -> None:
+    root, sid, life = ctx
+    status = server.DaemonStatus(
+        alive=True,
+        pid=321,
+        started_at_iso=None,
+        uptime_seconds=5.0,
+        life_dir=life,
+        pid_path=life / "daemon.pid",
+    )
+    monkeypatch.setattr(server, "read_daemon_status", lambda path: status)
+    monkeypatch.setattr(
+        server,
+        "daemon_protocol_compatibility",
+        lambda value: (False, "release mismatch"),
+    )
+    monkeypatch.setattr(
+        server,
+        "daemon_runtime_owned_by_current_source",
+        lambda value: True,
+    )
+    source = root / "checkout"
+    source.mkdir()
+    monkeypatch.setattr(
+        server,
+        "runtime_identity",
+        lambda: {"source_root": str(source)},
+    )
+    monkeypatch.setattr(
+        server,
+        "read_continuous_state",
+        lambda path: SimpleNamespace(enabled=True, objective="keep going"),
+    )
+    stops = []
+    monkeypatch.setattr(
+        server,
+        "stop_daemon",
+        lambda path, **kwargs: stops.append((path, kwargs)) or 0,
+    )
+    starts = []
+    monkeypatch.setattr(
+        server,
+        "start_project_daemon",
+        lambda project_id, **kwargs: starts.append((project_id, kwargs))
+        or {"rc": 0},
+    )
+
+    class ImmediateThread:
+        def __init__(self, *, target, name, daemon):
+            self.target = target
+
+        def start(self):
+            self.target()
+
+    monkeypatch.setattr(server.threading, "Thread", ImmediateThread)
+    server._SCHEDULED_DAEMON_UPGRADES.clear()
+
+    result = server.schedule_project_daemon_upgrade(sid, global_root=root)
+
+    assert result == {"rc": 0, "scheduled": True, "reason": "release mismatch"}
+    assert stops == [(
+        life,
+        {
+            "drain": True,
+            "drain_timeout": 7 * 24 * 60 * 60,
+            "force": False,
+        },
+    )]
+    assert starts == [(
+        sid,
+        {"global_root": root, "resume_continuous": True},
+    )]
+    assert not (life / server.project_state.DAEMON_UPGRADE_REQUEST_FILE).exists()
+
+
+def test_pending_daemon_upgrade_survives_webapi_restart(
+    ctx,
+    monkeypatch,
+) -> None:
+    root, sid, life = ctx
+    source = root / "checkout"
+    source.mkdir()
+    monkeypatch.setattr(server, "runtime_identity", lambda: {"source_root": str(source)})
+    server._write_daemon_upgrade_request(
+        life,
+        {
+            "schema_version": 1,
+            "sid": sid,
+            "expected_pid": 321,
+            "source_root": str(source),
+            "resume_continuous": True,
+            "objective": "resume me",
+            "reason": "release mismatch",
+            "requested_at": 1,
+        },
+    )
+    monkeypatch.setattr(
+        server,
+        "read_daemon_status",
+        lambda path: server.DaemonStatus(
+            alive=False,
+            pid=None,
+            started_at_iso=None,
+            uptime_seconds=None,
+            life_dir=life,
+        ),
+    )
+    writes = []
+    monkeypatch.setattr(
+        server,
+        "write_continuous_config",
+        lambda path, **kwargs: writes.append((path, kwargs)),
+    )
+    starts = []
+    monkeypatch.setattr(
+        server,
+        "start_project_daemon",
+        lambda project_id, **kwargs: starts.append((project_id, kwargs))
+        or {"rc": 0},
+    )
+
+    result = server._complete_scheduled_daemon_upgrade(
+        sid,
+        life_dir=life,
+        global_root=root,
+    )
+
+    assert result == {"rc": 0, "upgraded": True}
+    assert writes == [(life, {"enabled": True, "objective": "resume me"})]
+    assert starts == [(sid, {"global_root": root, "resume_continuous": True})]
+    assert not (life / server.project_state.DAEMON_UPGRADE_REQUEST_FILE).exists()
+
+
 def test_daemon_upgrade_drains_and_restores_continuous_mode(
     ctx, monkeypatch,
 ) -> None:

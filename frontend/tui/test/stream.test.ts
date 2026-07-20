@@ -241,6 +241,30 @@ test('Ink can park a selected daemon and start the queued target', async () => {
   }
 });
 
+test('Ink can schedule a stale daemon upgrade without blocking launch', async () => {
+  const originalFetch = globalThis.fetch;
+  let seenUrl = '';
+  let seenBody: Record<string, unknown> = {};
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    seenUrl = String(input);
+    seenBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+    return new Response(JSON.stringify({
+      rc: 0,
+      scheduled: true,
+      reason: 'release mismatch',
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }) as typeof fetch;
+  try {
+    const api = new ApiClient({ host: '127.0.0.1', port: 8799, project: '_' });
+    const result = await api.scheduleDaemonUpgrade('s-stale');
+    assert.equal(result.scheduled, true);
+    assert.match(seenUrl, /\/api\/projects\/s-stale\/daemon\/upgrade-schedule$/);
+    assert.match(String(seenBody.command_id), /^[0-9a-f-]{36}$/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('Ink can create a global daemon with auth, name, and objective', async () => {
   const originalFetch = globalThis.fetch;
   let seenUrl = '';

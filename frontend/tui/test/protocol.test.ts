@@ -12,7 +12,12 @@ import {
 } from '../../core/src/protocol.js';
 import { RELEASE_ID, RELEASE_SOURCE_DIGEST } from '../../core/src/release.generated.js';
 import { ApiClient } from '../src/api.js';
-import { ensureApi, probeApi, type ApiProbeResult } from '../src/ensureApi.js';
+import {
+  ensureApi,
+  probeApi,
+  scheduleOutdatedDaemonUpgrades,
+  type ApiProbeResult,
+} from '../src/ensureApi.js';
 import { type ApiOwnershipRecord } from '../src/apiOwnership.js';
 
 function meta(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -213,6 +218,76 @@ test('startup probe uses the source identity exported by the Python launcher', a
     if (originalDigest === undefined) delete process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST;
     else process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST = originalDigest;
   }
+});
+
+test('launcher schedules only live daemons with incompatible runtime identity', async () => {
+  const calls: string[] = [];
+  const summary = await scheduleOutdatedDaemonUpgrades([
+    {
+      id: 'stale',
+      label: 'stale',
+      objective: '',
+      last_active: 1,
+      daemon_alive: true,
+      daemon_pid: 1,
+      uptime_seconds: 10,
+      daemon_protocol_compatible: false,
+      daemon_source_owned: true,
+    },
+    {
+      id: 'current',
+      label: 'current',
+      objective: '',
+      last_active: 1,
+      daemon_alive: true,
+      daemon_pid: 2,
+      uptime_seconds: 10,
+      daemon_protocol_compatible: true,
+      daemon_source_owned: true,
+    },
+    {
+      id: 'stopped',
+      label: 'stopped',
+      objective: '',
+      last_active: 1,
+      daemon_alive: false,
+      daemon_pid: null,
+      uptime_seconds: null,
+      daemon_protocol_compatible: false,
+      daemon_source_owned: true,
+    },
+    {
+      id: 'other-install',
+      label: 'other-install',
+      objective: '',
+      last_active: 1,
+      daemon_alive: true,
+      daemon_pid: 3,
+      uptime_seconds: 10,
+      daemon_protocol_compatible: false,
+      daemon_source_owned: false,
+    },
+    {
+      id: 'pending',
+      label: 'pending',
+      objective: '',
+      last_active: 1,
+      daemon_alive: false,
+      daemon_pid: null,
+      uptime_seconds: null,
+      daemon_protocol_compatible: null,
+      daemon_source_owned: false,
+      daemon_upgrade_pending: true,
+    },
+  ], async (sid) => {
+    calls.push(sid);
+  });
+  assert.deepEqual(calls, ['stale', 'pending']);
+  assert.deepEqual(summary, {
+    outdated: ['stale', 'pending'],
+    scheduled: ['stale', 'pending'],
+    failed: [],
+  });
 });
 
 test('ensureApi preserves and emits a compatible source-drift warning', async () => {

@@ -206,6 +206,9 @@ Every `argus` launch compares the current local source fingerprint with the
 running local WebAPI. It reuses a matching process, starts a missing one, and
 gracefully replaces an outdated process only after proving that the endpoint is
 owned by this Argus installation. It never signals an unrelated port occupant.
+The same launch also finds stale project daemons and schedules a drain-and-resume
+upgrade: an active mission reaches its normal reviewed boundary before the new
+daemon takes over, with no mid-mission `SIGKILL`.
 
 Argus targets three interchangeable agent-CLI backends:
 

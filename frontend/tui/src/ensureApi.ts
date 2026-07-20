@@ -9,6 +9,7 @@ import {
   type ApiMeta,
 } from '../../core/src/protocol.js';
 import { RELEASE_ID } from '../../core/src/release.generated.js';
+import type { ProjectRow } from '../../core/src/types.js';
 import {
   claimApiOwnership as claimApiOwnershipImpl,
   isLocalApiHost,
@@ -104,6 +105,33 @@ export interface EnsureResult {
   spawned: boolean;
   message: string;
   warning?: string;
+}
+
+export interface DaemonUpgradeScheduleSummary {
+  outdated: string[];
+  scheduled: string[];
+  failed: string[];
+}
+
+export async function scheduleOutdatedDaemonUpgrades(
+  projects: ProjectRow[],
+  schedule: (sid: string) => Promise<unknown>,
+): Promise<DaemonUpgradeScheduleSummary> {
+  const outdated = projects
+    .filter((project) =>
+      project.daemon_upgrade_pending === true
+      || (
+        project.daemon_alive
+        && project.daemon_protocol_compatible === false
+        && project.daemon_source_owned === true
+      ))
+    .map((project) => project.id);
+  const settled = await Promise.allSettled(outdated.map((sid) => schedule(sid)));
+  return {
+    outdated,
+    scheduled: outdated.filter((_, index) => settled[index].status === 'fulfilled'),
+    failed: outdated.filter((_, index) => settled[index].status === 'rejected'),
+  };
 }
 
 function compatibleResult(

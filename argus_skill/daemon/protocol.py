@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any
 
 from ..core.runtime_identity import runtime_identity
@@ -66,7 +67,8 @@ def daemon_protocol_compatibility(status: Any) -> tuple[bool | None, str]:
         worktree.get("dirty") is True or worktree.get("detached") is True
     ):
         return False, "daemon loaded a dirty or detached source checkout"
-    expected_release = str(runtime_identity().get("release_id") or "")
+    expected_runtime = runtime_identity()
+    expected_release = str(expected_runtime.get("release_id") or "")
     actual_release = str((runtime or {}).get("release_id") or "")
     if expected_release and actual_release and expected_release != actual_release:
         return (
@@ -74,7 +76,36 @@ def daemon_protocol_compatibility(status: Any) -> tuple[bool | None, str]:
             f"daemon release {actual_release} is incompatible with WebAPI release "
             f"{expected_release}",
         )
+    expected_digest = str(expected_runtime.get("runtime_source_digest") or "")
+    actual_digest = str((runtime or {}).get("runtime_source_digest") or "")
+    if expected_digest and actual_digest and expected_digest != actual_digest:
+        return (
+            False,
+            f"daemon process source {actual_digest[:16]} is incompatible with "
+            f"WebAPI source {expected_digest[:16]}",
+        )
     return True, ""
+
+
+def daemon_runtime_owned_by_current_source(status: Any) -> bool:
+    """Prove that a daemon was launched from this WebAPI installation."""
+    runtime = getattr(status, "runtime", None)
+    if not isinstance(runtime, dict):
+        return False
+    expected = str(runtime_identity().get("source_root") or "").strip()
+    if not expected:
+        return False
+    try:
+        expected_path = Path(expected).expanduser().resolve()
+    except OSError:
+        return False
+    candidate = str(runtime.get("source_root") or "").strip()
+    if not candidate:
+        return False
+    try:
+        return Path(candidate).expanduser().resolve() == expected_path
+    except OSError:
+        return False
 
 
 __all__ = [
@@ -83,5 +114,6 @@ __all__ = [
     "DAEMON_PROTOCOL_MINOR",
     "DAEMON_PROTOCOL_NAME",
     "daemon_protocol_compatibility",
+    "daemon_runtime_owned_by_current_source",
     "daemon_protocol_metadata",
 ]

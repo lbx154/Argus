@@ -34,10 +34,12 @@ Command POSTs (task/nudge/daemon start-stop/config) land in M1.
 
 import asyncio
 import json
+import logging
 import os
 import queue
 import shlex
 import shutil
+import tempfile
 import threading
 import time
 from contextlib import suppress
@@ -57,6 +59,7 @@ from ..core.metrics import (
     render_prometheus,
 )
 from ..core.provider_quota import provider_usage_snapshot
+from ..core.runtime_identity import runtime_identity
 from ..core.session import (
     SessionMeta,
     migrate_legacy_session_workdir,
@@ -87,6 +90,10 @@ from ..daemon.life_worker import (
 from ..daemon.life_worker import (
     spawn_detached_daemon_clean as spawn_detached_daemon,
 )
+from ..daemon.protocol import (
+    daemon_protocol_compatibility,
+    daemon_runtime_owned_by_current_source,
+)
 from ..life.memory import BacklogItem, LifeMemory, _read_jsonl_tail_history
 from ..manager.front_door import (
     ManagerHandoffError,
@@ -98,6 +105,9 @@ from .protocol import build_api_meta, protocol_header
 
 _DAEMON_ADMISSION_FILE = project_state.DAEMON_ADMISSION_FILE
 _daemon_dict = project_state.daemon_dict
+log = logging.getLogger(__name__)
+_SCHEDULED_DAEMON_UPGRADES: set[str] = set()
+_SCHEDULED_DAEMON_UPGRADES_LOCK = threading.Lock()
 _global_root = project_state.resolve_global_root
 _roles_list = project_state.roles_list
 _settled_spend = project_state.settled_spend
@@ -125,6 +135,7 @@ __all__ = [
     "replace_project_daemon", "list_running_daemons",
     "update_project", "delete_project", "list_trashed_projects",
     "restore_trashed_project", "upgrade_project_daemon",
+    "schedule_project_daemon_upgrade",
     "set_project_workdir",
     "set_continuous", "get_status", "get_journal", "add_project_note",
     "abort_project_mission", "dispose_backlog", "stop_backlog_iteration",
@@ -979,6 +990,7 @@ def upgrade_project_daemon(
     sid: str,
     *,
     global_root: Path | str | None = None,
+    drain_timeout: float = 1800.0,
 ) -> dict[str, Any] | None:
     """Restart one executor from the currently loaded checkout."""
     life_dir = project_life_dir(sid, global_root=global_root)
@@ -998,7 +1010,7 @@ def upgrade_project_daemon(
     stop_rc = stop_daemon(
         life_dir,
         drain=True,
-        drain_timeout=1800.0,
+        drain_timeout=drain_timeout,
         force=False,
     )
     if stop_rc not in {0, 1}:
@@ -1018,6 +1030,210 @@ def upgrade_project_daemon(
         resume_continuous=continuous.enabled,
     )
     return None if started is None else {**started, "upgraded": True}
+
+
+def _daemon_upgrade_request_path(life_dir: Path) -> Path:
+    return life_dir / project_state.DAEMON_UPGRADE_REQUEST_FILE
+
+
+def _read_daemon_upgrade_request(life_dir: Path) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(
+            _daemon_upgrade_request_path(life_dir).read_text(encoding="utf-8")
+        )
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return None
+    return (
+        payload
+        if isinstance(payload, dict) and payload.get("schema_version") == 1
+        else None
+    )
+
+
+def _write_daemon_upgrade_request(
+    life_dir: Path,
+    payload: dict[str, Any],
+) -> None:
+    life_dir.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=".daemon-upgrade-", dir=str(life_dir))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp_name, 0o600)
+        os.replace(tmp_name, _daemon_upgrade_request_path(life_dir))
+    finally:
+        with suppress(FileNotFoundError):
+            os.unlink(tmp_name)
+
+
+def _upgrade_request_matches_current_source(request: dict[str, Any]) -> bool:
+    requested = str(request.get("source_root") or "").strip()
+    current = str(runtime_identity().get("source_root") or "").strip()
+    if not requested or not current:
+        return False
+    try:
+        return (
+            Path(requested).expanduser().resolve()
+            == Path(current).expanduser().resolve()
+        )
+    except OSError:
+        return False
+
+
+def _record_daemon_upgrade_error(
+    life_dir: Path,
+    request: dict[str, Any],
+    error: str,
+) -> None:
+    _write_daemon_upgrade_request(
+        life_dir,
+        {
+            **request,
+            "last_error": str(error)[:1000],
+            "updated_at": time.time(),
+        },
+    )
+
+
+def _complete_scheduled_daemon_upgrade(
+    sid: str,
+    *,
+    life_dir: Path,
+    global_root: Path | str | None,
+) -> dict[str, Any]:
+    request = _read_daemon_upgrade_request(life_dir)
+    if request is None:
+        return {"rc": 0, "upgraded": False, "reason": "upgrade request is absent"}
+    if not _upgrade_request_matches_current_source(request):
+        return {
+            "rc": 2,
+            "error": "upgrade request belongs to a different Argus installation",
+        }
+
+    status = read_daemon_status(life_dir)
+    if status.alive and status.pid is not None:
+        compatible, _ = daemon_protocol_compatibility(status)
+        if daemon_runtime_owned_by_current_source(status) and compatible is True:
+            _daemon_upgrade_request_path(life_dir).unlink(missing_ok=True)
+            return {"rc": 0, "upgraded": False, "reason": "daemon is already current"}
+        expected_pid = int(request.get("expected_pid") or 0)
+        if (
+            status.pid != expected_pid
+            or not daemon_runtime_owned_by_current_source(status)
+        ):
+            error = "daemon identity changed before the scheduled drain"
+            _record_daemon_upgrade_error(life_dir, request, error)
+            return {"rc": 2, "error": error}
+        stop_rc = stop_daemon(
+            life_dir,
+            drain=True,
+            drain_timeout=7 * 24 * 60 * 60,
+            force=False,
+        )
+        if stop_rc not in {0, 1}:
+            error = "daemon is still draining at its mission boundary"
+            _record_daemon_upgrade_error(life_dir, request, error)
+            return {"rc": 2, "error": error}
+
+    resume_continuous = bool(request.get("resume_continuous"))
+    objective = str(request.get("objective") or "")
+    if resume_continuous:
+        write_continuous_config(
+            life_dir,
+            enabled=True,
+            objective=objective,
+        )
+    started = start_project_daemon(
+        sid,
+        global_root=_global_root(global_root),
+        resume_continuous=resume_continuous,
+    )
+    if started is None or int(started.get("rc") or 0) != 0:
+        error = (
+            "daemon restart returned no result"
+            if started is None
+            else str(started.get("error") or f"daemon restart returned {started!r}")
+        )
+        _record_daemon_upgrade_error(life_dir, request, error)
+        return {"rc": 2, "error": error}
+    _daemon_upgrade_request_path(life_dir).unlink(missing_ok=True)
+    return {**started, "upgraded": True}
+
+
+def schedule_project_daemon_upgrade(
+    sid: str,
+    *,
+    global_root: Path | str | None = None,
+) -> dict[str, Any] | None:
+    """Persist and asynchronously finish one same-installation daemon upgrade."""
+    life_dir = project_life_dir(sid, global_root=global_root)
+    if life_dir is None:
+        return None
+    request = _read_daemon_upgrade_request(life_dir)
+    if request is not None:
+        if not _upgrade_request_matches_current_source(request):
+            return {
+                "rc": 0,
+                "scheduled": False,
+                "reason": "upgrade request belongs to a different installation",
+            }
+        reason = str(request.get("reason") or "pending daemon upgrade")
+    else:
+        status = read_daemon_status(life_dir)
+        compatible, reason = daemon_protocol_compatibility(status)
+        if not status.alive or status.pid is None:
+            return {"rc": 0, "scheduled": False, "reason": "daemon is not running"}
+        if compatible is not False:
+            return {"rc": 0, "scheduled": False, "reason": "daemon is current"}
+        if not daemon_runtime_owned_by_current_source(status):
+            return {
+                "rc": 0,
+                "scheduled": False,
+                "reason": "daemon belongs to a different Argus installation",
+            }
+        continuous = read_continuous_state(life_dir)
+        request = {
+            "schema_version": 1,
+            "sid": sid,
+            "expected_pid": status.pid,
+            "source_root": str(runtime_identity().get("source_root") or ""),
+            "resume_continuous": bool(continuous.enabled),
+            "objective": str(continuous.objective or ""),
+            "reason": reason,
+            "requested_at": time.time(),
+        }
+        _write_daemon_upgrade_request(life_dir, request)
+
+    key = str(life_dir.resolve())
+    with _SCHEDULED_DAEMON_UPGRADES_LOCK:
+        if key in _SCHEDULED_DAEMON_UPGRADES:
+            return {"rc": 0, "scheduled": True, "reason": "upgrade already scheduled"}
+        _SCHEDULED_DAEMON_UPGRADES.add(key)
+
+    def _run() -> None:
+        try:
+            result = _complete_scheduled_daemon_upgrade(
+                sid,
+                life_dir=life_dir,
+                global_root=global_root,
+            )
+            if int(result.get("rc") or 0) != 0:
+                log.error("scheduled daemon upgrade incomplete sid=%s result=%r", sid, result)
+        except Exception:
+            log.exception("scheduled daemon upgrade crashed sid=%s", sid)
+        finally:
+            with _SCHEDULED_DAEMON_UPGRADES_LOCK:
+                _SCHEDULED_DAEMON_UPGRADES.discard(key)
+
+    threading.Thread(
+        target=_run,
+        name=f"argus-daemon-upgrade-{sid[:12]}",
+        daemon=True,
+    ).start()
+    return {"rc": 0, "scheduled": True, "reason": reason}
 
 
 def update_project(
@@ -2572,6 +2788,32 @@ def create_app(
             issuer="webapi",
             handler=lambda: _404_if_none(
                 upgrade_project_daemon(sid, global_root=project_root),
+                sid,
+            ),
+        )
+        return _command_response(receipt)
+
+    @app.post(
+        "/api/projects/{sid}/daemon/upgrade-schedule",
+        dependencies=[Depends(_require_auth)],
+    )
+    async def _daemon_upgrade_schedule(
+        sid: str,
+        body: _CommandIn | None = None,
+    ) -> dict[str, Any]:
+        command = body or _CommandIn()
+        life_dir = _resolve_or_404(sid)
+        project_root = _project_root_or_404(sid)
+        receipt = await run_in_threadpool(
+            execute_daemon_command,
+            life_dir,
+            operation="upgrade",
+            args={"scheduled": True},
+            command_id=command.command_id or None,
+            expected_revision=command.expected_revision,
+            issuer="webapi",
+            handler=lambda: _404_if_none(
+                schedule_project_daemon_upgrade(sid, global_root=project_root),
                 sid,
             ),
         )

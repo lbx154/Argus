@@ -350,6 +350,10 @@ export interface ProjectRow {
   daemon_alive: boolean;
   daemon_pid: number | null;
   uptime_seconds: number | null;
+  daemon_protocol_compatible?: boolean | null;
+  daemon_protocol_error?: string;
+  daemon_source_owned?: boolean;
+  daemon_upgrade_pending?: boolean;
   active_role?: string;
   activity?: string;
   current_task?: string;

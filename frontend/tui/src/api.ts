@@ -307,6 +307,24 @@ export class ApiClient {
     return result as unknown as DaemonStartResult;
   }
 
+  async scheduleDaemonUpgrade(
+    project: string,
+    expectedRevision?: number,
+    commandId = randomUUID(),
+  ): Promise<Record<string, unknown>> {
+    const path = `/api/projects/${encodeURIComponent(project)}/daemon/upgrade-schedule`;
+    const r = await fetch(`${this.httpBase}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      body: JSON.stringify({
+        command_id: commandId,
+        expected_revision: expectedRevision,
+      }),
+    });
+    await ensureResponseOk(r, 'POST', path);
+    return (await r.json()) as Record<string, unknown>;
+  }
+
   async setProjectLaunchCwd(project: string, launchCwd: string): Promise<void> {
     const path = `/api/projects/${encodeURIComponent(project)}/launch-cwd`;
     const r = await fetch(`${this.httpBase}${path}`, {

@@ -16,6 +16,7 @@ from argus_skill.daemon.protocol import (
     DAEMON_PROTOCOL_MINOR,
     DAEMON_PROTOCOL_NAME,
     daemon_protocol_compatibility,
+    daemon_runtime_owned_by_current_source,
 )
 
 
@@ -138,3 +139,73 @@ def test_daemon_from_different_release_is_incompatible(tmp_path: Path) -> None:
 
     assert compatible is False
     assert "incompatible with WebAPI release" in error
+
+
+def test_daemon_from_stale_process_source_is_incompatible(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "argus_skill.daemon.protocol.runtime_identity",
+        lambda: {
+            "release_id": "0.1.1+same",
+            "runtime_source_digest": "new-source-digest",
+        },
+    )
+    status = DaemonStatus(
+        alive=True,
+        pid=os.getpid(),
+        started_at_iso=None,
+        uptime_seconds=1.0,
+        life_dir=tmp_path,
+        protocol_name=DAEMON_PROTOCOL_NAME,
+        protocol_major=DAEMON_PROTOCOL_MAJOR,
+        protocol_minor=1,
+        capabilities=DAEMON_CAPABILITIES,
+        runtime={
+            "source_root_matches_config": True,
+            "release_id": "0.1.1+same",
+            "release_matches_source": True,
+            "runtime_source_digest": "old-source-digest",
+        },
+    )
+
+    compatible, error = daemon_protocol_compatibility(status)
+
+    assert compatible is False
+    assert "daemon process source" in error
+    assert "WebAPI source" in error
+
+
+def test_daemon_source_ownership_requires_same_installation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    current = tmp_path / "current"
+    other = tmp_path / "other"
+    current.mkdir()
+    other.mkdir()
+    monkeypatch.setattr(
+        "argus_skill.daemon.protocol.runtime_identity",
+        lambda: {"source_root": str(current)},
+    )
+
+    owned = DaemonStatus(
+        alive=True,
+        pid=1,
+        started_at_iso=None,
+        uptime_seconds=1.0,
+        life_dir=tmp_path,
+        runtime={"source_root": str(current)},
+    )
+    foreign = DaemonStatus(
+        alive=True,
+        pid=2,
+        started_at_iso=None,
+        uptime_seconds=1.0,
+        life_dir=tmp_path,
+        runtime={"source_root": str(other)},
+    )
+
+    assert daemon_runtime_owned_by_current_source(owned) is True
+    assert daemon_runtime_owned_by_current_source(foreign) is False

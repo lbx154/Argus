@@ -679,6 +679,10 @@ def test_list_projects(tmp_path: Path) -> None:
     assert "s-testaaaa" in ids
     p = next(p for p in projects if p["id"] == "s-testaaaa")
     assert p["daemon_alive"] is False
+    assert p["daemon_protocol_compatible"] is None
+    assert p["daemon_protocol_error"] == ""
+    assert p["daemon_source_owned"] is False
+    assert p["daemon_upgrade_pending"] is False
 
 
 def test_list_projects_hides_empty_shells_and_caps(tmp_path: Path) -> None:

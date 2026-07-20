@@ -12,17 +12,12 @@ import { FirstRun } from './components/FirstRun.js';
 import { ResumePicker } from './components/ResumePicker.js';
 import { Splash } from './components/Splash.js';
 import { Wordmark } from './components/Wordmark.js';
-import { ensureApi } from './ensureApi.js';
+import { ensureApi, scheduleOutdatedDaemonUpgrades } from './ensureApi.js';
 import { SPINNER, theme } from './theme.js';
 import { initialProjectSelection, interactiveStartup } from './initialProject.js';
-import type { ProjectSelection } from '../../core/src/projects.js';
 import { projectsForLaunchCwd } from '../../core/src/projects.js';
 import { openWebBrowser, webUiUrl } from './webLaunch.js';
 import { createImeCursorOutput, ImeCursorProvider } from './imeCursor.js';
-
-async function resolveProject(base: ApiClient, given?: string): Promise<ProjectSelection> {
-  return initialProjectSelection(await base.listProjects(), given);
-}
 
 /** A small spinner shown if the animation finishes before the API is reachable. */
 function Connecting({ note }: { note: string }) {
@@ -89,15 +84,32 @@ function Boot({ args, animate }: { args: Args; animate: boolean }) {
       }
       setNote('connecting…');
       try {
+        const availableProjects = await base.listProjects();
+        const upgrades = await scheduleOutdatedDaemonUpgrades(
+          availableProjects,
+          (sid) => base.scheduleDaemonUpgrade(sid),
+        );
+        if (upgrades.scheduled.length > 0) {
+          setInitialNotice((current) => [
+            current,
+            `${upgrades.scheduled.length} outdated daemon(s) will upgrade at the next mission boundary`,
+          ].filter(Boolean).join(' · '));
+        }
+        if (upgrades.failed.length > 0) {
+          setInitialNotice((current) => [
+            current,
+            `warning: could not schedule ${upgrades.failed.length} daemon upgrade(s)`,
+          ].filter(Boolean).join(' · '));
+        }
         const startup = interactiveStartup(args.project, args.resume);
         const selection = startup.kind === 'resume'
-          ? await resolveProject(base, startup.project)
+          ? initialProjectSelection(availableProjects, startup.project)
           : null;
         const created = startup.kind === 'fresh'
           ? await base.createDaemon(args.objective)
           : null;
         const resumable = startup.kind === 'pick'
-          ? projectsForLaunchCwd(await base.listProjects(), launchCwd, args.resumeAll)
+          ? projectsForLaunchCwd(availableProjects, launchCwd, args.resumeAll)
           : [];
         const sid = created?.sid ?? selection?.id ?? null;
         if (cancelled) return;
@@ -242,7 +254,12 @@ async function main() {
     });
     let project: string;
     try {
-      const selection = await resolveProject(probe, args.project);
+      const availableProjects = await probe.listProjects();
+      await scheduleOutdatedDaemonUpgrades(
+        availableProjects,
+        (sid) => probe.scheduleDaemonUpgrade(sid),
+      );
+      const selection = initialProjectSelection(availableProjects, args.project);
       if (selection.recovered) throw new Error(`project "${selection.requested}" not found`);
       if (!selection.id) throw new Error('no projects found');
       project = selection.id;

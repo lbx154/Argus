@@ -21,6 +21,7 @@ from ..core.cost_control import CostControlLockBusyError, cost_control_snapshot
 from ..core.metrics import metrics_snapshot
 from ..core.mission_view import snapshot_mission_view
 from ..core.provider_quota import provider_usage_snapshot
+from ..core.runtime_identity import runtime_identity
 from ..core.session import SessionMeta, list_sessions, read_session_meta
 from ..core.usage import UsageLedger, UsageSummary
 from ..daemon.commands import daemon_command_snapshot
@@ -30,11 +31,15 @@ from ..daemon.life_worker import (
     read_daemon_status,
     resolve_effective_budget,
 )
-from ..daemon.protocol import daemon_protocol_compatibility
+from ..daemon.protocol import (
+    daemon_protocol_compatibility,
+    daemon_runtime_owned_by_current_source,
+)
 from ..life.memory import LifeMemory
 from .protocol import SNAPSHOT_SCHEMA_VERSION
 
 DAEMON_ADMISSION_FILE = "daemon.admission.json"
+DAEMON_UPGRADE_REQUEST_FILE = "daemon.upgrade-request.json"
 _PROJECT_INDEX_LABEL_CHARS = 180
 _PROJECT_INDEX_OBJECTIVE_CHARS = 1_000
 
@@ -61,6 +66,28 @@ def _project_index_text(value: Any, limit: int, *, single_line: bool = False) ->
 
 def resolve_global_root(value: Path | str | None) -> Path:
     return Path(value) if value is not None else core_paths.global_root()
+
+
+def daemon_upgrade_pending(life_dir: Path) -> bool:
+    try:
+        payload = json.loads(
+            (life_dir / DAEMON_UPGRADE_REQUEST_FILE).read_text(encoding="utf-8")
+        )
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+        return False
+    requested_source = str(payload.get("source_root") or "").strip()
+    current_source = str(runtime_identity().get("source_root") or "").strip()
+    if not requested_source or not current_source:
+        return False
+    try:
+        return (
+            Path(requested_source).expanduser().resolve()
+            == Path(current_source).expanduser().resolve()
+        )
+    except OSError:
+        return False
 
 
 def _cached_metrics_snapshot(
@@ -529,10 +556,18 @@ def list_projects(
             item["daemon_alive"] = bool(status.alive)
             item["daemon_pid"] = status.pid
             item["uptime_seconds"] = status.uptime_seconds
+            compatible, protocol_error = daemon_protocol_compatibility(status)
+            item["daemon_protocol_compatible"] = compatible
+            item["daemon_protocol_error"] = protocol_error
+            item["daemon_source_owned"] = daemon_runtime_owned_by_current_source(status)
         except Exception:  # noqa: BLE001 - picker remains available
             item["daemon_alive"] = False
             item["daemon_pid"] = None
             item["uptime_seconds"] = None
+            item["daemon_protocol_compatible"] = None
+            item["daemon_protocol_error"] = ""
+            item["daemon_source_owned"] = False
+        item["daemon_upgrade_pending"] = daemon_upgrade_pending(life_dir)
         try:
             continuous = read_continuous_state(life_dir)
             campaign_objective = str(continuous.objective or "").strip()
