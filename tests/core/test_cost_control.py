@@ -152,7 +152,7 @@ def test_priced_settlement_replaces_hold_with_global_ledger_cost(
     }
 
 
-def test_unpriced_cost_blocks_global_pool_until_reconciled(
+def test_unpriced_cost_is_observed_without_globally_blocking(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -167,9 +167,14 @@ def test_unpriced_cost_blocks_global_pool_until_reconciled(
     UsageLedger(project, migrate_legacy=False).append(record)
     reservation.settle(record)
 
-    blocked, reason = _reserve(tmp_path, project, "call-2")
-    assert blocked is None
-    assert "unresolved provider cost" in reason
+    snapshot = cost_control_snapshot(global_root=tmp_path)
+    assert snapshot["unresolved_calls"] == 1
+    assert snapshot["blocking_unresolved_calls"] == 0
+
+    next_call, reason = _reserve(tmp_path, project, "call-2")
+    assert next_call is not None and reason == ""
+    assert next_call.amount_usd == 0.0
+    next_call.release(reason="test")
 
     control, reason = reserve_call_budget(
         call_id="control-1",
@@ -181,8 +186,8 @@ def test_unpriced_cost_blocks_global_pool_until_reconciled(
         global_root=tmp_path,
         global_daily_cap_usd=10.0,
     )
-    assert control is None
-    assert "unresolved provider cost" in reason
+    assert control is not None and reason == ""
+    control.release(reason="test")
 
 
 @pytest.mark.parametrize(
@@ -192,7 +197,7 @@ def test_unpriced_cost_blocks_global_pool_until_reconciled(
         "External interrupt: operator abort requested: stop now",
     ],
 )
-def test_partial_copilot_cost_blocks_all_later_calls(
+def test_partial_copilot_cost_does_not_create_a_second_budget_gate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     error: str,
@@ -228,7 +233,7 @@ def test_partial_copilot_cost_blocks_all_later_calls(
     UsageLedger(project, migrate_legacy=False).append(record)
     admission.settle(record)
 
-    blocked, reason = reserve_call_budget(
+    admitted, reason = reserve_call_budget(
         call_id="control-after-partial",
         project_root=project,
         mission_id="manager-turn",
@@ -239,8 +244,8 @@ def test_partial_copilot_cost_blocks_all_later_calls(
         global_daily_cap_usd=10.0,
     )
 
-    assert blocked is None
-    assert "unresolved provider cost" in reason
+    assert admitted is not None and reason == ""
+    admitted.release(reason="test")
 
 
 def test_dead_process_hold_is_pruned(tmp_path: Path) -> None:

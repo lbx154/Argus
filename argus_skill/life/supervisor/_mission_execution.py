@@ -672,7 +672,7 @@ class MissionExecutionMixin:
             and not planner_bounded_node
             and isinstance(stage_transition, dict)
             and bool(stage_transition)
-            and stage_action != "complete"
+            and stage_action in {"advance", "rollback"}
         )
         if staged_item_continues:
             self.memory.backlog.update(
@@ -682,18 +682,54 @@ class MissionExecutionMixin:
                 finished_ts=None,
                 last_error="",
             )
-            held = stage_action not in {"advance", "rollback"}
-            if held:
-                self._update_no_progress_streak(
-                    kind="mission_failed",
-                    report={
-                        "forward_progress": False,
-                        "headline": f"manager stage decision: {stage_action or 'unknown'}",
-                    },
-                )
             return {
                 "success": True,
-                "status": "stage_hold" if held else "stage_continues",
+                "status": "stage_continues",
+                "item_id": item.id,
+                "stage_transition": stage_transition,
+                "cost_usd": usd,
+                "known_cost_usd": known_usd,
+                "pricing_status": usage_summary.pricing_status,
+            }
+
+        bounded_stage_hold = (
+            (success or status == "research_incomplete")
+            and not self.config.continuous
+            and not planner_bounded_node
+            and isinstance(stage_transition, dict)
+            and bool(stage_transition)
+            and stage_action == "hold"
+        )
+        if bounded_stage_hold:
+            hold_reason = str(
+                stage_transition.get("reason")
+                or "Manager held the current stage"
+            )
+            hold_outcome = mission_outcome_dimensions(
+                status="stage_hold",
+                success=False,
+                review_status=str(
+                    getattr(outcome, "final_review_status", "") or ""
+                ),
+                stage_transition=stage_transition,
+                stop_kind=stop_kind,
+                resumable=False,
+            )
+            self.memory.backlog.mark_failed(
+                item.id,
+                error=f"manager stage hold: {hold_reason}",
+                outcome=hold_outcome,
+            )
+            self._update_no_progress_streak(
+                kind="mission_failed",
+                report={
+                    "forward_progress": False,
+                    "headline": "manager stage decision: hold",
+                },
+            )
+            return {
+                "success": False,
+                "status": "stage_hold",
                 "item_id": item.id,
                 "stage_transition": stage_transition,
                 "cost_usd": usd,

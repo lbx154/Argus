@@ -44,6 +44,15 @@ class _PauseThenCompleteRunner:
         return _Outcome(success=True, status="done")
 
 
+class _CompleteRunner:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def execute(self, **_kwargs: Any) -> _Outcome:
+        self.calls += 1
+        return _Outcome(success=True, status="done")
+
+
 def test_paused_budget_is_recoverable_with_fresh_usage_attempt(tmp_path) -> None:
     memory = LifeMemory.open(tmp_path / "life")
     runner = _PauseThenCompleteRunner()
@@ -103,3 +112,61 @@ def test_budget_pause_backoff_never_starts_idle_timeout(tmp_path) -> None:
 
     assert supervisor._idle_since is None
     assert supervisor._maybe_idle_timeout() == ""
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        "paused_budget",
+        "paused_provider_cooldown",
+        "paused_provider_fence",
+        "paused_daemon_shutdown",
+    ],
+)
+def test_supervisor_auto_resumes_external_recoverable_pauses(
+    tmp_path,
+    status: str,
+) -> None:
+    memory = LifeMemory.open(tmp_path / "life")
+    item = BacklogItem.new(title="resume me", objective="continue")
+    item.status = status
+    memory.backlog.add(item)
+    runner = _CompleteRunner()
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=runner,
+        sink=_Sink(),
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(max_missions=2),
+            poll_interval_seconds=0.0,
+        ),
+    )
+
+    summary = supervisor.run()
+
+    stored = next(row for row in memory.backlog.all() if row.id == item.id)
+    assert stored.status == "done"
+    assert stored.attempt == 2
+    assert runner.calls == 1
+    assert summary["missions_run"] == 1
+
+
+def test_supervisor_does_not_auto_resume_operator_pause(tmp_path) -> None:
+    memory = LifeMemory.open(tmp_path / "life")
+    item = BacklogItem.new(title="operator paused", objective="wait")
+    item.status = "paused_operator"
+    memory.backlog.add(item)
+    runner = _CompleteRunner()
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=runner,
+        sink=_Sink(),
+        config=LifeSupervisorConfig(poll_interval_seconds=0.0),
+    )
+
+    summary = supervisor.run()
+
+    stored = next(row for row in memory.backlog.all() if row.id == item.id)
+    assert stored.status == "paused_operator"
+    assert runner.calls == 0
+    assert summary["missions_run"] == 0

@@ -731,7 +731,7 @@ def test_bounded_item_finishes_only_after_final_stage_complete(tmp_path: Path) -
     assert persisted.status == "done"
 
 
-def test_bounded_stage_hold_stays_pending_without_immediate_rerun(tmp_path: Path) -> None:
+def test_bounded_stage_hold_is_terminal_instead_of_rearming_same_item(tmp_path: Path) -> None:
     memory = LifeMemory.open(tmp_path / "life")
     item = memory.backlog.add(
         BacklogItem.new(title="full bounded task", objective="finish every stage")
@@ -752,7 +752,9 @@ def test_bounded_stage_hold_stays_pending_without_immediate_rerun(tmp_path: Path
     assert result["stopped_by"] == "stage_hold"
     assert result["missions_run"] == 1
     persisted = next(entry for entry in memory.backlog.all() if entry.id == item.id)
-    assert persisted.status == "pending"
+    assert persisted.status == "failed"
+    assert "manager stage hold" in persisted.last_error
+    assert memory.backlog.next_pending() is None
 
 
 def test_planner_bounded_node_closes_even_when_project_stage_holds(

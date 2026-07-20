@@ -6,6 +6,11 @@ from types import SimpleNamespace
 from argus_skill.core.models import RunnerResult
 from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+from argus_skill.life.supervisor._constants import (
+    PLAN_ERROR,
+    PLAN_RETRY,
+    PLAN_TERMINAL_IDLE,
+)
 from argus_skill.planner import Planner
 
 
@@ -610,6 +615,8 @@ def test_fully_filtered_replacement_emits_correlated_rejection(
         BacklogItem.new(
             title="discover replacement",
             objective="execute discover replacement",
+            tags=["scope:bounded"],
+            acceptance_check="the prior route was falsified",
         )
     )
     supervisor.memory.backlog.mark_done(duplicate.id)
@@ -625,6 +632,48 @@ def test_fully_filtered_replacement_emits_correlated_rejection(
     assert rejected[-1]["expected_plan_id"] == "plan-a"
     assert rejected[-1]["expected_plan_version"] == 1
     assert rejected[-1]["reason"] == "all replacement tasks were filtered"
+
+
+def test_fully_filtered_replacement_stops_after_bounded_retries(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    supervisor, sink = _supervisor(
+        tmp_path,
+        planner_response=_single_replacement_verdict(),
+    )
+    _seed_plan(supervisor)
+    duplicate = supervisor.memory.backlog.add(
+        BacklogItem.new(
+            title="discover replacement",
+            objective="execute discover replacement",
+            tags=["scope:bounded"],
+            acceptance_check="the prior route was falsified",
+        )
+    )
+    supervisor.memory.backlog.mark_done(duplicate.id)
+    _isolate_planning(supervisor, monkeypatch)
+
+    assert supervisor._plan_next_work(revision_request=_revision_request()) == PLAN_RETRY
+    assert supervisor._plan_next_work(revision_request=_revision_request()) == PLAN_RETRY
+    assert (
+        supervisor._plan_next_work(revision_request=_revision_request())
+        == PLAN_TERMINAL_IDLE
+    )
+
+    current = next(
+        item for item in supervisor.memory.backlog.all() if item.id == "current"
+    )
+    assert current.status == "failed"
+    assert current.replan_rejections == 3
+    assert "filtered replacement" in current.last_error
+    rejected = [
+        event
+        for event in sink.events
+        if event["type"] == "life.plan.revision.rejected"
+    ]
+    assert rejected[-1]["terminal"] is True
+    assert rejected[-1]["attempts"] == 3
 
 
 def test_replan_request_uses_existing_planner_gate(tmp_path, monkeypatch) -> None:
@@ -725,7 +774,8 @@ def test_revision_without_planner_resolves_proposal_as_rejected(
     _seed_plan(supervisor)
     _isolate_planning(supervisor, monkeypatch)
 
-    assert supervisor._plan_next_work(revision_request=_revision_request()) is None
+    assert supervisor._plan_next_work(revision_request=_revision_request()) == PLAN_ERROR
+    assert supervisor._suggested_sleep_s > 0
 
     types = [event["type"] for event in sink.events]
     assert types.count("life.plan.revision.proposed") == 1
@@ -767,7 +817,8 @@ def test_revision_uncaught_planner_exception_resolves_proposal_as_rejected(
 
     monkeypatch.setattr(Planner, "plan_next", raise_uncaught)
 
-    assert supervisor._plan_next_work(revision_request=_revision_request()) is None
+    assert supervisor._plan_next_work(revision_request=_revision_request()) == PLAN_ERROR
+    assert supervisor._suggested_sleep_s > 0
 
     rejected = [
         event
@@ -777,6 +828,77 @@ def test_revision_uncaught_planner_exception_resolves_proposal_as_rejected(
     assert rejected[-1]["reason"] == (
         "planner raised: RuntimeError: uncaught planner fault"
     )
+
+
+def test_no_runner_and_planner_exception_use_exponential_backoff(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    no_runner, _sink = _supervisor(tmp_path)
+    _isolate_planning(no_runner, monkeypatch)
+    assert no_runner._plan_next_work() == PLAN_ERROR
+    first_sleep = no_runner._suggested_sleep_s
+    assert first_sleep > 0
+
+    failing, _sink = _supervisor(tmp_path / "failing")
+    failing.planner_runner = _RaisingPlannerRunner()
+    _isolate_planning(failing, monkeypatch)
+    assert failing._plan_next_work() == PLAN_ERROR
+    assert failing._suggested_sleep_s > 0
+
+
+def test_repeated_manager_feedback_enters_terminal_idle_circuit_breaker(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    supervisor, sink = _supervisor(
+        tmp_path,
+        planner_response=_single_replacement_verdict(),
+    )
+    project = tmp_path / "project"
+    project.mkdir()
+    supervisor.config.project_worktree = project
+    supervisor.config.artifact_root = project
+    _isolate_planning(supervisor, monkeypatch)
+    for _ in range(3):
+        assert supervisor._persist_manager_planner_feedback(
+            stage="scope",
+            reason="reviewer evidence is still missing",
+            diagnostic="planner_wait_advance_rejected",
+        )
+
+    assert supervisor._plan_next_work() == PLAN_TERMINAL_IDLE
+    assert supervisor._suggested_sleep_s > 0
+    assert any(
+        event.get("type") == "life.manager.feedback.exhausted"
+        for event in sink.events
+    )
+
+
+def test_new_project_evidence_wakes_manager_feedback_circuit_breaker(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    supervisor, _sink = _supervisor(
+        tmp_path,
+        planner_response=_single_replacement_verdict(),
+    )
+    project = tmp_path / "project"
+    project.mkdir()
+    supervisor.config.project_worktree = project
+    supervisor.config.artifact_root = project
+    _isolate_planning(supervisor, monkeypatch)
+    for _ in range(3):
+        assert supervisor._persist_manager_planner_feedback(
+            stage="scope",
+            reason="reviewer evidence is still missing",
+            diagnostic="planner_wait_advance_rejected",
+        )
+
+    (project / "new-evidence.txt").write_text("certified\n", encoding="utf-8")
+
+    assert supervisor._plan_next_work() is True
+    assert supervisor._load_manager_planner_feedback() is None
 
 
 def test_revision_restart_without_tasks_resolves_proposal_as_rejected(

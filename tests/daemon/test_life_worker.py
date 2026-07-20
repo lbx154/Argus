@@ -1945,6 +1945,40 @@ def test_resume_with_additive_objective_preserves_existing_pipeline_stage(
     assert read_continuous_state(tmp_path).objective == extended
 
 
+def test_terminal_workspace_without_prior_handoff_reopens_for_new_daemon_intent(
+    tmp_path: Path,
+) -> None:
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    persist_vertical(tmp_path, "software")
+    state_path = tmp_path / "research" / "PIPELINE_STATE.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["current_stage"] = "delivery"
+    state["stages"] = {"delivery": {"status": "done"}}
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    assert life_worker_mod._daemon_objective_requires_stage_reset(
+        project_root=tmp_path,
+        prior_vertical="software",
+        next_vertical="software",
+        prior_handoff=None,
+        expected_objective="new objective",
+        source_objective="new objective",
+        execution_task="new objective",
+    ) is True
+    assert life_worker_mod._daemon_objective_requires_stage_reset(
+        project_root=tmp_path,
+        prior_vertical="software",
+        next_vertical="software",
+        prior_handoff={
+            "objective_sha256": life_worker_mod._objective_sha256("new objective")
+        },
+        expected_objective="new objective",
+        source_objective="new objective",
+        execution_task="new objective",
+    ) is True
+
+
 def test_life_worker_keeps_continuous_enabled_on_terminal_idle(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

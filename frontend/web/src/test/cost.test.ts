@@ -46,11 +46,23 @@ describe('CostGauge', () => {
         daemon: undefined,
       }),
     );
+    expect(markup).toContain('model/API spend');
     expect(markup).toContain('partial');
     expect(markup).not.toContain('$0.00');
   });
 
-  it('surfaces unresolved global cost as a cost-control error', () => {
+  it('labels the amount as model API spend rather than total infrastructure cost', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(CostGauge, {
+        settledUsd: 2.5,
+        daemon: undefined,
+      }),
+    );
+    expect(markup).toContain('model/API spend');
+    expect(markup).not.toContain('cumulative cost');
+  });
+
+  it('surfaces bounded unresolved model cost without claiming a global block', () => {
     const markup = renderToStaticMarkup(
       React.createElement(CostGauge, {
         settledUsd: 1,
@@ -59,12 +71,14 @@ describe('CostGauge', () => {
           day: '2026-07-11',
           active_reservations: 0,
           unresolved_calls: 1,
+          blocking_unresolved_calls: 0,
           unresolved: [],
           policy: 'block',
         },
       }),
     );
     expect(markup).toContain('unresolved 1');
-    expect(markup).toContain('text-err');
+    expect(markup).toContain('text-ink-faint');
+    expect(markup).not.toContain('text-err');
   });
 });

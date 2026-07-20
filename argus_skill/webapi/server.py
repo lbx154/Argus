@@ -918,8 +918,8 @@ def set_project_workdir(
 
     with (
         session_lifecycle_lock(root, sid),
-        manager_session_lock(life_dir),
         manager_pipeline_lock(life_dir),
+        manager_session_lock(life_dir),
     ):
         spawn_lock = _acquire_daemon_spawn_lock(config)
         workspace_lease = None
@@ -996,7 +996,7 @@ def upgrade_project_daemon(
     global_root: Path | str | None = None,
     drain_timeout: float = 1800.0,
 ) -> dict[str, Any] | None:
-    """Restart one executor from the currently loaded checkout."""
+    """Restart one executor without blocking on a long active mission."""
     life_dir = project_life_dir(sid, global_root=global_root)
     if life_dir is None:
         return None
@@ -1014,9 +1014,32 @@ def upgrade_project_daemon(
     stop_rc = stop_daemon(
         life_dir,
         drain=True,
-        drain_timeout=drain_timeout,
+        drain_timeout=0.0,
         force=False,
     )
+    if stop_rc == 2:
+        _write_daemon_upgrade_request(
+            life_dir,
+            {
+                "schema_version": 1,
+                "sid": sid,
+                "expected_pid": status.pid,
+                "source_root": str(runtime_identity().get("source_root") or ""),
+                "resume_continuous": bool(continuous.enabled),
+                "objective": str(continuous.objective or ""),
+                "reason": "operator requested current-release restart",
+                "requested_at": time.time(),
+                "legacy_drain_timeout": float(drain_timeout),
+            },
+        )
+        scheduled = schedule_project_daemon_upgrade(
+            sid,
+            global_root=global_root,
+        )
+        return scheduled or {
+            "rc": 2,
+            "error": "daemon restart could not be scheduled",
+        }
     if stop_rc not in {0, 1}:
         return {
             "rc": 2,
@@ -1134,10 +1157,18 @@ def _complete_scheduled_daemon_upgrade(
         stop_rc = stop_daemon(
             life_dir,
             drain=True,
-            drain_timeout=7 * 24 * 60 * 60,
+            drain_timeout=0.0,
             force=False,
             preserve_upgrade_request=True,
         )
+        if stop_rc == 2:
+            return {
+                "rc": 0,
+                "upgraded": False,
+                "scheduled": True,
+                "draining": True,
+                "reason": "daemon is draining at its mission boundary",
+            }
         if stop_rc not in {0, 1}:
             error = "daemon is still draining at its mission boundary"
             _record_daemon_upgrade_error(life_dir, request, error)
@@ -1249,6 +1280,16 @@ def schedule_project_daemon_upgrade(
                 life_dir=life_dir,
                 global_root=global_root,
             )
+            if result.get("draining") is True:
+                timer = threading.Timer(
+                    5.0,
+                    lambda: schedule_project_daemon_upgrade(
+                        sid,
+                        global_root=global_root,
+                    ),
+                )
+                timer.daemon = True
+                timer.start()
             if int(result.get("rc") or 0) != 0:
                 log.error("scheduled daemon upgrade incomplete sid=%s result=%r", sid, result)
         except Exception:

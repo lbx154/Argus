@@ -18,7 +18,10 @@ from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.life.supervisor._config import LifeSupervisorConfig
 from argus_skill.life.supervisor._constants import PLAN_AWAITING, PLAN_RETRY
 from argus_skill.life.supervisor._core import LifeSupervisor
-from argus_skill.life.supervisor._helpers import _resolve_task_dep_ids
+from argus_skill.life.supervisor._helpers import (
+    _planner_task_signature,
+    _resolve_task_dep_ids,
+)
 from argus_skill.manager.control_state import CampaignControlStore
 from argus_skill.planner import WaitingContract
 from argus_skill.skills.vertical_select import persist_vertical
@@ -52,6 +55,33 @@ def test_resolve_dep_ids_drops_unknown_keys() -> None:
 def test_resolve_dep_ids_dedupes_preserving_order() -> None:
     resolved, _ = _resolve_task_dep_ids(["a", "b", "a"], {"a": "id-a", "b": "id-b"})
     assert resolved == ["id-a", "id-b"]
+
+
+def test_completed_task_signature_changes_with_evidence_context() -> None:
+    old = _planner_task_signature(
+        "verify kernel",
+        "run the same acceptance check",
+        acceptance_check="pytest -q",
+        context_refs=[{
+            "kind": "artifact",
+            "ref": "results.json",
+            "why": "latest benchmark",
+            "content_hash": "old-hash",
+        }],
+    )
+    new = _planner_task_signature(
+        "verify kernel",
+        "run the same acceptance check",
+        acceptance_check="pytest -q",
+        context_refs=[{
+            "kind": "artifact",
+            "ref": "results.json",
+            "why": "latest benchmark",
+            "content_hash": "new-hash",
+        }],
+    )
+
+    assert old != new
 
 
 # ---------------------------------------------------------------------------

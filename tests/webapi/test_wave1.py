@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import subprocess
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -126,6 +127,44 @@ def test_workdir_update_preserves_state_root_and_session_name(tmp_path: Path) ->
     assert meta.display_name == "Existing name"
     assert meta.cwd == str(tmp_path / "projects" / created["sid"])
     assert meta.workdir == str(workspace.resolve())
+
+
+def test_set_project_workdir_uses_pipeline_then_session_lock_order(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    created = server.create_daemon(global_root=tmp_path)
+    workspace = tmp_path / "ordered-workspace"
+    workspace.mkdir()
+    order: list[str] = []
+
+    @contextmanager
+    def pipeline_lock(_root):
+        order.append("pipeline")
+        yield
+
+    @contextmanager
+    def session_lock(_root):
+        order.append("session")
+        yield
+
+    monkeypatch.setattr(
+        "argus_skill.manager._core.manager_pipeline_lock",
+        pipeline_lock,
+    )
+    monkeypatch.setattr(
+        "argus_skill.manager._core.manager_session_lock",
+        session_lock,
+    )
+
+    result = server.set_project_workdir(
+        created["sid"],
+        str(workspace),
+        global_root=tmp_path,
+    )
+
+    assert result is not None and result["ok"] is True
+    assert order == ["pipeline", "session"]
 
 
 def test_web_context_defaults_launch_cwd_and_reports_it(

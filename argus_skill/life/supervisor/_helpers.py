@@ -144,8 +144,38 @@ def _sanitize_planner_task_text(text: str) -> str:
     return value
 
 
-def _planner_task_signature(title: str, objective: str) -> tuple[str, str]:
-    return (_normalize_planner_text(title), _normalize_planner_text(objective))
+def _planner_task_signature(
+    title: str,
+    objective: str,
+    *,
+    acceptance_check: str = "",
+    context_refs: list[dict[str, str]] | None = None,
+    scope: str = "",
+    stage_closing: bool = False,
+) -> tuple[str, ...]:
+    """Identity for deduping work, including the evidence revision it reads.
+
+    Title/objective-only dedup incorrectly suppresses a legitimate rerun after
+    an upstream artifact changes. Stable context refs keep true duplicates
+    filtered while a changed content hash creates a new acceptance unit.
+    """
+    refs = sorted(
+        (
+            str(ref.get("kind") or "").strip(),
+            str(ref.get("ref") or "").strip(),
+            str(ref.get("content_hash") or "").strip(),
+        )
+        for ref in (context_refs or [])
+        if isinstance(ref, dict)
+    )
+    return (
+        _normalize_planner_text(title),
+        _normalize_planner_text(objective),
+        _normalize_planner_text(acceptance_check),
+        json.dumps(refs, ensure_ascii=False, separators=(",", ":")),
+        str(scope or "").strip().lower().replace("-", "_"),
+        "stage_closing" if stage_closing else "ordinary",
+    )
 
 
 def _legacy_final_submission_marker(text: str) -> bool:

@@ -5,13 +5,14 @@ DAG: ``claim_next`` only hands out items whose ``deps`` are all ``done``,
 dead dependencies cascade-skip instead of wedging the queue, and the
 no-deps path is provably unchanged.
 """
+
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-from argus_skill.life.memory import Backlog, BacklogItem
+import pytest
 
+from argus_skill.life.memory import Backlog, BacklogItem
 
 # ---------- schema: deps field ---------------------------------------------
 
@@ -126,7 +127,7 @@ def test_fan_in_waits_for_all_deps(tmp_path: Path) -> None:
 def test_failed_dependency_cascade_skips_dependent(tmp_path: Path) -> None:
     b = Backlog(tmp_path / "backlog.jsonl")
     a = b.add(BacklogItem.new(title="A", objective="..."))
-    bee = b.add(BacklogItem.new(title="B", objective="...", deps=[a.id]))
+    b.add(BacklogItem.new(title="B", objective="...", deps=[a.id]))
 
     # A fails -> B can never satisfy its deps.
     b.mark_failed(a.id, error="boom")
@@ -165,7 +166,7 @@ def test_cascade_does_not_touch_items_with_live_deps(tmp_path: Path) -> None:
     # A still pending (not terminal) -> B stays pending, not cascaded.
     b = Backlog(tmp_path / "backlog.jsonl")
     a = b.add(BacklogItem.new(title="A", objective="...", priority=10))
-    bee = b.add(BacklogItem.new(title="B", objective="...", priority=5, deps=[a.id]))
+    b.add(BacklogItem.new(title="B", objective="...", priority=5, deps=[a.id]))
 
     # B has higher priority but is blocked; A is claimed first.
     claimed = b.claim_next()
@@ -176,23 +177,80 @@ def test_cascade_does_not_touch_items_with_live_deps(tmp_path: Path) -> None:
     assert rows["B"].last_error == ""
 
 
-def test_self_and_cyclic_deps_never_ready_but_do_not_crash(tmp_path: Path) -> None:
-    # A depends on itself; X<->Y cycle. None are ever ready (no dep is done),
-    # none are terminal-non-done, so they are not cascaded either: they just
-    # sit pending and claim_next returns None — indistinguishable from "no
-    # work", which the daemon's idle path already handles.
+def test_self_and_cyclic_deps_are_reconciled_to_terminal_skips(tmp_path: Path) -> None:
+    # Legacy/corrupt state can still contain a cycle even though new batch
+    # commits reject one. The scheduler must make that state terminal instead
+    # of treating it as an empty ready queue forever.
     b = Backlog(tmp_path / "backlog.jsonl")
-    a = b.add(BacklogItem.new(title="A", objective="..."))
-    b.update(a.id, deps=[a.id])  # self-dependency
-    x = b.add(BacklogItem.new(title="X", objective="..."))
-    y = b.add(BacklogItem.new(title="Y", objective="..."))
-    b.update(x.id, deps=[y.id])
-    b.update(y.id, deps=[x.id])
+    a = BacklogItem.new(title="A", objective="...")
+    a.deps = [a.id]
+    x = BacklogItem.new(title="X", objective="...")
+    y = BacklogItem.new(title="Y", objective="...")
+    x.deps = [y.id]
+    y.deps = [x.id]
+    b._save([a, x, y])
 
-    assert b.claim_next() is None
+    # next_pending is the supervisor's first read and therefore must run the
+    # same reconciliation as claim_next.
     assert b.next_pending() is None
-    # All three remain pending (not skipped, not crashed).
-    assert all(it.status == "pending" for it in b.all())
+    rows = b.all()
+    assert all(it.status == "skipped" for it in rows)
+    assert all("dependency cycle" in it.last_error for it in rows)
+
+
+def test_add_many_rejects_dependency_cycle_before_commit(tmp_path: Path) -> None:
+    b = Backlog(tmp_path / "backlog.jsonl")
+    a = BacklogItem.new(title="A", objective="...")
+    bee = BacklogItem.new(title="B", objective="...")
+    a.deps = [bee.id]
+    bee.deps = [a.id]
+
+    with pytest.raises(ValueError, match="dependency cycle"):
+        b.add_many([a, bee])
+
+    assert b.all() == []
+
+
+def test_next_pending_reconciles_dead_dependency_without_claim(tmp_path: Path) -> None:
+    b = Backlog(tmp_path / "backlog.jsonl")
+    failed = b.add(BacklogItem.new(title="failed", objective="..."))
+    dependent = b.add(
+        BacklogItem.new(title="dependent", objective="...", deps=[failed.id])
+    )
+    b.mark_failed(failed.id, error="boom")
+
+    assert b.next_pending() is None
+    stored = next(item for item in b.all() if item.id == dependent.id)
+    assert stored.status == "skipped"
+    assert failed.id in stored.last_error
+
+
+def test_operator_answer_rewires_pending_dependents(tmp_path: Path) -> None:
+    b = Backlog(tmp_path / "backlog.jsonl")
+    blocked = BacklogItem.new(title="blocked", objective="choose a GPU")
+    blocked.status = "failed"
+    blocked.pending_question = "Which GPU?"
+    b.add(blocked)
+    downstream = b.add(
+        BacklogItem.new(
+            title="downstream",
+            objective="run the benchmark",
+            deps=[blocked.id],
+        )
+    )
+
+    original, continuation = b.continue_with_operator_reply(
+        blocked.id,
+        "Use GPU 1",
+        manager_decision="GPU 1 is authorized.",
+    )
+
+    assert original is not None and continuation is not None
+    stored_downstream = next(item for item in b.all() if item.id == downstream.id)
+    assert stored_downstream.deps == [continuation.id]
+    assert b.claim_next().id == continuation.id
+    b.mark_done(continuation.id)
+    assert b.claim_next().id == downstream.id
 
 
 # ---------- ready() vs pending() -------------------------------------------

@@ -11,13 +11,16 @@ from ...core.planner_verdict import PlannerVerdictStatus
 from ...core.pricing import price_for, usd_for_tokens
 from ..memory import BacklogItem
 from ._constants import (
+    MANAGER_FEEDBACK_REPLAN_LIMIT,
     MANAGER_RECONCILE_AFTER_IDLE_CYCLES,
     PLAN_AWAITING,
     PLAN_ERROR,
     PLAN_HANDOFF,
     PLAN_RETRY,
+    PLAN_TERMINAL_IDLE,
     PLANNER_DEDUP_STATUSES,
     PLANNER_SCOPE_FINAL_SUBMISSION,
+    REPLAN_FILTER_REJECTION_LIMIT,
 )
 from ._cost import copilot_usd_for_premium_requests
 from ._helpers import (
@@ -492,7 +495,41 @@ class PlanningCycleMixin:
         )
         if operator_messages:
             self._deactivate_planner_waiting_contract()
+            self._clear_manager_planner_feedback()
             self._reset_idle_backoff()
+        if revision_request is None:
+            feedback = self._load_manager_planner_feedback()
+            if feedback is not None:
+                recorded_signature = str(
+                    feedback.get("evidence_signature") or ""
+                )
+                current_signature = self._manager_feedback_evidence_signature()
+                if (
+                    recorded_signature
+                    and current_signature
+                    and recorded_signature != current_signature
+                ):
+                    self._clear_manager_planner_feedback()
+                    self._reset_idle_backoff()
+                    feedback = None
+            feedback_attempts = int(
+                (feedback or {}).get("attempts") or (1 if feedback else 0)
+            )
+            if feedback is not None and feedback_attempts >= MANAGER_FEEDBACK_REPLAN_LIMIT:
+                sleep_s = self._enter_idle_backoff()
+                self._emit({
+                    "type": "life.manager.feedback.exhausted",
+                    "stage": feedback.get("stage") or "",
+                    "diagnostic": feedback.get("diagnostic") or "",
+                    "reason": feedback.get("reason") or "",
+                    "attempts": feedback_attempts,
+                    "suggested_sleep_s": sleep_s,
+                })
+                self._emit_status(
+                    "Manager→Planner feedback repeated without a commit; "
+                    "entering terminal idle for operator/new-evidence wake-up"
+                )
+                return PLAN_TERMINAL_IDLE
         revision_active_items: list[BacklogItem] = []
         expected_plan_id = ""
         expected_plan_version = 0
@@ -599,7 +636,8 @@ class PlanningCycleMixin:
                 "cycle": self._planning_cycles,
                 "error": "no planner runner wired",
             })
-            return None
+            self._enter_idle_backoff()
+            return PLAN_ERROR
 
         # Only skip the planner on an operator-only external blocker when the
         # full EMNLP gate is active. A ``--bounded`` mission
@@ -736,7 +774,8 @@ class PlanningCycleMixin:
                 "cycle": self._planning_cycles,
                 "error": f"{type(exc).__name__}: {exc}",
             })
-            return None
+            self._enter_idle_backoff()
+            return PLAN_ERROR
 
         planner_cost_usd = usd_for_tokens(
             self.reviewer_model,
@@ -1092,15 +1131,24 @@ class PlanningCycleMixin:
             log.exception("life supervisor: failed to inspect backlog before planning")
             existing_items = []
 
-        seen_signatures: dict[tuple[str, str], BacklogItem] = {}
+        seen_signatures: dict[tuple[str, ...], BacklogItem] = {}
+        active_base_signatures: dict[tuple[str, str], BacklogItem] = {}
         revision_active_ids = {item.id for item in revision_active_items}
         for existing in existing_items:
             if existing.id in revision_active_ids:
                 continue
             if existing.status not in PLANNER_DEDUP_STATUSES:
                 continue
-            signature = _planner_task_signature(existing.title, existing.objective)
-            if existing.status in {"pending", "running"}:
+            signature = _planner_task_signature(
+                existing.title,
+                existing.objective,
+                acceptance_check=existing.acceptance_check,
+                context_refs=list(existing.context_refs or []),
+                scope=self._planner_scope_from_item(existing),
+                stage_closing=self._item_requires_independent_review(existing),
+            )
+            if existing.status != "done":
+                active_base_signatures[signature[:2]] = existing
                 seen_signatures[signature] = existing
             elif signature not in seen_signatures:
                 seen_signatures[signature] = existing
@@ -1147,8 +1195,18 @@ class PlanningCycleMixin:
                     objective=sanitized_objective,
                     evidence=sanitized_evidence,
                 )
-            signature = _planner_task_signature(task.title, task.objective)
-            duplicate_item = seen_signatures.get(signature)
+            signature = _planner_task_signature(
+                task.title,
+                task.objective,
+                acceptance_check=str(getattr(task, "acceptance_check", "") or ""),
+                context_refs=list(getattr(task, "context_refs", []) or []),
+                scope=str(getattr(task, "scope", "") or ""),
+                stage_closing=bool(getattr(task, "stage_closing", False)),
+            )
+            duplicate_item = (
+                active_base_signatures.get(signature[:2])
+                or seen_signatures.get(signature)
+            )
             if (
                 duplicate_item is not None
                 and bool(getattr(task, "stage_closing", False))
@@ -1305,8 +1363,23 @@ class PlanningCycleMixin:
                         unresolved_keys,
                         item.title,
                     )
-            if revision_request is None:
-                self.memory.backlog.add(item)
+        if revision_request is None and pending_items:
+            try:
+                self.memory.backlog.add_many(
+                    [item for _task, item in pending_items]
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._emit({
+                    "type": EventType.LIFE_PLANNER_ERROR,
+                    "cycle": self._planning_cycles,
+                    "error": f"planner DAG commit rejected: {type(exc).__name__}: {exc}",
+                })
+                self._emit_status(
+                    "planner DAG rejected before commit; retrying after backoff"
+                )
+                self._enter_idle_backoff()
+                return PLAN_ERROR
+            for task, item in pending_items:
                 added_titles.append(item.title)
                 added_impact_scores.append(task.impact_score)
                 self._emit({
@@ -1399,12 +1472,49 @@ class PlanningCycleMixin:
             })
 
         if revision_request is not None and not pending_items:
+            requested_item_id = str(revision_request.get("item_id") or "")
+            requested_item = next(
+                (
+                    item
+                    for item in revision_active_items
+                    if item.id == requested_item_id
+                ),
+                None,
+            )
+            attempts = int(getattr(requested_item, "replan_rejections", 0) or 0) + 1
+            if requested_item is not None:
+                self.memory.backlog.update(
+                    requested_item.id,
+                    replan_rejections=attempts,
+                    last_error=(
+                        "planner replacement rejected because all proposed "
+                        f"tasks were filtered (attempt {attempts})"
+                    ),
+                )
+            terminal = attempts >= REPLAN_FILTER_REJECTION_LIMIT
             self._emit({
                 "type": EventType.LIFE_PLAN_REVISION_REJECTED,
                 "reason": "all replacement tasks were filtered",
                 "expected_plan_id": expected_plan_id,
                 "expected_plan_version": expected_plan_version,
+                "attempts": attempts,
+                "terminal": terminal,
             })
+            if terminal and requested_item is not None:
+                self.memory.backlog.mark_failed(
+                    requested_item.id,
+                    error=(
+                        "filtered replacement circuit breaker opened after "
+                        f"{attempts} attempts"
+                    ),
+                )
+                sleep_s = self._enter_idle_backoff()
+                self._emit_status(
+                    "planner replacement remained empty after bounded retries; "
+                    "current node failed closed and awaits new evidence"
+                )
+                self._suggested_sleep_s = max(self._suggested_sleep_s, sleep_s)
+                return PLAN_TERMINAL_IDLE
 
         delivered = self._emit_planner_verdict(
             status=PlannerVerdictStatus.PLANNED,

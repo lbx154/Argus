@@ -822,6 +822,8 @@ class BacklogItem:
     non_goals: list[str] = field(default_factory=list)
     superseded_by_plan_id: str = ""
     superseded_reason: str = ""
+    # Persisted so daemon restarts cannot reset a filtered-replan livelock.
+    replan_rejections: int = 0
     authorization_id: str = ""
     authorization_action: str = ""
     outcome: dict[str, Any] = field(default_factory=dict)
@@ -932,6 +934,7 @@ class BacklogItem:
             ],
             superseded_by_plan_id=str(row.get("superseded_by_plan_id", "")),
             superseded_reason=str(row.get("superseded_reason", "")),
+            replan_rejections=max(0, int(row.get("replan_rejections", 0) or 0)),
             authorization_id=str(row.get("authorization_id", "")),
             authorization_action=str(row.get("authorization_action", "")),
             outcome=(
@@ -988,6 +991,69 @@ class Backlog:
         """
         return item.status == "pending" and all(d in done for d in item.deps)
 
+    @staticmethod
+    def _dependency_cycle_components(
+        items: Iterable[BacklogItem],
+    ) -> tuple[tuple[str, ...], ...]:
+        """Return pending dependency SCCs that have no topological exit."""
+        pending = {
+            item.id: item
+            for item in items
+            if item.status == "pending"
+        }
+        graph = {
+            item_id: tuple(dep for dep in item.deps if dep in pending)
+            for item_id, item in pending.items()
+        }
+        index = 0
+        indices: dict[str, int] = {}
+        lowlinks: dict[str, int] = {}
+        stack: list[str] = []
+        on_stack: set[str] = set()
+        cycles: list[tuple[str, ...]] = []
+
+        def strongconnect(node: str) -> None:
+            nonlocal index
+            indices[node] = index
+            lowlinks[node] = index
+            index += 1
+            stack.append(node)
+            on_stack.add(node)
+            for dep in graph.get(node, ()):
+                if dep not in indices:
+                    strongconnect(dep)
+                    lowlinks[node] = min(lowlinks[node], lowlinks[dep])
+                elif dep in on_stack:
+                    lowlinks[node] = min(lowlinks[node], indices[dep])
+            if lowlinks[node] != indices[node]:
+                return
+            component: list[str] = []
+            while stack:
+                member = stack.pop()
+                on_stack.remove(member)
+                component.append(member)
+                if member == node:
+                    break
+            if len(component) > 1 or (
+                len(component) == 1 and component[0] in graph.get(component[0], ())
+            ):
+                cycles.append(tuple(sorted(component)))
+
+        for node in sorted(graph):
+            if node not in indices:
+                strongconnect(node)
+        return tuple(sorted(cycles))
+
+    @classmethod
+    def _validate_no_dependency_cycles(
+        cls,
+        items: Iterable[BacklogItem],
+    ) -> None:
+        cycles = cls._dependency_cycle_components(items)
+        if cycles:
+            rendered = "; ".join(" ↔ ".join(component) for component in cycles)
+            raise ValueError(f"backlog dependency cycle: {rendered}")
+
     def _cascade_blocked(self, items: list[BacklogItem]) -> bool:
         """Skip pending items whose deps can never all become ``done``.
 
@@ -1003,36 +1069,51 @@ class Backlog:
         Returns ``True`` if any item was mutated (caller must ``_save``).
         Must run inside ``_locked``.
         """
-        by_id = {it.id: it for it in items}
         changed = False
-        for it in items:
-            if it.status != "pending":
-                continue
-            for dep_id in it.deps:
-                dep = by_id.get(dep_id)
-                # A dep that resolves to a terminal-non-done state (or to a
-                # missing item, which can also never become ``done``) blocks
-                # this item forever. Self/cyclic deps stay pending (never
-                # ready, never cascaded) — they cannot deadlock the daemon
-                # because a never-ready item is indistinguishable from "no
-                # work", which the idle path already handles.
-                if dep is None:
-                    it.status = "skipped"
-                    it.finished_ts = time.time()
-                    it.last_error = (
-                        f"blocked: dependency {dep_id} does not exist"
-                    )
+        now = time.time()
+        for component in self._dependency_cycle_components(items):
+            reason = (
+                "blocked: dependency cycle detected among "
+                + ", ".join(component)
+            )
+            members = set(component)
+            for item in items:
+                if item.id in members and item.status == "pending":
+                    item.status = "skipped"
+                    item.finished_ts = now
+                    item.last_error = reason
                     changed = True
-                    break
-                if dep.status in _TERMINAL_STATUSES and dep.status != "done":
-                    it.status = "skipped"
-                    it.finished_ts = time.time()
-                    it.last_error = (
-                        f"blocked: dependency {dep_id} did not complete "
-                        f"({dep.status})"
-                    )
-                    changed = True
-                    break
+
+        # Resolve to a fixed point: skipping a cycle or dead dependency may
+        # make additional downstream rows permanently unreachable.
+        while True:
+            by_id = {it.id: it for it in items}
+            pass_changed = False
+            for it in items:
+                if it.status != "pending":
+                    continue
+                for dep_id in it.deps:
+                    dep = by_id.get(dep_id)
+                    if dep is None:
+                        it.status = "skipped"
+                        it.finished_ts = now
+                        it.last_error = (
+                            f"blocked: dependency {dep_id} does not exist"
+                        )
+                        pass_changed = True
+                        break
+                    if dep.status in _TERMINAL_STATUSES and dep.status != "done":
+                        it.status = "skipped"
+                        it.finished_ts = now
+                        it.last_error = (
+                            f"blocked: dependency {dep_id} did not complete "
+                            f"({dep.status})"
+                        )
+                        pass_changed = True
+                        break
+            changed = changed or pass_changed
+            if not pass_changed:
+                break
         return changed
 
     @contextmanager
@@ -1065,6 +1146,7 @@ class Backlog:
         with self._locked():
             items = self._load()
             items.append(item)
+            self._validate_no_dependency_cycles(items)
             self._save(items)
         return item
 
@@ -1083,6 +1165,7 @@ class Backlog:
             if duplicate is not None:
                 raise ValueError(f"backlog item already exists: {duplicate}")
             items.extend(batch)
+            self._validate_no_dependency_cycles(items)
             self._save(items)
         return batch
 
@@ -1156,6 +1239,7 @@ class Backlog:
             raise ValueError("replacement plan node keys must not be empty")
         if len(replacement_keys) != len(set(replacement_keys)):
             raise ValueError("replacement plan contains duplicate node keys")
+        self._validate_no_dependency_cycles(replacements)
         replacement_id_set = set(replacement_ids)
 
         with self._locked():
@@ -1293,6 +1377,7 @@ class Backlog:
                     for k, v in fields.items():
                         if hasattr(it, k):
                             setattr(it, k, v)
+                    self._validate_no_dependency_cycles(items)
                     out = it
                     break
             if out is not None:
@@ -1359,7 +1444,20 @@ class Backlog:
                 non_goals=non_goals,
             )
             blocked.pending_question = ""
+            # The blocked item is terminal. Every live downstream node that
+            # depended on it must now depend on the continuation; otherwise
+            # the dead-dependency cascade would skip valid post-answer work.
+            for item in items:
+                if item.id == blocked.id or item.status in _TERMINAL_STATUSES:
+                    continue
+                if blocked.id not in item.deps:
+                    continue
+                item.deps = list(dict.fromkeys(
+                    continuation.id if dep == blocked.id else dep
+                    for dep in item.deps
+                ))
             items.append(continuation)
+            self._validate_no_dependency_cycles(items)
             self._save(items)
             return blocked, continuation
 
@@ -1569,6 +1667,35 @@ class Backlog:
                 self._save(items)
             return resumed
 
+    def resume_paused_statuses(
+        self,
+        statuses: Iterable[str],
+    ) -> list[BacklogItem]:
+        """Atomically re-arm only explicitly auto-resumable pause classes."""
+        allowed = {
+            str(status)
+            for status in statuses
+            if str(status) in _RECOVERABLE_PAUSE_STATUSES
+        }
+        if not allowed:
+            return []
+        with self._locked():
+            items = self._load()
+            resumed: list[BacklogItem] = []
+            for item in items:
+                if item.status not in allowed:
+                    continue
+                item.status = "pending"
+                item.attempt = max(1, int(item.attempt or 1)) + 1
+                item.started_ts = None
+                item.finished_ts = None
+                item.last_error = ""
+                resumed.append(item)
+            if resumed:
+                self._cascade_blocked(items)
+                self._save(items)
+            return resumed
+
     def remove(self, item_id: str) -> bool:
         with self._locked():
             items = self._load()
@@ -1609,12 +1736,20 @@ class Backlog:
         sites. It now returns the next *claimable* item rather than the
         next merely-pending one, so it stays consistent with
         :meth:`claim_next`: when no item is ready, both report "nothing
-        to run", which the supervisor's idle path already handles. This
-        is a pure read (no cascade mutation); dead-dependency cleanup
-        happens in the write-locked :meth:`claim_next`.
+        to run", which the supervisor's idle path already handles. Because
+        this is the supervisor's first scheduling read, it also reconciles
+        dead dependencies and legacy cycles under the write lock; otherwise
+        a queue containing only blocked rows would never reach claim_next.
         """
-        rdy = self.ready()
-        return rdy[0] if rdy else None
+        with self._locked():
+            items = self._load()
+            changed = self._cascade_blocked(items)
+            done = self._done_ids(items)
+            ready = [item for item in items if self._is_ready(item, done)]
+            if changed:
+                self._save(items)
+            ready.sort(key=lambda item: (item.priority, item.ts))
+            return ready[0] if ready else None
 
 
 # ---------------------------------------------------------------------------

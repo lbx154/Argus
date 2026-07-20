@@ -619,6 +619,23 @@ class PlanningContextMixin:
         objective_fingerprint = self._planner_waiting_objective_fingerprint()
         return root / f"manager-planner-feedback-{objective_fingerprint[:16]}.json"
 
+    def _manager_feedback_evidence_signature(self) -> str:
+        """Fingerprint project evidence without backlog/process churn."""
+        try:
+            from ..terminal_state import build_terminal_idle_signature
+
+            return build_terminal_idle_signature(
+                objective=str(self.config.continuous_objective or ""),
+                stage=str(self._current_pipeline_stage() or ""),
+                backlog=(),
+                artifact_root=self._artifact_root(),
+                project_root=self._planner_workdir(),
+                state_root=Path(self.memory.root),
+                completion_contract=None,
+            )
+        except Exception:  # noqa: BLE001 - circuit remains conservative
+            return ""
+
     def _load_manager_planner_feedback(self) -> dict[str, Any] | None:
         path = self._manager_planner_feedback_path()
         try:
@@ -668,14 +685,36 @@ class PlanningContextMixin:
         reason: str,
         diagnostic: str,
     ) -> bool:
+        stage = str(stage or "").strip()
+        reason = str(reason or "").strip()
+        diagnostic = str(diagnostic or "").strip()
+        evidence_signature = self._manager_feedback_evidence_signature()
+        previous = self._load_manager_planner_feedback()
+        same_feedback = bool(
+            previous is not None
+            and str(previous.get("stage") or "") == stage
+            and str(previous.get("reason") or "") == reason
+            and str(previous.get("diagnostic") or "") == diagnostic
+            and str(previous.get("evidence_signature") or "")
+            == evidence_signature
+        )
+        attempts = int(previous.get("attempts") or 0) + 1 if same_feedback else 1
+        created_at = (
+            float(previous.get("created_at") or time.time())
+            if same_feedback and previous is not None
+            else time.time()
+        )
         return self._write_manager_planner_feedback({
             "version": 1,
             "active": True,
             "objective_fingerprint": self._planner_waiting_objective_fingerprint(),
-            "stage": str(stage or "").strip(),
-            "reason": str(reason or "").strip(),
-            "diagnostic": str(diagnostic or "").strip(),
-            "created_at": time.time(),
+            "stage": stage,
+            "reason": reason,
+            "diagnostic": diagnostic,
+            "evidence_signature": evidence_signature,
+            "attempts": attempts,
+            "created_at": created_at,
+            "updated_at": time.time(),
         })
 
     def _clear_manager_planner_feedback(self) -> None:
@@ -694,6 +733,7 @@ class PlanningContextMixin:
             "MANAGER TO PLANNER REVISION FEEDBACK (durable and unresolved):\n"
             f"- current_stage: {state.get('stage') or ''}\n"
             f"- diagnostic: {state.get('diagnostic') or ''}\n"
+            f"- repeated_attempts: {int(state.get('attempts') or 1)}\n"
             f"- rejection_reason: {state.get('reason') or ''}\n"
             "The Manager attempted the requested stage transition, but framework "
             "authority rejected it because the required Reviewer evidence is "

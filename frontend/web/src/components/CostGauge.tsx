@@ -1,9 +1,7 @@
 import { money } from '../lib/format';
 import type { CostControlSnapshot, Daemon, RequestUsage } from '../api';
 
-/**
- * Host-global spend backed by the call-level usage ledger.
- */
+/** Model/API-call spend only; GPU and infrastructure cost are excluded. */
 export function CostGauge({
   settledUsd,
   spendStatus,
@@ -36,16 +34,18 @@ export function CostGauge({
       className="flex items-center gap-2.5"
       title={
         isCopilot
-          ? 'GitHub Copilot bills per premium request (flat $0.04/req), not per token — one request can do a lot of work'
-          : 'cumulative cost from idempotent call-level usage records'
+          ? 'Model/API spend only. GitHub Copilot bills per premium request; GPU and infrastructure cost are excluded.'
+          : 'Model/API spend from idempotent call-level usage records; GPU and infrastructure cost are excluded.'
       }
     >
       <div className="flex flex-col items-end leading-tight">
         <span className="text-sm font-semibold tabular-nums text-gold">{costText}</span>
         <span className="text-[10px] text-ink-faint">
-          {isCopilot ? `${reqs.toFixed(1)} premium req` : 'cumulative cost'}
+          {isCopilot
+            ? `model/API spend · ${reqs.toFixed(1)} premium req`
+            : 'model/API spend'}
           {incomplete ? ` · ${spendStatus}` : ''}
-          {cap ? ` · global cap ${money(cap)}/d` : ''}
+          {cap ? ` · model cap ${money(cap)}/d` : ''}
         </span>
         {requestUsage ? (
           <span className="text-[10px] tabular-nums text-ink-faint">
@@ -54,7 +54,7 @@ export function CostGauge({
           </span>
         ) : null}
         {costControl && (costControl.active_reservations > 0 || costControl.unresolved_calls > 0) ? (
-          <span className={`text-[10px] tabular-nums ${costControl.unresolved_calls > 0 ? 'text-err' : 'text-ink-faint'}`}>
+          <span className={`text-[10px] tabular-nums ${(costControl.blocking_unresolved_calls ?? 0) > 0 ? 'text-err' : 'text-ink-faint'}`}>
             in-flight {costControl.active_reservations} · unresolved {costControl.unresolved_calls}
           </span>
         ) : null}

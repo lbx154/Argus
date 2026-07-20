@@ -35,9 +35,9 @@ export function budgetSummary(
   globalDailyCapUsd?: number | null,
 ): string {
   const spent = spentUsd == null
-    ? spendStatus && spendStatus !== 'empty' ? spendStatus : '$0.00 spent'
-    : `$${spentUsd.toFixed(2)} spent`;
-  const global = globalDailyCapUsd ? ` / $${globalDailyCapUsd.toFixed(0)} global daily` : '';
+    ? spendStatus && spendStatus !== 'empty' ? spendStatus : '$0.00 model calls'
+    : `$${spentUsd.toFixed(2)} model calls`;
+  const global = globalDailyCapUsd ? ` / $${globalDailyCapUsd.toFixed(0)} daily cap` : '';
   return spent + global;
 }
 
@@ -101,7 +101,7 @@ export function MissionCockpit({
           </Text>
         </Text>
         <Text wrap="truncate-end">
-          <Text dimColor>BUDGET </Text>
+          <Text dimColor>MODEL SPEND </Text>
           <Text color={spendStatus === 'partial' || spendStatus === 'unpriced' ? theme.warning : theme.success}>
             {budgetSummary(spentUsd, spendStatus, globalDailyCapUsd)}
           </Text>
@@ -179,7 +179,7 @@ export function MissionCockpit({
         </Text>
       </Box>
       <Box>
-        <Text dimColor>BUDGET </Text>
+        <Text dimColor>MODEL SPEND </Text>
         <Text color={spendStatus === 'partial' || spendStatus === 'unpriced' ? theme.warning : theme.success}>
           {budgetSummary(
             spentUsd,

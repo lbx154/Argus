@@ -769,7 +769,7 @@ def test_daemon_upgrade_schedule_returns_before_boundary_drain(
     assert calls == [(sid, {"global_root": root})]
 
 
-def test_schedule_daemon_upgrade_deduplicates_and_uses_long_boundary_wait(
+def test_schedule_daemon_upgrade_requests_nonblocking_boundary_drain(
     ctx,
     monkeypatch,
 ) -> None:
@@ -809,7 +809,7 @@ def test_schedule_daemon_upgrade_deduplicates_and_uses_long_boundary_wait(
     monkeypatch.setattr(
         server,
         "stop_daemon",
-        lambda path, **kwargs: stops.append((path, kwargs)) or 0,
+        lambda path, **kwargs: stops.append((path, kwargs)) or 2,
     )
     starts = []
     monkeypatch.setattr(
@@ -834,7 +834,19 @@ def test_schedule_daemon_upgrade_deduplicates_and_uses_long_boundary_wait(
         def start(self):
             self.target()
 
+    timers = []
+
+    class DeferredTimer:
+        def __init__(self, delay, target):
+            self.delay = delay
+            self.target = target
+            self.daemon = False
+
+        def start(self):
+            timers.append((self.delay, self.daemon))
+
     monkeypatch.setattr(server.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(server.threading, "Timer", DeferredTimer)
     server._SCHEDULED_DAEMON_UPGRADES.clear()
 
     result = server.schedule_project_daemon_upgrade(sid, global_root=root)
@@ -844,17 +856,15 @@ def test_schedule_daemon_upgrade_deduplicates_and_uses_long_boundary_wait(
         life,
         {
             "drain": True,
-            "drain_timeout": 7 * 24 * 60 * 60,
+            "drain_timeout": 0.0,
             "force": False,
             "preserve_upgrade_request": True,
         },
     )]
-    assert starts == [(
-        sid,
-        {"global_root": root, "resume_continuous": True},
-    )]
-    assert locks == [(life, True)]
-    assert not (life / server.project_state.DAEMON_UPGRADE_REQUEST_FILE).exists()
+    assert starts == []
+    assert locks == []
+    assert timers == [(5.0, True)]
+    assert (life / server.project_state.DAEMON_UPGRADE_REQUEST_FILE).exists()
 
 
 def test_pending_daemon_upgrade_survives_webapi_restart(
@@ -1114,7 +1124,7 @@ def test_daemon_upgrade_drains_and_restores_continuous_mode(
     assert result == {"rc": 0, "upgraded": True}
     assert stops == [{
         "drain": True,
-        "drain_timeout": 1800.0,
+        "drain_timeout": 0.0,
         "force": False,
     }]
     assert writes[0][1] == {
@@ -1125,6 +1135,54 @@ def test_daemon_upgrade_drains_and_restores_continuous_mode(
         sid,
         {"global_root": root, "resume_continuous": True},
     )]
+
+
+def test_daemon_upgrade_schedules_restart_when_active_mission_is_still_running(
+    ctx,
+    monkeypatch,
+) -> None:
+    root, sid, life = ctx
+    source = root / "checkout"
+    source.mkdir()
+    monkeypatch.setattr(
+        server,
+        "runtime_identity",
+        lambda: {"source_root": str(source)},
+    )
+    monkeypatch.setattr(
+        server,
+        "read_daemon_status",
+        lambda path: server.DaemonStatus(
+            alive=True,
+            pid=321,
+            started_at_iso=None,
+            uptime_seconds=5.0,
+            life_dir=Path(path),
+            pid_path=Path(path) / "daemon.pid",
+        ),
+    )
+    monkeypatch.setattr(server, "stop_daemon", lambda *args, **kwargs: 2)
+    monkeypatch.setattr(
+        server,
+        "read_continuous_state",
+        lambda path: SimpleNamespace(enabled=True, objective="keep researching"),
+    )
+    scheduled = []
+    monkeypatch.setattr(
+        server,
+        "schedule_project_daemon_upgrade",
+        lambda project_id, **kwargs: scheduled.append((project_id, kwargs))
+        or {"rc": 0, "scheduled": True, "reason": "draining"},
+    )
+
+    result = server.upgrade_project_daemon(sid, global_root=root)
+
+    assert result == {"rc": 0, "scheduled": True, "reason": "draining"}
+    assert scheduled == [(sid, {"global_root": root})]
+    request = server._read_daemon_upgrade_request(life)
+    assert request is not None
+    assert request["expected_pid"] == 321
+    assert request["resume_continuous"] is True
 
 
 def test_daemon_command_idempotency_and_revision_fencing(ctx, monkeypatch) -> None:

@@ -189,7 +189,7 @@ test('operations panel owns cost, quota, pid, backend, and model details', async
   assert.match(output, /pid 42/);
   assert.match(output, /Copilot/);
   assert.match(output, /gpt-5\.6-sol/);
-  assert.match(output, /host-global cost/);
+  assert.match(output, /model\/API spend/);
   assert.match(output, /403\/1000/);
   assert.match(output, /self-evolution storage/);
   assert.match(output, /\/state\/project\/skills/);
@@ -288,7 +288,7 @@ test('partial usage never renders as a zero-dollar cumulative cost', async () =>
     }),
     120,
   );
-  assert.match(output, /host-global cost partial/);
+  assert.match(output, /model\/API spend partial/);
   assert.doesNotMatch(output, /\$0\.00/);
 });
 
@@ -308,11 +308,11 @@ test('fresh project renders zero global cost and configured global budget', asyn
     }),
     120,
   );
-  assert.match(output, /host-global cost \$0\.00/);
+  assert.match(output, /model\/API spend \$0\.00/);
   assert.match(output, /cap \$55\/d/);
 });
 
-test('usage gauge shows token inputs behind host-global cost', async () => {
+test('usage gauge shows token inputs behind model API spend', async () => {
   const output = await renderNode(
     React.createElement(CostGauge, {
       settledUsd: 0.31624875,
@@ -340,7 +340,7 @@ test('usage gauge shows token inputs behind host-global cost', async () => {
     }),
     120,
   );
-  assert.match(output, /host-global cost \$0\.32/);
+  assert.match(output, /model\/API spend \$0\.32/);
   assert.match(output, /tokens · input 50505/);
   assert.match(output, /output 20/);
 });

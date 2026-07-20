@@ -367,31 +367,6 @@ def reserve_call_budget(
             )
             state["reservations"] = reservations
             state["unresolved"] = unresolved
-            blocking_unresolved = list(unresolved)
-            if (
-                blocking_unresolved
-                and _unpriced_policy() == "block"
-            ):
-                first = blocking_unresolved[0]
-                reason = (
-                    "unresolved provider cost blocks new calls "
-                    f"(call_id={first.get('call_id')}, "
-                    f"pricing_status={first.get('pricing_status')})"
-                )
-                _write_state(root, state, timestamp)
-                _append_audit(
-                    root,
-                    EventType.BUDGET_UNPRICED_BLOCKED,
-                    call_id=call_id,
-                    project_id=project.name if project is not None else "",
-                    mission_id=mission_key or None,
-                    provider=provider,
-                    model=model,
-                    run_label=run_label,
-                    reason=reason,
-                )
-                return None, reason
-
             project_records = _project_records(project, day_start) if project else []
             global_records = _global_records(root, day_start)
             if project is not None:
@@ -536,7 +511,7 @@ def _close_reservation(
                     "model": record.model,
                     "pricing_status": record.pricing_status,
                     "reason": record.error or "provider usage is not fully priced",
-                    "blocking": True,
+                    "blocking": False,
                     "created_at": timestamp,
                 })
         elif unknown_reason:
@@ -559,7 +534,7 @@ def _close_reservation(
                 "run_label": reservation.run_label,
                 "pricing_status": "unknown",
                 "reason": unknown_reason,
-                "blocking": True,
+                "blocking": False,
                 "created_at": timestamp,
             })
         state["unresolved"] = unresolved
@@ -607,12 +582,11 @@ def cost_control_snapshot(
         state["reservations"] = reservations
         state["unresolved"] = unresolved
         _write_state(root, state, timestamp)
-    blocking_unresolved = list(unresolved)
     return {
         "day": state["day"],
         "active_reservations": len(reservations),
         "unresolved_calls": len(unresolved),
-        "blocking_unresolved_calls": len(blocking_unresolved),
+        "blocking_unresolved_calls": 0,
         "unresolved": [
             {
                 key: row.get(key)

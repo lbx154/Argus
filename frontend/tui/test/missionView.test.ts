@@ -227,9 +227,9 @@ test('idle snapshot clears stale role activity from historical events', () => {
 test('budget summary is always visible with global spend and cap', () => {
   assert.equal(
     budgetSummary(0.26285125, 'priced', 300),
-    '$0.26 spent / $300 global daily',
+    '$0.26 model calls / $300 daily cap',
   );
-  assert.equal(budgetSummary(null, 'empty', 300), '$0.00 spent / $300 global daily');
+  assert.equal(budgetSummary(null, 'empty', 300), '$0.00 model calls / $300 daily cap');
 });
 
 test('request summary includes Codex, Copilot, and premium usage', () => {

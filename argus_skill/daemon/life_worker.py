@@ -185,6 +185,61 @@ def _manager_handoff_identity_matches(
     )
 
 
+def _daemon_objective_requires_stage_reset(
+    *,
+    project_root: Path,
+    prior_vertical: str,
+    next_vertical: str,
+    prior_handoff: dict[str, Any] | None,
+    expected_objective: str,
+    source_objective: str,
+    execution_task: str,
+) -> bool:
+    """Return whether a daemon-boot Manager handoff must reopen the pipeline.
+
+    A completed workspace can outlive its old Argus state root. In that case
+    there may be no prior Manager identity to compare, but treating the
+    terminal stage as current would make every new objective complete without
+    executing. A real Manager boot handoff therefore reopens a terminal
+    pipeline even when the old identity sidecar is absent.
+    """
+    from ..manager.front_door import objective_update_requires_stage_reset
+    from ..skills.vertical_select import vertical_reached_own_terminal_stage
+
+    prior_vertical = str(prior_vertical or "").strip()
+    next_vertical = str(next_vertical or "").strip()
+    if prior_vertical:
+        try:
+            if vertical_reached_own_terminal_stage(
+                project_root,
+                prior_vertical,
+            ):
+                return True
+        except Exception:  # noqa: BLE001 - fall through to identity comparison
+            pass
+    if prior_handoff is not None:
+        objective_changed = (
+            prior_handoff.get("objective_sha256")
+            != _objective_sha256(execution_task)
+        )
+        return bool(
+            (
+                prior_vertical
+                and next_vertical
+                and prior_vertical != next_vertical
+            )
+            or (
+                objective_changed
+                and objective_update_requires_stage_reset(
+                    expected_objective,
+                    source_objective,
+                    execution_task,
+                )
+            )
+        )
+    return False
+
+
 def _resume_matches_manager_handoff(
     *,
     cfg: LifeWorkerConfig,
@@ -1207,7 +1262,6 @@ class LifeWorker:
                         manager_session_root=runtime_root,
                     )
                 from ..manager.front_door import (
-                    objective_update_requires_stage_reset,
                     require_manager_execution_task,
                 )
                 from ..skills.vertical_select import _persisted_vertical
@@ -1228,28 +1282,14 @@ class LifeWorker:
                 next_vertical_name = str(
                     getattr(decision, "vertical", "") or ""
                 ).strip()
-                objective_changed = bool(
-                    prior_handoff
-                    and prior_handoff.get("objective_sha256")
-                    != _objective_sha256(execution_task)
-                )
-                replacement_intent = bool(
-                    prior_handoff
-                    and (
-                        bool(
-                            prior_vertical_name
-                            and next_vertical_name
-                            and prior_vertical_name != next_vertical_name
-                        )
-                        or (
-                            objective_changed
-                            and objective_update_requires_stage_reset(
-                                expected_state.objective,
-                                source_objective,
-                                execution_task,
-                            )
-                        )
-                    )
+                replacement_intent = _daemon_objective_requires_stage_reset(
+                    project_root=cfg.project_workdir or runtime_root,
+                    prior_vertical=prior_vertical_name,
+                    next_vertical=next_vertical_name,
+                    prior_handoff=prior_handoff,
+                    expected_objective=expected_state.objective,
+                    source_objective=source_objective,
+                    execution_task=execution_task,
                 )
                 if self._operator_stop_requested:
                     raise RuntimeError("operator stop requested during Manager handoff")

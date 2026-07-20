@@ -11,6 +11,7 @@ These tests cover invariants that prevent the entire class of
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -112,6 +113,24 @@ def test_claim_then_complete_then_no_resurrect(mem: LifeMemory) -> None:
     # Even a manual update attempt is blocked.
     with pytest.raises(IllegalStateTransition):
         mem.backlog.update(claimed.id, status="pending")
+
+
+def test_concurrent_claims_are_unique_and_finish_without_deadlock(
+    mem: LifeMemory,
+) -> None:
+    for index in range(32):
+        mem.backlog.add(
+            BacklogItem.new(title=f"task-{index}", objective="run once")
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = [pool.submit(mem.backlog.claim_next) for _ in range(40)]
+        claimed = [future.result(timeout=5) for future in futures]
+
+    ids = [item.id for item in claimed if item is not None]
+    assert len(ids) == 32
+    assert len(set(ids)) == 32
+    assert mem.backlog.claim_next() is None
 
 
 # ---------------------------------------------------------------------------

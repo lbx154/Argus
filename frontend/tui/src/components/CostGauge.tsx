@@ -4,7 +4,7 @@ import { theme } from '../theme.js';
 import { fraction } from '../cost.js';
 import type { CostControlSnapshot, Daemon, RequestUsage, UsageSummary } from '../api.js';
 
-/** Live budget gauge backed by the call-level usage ledger. */
+/** Model/API-call spend only; GPU and infrastructure cost are out of scope. */
 export function CostGauge({
   settledUsd,
   spendStatus,
@@ -41,14 +41,14 @@ export function CostGauge({
     <Box flexDirection="column">
       {(total > 0 || incomplete || globalCap) ? (
         <Box>
-          <Text dimColor>host-global cost </Text>
+          <Text dimColor>model/API spend </Text>
           <Text color={color}>
             {settledUsd == null && incomplete
               ? spendStatus
               : `$${total.toFixed(2)}${incomplete ? '+' : ''}`}
           </Text>
           {incomplete && settledUsd != null ? <Text dimColor>{` · ${spendStatus}`}</Text> : null}
-          {globalCap ? <Text dimColor>{` · cap $${globalCap.toFixed(0)}/d`}</Text> : null}
+          {globalCap ? <Text dimColor>{` · model cap $${globalCap.toFixed(0)}/d`}</Text> : null}
         </Box>
       ) : null}
       {requestUsage ? (
@@ -59,7 +59,7 @@ export function CostGauge({
         </Text>
       ) : null}
       {costControl && (costControl.active_reservations > 0 || costControl.unresolved_calls > 0) ? (
-        <Text color={costControl.unresolved_calls > 0 ? theme.error : undefined} dimColor={costControl.unresolved_calls === 0}>
+        <Text color={(costControl.blocking_unresolved_calls ?? 0) > 0 ? theme.error : undefined} dimColor={(costControl.blocking_unresolved_calls ?? 0) === 0}>
           {`cost control · in-flight ${costControl.active_reservations} · unresolved ${costControl.unresolved_calls}`}
         </Text>
       ) : null}

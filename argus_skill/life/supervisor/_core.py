@@ -442,10 +442,38 @@ class LifeSupervisor(
     # Public driving methods
     # ------------------------------------------------------------------
 
+    def _resume_automatic_pauses(self) -> list[BacklogItem]:
+        """Wake pause classes whose external condition is rechecked per run.
+
+        Operator pauses and scientific/infrastructure blocks stay explicit.
+        Budget pauses wake only after the cheap global-cap preflight succeeds.
+        """
+        statuses = {
+            "paused_provider_cooldown",
+            "paused_provider_fence",
+            "paused_daemon_shutdown",
+        }
+        try:
+            budget_ok, _reason = self.config.budget.can_start(
+                global_root=self._budget_global_root(),
+            )
+        except Exception:  # noqa: BLE001 - keep budget pauses conservative
+            budget_ok = False
+        if budget_ok:
+            statuses.add("paused_budget")
+        resumed = self.memory.backlog.resume_paused_statuses(statuses)
+        if resumed:
+            self._emit_status(
+                "auto-resumed recoverable mission(s): "
+                + ", ".join(item.id for item in resumed)
+            )
+        return resumed
+
     def run(self) -> dict[str, Any]:
         """Drive missions until a stop condition. Returns a summary."""
         results: list[dict[str, Any]] = []
         stopped_by: str = ""
+        self._resume_automatic_pauses()
         while True:
             yield_provider = getattr(
                 self.config,
