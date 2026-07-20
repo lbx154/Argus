@@ -239,8 +239,6 @@ def _should_run_stage_transition(
     )
 
 
-
-
 class _SkillLoopRunner(SelfReplyMixin):
     """Runs each mission through a fresh ``SkillLoop`` (codex backend).
 
@@ -1016,15 +1014,15 @@ class _SkillLoopRunner(SelfReplyMixin):
         effective_recoverable = bool(getattr(outcome, "recoverable", False))
         effective_reason = outcome.reason or ""
         stage_transition: dict = {}
-        if (
-            getattr(config, "workflow_mode", "staged") != "direct"
-            and _should_run_stage_transition(
-                effective_status,
-                planner_report,
-                mission_scope=mission_scope,
-                require_independent_review=effective_require_independent_review,
-                review_source=review_source,
-            )
+        # Direct workflow skips an extra planning pass, not Manager stage
+        # authority. A required independent Reviewer verdict must reach the
+        # stage writer before any planner-wait reconciliation.
+        if _should_run_stage_transition(
+            effective_status,
+            planner_report,
+            mission_scope=mission_scope,
+            require_independent_review=effective_require_independent_review,
+            review_source=review_source,
         ):
             self._current_sink = sink
             self._set_usage_context(usage_mission_id or mission_id)

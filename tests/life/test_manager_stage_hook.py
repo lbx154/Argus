@@ -328,6 +328,64 @@ def test_engineer_self_review_done_still_runs_manager_stage_transition() -> None
     ) is True
 
 
+def test_direct_stage_closing_review_still_runs_manager_stage_transition() -> None:
+    assert _runtime._should_run_stage_transition(
+        "done",
+        require_independent_review=True,
+        review_source="reviewer",
+    ) is True
+    assert _runtime._should_run_stage_transition(
+        "done",
+        require_independent_review=False,
+        review_source="reviewer",
+        mission_scope="bounded",
+    ) is False
+
+
+def test_kernel_direct_scope_certification_advances_before_planner_wait(
+    tmp_path: Path,
+) -> None:
+    persist_vertical(tmp_path, "kernel_engineering")
+    _write_json(
+        tmp_path / "research" / "PIPELINE_STATE.json",
+        {
+            "current_stage": "scope",
+            "vertical": "kernel_engineering",
+            "stages": {
+                "scope": {"status": "in_progress"},
+                "environment": {"status": "pending"},
+                "baseline": {"status": "pending"},
+                "optimize": {"status": "pending"},
+                "validate": {"status": "pending"},
+                "report": {"status": "pending"},
+            },
+        },
+    )
+    review = _review(status="done")
+    runner = _runner_with(_StubRunner({
+        "action": "advance",
+        "target_stage": "environment",
+        "reason": "Reviewer accepted the scope-stage evidence",
+    }))
+
+    assert _runtime._should_run_stage_transition(
+        "done",
+        require_independent_review=True,
+        review_source="reviewer",
+    ) is True
+    decision = runner._decide_stage_transition(
+        rounds_list=[_Round(review)],
+        workdir=tmp_path,
+        sink=_Sink(),
+        open_ended=True,
+        continuous_objective="Optimize RMSNorm.",
+    )
+
+    assert decision["action"] == "advance"
+    assert decision["target_stage"] == "environment"
+    assert _stage(tmp_path) == "environment"
+
+
 def test_ordinary_reviewed_intermediate_task_skips_manager_stage_call() -> None:
     assert _runtime._should_run_stage_transition(
         "done",
@@ -1420,3 +1478,76 @@ def test_execute_path_disables_self_review_for_research_vertical(
         runner.execute(objective="run the bounded premise probe", sink=_Sink())
 
     assert captured.get("engineer_self_review_enabled") is False
+def test_execute_direct_stage_closure_forwards_reviewer_to_manager(
+    tmp_path: Path,
+) -> None:
+    review = _review(status="done")
+    stage_calls = []
+
+    class _Config:
+        def __init__(self, **kwargs: object) -> None:
+            self.workflow_mode = str(kwargs["workflow_mode"])
+            self.open_ended = bool(kwargs["open_ended"])
+            self.continuous_objective = str(kwargs["continuous_objective"])
+
+    class _Loop:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        def run(self, *_args: object, **_kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(
+                successful=True,
+                status="done",
+                reason="scope evidence accepted",
+                stop_kind=None,
+                recoverable=False,
+                rounds=[_Round(review)],
+                round_count=1,
+                skill_used="",
+                skill_distilled=False,
+                last_thread_id=None,
+            )
+
+    runner = _SkillLoopRunner.__new__(_SkillLoopRunner)
+    runner._allow_chat_fast_path = False
+    runner._SkillLoopConfig = _Config
+    runner._SkillLoop = _Loop
+    runner._backend = object()
+    runner._artifact_root = tmp_path
+    runner._manager_session_root = tmp_path
+    runner._next_seed_thread_id = None
+    runner.last_thread_id = None
+    runner._set_usage_context = lambda _mission_id: None
+    runner._consume_auth_failure = lambda: False
+    runner._decide_stage_transition = lambda **kwargs: (
+        stage_calls.append(kwargs)
+        or {
+            "action": "advance",
+            "current_stage": "scope",
+            "target_stage": "environment",
+        }
+    )
+    runner._args = SimpleNamespace(
+        engineer_model="stub-model",
+        reviewer_model="stub-model",
+        engineer_reasoning_effort="xhigh",
+        max_rounds=1,
+        workdir=str(tmp_path),
+        skills_dir=str(tmp_path / "skills"),
+        project_state_dir="",
+        paper_mission=None,
+        open_ended=True,
+        continuous_objective="Optimize RMSNorm.",
+    )
+
+    outcome = runner.execute(
+        objective="certify scope",
+        sink=_Sink(),
+        preplanned=True,
+        workflow_mode_override="direct",
+        require_independent_review=True,
+    )
+
+    assert outcome.stage_transition["action"] == "advance"
+    assert len(stage_calls) == 1
+    assert stage_calls[0]["rounds_list"][-1].review is review
