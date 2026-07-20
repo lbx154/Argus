@@ -36,6 +36,25 @@ _NO_DISPATCH_FALLBACK = (
 )
 _PLAN_PREVIEW_CACHE_TTL_S = 60.0
 
+
+def _authorization_workdir(
+    chat_state: dict[str, Any],
+    life_dir: Path,
+) -> Path:
+    from ..manager.front_door import _operator_workspace
+
+    return _operator_workspace(chat_state, life_dir)
+
+
+def _project_paths_overlap(left: object, right: object) -> bool:
+    left_path = Path(str(left or "").strip().replace("\\", "/"))
+    right_path = Path(str(right or "").strip().replace("\\", "/"))
+    return bool(
+        left_path == right_path
+        or left_path in right_path.parents
+        or right_path in left_path.parents
+    )
+
 def manager_execution_handoff(
     sid: str,
     text: str,
@@ -667,6 +686,8 @@ def manager_message(
     global_root: Path | str | None = None,
     on_fragment: Any = None,
     cancelled: Any = None,
+    source_channel: str = "web",
+    source_message_id: str = "",
 ) -> dict[str, Any]:
     """Route one operator message through the Manager front-door.
 
@@ -910,6 +931,114 @@ def manager_message(
                 message_id=f"{turn_id}-argus",
             )
             return {"kind": "chat", "reply": greeting_reply}
+
+        authorization_actions = chat_state.pop(
+            "_frontdoor_authorization",
+            None,
+        )
+        if isinstance(authorization_actions, list) and authorization_actions:
+            if _cancelled():
+                return _cancelled_result()
+            from ..manager.control_state import CampaignControlStore
+
+            try:
+                control_store = CampaignControlStore(
+                    life_dir,
+                    project_root=_authorization_workdir(chat_state, life_dir),
+                )
+                head = control_store.read_head()
+                snapshot = control_store.read_snapshot(head)
+                active_wait = snapshot.get("active_wait") if snapshot else None
+                if head is None or not isinstance(active_wait, dict):
+                    raise ValueError(
+                        "no current Manager-bound blocker is awaiting authorization"
+                    )
+                terminal_evidence = list(
+                    snapshot.get("terminal_evidence") or []
+                ) if snapshot else []
+                diagnosis = (
+                    terminal_evidence[-1]
+                    if terminal_evidence
+                    and isinstance(terminal_evidence[-1], dict)
+                    else {}
+                )
+                validator_repair = "validator_repair" in authorization_actions
+                if (
+                    validator_repair
+                    and diagnosis.get("failure_source") != "validator_defect"
+                ):
+                    raise ValueError(
+                        "current Reviewer diagnosis is not validator_defect"
+                    )
+                repair_paths = list(diagnosis.get("repair_paths") or [])
+                validator_id = str(diagnosis.get("validator_id") or "")
+                watched_paths = [
+                    str(value)
+                    for value in (active_wait.get("watched_paths") or [])
+                    if not any(
+                        _project_paths_overlap(value, repair_path)
+                        for repair_path in repair_paths
+                    )
+                ]
+                identity = control_store.campaign_identity(
+                    campaign_epoch=head.campaign_epoch,
+                )
+                if (
+                    identity.campaign_id != head.campaign_id
+                    or identity.objective_sha256 != head.objective_sha256
+                ):
+                    raise ValueError("active campaign identity changed")
+                authorization = control_store.issue_authorization(
+                    identity=identity,
+                    blocker_fingerprint=str(
+                        active_wait.get("blocker_fingerprint") or ""
+                    ),
+                    allowed_actions=authorization_actions,
+                    scope="active_blocker",
+                    allowed_write_paths=repair_paths,
+                    evidence_paths=watched_paths,
+                    forbidden_mutations=watched_paths,
+                    source_channel=source_channel,
+                    source_message_id=source_message_id or turn_id,
+                    validator_id=validator_id,
+                    acceptance_retries=(
+                        1 if validator_repair else 0
+                    ),
+                    expected_state_revision=head.state_revision,
+                    expected_wait_id=str(active_wait.get("wait_id") or ""),
+                )
+                reply = (
+                    "Authorization recorded for the current campaign blocker "
+                    f"as {authorization.authorization_id}. No task was dispatched."
+                )
+                result = {
+                    "kind": "control",
+                    "control": "authorization",
+                    "reply": reply,
+                    "authorization_id": authorization.authorization_id,
+                    "campaign_id": authorization.campaign_id,
+                    "state_revision": authorization.state_revision,
+                    "allowed_actions": list(authorization.allowed_actions),
+                }
+            except (OSError, TypeError, ValueError) as exc:
+                reply = f"Authorization not recorded: {exc}. No task was dispatched."
+                result = {
+                    "kind": "control",
+                    "control": "authorization_rejected",
+                    "reply": reply,
+                }
+            _fragment("delta", {"text": reply, "message_id": "authorization"})
+            try:
+                append_turn(life_dir, "argus", reply)
+            except Exception:  # noqa: BLE001
+                pass
+            _emit_ui_turn(
+                life_dir,
+                "argus",
+                reply,
+                message_id=f"{turn_id}-argus",
+            )
+            return result
 
         if control == "steer":
             if _cancelled():

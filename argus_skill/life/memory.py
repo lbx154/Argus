@@ -715,20 +715,27 @@ _BACKLOG_STATUSES = {
     "paused",
     "paused_budget",
     "paused_provider_cooldown",
+    "paused_provider_fence",
+    "paused_daemon_shutdown",
+    "paused_operator",
     "research_incomplete",
     "paused_no_breakthrough",
     "exhausted_current_methods",
     "infra_blocked",
     "done",
     "failed",
+    "aborted",
     "skipped",
     "superseded",
 }
-_TERMINAL_STATUSES = {"done", "failed", "skipped", "superseded"}
+_TERMINAL_STATUSES = {"done", "failed", "aborted", "skipped", "superseded"}
 _RECOVERABLE_PAUSE_STATUSES = {
     "paused",
     "paused_budget",
     "paused_provider_cooldown",
+    "paused_provider_fence",
+    "paused_daemon_shutdown",
+    "paused_operator",
     "research_incomplete",
     "paused_no_breakthrough",
     "exhausted_current_methods",
@@ -815,6 +822,9 @@ class BacklogItem:
     non_goals: list[str] = field(default_factory=list)
     superseded_by_plan_id: str = ""
     superseded_reason: str = ""
+    authorization_id: str = ""
+    authorization_action: str = ""
+    outcome: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def new_id(cls) -> str:
@@ -837,6 +847,8 @@ class BacklogItem:
         plan_version: int = 0,
         node_key: str = "",
         context_refs: list[dict[str, str]] | None = None,
+        authorization_id: str = "",
+        authorization_action: str = "",
         acceptance_check: str = "",
         non_goals: list[str] | None = None,
     ) -> "BacklogItem":
@@ -861,6 +873,8 @@ class BacklogItem:
                 for ref in (context_refs or [])
                 if isinstance(ref, dict)
             ],
+            authorization_id=str(authorization_id),
+            authorization_action=str(authorization_action),
             acceptance_check=str(acceptance_check or "").strip(),
             non_goals=[
                 str(item).strip()
@@ -918,6 +932,13 @@ class BacklogItem:
             ],
             superseded_by_plan_id=str(row.get("superseded_by_plan_id", "")),
             superseded_reason=str(row.get("superseded_reason", "")),
+            authorization_id=str(row.get("authorization_id", "")),
+            authorization_action=str(row.get("authorization_action", "")),
+            outcome=(
+                {str(key): value for key, value in row.get("outcome", {}).items()}
+                if isinstance(row.get("outcome"), dict)
+                else {}
+            ),
         )
 
 
@@ -1399,8 +1420,19 @@ class Backlog:
     def mark_running(self, item_id: str) -> BacklogItem | None:
         return self.update(item_id, status="running", started_ts=time.time())
 
-    def mark_done(self, item_id: str) -> BacklogItem | None:
-        return self.update(item_id, status="done", finished_ts=time.time())
+    def mark_done(
+        self,
+        item_id: str,
+        *,
+        outcome: dict[str, Any] | None = None,
+    ) -> BacklogItem | None:
+        updates: dict[str, Any] = {
+            "status": "done",
+            "finished_ts": time.time(),
+        }
+        if outcome is not None:
+            updates["outcome"] = dict(outcome)
+        return self.update(item_id, **updates)
 
     def requeue_for_iteration(
         self,
@@ -1466,10 +1498,21 @@ class Backlog:
                 self._save(items)
             return out
 
-    def mark_failed(self, item_id: str, *, error: str = "") -> BacklogItem | None:
-        return self.update(
-            item_id, status="failed", finished_ts=time.time(), last_error=error
-        )
+    def mark_failed(
+        self,
+        item_id: str,
+        *,
+        error: str = "",
+        outcome: dict[str, Any] | None = None,
+    ) -> BacklogItem | None:
+        updates: dict[str, Any] = {
+            "status": "failed",
+            "finished_ts": time.time(),
+            "last_error": error,
+        }
+        if outcome is not None:
+            updates["outcome"] = dict(outcome)
+        return self.update(item_id, **updates)
 
     def resume_paused(self, item_id: str) -> BacklogItem | None:
         """Start a fresh metering attempt for one recoverable paused item."""

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from argus_skill.adapters.agent_cli_backend import _raw_backend_stop_kind
 from argus_skill.core.models import ReviewDecision, RunnerResult
 from argus_skill.engineer.runner import (
     EngineerConfig,
@@ -65,6 +66,10 @@ def _run_engineer(
     [
         ("budget_exhausted", "paused_budget"),
         ("provider_cooldown", "paused_provider_cooldown"),
+        ("provider_fence", "paused_provider_fence"),
+        ("daemon_shutdown", "paused_daemon_shutdown"),
+        ("operator_pause", "paused_operator"),
+        ("operator_abort", "aborted"),
     ],
 )
 def test_external_stops_do_not_enter_backend_failure_retry(
@@ -90,6 +95,28 @@ def test_backend_unavailable_keeps_existing_retry_policy(tmp_path: Path) -> None
     assert backend.calls == 2
 
 
+def test_provider_max_budget_is_a_fence_not_backend_failure() -> None:
+    assert _raw_backend_stop_kind(
+        fatal_error="Claude runner reported error_max_budget_usd.",
+        exit_code=1,
+    ) == "provider_fence"
+
+
+@pytest.mark.parametrize(
+    ("fatal_error", "expected"),
+    [
+        ("External interrupt: daemon stop requested", "daemon_shutdown"),
+        ("External interrupt: operator pause requested: hold", "operator_pause"),
+        ("External interrupt: operator abort requested: stop", "operator_abort"),
+    ],
+)
+def test_control_interrupts_receive_structured_stop_kinds(
+    fatal_error: str,
+    expected: str,
+) -> None:
+    assert _raw_backend_stop_kind(fatal_error=fatal_error, exit_code=-1) == expected
+
+
 def test_reviewer_budget_stop_pauses_without_failure_streak(tmp_path: Path) -> None:
     events: list[dict] = []
 
@@ -104,8 +131,8 @@ def test_reviewer_budget_stop_pauses_without_failure_streak(tmp_path: Path) -> N
             self.calls += 1
             return ReviewDecision(
                 status="blocked",
-                reason="review call denied by mission budget",
-                next_action="resume after replenishing budget",
+                reason="review call denied by the global daily USD cap",
+                next_action="resume after the cap resets or is raised",
                 backend_unavailable=True,
                 backend_stop_kind="budget_exhausted",
             )

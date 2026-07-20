@@ -164,6 +164,30 @@ test('mission projector keeps research_incomplete distinct from failure', () => 
   assert.equal(view.timeline.at(-1)?.detail, 'research_incomplete');
 });
 
+test('mission projector keeps completion, stage certification, and no-go independent', () => {
+  const view = reduceMissionViewEvent(emptyMissionView(), {
+    type: 'life.mission.completed',
+    ts: 21,
+    item_id: 'task-1',
+    status: 'done',
+    success: true,
+    outcome: {
+      execution_status: 'completed',
+      review_status: 'done',
+      stage_certification: 'not_certified',
+      scientific_decision: 'no_go',
+      failure_source: 'scientific_evidence_failure',
+      failure_layer: 'evaluator',
+      interruption_kind: 'none',
+      resumable: false,
+    },
+  });
+  assert.equal(view.mission.status, 'complete');
+  assert.equal(view.outcome.stage_certification, 'not_certified');
+  assert.equal(view.outcome.scientific_decision, 'no_go');
+  assert.equal(view.outcome.failure_layer, 'evaluator');
+});
+
 test('mission projector forces life.mission.failed to failed even with malformed completion fields', () => {
   const view = reduceMissionViewEvent(emptyMissionView(), {
     type: 'life.mission.failed',

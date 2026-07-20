@@ -39,6 +39,20 @@ def _write_record(reg: Path, task_id: str, **fields) -> None:
     (reg / f"{task_id}.json").write_text(json.dumps(record), encoding="utf-8")
 
 
+def _write_external_record(reg: Path, work_id: str, **fields) -> None:
+    reg.mkdir(parents=True, exist_ok=True)
+    record = {
+        "version": 1,
+        "work_id": work_id,
+        "state": "running_healthy",
+        "heartbeat_at": time.time(),
+        "stale_after_seconds": 1800,
+        "poll_after_seconds": 30,
+    }
+    record.update(fields)
+    (reg / f"{work_id}.json").write_text(json.dumps(record), encoding="utf-8")
+
+
 def _review(
     *,
     status: str,
@@ -135,6 +149,50 @@ def test_wait_sentinel_summary_handoff_final_line_skips_reviewer(
     assert any(e.get("type") == "round.background_wait.started" for e in events)
     assert any(e.get("type") == "round.background_wait.completed" for e in events)
     assert status == "done"
+
+
+def test_external_work_wait_skips_reviewer_and_preserves_liveness_semantics(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _write_external_record(tmp_path / ".argus_external_work", "experiment-1")
+    monkeypatch.setattr(
+        runner_module,
+        "_run_external_work_wait",
+        lambda **_kwargs: ("terminal", 30.0),
+    )
+
+    backend = MemoryBackend()
+    backend.queue("engineer-r1", CannedResponse(
+        message="WAIT_FOR_EXTERNAL_WORK: experiment-1",
+        thread_id="t1",
+    ))
+    backend.queue("engineer-r2", CannedResponse(
+        message="Terminal evidence arrived; I evaluated it.",
+        thread_id="t2",
+    ))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+
+    events: list[dict] = []
+    status, rounds, _final, _reason, _tid = _engineer(backend).run(
+        objective="wait for and evaluate the external experiment",
+        engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
+        supervised_config=SupervisedConfig(max_rounds=3),
+        workdir=tmp_path,
+        on_event=events.append,
+    )
+
+    assert status == "done"
+    assert len(rounds) == 1
+    assert [label for label, _prompt, _options in backend.history] == [
+        "engineer-r1",
+        "engineer-r2",
+        "reviewer",
+    ]
+    assert any(
+        event.get("type") == "round.external_work_wait.started"
+        for event in events
+    ) is False
 
 
 def test_reviewer_wait_control_records_review_then_waits_without_incrementing_stall(

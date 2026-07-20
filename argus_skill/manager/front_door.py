@@ -721,10 +721,16 @@ _DO_NOT_RUN_SAFE_REPLY = (
 )
 
 
-def _pre_provider_refusal_reply(exc: Exception) -> str:
+def _fallback_request_excerpt(body: str) -> str:
+    compact = " ".join(str(body or "").split())
+    return compact if len(compact) <= 160 else compact[:157] + "..."
+
+
+def _pre_provider_refusal_reply(exc: Exception, body: str) -> str:
     return (
         "[not dispatched] The Manager could not classify this message because "
-        f"the provider call was refused before start: {exc}"
+        f"the provider call was refused before start: {exc}. "
+        f"Request: {_fallback_request_excerpt(body)}"
     )
 
 
@@ -757,7 +763,8 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
     captured: list[str] = []
     empty_reply = (
         "[Manager reply unavailable] The SELF turn completed without an assistant "
-        "message. No task was dispatched and the current mission was not changed."
+        "message. No task was dispatched and the current mission was not changed. "
+        f"Request: {_fallback_request_excerpt(body)}"
     )
 
     def _fragment(kind: str, payload: dict[str, Any]) -> None:
@@ -875,7 +882,7 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
             if looks_like_do_not_run_request(body):
                 return _DO_NOT_RUN_SAFE_REPLY
             if is_pre_provider_refusal_error(exc):
-                return _pre_provider_refusal_reply(exc)
+                return _pre_provider_refusal_reply(exc, body)
             return None
     except Exception as exc:  # noqa: BLE001 — triage failure: bias to task ("never drop
         # work to a bad classify") UNLESS the operator explicitly forbade running
@@ -884,7 +891,7 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
         if looks_like_do_not_run_request(body):
             return _DO_NOT_RUN_SAFE_REPLY
         if is_pre_provider_refusal_error(exc):
-            return _pre_provider_refusal_reply(exc)
+            return _pre_provider_refusal_reply(exc, body)
         return None
     return None
 

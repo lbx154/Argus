@@ -7,6 +7,7 @@ ArgusBot's ``agent_cli/reviewer.py``.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any, cast
 
 from ..core.models import ReviewDecision, ReviewStatus
@@ -97,6 +98,9 @@ def parse_decision_text(
     assert completion_summary_markdown is not None
     planner_report = _parse_planner_report(parsed, status=status, reason=reason)
     control_action, control_task_id = _parse_control(parsed)
+    failure_source, failure_source_evidence, validator_id, repair_paths = (
+        _parse_failure_source(parsed)
+    )
     return ReviewDecision(
         status=status,
         reason=reason,
@@ -116,6 +120,11 @@ def parse_decision_text(
         planner_report=planner_report,
         checkpoint=_parse_checkpoint(parsed),
         failure_cause=_parse_failure_cause(parsed),
+        failure_source=failure_source,
+        failure_source_evidence=failure_source_evidence,
+        validator_id=validator_id,
+        repair_paths=repair_paths,
+        scientific_decision=_parse_scientific_decision(parsed),
         failure_layer=normalize_failure_layer(parsed.get("failure_layer")),
         # Legacy replay compatibility only. Current Reviewer schemas no longer
         # expose these fields; live Reviewers edit the injected paths directly.
@@ -360,6 +369,63 @@ _VALID_FAILURE_CAUSES = frozenset({
     "method_failure",
     "unknown",
 })
+_VALID_FAILURE_SOURCES = frozenset({
+    "validator_defect",
+    "provenance_binding_defect",
+    "infrastructure_failure",
+    "scientific_evidence_failure",
+})
+_VALID_SCIENTIFIC_DECISIONS = frozenset({"go", "pivot", "no_go", "undecided"})
+
+
+def _parse_failure_source(
+    parsed: dict[str, Any],
+) -> tuple[str, list[dict[str, str]], str, list[str]]:
+    raw = parsed.get("failure_source")
+    if not isinstance(raw, dict):
+        return "", [], "", []
+    kind = str(raw.get("kind") or "").strip().lower()
+    if kind not in _VALID_FAILURE_SOURCES:
+        return "", [], "", []
+    evidence: list[dict[str, str]] = []
+    rows = raw.get("evidence")
+    if isinstance(rows, list):
+        for row in rows[:12]:
+            if not isinstance(row, dict):
+                continue
+            artifact = str(row.get("artifact") or "").strip()[:500]
+            observation = str(row.get("observation") or "").strip()[:1000]
+            if artifact and observation:
+                evidence.append({
+                    "artifact": artifact,
+                    "observation": observation,
+                })
+    validator_id = str(raw.get("validator_id") or "").strip()[:200]
+    repair_paths: list[str] = []
+    raw_repair_paths = raw.get("repair_paths")
+    if isinstance(raw_repair_paths, list):
+        for value in raw_repair_paths[:16]:
+            path = str(value or "").strip().replace("\\", "/")[:500]
+            if (
+                path
+                and not path.startswith("/")
+                and ".." not in Path(path).parts
+                and path not in repair_paths
+            ):
+                repair_paths.append(path[2:] if path.startswith("./") else path)
+    if not evidence or (
+        kind == "validator_defect"
+        and (not validator_id or not repair_paths)
+    ):
+        return "", [], "", []
+    if kind not in {"validator_defect", "provenance_binding_defect"}:
+        repair_paths = []
+    return kind, evidence, validator_id, repair_paths
+
+
+def _parse_scientific_decision(parsed: dict[str, Any]) -> str:
+    value = str(parsed.get("scientific_decision") or "").strip().lower()
+    return value if value in _VALID_SCIENTIFIC_DECISIONS else ""
 
 
 def _parse_failure_cause(parsed: dict) -> str:

@@ -91,6 +91,12 @@ delegate execution to the Engineer. The Reviewer independently evaluates each mi
   `recheck_after_seconds`; the harness permits at most one probe for that exact
   fingerprint/token pair. Change the token only after concrete current evidence changes,
   never merely because time passed or the wording changed.
+  Use `wait_mode=event` when the blocker can change only through a durable
+  `authorization`, `subagent_terminal`, `manager_stage`, or `artifact_revision`
+  event; list the corresponding `wake_on` values and any project-relative
+  `watched_paths`. Argus then skips Planner calls until that revision changes.
+  Use `wait_mode=poll` for other waits. Set `expires_at=0` unless a real external
+  deadline exists.
 - Parallel paper drafting is an overlap exception while a verified experiment runs
   during `run` or `analysis`. It may draft honest prose and explicit result
   placeholders, but it does not complete or advance any stage.

@@ -219,6 +219,11 @@ def compact_backlog_item(item: Any) -> dict[str, Any]:
         "deps": [str(dep) for dep in (getattr(item, "deps", None) or [])],
         "iteration_max_cycles": int(getattr(item, "iteration_max_cycles", 0) or 0),
         "iteration_cycles_done": int(getattr(item, "iteration_cycles_done", 0) or 0),
+        "outcome": (
+            dict(getattr(item, "outcome", {}) or {})
+            if isinstance(getattr(item, "outcome", {}), dict)
+            else {}
+        ),
     }
 
 

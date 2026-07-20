@@ -104,9 +104,11 @@ class _WaitingThenManagerRunner:
         self.manager_resolves_wait = manager_resolves_wait
         self.operator_action_required = operator_action_required
         self.manager_calls = 0
+        self.planner_calls = 0
 
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
         if run_label.startswith("planner.cycle"):
+            self.planner_calls += 1
             payload = {
                 "project_done": False,
                 "reason": "the prerequisite profile cannot run at measure",
@@ -531,6 +533,87 @@ def test_revision_stage_mismatch_rolls_back_and_retires_old_plan(
     assert backend.manager_calls == 1
     assert any(
         event.get("type") == "life.plan.revision.rolled_back"
+        for event in sup._test_sink.events  # type: ignore[attr-defined]
+    )
+
+
+def test_event_wait_skips_planner_until_declared_revision_changes(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    sup, backend, project = _make_waiting_supervisor(
+        tmp_path,
+        monkeypatch,
+        reconcile=False,
+        manager_action="hold",
+    )
+    persisted = sup._persist_planner_waiting_contract(WaitingContract(
+        blocker_fingerprint="stage:measure",
+        recheck_condition="Manager stage state changes",
+        recheck_token="measure-v1",
+        wait_mode="event",
+        wake_on=("manager_stage",),
+    ))
+    assert persisted is not None
+
+    assert sup._plan_next_work() == PLAN_AWAITING
+    assert backend.planner_calls == 0
+    assert not any(
+        event.get("type") == "life.planner.start"
+        for event in sup._test_sink.events  # type: ignore[attr-defined]
+    )
+
+    state_path = project / "research" / "PIPELINE_STATE.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["control_revision_test"] = 1
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    assert sup._plan_next_work() == PLAN_AWAITING
+    assert backend.planner_calls == 1
+    assert any(
+        event.get("type") == "life.planner.waiting_woken"
+        and event.get("wake_reason") == "revision_changed"
+        for event in sup._test_sink.events  # type: ignore[attr-defined]
+    )
+
+
+def test_event_wait_still_short_circuits_when_control_binding_fails(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from argus_skill.manager.control_state import CampaignControlStore
+
+    sup, backend, _project = _make_waiting_supervisor(
+        tmp_path,
+        monkeypatch,
+        reconcile=False,
+        manager_action="hold",
+    )
+    monkeypatch.setattr(
+        CampaignControlStore,
+        "activate_wait",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            OSError("control store unavailable")
+        ),
+    )
+
+    persisted = sup._persist_planner_waiting_contract(WaitingContract(
+        blocker_fingerprint="stage:measure",
+        recheck_condition="Manager stage state changes",
+        recheck_token="measure-v1",
+        wait_mode="event",
+        wake_on=("manager_stage",),
+    ))
+
+    assert persisted is not None
+    assert "campaign_id" not in persisted
+    assert "campaign_epoch" not in persisted
+    assert "state_revision" not in persisted
+    assert sup._plan_next_work() == PLAN_AWAITING
+    assert backend.planner_calls == 0
+    assert any(
+        event.get("type") == "life.planner.waiting"
+        and event.get("model_call_skipped") is True
         for event in sup._test_sink.events  # type: ignore[attr-defined]
     )
 

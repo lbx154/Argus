@@ -51,6 +51,15 @@ def _ts_type(schema: dict[str, Any]) -> str:
         item_type = _ts_type(schema.get("items") or {})
         return f"Array<{item_type}>"
     if raw_type == "object":
+        properties = schema.get("properties")
+        if isinstance(properties, dict) and properties:
+            required = set(schema.get("required") or [])
+            fields = [
+                f"{json.dumps(field)}{'' if field in required else '?'}: "
+                f"{_ts_type(field_schema)};"
+                for field, field_schema in properties.items()
+            ]
+            return "{ " + " ".join(fields) + " }"
         return "Record<string, unknown>"
     return "unknown"
 

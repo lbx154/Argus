@@ -8,7 +8,10 @@ from typing import Any
 import pytest
 
 from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.life.mission_outcome import mission_outcome_class
+from argus_skill.life.mission_outcome import (
+    mission_outcome_class,
+    mission_outcome_dimensions,
+)
 from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 
 
@@ -73,6 +76,9 @@ def _make_supervisor(tmp_path, outcome: _Outcome) -> tuple[LifeSupervisor, _Sink
         ("error", False, "failed"),
         ("supervisor_error", False, "failed"),
         ("paused_budget", False, "ended"),
+        ("paused_daemon_shutdown", False, "ended"),
+        ("paused_operator", False, "ended"),
+        ("aborted", False, "ended"),
         ("legacy_unknown_status", False, "ended"),
     ],
 )
@@ -129,6 +135,79 @@ def test_pause_completion_event_includes_outcome_class(tmp_path) -> None:
 
     assert result is not None
     assert _completed_event(sink)["outcome_class"] == "ended"
+
+
+def test_daemon_shutdown_is_persisted_as_recoverable_pause(tmp_path) -> None:
+    supervisor, sink = _make_supervisor(
+        tmp_path,
+        _Outcome(
+            success=False,
+            status="paused_daemon_shutdown",
+            stop_kind="daemon_shutdown",
+            recoverable=True,
+            stop_reason="daemon shutdown requested",
+        ),
+    )
+    item = supervisor.memory.backlog.add(
+        BacklogItem.new(title="paused mission", objective="resume after restart")
+    )
+
+    result = supervisor.tick()
+
+    assert result is not None and result["status"] == "paused_daemon_shutdown"
+    stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
+    assert stored.status == "paused_daemon_shutdown"
+    completed = _completed_event(sink)
+    assert completed["success"] is False
+    assert completed["stop_kind"] == "daemon_shutdown"
+    assert completed["recoverable"] is True
+
+
+def test_operator_abort_is_terminal_but_not_failed(tmp_path) -> None:
+    supervisor, sink = _make_supervisor(
+        tmp_path,
+        _Outcome(
+            success=False,
+            status="aborted",
+            stop_kind="operator_abort",
+            stop_reason="operator aborted this mission",
+        ),
+    )
+    item = supervisor.memory.backlog.add(
+        BacklogItem.new(title="aborted mission", objective="stop only this item")
+    )
+
+    result = supervisor.tick()
+
+    assert result is not None and result["status"] == "aborted"
+    stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
+    assert stored.status == "aborted"
+    completed = _completed_event(sink)
+    assert completed["success"] is False
+    assert completed["stop_kind"] == "operator_abort"
+    assert completed["failure_reason"] == ""
+
+
+def test_completed_no_go_keeps_stage_and_science_independent() -> None:
+    outcome = mission_outcome_dimensions(
+        status="done",
+        success=True,
+        review_status="done",
+        stage_transition={"action": "hold"},
+        scientific_decision="no_go",
+        failure_source="scientific_evidence_failure",
+    )
+
+    assert outcome == {
+        "execution_status": "completed",
+        "review_status": "done",
+        "stage_certification": "not_certified",
+        "scientific_decision": "no_go",
+        "failure_source": "scientific_evidence_failure",
+        "failure_layer": "",
+        "interruption_kind": "none",
+        "resumable": False,
+    }
 
 def test_supervisor_error_recovery_event_includes_outcome_class(tmp_path) -> None:
     memory = LifeMemory.open(tmp_path / "life")

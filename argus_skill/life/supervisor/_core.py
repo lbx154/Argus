@@ -620,6 +620,9 @@ class LifeSupervisor(
             if outcome.get("status") in {
                 "paused_budget",
                 "paused_provider_cooldown",
+                "paused_provider_fence",
+                "paused_daemon_shutdown",
+                "paused_operator",
                 "iteration_cap",
                 "lifecycle_block",
                 "stage_hold",
@@ -693,6 +696,9 @@ class LifeSupervisor(
             if outcome.get("status") in {
                 "paused_budget",
                 "paused_provider_cooldown",
+                "paused_provider_fence",
+                "paused_daemon_shutdown",
+                "paused_operator",
                 "iteration_cap",
                 "lifecycle_block",
                 "stage_hold",

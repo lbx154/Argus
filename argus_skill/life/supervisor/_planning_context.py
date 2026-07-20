@@ -71,6 +71,66 @@ class PlanningContextMixin:
             for tag in item.tags
         )
 
+    def _planner_authorization_prompt_block(self) -> str:
+        try:
+            from ...manager.control_state import CampaignControlStore
+
+            store = CampaignControlStore(
+                Path(self.memory.root),
+                project_root=self._project_workdir(),
+            )
+            rows = [
+                store.public_authorization(row)
+                for row in store.current_authorizations()
+            ]
+        except (OSError, TypeError, ValueError):
+            log.warning("failed to load current Manager authorizations", exc_info=True)
+            return ""
+        if not rows:
+            return ""
+        lines = [
+            "## Current Manager authorizations",
+            "These are verified, non-secret references. Use one only for a task "
+            "whose exact action and writable paths match. Set authorization_id "
+            "and authorization_action on that task; never invent or reuse an id.",
+        ]
+        for row in rows:
+            lines.append(
+                "- "
+                + json.dumps(row, ensure_ascii=False, sort_keys=True)
+            )
+        return "\n".join(lines)
+
+    def _validated_task_authorization(self, task: Any) -> tuple[str, str]:
+        authorization_id = str(
+            getattr(task, "authorization_id", "") or ""
+        ).strip()
+        action = str(
+            getattr(task, "authorization_action", "") or ""
+        ).strip().lower()
+        if not authorization_id and not action:
+            return "", ""
+        if not authorization_id or not action:
+            raise ValueError("planner task authorization reference is incomplete")
+        if action != "validator_repair":
+            raise ValueError("only validator_repair has an enforced mission capability")
+        from ...manager.control_state import CampaignControlStore
+
+        store = CampaignControlStore(
+            Path(self.memory.root),
+            project_root=self._project_workdir(),
+        )
+        rows = {
+            str(row.get("authorization_id") or ""): row
+            for row in store.current_authorizations()
+        }
+        row = rows.get(authorization_id)
+        if row is None:
+            raise ValueError("planner task references a stale authorization")
+        if action not in set(row.get("allowed_actions") or []):
+            raise ValueError("planner task action is outside Manager authorization")
+        return authorization_id, action
+
     @staticmethod
     def _normalize_planner_scope(scope: object) -> str:
         normalized = str(scope or PLANNER_SCOPE_BOUNDED).strip().lower().replace("-", "_")
@@ -470,6 +530,11 @@ class PlanningContextMixin:
         # inactivity. Keep exponential polling without arming daemon idle-exit.
         sleep_s = self._enter_pause_backoff()
         reason = verdict.waiting_reason or verdict.reason or "awaiting external dependency"
+        repair_payload = (
+            verdict.schema_repair_event_payload()
+            if hasattr(verdict, "schema_repair_event_payload")
+            else {}
+        )
         self._emit({
             "type": EventType.LIFE_PLANNER_WAITING,
             "cycle": self._planning_cycles,
@@ -487,6 +552,7 @@ class PlanningContextMixin:
             "waiting_contract_persisted": (
                 contract is None or contract_state is not None
             ),
+            **repair_payload,
         })
         self._emit_status(f"awaiting external dependency: {reason}")
         return PLAN_AWAITING
@@ -626,6 +692,27 @@ class PlanningContextMixin:
             return None
         if not str(payload.get("recheck_token") or "").strip():
             return None
+        if payload.get("state_revision") is not None:
+            try:
+                from ...manager.control_state import CampaignControlStore
+
+                control = CampaignControlStore(
+                    Path(self.memory.root),
+                    project_root=self._project_workdir(),
+                )
+                if not control.is_wait_current(
+                    campaign_epoch=int(payload.get("campaign_epoch") or 0),
+                    state_revision=int(payload.get("state_revision") or 0),
+                    wait_id=str(payload.get("wait_id") or ""),
+                ):
+                    return None
+            except (OSError, TypeError, ValueError):
+                log.warning(
+                    "planner waiting contract revision is invalid: %s",
+                    path,
+                    exc_info=True,
+                )
+                return None
         return payload
 
     def _write_planner_waiting_contract_state(
@@ -651,6 +738,130 @@ class PlanningContextMixin:
             except FileNotFoundError:
                 pass
 
+    @staticmethod
+    def _waiting_revision_file(path: Path) -> dict[str, Any]:
+        try:
+            stat = path.stat()
+        except OSError:
+            return {"path": str(path), "exists": False}
+        entry: dict[str, Any] = {
+            "path": str(path),
+            "exists": True,
+            "size": int(stat.st_size),
+            "mtime_ns": int(stat.st_mtime_ns),
+        }
+        if path.is_file() and stat.st_size <= 1_048_576:
+            try:
+                entry["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+            except OSError:
+                entry["read_error"] = True
+        return entry
+
+    def _planner_waiting_observed_revision(
+        self,
+        *,
+        wake_on: list[str] | tuple[str, ...],
+        watched_paths: list[str] | tuple[str, ...],
+    ) -> str:
+        wake_sources = {str(value).strip().lower() for value in wake_on}
+        project_root = self._project_workdir()
+        revision: dict[str, Any] = {
+            "campaign_epoch": self._planner_waiting_objective_fingerprint(),
+            "wake_on": sorted(wake_sources),
+        }
+        if "authorization" in wake_sources:
+            revision["authorization"] = self._waiting_revision_file(
+                Path(self.memory.root) / "operator-authorizations.jsonl"
+            )
+        if "manager_stage" in wake_sources:
+            revision["manager_stage"] = self._waiting_revision_file(
+                project_root / "research" / "PIPELINE_STATE.json"
+            )
+        if "artifact_revision" in wake_sources:
+            revision["artifacts"] = [
+                self._waiting_revision_file(project_root / relative)
+                for relative in watched_paths
+            ]
+        if "subagent_terminal" in wake_sources:
+            terminal_rows: list[dict[str, str]] = []
+            registry = project_root / ".argus_subagents"
+            for path in sorted(registry.glob("*.json")) if registry.is_dir() else []:
+                try:
+                    payload = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                    continue
+                if not isinstance(payload, dict):
+                    continue
+                state = str(
+                    payload.get("status") or payload.get("state") or ""
+                ).strip().lower()
+                if state not in {
+                    "completed", "complete", "done", "failed", "error",
+                    "cancelled", "canceled", "stopped", "early_stop",
+                }:
+                    continue
+                terminal_rows.append({
+                    "task_id": str(payload.get("task_id") or path.stem),
+                    "state": state,
+                    "decision": str(payload.get("decision") or ""),
+                })
+            revision["subagent_terminal"] = terminal_rows
+        blob = json.dumps(revision, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+    def _planner_event_wait_should_short_circuit(self) -> bool:
+        state = self._load_planner_waiting_contract_state()
+        if (
+            state is None
+            or not bool(state.get("active"))
+            or state.get("wait_mode") != "event"
+        ):
+            return False
+        expires_at = float(state.get("expires_at") or 0.0)
+        current_revision = self._planner_waiting_observed_revision(
+            wake_on=list(state.get("wake_on") or []),
+            watched_paths=list(state.get("watched_paths") or []),
+        )
+        observed_revision = str(state.get("observed_revision") or "")
+        wake_reason = ""
+        if expires_at > 0 and time.time() >= expires_at:
+            wake_reason = "expired"
+        elif observed_revision and current_revision != observed_revision:
+            wake_reason = "revision_changed"
+        if wake_reason:
+            state["active"] = False
+            state["superseded_by_revision"] = current_revision
+            state["wake_reason"] = wake_reason
+            state["updated_at"] = time.time()
+            self._write_planner_waiting_contract_state(state)
+            self._emit({
+                "type": EventType.LIFE_PLANNER_WAITING_WOKEN,
+                "blocker_fingerprint": state.get("blocker_fingerprint"),
+                "recheck_token": state.get("recheck_token"),
+                "wake_reason": wake_reason,
+                "observed_revision": observed_revision,
+                "current_revision": current_revision,
+            })
+            self._reset_idle_backoff()
+            return False
+        if not observed_revision:
+            state["observed_revision"] = current_revision
+            state["updated_at"] = time.time()
+            self._write_planner_waiting_contract_state(state)
+        sleep_s = self._enter_idle_backoff()
+        self._emit({
+            "type": EventType.LIFE_PLANNER_WAITING,
+            "cycle": self._planning_cycles,
+            "reason": state.get("recheck_condition") or "awaiting event",
+            "suggested_sleep_s": sleep_s,
+            "model_call_skipped": True,
+            "wait_mode": "event",
+            "observed_revision": current_revision,
+            "waiting_contract": self._waiting_contract_event_payload(state, None),
+        })
+        self._emit_status("awaiting declared event; Planner call skipped")
+        return True
+
     def _persist_planner_waiting_contract(
         self,
         contract: Any,
@@ -667,6 +878,50 @@ class PlanningContextMixin:
             and previous.get("recheck_token") == recheck_token
         )
         now = time.time()
+        wait_mode = str(getattr(contract, "wait_mode", "poll") or "poll")
+        wake_on = [str(value) for value in getattr(contract, "wake_on", ())]
+        watched_paths = [
+            str(value) for value in getattr(contract, "watched_paths", ())
+        ]
+        wait_id = hashlib.sha256(
+            (
+                self._planner_waiting_objective_fingerprint()
+                + "\0"
+                + blocker_fingerprint
+                + "\0"
+                + recheck_token
+            ).encode("utf-8")
+        ).hexdigest()[:24]
+        control_binding: dict[str, Any] = {}
+        try:
+            from ...manager.control_state import CampaignControlStore
+
+            control = CampaignControlStore(
+                Path(self.memory.root),
+                project_root=self._project_workdir(),
+            )
+            identity = control.campaign_identity(
+                objective=str(
+                    getattr(self.config, "continuous_objective", "") or ""
+                )
+            )
+            control_head = control.activate_wait(
+                identity=identity,
+                wait_id=wait_id,
+                blocker_fingerprint=blocker_fingerprint,
+                recheck_token=recheck_token,
+                watched_paths=watched_paths,
+            )
+            control_binding = {
+                "campaign_id": control_head.campaign_id,
+                "campaign_epoch": control_head.campaign_epoch,
+                "state_revision": control_head.state_revision,
+            }
+        except (OSError, TypeError, ValueError):
+            log.warning(
+                "failed to bind planner wait to Manager control revision",
+                exc_info=True,
+            )
         payload = {
             "version": 1,
             "objective_fingerprint": self._planner_waiting_objective_fingerprint(),
@@ -688,6 +943,19 @@ class PlanningContextMixin:
                     604800,
                     int(getattr(contract, "recheck_after_seconds", 0) or 0),
                 ),
+            ),
+            "wait_mode": wait_mode,
+            "wake_on": wake_on,
+            "watched_paths": watched_paths,
+            "expires_at": max(
+                0.0,
+                float(getattr(contract, "expires_at", 0.0) or 0.0),
+            ),
+            **control_binding,
+            "wait_id": wait_id,
+            "observed_revision": self._planner_waiting_observed_revision(
+                wake_on=wake_on,
+                watched_paths=watched_paths,
             ),
             "first_observed_at": (
                 float(previous.get("first_observed_at") or now)
@@ -936,6 +1204,12 @@ class PlanningContextMixin:
                 "recheck_after_seconds",
                 0,
             ),
+            "wait_mode": getattr(contract, "wait_mode", "poll"),
+            "wake_on": list(getattr(contract, "wake_on", ()) or ()),
+            "watched_paths": list(
+                getattr(contract, "watched_paths", ()) or ()
+            ),
+            "expires_at": getattr(contract, "expires_at", 0.0),
         }
         return {
             key: source.get(key)
@@ -947,6 +1221,17 @@ class PlanningContextMixin:
                 "operator_action_required",
                 "allow_verification_probe",
                 "recheck_after_seconds",
+                "wait_mode",
+                "wake_on",
+                "watched_paths",
+                "expires_at",
+                "campaign_epoch",
+                "campaign_id",
+                "state_revision",
+                "wait_id",
+                "observed_revision",
+                "superseded_by_revision",
+                "wake_reason",
                 "first_observed_at",
                 "last_probe_at",
             )
@@ -962,6 +1247,9 @@ class PlanningContextMixin:
             f"- blocker_fingerprint: {state['blocker_fingerprint']}\n"
             f"- recheck_token: {state['recheck_token']}\n"
             f"- recheck_condition: {state.get('recheck_condition') or ''}\n"
+            f"- wait_mode: {state.get('wait_mode') or 'poll'}\n"
+            f"- wake_on: {state.get('wake_on') or []}\n"
+            f"- observed_revision: {state.get('observed_revision') or ''}\n"
             "- stage_reconciliation_required: "
             f"{bool(state.get('stage_reconciliation_required'))}\n"
             "- operator_action_required: "

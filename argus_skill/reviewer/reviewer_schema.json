@@ -4,7 +4,6 @@
   "additionalProperties": false,
   "properties": {
     "status": {
-      "type": "string",
       "enum": [
         "done",
         "continue",
@@ -43,7 +42,6 @@
         "object",
         "null"
       ],
-      "description": "Verified project-level achievement only; otherwise null.",
       "additionalProperties": false,
       "properties": {
         "title": {
@@ -90,10 +88,6 @@
       ]
     },
     "failure_cause": {
-      "type": [
-        "string",
-        "null"
-      ],
       "enum": [
         "skill_gap",
         "execution_mistake",
@@ -105,8 +99,42 @@
         null
       ]
     },
+    "failure_source": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "validator_defect",
+            "provenance_binding_defect",
+            "infrastructure_failure",
+            "scientific_evidence_failure"
+          ]
+        },
+        "validator_id": {"type": ["string", "null"]},
+        "repair_paths": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "artifact": {"type": "string"},
+              "observation": {"type": "string"}
+            },
+            "required": ["artifact", "observation"]
+          }
+        }
+      },
+      "required": ["kind", "validator_id", "repair_paths", "evidence"]
+    },
+    "scientific_decision": {
+      "enum": ["go", "pivot", "no_go", "undecided", null]
+    },
     "failure_layer": {
-      "type": ["string", "null"],
       "enum": [
         "platform",
         "orchestration",
@@ -120,7 +148,6 @@
       ]
     },
     "progress_class": {
-      "type": "string",
       "enum": [
         "decision",
         "evidence",
@@ -134,14 +161,9 @@
         "object",
         "null"
       ],
-      "description": "OPTIONAL reviewer-authored runner control. Use null unless you are explicitly requesting a reviewed wait on a healthy self-watched subagent.",
       "additionalProperties": false,
       "properties": {
         "action": {
-          "type": [
-            "string",
-            "null"
-          ],
           "enum": [
             "wait_for_subagent",
             null
@@ -161,10 +183,6 @@
       ]
     },
     "scope": {
-      "type": [
-        "string",
-        "null"
-      ],
       "enum": [
         "bounded",
         "final_submission",
@@ -191,7 +209,6 @@
           "maxLength": 1200
         },
         "plan_signal": {
-          "type": "string",
           "enum": [
             "continue",
             "reconsider"
@@ -272,7 +289,6 @@
         "null"
       ],
       "additionalProperties": false,
-      "description": "Planner-only checklist correction feedback; otherwise null.",
       "properties": {
         "stage": {
           "type": "string",
@@ -325,10 +341,8 @@
         "null"
       ],
       "additionalProperties": false,
-      "description": "Required for any measured result; null only when nothing was measured.",
       "properties": {
         "supported_by_results": {
-          "type": "string",
           "enum": [
             "yes",
             "partial",
@@ -391,6 +405,8 @@
     "completion_summary_markdown",
     "achievement",
     "failure_cause",
+    "failure_source",
+    "scientific_decision",
     "failure_layer",
     "progress_class",
     "control",

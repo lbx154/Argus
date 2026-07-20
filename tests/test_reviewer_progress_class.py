@@ -122,6 +122,49 @@ def test_invalid_or_missing_control_drops_wait_request(control: object) -> None:
     assert decision.control_task_id == ""
 
 
+def test_parse_failure_source_requires_structured_evidence() -> None:
+    payload = json.loads(_payload(progress_class="none", forward_progress=False))
+    payload["failure_source"] = {
+        "kind": "validator_defect",
+        "validator_id": "terminal-contract",
+        "repair_paths": ["tests/test_terminal_contract.py"],
+        "evidence": [{
+            "artifact": "tests/test_terminal_contract.py",
+            "observation": "historical hash was compared with the current file",
+        }],
+    }
+    payload["scientific_decision"] = "no_go"
+
+    decision = parse_decision_text(json.dumps(payload))
+
+    assert decision is not None
+    assert decision.failure_source == "validator_defect"
+    assert decision.validator_id == "terminal-contract"
+    assert decision.repair_paths == ["tests/test_terminal_contract.py"]
+    assert decision.failure_source_evidence[0]["artifact"].startswith("tests/")
+    assert decision.scientific_decision == "no_go"
+    event = decision.to_event_payload()
+    assert event["failure_source"] == "validator_defect"
+    assert event["scientific_decision"] == "no_go"
+
+
+def test_validator_defect_without_evidence_fails_closed() -> None:
+    payload = json.loads(_payload(progress_class="none", forward_progress=False))
+    payload["failure_source"] = {
+        "kind": "validator_defect",
+        "validator_id": "terminal-contract",
+        "repair_paths": [],
+        "evidence": [],
+    }
+
+    decision = parse_decision_text(json.dumps(payload))
+
+    assert decision is not None
+    assert decision.failure_source == ""
+    assert decision.validator_id == ""
+    assert decision.repair_paths == []
+
+
 def test_reviewer_schemas_require_only_the_compact_progress_enum() -> None:
     for path in (Path(SCHEMA_PATH), Path(RESEARCH_SCHEMA_PATH)):
         schema = json.loads(path.read_text(encoding="utf-8"))

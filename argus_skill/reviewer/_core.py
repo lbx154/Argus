@@ -957,8 +957,8 @@ class Reviewer:
             "within its own scope, return `replan_requested` (never `continue`) and "
             "name the earliest broken stage in `reason` and "
             "`planner_report.blocker`. Set `planner_report.plan_signal` to "
-            "`reconsider` with a non-empty `plan_signal_reason`. The Manager owns "
-            "rollback; never edit `research/PIPELINE_STATE.json`."
+            "`reconsider` with a non-empty `plan_signal_reason`; the Manager owns rollback. "
+            "Never edit `research/PIPELINE_STATE.json`."
         )
         # Checklist-feedback channel. The PLANNER owns the per-stage checklist
         # (it authors/edits it via checklist_ops). The reviewer is FEEDBACK-ONLY:
@@ -1124,6 +1124,16 @@ class Reviewer:
             "turn, except Wiki pages, which must use the schema's structured "
             "`wiki_ops`. Never directly edit `.autors/**/wiki/pages/**`, and never "
             "encode other memory edits in the final JSON.\n"
+            "- `failure_source` is independent acceptance provenance. Use null "
+            "without a diagnosed acceptance failure; otherwise choose exactly one "
+            "structured kind and cite concrete artifact observations. A "
+            "`validator_defect` requires a stable validator_id plus exact project-"
+            "relative repair_paths limited to validator/test/provenance files. "
+            "Never list raw scientific evidence, preregistration, thresholds, or "
+            "success criteria as repair_paths. Classification does "
+            "not authorize repair. Never label missing/failed scientific evidence "
+            "as a validator defect. Set `scientific_decision` independently to "
+            "go, pivot, no_go, undecided, or null.\n"
             "- `failure_layer` is orthogonal and must be one of `platform`, "
             "`orchestration`, `evaluator`, `evidence_packaging`, `scientific`, "
             "`operator`, or `unknown`. Platform/program/evaluator/packaging failures "

@@ -33,6 +33,16 @@ describe('MissionControl', () => {
       id: 'event-1', ts: 1, type: 'research.metric.reported', role: 'engineer',
       title: 'Metric reported', detail: '61.8%', tone: 'metric',
     }];
+    view.outcome = {
+      execution_status: 'completed',
+      review_status: 'done',
+      stage_certification: 'not_certified',
+      scientific_decision: 'no_go',
+      failure_source: 'scientific_evidence_failure',
+      failure_layer: 'evaluator',
+      interruption_kind: 'none',
+      resumable: false,
+    };
     const markup = renderToStaticMarkup(
       <MissionControl
         view={view}
@@ -57,6 +67,10 @@ describe('MissionControl', () => {
     expect(markup).toContain('/workspace/.autors/demo/wiki');
     expect(markup).toContain('cold history · skill 4 · wiki 2 · 1.5 KB saved');
     expect(markup).toContain('Mission replay');
+    expect(markup).toContain('execution=completed');
+    expect(markup).toContain('stage=not_certified');
+    expect(markup).toContain('science=no_go');
+    expect(markup).toContain('layer=evaluator');
     expect(markup).toContain('Git changes · main');
   });
 

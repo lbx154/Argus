@@ -78,6 +78,12 @@ class _Outcome:
     # without this, the question only ever existed for as long as whatever
     # cockpit process happened to be tailing events.jsonl at that instant.
     operator_question: str = ""
+    final_review_status: str = ""
+    failure_source: str = ""
+    failure_layer: str = ""
+    validator_id: str = ""
+    repair_paths: list[str] = field(default_factory=list)
+    scientific_decision: str = ""
 
 
 # ---------------------------------------------------------------------------

@@ -51,6 +51,7 @@ from ..core.stop_kinds import (
     NON_FAILURE_STOP_KINDS,
     normalize_stop_kind,
     pause_status_for_stop_kind,
+    stop_kind_from_external_interrupt,
 )
 from ..reviewer import Reviewer, ReviewerConfig
 from ..reviewer.failure_taxonomy import (
@@ -66,6 +67,12 @@ from .background_subagents import (
     wait_for_subagent_cadence,
 )
 from .checkpoint import ensure_shared_checkpoint, shared_checkpoint_instructions
+from .external_work import (
+    inspect_external_work,
+    parse_external_wait_sentinel,
+    render_external_work_advisory,
+    wait_for_external_work_cadence,
+)
 from .failure_signature import (
     FailureSignature,
     review_failure_signature,
@@ -775,6 +782,40 @@ def _run_background_wait(
     return wait_reason, waited_s
 
 
+def _run_external_work_wait(
+    *,
+    workdir: Path,
+    work_id: str,
+    round_index: int,
+    round_max: int,
+    on_event: Callable[[dict], None] | None,
+) -> tuple[str, float]:
+    if on_event:
+        on_event({
+            "type": "round.external_work_wait.started",
+            "round_index": round_index,
+            "round_max": round_max,
+            "work_id": work_id,
+            "text": f"yielding to external-work cadence: {work_id}",
+        })
+    try:
+        wait_reason, waited_s = wait_for_external_work_cadence(workdir, work_id)
+    except Exception as exc:  # noqa: BLE001 — a wait must never break the loop
+        wait_reason, waited_s = f"error:{type(exc).__name__}", 0.0
+    if on_event:
+        on_event({
+            "type": "round.external_work_wait.completed",
+            "round_index": round_index,
+            "round_max": round_max,
+            "work_id": work_id,
+            "reason": wait_reason,
+            "text": (
+                f"resumed after {waited_s:.0f}s ({wait_reason}) waiting on {work_id}"
+            ),
+        })
+    return wait_reason, waited_s
+
+
 def _review_wait_rejection(
     workdir: Path,
     task_id: str,
@@ -1424,6 +1465,9 @@ class SupervisedEngineer:
             )
             if background_advisory:
                 delta_tail.append(background_advisory)
+            external_work_advisory = render_external_work_advisory(workdir)
+            if external_work_advisory:
+                delta_tail.append(external_work_advisory)
             if delta_tail:
                 engineer_prompt = engineer_prompt + "\n\n" + "\n\n".join(delta_tail)
             if on_event:
@@ -1460,7 +1504,7 @@ class SupervisedEngineer:
             ) or None
             stop_kind = normalize_stop_kind(
                 getattr(engineer_result, "stop_kind", None)
-            )
+            ) or stop_kind_from_external_interrupt(fatal_error)
             round_thread_id = new_tid
             raw_engineer_message = engineer_result.last_agent_message or ""
             engineer_message = redact_secrets_text(
@@ -1562,7 +1606,10 @@ class SupervisedEngineer:
                     "usage_scope": "delta",
                 })
 
-            if fatal_error_looks_like_daemon_stop_request(fatal_error):
+            if (
+                stop_kind == "daemon_shutdown"
+                or fatal_error_looks_like_daemon_stop_request(fatal_error)
+            ):
                 review = daemon_stop_review_decision(
                     fatal_error=fatal_error,
                     exit_code=getattr(engineer_result, "exit_code", 0),
@@ -1581,16 +1628,20 @@ class SupervisedEngineer:
                     engineer_exit_code=engineer_result.exit_code,
                     review=review,
                     fatal_error=engineer_result.fatal_error,
+                    stop_kind="daemon_shutdown",
                 ))
                 return (
-                    "error",
+                    "paused_daemon_shutdown",
                     rounds,
                     last_engineer_message,
                     review.reason,
                     None,
                 )
 
-            if fatal_error_looks_like_operator_abort_request(fatal_error):
+            if (
+                stop_kind == "operator_abort"
+                or fatal_error_looks_like_operator_abort_request(fatal_error)
+            ):
                 review = operator_abort_review_decision(
                     fatal_error=fatal_error,
                     exit_code=getattr(engineer_result, "exit_code", 0),
@@ -1609,9 +1660,10 @@ class SupervisedEngineer:
                     engineer_exit_code=engineer_result.exit_code,
                     review=review,
                     fatal_error=engineer_result.fatal_error,
+                    stop_kind="operator_abort",
                 ))
                 return (
-                    "error",
+                    "aborted",
                     rounds,
                     last_engineer_message,
                     review.reason,
@@ -1788,11 +1840,29 @@ class SupervisedEngineer:
                         last_decision_progress_at,
                         waited_s,
                     )
-                    # A deliberate yield is neither progress nor a stall: reset the
-                    # no-progress streak and re-assess fresh next round (the next
-                    # round's advisory reflects the post-wait registry state).
-                    no_progress_streak = 0
+                    # A deliberate yield is neither progress nor a stall. Preserve
+                    # the pre-wait streak and re-assess fresh next round.
                     continue
+
+            external_work_id = parse_external_wait_sentinel(raw_engineer_message)
+            external_work = (
+                inspect_external_work(workdir, external_work_id)
+                if external_work_id
+                else None
+            )
+            if external_work is not None and external_work.waitable:
+                _, waited_s = _run_external_work_wait(
+                    workdir=workdir,
+                    work_id=external_work.work_id,
+                    round_index=round_index,
+                    round_max=supervised_config.max_rounds,
+                    on_event=on_event,
+                )
+                last_decision_progress_at = _pause_decision_clock(
+                    last_decision_progress_at,
+                    waited_s,
+                )
+                continue
 
             backend_failure_streak = 0
             if not _runner_result_has_successful_work_signal(
@@ -1965,7 +2035,14 @@ class SupervisedEngineer:
                 if supervised_config.background_subagent_advisory:
                     try:
                         reviewer_background_context = (
-                            render_background_subagents_advisory(workdir)
+                            "\n\n".join(
+                                block
+                                for block in (
+                                    render_background_subagents_advisory(workdir),
+                                    render_external_work_advisory(workdir),
+                                )
+                                if block
+                            )
                         )
                     except Exception:  # noqa: BLE001 — advisory is non-critical context
                         log.debug(
@@ -2045,7 +2122,7 @@ class SupervisedEngineer:
                         pending_secret_guard_notes.append(violation)
                     if on_event:
                         on_event({
-                            "type": "wiki.reviewer_direct_write_reverted",
+                            "type": EventType.WIKI_REVIEWER_DIRECT_WRITE_REVERTED,
                             "round_index": round_index,
                             "paths": direct_wiki_edits,
                             "operator_alert": True,
@@ -2078,7 +2155,7 @@ class SupervisedEngineer:
                 )
                 reviewer_stop_kind = normalize_stop_kind(
                     getattr(review, "backend_stop_kind", None)
-                )
+                ) or stop_kind_from_external_interrupt(reviewer_fatal_error)
                 reviewer_pause_status = pause_status_for_stop_kind(
                     reviewer_stop_kind
                 )
@@ -2131,8 +2208,11 @@ class SupervisedEngineer:
                     )
                 if (
                     getattr(review, "backend_unavailable", False)
-                    and fatal_error_looks_like_operator_abort_request(
-                        reviewer_fatal_error
+                    and (
+                        reviewer_stop_kind == "operator_abort"
+                        or fatal_error_looks_like_operator_abort_request(
+                            reviewer_fatal_error
+                        )
                     )
                 ):
                     interrupted_review = operator_abort_review_decision(
@@ -2167,9 +2247,10 @@ class SupervisedEngineer:
                         engineer_exit_code=engineer_result.exit_code,
                         review=interrupted_review,
                         fatal_error=reviewer_fatal_error,
+                        stop_kind="operator_abort",
                     ))
                     return (
-                        "error",
+                        "aborted",
                         rounds,
                         last_engineer_message,
                         interrupted_review.reason,
@@ -2177,8 +2258,11 @@ class SupervisedEngineer:
                     )
                 if (
                     getattr(review, "backend_unavailable", False)
-                    and fatal_error_looks_like_daemon_stop_request(
-                        reviewer_fatal_error
+                    and (
+                        reviewer_stop_kind == "daemon_shutdown"
+                        or fatal_error_looks_like_daemon_stop_request(
+                            reviewer_fatal_error
+                        )
                     )
                 ):
                     interrupted_review = daemon_stop_review_decision(
@@ -2199,9 +2283,10 @@ class SupervisedEngineer:
                         engineer_exit_code=engineer_result.exit_code,
                         review=interrupted_review,
                         fatal_error=reviewer_fatal_error,
+                        stop_kind="daemon_shutdown",
                     ))
                     return (
-                        "error",
+                        "paused_daemon_shutdown",
                         rounds,
                         last_engineer_message,
                         interrupted_review.reason,
@@ -2491,7 +2576,6 @@ class SupervisedEngineer:
                         next_decision_progress_at,
                         waited_s,
                     )
-                    no_progress_streak = 0
                     continue
                 else:
                     rejection_code, rejection_reason = _review_wait_rejection(
@@ -2796,16 +2880,22 @@ def external_pause_review_decision(
     exit_code: int,
 ) -> ReviewDecision:
     error_text = str(fatal_error or f"exit={exit_code}").strip()
+    if stop_kind == "daemon_shutdown":
+        next_action = "Restart the daemon to resume this mission from its checkpoint."
+    elif stop_kind == "operator_pause":
+        next_action = "Resume this mission when the operator is ready."
+    else:
+        next_action = (
+            "Resume from the persisted checkpoint after the blocking budget or "
+            "provider condition has been cleared."
+        )
     return ReviewDecision(
         status="blocked",
         reason=(
             f"Backend call paused before a trustworthy completed turn "
             f"(stop_kind={stop_kind}); reviewer skipped. error={error_text}"
         ),
-        next_action=(
-            "Resume from the persisted checkpoint after the blocking budget or "
-            "provider condition has been cleared."
-        ),
+        next_action=next_action,
         round_summary_markdown=(
             "# Review Summary\n\n"
             f"- Reviewer skipped because `{stop_kind}` stopped the backend call.\n"

@@ -56,10 +56,12 @@ def _front_door_classify(
     lifetime_decisions: list[str] = []
     greeting_replies: list[str] = []
     steering_directives: list[str] = []
+    authorization_decisions: list[tuple[str, ...]] = []
     chat_state.pop("_frontdoor_lifetime", None)
     chat_state.pop("_frontdoor_greeting_reply", None)
     chat_state.pop("_frontdoor_failure", None)
     chat_state.pop("_frontdoor_steering_directive", None)
+    chat_state.pop("_frontdoor_authorization", None)
     try:
         runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
         mgr = getattr(runner, "manager", None) if runner is not None else None
@@ -81,6 +83,8 @@ def _front_door_classify(
             kwargs["greeting_sink"] = greeting_replies.append
         if accepts(mgr.classify_front_door, "steering_sink"):
             kwargs["steering_sink"] = steering_directives.append
+        if accepts(mgr.classify_front_door, "authorization_sink"):
+            kwargs["authorization_sink"] = authorization_decisions.append
         if accepts(mgr.classify_front_door, "active_mission"):
             kwargs["active_mission"] = bool(active_mission)
         decision = mgr.classify_front_door(text, **kwargs)
@@ -127,6 +131,14 @@ def _front_door_classify(
             )
             if directive:
                 chat_state["_frontdoor_steering_directive"] = directive
+        if authorization_decisions:
+            actions = [
+                str(value).strip().lower()
+                for value in authorization_decisions[0]
+                if str(value).strip()
+            ]
+            if actions:
+                chat_state["_frontdoor_authorization"] = actions
         return (
             intent,
             control if control in {"abort", "no_dispatch", "steer"} else None,

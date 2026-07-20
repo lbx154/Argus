@@ -13,6 +13,7 @@ removed entirely — the L2 reviewer subsumed its responsibility.
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import os
 import re
@@ -33,6 +34,13 @@ _DEFAULT_PLANNER_TIMEOUT_SECONDS = 300
 TASK_SCOPE_BOUNDED = "bounded"
 TASK_SCOPE_FINAL_SUBMISSION = "final_submission"
 _TASK_SCOPES = {TASK_SCOPE_BOUNDED, TASK_SCOPE_FINAL_SUBMISSION}
+_WAIT_MODES = {"poll", "event"}
+_WAKE_SOURCES = {
+    "authorization",
+    "subagent_terminal",
+    "artifact_revision",
+    "manager_stage",
+}
 PLANNER_SCHEMA_PATH = str(Path(__file__).with_name("planner_schema.json"))
 
 
@@ -77,6 +85,8 @@ class TaskSpec:
     # before the DAG existed.
     key: str = ""
     deps: list[str] = field(default_factory=list)
+    authorization_id: str = ""
+    authorization_action: str = ""
 
 
 _TASK_PHASE_MARKERS: dict[str, tuple[str, ...]] = {
@@ -403,6 +413,10 @@ class WaitingContract:
     allow_verification_probe: bool = False
     recheck_after_seconds: int = 0
     stage_reconciliation_required: bool = False
+    wait_mode: str = "poll"
+    wake_on: tuple[str, ...] = ()
+    watched_paths: tuple[str, ...] = ()
+    expires_at: float = 0.0
     # True when only fresh operator input can change the blocker (for example,
     # new credentials, a scope choice, or authorization for an additional
     # mission/thesis).  Manager owns stage transitions, not operator scope.
@@ -438,6 +452,34 @@ class PlannerVerdict:
     # for a cycle that did not touch the checklist (back-compat default).
     checklist_ops: list[dict] = field(default_factory=list)
     waiting_contract: WaitingContract | None = None
+    schema_repair_attempted: bool = False
+    schema_repair_succeeded: bool = False
+    schema_repair_original_sha256: str = ""
+    schema_repair_error: str = ""
+    schema_repair_input_tokens: int = 0
+    schema_repair_cached_input_tokens: int = 0
+    schema_repair_output_tokens: int = 0
+    schema_repair_reasoning_output_tokens: int = 0
+    schema_repair_premium_requests: float = 0.0
+
+    def schema_repair_event_payload(self) -> dict[str, Any]:
+        if not self.schema_repair_attempted:
+            return {}
+        return {
+            "schema_repair_attempted": True,
+            "schema_repair_succeeded": self.schema_repair_succeeded,
+            "schema_repair_original_sha256": self.schema_repair_original_sha256,
+            "schema_repair_error": self.schema_repair_error,
+            "schema_repair_input_tokens": self.schema_repair_input_tokens,
+            "schema_repair_cached_input_tokens": (
+                self.schema_repair_cached_input_tokens
+            ),
+            "schema_repair_output_tokens": self.schema_repair_output_tokens,
+            "schema_repair_reasoning_output_tokens": (
+                self.schema_repair_reasoning_output_tokens
+            ),
+            "schema_repair_premium_requests": self.schema_repair_premium_requests,
+        }
 
 
 def _planner_timeout_seconds(env_name: str) -> int:
@@ -534,27 +576,28 @@ class Planner:
             mission=self.mission,
             meta_block=(flow.prompt_block if flow is not None else ""),
         )
+        planner_options = RunnerOptions(
+            model=cfg.model,
+            reasoning_effort=cfg.reasoning_effort or "xhigh",
+            output_schema_path=PLANNER_SCHEMA_PATH,
+            working_dir=cfg.working_dir,
+            dangerous_yolo=cfg.dangerous_yolo,
+            full_auto=cfg.full_auto,
+            skip_git_repo_check=cfg.skip_git_repo_check,
+            extra_args=list(cfg.extra_args) if cfg.extra_args else None,
+            external_interrupt_reason_provider=(
+                _planner_wall_clock_interrupt_provider()
+            ),
+            watchdog_hard_idle_seconds=_planner_timeout_seconds(
+                "ARGUS_SKILL_PLANNER_HARD_IDLE_SECONDS"
+            ),
+        )
         try:
             result = gateway_run_exec(
                 self.runner,
                 prompt=prompt,
                 resume_thread_id=None,
-                options=RunnerOptions(
-                    model=cfg.model,
-                    reasoning_effort=cfg.reasoning_effort or "xhigh",
-                    output_schema_path=PLANNER_SCHEMA_PATH,
-                    working_dir=cfg.working_dir,
-                    dangerous_yolo=cfg.dangerous_yolo,
-                    full_auto=cfg.full_auto,
-                    skip_git_repo_check=cfg.skip_git_repo_check,
-                    extra_args=list(cfg.extra_args) if cfg.extra_args else None,
-                    external_interrupt_reason_provider=(
-                        _planner_wall_clock_interrupt_provider()
-                    ),
-                    watchdog_hard_idle_seconds=_planner_timeout_seconds(
-                        "ARGUS_SKILL_PLANNER_HARD_IDLE_SECONDS"
-                    ),
-                ),
+                options=planner_options,
                 run_label=f"planner.cycle{planning_cycle}",
             )
         except Exception as exc:  # noqa: BLE001
@@ -595,6 +638,89 @@ class Planner:
                 premium_requests=premium_requests,
             )
         parsed = parse_planner_text(text)
+        if (
+            parsed.error == "unparseable planner output"
+            and text.strip()
+            and str(getattr(result, "thread_id", "") or "").strip()
+        ):
+            original_sha256 = hashlib.sha256(text.encode("utf-8")).hexdigest()
+            repair_prompt = (
+                "Your previous Planner response could not be parsed as the required "
+                "JSON object. Re-emit the exact same decision once, conforming to "
+                "the provided output schema. Do not inspect files, call tools, add "
+                "or remove tasks, change waiting state, or revise any scientific or "
+                "planning judgment. Return only the repaired structured response. "
+                f"Original response SHA-256: {original_sha256}"
+            )
+            repair_error = ""
+            repair_succeeded = False
+            repair_input_tokens = 0
+            repair_cached_input_tokens = 0
+            repair_output_tokens = 0
+            repair_reasoning_output_tokens = 0
+            repair_premium_requests = 0.0
+            try:
+                repair_result = gateway_run_exec(
+                    self.runner,
+                    prompt=repair_prompt,
+                    resume_thread_id=str(result.thread_id),
+                    options=replace(
+                        planner_options,
+                        dangerous_yolo=False,
+                        full_auto=False,
+                        sandbox_mode="read-only",
+                        external_interrupt_reason_provider=(
+                            _planner_wall_clock_interrupt_provider()
+                        ),
+                    ),
+                    run_label=f"planner.cycle{planning_cycle}.schema-repair",
+                )
+                repair_input_tokens = int(
+                    getattr(repair_result, "input_tokens", 0) or 0
+                )
+                repair_cached_input_tokens = int(
+                    getattr(repair_result, "cached_input_tokens", 0) or 0
+                )
+                repair_output_tokens = int(
+                    getattr(repair_result, "output_tokens", 0) or 0
+                )
+                repair_reasoning_output_tokens = int(
+                    getattr(repair_result, "reasoning_output_tokens", 0) or 0
+                )
+                repair_premium_requests = float(
+                    getattr(repair_result, "premium_requests", 0.0) or 0.0
+                )
+                repair_text = "\n".join(
+                    getattr(repair_result, "agent_messages", None) or []
+                )
+                repaired = parse_planner_text(repair_text)
+                if repaired.error:
+                    repair_error = repaired.error
+                else:
+                    parsed = repaired
+                    text = repair_text
+                    repair_succeeded = True
+            except Exception as exc:  # noqa: BLE001 - original error remains retryable
+                repair_error = f"{type(exc).__name__}: {exc}"
+            input_tokens += repair_input_tokens
+            cached_input_tokens += repair_cached_input_tokens
+            output_tokens += repair_output_tokens
+            reasoning_output_tokens += repair_reasoning_output_tokens
+            premium_requests += repair_premium_requests
+            parsed = replace(
+                parsed,
+                schema_repair_attempted=True,
+                schema_repair_succeeded=repair_succeeded,
+                schema_repair_original_sha256=original_sha256,
+                schema_repair_error=repair_error,
+                schema_repair_input_tokens=repair_input_tokens,
+                schema_repair_cached_input_tokens=repair_cached_input_tokens,
+                schema_repair_output_tokens=repair_output_tokens,
+                schema_repair_reasoning_output_tokens=(
+                    repair_reasoning_output_tokens
+                ),
+                schema_repair_premium_requests=repair_premium_requests,
+            )
         active_stage = "solve"
         project_root: Path | None = None
         try:
@@ -1357,6 +1483,28 @@ def _parse_waiting_contract(
     except (TypeError, ValueError):
         return None
     recheck_after_seconds = max(0, min(604800, recheck_after_seconds))
+    wait_mode = str(raw.get("wait_mode") or "poll").strip().lower()
+    wake_on = tuple(dict.fromkeys(
+        str(value or "").strip().lower()
+        for value in (raw.get("wake_on") or [])
+        if str(value or "").strip().lower() in _WAKE_SOURCES
+    ))
+    if wait_mode not in _WAIT_MODES or (wait_mode == "event" and not wake_on):
+        wait_mode = "poll"
+        wake_on = ()
+    watched_paths: list[str] = []
+    for value in (raw.get("watched_paths") or [])[:16]:
+        candidate = str(value or "").strip().replace("\\", "/")
+        parts = Path(candidate).parts
+        if not candidate or candidate.startswith("/") or ".." in parts:
+            continue
+        if candidate.startswith("./"):
+            candidate = candidate[2:]
+        watched_paths.append(candidate[:500])
+    try:
+        expires_at = max(0.0, float(raw.get("expires_at", 0.0) or 0.0))
+    except (TypeError, ValueError):
+        expires_at = 0.0
     explicit_operator_action = _parse_json_bool(
         raw.get("operator_action_required", False),
         False,
@@ -1374,6 +1522,10 @@ def _parse_waiting_contract(
             False,
         ),
         recheck_after_seconds=recheck_after_seconds,
+        wait_mode=wait_mode,
+        wake_on=wake_on,
+        watched_paths=tuple(dict.fromkeys(watched_paths)),
+        expires_at=expires_at,
         operator_action_required=(
             explicit_operator_action
             or _operator_action_required_for_wait(
@@ -1484,6 +1636,10 @@ def parse_planner_text(text: str) -> PlannerVerdict:
                 for d in (entry.get("deps") or [])
                 if str(d).strip()
             ]
+            authorization_id = str(entry.get("authorization_id") or "").strip()
+            authorization_action = str(
+                entry.get("authorization_action") or ""
+            ).strip().lower()
             if (
                 not title
                 or not objective
@@ -1505,6 +1661,8 @@ def parse_planner_text(text: str) -> PlannerVerdict:
                     stage_closing=stage_closing,
                     key=key,
                     deps=deps,
+                    authorization_id=authorization_id,
+                    authorization_action=authorization_action,
                 )
             )
             if len(new_tasks) >= 6:

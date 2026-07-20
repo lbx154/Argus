@@ -257,6 +257,20 @@ class ConfigIntent:
 
 ControlIntent = Literal["abort", "no_dispatch", "steer"]
 LifetimeIntent = Literal["bounded", "standing"]
+AuthorizationAction = Literal[
+    "validator_repair",
+    "acceptance_retry",
+    "provenance_repair",
+    "artifact_refresh",
+    "resume_blocked_work",
+]
+_AUTHORIZATION_ACTIONS = {
+    "validator_repair",
+    "acceptance_retry",
+    "provenance_repair",
+    "artifact_refresh",
+    "resume_blocked_work",
+}
 
 
 _GREETING_REPLIES = {
@@ -401,11 +415,26 @@ def _line_after_prefix(answer: str, prefix: str) -> "str | None":
     return None
 
 
+def _parse_authorization_line(line: str | None) -> tuple[str, ...]:
+    value = str(line or "").strip()
+    if not value or value.upper() == "NONE":
+        return ()
+    parts = value.split(maxsplit=1)
+    if len(parts) != 2 or parts[0].upper() != "AUTHORIZE":
+        return ()
+    actions = tuple(dict.fromkeys(
+        token.strip().lower()
+        for token in parts[1].split(",")
+        if token.strip().lower() in _AUTHORIZATION_ACTIONS
+    ))
+    return actions
+
+
 def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
     """Merged cockpit front door: classify once and reuse every cheap decision."""
     cleaned = (text or "").strip()
     return (
-        "Classify ONLY the current operator message on seven independent axes. "
+        "Classify ONLY the current operator message on eight independent axes. "
         "You do NOT choose the task vertical or execution workflow; the Manager "
         "does that later for every formal task.\n"
         f"ACTIVE_MISSION: {'YES' if active_mission else 'NO'}\n\n"
@@ -423,6 +452,11 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
         "priority, method, evidence, or constraints; criticism such as 'search how "
         "others solved it' still counts. Questions about stopping and tasks merely "
         "mentioning stop are NONE. Any control forces ROUTE SELF.\n\n"
+        "AUTHORIZATION: AUTHORIZE only when the operator explicitly grants an "
+        "action blocked by the active campaign. Allowed actions: validator_repair,"
+        "acceptance_retry,provenance_repair,artifact_refresh,resume_blocked_work. "
+        "List only explicitly granted actions, comma-separated. Questions, advice, "
+        "or quoted authorization are NONE. Authorization forces ROUTE SELF.\n\n"
         "STEER_DIRECTIVE: only for STEER, write the Manager's concise professional "
         "team instruction. Preserve the goal while choosing method, evidence, scope, "
         "and stopping condition. Never copy insults/raw wording. Else NONE.\n\n"
@@ -438,9 +472,10 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
         "NAME: concise title in the message language; 2-12 Chinese characters or "
         "2-8 words, core subject/action only, no polite framing, quotes, punctuation, "
         "or session id.\n\n"
-        "Reply with EXACTLY seven lines and nothing else:\n"
+        "Reply with EXACTLY eight lines and nothing else:\n"
         "CONFIG: <SET <knob> <roles> <value> | NONE>\n"
         "CONTROL: <ABORT | NO_DISPATCH | STEER | NONE>\n"
+        "AUTHORIZATION: <AUTHORIZE <allowed-action[,allowed-action]> | NONE>\n"
         "STEER_DIRECTIVE: <Manager-authored team directive | NONE>\n"
         "ROUTE: <SELF | TEAM>\n"
         "LIFETIME: <BOUNDED | STANDING | NONE>\n"
@@ -460,6 +495,7 @@ def classify_front_door(
     lifetime_sink: Callable[[LifetimeIntent], None] | None = None,
     greeting_sink: Callable[[str], None] | None = None,
     steering_sink: Callable[[str], None] | None = None,
+    authorization_sink: Callable[[tuple[str, ...]], None] | None = None,
     active_mission: bool = False,
 ) -> "tuple[ConfigIntent | None, ControlIntent | None, str]":
     """One model call for every cheap front-door decision.
@@ -481,6 +517,7 @@ def classify_front_door(
     answer = _extract_answer(result)
     config_line = _line_after_prefix(answer, "CONFIG:")
     control_line = _line_after_prefix(answer, "CONTROL:")
+    authorization_line = _line_after_prefix(answer, "AUTHORIZATION:")
     steering_line = _line_after_prefix(answer, "STEER_DIRECTIVE:")
     route_line = _line_after_prefix(answer, "ROUTE:")
     lifetime_line = _line_after_prefix(answer, "LIFETIME:")
@@ -504,6 +541,14 @@ def classify_front_door(
     )
     if control in {"abort", "no_dispatch", "steer"}:
         route = "simple"
+    authorization = _parse_authorization_line(authorization_line)
+    if authorization:
+        route = "simple"
+        if callable(authorization_sink):
+            try:
+                authorization_sink(authorization)
+            except Exception:  # noqa: BLE001 - advisory metadata never owns routing
+                pass
     lifetime_token = _first_alpha_token(lifetime_line).upper()
     lifetime: LifetimeIntent | None = None
     if route == "complex":
@@ -553,6 +598,7 @@ __all__ = [
     "ConfigIntent",
     "ControlIntent",
     "LifetimeIntent",
+    "AuthorizationAction",
     "classify_is_conversational",
     "classify_route",
     "classify_needs_persistence",

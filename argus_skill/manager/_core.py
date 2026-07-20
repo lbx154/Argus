@@ -1365,6 +1365,7 @@ class Manager:
         lifetime_sink: Any = None,
         greeting_sink: Any = None,
         steering_sink: Any = None,
+        authorization_sink: Any = None,
         active_mission: bool = False,
     ) -> Any:
         """One fresh call classifying all cheap front-door decisions.
@@ -1411,6 +1412,7 @@ class Manager:
                 lifetime_sink=lifetime_sink,
                 greeting_sink=greeting_sink,
                 steering_sink=steering_sink,
+                authorization_sink=authorization_sink,
                 active_mission=active_mission,
             )
 

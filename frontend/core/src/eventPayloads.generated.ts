@@ -171,6 +171,7 @@ export interface LifeMissionCompletedEvent extends EventMsg {
   "scope"?: string;
   "status": string;
   "outcome_class"?: "completed" | "incomplete" | "stalled" | "blocked" | "failed" | "ended";
+  "outcome"?: { "execution_status": string; "review_status": string; "stage_certification": string; "scientific_decision": string; "failure_source": string; "failure_layer": string; "interruption_kind": string; "resumable": boolean; };
   "success"?: boolean;
   "rounds"?: number;
   "elapsed_seconds"?: number;
@@ -178,7 +179,8 @@ export interface LifeMissionCompletedEvent extends EventMsg {
   "known_cost_usd"?: number;
   "pricing_status"?: string;
   "research_result"?: Record<string, unknown> | null;
-  "stop_kind"?: "budget_exhausted" | "provider_cooldown" | "backend_unavailable" | "transient_error" | "permanent_error" | null;
+  "repair_capability"?: Record<string, unknown> | null;
+  "stop_kind"?: "budget_exhausted" | "provider_cooldown" | "provider_fence" | "daemon_shutdown" | "operator_pause" | "operator_abort" | "backend_unavailable" | "transient_error" | "permanent_error" | null;
   "recoverable"?: boolean;
 }
 
@@ -199,7 +201,7 @@ export interface RoundMainCompletedEvent extends EventMsg {
   "cached_input_tokens"?: number;
   "output_tokens"?: number;
   "reasoning_output_tokens"?: number;
-  "stop_kind"?: "budget_exhausted" | "provider_cooldown" | "backend_unavailable" | "transient_error" | "permanent_error" | null;
+  "stop_kind"?: "budget_exhausted" | "provider_cooldown" | "provider_fence" | "daemon_shutdown" | "operator_pause" | "operator_abort" | "backend_unavailable" | "transient_error" | "permanent_error" | null;
 }
 
 export interface RoundReviewStartedEvent extends EventMsg {
@@ -229,7 +231,7 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "scope"?: string;
   "checklist"?: Array<Record<string, unknown>>;
   "research_result"?: Record<string, unknown> | null;
-  "stop_kind"?: "budget_exhausted" | "provider_cooldown" | "backend_unavailable" | "transient_error" | "permanent_error" | null;
+  "stop_kind"?: "budget_exhausted" | "provider_cooldown" | "provider_fence" | "daemon_shutdown" | "operator_pause" | "operator_abort" | "backend_unavailable" | "transient_error" | "permanent_error" | null;
   "progress_class"?: "decision" | "evidence" | "setup_only" | "artifact_sync_only" | "none" | "";
   "planner_report"?: Record<string, unknown>;
   "checkpoint"?: Record<string, unknown>;
@@ -274,6 +276,15 @@ export interface LifePlannerVerdictEvent extends EventMsg {
   "completion_kind"?: string | null;
   "delivery_id"?: string;
   "tasks_added"?: number;
+  "schema_repair_attempted"?: boolean;
+  "schema_repair_succeeded"?: boolean;
+  "schema_repair_original_sha256"?: string;
+  "schema_repair_error"?: string;
+  "schema_repair_input_tokens"?: number;
+  "schema_repair_cached_input_tokens"?: number;
+  "schema_repair_output_tokens"?: number;
+  "schema_repair_reasoning_output_tokens"?: number;
+  "schema_repair_premium_requests"?: number;
 }
 
 export interface LifePlannerErrorEvent extends EventMsg {
@@ -281,6 +292,10 @@ export interface LifePlannerErrorEvent extends EventMsg {
   payload_schema_version?: 1;
   "error": string;
   "reason"?: string;
+  "schema_repair_attempted"?: boolean;
+  "schema_repair_succeeded"?: boolean;
+  "schema_repair_original_sha256"?: string;
+  "schema_repair_error"?: string;
 }
 
 export interface LifePlannerTaskAddedEvent extends EventMsg {

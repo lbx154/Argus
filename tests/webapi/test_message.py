@@ -145,6 +145,167 @@ def test_pure_greeting_uses_one_frontdoor_model_call(
     assert LifeMemory.open(life).backlog.all() == []
 
 
+def test_explicit_authorization_persists_current_blocker_and_never_dispatches(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    sid = "s-authorization"
+    life = _make_project(tmp_path, sid)
+    workdir = tmp_path / "workspace"
+    workdir.mkdir()
+    from argus_skill.manager.control_state import CampaignControlStore
+
+    (life / "continuous.json").write_text(
+        json.dumps({"objective": "repair terminal gate", "generation": 2}),
+        encoding="utf-8",
+    )
+    store = CampaignControlStore(life, project_root=workdir)
+    identity = store.campaign_identity()
+    evidence = workdir / "research" / "RESULT.json"
+    evidence.parent.mkdir()
+    evidence.write_text('{"decision":"NO_GO"}', encoding="utf-8")
+    validator = workdir / "tests" / "test_terminal_contract.py"
+    validator.parent.mkdir()
+    validator.write_text("def test_contract(): pass\n", encoding="utf-8")
+    store.clear_wait_for_new_evidence(
+        identity=identity,
+        terminal_evidence=[{
+            "failure_source": "validator_defect",
+            "validator_id": "terminal-contract",
+            "repair_paths": ["tests/test_terminal_contract.py"],
+        }],
+        reason="Reviewer diagnosed validator defect",
+    )
+    store.activate_wait(
+        identity=identity,
+        wait_id="wait-1",
+        blocker_fingerprint="validator:terminal-contract",
+        recheck_token="validator-v1",
+        watched_paths=["research/RESULT.json"],
+    )
+    manager_bridge._STATES.clear()
+
+    def classify(mem, text, chat_state, **kwargs):
+        chat_state["_frontdoor_authorization"] = [
+            "validator_repair",
+            "acceptance_retry",
+        ]
+        return None, None, "simple"
+
+    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+    monkeypatch.setattr(
+        manager_bridge,
+        "_authorization_workdir",
+        lambda *_args, **_kwargs: workdir,
+    )
+
+    result = manager_bridge.manager_message(
+        sid,
+        "authorize validator repair and one acceptance retry",
+        global_root=tmp_path,
+        source_channel="vscode",
+        source_message_id="message-42",
+    )
+
+    assert result["kind"] == "control"
+    assert result["control"] == "authorization"
+    assert result["allowed_actions"] == [
+        "validator_repair",
+        "acceptance_retry",
+    ]
+    event = store.get_authorization(result["authorization_id"])
+    assert event is not None
+    assert event["source_channel"] == "vscode"
+    assert event["source_message_id"] == "message-42"
+    assert event["validator_id"] == "terminal-contract"
+    assert event["allowed_write_paths"] == ["tests/test_terminal_contract.py"]
+    assert LifeMemory.open(life).backlog.all() == []
+
+
+def test_validator_authorization_allows_exact_repair_under_watched_parent(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    sid = "s-authorization-parent"
+    life = _make_project(tmp_path, sid)
+    workdir = tmp_path / "workspace-parent"
+    validator = workdir / "tests" / "test_terminal_contract.py"
+    validator.parent.mkdir(parents=True)
+    validator.write_text("def test_contract(): pass\n", encoding="utf-8")
+    sibling = workdir / "tests" / "test_science_gate.py"
+    sibling.write_text("def test_science(): pass\n", encoding="utf-8")
+    from argus_skill.manager.control_state import CampaignControlStore
+
+    (life / "continuous.json").write_text(
+        json.dumps({"objective": "repair terminal gate", "generation": 2}),
+        encoding="utf-8",
+    )
+    store = CampaignControlStore(life, project_root=workdir)
+    identity = store.campaign_identity()
+    store.clear_wait_for_new_evidence(
+        identity=identity,
+        terminal_evidence=[{
+            "failure_source": "validator_defect",
+            "validator_id": "terminal-contract",
+            "repair_paths": ["tests/test_terminal_contract.py"],
+        }],
+        reason="Reviewer diagnosed validator defect",
+    )
+    store.activate_wait(
+        identity=identity,
+        wait_id="wait-parent",
+        blocker_fingerprint="validator:terminal-contract",
+        recheck_token="validator-v1",
+        watched_paths=["tests"],
+    )
+    manager_bridge._STATES.clear()
+
+    def classify(mem, text, chat_state, **kwargs):
+        chat_state["_frontdoor_authorization"] = ["validator_repair"]
+        return None, None, "simple"
+
+    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+    monkeypatch.setattr(
+        manager_bridge,
+        "_authorization_workdir",
+        lambda *_args, **_kwargs: workdir,
+    )
+
+    result = manager_bridge.manager_message(
+        sid,
+        "authorize the exact validator repair",
+        global_root=tmp_path,
+    )
+
+    assert result["control"] == "authorization"
+    event = store.get_authorization(result["authorization_id"])
+    assert event is not None
+    assert event["frozen_evidence"] == []
+    assert event["allowed_write_paths"] == ["tests/test_terminal_contract.py"]
+
+
+def test_authorization_without_current_blocker_fails_closed(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    sid = "s-auth-no-blocker"
+    life = _make_project(tmp_path, sid)
+    manager_bridge._STATES.clear()
+
+    def classify(mem, text, chat_state, **kwargs):
+        chat_state["_frontdoor_authorization"] = ["resume_blocked_work"]
+        return None, None, "simple"
+
+    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+
+    result = manager_bridge.manager_message(
+        sid,
+        "authorize resume",
+        global_root=tmp_path,
+    )
+
+    assert result["control"] == "authorization_rejected"
+    assert "no current Manager-bound blocker" in result["reply"]
+    assert LifeMemory.open(life).backlog.all() == []
+
+
 def test_repeated_greeting_calls_frontdoor_every_time_without_cache(
     tmp_path: Path, monkeypatch,
 ) -> None:

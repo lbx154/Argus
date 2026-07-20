@@ -16,8 +16,11 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
-from ..life.mission_outcome import mission_outcome_class
 from .event_catalog import EventType, canonical_event_type
+from ..life.mission_outcome import (
+    mission_outcome_class,
+    mission_outcome_dimensions,
+)
 
 MISSION_VIEW_FILE = "mission-view.json"
 MISSION_VIEW_LOCK_FILE = "mission-view.lock"
@@ -80,6 +83,7 @@ def empty_mission_view() -> dict[str, Any]:
         },
         "achievement": None,
         "review": {"status": "", "reason": "", "rejected_attempts": 0},
+        "outcome": {},
         "last_event_ts": 0.0,
         "updated_at": 0.0,
     }
@@ -129,6 +133,7 @@ def _read_unlocked(root: Path) -> dict[str, Any]:
     for key, value in storage_defaults.items():
         storage.setdefault(key, value)
     payload.setdefault("learned_wiki_pages", [])
+    payload.setdefault("outcome", {})
     mission = payload.setdefault("mission", {})
     mission.setdefault("campaign_started_at", None)
     mission.setdefault("campaign_elapsed_seconds", 0.0)
@@ -909,6 +914,16 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
             "status": mission_status,
             "completed_at": ts,
         })
+        raw_outcome = event.get("outcome")
+        if isinstance(raw_outcome, dict):
+            view["outcome"] = dict(raw_outcome)
+        else:
+            view["outcome"] = mission_outcome_dimensions(
+                status=_text(event, "status"),
+                success=bool(event.get("success")),
+                stop_kind=event.get("stop_kind"),
+                resumable=bool(event.get("resumable")),
+            )
         _set_role(view, "engineer", role_status, label, ts)
         _timeline(
             view,

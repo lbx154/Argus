@@ -100,6 +100,58 @@ def test_status_separates_active_queue_from_history(
     ) in out
 
 
+def test_status_projects_latest_persisted_mission_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+    project_with_history: tuple[Path, Path],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    life_root, repo = project_with_history
+    bundle = MemoryBundle.for_cwd(repo, global_root=life_root)
+    done = next(item for item in bundle.backlog.all() if item.status == "done")
+    bundle.backlog.update(
+        done.id,
+        finished_ts=100.0,
+        outcome={
+            "execution_status": "completed",
+            "review_status": "done",
+            "stage_certification": "not_certified",
+            "scientific_decision": "no_go",
+            "failure_source": "",
+            "interruption_kind": "none",
+            "resumable": False,
+        },
+    )
+    monkeypatch.setattr(
+        "argus_skill.daemon.life_worker.read_daemon_status",
+        lambda life_dir: Namespace(
+            alive=False,
+            pid=None,
+            uptime_seconds=None,
+            backend=None,
+            per_mission_cap_usd=9.0,
+            daily_cap_usd=50.0,
+            global_daily_cap_usd=0.0,
+        ),
+    )
+    monkeypatch.setattr(
+        "argus_skill.daemon.life_worker.global_daily_spend",
+        lambda *args, **kwargs: 0.0,
+    )
+    monkeypatch.setattr(
+        "argus_skill.apps.cli._core._check_logout_survival",
+        lambda status: None,
+    )
+
+    rc = _cmd_status(Namespace(life_dir=str(life_root)))
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert (
+        "outcome  : execution=completed · review=done · "
+        "stage=not_certified · science=no_go"
+    ) in out
+
+
 def test_status_reads_lifecycle_from_canonical_project_state(
     monkeypatch: pytest.MonkeyPatch,
     project_with_history: tuple[Path, Path],

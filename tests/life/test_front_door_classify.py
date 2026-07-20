@@ -26,8 +26,8 @@ def _exec(answer: str, exit_code: int = 0):
         assert all(
             label in prompt
             for label in (
-                "CONFIG:", "CONTROL:", "STEER_DIRECTIVE:", "ROUTE:", "LIFETIME:",
-                "GREETING:", "NAME:",
+                "CONFIG:", "CONTROL:", "AUTHORIZATION:", "STEER_DIRECTIVE:",
+                "ROUTE:", "LIFETIME:", "GREETING:", "NAME:",
             )
         )
         return _FakeResult(answer, exit_code)
@@ -42,10 +42,13 @@ def test_front_door_prompt_has_a_strict_token_efficiency_budget() -> None:
     assert all(
         label in prompt
         for label in (
-            "CONFIG:", "CONTROL:", "STEER_DIRECTIVE:", "ROUTE:",
-            "LIFETIME:", "GREETING:", "NAME:",
+            "CONFIG:", "CONTROL:", "AUTHORIZATION:", "STEER_DIRECTIVE:",
+            "ROUTE:", "LIFETIME:", "GREETING:", "NAME:",
         )
     )
+    assert "VERTICAL:" not in prompt
+    assert "TARGET:" not in prompt
+    assert "WORKFLOW:" not in prompt
     assert "FAST_REPLY:" not in prompt
     assert "ACTIVE_MISSION: YES" in prompt
 
@@ -183,6 +186,38 @@ def test_abort_control_forces_self_and_never_becomes_team_work() -> None:
     assert intent is None
     assert control == "abort"
     assert route == "simple"
+
+
+def test_explicit_authorization_uses_structured_action_enum_and_forces_self() -> None:
+    authorizations: list[tuple[str, ...]] = []
+    intent, control, route = classify_front_door(
+        "授权修复 validator 并重试一次验收",
+        run_exec=_exec(
+            "CONFIG: NONE\nCONTROL: NONE\n"
+            "AUTHORIZATION: AUTHORIZE validator_repair,acceptance_retry,unknown\n"
+            "ROUTE: TEAM"
+        ),
+        authorization_sink=authorizations.append,
+    )
+
+    assert intent is None
+    assert control is None
+    assert route == "simple"
+    assert authorizations == [("validator_repair", "acceptance_retry")]
+
+
+def test_authorization_question_does_not_create_authority() -> None:
+    authorizations: list[tuple[str, ...]] = []
+    _, _, route = classify_front_door(
+        "我应该授权修复吗？",
+        run_exec=_exec(
+            "CONFIG: NONE\nCONTROL: NONE\nAUTHORIZATION: NONE\nROUTE: SELF"
+        ),
+        authorization_sink=authorizations.append,
+    )
+
+    assert route == "simple"
+    assert authorizations == []
 
 
 def test_steer_control_routes_running_mission_direction_inline() -> None:

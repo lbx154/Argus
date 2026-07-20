@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import Any
 
 from ...core.event_catalog import EventType
@@ -11,6 +12,7 @@ from ...core.pricing import price_for, usd_for_tokens
 from ..memory import BacklogItem
 from ._constants import (
     MANAGER_RECONCILE_AFTER_IDLE_CYCLES,
+    PLAN_AWAITING,
     PLAN_ERROR,
     PLAN_HANDOFF,
     PLAN_RETRY,
@@ -560,6 +562,12 @@ class PlanningCycleMixin:
         if terminal_idle is not None:
             return terminal_idle
 
+        if (
+            revision_request is None
+            and self._planner_event_wait_should_short_circuit()
+        ):
+            return PLAN_AWAITING
+
         self._planning_cycles += 1
         manager_intent = self._manager_intent_context()
         self._emit({
@@ -703,6 +711,7 @@ class PlanningCycleMixin:
                         part for part in (
                             self._manager_intent_prompt_block(manager_intent),
                             operator_note,
+                            self._planner_authorization_prompt_block(),
                             stuck_families_note,
                             runtime_note,
                             revision_note,
@@ -737,6 +746,11 @@ class PlanningCycleMixin:
             reasoning_output_tokens=verdict.reasoning_output_tokens,
             price_lookup=price_for,
         ) + copilot_usd_for_premium_requests(verdict.premium_requests)
+        schema_repair_details = (
+            verdict.schema_repair_event_payload()
+            if hasattr(verdict, "schema_repair_event_payload")
+            else {}
+        )
 
         if verdict.error:
             if revision_request is not None:
@@ -753,6 +767,7 @@ class PlanningCycleMixin:
                 "cycle": self._planning_cycles,
                 "error": verdict.error,
                 "raw_text": verdict.raw_text,
+                **schema_repair_details,
             })
             self._emit_status(f"planner error: {verdict.error}; retry later")
             # A planner error is a no-work outcome: back off before retrying so
@@ -764,8 +779,6 @@ class PlanningCycleMixin:
 
         overlap_task = self._independent_overlap_task(verdict)
         if overlap_task is not None:
-            from dataclasses import replace
-
             verdict = replace(
                 verdict,
                 waiting=False,
@@ -971,6 +984,7 @@ class PlanningCycleMixin:
                 restart_daemon=verdict.restart_daemon,
                 restart_reason=verdict.restart_reason,
                 open_ended_objective=True,
+                **schema_repair_details,
             )
             if not delivered:
                 return PLAN_RETRY
@@ -999,6 +1013,7 @@ class PlanningCycleMixin:
                 cost_usd=planner_cost_usd,
                 restart_daemon=verdict.restart_daemon,
                 restart_reason=verdict.restart_reason,
+                **schema_repair_details,
             )
             if not delivered:
                 return PLAN_RETRY
@@ -1039,6 +1054,7 @@ class PlanningCycleMixin:
                 cost_usd=planner_cost_usd,
                 restart_daemon=True,
                 restart_reason=restart_reason,
+                **schema_repair_details,
             )
             if not delivered:
                 return PLAN_RETRY
@@ -1062,6 +1078,7 @@ class PlanningCycleMixin:
                 "cycle": self._planning_cycles,
                 "error": "planner produced no tasks",
                 "raw_text": verdict.raw_text,
+                **schema_repair_details,
             })
             self._emit_status("planner error: produced no tasks; retry later")
             # No tasks, no waiting flag, not done: a degenerate no-work cycle.
@@ -1220,6 +1237,23 @@ class PlanningCycleMixin:
                 })
                 continue
             item_id = BacklogItem.new_id()
+            try:
+                authorization_id, authorization_action = (
+                    self._validated_task_authorization(task)
+                )
+            except (OSError, TypeError, ValueError) as exc:
+                self._emit({
+                    "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
+                    "cycle": self._planning_cycles,
+                    "title": task.title,
+                    "objective": task.objective,
+                    "impact_score": task.impact_score,
+                    "impact_area": task.impact_area,
+                    "evidence": task.evidence,
+                    "reason": str(exc),
+                    "skip_category": "invalid_authorization",
+                })
+                continue
             item = BacklogItem.new(
                 item_id=item_id,
                 title=task.title,
@@ -1240,6 +1274,8 @@ class PlanningCycleMixin:
                     or getattr(task, "evidence", "")
                 ),
                 non_goals=list(getattr(task, "non_goals", []) or []),
+                authorization_id=authorization_id,
+                authorization_action=authorization_action,
             )
             # Reserve the signature now so a later sibling in the SAME batch
             # with an identical title/objective still de-dupes against this
@@ -1398,6 +1434,7 @@ class PlanningCycleMixin:
             restart_daemon=verdict.restart_daemon,
             restart_reason=verdict.restart_reason,
             manager_intent=manager_intent,
+            **schema_repair_details,
         )
         if not delivered:
             return PLAN_RETRY
