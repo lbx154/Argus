@@ -265,9 +265,10 @@ class PlanningCycleMixin:
     def _reconcile_open_ended_planner_waiting(self, verdict: Any) -> str:
         """Let the Manager repair a stage/Planner mutual wait.
 
-        Planner explicitly requests reconciliation when ``current_stage`` blocks
-        prerequisite work. A missed request still gets one liveness review after
-        repeated idle cycles. The Manager alone decides HOLD versus ROLLBACK.
+        Every new non-operator wait gets one immediate liveness review. If the
+        Manager confirms that the blocker remains external, unchanged waits are
+        reviewed again only at the bounded cadence below. The Manager alone
+        decides HOLD versus ROLLBACK.
         """
         if not getattr(self.config, "open_ended", False):
             return ""
@@ -320,7 +321,7 @@ class PlanningCycleMixin:
         self._last_planner_wait_reconciliation_key = key
         self._planner_waits_since_reconciliation = waits_since_reconciliation
         if not (
-            (explicitly_requested and key_changed)
+            key_changed
             or waits_since_reconciliation >= MANAGER_RECONCILE_AFTER_IDLE_CYCLES
         ):
             return ""

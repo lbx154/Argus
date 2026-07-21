@@ -483,17 +483,19 @@ def test_genuine_external_wait_holds_and_reconciles_at_bounded_cadence(
         manager_action="hold",
     )
 
+    assert sup._plan_next_work() == PLAN_AWAITING
+    assert backend.manager_calls == 1
     assert [sup._plan_next_work() for _ in range(3)] == [PLAN_AWAITING] * 3
     # Verification probes and real missions reset idle backoff; reconciliation
-    # cadence must remain independent or the fourth review can be postponed.
+    # cadence must remain independent or the repeat review can be postponed.
     sup._reset_idle_backoff()
-    assert [sup._plan_next_work() for _ in range(2)] == [PLAN_AWAITING] * 2
+    assert sup._plan_next_work() == PLAN_AWAITING
 
     state = json.loads(
         (project / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
     )
     assert state["current_stage"] == "measure"
-    assert backend.manager_calls == 1
+    assert backend.manager_calls == 2
     contract_state = sup._load_planner_waiting_contract_state()
     assert contract_state is not None
     assert contract_state["active"] is True
@@ -583,15 +585,16 @@ def test_new_explicit_stage_request_bypasses_wait_cadence(
         tmp_path,
         monkeypatch,
         reconcile=False,
-        manager_action="rollback",
+        manager_action="hold",
     )
 
     assert sup._plan_next_work() == PLAN_AWAITING
-    assert backend.manager_calls == 0
+    assert backend.manager_calls == 1
 
     backend.reconcile = True
+    backend.manager_action = "rollback"
     assert sup._plan_next_work() == PLAN_RETRY
-    assert backend.manager_calls == 1
+    assert backend.manager_calls == 2
     state = json.loads(
         (project / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
     )
@@ -693,7 +696,7 @@ def test_event_wait_skips_planner_until_declared_revision_changes(
     )
 
 
-def test_event_wait_still_reaches_open_ended_manager_reconciliation(
+def test_event_wait_reaches_open_ended_manager_reconciliation_immediately(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -714,7 +717,6 @@ def test_event_wait_still_reaches_open_ended_manager_reconciliation(
     ))
     assert persisted is not None
 
-    assert [sup._plan_next_work() for _ in range(3)] == [PLAN_AWAITING] * 3
     assert sup._plan_next_work() == PLAN_RETRY
 
     assert backend.planner_calls == 0
