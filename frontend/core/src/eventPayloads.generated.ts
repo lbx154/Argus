@@ -225,7 +225,7 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   type: "round.review.completed";
   payload_schema_version?: 1;
   "round_index"?: number;
-  "status": "done" | "continue" | "blocked" | "research_incomplete" | "paused_no_breakthrough" | "exhausted_current_methods";
+  "status": "done" | "continue" | "blocked" | "replan_requested" | "error" | "research_incomplete" | "paused_no_breakthrough" | "exhausted_current_methods";
   "reason": string;
   "next_action"?: string;
   "scope"?: string;
@@ -234,6 +234,7 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "stop_kind"?: "budget_exhausted" | "provider_cooldown" | "provider_fence" | "daemon_shutdown" | "operator_pause" | "operator_abort" | "backend_unavailable" | "transient_error" | "permanent_error" | null;
   "progress_class"?: "decision" | "evidence" | "setup_only" | "artifact_sync_only" | "none" | "";
   "planner_report"?: Record<string, unknown>;
+  "harness_control"?: Record<string, unknown>;
   "checkpoint"?: Record<string, unknown>;
   "achievement"?: Record<string, unknown> | null;
 }

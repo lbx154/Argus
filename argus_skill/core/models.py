@@ -173,6 +173,25 @@ class RunnerResult:
         return "\n".join(self.agent_messages)
 
 
+def canonical_planner_report(value: object) -> dict[str, Any]:
+    """Return the one-to-one Reviewer→Planner signal shape."""
+    if not isinstance(value, dict):
+        return {}
+    if not any(
+        key in value
+        for key in ("forward_progress", "plan_signal", "evidence_files")
+    ):
+        return {}
+    out: dict[str, Any] = {}
+    if isinstance(value.get("forward_progress"), bool):
+        out["forward_progress"] = value["forward_progress"]
+    signal = str(value.get("plan_signal") or "").strip().lower()
+    out["plan_signal"] = signal if signal in {"continue", "reconsider"} else "continue"
+    evidence = value.get("evidence_files")
+    out["evidence_files"] = list(evidence) if isinstance(evidence, list) else []
+    return out
+
+
 @dataclass
 class ReviewDecision:
     """Reviewer verdict on one engineer round. Vendored from ArgusBot."""
@@ -187,6 +206,8 @@ class ReviewDecision:
     # block is purely engineer-repairable. Distinct from ``next_action`` (the
     # engineer-facing instruction).
     operator_question: str = ""
+    # Legacy replay fields. New Reviewer schemas use ``reason`` / ``next_action``
+    # and CHECKPOINT.md instead of duplicate summaries.
     round_summary_markdown: str = ""
     completion_summary_markdown: str = ""
     failure_cause: str = ""
@@ -210,6 +231,7 @@ class ReviewDecision:
     # real reviewed round and never infers it from prose.
     control_action: str = ""
     control_task_id: str = ""
+    # Legacy Engineer self-review projection; no longer emitted in new events.
     verification_summary: str = ""
     # Internal provenance for the verdict.  ``reviewer`` is an independent L2
     # decision; ``engineer_self_review`` is a bounded waiver that the Manager
@@ -233,12 +255,10 @@ class ReviewDecision:
     # Structured research assessment used only when the Manager persisted a
     # research_target_level. Ordinary missions leave this ``None``.
     research_result: dict[str, Any] | None = None
-    # Planner-facing structured briefing authored by the reviewer. The L4
-    # planner routes the next mission from this clean, structured report
-    # rather than from raw engineer output or noisy verdict prose. Shape:
-    # ``{"forward_progress": bool, "headline": str, "blocker": str,
-    # "recommended_next": str, "plan_signal": "continue"|"reconsider",
-    # "plan_signal_reason": str, "evidence_files": [{"path", "why"}]}``. The
+    # Planner-only structured signals authored by the reviewer. Verdict prose
+    # stays in ``reason`` / ``next_action``. Shape:
+    # ``{"forward_progress": bool, "plan_signal": "continue"|"reconsider",
+    # "evidence_files": [{"path", "why"}]}``. The
     # ``evidence_files`` point the planner at the concrete artifacts (source
     # script, data provenance, metric series, NO_GO docs) to OPEN and read
     # before routing the next mission. Fail-soft: empty dict when the reviewer
@@ -265,18 +285,11 @@ class ReviewDecision:
     # "items": [{"id": str, "problem": str, "suggested_fix": str}]}``. Empty/None
     # when the reviewer has no complaint about the checklist itself.
     checklist_feedback: dict[str, Any] | None = None
-    # Reviewer → Planner STEP-BACK reflection on THIS round's measured result
-    # (the anti-plan-lock-in channel). Distinct from ``planner_report`` (which
-    # only carries real signal when ``forward_progress=False``): ``step_back`` is
-    # authored on EVERY round that produced a measured result — INCLUDING a clean
-    # success — as a fresh-skeptic critique that surfaces NEW questions and
-    # alternative directions even when the plan is "working". Shape:
-    # ``{"supported_by_results": "yes|partial|no", "surprises": str,
-    # "new_questions": [str], "alt_directions": [{"direction", "why",
-    # "cheap_to_test"}]}``. The planner is REQUIRED (planner rule 17d) to triage
-    # each ``alt_direction`` — spawn it as a new DAG branch or explicitly
-    # defer/reject it. Fail-soft: ``None`` when the round had no measured result
-    # (pure wiring/run-wait) or the reviewer omitted it.
+    # Harness-owned arbitration metadata. Never authored by the Reviewer model
+    # and never merged back into reviewer reason/next_action/planner_report.
+    harness_control: dict[str, Any] = field(default_factory=dict)
+    # Legacy structured reflection retained for old event replay. New Reviewers
+    # write measured surprises and alternative directions once in CHECKPOINT.md.
     step_back: dict[str, Any] | None = None
     # Prompt observability side-channel populated by Reviewer.evaluate. Each
     # block records chars/bytes/estimated_tokens so token regressions can be
@@ -345,12 +358,9 @@ class ReviewDecision:
     def to_event_payload(self, **extras: Any) -> dict[str, Any]:
         """Build the full ``round.review.completed`` event dict.
 
-        The reviewer JSON schema requires 11 top-level fields. Earlier
-        emit sites in runner/engine forwarded only 6, silently dropping
-        ``checklist`` (per-item structured eval), ``planner_report``
-        (planner-facing briefing), ``scope``,
-        ``checkpoint``, and ``verification_summary``. That made postmortem
-        of "why did reviewer let this pass?" impossible from events.jsonl.
+        Emit the canonical structured verdict once. Natural-language state lives
+        in CHECKPOINT.md; legacy summary/checkpoint fields remain readable on old
+        events but are not copied into new ones.
 
         Token counts are read off ``self``, so the synthesized verdicts
         for daemon-stop / backend-failure paths (zero tokens) and the
@@ -367,8 +377,6 @@ class ReviewDecision:
             "reason": self.reason,
             "next_action": self.next_action,
             "operator_question": self.operator_question or "",
-            "round_summary_markdown": self.round_summary_markdown or "",
-            "completion_summary_markdown": self.completion_summary_markdown or "",
             "failure_cause": self.failure_cause or "",
             "failure_source": self.failure_source or "",
             "failure_source_evidence": list(self.failure_source_evidence or []),
@@ -379,19 +387,15 @@ class ReviewDecision:
             "progress_class": self.progress_class or "",
             "control_action": self.control_action or "",
             "control_task_id": self.control_task_id or "",
-            "verification_summary": self.verification_summary or "",
             "review_source": self.review_source or "reviewer",
             "achievement": (
                 dict(self.achievement) if isinstance(self.achievement, dict) else None
             ),
             "scope": self.scope or "",
             "checklist": list(self.checklist or []),
-            "planner_report": dict(self.planner_report or {}),
-            "checkpoint": dict(self.checkpoint or {}),
-            "skill_ops": list(self.skill_ops or []),
-            "wiki_ops": list(self.wiki_ops or []),
+            "planner_report": canonical_planner_report(self.planner_report),
             "checklist_feedback": dict(self.checklist_feedback or {}),
-            "step_back": (dict(self.step_back) if isinstance(self.step_back, dict) else None),
+            "harness_control": dict(self.harness_control or {}),
             "prompt_block_stats": {
                 str(name): dict(stats)
                 for name, stats in (self.prompt_block_stats or {}).items()

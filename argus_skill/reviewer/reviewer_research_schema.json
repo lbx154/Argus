@@ -32,15 +32,6 @@
       ],
       "maxLength": 500
     },
-    "round_summary_markdown": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 6000
-    },
-    "completion_summary_markdown": {
-      "type": "string",
-      "maxLength": 5000
-    },
     "achievement": {
       "type": [
         "object",
@@ -319,28 +310,12 @@
         "forward_progress": {
           "type": "boolean"
         },
-        "headline": {
-          "type": "string",
-          "maxLength": 600
-        },
-        "blocker": {
-          "type": "string",
-          "maxLength": 1200
-        },
-        "recommended_next": {
-          "type": "string",
-          "maxLength": 1200
-        },
         "plan_signal": {
           "type": "string",
           "enum": [
             "continue",
             "reconsider"
           ]
-        },
-        "plan_signal_reason": {
-          "type": "string",
-          "maxLength": 1200
         },
         "evidence_files": {
           "type": [
@@ -370,11 +345,7 @@
       },
       "required": [
         "forward_progress",
-        "headline",
-        "blocker",
-        "recommended_next",
         "plan_signal",
-        "plan_signal_reason",
         "evidence_files"
       ]
     },
@@ -459,68 +430,6 @@
         "summary",
         "items"
       ]
-    },
-    "step_back": {
-      "type": [
-        "object",
-        "null"
-      ],
-      "additionalProperties": false,
-      "description": "Required for any measured result; null only when nothing was measured.",
-      "properties": {
-        "supported_by_results": {
-          "type": "string",
-          "enum": [
-            "yes",
-            "partial",
-            "no"
-          ]
-        },
-        "surprises": {
-          "type": "string",
-          "maxLength": 1200
-        },
-        "new_questions": {
-          "type": "array",
-          "maxItems": 5,
-          "items": {
-            "type": "string",
-            "maxLength": 400
-          }
-        },
-        "alt_directions": {
-          "type": "array",
-          "maxItems": 4,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "direction": {
-                "type": "string",
-                "maxLength": 500
-              },
-              "why": {
-                "type": "string",
-                "maxLength": 500
-              },
-              "cheap_to_test": {
-                "type": "boolean"
-              }
-            },
-            "required": [
-              "direction",
-              "why",
-              "cheap_to_test"
-            ]
-          }
-        }
-      },
-      "required": [
-        "supported_by_results",
-        "surprises",
-        "new_questions",
-        "alt_directions"
-      ]
     }
   },
   "required": [
@@ -528,8 +437,6 @@
     "reason",
     "next_action",
     "operator_question",
-    "round_summary_markdown",
-    "completion_summary_markdown",
     "achievement",
     "failure_cause",
     "failure_source",
@@ -541,7 +448,6 @@
     "research_result",
     "planner_report",
     "checklist",
-    "checklist_feedback",
-    "step_back"
+    "checklist_feedback"
   ]
 }

@@ -113,6 +113,8 @@ def capture_reviewed_round(
     task: str,
     mission_id: str,
     on_event: EventSink = None,
+    context_packet_path: Path | None = None,
+    checkpoint_path: Path | None = None,
 ) -> dict[str, int]:
     """Persist one immutable RoundCard immediately after a real verdict."""
     from .auto_hooks import _write_run_source
@@ -133,6 +135,8 @@ def capture_reviewed_round(
             success=(getattr(review, "status", "") == "done"),
             rounds=[record],
             emit=on_event,
+            context_packet_path=context_packet_path,
+            checkpoint_path=checkpoint_path,
         )
     return totals
 
@@ -185,6 +189,8 @@ def evolve_wikis_after_mission(
     apply_ops_enabled: bool,
     auto_compact_enabled: bool,
     on_event: EventSink = None,
+    context_packet_path: Path | None = None,
+    checkpoint_path: Path | None = None,
 ) -> dict[str, Any]:
     """Run deterministic hooks, reviewer ops, promotion and optional compaction."""
     wiki_roots = discover_wikis(workdir)
@@ -198,6 +204,8 @@ def evolve_wikis_after_mission(
         task=task,
         rounds=rounds,
         emit=on_event,
+        context_packet_path=context_packet_path,
+        checkpoint_path=checkpoint_path,
     )
     totals: dict[str, Any] = {
         "wiki_count": len(wiki_roots),

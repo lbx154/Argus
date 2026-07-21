@@ -95,6 +95,25 @@ def test_reviewer_schema_has_no_memory_proposal_fields() -> None:
     assert "wiki_ops" not in schema["required"]
 
 
+def test_reviewer_schema_has_one_to_one_handoff_fields() -> None:
+    for schema_path in (SCHEMA_PATH, RESEARCH_SCHEMA_PATH):
+        schema = json.loads(Path(schema_path).read_text(encoding="utf-8"))
+        for duplicate in (
+            "round_summary_markdown",
+            "completion_summary_markdown",
+            "step_back",
+        ):
+            assert duplicate not in schema["properties"]
+            assert duplicate not in schema["required"]
+        report = schema["properties"]["planner_report"]
+        assert set(report["properties"]) == {
+            "forward_progress",
+            "plan_signal",
+            "evidence_files",
+        }
+        assert set(report["required"]) == set(report["properties"])
+
+
 def test_control_object_requires_all_keys_in_active_schemas() -> None:
     for schema_path in (SCHEMA_PATH, RESEARCH_SCHEMA_PATH):
         schema = json.loads(Path(schema_path).read_text(encoding="utf-8"))
@@ -125,10 +144,9 @@ def test_operator_question_parsing_blocked_only():
     the field present (strict-mode required + nullable)."""
     from argus_skill.reviewer._parsing import parse_decision_text
 
-    common = ('"round_summary_markdown":"x","completion_summary_markdown":"",'
-              '"failure_cause":"","scope":"",'
-              '"planner_report":{},"checklist":[],"checkpoint":{},"skill_ops":[],'
-              '"checklist_feedback":null,"step_back":null')
+    common = ('"failure_cause":"","scope":"",'
+              '"planner_report":{},"checklist":[],'
+              '"checklist_feedback":null')
     blk = parse_decision_text(
         '{"status":"blocked","reason":"r","next_action":"n",'
         '"operator_question":"刷哪两道题？",' + common + '}')
@@ -148,8 +166,6 @@ def test_research_pause_status_parses_only_when_targeted() -> None:
         "status": "research_incomplete",
         "reason": "No original theorem was verified.",
         "next_action": "Resume with a distinct method.",
-        "round_summary_markdown": "# Review\n",
-        "completion_summary_markdown": "",
     })
 
     assert parse_decision_text(payload) is None

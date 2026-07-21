@@ -24,15 +24,8 @@ from argus_skill.skills.vertical_select import persist_vertical
 def _engineer_message(*, review: str = "skip", skill_action: str = "none") -> str:
     decision = {
         "review": review,
-        "reason": "the bounded change is covered by one deterministic test",
-        "verification": "pytest reported 1 passed",
         "skill_action": skill_action,
         "skill_name": "",
-        "skill_reason": (
-            "the verified repair pattern generalizes to similar parser changes"
-            if skill_action != "none"
-            else ""
-        ),
     }
     return (
         "## Verification (verbatim)\n"
@@ -48,8 +41,6 @@ def _done_review() -> ReviewDecision:
         status="done",
         reason="independently reviewed",
         next_action="",
-        round_summary_markdown="# Review\n\n- done\n",
-        completion_summary_markdown="Done.",
     )
 
 
@@ -67,7 +58,7 @@ class _DoneReviewer:
         return _done_review()
 
 
-def test_engineer_decision_parser_requires_structured_marker_and_verbatim_output() -> None:
+def test_engineer_decision_parser_keeps_control_separate_from_prose() -> None:
     message = _engineer_message()
 
     decision = parse_engineer_completion_decision(message)
@@ -76,6 +67,8 @@ def test_engineer_decision_parser_requires_structured_marker_and_verbatim_output
     assert decision.requests_review_skip is True
     assert decision.skill_action == "none"
     assert verbatim_verification_output(message) == "1 passed in 0.04s"
+    assert decision.reason == ""
+    assert decision.verification == ""
     assert parse_engineer_completion_decision("done") is None
 
 
@@ -110,19 +103,21 @@ def test_self_verified_engineer_can_skip_reviewer(tmp_path: Path) -> None:
     assert len(rounds) == 1
     assert rounds[0].review.status == "done"
     assert rounds[0].review.review_source == "engineer_self_review"
-    assert "Manager stage adjudication" in (
-        rounds[0].review.planner_report["headline"]
-    )
-    assert "ADVANCE or HOLD" in (
-        rounds[0].review.planner_report["recommended_next"]
-    )
-    assert "self-verification" in reason
+    assert rounds[0].review.planner_report == {
+        "forward_progress": True,
+        "plan_signal": "continue",
+        "evidence_files": [],
+    }
+    assert "self-review waiver" in reason
     assert thread_id == "engineer-1"
     assert [label for label, _prompt, _options in backend.history] == ["engineer-r1"]
     assert any(e["type"] == "engineer.self_review.accepted" for e in events)
     completed = [e for e in events if e["type"] == "round.review.completed"]
     assert completed and completed[0]["review_skipped"] is True
     assert completed[0]["review_source"] == "engineer_self_review"
+    accepted = next(e for e in events if e["type"] == "engineer.self_review.accepted")
+    assert "reason" not in accepted
+    assert "verification" not in accepted
 
 
 def test_required_independent_review_ignores_engineer_skip_request(

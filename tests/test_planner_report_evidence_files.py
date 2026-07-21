@@ -16,9 +16,7 @@ def test_parse_planner_report_extracts_evidence_files() -> None:
     parsed = {
         "planner_report": {
             "forward_progress": False,
-            "headline": "r4c smoke wired but terminal gate tripped",
-            "blocker": "mechanical clipping gate fired on one tail step",
-            "recommended_next": "scale to real pilot or diagnose clipping",
+            "plan_signal": "continue",
             "evidence_files": [
                 {"path": "experiments/runs/r4c/status.json", "why": "shows state=failed + exit"},
                 {"path": "experiments/runs/r4c/progress.jsonl", "why": "metric trend per step"},
@@ -38,7 +36,7 @@ def test_parse_planner_report_evidence_files_fail_soft() -> None:
     parsed = {
         "planner_report": {
             "forward_progress": True,
-            "headline": "h",
+            "plan_signal": "continue",
             "evidence_files": [
                 "not-an-object",
                 {"why": "no path -> dropped"},
@@ -50,7 +48,7 @@ def test_parse_planner_report_evidence_files_fail_soft() -> None:
     out = _parse_planner_report(parsed, status="done", reason="")
     assert [e["path"] for e in out["evidence_files"]] == ["real/file.py"]
 
-    out2 = _parse_planner_report({"planner_report": {"headline": "x"}}, status="continue", reason="")
+    out2 = _parse_planner_report({"planner_report": {}}, status="continue", reason="")
     assert out2["evidence_files"] == []
 
     out3 = _parse_planner_report({}, status="blocked", reason="r")
@@ -60,7 +58,7 @@ def test_parse_planner_report_evidence_files_fail_soft() -> None:
 def test_parse_planner_report_caps_evidence_files_at_eight() -> None:
     many = [{"path": f"f{i}.txt", "why": "w"} for i in range(20)]
     out = _parse_planner_report(
-        {"planner_report": {"forward_progress": False, "headline": "h", "evidence_files": many}},
+        {"planner_report": {"forward_progress": False, "plan_signal": "continue", "evidence_files": many}},
         status="done", reason="",
     )
     assert len(out["evidence_files"]) == 8
@@ -71,9 +69,7 @@ def test_parse_planner_report_extracts_reconsider_signal() -> None:
         {
             "planner_report": {
                 "forward_progress": False,
-                "headline": "the current route is falsified",
                 "plan_signal": "reconsider",
-                "plan_signal_reason": "new verifier evidence invalidates the remaining plan",
                 "evidence_files": [
                     {"path": "experiments/no_go.json", "why": "contains the falsifier"},
                 ],
@@ -84,23 +80,19 @@ def test_parse_planner_report_extracts_reconsider_signal() -> None:
     )
 
     assert out["plan_signal"] == "reconsider"
-    assert out["plan_signal_reason"] == (
-        "new verifier evidence invalidates the remaining plan"
-    )
+    assert "plan_signal_reason" not in out
 
 
 def test_parse_planner_report_plan_signal_fails_soft() -> None:
     missing = _parse_planner_report(
-        {"planner_report": {"headline": "h"}},
+        {"planner_report": {}},
         status="continue",
         reason="",
     )
     invalid = _parse_planner_report(
         {
             "planner_report": {
-                "headline": "h",
                 "plan_signal": "replace-everything",
-                "plan_signal_reason": "x" * 2000,
             }
         },
         status="continue",
@@ -108,9 +100,9 @@ def test_parse_planner_report_plan_signal_fails_soft() -> None:
     )
 
     assert missing["plan_signal"] == "continue"
-    assert missing["plan_signal_reason"] == ""
     assert invalid["plan_signal"] == "continue"
-    assert invalid["plan_signal_reason"] == ""
+    assert "plan_signal_reason" not in missing
+    assert "plan_signal_reason" not in invalid
 
 
 def test_replan_requested_is_a_terminal_reviewer_control_status() -> None:
@@ -119,15 +111,9 @@ def test_replan_requested_is_a_terminal_reviewer_control_status() -> None:
           "status": "replan_requested",
           "reason": "The immutable run identity failed and plan must issue a new one.",
           "next_action": "Create a fresh run identity.",
-          "round_summary_markdown": "# Replan required",
-          "completion_summary_markdown": "",
           "planner_report": {
             "forward_progress": false,
-            "headline": "immutable identity failed",
-            "blocker": "plan-stage run identity must be replaced",
-            "recommended_next": "roll back to plan",
             "plan_signal": "reconsider",
-            "plan_signal_reason": "the current run identity is terminal and immutable",
             "evidence_files": []
           }
         }"""
@@ -140,9 +126,7 @@ def test_replan_requested_is_a_terminal_reviewer_control_status() -> None:
 def test_render_planner_report_lists_evidence_files() -> None:
     report = {
         "forward_progress": False,
-        "headline": "terminal gate tripped on noise",
-        "blocker": "mechanical clipping gate",
-        "recommended_next": "scale up or diagnose",
+        "plan_signal": "reconsider",
         "evidence_files": [
             {"path": "experiments/runs/r4c/progress.jsonl", "why": "metric trend"},
             {"path": "code/train_rl_lora_adapter.py", "why": "gate source"},
@@ -157,5 +141,5 @@ def test_render_planner_report_lists_evidence_files() -> None:
 
 def test_render_planner_report_omits_evidence_header_when_empty() -> None:
     rendered = LifeSupervisor._render_planner_report(
-        {"forward_progress": True, "headline": "done", "evidence_files": []})
+        {"forward_progress": True, "plan_signal": "continue", "evidence_files": []})
     assert "evidence_files" not in rendered

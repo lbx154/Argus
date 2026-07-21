@@ -65,7 +65,6 @@ Design references
 """
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Callable
 from datetime import date, datetime, timezone
@@ -177,8 +176,11 @@ def _write_run_source(
     success: bool,
     rounds: list[Any] | None,
     emit: EventSink,
+    context_packet_path: Path | None = None,
+    checkpoint_path: Path | None = None,
 ) -> int:
     """Persist one immutable reviewer-grounded RunCard at mission close."""
+    _ = task
     if not rounds:
         return 0
     if source_id is None and any(
@@ -207,39 +209,23 @@ def _write_run_source(
         for item in evidence_files
         if isinstance(item, dict) and str(item.get("path") or "").strip()
     }
+    if checkpoint_path is not None:
+        artifacts[str(checkpoint_path)] = "canonical durable state"
+    if context_packet_path is not None:
+        context_path = Path(context_packet_path)
+        artifacts[str(context_path.parent / "latest.json")] = (
+            "canonical machine handoff"
+        )
     forward_progress = report.get("forward_progress") is True
     outcome = "success" if success else "partial" if forward_progress else "failure"
-    reason = str(getattr(review, "reason", "") or "").strip()
-    verification = str(
-        getattr(review, "verification_summary", "") or ""
-    ).strip()
-    research_result = getattr(review, "research_result", None)
     body_parts = [f"Reviewer verdict: {getattr(review, 'status', '')}"]
-    if reason:
-        body_parts.append(f"Reviewer reason:\n{reason[:4000]}")
-    if verification:
-        body_parts.append(f"Verification:\n{verification[:4000]}")
-    if report:
+    if checkpoint_path is not None:
+        body_parts.append(f"Durable state: {checkpoint_path}")
+    if context_packet_path is not None:
+        context_path = Path(context_packet_path)
         body_parts.append(
-            "Planner report:\n"
-            + json.dumps(
-                report,
-                ensure_ascii=False,
-                sort_keys=True,
-                default=str,
-            )[:8000]
+            f"Structured handoff: {context_path.parent / 'latest.json'}"
         )
-    if isinstance(research_result, dict) and research_result:
-        body_parts.append(
-            "Research result:\n"
-            + json.dumps(
-                research_result,
-                ensure_ascii=False,
-                sort_keys=True,
-                default=str,
-            )[:8000]
-        )
-    body_parts.append(f"Task:\n{task.strip()[:4000]}")
 
     from .schema import SourceRun
     from .store import WikiStore
@@ -255,16 +241,12 @@ def _write_run_source(
         artifacts=artifacts,
         outcome=outcome,
         failure_signature=(
-            str(getattr(review, "failure_cause", "") or reason).strip()[:1000]
+            str(getattr(review, "failure_cause", "") or "").strip()[:1000]
             if not success
             else ""
         ),
-        suspected_cause=str(report.get("blocker") or "").strip()[:1000],
-        next_action=str(
-            getattr(review, "next_action", "")
-            or report.get("recommended_next")
-            or ""
-        ).strip()[:2000],
+        suspected_cause=str(getattr(review, "failure_layer", "") or "").strip()[:1000],
+        next_action=str(getattr(review, "next_action", "") or "").strip()[:2000],
         body="\n\n".join(body_parts),
         closed_at=datetime.now(timezone.utc).isoformat(),
     )
@@ -388,6 +370,8 @@ def run_post_mission_hooks(
     task: str = "",
     rounds: list[Any] | None = None,
     emit: EventSink = None,
+    context_packet_path: Path | None = None,
+    checkpoint_path: Path | None = None,
 ) -> dict:
     """Run all wiki auto-hooks after a mission close.
 
@@ -410,6 +394,8 @@ def run_post_mission_hooks(
             success=success,
             rounds=rounds,
             emit=emit,
+            context_packet_path=context_packet_path,
+            checkpoint_path=checkpoint_path,
         )
         paper_sources_written = _ingest_sources(
             wiki_root,

@@ -19,18 +19,14 @@ from argus_skill.reviewer import Reviewer, ReviewerConfig
 def _review(plan_signal: str, reason: str = "") -> ReviewDecision:
     return ReviewDecision(
         status="continue",
-        reason="review reason",
+        reason=reason or "review reason",
         next_action="continue locally",
         planner_report={
             "forward_progress": False,
-            "headline": "route assessment",
-            "blocker": "the current route no longer supports the objective",
-            "recommended_next": "ask L4 to reconsider the remaining plan",
             "evidence_files": [
                 {"path": "research/NO_GO.md", "why": "records the falsifier"},
             ],
             "plan_signal": plan_signal,
-            "plan_signal_reason": reason,
         },
     )
 
@@ -75,6 +71,27 @@ def test_replan_requested_verdict_ends_round_immediately() -> None:
     assert "replacement plan" in reason
 
 
+def test_harness_scope_arbitration_does_not_rewrite_reviewer_fields() -> None:
+    review = _review("continue")
+    original_report = dict(review.planner_report)
+
+    runner._promote_scope_change_to_replan(
+        review,
+        reason="Harness detected a cross-mission request.",
+    )
+
+    assert review.status == "continue"
+    assert review.reason == "review reason"
+    assert review.next_action == "continue locally"
+    assert review.planner_report == original_report
+    assert review.harness_control == {
+        "force_replan": True,
+        "reason": "Harness detected a cross-mission request.",
+        "stage_reconciliation_required": True,
+        "mission_scope_change_required": True,
+    }
+
+
 def test_dynamic_plan_defaults_off_for_behavior_compatibility(monkeypatch) -> None:
     monkeypatch.delenv("ARGUS_SKILL_DYNAMIC_PLAN_MODE", raising=False)
 
@@ -94,18 +111,12 @@ def _review_json_with_fields(
 ) -> str:
     payload: dict[str, object] = {
         "status": "continue",
-        "reason": "The current route needs project-level reconsideration.",
+        "reason": reason or "The current route needs project-level reconsideration.",
         "next_action": "Preserve evidence and wait for a replacement plan.",
-        "round_summary_markdown": "# Review\n",
-        "completion_summary_markdown": "",
         "progress_class": progress_class,
         "planner_report": {
             "forward_progress": progress_class in {"decision", "evidence"},
-            "headline": "route falsified",
-            "blocker": "the remaining plan assumes a falsified mechanism",
-            "recommended_next": "replace the remaining plan",
             "plan_signal": signal,
-            "plan_signal_reason": reason,
             "evidence_files": [
                 {"path": "research/NO_GO.md", "why": "records the falsifier"},
             ],
@@ -122,8 +133,6 @@ def _done_json() -> str:
             "status": "done",
             "reason": "The task is complete.",
             "next_action": "",
-            "round_summary_markdown": "# Done\n",
-            "completion_summary_markdown": "Done.",
         }
     )
 
@@ -135,16 +144,10 @@ def _upstream_stage_defect_json() -> str:
             "The earliest broken stage is benchmark; run execution is unsupported."
         ),
         "next_action": "Return to benchmark and recertify before any GPU work.",
-        "round_summary_markdown": "# Review\n",
-        "completion_summary_markdown": "",
         "progress_class": "decision",
         "planner_report": {
             "forward_progress": True,
-            "headline": "upstream benchmark defect",
-            "blocker": "the run packet predates the repaired benchmark adapter",
-            "recommended_next": "rollback to benchmark",
             "plan_signal": "continue",
-            "plan_signal_reason": "",
             "evidence_files": [],
         },
     })
@@ -158,16 +161,10 @@ def _manager_return_stage_defect_json() -> str:
             "Manager must preserve history, return structurally to `benchmark`, "
             "and recertify before another run."
         ),
-        "round_summary_markdown": "# Review\n",
-        "completion_summary_markdown": "",
         "progress_class": "decision",
         "planner_report": {
             "forward_progress": True,
-            "headline": "stage authority mismatch",
-            "blocker": "the run transition is not executable",
-            "recommended_next": "repair through Manager",
             "plan_signal": "continue",
-            "plan_signal_reason": "",
             "evidence_files": [],
         },
     })
@@ -262,14 +259,19 @@ def test_upstream_stage_defect_preempts_next_engineer_round(tmp_path) -> None:
 
     assert status == "replan_requested"
     assert len(rounds) == 1
-    assert "earliest_broken_stage=benchmark" in reason
+    assert "earliest broken stage is benchmark" in reason.lower()
     assert [label for label, _prompt, _options in backend.history] == [
         "engineer-r1",
         "reviewer",
     ]
     report = rounds[-1].review.planner_report
-    assert report["stage_reconciliation_required"] is True
-    assert report["earliest_broken_stage"] == "benchmark"
+    assert report == {
+        "forward_progress": True,
+        "plan_signal": "continue",
+        "evidence_files": [],
+    }
+    assert rounds[-1].review.harness_control["stage_reconciliation_required"] is True
+    assert rounds[-1].review.harness_control["earliest_broken_stage"] == "benchmark"
     signals = [event for event in events if event.get("signal") == "stage_reconciliation"]
     assert signals and signals[-1]["target_stage"] == "benchmark"
 
@@ -302,7 +304,7 @@ def test_manager_return_wording_also_preempts_next_engineer_round(
 
     assert status == "replan_requested"
     assert len(rounds) == 1
-    assert "earliest_broken_stage=benchmark" in reason
+    assert "failed closed before model loading" in reason
     assert [label for label, _prompt, _options in backend.history] == [
         "engineer-r1",
         "reviewer",

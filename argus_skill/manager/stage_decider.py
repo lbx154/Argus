@@ -83,15 +83,27 @@ def _planner_report_lines(review: Any) -> str:
         return "(no structured planner report)"
     keys = (
         "forward_progress",
-        "headline",
-        "blocker",
-        "recommended_next",
         "plan_signal",
-        "plan_signal_reason",
-        "mission_scope_change_required",
     )
     lines = [f"{k}: {report.get(k)!r}" for k in keys if k in report]
     return "\n".join(lines) or "(no structured planner report)"
+
+
+def _harness_control_lines(review: Any) -> str:
+    control = getattr(review, "harness_control", None)
+    if not isinstance(control, dict) or not control:
+        return "(no harness arbitration)"
+    return "\n".join(
+        f"{key}: {control[key]!r}"
+        for key in (
+            "force_replan",
+            "reason",
+            "mission_scope_change_required",
+            "stage_reconciliation_required",
+            "earliest_broken_stage",
+        )
+        if key in control
+    )
 
 
 def _advisory_planner(planner_verdict: Any) -> str:
@@ -126,9 +138,6 @@ def build_stage_decision_prompt(
     review_source = str(
         getattr(review, "review_source", "reviewer") or "reviewer"
     ).strip()
-    verification_summary = str(
-        getattr(review, "verification_summary", "") or ""
-    ).strip()
     planner_waiting = bool(getattr(planner_verdict, "waiting", False))
     waiting_contract = getattr(planner_verdict, "waiting_contract", None)
     waiting_reason = str(
@@ -148,8 +157,8 @@ def build_stage_decision_prompt(
         source_instructions = (
             "The Engineer used an allowed bounded-task review waiver. The empty "
             "Reviewer checklist is therefore expected, not a failure. The waiver "
-            "itself is not evidence: independently compare the Engineer's concrete "
-            "verification with every applicable current-stage checklist item. You "
+            "itself is not evidence: inspect CHECKPOINT.md and the project artifacts "
+            "against every applicable current-stage checklist item. You "
             "MAY ADVANCE when that evidence genuinely satisfies the stage; HOLD "
             "otherwise. A final-submission or explicitly independent-review gate "
             "still requires a real Reviewer checklist.\n"
@@ -169,10 +178,10 @@ def build_stage_decision_prompt(
             f"Operator objective:\n{continuous_objective.strip()}\n\n"
         )
 
-    report = getattr(review, "planner_report", None)
+    harness_control = getattr(review, "harness_control", None)
     mission_scope_change = bool(
-        isinstance(report, dict)
-        and report.get("mission_scope_change_required") is True
+        isinstance(harness_control, dict)
+        and harness_control.get("mission_scope_change_required") is True
     )
     mission_scope_block = ""
     if mission_scope_change:
@@ -242,8 +251,9 @@ def build_stage_decision_prompt(
         f"source: {review_source}\n"
         f"status: {status}\n"
         f"reason: {reason}\n"
-        f"verification_summary: {verification_summary or '(none)'}\n"
         f"{_planner_report_lines(review)}\n\n"
+        "### Harness arbitration\n"
+        f"{_harness_control_lines(review)}\n\n"
         f"{source_instructions}\n"
         "### Reviewer per-item checklist\n"
         f"{_checklist_lines(review)}\n\n"

@@ -905,20 +905,20 @@ class MissionExecutionMixin:
             and item_scope == PLANNER_SCOPE_FINAL_SUBMISSION
             and getattr(outcome, "final_submission_certified", False)
         )
-        planner_report = (
+        from ...core.models import canonical_planner_report
+
+        planner_report = canonical_planner_report(
             getattr(outcome, "planner_report", {})
-            if isinstance(getattr(outcome, "planner_report", {}), dict)
+        )
+        harness_control = (
+            dict(getattr(outcome, "harness_control", {}) or {})
+            if isinstance(getattr(outcome, "harness_control", {}), dict)
             else {}
         )
         checklist_feedback = (
             getattr(outcome, "checklist_feedback", {})
             if isinstance(getattr(outcome, "checklist_feedback", {}), dict)
             else {}
-        )
-        step_back = (
-            getattr(outcome, "step_back", None)
-            if isinstance(getattr(outcome, "step_back", None), dict)
-            else None
         )
         research_result = (
             dict(getattr(outcome, "research_result", {}))
@@ -929,12 +929,13 @@ class MissionExecutionMixin:
 
         claim_synthesis = build_claim_synthesis(
             research_result=research_result,
-            planner_report=planner_report,
-            step_back=step_back,
+            scientific_decision=getattr(outcome, "scientific_decision", None),
         )
-        completion_summary = self._completion_evidence_from_outcome(outcome)
-        if final_submission_certified:
-            self._persist_final_submission_certification(title=item.title)
+        final_submission_signature = (
+            self._final_submission_signature()
+            if final_submission_certified
+            else ""
+        )
 
         self._update_no_progress_streak(
             kind=kind, report=getattr(outcome, "planner_report", {})
@@ -1017,18 +1018,18 @@ class MissionExecutionMixin:
             "matched_skill": str(getattr(outcome, "matched_skill_name", "") or ""),
             "skill_distilled": bool(getattr(outcome, "skill_distilled", False)),
             "had_follow_up": bool(getattr(outcome, "had_follow_up", False)),
-            "completion_summary": completion_summary,
             "research_result": research_result or None,
             "claim_synthesis": claim_synthesis,
             "planner_report": planner_report,
+            "harness_control": harness_control,
             "checklist_feedback": checklist_feedback,
-            "step_back": step_back,
             "context_packet": (
                 str(context_packet_path.parent / "latest.json")
                 if context_packet_path is not None
                 else ""
             ),
             "final_submission_certified": final_submission_certified,
+            "final_submission_signature": final_submission_signature,
             "repair_capability": {
                 "capability_id": str(repair_capability.get("capability_id") or ""),
                 "authorization_id": str(repair_capability.get("authorization_id") or ""),
@@ -1057,6 +1058,8 @@ class MissionExecutionMixin:
             "iteration": None,
             "auth_failure": auth_failure,
             "planner_report": planner_report,
+            "harness_control": harness_control,
+            "review_reason": str(getattr(outcome, "reason", "") or ""),
             "claim_synthesis": claim_synthesis,
             "expected_plan_id": item.plan_id,
             "expected_plan_version": item.plan_version,

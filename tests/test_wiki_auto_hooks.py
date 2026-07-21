@@ -83,11 +83,16 @@ def test_run_hooks_idempotent(project: Path):
 
 
 def test_mission_close_writes_immutable_reviewer_run_source(project: Path):
+    context_packet = project / ".argus" / "handoffs" / "m-reviewed" / "mission.json"
+    context_packet.parent.mkdir(parents=True, exist_ok=True)
+    context_packet.write_text("{}\n", encoding="utf-8")
+    checkpoint = context_packet.parent / "CHECKPOINT.md"
+    checkpoint.write_text("# Current State\n", encoding="utf-8")
     review = SimpleNamespace(
         status="done",
         reason="Certified the exact finite classification.",
-        verification_summary="Independent replay passed.",
         failure_cause="",
+        failure_layer="",
         next_action="Audit the general-rank extension.",
         research_result={
             "result_class": "theorem",
@@ -95,9 +100,7 @@ def test_mission_close_writes_immutable_reviewer_run_source(project: Path):
         },
         planner_report={
             "forward_progress": True,
-            "headline": "Finite classification certified",
-            "blocker": "General rank remains open",
-            "recommended_next": "Audit the general-rank extension.",
+            "plan_signal": "continue",
             "evidence_files": [
                 {"path": "research/RESULT.md", "why": "reviewed theorem"},
             ],
@@ -116,6 +119,8 @@ def test_mission_close_writes_immutable_reviewer_run_source(project: Path):
         reviewer_reasoning_effort="high",
         apply_ops_enabled=False,
         auto_compact_enabled=False,
+        context_packet_path=context_packet,
+        checkpoint_path=checkpoint,
     )
 
     wiki = project / ".autors" / "demo" / "wiki"
@@ -124,9 +129,11 @@ def test_mission_close_writes_immutable_reviewer_run_source(project: Path):
     assert source.exists()
     text = source.read_text(encoding="utf-8")
     assert "outcome: success" in text
-    assert "Certified the exact finite classification." in text
+    assert "Certified the exact finite classification." not in text
     assert "research/RESULT.md" in text
     assert "Audit the general-rank extension." in text
+    assert "CHECKPOINT.md" in text
+    assert "latest.json" in text
     assert "closed_at:" in text
 
     repeated = evolve_wikis_after_mission(

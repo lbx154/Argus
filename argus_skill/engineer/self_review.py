@@ -23,9 +23,11 @@ _SKILL_ACTIONS = frozenset({"none", "create", "update"})
 
 @dataclass(frozen=True)
 class EngineerCompletionDecision:
-    """Structured final decision authored by the Engineer itself."""
+    """Machine control authored by the Engineer; prose stays in CHECKPOINT.md."""
 
     review: str
+    # Legacy fields accepted from older agents but no longer requested or
+    # persisted by the new protocol.
     reason: str
     verification: str
     skill_action: str = "none"
@@ -70,12 +72,8 @@ def parse_engineer_completion_decision(
         skill_action = "none"
     skill_name = str(payload.get("skill_name") or "").strip()[:200]
     skill_reason = str(payload.get("skill_reason") or "").strip()[:1000]
-    if review == "skip" and not reason:
-        reason = "Engineer judged independent review unnecessary"
     if skill_action == "update" and not skill_name:
         skill_action = "none"
-    if skill_action != "none" and not skill_reason:
-        skill_reason = reason or "Engineer identified reusable learning"
     return EngineerCompletionDecision(
         review=review,
         reason=reason,
@@ -102,42 +100,16 @@ def engineer_self_approved_review(
     maintenance_summary: str = "",
 ) -> ReviewDecision:
     """Synthesize a zero-cost done verdict from an accepted Engineer waiver."""
-    maintenance = str(maintenance_summary or "").strip()
-    suffix = f" Skill maintenance: {maintenance}" if maintenance else ""
-    reason = f"Engineer self-verification accepted: {decision.reason}.{suffix}".strip()
+    _ = maintenance_summary
     return ReviewDecision(
         status="done",
-        reason=reason,
+        reason="Engineer used the allowed bounded self-review waiver; see CHECKPOINT.md.",
         next_action="",
-        round_summary_markdown=(
-            "# Engineer Self-Review\n\n"
-            f"- Independent Reviewer waived by Engineer: {decision.reason}\n"
-            f"- Verification: {decision.verification}\n"
-            + (f"- Skill maintenance: {maintenance}\n" if maintenance else "")
-        ),
-        completion_summary_markdown=(
-            "# Completion Summary\n\n"
-            f"- Engineer completed and self-verified the bounded task.\n"
-            f"- Verification: {decision.verification}\n"
-        ),
         progress_class="decision",
-        verification_summary=decision.verification,
         review_source="engineer_self_review",
         planner_report={
             "forward_progress": True,
-            "headline": (
-                "Engineer self-verification passed; Manager stage adjudication "
-                "is pending"
-            ),
-            "blocker": "",
-            "recommended_next": (
-                "Manager should independently compare the Engineer verification "
-                "with the current-stage checklist and ADVANCE or HOLD. If the "
-                "evidence is insufficient, Planner may enqueue a stage_closing "
-                "task with review:required."
-            ),
             "plan_signal": "continue",
-            "plan_signal_reason": "",
             "evidence_files": [],
         },
     )

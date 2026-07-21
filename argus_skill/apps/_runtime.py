@@ -219,14 +219,16 @@ def _should_run_stage_transition(
     status: object,
     planner_report: dict | None = None,
     *,
+    harness_control: dict | None = None,
     mission_scope: str = "",
     require_independent_review: bool = False,
     review_source: str = "",
 ) -> bool:
     normalized = str(status or "")
+    _ = planner_report
     stage_reconciliation = bool(
-        isinstance(planner_report, dict)
-        and planner_report.get("stage_reconciliation_required") is True
+        isinstance(harness_control, dict)
+        and harness_control.get("stage_reconciliation_required") is True
     )
     if normalized == "replan_requested" and not stage_reconciliation:
         return False
@@ -1062,6 +1064,7 @@ class _SkillLoopRunner(SelfReplyMixin):
         # Pull the reviewer's structured planner briefing off the final round
         # so the supervisor can journal it for the project planner verbatim.
         planner_report: dict = {}
+        harness_control: dict = {}
         checklist_feedback: dict = {}
         step_back: dict | None = None
         operator_question = ""
@@ -1101,6 +1104,9 @@ class _SkillLoopRunner(SelfReplyMixin):
                 report = getattr(_final_review, "planner_report", None)
                 if isinstance(report, dict):
                     planner_report = report
+                _harness_control = getattr(_final_review, "harness_control", None)
+                if isinstance(_harness_control, dict):
+                    harness_control = dict(_harness_control)
                 _cfb = getattr(_final_review, "checklist_feedback", None)
                 if isinstance(_cfb, dict) and _cfb:
                     checklist_feedback = _cfb
@@ -1121,10 +1127,7 @@ class _SkillLoopRunner(SelfReplyMixin):
                 final_review, "final_submission_certified", False
             ):
                 final_submission_certified = True
-                completion_evidence = (
-                    getattr(final_review, "completion_summary_markdown", "")
-                    or getattr(final_review, "reason", "")
-                )
+                completion_evidence = getattr(final_review, "reason", "")
         # STAGE AUTHORITY: the Manager is the SOLE post-bootstrap writer of the
         # pipeline stage. After this round's reviewer verdict, the Manager makes
         # its OWN judgment (advance / hold / rollback) and writes
@@ -1140,6 +1143,7 @@ class _SkillLoopRunner(SelfReplyMixin):
         if not maintenance_mission and _should_run_stage_transition(
             effective_status,
             planner_report,
+            harness_control=harness_control,
             mission_scope=mission_scope,
             require_independent_review=effective_require_independent_review,
             review_source=review_source,
@@ -1175,6 +1179,7 @@ class _SkillLoopRunner(SelfReplyMixin):
             final_submission_certified=final_submission_certified,
             completion_evidence=completion_evidence,
             planner_report=planner_report,
+            harness_control=harness_control,
             checklist_feedback=checklist_feedback,
             step_back=step_back,
             stage_transition=stage_transition,

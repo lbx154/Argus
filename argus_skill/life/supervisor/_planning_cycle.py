@@ -56,6 +56,16 @@ def _revision_context_refs(revision_request: dict[str, Any]) -> list[dict[str, s
     return refs
 
 
+def _revision_reason(revision_request: dict[str, Any]) -> str:
+    report = revision_request.get("planner_report")
+    report = report if isinstance(report, dict) else {}
+    return str(
+        revision_request.get("review_reason")
+        or report.get("plan_signal_reason")
+        or ""
+    ).strip()
+
+
 def _render_revision_request(
     revision_request: dict[str, Any],
     active_items: list[BacklogItem],
@@ -64,7 +74,11 @@ def _render_revision_request(
     report = report if isinstance(report, dict) else {}
     lines = [
         "DYNAMIC PLAN REVISION REQUEST (Reviewer-authored, L4 decides):",
-        f"- reason: {str(report.get('plan_signal_reason') or '').strip()}",
+        "- reason: " + (
+            _revision_reason(revision_request)
+            or "Reviewer requested reconsideration; inspect the referenced "
+            "artifacts and current CHECKPOINT.md before deciding."
+        ),
         "- remaining active nodes:",
     ]
     lines.extend(
@@ -652,13 +666,7 @@ class PlanningCycleMixin:
                 "expected_plan_id": expected_plan_id,
                 "expected_plan_version": expected_plan_version,
                 "active_item_ids": [item.id for item in revision_active_items],
-                "reason": str(
-                    revision_request.get("planner_report", {}).get(
-                        "plan_signal_reason", ""
-                    )
-                    if isinstance(revision_request.get("planner_report"), dict)
-                    else ""
-                ),
+                "reason": _revision_reason(revision_request),
             })
 
         if revision_request is None:
@@ -1480,13 +1488,7 @@ class PlanningCycleMixin:
                         item.id for item in revision_active_items
                     ],
                     new_items=replacement_items,
-                    reason=str(
-                        revision_request.get("planner_report", {}).get(
-                            "plan_signal_reason", ""
-                        )
-                        if isinstance(revision_request.get("planner_report"), dict)
-                        else ""
-                    ),
+                    reason=_revision_reason(revision_request),
                 )
             except Exception as exc:  # noqa: BLE001
                 self._emit({
@@ -1503,13 +1505,7 @@ class PlanningCycleMixin:
                     "plan_id": expected_plan_id,
                     "plan_version": expected_plan_version,
                     "superseded_by_plan_id": new_plan_id,
-                    "reason": str(
-                        revision_request.get("planner_report", {}).get(
-                            "plan_signal_reason", ""
-                        )
-                        if isinstance(revision_request.get("planner_report"), dict)
-                        else ""
-                    ),
+                    "reason": _revision_reason(revision_request),
                 })
             for task, item in pending_items:
                 added_titles.append(item.title)

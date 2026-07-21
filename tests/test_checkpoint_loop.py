@@ -47,7 +47,7 @@ def test_engineer_and_reviewer_edit_one_shared_checkpoint_in_sequence(
         assert "Engineer round 1" in checkpoint.read_text(encoding="utf-8")
         checkpoint.write_text(
             "# Current State\n\nReviewer accepted round 1\n\n"
-            "# Next Action\n\nContinue from reviewed state\n",
+            "# Open Questions / Blockers\n\nOne reviewed question remains\n",
             encoding="utf-8",
         )
         return _review("continue")
@@ -56,7 +56,7 @@ def test_engineer_and_reviewer_edit_one_shared_checkpoint_in_sequence(
         text = checkpoint.read_text(encoding="utf-8")
         assert "Reviewer accepted round 1" in text
         checkpoint.write_text(
-            text.replace("Continue from reviewed state", "Engineer finished work"),
+            text.replace("One reviewed question remains", "Engineer finished work"),
             encoding="utf-8",
         )
         return "round 2 work"

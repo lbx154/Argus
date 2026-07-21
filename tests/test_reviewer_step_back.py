@@ -1,13 +1,4 @@
-"""Tests for the Reviewer → Planner STEP-BACK reflection channel (anti-plan-lock-in).
-
-The reviewer authors ``step_back`` on EVERY round that produced a measured result —
-INCLUDING a clean success — so the planner is forced (rule 17d) to consider new
-questions / alternative directions even when the plan appears to be working. This is
-the mechanism that stops the pipeline marching forward along the initial plan without
-ever asking the questions a fresh human would ask.
-
-Mirrors test_reviewer_checklist_feedback.py + test_planner_report_evidence_files.py.
-"""
+"""Legacy step_back remains readable but new handoffs use CHECKPOINT.md."""
 from __future__ import annotations
 
 import json
@@ -25,16 +16,14 @@ def _review_json(**over):
         "status": "continue",
         "reason": "r",
         "next_action": "na",
-        "round_summary_markdown": "# x",
-        "completion_summary_markdown": "",
         "failure_cause": None,
         "scope": None,
-        "planner_report": {"forward_progress": False, "headline": "h", "blocker": "",
-                           "recommended_next": "", "evidence_files": []},
+        "planner_report": {
+            "forward_progress": False,
+            "plan_signal": "continue",
+            "evidence_files": [],
+        },
         "checklist": [],
-        "checkpoint": {"goal": "g", "done": [], "tried_and_failed": [], "maturing": [],
-                       "open_blocker": "", "next_step": "", "active_line": None, "env_facts": []},
-        "skill_ops": [],
         "checklist_feedback": None,
         "step_back": None,
     }
@@ -77,8 +66,11 @@ def test_step_back_survives_on_clean_success():
     # (status=done, forward_progress=true) must NOT be dropped.
     d = parse_decision_text(_review_json(
         status="done",
-        planner_report={"forward_progress": True, "headline": "h", "blocker": "",
-                        "recommended_next": "", "evidence_files": []},
+        planner_report={
+            "forward_progress": True,
+            "plan_signal": "continue",
+            "evidence_files": [],
+        },
         step_back=_GOOD_SB,
     ))
     assert d is not None
@@ -134,13 +126,12 @@ def test_step_back_not_a_dict_is_none():
 def test_step_back_in_event_payload():
     d = parse_decision_text(_review_json(step_back=_GOOD_SB))
     payload = d.to_event_payload()
-    assert "step_back" in payload
-    assert payload["step_back"]["supported_by_results"] == "partial"
+    assert "step_back" not in payload
 
 
 def test_step_back_payload_none_when_absent():
     d = parse_decision_text(_review_json())
-    assert d.to_event_payload()["step_back"] is None
+    assert "step_back" not in d.to_event_payload()
 
 
 # --- supervisor render (the planner actually sees it) ------------------------
@@ -166,36 +157,20 @@ def test_render_step_back_empty_returns_blank():
 
 # --- schema strictness (codex --output-schema surrogate) ---------------------
 
-def test_schema_has_step_back_in_properties_and_required():
+def test_schema_does_not_request_duplicate_step_back():
     schema = json.loads(Path(SCHEMA_PATH).read_text(encoding="utf-8"))
-    assert "step_back" in schema["properties"]
-    assert "step_back" in schema["required"]
-
-
-def test_schema_step_back_nested_required_complete():
-    # The 2026-06-26 outage was an under-specified nested `required`; pin ours.
-    schema = json.loads(Path(SCHEMA_PATH).read_text(encoding="utf-8"))
-    sb = schema["properties"]["step_back"]
-    assert set(sb["required"]) == set(sb["properties"]) == {
-        "supported_by_results", "surprises", "new_questions", "alt_directions",
-    }
-    alt_items = sb["properties"]["alt_directions"]["items"]
-    assert set(alt_items["required"]) == set(alt_items["properties"]) == {
-        "direction", "why", "cheap_to_test",
-    }
-    assert sb["additionalProperties"] is False
-    assert alt_items["additionalProperties"] is False
+    assert "step_back" not in schema["properties"]
+    assert "step_back" not in schema["required"]
 
 
 # --- planner is wired to triage it -------------------------------------------
 
-def test_planner_role_has_step_back_triage_rule():
+def test_planner_role_reads_checkpoint_questions():
     text = load_builtin_skill_text("argus-planner-role.md")
-    assert "STEP_BACK" in text
-    assert "alt_direction" in text
-    # The anti-lock-in framing + the success-side fire are the load-bearing parts.
-    assert "locked into its initial plan" in text
-    assert "successful round" in text
+    assert "CHECKPOINT.md" in text
+    assert "open questions and alternative directions" in text
+    assert "does not stay locked into its initial" in text
+    assert "successful rounds" in text
 
 
 # --- ReviewDecision default ---------------------------------------------------

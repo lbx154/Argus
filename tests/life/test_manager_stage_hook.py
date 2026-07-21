@@ -310,7 +310,7 @@ def test_replan_control_outcome_does_not_run_manager_stage_transition() -> None:
     assert _runtime._should_run_stage_transition("replan_requested") is False
     assert _runtime._should_run_stage_transition(
         "replan_requested",
-        {"stage_reconciliation_required": True},
+        harness_control={"stage_reconciliation_required": True},
     ) is True
     assert _runtime._should_run_stage_transition("paused_budget") is False
     assert _runtime._should_run_stage_transition("done") is False

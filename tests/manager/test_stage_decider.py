@@ -135,7 +135,8 @@ def test_prompt_treats_engineer_waiver_as_manager_judgment_input() -> None:
     )
 
     assert "source: engineer_self_review" in prompt
-    assert "pytest: 12 passed; artifact hashes verified" in prompt
+    assert "pytest: 12 passed; artifact hashes verified" not in prompt
+    assert "inspect CHECKPOINT.md and the project artifacts" in prompt
     assert "empty Reviewer checklist is therefore expected" in prompt
     assert "MAY ADVANCE" in prompt
 
@@ -146,12 +147,13 @@ def test_prompt_routes_scope_change_through_manager_hold_or_rollback() -> None:
     review.next_action = "Authorize a scoped correctness-repair mission."
     review.planner_report = {
         "forward_progress": True,
-        "headline": "A baseline defect needs a separate repair mission.",
-        "blocker": "Repair is outside the current mission contract.",
-        "recommended_next": "Planner should create a scoped repair mission.",
         "plan_signal": "reconsider",
-        "plan_signal_reason": "Current mission non-goals forbid the repair.",
+        "evidence_files": [],
+    }
+    review.harness_control = {
         "mission_scope_change_required": True,
+        "stage_reconciliation_required": True,
+        "reason": "Current mission non-goals forbid the repair.",
     }
 
     prompt = build_stage_decision_prompt(
@@ -661,7 +663,7 @@ def test_open_ended_nonterminal_planner_wait_can_rollback(tmp_path: Path) -> Non
         (tmp_path / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
     )
     assert state["stages"]["optimize"]["status"] == "in_progress"
-    assert "HOLD if this is a genuine live external wait" in backend.last_prompt
+    assert "Planner-wait reconciliation" in backend.last_prompt
 
 
 def test_planner_wait_cannot_advance_without_reviewer_evidence(tmp_path: Path) -> None:

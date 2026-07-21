@@ -36,7 +36,7 @@ def _supervisor(project: Path, life: Path) -> LifeSupervisor:
         config=config,
         planner_runner=object(),
     )
-    persist_vertical(project, "research")
+    persist_vertical(project, "software")
     supervisor._vertical_resolved = True
     supervisor._current_pipeline_stage = lambda: "done"  # type: ignore[method-assign]
     return supervisor

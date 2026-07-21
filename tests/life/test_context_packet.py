@@ -51,6 +51,8 @@ def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> 
     assert latest["context_refs"][0]["ref"] == "research/IDEA_CANDIDATES.md"
     assert latest["mission"]["path"] == str(mission)
     assert latest["checkpoint"]["sha256"]
+    assert "text" not in latest["checkpoint"]
+    assert "engineer_summary" not in latest
 
     reviewed = record_reviewed_handoff(
         mission_context_path=mission,
@@ -64,9 +66,12 @@ def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> 
             failure_cause="",
             failure_layer="",
             planner_report={
-                "headline": "Candidate screen passed",
+                "forward_progress": True,
+                "plan_signal": "continue",
                 "evidence_files": [{"path": "research/screen.json"}],
+                "recommended_next": "legacy duplicate",
             },
+            harness_control={"stage_reconciliation_required": True},
         ),
         checkpoint_path=checkpoint,
     )
@@ -77,6 +82,10 @@ def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> 
     assert latest["acceptance_check"].endswith("binding pass/fail")
     assert latest["scope"] == "bounded"
     assert latest["review"]["status"] == "done"
-    assert latest["review"]["planner_report"]["headline"] == (
-        "Candidate screen passed"
-    )
+    assert latest["review"]["planner_report"]["plan_signal"] == "continue"
+    assert "recommended_next" not in latest["review"]["planner_report"]
+    assert latest["review"]["harness_control"] == {
+        "stage_reconciliation_required": True
+    }
+    assert "engineer_summary" not in latest
+    assert "text" not in latest["checkpoint"]

@@ -24,10 +24,6 @@ class PlannerRenderingMixin:
             line = f"- [{ts}] {e.kind}: {e.title} — {e.summary}"
             extra = getattr(e, "extra", {}) or {}
             if isinstance(extra, dict):
-                if extra.get("final_submission_certified"):
-                    evidence = str(extra.get("completion_summary") or "").strip()
-                    if evidence:
-                        line += f" | final-submission evidence: {evidence[:500]}"
                 if e.kind in (
                     "mission_complete",
                     "mission_failed",
@@ -81,18 +77,12 @@ class PlannerRenderingMixin:
             return str(value or "").strip()[:limit]
 
         forward = report.get("forward_progress")
-        headline = _clean(report.get("headline"), 600)
-        blocker = _clean(report.get("blocker"), 1200)
-        recommended = _clean(report.get("recommended_next"), 1200)
         parts: list[str] = []
         if isinstance(forward, bool):
             parts.append(f"    reviewer→planner: forward_progress={forward}")
-        if headline:
-            parts.append(f"    headline: {headline}")
-        if blocker:
-            parts.append(f"    blocker: {blocker}")
-        if recommended:
-            parts.append(f"    recommended_next: {recommended}")
+        plan_signal = _clean(report.get("plan_signal"), 32)
+        if plan_signal:
+            parts.append(f"    plan_signal: {plan_signal}")
         evidence = report.get("evidence_files")
         if isinstance(evidence, list) and evidence:
             parts.append("    evidence_files the planner MUST open before replanning:")
@@ -110,7 +100,6 @@ class PlannerRenderingMixin:
     def _render_claim_synthesis(claim: dict) -> str:
         route = str(claim.get("route") or "").strip()
         action = str(claim.get("action") or "").strip()
-        headline = str(claim.get("headline") or "").strip()[:1200]
         if not route or not action:
             return ""
         advance = bool(claim.get("advance_to_analysis_or_report"))
@@ -119,8 +108,6 @@ class PlannerRenderingMixin:
             f"route={route} action={action} "
             f"advance_to_analysis_or_report={str(advance).lower()}"
         ]
-        if headline:
-            lines.append(f"      strongest_supported_finding: {headline}")
         evidence = claim.get("evidence")
         if isinstance(evidence, list):
             for item in evidence[:6]:

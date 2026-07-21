@@ -14,8 +14,6 @@ SHARED_CHECKPOINT_TEMPLATE = """# Goal
 
 # Open Questions / Blockers
 
-# Next Action
-
 # Relevant Files and Evidence
 """
 
@@ -48,7 +46,7 @@ def shared_checkpoint_instructions(path: Path | None, *, role: str) -> str:
     else:
         action = (
             "Read it first; the previous Reviewer edited it last. Before ending, "
-            "directly update current state, evidence paths, blockers, and next action."
+            "directly update current state, evidence paths, blockers, and open questions."
         )
     return (
         "## Shared checkpoint — edit the file directly\n"
@@ -60,7 +58,8 @@ def shared_checkpoint_instructions(path: Path | None, *, role: str) -> str:
         "requires expanding the search.\n\n"
         f"{action}\n\n"
         "It is current state, not a log: rewrite stale text. Actually edit the file; "
-        "do not emit checkpoint JSON or merely describe an edit."
+        "do not duplicate the verdict rationale or next-round instruction here; do "
+        "not emit checkpoint JSON or merely describe an edit."
     )
 
 

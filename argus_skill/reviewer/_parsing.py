@@ -84,18 +84,11 @@ def parse_decision_text(
     next_action = _parse_next_action(parsed, status=status)
     completion_summary_markdown = _parse_optional_text(
         parsed.get("completion_summary_markdown")
-    )
-    if (
-        reason is None
-        or next_action is None
-        or round_summary_markdown is None
-        or completion_summary_markdown is None
-    ):
+    ) or ""
+    if reason is None or next_action is None:
         return None
     assert reason is not None
     assert next_action is not None
-    assert round_summary_markdown is not None
-    assert completion_summary_markdown is not None
     planner_report = _parse_planner_report(parsed, status=status, reason=reason)
     control_action, control_task_id = _parse_control(parsed)
     failure_source, failure_source_evidence, validator_id, repair_paths = (
@@ -108,7 +101,7 @@ def parse_decision_text(
         operator_question=_parse_operator_question(
             parsed, status=status, next_action=next_action, reason=reason
         ),
-        round_summary_markdown=round_summary_markdown,
+        round_summary_markdown=round_summary_markdown or "",
         completion_summary_markdown=completion_summary_markdown,
         achievement=_parse_achievement(parsed, status=status),
         progress_class=_parse_progress_class(parsed, planner_report),
@@ -292,17 +285,10 @@ def _parse_checkpoint(parsed: dict) -> dict[str, Any]:
 
 
 def _parse_planner_report(parsed: dict, *, status: str, reason: str) -> dict[str, Any]:
-    """Parse the reviewer's structured, planner-facing briefing (fail-soft).
-
-    The reviewer authors this so the planner routes from a clean structured
-    report. Missing/partial fields are tolerated: we fill sensible defaults
-    derived from the verdict rather than rejecting the whole decision.
-    """
+    """Parse planner-only signals without duplicating verdict prose."""
+    _ = reason
     raw = parsed.get("planner_report")
     raw = raw if isinstance(raw, dict) else {}
-    headline = str(raw.get("headline", "") or "").strip()
-    blocker = str(raw.get("blocker", "") or "").strip()
-    recommended_next = str(raw.get("recommended_next", "") or "").strip()
     fp = raw.get("forward_progress")
     if isinstance(fp, bool):
         forward_progress = fp
@@ -316,8 +302,6 @@ def _parse_planner_report(parsed: dict, *, status: str, reason: str) -> dict[str
         # (Auto-False here punished honest no-report rounds and bold-but-regressing
         # optimization rounds at the exact moment a structural line is co-tuning.)
         forward_progress = None
-    if not headline:
-        headline = (reason or "").strip()[:600]
     # Concrete artifacts the planner should OPEN to diagnose what happened
     # (source files, data provenance, NO_GO docs, metric series). Parsed
     # fail-soft: a malformed list/entry is dropped, never rejected.
@@ -337,17 +321,11 @@ def _parse_planner_report(parsed: dict, *, status: str, reason: str) -> dict[str
             if len(evidence_files) >= 8:
                 break
     plan_signal = str(raw.get("plan_signal", "") or "").strip().lower()
-    plan_signal_reason = str(raw.get("plan_signal_reason", "") or "").strip()
-    if plan_signal != "reconsider" or not plan_signal_reason:
+    if plan_signal != "reconsider":
         plan_signal = "continue"
-        plan_signal_reason = ""
     return {
         "forward_progress": forward_progress,
-        "headline": headline,
-        "blocker": blocker,
-        "recommended_next": recommended_next,
         "plan_signal": plan_signal,
-        "plan_signal_reason": plan_signal_reason[:1200],
         "evidence_files": evidence_files,
     }
 

@@ -252,14 +252,6 @@ class PlanningContextMixin:
             return objective
         return f"{metadata}\n\nOriginal operator objective:\n{objective.strip()}"
 
-    @staticmethod
-    def _completion_evidence_from_outcome(outcome: Any) -> str:
-        for attr in ("final_message", "completion_summary_markdown", "stop_reason"):
-            value = getattr(outcome, attr, "") or ""
-            if value:
-                return str(value)[:4000]
-        return ""
-
     def _journal_has_full_paper_gate_success(self) -> bool:
         """Decide whether the project-final completion gate has passed.
 
@@ -271,23 +263,43 @@ class PlanningContextMixin:
         hardcoded ``validate_full_paper_readiness`` validator — the reviewer's
         checklist verdict is the single source of truth.
 
-        Fail-closed: only an explicit certified entry counts. We scan the
-        recent event-backed history tail for such an entry.
+        Fail-closed: only an explicit certified entry bound to the current
+        project-state signature counts.
         """
-        if self._final_submission_cert_path().exists():
-            return True
         try:
-            entries = self.memory.journal.tail(50)
+            entries = self.memory.journal.all()
         except Exception:  # noqa: BLE001
             return False
-        for entry in entries:
+        current_signature = self._final_submission_signature()
+        for entry in reversed(entries):
             if getattr(entry, "kind", "") != "mission_complete":
                 continue
             extra = getattr(entry, "extra", {}) or {}
             if isinstance(extra, dict) and bool(
                 extra.get("final_submission_certified")
             ):
-                return True
+                certified_signature = str(
+                    extra.get("final_submission_signature") or ""
+                )
+                if certified_signature:
+                    if (
+                        bool(current_signature)
+                        and certified_signature == current_signature
+                    ):
+                        return True
+                    continue
+                from ..terminal_state import project_unchanged_since
+
+                if self._legacy_final_submission_cert_matches(
+                    entry=entry,
+                    current_signature=current_signature,
+                    unchanged_since=project_unchanged_since(
+                        project_root=self._project_workdir(),
+                        cutoff=float(getattr(entry, "ts", 0.0) or 0.0),
+                        state_root=Path(self.memory.root),
+                    ),
+                ):
+                    return True
         return False
 
     def _effective_full_paper_gate(self, workdir: object) -> bool:
@@ -327,30 +339,48 @@ class PlanningContextMixin:
         mod = load_vertical(vertical, project_root=workdir)
         return vertical_completion_gate(mod) == "full_paper"
 
-    def _final_submission_cert_path(self) -> Path:
-        root = Path(
-            getattr(self.config, "telemetry_dir", None)
-            or getattr(self.memory, "root", None)
-            or "."
-        )
-        return root / "final_submission_certified.json"
+    def _final_submission_signature(self) -> str:
+        from ..terminal_state import build_project_state_signature
 
-    def _persist_final_submission_certification(self, *, title: str) -> None:
-        path = self._final_submission_cert_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
-        payload = {
-            "certified_at": time.time(),
-            "title": title,
-        }
+        return build_project_state_signature(
+            project_root=self._project_workdir(),
+            state_root=Path(self.memory.root),
+        )
+
+    def _legacy_final_submission_cert_matches(
+        self,
+        *,
+        entry: Any,
+        current_signature: str,
+        unchanged_since: bool,
+    ) -> bool:
+        """Bind one legacy certification to a state hash on first safe read."""
+        path = Path(self.memory.root) / "legacy_final_submission_signatures.json"
         try:
-            tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            payload = {}
+        payload = payload if isinstance(payload, dict) else {}
+        key = (
+            f"{float(getattr(entry, 'ts', 0.0) or 0.0):.9f}:"
+            f"{str(getattr(entry, 'title', '') or '')}"
+        )
+        bound = str(payload.get(key) or "")
+        if bound:
+            return bool(current_signature) and bound == current_signature
+        if not unchanged_since or not current_signature:
+            return False
+        payload[key] = current_signature
+        tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
+        try:
+            tmp.write_text(
+                json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
             os.replace(tmp, path)
         finally:
-            try:
-                tmp.unlink()
-            except FileNotFoundError:
-                pass
+            tmp.unlink(missing_ok=True)
+        return True
 
     def _operator_only_external_blocker_wait_reason(self) -> str:
         """Return a waiting reason for an operator-only external blocker.

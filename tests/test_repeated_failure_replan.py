@@ -31,11 +31,7 @@ def _review(blocker: str) -> ReviewDecision:
         }],
         planner_report={
             "forward_progress": True,
-            "headline": "Baseline gate remains red.",
-            "blocker": blocker,
-            "recommended_next": "Localize the first failing case.",
             "plan_signal": "continue",
-            "plan_signal_reason": "",
             "evidence_files": [],
         },
     )
@@ -49,8 +45,6 @@ def _review_json(blocker: str) -> str:
         "next_action": review.next_action,
         "failure_cause": review.failure_cause,
         "progress_class": review.progress_class,
-        "round_summary_markdown": "# Review\n",
-        "completion_summary_markdown": "",
         "checklist": review.checklist,
         "planner_report": review.planner_report,
     })
@@ -61,8 +55,6 @@ def _done_json() -> str:
         "status": "done",
         "reason": "complete",
         "next_action": "",
-        "round_summary_markdown": "# Done\n",
-        "completion_summary_markdown": "done",
     })
 
 
@@ -119,7 +111,11 @@ def test_repeated_failure_forces_replan_even_when_dynamic_plan_is_off(tmp_path) 
     assert status == "replan_requested"
     assert len(rounds) == 2
     assert "cheapest targeted diagnostic" in reason
-    assert rounds[-1].review.planner_report["plan_signal"] == "reconsider"
+    assert rounds[-1].review.planner_report["plan_signal"] == "continue"
+    assert rounds[-1].review.harness_control["force_replan"] is True
+    assert "same reviewed failure signature" in (
+        rounds[-1].review.harness_control["reason"].lower()
+    )
     repeated = [
         event for event in events
         if event.get("type") == "round.failure_signature.repeated"

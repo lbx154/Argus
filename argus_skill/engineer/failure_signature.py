@@ -42,8 +42,8 @@ def review_failure_signature(review: ReviewDecision) -> FailureSignature | None:
     report = review.planner_report if isinstance(review.planner_report, dict) else {}
     if report.get("plan_signal") == "reconsider":
         return None
-    blocker = str(report.get("blocker") or "")
-    recommended = str(report.get("recommended_next") or review.next_action or "")
+    blocker = str(review.reason or "")
+    recommended = str(review.next_action or "")
     unsatisfied = tuple(sorted(
         str(item.get("item") or "").strip()
         for item in (review.checklist or [])

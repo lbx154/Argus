@@ -474,8 +474,6 @@ class Reviewer:
                     "daemon on code whose schema path matches disk; do not treat "
                     "this as evidence about the engineer's work."
                 ),
-                round_summary_markdown=f"# Review Summary\n\n- {reason}\n",
-                completion_summary_markdown="",
                 failure_cause="environmental",
                 backend_unavailable=True,
                 backend_stop_kind="backend_unavailable",
@@ -557,8 +555,6 @@ class Reviewer:
                 status="blocked",
                 reason=msg,
                 next_action="Resolve the reviewer runner failure before retrying.",
-                round_summary_markdown=f"# Review Summary\n\n- {msg}\n",
-                completion_summary_markdown="",
                 failure_cause="environmental",
                 backend_unavailable=True,
                 backend_stop_kind="backend_unavailable",
@@ -594,8 +590,6 @@ class Reviewer:
                     "Reviewer backend ended before a complete verdict — do NOT "
                     "treat partial output as evidence about the engineer's work."
                 ),
-                round_summary_markdown=f"# Review Summary\n\n- {reason}\n",
-                completion_summary_markdown="",
                 failure_cause="environmental",
                 backend_unavailable=True,
                 input_tokens=rev_in,
@@ -614,7 +608,6 @@ class Reviewer:
                 status="continue",
                 reason=f"Reviewer returned empty output. exit={result.exit_code}",
                 next_action="Continue implementation and provide concrete completed work.",
-                round_summary_markdown="# Review Summary\n\n- Reviewer returned empty output.\n",
                 progress_class="none",
                 input_tokens=rev_in,
                 cached_input_tokens=rev_cached,
@@ -633,7 +626,6 @@ class Reviewer:
                 status="continue",
                 reason="Reviewer output was not valid JSON.",
                 next_action="Continue implementation and include clear completion evidence.",
-                round_summary_markdown="# Review Summary\n\n- Reviewer output was not valid JSON.\n",
                 progress_class="none",
                 input_tokens=rev_in,
                 cached_input_tokens=rev_cached,
@@ -945,9 +937,9 @@ class Reviewer:
             f"Current stage: `{stage}`. Earlier stages: {earlier_stages}.\n"
             "If earlier-stage evidence is broken and this mission cannot repair it "
             "within its own scope, return `replan_requested` (never `continue`) and "
-            "name the earliest broken stage in `reason` and "
-            "`planner_report.blocker`. Set `planner_report.plan_signal` to "
-            "`reconsider` with a non-empty `plan_signal_reason`; the Manager owns rollback. "
+            "name the earliest broken stage in `reason`. Set "
+            "`planner_report.plan_signal` to `reconsider` and point "
+            "`evidence_files` at the defect; the Manager owns rollback. "
             "Never edit `research/PIPELINE_STATE.json`."
         )
         # Checklist-feedback channel. The PLANNER owns the per-stage checklist
@@ -998,7 +990,7 @@ class Reviewer:
                 "it — or, if nothing else can proceed, emit "
                 "`control = {\"action\": \"wait_for_subagent\", \"task_id\": "
                 "\"<task_id>\"}` in the FINAL JSON handoff. Do NOT encode this wait "
-                "in prose (`reason`, `next_action`, `round_summary_markdown`); the "
+                "in prose (`reason` or `next_action`); the "
                 "harness ignores prose for control flow. When you use `control`, keep "
                 "`status = continue` and write `next_action` for what the engineer "
                 "should do AFTER the wait resumes, not another poll instruction.\n"
@@ -1094,18 +1086,17 @@ class Reviewer:
             + "\n\n"
             + venv_skill_block
             + "\n\n## Final handoff fields\n"
-            "The attached schema is authoritative; fill every required key. Keep "
-            "`round_summary_markdown` concise and make `next_action` specific.\n"
-            "- `planner_report` is the Planner's briefing: honest forward_progress, "
-            "one headline, the root blocker, a concrete next focus, and useful "
-            "evidence file pointers. Use `plan_signal=reconsider` only when new "
-            "evidence invalidates the remaining project plan; otherwise use "
-            "`continue` and leave plan_signal_reason empty.\n"
-            "- `step_back` is required for a measured result, including success: "
-            "independently state support, surprises, new questions, and cheap "
-            "alternative directions; use null only when nothing was measured.\n"
+            "The attached schema is authoritative; fill every required key. "
+            "`reason` is the sole verdict rationale and `next_action` is the sole "
+            "Engineer instruction; do not restate either in another summary field.\n"
+            "- `planner_report` carries only honest `forward_progress`, "
+            "`plan_signal`, and file pointers the Planner should open. Use "
+            "`plan_signal=reconsider` only when new evidence invalidates the "
+            "remaining project plan; otherwise use `continue`.\n"
+            "- Put measured surprises, open questions, and alternative directions "
+            "in CHECKPOINT.md once, not in a second structured reflection.\n"
             "- Every valid measured result must identify the strongest supported "
-            "finding in `planner_report.headline`. Preserve clean negative, null, "
+            "finding in `reason` and `research_result` when applicable. Preserve clean negative, null, "
             "boundary, and diagnostic evidence, but do not automatically turn it "
             "into a paper. First audit implementation adequacy and plausible repairs. "
             "Recommend publication work only when the result supports a standalone, "
@@ -1150,7 +1141,7 @@ class Reviewer:
             "contract. If the next work needs a new/separate/scoped mission, a "
             "replacement plan, or any change to those boundaries, return "
             "`replan_requested` instead; set `planner_report.plan_signal` to "
-            "`reconsider` with a concrete non-empty reason. Reviewer reports the "
+            "`reconsider` and cite the relevant files. Reviewer reports the "
             "defect but never authorizes scope expansion.\n"
             "- `blocked` is only for credentials, inaccessible resources, or a "
             "decision/specification only the operator can provide.\n"

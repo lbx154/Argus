@@ -202,7 +202,9 @@ def _seed_research_vertical(sup: LifeSupervisor) -> None:
     # gate methods directly, not run()) seed the research vertical explicitly.
     from argus_skill.skills.vertical_select import persist_vertical
 
-    persist_vertical(sup._artifact_root(), "research")
+    vertical = "research" if sup.config.full_paper_gate else "software"
+    persist_vertical(sup._artifact_root(), vertical)
+    sup._vertical_resolved = True
 
 
 def _append_event(sup: LifeSupervisor, event: dict) -> None:
@@ -591,7 +593,7 @@ def test_failed_terminal_verdict_delivery_retries_after_supervisor_restart(
         return PlannerVerdict(project_done=True, reason="verified terminal")
 
     monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _plan_next)
-    persist_vertical(project, "research")
+    persist_vertical(project, "software")
     first = LifeSupervisor(
         memory=memory,
         runner=_Runner(),
@@ -756,7 +758,7 @@ def test_full_paper_terminal_stage_still_requires_certification(
     )
 
 
-def test_done_final_submission_is_deduplicated_before_uncertified_gate_retry(
+def test_done_but_uncertified_final_submission_can_be_retried(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -795,13 +797,11 @@ def test_done_final_submission_is_deduplicated_before_uncertified_gate_retry(
     assert "scope:final_submission" in (final_item.tags or [])
     sup.memory.backlog.mark_done(final_item.id)
 
-    assert sup._plan_next_work() == PLAN_RETRY
+    assert sup._plan_next_work() is True
     assert planner_calls == 2
     items = sup.memory.backlog.all()
-    assert len(items) == 1
-    assert items[0].id == final_item.id
-    assert items[0].status == "done"
-    assert sup._suggested_sleep_s > 0
+    assert len(items) == 2
+    assert {item.status for item in items} == {"done", "pending"}
 
 
 def test_open_ended_project_change_replans_and_enqueues_tasks(

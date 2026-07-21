@@ -163,8 +163,8 @@ def _git_project_digest(
     if not (project_root / ".git").exists():
         return None
     try:
-        head = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
+        tree = subprocess.run(
+            ["git", "rev-parse", "HEAD^{tree}"],
             cwd=project_root,
             check=True,
             capture_output=True,
@@ -188,7 +188,7 @@ def _git_project_digest(
 
     digest = hashlib.sha256()
     digest.update(b"git-terminal-state-v1\0")
-    digest.update(head)
+    digest.update(tree)
     digest.update(b"\0")
     count = 0
     for status, path_text in _git_status_records(status_raw):
@@ -343,4 +343,89 @@ def build_terminal_idle_signature(
     return digest.hexdigest()
 
 
-__all__ = ["build_terminal_idle_signature", "semantic_terminal_value"]
+def build_project_state_signature(
+    *,
+    project_root: Path,
+    state_root: Path | None = None,
+) -> str:
+    """Fingerprint current project semantics without runtime/event bookkeeping."""
+    digest = hashlib.sha256()
+    digest.update(b"project-state-v1\0")
+    extra_prefixes: tuple[str, ...] = ()
+    if state_root is not None:
+        try:
+            relative_state_root = state_root.resolve().relative_to(
+                project_root.resolve()
+            )
+        except (OSError, ValueError):
+            pass
+        else:
+            state_prefix = relative_state_root.as_posix().strip("/")
+            if state_prefix and state_prefix != ".":
+                extra_prefixes = (state_prefix + "/",)
+    project_digest = _git_project_digest(
+        project_root,
+        extra_prefixes=extra_prefixes,
+    )
+    digest.update(
+        project_digest
+        if project_digest is not None
+        else _fallback_project_digest(
+            project_root,
+            extra_prefixes=extra_prefixes,
+        )
+    )
+    return digest.hexdigest()
+
+
+def project_unchanged_since(
+    *,
+    project_root: Path,
+    cutoff: float,
+    state_root: Path | None = None,
+) -> bool:
+    """Legacy-cert adapter: reject when any semantic project file is newer."""
+    if cutoff <= 0:
+        return False
+    extra_prefixes: tuple[str, ...] = ()
+    if state_root is not None:
+        try:
+            relative_state_root = state_root.resolve().relative_to(
+                project_root.resolve()
+            )
+        except (OSError, ValueError):
+            pass
+        else:
+            state_prefix = relative_state_root.as_posix().strip("/")
+            if state_prefix and state_prefix != ".":
+                extra_prefixes = (state_prefix + "/",)
+    try:
+        for dirpath, dirnames, filenames in os.walk(project_root):
+            relative_dir = Path(dirpath).relative_to(project_root)
+            dirnames[:] = [
+                name
+                for name in sorted(dirnames)
+                if not _ignored_project_path(
+                    str((relative_dir / name).as_posix()) + "/",
+                    extra_prefixes=extra_prefixes,
+                )
+                and not name.endswith(".egg-info")
+            ]
+            for name in filenames:
+                path = Path(dirpath) / name
+                relative = path.relative_to(project_root).as_posix()
+                if _ignored_project_path(relative, extra_prefixes=extra_prefixes):
+                    continue
+                if path.stat().st_mtime > cutoff:
+                    return False
+    except OSError:
+        return False
+    return True
+
+
+__all__ = [
+    "build_project_state_signature",
+    "build_terminal_idle_signature",
+    "project_unchanged_since",
+    "semantic_terminal_value",
+]

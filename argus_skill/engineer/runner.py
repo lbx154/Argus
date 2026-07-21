@@ -452,9 +452,7 @@ def _plan_signal_event(
         or report.get("plan_signal") != "reconsider"
     ):
         return None
-    reason = str(report.get("plan_signal_reason") or "").strip()
-    if not reason:
-        return None
+    reason = str(getattr(review, "reason", "") or "").strip()
     streak = max(1, int(streak))
     confirm_rounds = max(1, int(confirm_rounds))
     evidence_files = report.get("evidence_files")
@@ -484,13 +482,12 @@ def _review_scope_change_reason(review: ReviewDecision) -> str:
     report = getattr(review, "planner_report", None)
     report = report if isinstance(report, dict) else {}
     if str(report.get("plan_signal") or "").strip().lower() == "reconsider":
-        reason = str(report.get("plan_signal_reason") or "").strip()
-        return reason or "Reviewer requested reconsideration of the current mission plan."
+        # Dynamic-plan mode owns structured reconsider cadence. Immediate
+        # arbitration is reserved for explicit replan_requested or legacy prose
+        # that asks to cross the current mission boundary.
+        return ""
 
-    candidate_parts = (
-        str(getattr(review, "next_action", "") or ""),
-        str(report.get("recommended_next") or ""),
-    )
+    candidate_parts = (str(getattr(review, "next_action", "") or ""),)
     candidate = "\n".join(part for part in candidate_parts if part.strip())
     if not candidate:
         return ""
@@ -509,20 +506,16 @@ def _promote_scope_change_to_replan(
     *,
     reason: str,
 ) -> None:
-    """Promote a scope-changing ``continue`` into one terminal replan handoff."""
-    report = getattr(review, "planner_report", None)
-    report = dict(report) if isinstance(report, dict) else {}
-    report["plan_signal"] = "reconsider"
-    report["plan_signal_reason"] = reason
+    """Record harness arbitration without rewriting the Reviewer verdict."""
+    control = dict(getattr(review, "harness_control", {}) or {})
+    control["force_replan"] = True
+    control["reason"] = reason
     # This is not necessarily an upstream-stage defect, but it still needs the
     # Manager's stage-boundary ruling before L4 replaces the mission.  A safe
     # Manager failure is HOLD, after which Planner can replan in the same stage.
-    report["stage_reconciliation_required"] = True
-    report["mission_scope_change_required"] = True
-    if not str(report.get("recommended_next") or "").strip():
-        report["recommended_next"] = str(review.next_action or "").strip()
-    review.planner_report = report
-    review.status = "replan_requested"
+    control["stage_reconciliation_required"] = True
+    control["mission_scope_change_required"] = True
+    review.harness_control = control
 
 
 _EARLIEST_BROKEN_STAGE_PATTERNS = (
@@ -555,12 +548,15 @@ def _upstream_stage_reconciliation_target(
     """
     report = getattr(review, "planner_report", None)
     report = report if isinstance(report, dict) else {}
-    candidate = str(report.get("earliest_broken_stage") or "").strip().lower()
+    control = dict(getattr(review, "harness_control", {}) or {})
+    candidate = str(
+        control.get("earliest_broken_stage")
+        or report.get("earliest_broken_stage")
+        or ""
+    ).strip().lower()
     text_parts = [
         str(getattr(review, "reason", "") or ""),
         str(getattr(review, "next_action", "") or ""),
-        str(report.get("blocker") or ""),
-        str(report.get("recommended_next") or ""),
     ]
     if not candidate:
         joined = "\n".join(text_parts)
@@ -589,17 +585,11 @@ def _upstream_stage_reconciliation_target(
     ):
         return ""
 
-    if not isinstance(getattr(review, "planner_report", None), dict):
-        review.planner_report = report
-    report["stage_reconciliation_required"] = True
-    report["earliest_broken_stage"] = candidate
-    report["plan_signal"] = "reconsider"
-    if not str(report.get("plan_signal_reason") or "").strip():
-        report["plan_signal_reason"] = (
-            f"Reviewer identified upstream stage defect: current={active_stage}, "
-            f"earliest_broken_stage={candidate}. Manager rollback adjudication "
-            "is required before more Engineer work."
-        )
+    control["force_replan"] = True
+    control["reason"] = str(getattr(review, "reason", "") or "")
+    control["stage_reconciliation_required"] = True
+    control["earliest_broken_stage"] = candidate
+    review.harness_control = control
     return candidate
 
 
@@ -1975,9 +1965,6 @@ class SupervisedEngineer:
                     completion_decision,
                     skill_action=supervised_config.required_skill_action,
                     skill_name=supervised_config.required_skill_name,
-                    skill_reason=(
-                        "Required sequential-learning update from this verified task"
-                    ),
                 )
             maintenance = EngineerSkillMaintenanceOutcome()
             if (
@@ -2017,8 +2004,6 @@ class SupervisedEngineer:
                         "type": EventType.ENGINEER_SELF_REVIEW_ACCEPTED,
                         "round_index": round_index,
                         "round_max": supervised_config.max_rounds,
-                        "reason": completion_decision.reason,
-                        "verification": completion_decision.verification,
                         "skill_action": completion_decision.skill_action,
                         "skill_maintenance_attempted": maintenance.attempted,
                         "skill_maintenance_success": maintenance.success,
@@ -2192,8 +2177,6 @@ class SupervisedEngineer:
                         status="blocked",
                         reason=msg,
                         next_action="Resolve the reviewer runner failure before retrying.",
-                        round_summary_markdown=f"# Review Summary\n\n- {msg}\n",
-                        completion_summary_markdown="",
                         failure_cause="environmental",
                         backend_unavailable=True,
                         backend_stop_kind="backend_unavailable",
@@ -2230,11 +2213,6 @@ class SupervisedEngineer:
                             "Retry this Reviewer turn and express the same judgment "
                             "through schema-valid wiki_ops."
                         ),
-                        round_summary_markdown=(
-                            "# Reviewer write-boundary violation\n\n"
-                            f"- Reverted: {paths}\n"
-                        ),
-                        completion_summary_markdown="",
                         failure_cause="environmental",
                         backend_unavailable=True,
                         backend_stop_kind="transient_error",
@@ -2540,17 +2518,17 @@ class SupervisedEngineer:
                     "scoped repair, then return to the decisive gate."
                 )
                 report = dict(planner_report or {})
-                report["plan_signal"] = "reconsider"
-                report["plan_signal_reason"] = repeated_failure_reason
                 report["forward_progress"] = False
-                report["recommended_next"] = repeated_failure_reason
                 review.planner_report = report
+                control = dict(getattr(review, "harness_control", {}) or {})
+                control["force_replan"] = True
+                control["reason"] = repeated_failure_reason
+                review.harness_control = control
                 planner_report = report
             reconsidered = (
                 review.status == "continue"
                 and isinstance(planner_report, dict)
                 and planner_report.get("plan_signal") == "reconsider"
-                and bool(str(planner_report.get("plan_signal_reason") or "").strip())
             )
             plan_reconsider_streak = (
                 plan_reconsider_streak + 1 if reconsidered else 0
@@ -2606,9 +2584,9 @@ class SupervisedEngineer:
 
             if upstream_stage_target:
                 reconciliation_reason = str(
-                    planner_report.get("plan_signal_reason")
-                    if isinstance(planner_report, dict)
-                    else ""
+                    (getattr(review, "harness_control", {}) or {}).get("reason")
+                    or review.reason
+                    or ""
                 ).strip()
                 if on_event:
                     on_event({
@@ -2652,12 +2630,21 @@ class SupervisedEngineer:
                     None,
                 )
 
+            if scope_change_reason:
+                return (
+                    "replan_requested",
+                    rounds,
+                    last_engineer_message,
+                    scope_change_reason,
+                    None,
+                )
+
             if plan_reconsider_confirmed:
                 return (
                     "replan_requested",
                     rounds,
                     last_engineer_message,
-                    str(planner_report.get("plan_signal_reason") or "").strip(),
+                    str(review.reason or "").strip(),
                     None,
                 )
 
@@ -2984,14 +2971,6 @@ def backend_failure_review_decision(
             f"error={error_text}"
         ),
         next_action=retry_text,
-        round_summary_markdown=(
-            "# Review Summary\n\n"
-            "- Reviewer skipped because the engineer backend reported a transient "
-            "infrastructure failure.\n"
-            f"- Error: {error_text}\n"
-            f"- Consecutive backend failures: {streak}/{threshold}\n"
-        ),
-        completion_summary_markdown="",
         failure_cause="environmental",
     )
 
@@ -3019,12 +2998,6 @@ def external_pause_review_decision(
             f"(stop_kind={stop_kind}); reviewer skipped. error={error_text}"
         ),
         next_action=next_action,
-        round_summary_markdown=(
-            "# Review Summary\n\n"
-            f"- Reviewer skipped because `{stop_kind}` stopped the backend call.\n"
-            f"- Error: {error_text}\n"
-        ),
-        completion_summary_markdown="",
         failure_cause="environmental",
         backend_unavailable=True,
         backend_fatal_error=error_text,
@@ -3048,13 +3021,6 @@ def model_configuration_review_decision(
             "The configured model is unavailable. Choose a valid model in "
             "/config, then tell me to retry this task."
         ),
-        round_summary_markdown=(
-            "# Review Summary\n\n"
-            "- Reviewer skipped because the selected model was rejected before "
-            "a model turn started.\n"
-            f"- Error: {error_text}\n"
-        ),
-        completion_summary_markdown="",
         failure_cause="environmental",
         backend_unavailable=True,
         backend_stop_kind="permanent_error",
@@ -3077,12 +3043,6 @@ def daemon_stop_review_decision(
             "Restart the daemon when ready; the continuous planner will choose "
             "the next concrete task from the persisted project state."
         ),
-        round_summary_markdown=(
-            "# Review Summary\n\n"
-            "- Reviewer skipped because daemon shutdown was requested.\n"
-            f"- Error: {error_text}\n"
-        ),
-        completion_summary_markdown="",
         failure_cause="operator_interrupt",
     )
 
@@ -3105,13 +3065,6 @@ def operator_abort_review_decision(
             "ready backlog item. Re-add this objective later if it still "
             "needs doing."
         ),
-        round_summary_markdown=(
-            "# Review Summary\n\n"
-            "- Reviewer skipped because the Manager aborted this mission on "
-            "the operator's behalf.\n"
-            f"- Error: {error_text}\n"
-        ),
-        completion_summary_markdown="",
         failure_cause="operator_interrupt",
     )
 

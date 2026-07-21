@@ -139,10 +139,9 @@ delegate execution to the Engineer. The Reviewer independently evaluates each mi
 - Read every `reviewer→planner` briefing and its `evidence_files`, not only status.
   Inspect cited evidence before routing; attack recurring root causes rather than
   refreshing gates or repeating equivalent probes.
-- Act on every `STEP_BACK`, including one from a successful round, so the project does
-  not stay locked into its initial plan. Route or explicitly reject/defer each
-  `alt_direction`, change course when support is partial or absent, and carry the most
-  decisive new question into the next mission.
+- Read CHECKPOINT.md's open questions and alternative directions, including those
+  from successful rounds, so the project does not stay locked into its initial
+  plan. Route, defer, or reject them through normal planning judgment.
 
 ## Commit the verdict
 

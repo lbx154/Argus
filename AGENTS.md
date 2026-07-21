@@ -155,6 +155,16 @@ Engineer 和 Reviewer 不再继承上一轮 raw transcript。每个角色每轮�
 - checkpoint 是当前状态便签，不是追加日志。没有 patch、commit、revision、JSON schema、
   机械压缩或硬大小限制；Agent 使用普通文件工具原地维护。
 - Reviewer 的结构化 verdict 不再要求输出 `checkpoint` JSON。
+- **一一映射契约**：`CHECKPOINT.md` 只存长期状态/证据引用/开放问题；
+  Reviewer `reason` 只存 verdict 理由，`next_action` 只存下一轮指令；
+  `planner_report` 只存 `forward_progress`、`plan_signal` 和 `evidence_files`。
+  不再生成 `round_summary_markdown`、`completion_summary_markdown` 或
+  `step_back`；旧事件仍由 parser 兼容读取。
+- Engineer 末行 `ARGUS_ENGINEER_DECISION` 只含 `review`、`skill_action`、
+  `skill_name` 三个控制字段；自然语言结果留在普通输出和 CHECKPOINT。
+- `handoffs/latest.json` v2 只引用 CHECKPOINT 的 path/hash，不复制 Engineer
+  summary 或 CHECKPOINT 正文；event/journal/wiki 只做同名字段投影或路径引用，
+  不要求 agent 重写第二份摘要。
 - 每个 Engineer round 都必须经过 Reviewer，不再支持 `CONTINUE_WORK` 跳审。
 - `ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS` 默认 0，不用绝对墙钟时间截断正常工作。
 - 测试：`tests/test_checkpoint_loop.py`、`tests/test_session_resume.py`。

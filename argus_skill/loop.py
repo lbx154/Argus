@@ -1233,6 +1233,8 @@ class SkillLoop:
                 task=skill_task,
                 mission_id=run_id,
                 on_event=self.on_event,
+                context_packet_path=self.config.context_packet_path,
+                checkpoint_path=self.config.checkpoint_path,
             )
 
         def maintain_skill_with_engineer(
@@ -1265,8 +1267,8 @@ class SkillLoop:
                 "rerun the task, invoke a Reviewer, or launch subagents. Perform "
                 "only the requested reusable skill maintenance.\n\n"
                 f"Action: {action_instruction}\n"
-                f"Why this is reusable: {decision.skill_reason}\n"
-                f"Verified lesson: {decision.verification}\n\n"
+                "Decide from the completed work below whether a durable reusable "
+                "mechanism actually exists; output `NONE` if it does not.\n\n"
                 "Generalize away mission IDs, local absolute paths, exact issue "
                 "text, and one-off constants. Return exactly one Markdown skill "
                 "with these sections: `# <title>`, `## Description`, "
@@ -1352,7 +1354,7 @@ class SkillLoop:
                 op = {
                     "op": action,
                     "content": content,
-                    "why": decision.skill_reason,
+                    "why": "Engineer requested post-task skill maintenance",
                 }
                 if action == "update":
                     op["name"] = target_name
@@ -1558,6 +1560,8 @@ class SkillLoop:
                 apply_ops_enabled=self.config.wiki_ops_enabled,
                 auto_compact_enabled=self.config.auto_compact_enabled,
                 on_event=self.on_event,
+                context_packet_path=self.config.context_packet_path,
+                checkpoint_path=self.config.checkpoint_path,
             )
         except Exception:  # noqa: BLE001 - wiki evolution must never block
             log.debug("wiki evolution raised", exc_info=True)
@@ -1759,15 +1763,12 @@ class SkillLoop:
             + "Final line exactly:\n"
             + (
                 'ARGUS_ENGINEER_DECISION: {"review":"skip|required",'
-                '"reason":"<brief judgment>","verification":"<what passed>",'
                 '"skill_action":"none|create|update","skill_name":"<required for '
-                'update, else empty>","skill_reason":"<required for create/update, '
-                'else empty>"}'
+                'update, else empty>"}'
                 if require_post_task_learning
                 else
                 'ARGUS_ENGINEER_DECISION: {"review":"skip|required",'
-                '"reason":"<brief judgment>","verification":"<what passed>",'
-                '"skill_action":"none","skill_name":"","skill_reason":""}'
+                '"skill_action":"none","skill_name":""}'
             )
         )
         if require_post_task_learning and force_post_task_learning:
@@ -1806,9 +1807,7 @@ class SkillLoop:
             "End with a concise natural summary and decisive check, then the exact "
             "final control line:\n"
             'ARGUS_ENGINEER_DECISION: {"review":"skip|required",'
-            '"reason":"<brief>","verification":"<result>",'
-            '"skill_action":"none","skill_name":"",'
-            '"skill_reason":""}'
+            '"skill_action":"none","skill_name":""}'
         )
         return compact + ("\n\n" + delta_text if delta_text else "")
 

@@ -37,8 +37,6 @@ def _schema_verdict(result: dict) -> dict:
         "reason": "bounded review certified",
         "next_action": "none",
         "operator_question": None,
-        "round_summary_markdown": "# Review\n",
-        "completion_summary_markdown": "# Complete\n",
         "achievement": None,
         "failure_cause": None,
         "failure_source": None,
@@ -50,18 +48,13 @@ def _schema_verdict(result: dict) -> dict:
         "research_result": result,
         "planner_report": {
             "forward_progress": True,
-            "headline": "review certified",
-            "blocker": "",
-            "recommended_next": "",
             "plan_signal": "continue",
-            "plan_signal_reason": "",
             "evidence_files": [],
         },
         "checklist": [
             {"item": "review", "satisfied": True, "evidence": "independently checked"}
         ],
         "checklist_feedback": None,
-        "step_back": None,
     }
 
 
@@ -293,7 +286,6 @@ def test_active_schema_reaches_bounded_completion_without_missing_result(
 def test_math_without_target_preserves_research_pause_verdict(tmp_path: Path) -> None:
     verdict = _schema_verdict(_result("partial_result"))
     verdict["status"] = "research_incomplete"
-    verdict["completion_summary_markdown"] = ""
     schema = json.loads(Path(RESEARCH_SCHEMA_PATH).read_text(encoding="utf-8"))
     validate(verdict, schema)
     persist_vertical(tmp_path, "math")

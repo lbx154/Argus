@@ -310,6 +310,8 @@
             "done",
             "continue",
             "blocked",
+            "replan_requested",
+            "error",
             "research_incomplete",
             "paused_no_breakthrough",
             "exhausted_current_methods"
@@ -347,6 +349,7 @@
           ]
         },
         "planner_report": {"type": "object"},
+        "harness_control": {"type": "object"},
         "checkpoint": {"type": "object"},
         "achievement": {"type": ["object", "null"]}
       }

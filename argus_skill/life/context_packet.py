@@ -1,8 +1,8 @@
-"""Versioned mission/round context packets for fresh agent sessions.
+"""Versioned mission metadata and references for fresh agent sessions.
 
-The packet is the canonical machine-readable baton. ``CHECKPOINT.md`` remains a
-human-editable projection, while every role receives stable paths and hashes
-instead of reconstructing state from several free-form summaries.
+The packet indexes canonical sources without copying their prose:
+``mission.json`` owns the task contract, ``CHECKPOINT.md`` owns durable state, and
+the Reviewer verdict owns control.
 """
 
 from __future__ import annotations
@@ -14,10 +14,10 @@ import time
 from pathlib import Path
 from typing import Any, Mapping
 
-CONTEXT_PACKET_VERSION = 1
+from ..core.models import canonical_planner_report
+
+CONTEXT_PACKET_VERSION = 2
 HANDOFF_DIRNAME = "handoffs"
-MAX_SUMMARY_CHARS = 16_000
-MAX_CHECKPOINT_CHARS = 24_000
 MISSION_CONTEXT_FIELDS = (
     "mission_id",
     "stage",
@@ -47,17 +47,16 @@ def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
         tmp.unlink(missing_ok=True)
 
 
-def _text_snapshot(path: Path | None, *, limit: int) -> dict[str, Any]:
+def _file_reference(path: Path | None) -> dict[str, Any]:
     if path is None:
-        return {"path": "", "sha256": "", "text": ""}
+        return {"path": "", "sha256": ""}
     try:
         raw = path.read_bytes()
     except OSError:
-        return {"path": str(path), "sha256": "", "text": ""}
+        return {"path": str(path), "sha256": ""}
     return {
         "path": str(path),
         "sha256": hashlib.sha256(raw).hexdigest(),
-        "text": raw.decode("utf-8", errors="replace")[:limit],
     }
 
 
@@ -171,6 +170,7 @@ def record_engineer_handoff(
         return None
     mission_path = Path(mission_context_path)
     root = mission_path.parent
+    _ = engineer_summary
     payload = {
         "schema_version": CONTEXT_PACKET_VERSION,
         "kind": "round_engineer_handoff",
@@ -179,8 +179,7 @@ def record_engineer_handoff(
         "round": max(1, int(round_index)),
         "producer_role": "engineer",
         "session_id": str(thread_id or ""),
-        "engineer_summary": str(engineer_summary or "")[:MAX_SUMMARY_CHARS],
-        "checkpoint": _text_snapshot(checkpoint_path, limit=MAX_CHECKPOINT_CHARS),
+        "checkpoint": _file_reference(checkpoint_path),
         "created_at": time.time(),
     }
     path = root / f"round-{max(1, int(round_index)):04d}-engineer.json"
@@ -204,7 +203,10 @@ def record_reviewed_handoff(
         return None
     mission_path = Path(mission_context_path)
     root = mission_path.parent
-    planner_report = getattr(review, "planner_report", None)
+    _ = engineer_summary
+    planner_report = canonical_planner_report(
+        getattr(review, "planner_report", None)
+    )
     payload = {
         "schema_version": CONTEXT_PACKET_VERSION,
         "kind": "round_reviewed_handoff",
@@ -212,7 +214,6 @@ def record_reviewed_handoff(
         "mission_id": root.name,
         "round": max(1, int(round_index)),
         "producer_role": "reviewer",
-        "engineer_summary": str(engineer_summary or "")[:MAX_SUMMARY_CHARS],
         "review": {
             "status": str(getattr(review, "status", "") or ""),
             "reason": str(getattr(review, "reason", "") or "")[:4000],
@@ -220,9 +221,12 @@ def record_reviewed_handoff(
             "progress_class": str(getattr(review, "progress_class", "") or ""),
             "failure_cause": str(getattr(review, "failure_cause", "") or ""),
             "failure_layer": str(getattr(review, "failure_layer", "") or ""),
-            "planner_report": planner_report if isinstance(planner_report, dict) else {},
+            "planner_report": planner_report,
+            "harness_control": dict(
+                getattr(review, "harness_control", {}) or {}
+            ),
         },
-        "checkpoint": _text_snapshot(checkpoint_path, limit=MAX_CHECKPOINT_CHARS),
+        "checkpoint": _file_reference(checkpoint_path),
         "created_at": time.time(),
     }
     path = root / f"round-{max(1, int(round_index)):04d}.json"

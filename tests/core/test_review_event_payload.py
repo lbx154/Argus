@@ -1,17 +1,4 @@
-"""Regression test for ReviewDecision.to_event_payload.
-
-Pre-fix bug: runner.py + mission/engine.py both built the
-``round.review.completed`` event dict by hand, copying only 6 of the
-11 reviewer JSON schema fields. ``checklist`` (per-item structured
-eval), ``planner_report`` (planner-facing structured briefing),
-``scope``, ``checkpoint``, and ``verification_summary``
-were silently dropped. Postmortem of "why did the reviewer let an
-underbaked draft pass?" was impossible from events.jsonl alone.
-
-This test pins the new contract: the helper forwards every field the
-schema requires, plus any caller-supplied extras (round_max, session_id,
-text, review_skipped) without dropping the structured payload.
-"""
+"""Review events persist control once and omit duplicate prose projections."""
 from __future__ import annotations
 
 from argus_skill.core.models import ReviewDecision
@@ -35,10 +22,9 @@ def _full_review() -> ReviewDecision:
         ],
         planner_report={
             "forward_progress": True,
-            "headline": "Literature scaffold landed; BibTeX still empty.",
-            "blocker": "refs.bib has 0 verified @ entries.",
-            "recommended_next": "Run /paper-write Step 4 with DBLP_BIBTEX=true.",
+            "plan_signal": "continue",
             "evidence_files": [{"path": "paper/refs.bib", "why": "missing entries"}],
+            "headline": "legacy duplicate must be filtered",
         },
         checkpoint={
             "goal": "EMNLP short paper, train-free",
@@ -68,20 +54,24 @@ def test_to_event_payload_forwards_every_structured_field() -> None:
     assert payload["type"] == "round.review.completed"
     assert payload["status"] == "continue"
     assert "confidence" not in payload
-    assert payload["round_summary_markdown"].startswith("- evidence:")
-    assert payload["completion_summary_markdown"] == "Mission not complete."
     assert payload["failure_cause"] == "skill_gap"
 
-    # Previously dropped fields — these are the regression guard.
-    assert payload["verification_summary"].startswith("`jq")
     assert payload["control_action"] == "wait_for_subagent"
     assert payload["control_task_id"] == "train-1"
     assert payload["scope"] == "final_submission"
     assert isinstance(payload["checklist"], list) and len(payload["checklist"]) == 2
     assert payload["checklist"][0]["item"].startswith("BibTeX")
-    assert payload["planner_report"]["headline"].startswith("Literature scaffold")
+    assert payload["planner_report"]["plan_signal"] == "continue"
     assert payload["planner_report"]["evidence_files"][0]["path"] == "paper/refs.bib"
-    assert payload["checkpoint"]["goal"].startswith("EMNLP")
+    assert "headline" not in payload["planner_report"]
+    for duplicate in (
+        "round_summary_markdown",
+        "completion_summary_markdown",
+        "verification_summary",
+        "checkpoint",
+        "step_back",
+    ):
+        assert duplicate not in payload
 
     # Token bookkeeping preserved.
     assert payload["input_tokens"] == 12345
@@ -136,7 +126,6 @@ def test_to_event_payload_handles_empty_synthesized_verdict() -> None:
     )
     assert payload["checklist"] == []
     assert payload["planner_report"] == {}
-    assert payload["checkpoint"] == {}
     assert payload["achievement"] is None
     assert payload["input_tokens"] == 0
     assert payload["reasoning_output_tokens"] == 0
@@ -155,7 +144,7 @@ def test_to_event_payload_extras_can_override_helpers_but_not_lose_data() -> Non
     # All reviewer fields still there.
     for k in (
         "status", "checklist", "planner_report",
-        "scope", "checkpoint", "verification_summary",
+        "scope",
         "control_action", "control_task_id",
     ):
         assert k in payload

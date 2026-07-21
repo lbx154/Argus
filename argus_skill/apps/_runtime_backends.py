@@ -41,14 +41,15 @@ class _Outcome:
     # AND the final reviewer verdict certified the whole project complete
     # (status=done, scope=final_submission, every checklist item satisfied
     # with evidence). The supervisor uses this — never raw ``success`` — to
-    # decide whole-project completion. ``completion_evidence`` carries the
-    # reviewer's completion summary for the journal.
+    # decide whole-project completion.
     final_submission_certified: bool = False
+    # Legacy field retained for source compatibility; new events reference the
+    # Reviewer reason/checklist instead of a duplicate completion summary.
     completion_evidence: str = ""
-    # Reviewer-authored structured briefing for the project planner. Shape:
-    # ``{"forward_progress": bool, "headline": str, "blocker": str,
-    # "recommended_next": str}``. Empty dict when no reviewer verdict exists.
+    # Reviewer-authored planner-only signals.
     planner_report: dict = field(default_factory=dict)
+    # Harness-owned arbitration metadata, kept separate from reviewer fields.
+    harness_control: dict = field(default_factory=dict)
     # Final reviewer's generic research assessment, journaled so Planner/Life
     # cannot declare a targeted research project done without the same evidence.
     research_result: dict = field(default_factory=dict)
@@ -57,12 +58,7 @@ class _Outcome:
     # journal block so the project Planner can act on it (via checklist_ops) next
     # cycle. Empty dict when the reviewer raised no checklist complaint.
     checklist_feedback: dict = field(default_factory=dict)
-    # Reviewer → Planner STEP-BACK reflection from the final round (the anti-
-    # plan-lock-in channel). Authored on EVERY round with a measured result —
-    # including a clean success — surfacing new questions / alternative
-    # directions the planner must triage (rule 17d). ``None`` when the round had
-    # no measured result or the reviewer omitted it. Shape: see
-    # ``ReviewDecision.step_back``.
+    # Legacy replay field; new Reviewers write these observations in CHECKPOINT.
     step_back: dict | None = None
     # The Manager's stage-transition verdict for this mission completion (the
     # Manager is the sole post-bootstrap writer of current_stage). Shape:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any
 
 from .research_contract import normalize_research_result
 
@@ -56,16 +56,11 @@ def build_claim_synthesis(
     if result["correctness_status"] != "verified" or not result["evidence"]:
         return None
     route = claim_route_for_result(result["result_class"])
-    report = planner_report if isinstance(planner_report, Mapping) else {}
-    reflection = step_back if isinstance(step_back, Mapping) else {}
-    headline = str(report.get("headline") or "").strip()
-    if not headline:
-        headline = str(reflection.get("surprises") or "").strip()
+    _ = planner_report, step_back
     result_class = result["result_class"]
     explicitly_publishable = (
         str(scientific_decision or "").strip().lower() == "go"
         and result["significance_status"] in {"publishable", "doctoral"}
-        and bool(headline)
         and result_class not in _INTERNAL_REPORT
     )
     if route == "supported_positive":
@@ -82,7 +77,6 @@ def build_claim_synthesis(
         "route": route,
         "action": action,
         "result_class": result_class,
-        "headline": headline[:1200],
         "evidence": list(result["evidence"]),
         "limitations": list(result["limitations"]),
         "scientific_result_valid": True,
