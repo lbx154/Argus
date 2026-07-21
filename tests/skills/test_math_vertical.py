@@ -124,111 +124,76 @@ def test_generic_roles_load_math_skill_context_only_for_math() -> None:
         "scientist",
     ):
         context = vertical_role_banner(math, role)
-        assert "MATHEMATICS" in context
+        assert "mathemat" in context.lower()
 
     create = vertical_role_banner(math, "scientist_create")
     adapt = vertical_role_banner(math, "scientist")
-    assert "initial CREATE" in create
-    assert "failed-round" not in create
-    assert "failed-round evidence" in adapt
+    assert "without\nsolving the current instance" in create
+    assert "concrete approach has failed" in adapt
 
     direct = load_vertical("direct")
     assert "MATHEMATICS" not in vertical_role_banner(direct, "engineer")
     assert "MATHEMATICS" not in vertical_role_banner(direct, "reviewer")
 
 
-def test_math_scope_protocol_is_artifact_first_and_resumable() -> None:
+def test_math_engineer_uses_one_checkpoint_without_process_artifacts() -> None:
     context = vertical_role_banner(load_vertical("math"), "engineer")
 
-    assert "research/SCOPE.md" in context
-    assert "incomplete" in context.lower()
-    assert "small, completed writes" in context
-    assert "argus_skill.tools.atomic_artifact write research/SCOPE.md" in context
-    assert "same command with `append`" in context
-    assert "atomic replacement" in context
-    assert "directory `fsync`\n   where supported" in context
-    assert "Do not repeat literature or source verification" in context
-    assert context.index("research/SCOPE.md") < context.index(
-        "literature or source verification"
-    )
+    assert "`CHECKPOINT.md`" in context
+    assert "process-only" in context
+    assert "or formal source\nis the evidence" in context
+    for artifact in (
+        "SCOPE.md",
+        "SOLVE.md",
+        "CLAIM_LEDGER.md",
+        "LEMMA_GRAPH.md",
+        "MECHANISM_OVERLAP_AUDIT.md",
+        "atomic_artifact",
+    ):
+        assert artifact not in context
 
 
-def test_math_solve_protocol_checkpoints_before_new_research() -> None:
-    context = vertical_role_banner(load_vertical("math"), "engineer")
-
-    assert "current stage is `solve`" in context
-    assert "research/SOLVE.md" in context
-    assert "research/CLAIM_LEDGER.md" in context
-    assert "status: incomplete" in context
-    assert "argus_skill.tools.atomic_artifact" in context
-    assert "Do not wait for a complete proof" in context
-    assert context.index(
-        "Atomically create any missing `research/SOLVE.md`"
-    ) < context.index(
-        "before any new\n   literature retrieval"
-    )
-
-
-def test_math_checklist_preserves_fidelity_and_lean_artifacts() -> None:
+def test_math_checklist_is_small_and_judges_results_not_files() -> None:
     items = vertical_checklist_items(load_vertical("math"))
+    assert {stage: len(stage_items) for stage, stage_items in items.items()} == {
+        "scope": 2,
+        "solve": 3,
+        "review": 3,
+    }
+    assert {
+        stage: {item.id for item in stage_items}
+        for stage, stage_items in items.items()
+    } == {
+        "scope": {"scope.problem-explicit", "scope.success-criterion"},
+        "solve": {
+            "solve.substantive-result",
+            "solve.witness-valid",
+            "solve.support-matches-claim",
+        },
+        "review": {
+            "review.statement-fidelity",
+            "review.argument-correct",
+            "review.outcome-honest",
+        },
+    }
     rendered = "\n".join(
-        item.statement for stage in ("scope", "solve", "review") for item in items[stage]
+        item.statement + " " + item.evidence_hint
+        for stage_items in items.values()
+        for item in stage_items
     )
-
-    assert "statement" in rendered.lower()
     for artifact in (
         "Main.lean",
         "compile.log",
         "lean_check.json",
         "statement_fidelity.md",
+        "CLAIM_LEDGER",
+        "LEMMA_GRAPH",
+        "MECHANISM_OVERLAP_AUDIT",
     ):
-        assert artifact in rendered
-    assert "argus_skill.tools.lean_check" in vertical_role_banner(
-        load_vertical("math"),
-        "engineer",
-    )
+        assert artifact not in rendered
 
 
-def test_math_solve_and_review_have_conditional_mechanism_overlap_gate() -> None:
-    items = vertical_checklist_items(load_vertical("math"))
-    solve = {item.id: item for item in items["solve"]}
-    review = {item.id: item for item in items["review"]}
-
-    assert "solve.mechanism-overlap-audit" in solve
-    assert "review.mechanism-overlap-debt" in review
-    assert "If no such mechanism emerged" in solve["solve.mechanism-overlap-audit"].statement
-    assert "bounded item" in review["review.mechanism-overlap-debt"].statement
-    assert "MECHANISM_OVERLAP_AUDIT.md" in solve["solve.mechanism-overlap-audit"].evidence_hint
-
-
-def test_math_roles_route_triggered_overlap_audit_as_separate_short_node() -> None:
-    math = load_vertical("math")
-    planner = vertical_role_banner(math, "planner")
-    engineer = vertical_role_banner(math, "engineer")
-    reviewer = vertical_role_banner(math, "reviewer")
-
-    assert "SEPARATE short DAG node" in planner
-    assert "Do not impose this literature cost" in planner
-    assert "novelty debt" in engineer
-    assert "do not self-certify novelty" in engineer
-    assert "bounded construction node may still" in reviewer
-    assert "Final review" in reviewer and "must `continue`" in reviewer
-
-
-def test_math_vertical_carries_conditional_ai4m_method_triggers() -> None:
-    items = vertical_checklist_items(load_vertical("math"))
-    solve = {item.id: item for item in items["solve"]}
-    review = {item.id: item for item in items["review"]}
-
-    assert {
-        "solve.counterexample-guided-refinement",
-        "solve.construction-admissibility",
-        "solve.relational-premise-map",
-    }.issubset(solve)
-    assert "review.ai4m-verifier-separation" in review
-    assert "not applicable" in solve["solve.construction-admissibility"].statement
-    assert "not applicable" in solve["solve.relational-premise-map"].statement
-
+def test_math_roles_keep_methods_optional_and_checks_real() -> None:
     math = load_vertical("math")
     planner = vertical_role_banner(math, "planner")
     engineer = vertical_role_banner(math, "engineer")
@@ -236,17 +201,13 @@ def test_math_vertical_carries_conditional_ai4m_method_triggers() -> None:
     scientist_create = vertical_role_banner(math, "scientist_create")
     scientist_adapt = vertical_role_banner(math, "scientist")
 
-    for phrase in (
-        "Counterexample-guided refinement",
-        "Enumerate→Conjecture→Prove",
-        "Relational premise map",
-        "Semantic round trip",
-    ):
-        assert phrase in planner
-    assert "circular witness" in engineer
-    assert "verifier separation" in reviewer.lower()
-    assert "Never prescribe all AI4M techniques" in scientist_create
-    assert "proposal and verification roles separate" in scientist_adapt
+    assert "options, not mandatory phases" in planner
+    assert "no fixed bundle of output filenames is required" in engineer
+    assert "fresh real compiler run" in engineer
+    assert "Do not require\nparticular filenames" in reviewer
+    assert "separate audit artifact" in reviewer
+    assert "required workflow or evidence package" in scientist_create
+    assert "Do not create a process artifact" in scientist_adapt
 
 
 def test_math_review_checklist_is_loaded_and_required(tmp_path: Path) -> None:
@@ -258,10 +219,9 @@ def test_math_review_checklist_is_loaded_and_required(tmp_path: Path) -> None:
     assert contract.checklist_optional is False
     assert {
         "review.statement-fidelity",
-        "review.no-goal-drift",
-        "review.correctness-novelty-separated",
-        "review.mechanism-overlap-debt",
-    }.issubset({item.id for item in contract.items})
+        "review.argument-correct",
+        "review.outcome-honest",
+    } == {item.id for item in contract.items}
 
 
 def test_stale_research_env_cannot_replace_persisted_math_checklist(
@@ -294,8 +254,8 @@ def test_empty_math_review_store_entry_loads_seeds_not_empty(tmp_path: Path) -> 
     ids = {item.id for item in contract.items}
     assert {
         "review.statement-fidelity",
-        "review.no-goal-drift",
-        "review.correctness-novelty-separated",
+        "review.argument-correct",
+        "review.outcome-honest",
     }.issubset(ids)
 
 
@@ -398,9 +358,8 @@ def test_bounded_item_can_complete_without_certifying_doctoral_target() -> None:
     assert _final_stage_decision(result, "doctoral", scope="bounded") is not None
 
     reviewer_context = vertical_role_banner(load_vertical("math"), "reviewer")
-    assert "`done` certifies only" in reviewer_context
-    assert "does not certify the" in reviewer_context
-    assert "doctoral project target" in reviewer_context
+    assert "bounded subproblem can be done" in reviewer_context
+    assert "whole\nresearch goal is complete" in reviewer_context
 
 
 def test_legacy_math_result_gets_conservative_significance() -> None:

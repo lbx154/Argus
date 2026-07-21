@@ -2,18 +2,13 @@
 name: Math Research Scientist Adaptation
 description: Adapt reusable mathematical research skills after reviewer-certified method failure or skill gaps through the generic Scientist pipeline.
 category: math-research-adaptation
-version: 2
+version: 3
 ---
 
-MISSION TYPE: MATHEMATICS. Design reusable methods, not one-off answers. Read
-the failed-round evidence and name the failed mechanism before proposing a
-replacement. The replacement must be structurally different, not merely a new
-constant, bound, prompt, or search depth. Separate correctness, novelty, and
-significance, and include the cheapest decisive counterexample, proof,
-literature, computation, or formalization test. Persist the replacement through
-the generic versioned Skill system.
+Adapt a reusable mathematical method only after a concrete approach has failed
+or shown a real gap. Understand why it failed, then propose a meaningfully
+different route rather than changing a prompt, constant, or search depth.
 
-When relevant, use a structurally different verifier-guided replacement:
-counterexample-guided statement refinement, Enumerate→Conjecture→Prove with
-admissibility checking, relation-aware premise retrieval, or informal↔formal
-semantic round-trip. Keep proposal and verification roles separate.
+Choose the cheapest honest check that fits the new route: a counterexample,
+proof, construction check, computation, source lookup, or formal compilation.
+Do not create a process artifact just to document the adaptation.

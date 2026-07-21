@@ -31,23 +31,20 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
 REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
     "scope": (
         "reviewer/math-research-review.md",
-        "Check that the original mathematical problem, objects, quantifiers, "
-        "assumptions, problem type, success criterion, and problem-specific "
-        "research route are explicit.",
+        "Confirm what problem is being solved and what would count as success. "
+        "Do not require a planning artifact.",
         [],
     ),
     "solve": (
         "reviewer/math-research-review.md",
-        "Check the mathematical evidence actually produced. Enforce the limits "
-        "of counterexamples, finite computation, natural-language proof, and any "
-        "claimed Lean compilation.",
+        "Review the mathematical result itself and the argument or real computation "
+        "supporting it. Do not grade the presence of process documents.",
         [],
     ),
     "review": (
         "reviewer/math-research-review.md",
-        "Independently audit correctness and fidelity to the original problem. "
-        "Reject hidden assumptions, weakened conclusions, uncompiled Lean, and "
-        "overclaims about open or unresolved questions.",
+        "Independently decide whether the result is correct, answers the original "
+        "question, and is described without overclaiming.",
         [],
     ),
 }
@@ -57,149 +54,45 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="scope.problem-explicit",
             statement=(
-                "The original mathematical problem is stated precisely: all objects, "
-                "domains, quantifiers, definitions, and hypotheses are explicit."
+                "The problem is understood precisely enough to work on: the relevant "
+                "objects, assumptions, quantifiers, and requested conclusion are clear."
             ),
-            evidence_hint="a faithful problem statement with no implicit variables or assumptions",
+            evidence_hint="the problem statement as actually understood",
         ),
         ChecklistItem(
             id="scope.success-criterion",
             statement=(
-                "The problem type and success criterion are explicit: prove, disprove, "
-                "construct, classify, estimate, or make bounded progress on an open problem."
+                "It is clear whether success means a proof, counterexample, construction, "
+                "classification, estimate, or honest progress on an open problem."
             ),
-            evidence_hint="a declared problem type and an honest criterion for completion",
-        ),
-        ChecklistItem(
-            id="scope.dynamic-route",
-            statement=(
-                "The chosen research route matches this problem. Background retrieval, "
-                "counterexample search, computation, proof construction, and Lean are "
-                "selected only when useful rather than forced as a fixed pipeline."
-            ),
-            evidence_hint="a problem-specific route with reasons for included and skipped methods",
+            evidence_hint="the requested outcome and completion bar",
         ),
     ),
     "solve": (
         ChecklistItem(
-            id="solve.checkable-evidence",
+            id="solve.substantive-result",
             statement=(
-                "Every key mathematical conclusion has checkable supporting evidence: "
-                "a complete argument, a valid construction or counterexample, or clearly "
-                "bounded computational evidence."
+                "There is a substantive result relevant to the problem, supported by an "
+                "argument, a valid witness, or a reproducible computation as appropriate."
             ),
-            evidence_hint="explicit derivations, witnesses, checked cases, or reproducible outputs",
+            evidence_hint="the result and the mathematics or real run supporting it",
         ),
         ChecklistItem(
-            id="solve.counterexample-valid",
+            id="solve.witness-valid",
             statement=(
-                "Any claimed counterexample satisfies every original definition and "
-                "hypothesis before violating the claimed conclusion."
+                "Any counterexample or constructed object satisfies the original conditions; "
+                "it is not a circular restatement or an answer to an easier problem."
             ),
-            evidence_hint="premise-by-premise verification of each counterexample",
+            evidence_hint="a direct check of the relevant conditions",
         ),
         ChecklistItem(
-            id="solve.computation-bounded",
+            id="solve.support-matches-claim",
             statement=(
-                "Finite computation or numerical experimentation is not presented as a "
-                "proof of an infinite or universal statement."
+                "The strength of the conclusion matches the support: finite computation is "
+                "not called a universal proof, and formal compilation is not treated as "
+                "evidence for a mistranslated statement."
             ),
-            evidence_hint="the tested range and the precise evidentiary limit are stated",
-        ),
-        ChecklistItem(
-            id="solve.lean-compiled",
-            statement=(
-                "When Lean is used, the submitted source has fresh successful compilation "
-                "evidence, contains no `sorry`, `admit`, or equivalent proof hole, and "
-                "the canonical artifacts `Main.lean`, `compile.log`, `lean_check.json`, "
-                "and `statement_fidelity.md` are present."
-            ),
-            evidence_hint=(
-                "the four canonical Lean artifacts, including exact commands, versions, "
-                "exit status, axiom audit, and a side-by-side statement audit"
-            ),
-        ),
-        ChecklistItem(
-            id="solve.result-classified",
-            statement=(
-                "Each material result is classified as known, finite verification, "
-                "counterexample, partial progress, new candidate, novelty-unverified, "
-                "or verified new result; its mathematical scope is not overstated."
-            ),
-            evidence_hint="a claim ledger with result class, correctness, novelty, and limitations",
-        ),
-        ChecklistItem(
-            id="solve.monotone-theorem-advancement",
-            statement=(
-                "When a prior proved theorem exists and the operator requires continued "
-                "strengthening, the new theorem explicitly identifies the strongest "
-                "consumed claim-ledger and lemma-graph nodes and strictly advances them "
-                "by strengthening the conclusion, weakening hypotheses, improving a "
-                "quantitative bound, or proving a missing bridge in a blocked chain."
-            ),
-            evidence_hint=(
-                "a before/after theorem comparison in research/CLAIM_LEDGER.md and "
-                "research/LEMMA_GRAPH.md; a weaker or incomparable known theorem does "
-                "not satisfy this item"
-            ),
-        ),
-        ChecklistItem(
-            id="solve.mechanism-overlap-audit",
-            statement=(
-                "When solve work introduces or materially refines a theorem, operator, "
-                "proof mechanism, obstruction certificate, or asymptotic route that may "
-                "be advanced as new, a separate bounded theorem-overlap audit is completed "
-                "before treating it as novelty-bearing or advancing it toward review. The "
-                "audit checks the closest recent primary sources, their citation chains, "
-                "and foundational adjacent-field terminology. If no such mechanism emerged, "
-                "the claim ledger explicitly records that this trigger did not fire."
-            ),
-            evidence_hint=(
-                "research/MECHANISM_OVERLAP_AUDIT.md with trigger, exact queries, dated "
-                "primary sources, backward/forward citations, overlap mapping, and remaining "
-                "uncertainty; or an explicit not-triggered claim-ledger entry"
-            ),
-        ),
-        ChecklistItem(
-            id="solve.counterexample-guided-refinement",
-            statement=(
-                "When a new conjecture, intermediate lemma, asymptotic generalization, "
-                "or strengthened bound is proposed, the cheapest decisive falsification "
-                "test is run before investing in a full proof. Counterexamples refine the "
-                "statement or assumptions rather than being discarded. If no new candidate "
-                "statement was proposed, this trigger is explicitly not applicable."
-            ),
-            evidence_hint=(
-                "a smallest-counterexample search, bounded exhaustive/symbolic test, or "
-                "adversarial premise audit linked to the candidate and its refined form"
-            ),
-        ),
-        ChecklistItem(
-            id="solve.construction-admissibility",
-            statement=(
-                "For construction or existential-answer problems, candidate generation is "
-                "separated from proof: bounded examples may suggest a canonical witness, "
-                "but the final witness must satisfy an explicit admissible vocabulary/shape "
-                "and must not circularly restate the target property. If the problem supplies "
-                "the object and asks only for a proof, this trigger is not applicable."
-            ),
-            evidence_hint=(
-                "enumeration trace, explicit conjectured witness, independent admissibility "
-                "check, and proof that the admitted witness satisfies the original statement"
-            ),
-        ),
-        ChecklistItem(
-            id="solve.relational-premise-map",
-            statement=(
-                "When the argument depends on a nontrivial library or literature of prior "
-                "lemmas, the proof records a compact dependency graph: retrieved premises, "
-                "their exact role, the missing bridge lemmas, and which nodes are known versus "
-                "new. Routine self-contained proofs may mark this trigger not applicable."
-            ),
-            evidence_hint=(
-                "research/LEMMA_GRAPH.md or an equivalent claim-ledger dependency section "
-                "with premise sources, edges, and unresolved bridge nodes"
-            ),
+            evidence_hint="the actual tested range or compiler run and the stated limitation",
         ),
     ),
     "review": (
@@ -209,78 +102,24 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "The natural-language problem and every formal statement are faithfully "
                 "equivalent in objects, quantifiers, hypotheses, and conclusion."
             ),
-            evidence_hint="side-by-side audit of the original and formalized statements",
+            evidence_hint="a direct comparison with the original question",
         ),
         ChecklistItem(
-            id="review.no-goal-drift",
+            id="review.argument-correct",
             statement=(
-                "The solution did not silently add assumptions, restrict the domain, "
-                "weaken the conclusion, or replace the original problem with an easier one."
+                "The main argument is independently convincing: important steps are justified, "
+                "dependencies are available, and no hidden assumption closes the gap."
             ),
-            evidence_hint="an explicit premise-and-conclusion comparison",
+            evidence_hint="the argument itself and any cited dependency",
         ),
         ChecklistItem(
-            id="review.lean-not-sufficient",
+            id="review.outcome-honest",
             statement=(
-                "Lean compilation is treated only as evidence about the encoded theorem; "
-                "it is not treated as sufficient evidence that the encoding faithfully "
-                "represents the original problem."
+                "The conclusion says plainly what was proved, disproved, computed, conjectured, "
+                "or left open. Novelty is claimed only when an appropriate source check supports "
+                "it; otherwise uncertainty is stated without blocking a valid bounded result."
             ),
-            evidence_hint="independent semantic review of definitions and theorem statement",
-        ),
-        ChecklistItem(
-            id="review.open-problem-honesty",
-            statement=(
-                "For an open or unresolved problem, the conclusion distinguishes proved "
-                "results, disproofs, experiments, conjectures, partial progress, and unknowns "
-                "without exaggeration."
-            ),
-            evidence_hint="claim-by-claim status labels and stated remaining gaps",
-        ),
-        ChecklistItem(
-            id="review.correctness-novelty-separated",
-            statement=(
-                "Mathematical correctness and research novelty have independent "
-                "verdicts with concrete evidence; a correct known result is not "
-                "presented as a new contribution."
-            ),
-            evidence_hint="separate correctness and novelty findings for the strongest claim",
-        ),
-        ChecklistItem(
-            id="review.novelty-gate",
-            statement=(
-                "A result is called verified-new only after primary-source novelty "
-                "review; finite verification, partial work, and unverified candidates "
-                "remain non-terminal."
-            ),
-            evidence_hint="novelty audit or an explicit non-terminal classification",
-        ),
-        ChecklistItem(
-            id="review.mechanism-overlap-debt",
-            statement=(
-                "Every strongest claim based on a newly introduced theorem, operator, proof "
-                "mechanism, or certificate has a mechanism-level primary-source overlap audit. "
-                "Without it, correctness may be certified for a bounded item, but novelty "
-                "remains unverified and publishable or doctoral completion is blocked."
-            ),
-            evidence_hint=(
-                "the mechanism-overlap audit linked to the strongest claim, or a bounded "
-                "Reviewer verdict that preserves novelty-unverified status and routes the "
-                "missing audit as the next DAG node"
-            ),
-        ),
-        ChecklistItem(
-            id="review.ai4m-verifier-separation",
-            statement=(
-                "Generated conjectures, witnesses, and formal statements are judged by a "
-                "separate verifier appropriate to their type: falsification for candidates, "
-                "admissibility plus proof for constructions, and semantic back-translation "
-                "for formalization. Passing one verifier is not substituted for another."
-            ),
-            evidence_hint=(
-                "separate candidate-generation and verification artifacts with explicit "
-                "falsification, admissibility, statement-fidelity, or compiler results"
-            ),
+            evidence_hint="the stated conclusion, limitations, and sources if novelty is claimed",
         ),
     ),
 }

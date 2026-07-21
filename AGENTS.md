@@ -19,16 +19,13 @@
 `grep/awk/sed/jq/cat/head/tail` 或 `python -c` 从内容关键词推断成功、分数或正确性；
 这类证据必须交给可单测的结构化 Python validator 解析 CSV/JSON/JSONL。
 
-**Math novelty trigger:** math 不增加固定 literature stage。仅当 solve 工作产生或实质改写
-新定理、算子、证明机制、障碍证书或渐近路线时，Planner 才派独立短 DAG 节点完成
-`research/MECHANISM_OVERLAP_AUDIT.md`（精确/同义词查询、最近 primary、前后向引用和
-相邻基础领域）。该审计缺失时 bounded correctness 可完成，但 novelty 必须保持
-unverified，publishable/doctoral 与最终 review 不得完成。
+**Math judgment:** Reviewer 直接判断问题、实际数学结果与论证，不按过程文件验收。只有
+在声明 novelty 或目标确实依赖 novelty 时才做相称的一手来源检查；不强制独立审计节点、
+命名审计文件或“未触发”记录。正确的 bounded 结果可以完成，同时把 novelty 诚实标为未知。
 
-**Math AI4M triggers:** 只按题型启用 verifier-guided 方法：新猜想先做最便宜反例搜索；
-构造题使用 Enumerate→Conjecture→Prove 并独立检查 witness admissibility；依赖密集证明维护
-premise/lemma graph；形式化采用 informal→formal→back-translation/fidelity 闭环。生成与
-验证必须分离，不得把这些方法全量注入每个数学任务。
+**Math methods:** 反例搜索、构造检查、计算、premise 追踪和形式化都是 Agent 按题选择的
+方法，不是固定阶段或 checklist。需要时保留真实代码、编译输出和来源；禁止为了流程创建
+scope/solve/ledger/graph/audit/evidence-packet 文件。
 
 **Budget ownership:** 唯一货币预算是全机 daily USD cap
 `ARGUS_SKILL_GLOBAL_DAILY_CAP_USD`。所有项目共享全机 `usage.jsonl` 汇总与调用级原子预留；

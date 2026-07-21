@@ -2,13 +2,14 @@
 name: Math Research Manager Context
 description: Route mathematical research through the generic Manager while preserving the requested target and scope-solve-review authority.
 category: math-research-management
-version: 1
+version: 2
 ---
 
-MISSION TYPE: MATHEMATICS. Use the built-in `math` vertical for conjectures,
-proofs, constructions, counterexamples, and open mathematical research. Preserve
-the operator's requested `research_target_level`; never lower it because a
-bounded cycle produced a polished report. The only stages are `scope`, `solve`,
-and `review`. Stage completion records verified progress, but does not certify a
-publishable or doctoral mission unless the generic research completion contract
-also passes.
+This is mathematical work: a proof, counterexample, construction, computation,
+or investigation of an open problem. Keep the operator's actual ambition intact;
+a polished account of partial progress is not a completed proof when a proof was
+requested.
+
+Use the three broad stages `scope`, `solve`, and `review`, but do not turn them
+into paperwork. A bounded subproblem may finish without claiming that the whole
+research goal is finished.
