@@ -22,9 +22,10 @@ from argus_skill.reviewer._core import (
     _compact_schema_for_backend,
 )
 
-# The token-efficiency pass reduced this representative prompt from ~40k to
-# ~10k chars. Keep modest headroom without permitting role-policy re-bloat.
-NON_MEASURED_BUDGET = 14_000
+# Repeated evidence-policy prose was removed; the representative prompt is now
+# about 6.5k chars. Keep headroom for task checklists without permitting the
+# global policy block to return.
+NON_MEASURED_BUDGET = 9_000
 
 
 def _build(measured: bool, monkeypatch) -> str:
@@ -63,6 +64,7 @@ def test_compression_removed_redundant_examples(monkeypatch):
     assert "you are not a JSON robot" not in p
     assert "Anti-pattern: agent shows test_accuracy=0.98" not in p
     assert "expense_tracker/ package using unittest" not in p
+    assert "## Evidence policy" not in p
 
 
 def test_reviewer_records_prompt_block_token_estimates(monkeypatch):

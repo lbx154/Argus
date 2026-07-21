@@ -198,12 +198,9 @@ def _format_academic_paper_review_skill_block(*, include: bool) -> str:
 def _verification_directive() -> str:
     """Compact trust-first verification stance."""
     return (
-        "**Trust the engineer by default; verify only on doubt.** If the summary "
-        "shows internally consistent RESULT/test/file evidence, do NOT reflexively "
-        "re-run it. Use shell checks only when evidence is MISSING, "
-        "self-contradictory, implausible, or conflicts with an acceptance check. "
-        "Spend the saved effort judging whether the work is genuinely novel/useful "
-        "and naming the specific NEXT work or unexplored direction.\n\n"
+        "Trust consistent shown results. Re-open raw material only for a missing, "
+        "stale, contradictory, or implausible material fact; otherwise judge the "
+        "work and its next step.\n\n"
     )
 
 
@@ -218,42 +215,6 @@ def _prompt_block_stats(blocks: Mapping[str, str]) -> dict[str, dict[str, int]]:
             "estimated_tokens": (byte_count + 3) // 4,
         }
     return stats
-
-
-def _reviewer_evidence_contract(
-    workflow_mode: str,
-    *,
-    mandatory_engineering_audit: bool = False,
-) -> str:
-    """Small, non-contradictory evidence policy for the Reviewer."""
-    mode = (workflow_mode or "").strip().lower()
-    if mode == "direct":
-        scope = "Verify only facts material to the requested deliverable; do not invent research scaffolding."
-    elif mode == "proportional":
-        scope = "Verify the new claim/delta and reuse previously certified evidence unless a concrete conflict exists."
-    else:
-        scope = (
-            "Inspect relevant artifacts/logs and require the staged ground-truth record "
-            "when the active checklist calls for it."
-        )
-    verification = (
-        "Shown command/scorer output is only a lead: inspect the material source "
-        "and raw artifacts with tools before deciding."
-        if mandatory_engineering_audit
-        else (
-            "Consistent shown command/scorer output is evidence; re-run only on "
-            "missing, stale, contradictory, or implausible facts."
-        )
-    )
-    return (
-        "## Evidence policy\n"
-        "实事求是: never fabricate evidence or approve an unsupported material claim. "
-        f"{scope} {verification}\n\n"
-    )
-
-
-
-
 
 
 def _engineer_log_audit_block(
@@ -760,7 +721,6 @@ class Reviewer:
         from ..skills.harness_overlay import resolve_project_root
         from ..skills.vertical_select import (
             _persisted_vertical,
-            resolve_evidence_mode,
             resolve_vertical,
         )
         from ..verticals._base import (
@@ -1097,11 +1057,7 @@ class Reviewer:
             final_submission_block = ""
         # Byte-stable static policy; every fresh Reviewer receives it in full.
         static = (
-            _reviewer_evidence_contract(
-                resolve_evidence_mode(_proot),
-                mandatory_engineering_audit=_requires_engineering_audit,
-            )
-            + optimize_banner
+            optimize_banner
             + research_result_instruction
             + EFFECTIVE_TASK_CONTRACT
             + "\n\n## Reviewer role\n"

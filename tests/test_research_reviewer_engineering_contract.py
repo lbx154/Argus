@@ -8,11 +8,11 @@ from argus_skill.verticals._base import load_vertical, vertical_role_banner
 def test_research_reviewer_requires_engineering_audit() -> None:
     banner = vertical_role_banner(load_vertical("research"), "reviewer")
 
-    assert "overrides generic trust-first review" in banner
-    assert "implementation source and raw artifacts" in banner
-    assert "idea probes, benchmark preparation, and main experiment runs" in banner
-    assert "validator exit code is not sufficient" in banner
-    assert "method failure from infrastructure" in banner
+    assert "For experiment claims" in banner
+    assert "implementation and raw rows" in banner
+    assert "infrastructure or evaluator failure" in banner
+    assert "reuse that reviewed evidence until a dependency changes" in banner
+    assert len(banner) < 260
 
 
 def test_research_engineer_does_not_receive_reviewer_contract() -> None:
@@ -33,7 +33,7 @@ def test_research_reviewer_prompt_disables_trust_first_shortcut(tmp_path) -> Non
         working_dir=tmp_path,
     )
 
-    assert "RESEARCH ENGINEERING AUDIT" in prompt
-    assert "Shown command/scorer output is only a lead" in prompt
-    assert "Trust the engineer by default" not in prompt
+    assert "For experiment claims" in prompt
+    assert "## Evidence policy" not in prompt
+    assert "Trust consistent shown results" not in prompt
     assert "TRUST the scorer, judge the IDEA" not in prompt

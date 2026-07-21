@@ -29,8 +29,8 @@ def test_mandate_contains_key_ideas(role: str) -> None:
     low = text.lower()
     # Core principle: investigate the real thing yourself.
     assert "inspect" in low or "investigat" in low
-    # 实事求是 / verification language must be present.
-    assert "实事求是" in text or "verified" in low or "verify" in low
+    # Honesty / verification language must be present.
+    assert "never fabricate" in low or "verified" in low or "verify" in low
     # The shared fact-based picture file is named.
     assert GROUND_TRUTH_RELPATH in text
     assert "GROUND_TRUTH.md" in text
@@ -62,28 +62,25 @@ def test_mandate_scales_evidence_to_the_actual_task(role: str) -> None:
     text = ground_truth_mandate(role, workflow_mode="direct")
     low = text.lower()
     assert GROUND_TRUTH_RELPATH in text
-    assert "proportional" in low
-    assert "creative composition" in low
-    assert "normally needs no such file" in low
-    assert "do not invent" in low
+    assert "verify only facts material" in low
+    assert "only when a shared factual record helps" in low
+    assert "do not create extra research scaffolding" in low
 
 
 @pytest.mark.parametrize("role", ROLES)
-def test_staged_mandate_keeps_required_first_gate(role: str) -> None:
+def test_staged_mandate_keeps_reality_first(role: str) -> None:
     low = ground_truth_mandate(role, workflow_mode="staged").lower()
-    assert "first required deliverable" in low
-    assert "gate" in low
-    assert "binding" in low and "constraint" in low
-    assert "measured" in low
+    assert "inspect the real code, data, logs, and measurements" in low
+    assert "binding facts" in low
+    assert "before acting" in low
 
 
 @pytest.mark.parametrize("role", ROLES)
 def test_proportional_mandate_reuses_certified_evidence(role: str) -> None:
     low = ground_truth_mandate(role, workflow_mode="proportional").lower()
-    assert "proportional ground truth" in low
-    assert "reuse certified evidence" in low
-    assert "first required deliverable" not in low
-    assert "fresh snapshot, manifest, checksum" in low
+    assert "reuse reviewed evidence" in low
+    assert "dependency changed or conflicts" in low
+    assert "do not rebuild snapshots, manifests" in low
 
 
 def test_speedrun_setup_stage_gates_on_ground_truth() -> None:
@@ -115,9 +112,9 @@ def test_role_specific_slants_differ() -> None:
     planner = ground_truth_mandate("planner")
     engineer = ground_truth_mandate("engineer")
     reviewer = ground_truth_mandate("reviewer")
-    assert "PLANNER SLANT" in planner
-    assert "ENGINEER SLANT" in engineer
-    assert "REVIEWER SLANT" in reviewer
+    assert "Plan from the actual constraint" in planner
+    assert "Act on observed causes" in engineer
+    assert "Check a material doubt independently" in reviewer
     # Each role's slant is distinct.
     assert planner != engineer != reviewer != planner
 
@@ -125,7 +122,7 @@ def test_role_specific_slants_differ() -> None:
 def test_unknown_role_gets_shared_block_without_slant() -> None:
     text = ground_truth_mandate("nobody")
     assert text.strip()
-    assert "SLANT" not in text
+    assert "Plan from" not in text
     # Shared block still present.
     assert "inspect" in text.lower()
 
@@ -133,4 +130,10 @@ def test_unknown_role_gets_shared_block_without_slant() -> None:
 def test_default_role_is_shared_block_only() -> None:
     text = ground_truth_mandate()
     assert text.strip()
-    assert "SLANT" not in text
+    assert "Plan from" not in text
+
+
+@pytest.mark.parametrize("mode", ("staged", "direct", "proportional"))
+@pytest.mark.parametrize("role", ROLES)
+def test_mandate_stays_compact(mode: str, role: str) -> None:
+    assert len(ground_truth_mandate(role, workflow_mode=mode)) < 500

@@ -544,19 +544,11 @@ WORKFLOW_MODE = "proportional"
 # independent Reviewer; an Engineer verifier cannot waive this review.
 REQUIRE_INDEPENDENT_REVIEW = True
 
-_REVIEWER_ENGINEERING_AUDIT = """\
-RESEARCH ENGINEERING AUDIT (mandatory; overrides generic trust-first review):
-- Independently inspect the relevant implementation source and raw artifacts; an
-  Engineer summary, passing unit tests, or validator exit code is not sufficient.
-- For idea probes, benchmark preparation, and main experiment runs, check data
-  selection, preprocessing/extraction, method and baseline semantics, evaluator
-  and validator logic, seeds/budgets, dropped rows, retries, and raw-to-summary
-  replay. Use file/shell tools on the concrete code and evidence.
-- Distinguish method failure from infrastructure, numerical, evaluator, or
-  evidence-packaging defects. A negative or technical NO-GO needs the same
-  engineering scrutiny as a positive result; never accept a conservative failure
-  until its root cause is classified.
-"""
+_REVIEWER_ENGINEERING_AUDIT = (
+    "For experiment claims, inspect the relevant implementation and raw rows once, "
+    "then reuse that reviewed evidence until a dependency changes. Distinguish the "
+    "method result from infrastructure or evaluator failure.\n"
+)
 
 
 def role_banner(role: str = "engineer") -> str:

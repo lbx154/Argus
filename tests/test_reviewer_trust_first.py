@@ -39,24 +39,20 @@ def _prompt(*, measured: bool, monkeypatch) -> str:
 
 def test_directive_trusts_and_drops_reflexive_rerun():
     d = _verification_directive()
-    # trust-first stance present
-    assert "Trust the engineer by default" in d
-    assert "do NOT reflexively re-run" in d
-    # cheap fabrication floor: verify ONLY when evidence missing/contradictory
-    assert "MISSING" in d
-    assert "self-contradictory" in d
-    # reinvest the round in judgment + useful direction
-    assert "specific NEXT work or unexplored direction" in d
+    assert "Trust consistent shown results" in d
+    assert "missing" in d
+    assert "contradictory" in d
+    assert "next step" in d
+    assert len(d) < 220
     # the OLD reflexive "use your own output as ground truth" framing is gone
     assert "use *your own* output as ground truth" not in d
 
 
 def test_build_prompt_uses_trust_first_not_old_rerun(monkeypatch):
     p = _prompt(measured=False, monkeypatch=monkeypatch)
-    assert "Trust the engineer by default" in p
+    assert "Trust consistent shown results" in p
     assert "use *your own* output as ground truth" not in p
-    # rule 3 no longer reflexively demands re-run-and-paste as the default
-    assert "the specific NEXT work or unexplored direction" in p
+    assert "## Evidence policy" not in p
 
 
 def test_measured_mode_trusts_scorer_and_refocuses(monkeypatch):
