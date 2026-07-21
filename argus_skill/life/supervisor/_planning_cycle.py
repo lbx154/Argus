@@ -323,6 +323,33 @@ class PlanningCycleMixin:
         ):
             return ""
 
+        # Immediate reconciliation happens before the ordinary waiting-record
+        # path. Persist a freshly returned contract first so an authoritative
+        # Manager resolution has durable state to update and the next Planner
+        # call receives that resolution instead of repeating the same wait.
+        contract_state = self._load_planner_waiting_contract_state()
+        same_contract = (
+            contract_state is not None
+            and contract_state.get("blocker_fingerprint") == blocker_fingerprint
+            and contract_state.get("recheck_token") == recheck_token
+        )
+        if not same_contract:
+            contract_state = self._persist_planner_waiting_contract(contract)
+            if contract_state is None:
+                self._emit_status(
+                    "failed to persist Planner wait before Manager reconciliation"
+                )
+                return ""
+        existing_resolution = contract_state.get("manager_resolution")
+        if isinstance(existing_resolution, dict):
+            self._last_planner_wait_reconciliation_key = None
+            self._planner_waits_since_reconciliation = 0
+            self._reset_idle_backoff()
+            self._emit_status(
+                "returning existing Manager wait resolution to Planner"
+            )
+            return "hold"
+
         from ...manager import Manager
 
         manager = Manager(

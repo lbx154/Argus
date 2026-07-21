@@ -541,6 +541,32 @@ def test_manager_hold_can_resolve_wait_without_moving_stage(
     ]
     assert decisions and decisions[-1]["resolves_wait"] is True
 
+
+def test_new_wait_persists_manager_resolution_before_immediate_retry(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    sup, backend, _project = _make_waiting_supervisor(
+        tmp_path,
+        monkeypatch,
+        reconcile=False,
+        manager_action="hold",
+        manager_resolves_wait=True,
+    )
+
+    assert sup._plan_next_work() == PLAN_RETRY
+
+    assert backend.manager_calls == 1
+    state = sup._load_planner_waiting_contract_state()
+    assert state is not None
+    assert state["active"] is False
+    assert state["manager_resolution"]["reason"] == (
+        "the live external job is correctly owned by measure"
+    )
+    assert "AUTHORITATIVE MANAGER WAIT RESOLUTION" in (
+        sup._planner_wait_resolution_runtime_note()
+    )
+
     # Re-persisting the same blocker must retain the resolution note until the
     # Planner actually moves on to a non-waiting verdict.
     sup._persist_planner_waiting_contract(WaitingContract(
