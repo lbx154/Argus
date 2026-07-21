@@ -978,7 +978,7 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
     from ...skills.builtins import (
         DEFAULT_PROJECT_BUILTIN_SKILLS_DIR,
         builtin_skill_source_path,
-        remove_unmodified_vertical_skill_seeds,
+        remove_unmodified_inactive_vertical_skill_seeds,
         seed_builtin_skills,
         seed_builtin_skills_for_vertical,
     )
@@ -1001,10 +1001,9 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
     except VerticalResolutionError as exc:
         sys.stderr.write(f"argus-skill: cannot resolve target vertical: {exc}\n")
         return 2
-    removed = (
-        []
-        if vertical == "research"
-        else remove_unmodified_vertical_skill_seeds(target, "research")
+    removed = remove_unmodified_inactive_vertical_skill_seeds(
+        target,
+        vertical,
     )
     if vertical is not None:
         result = seed_builtin_skills_for_vertical(
@@ -1029,7 +1028,7 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
         f"{len(result)} total"
     )
     if removed:
-        print(f"  pruned : {len(removed)} inactive unmodified research seed(s)")
+        print(f"  pruned : {len(removed)} inactive unmodified vertical seed(s)")
     if skipped and not args.apply:
         print("  hint   : pass --apply to replace existing copied built-in skill files")
     return 0

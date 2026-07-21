@@ -20,6 +20,7 @@ from argus_skill.skills.builtins import (
     _validate_builtin,
     iter_builtin_skill_texts,
     iter_vertical_skill_texts,
+    remove_unmodified_inactive_vertical_skill_seeds,
     remove_unmodified_vertical_skill_seeds,
     seed_builtin_skills_for_vertical,
     seed_vertical_skills,
@@ -34,10 +35,24 @@ QUANT_SKILLS = {
     "reviewer/quant-factor-report-review.md",
 }
 
+MATH_SKILLS = {
+    "manager/math-research-manager.md",
+    "planner/math-research-planning.md",
+    "engineer/math-research-execution.md",
+    "reviewer/math-research-review.md",
+    "scientist/math-research-distillation.md",
+    "scientist/math-research-adaptation.md",
+}
+
 
 def test_iter_vertical_skill_texts_quant() -> None:
     got = {name for name, _ in iter_vertical_skill_texts("quant")}
     assert got == QUANT_SKILLS
+
+
+def test_iter_vertical_skill_texts_math() -> None:
+    got = {name for name, _ in iter_vertical_skill_texts("math")}
+    assert got == MATH_SKILLS
 
 
 def test_iter_vertical_skill_texts_unknown_or_skill_less_is_empty() -> None:
@@ -175,6 +190,41 @@ def test_remove_unmodified_vertical_seeds_preserves_learned_edits(tmp_path) -> N
     assert untouched_name in removed
     assert not untouched.exists()
     assert modified.exists()
+
+
+def test_remove_inactive_vertical_seeds_prunes_math_but_preserves_edits_and_active(
+    tmp_path,
+) -> None:
+    seed_vertical_skills(tmp_path, "math")
+    seed_vertical_skills(tmp_path, "research")
+    edited_name = "engineer/math-research-execution.md"
+    edited = tmp_path / edited_name
+    edited.write_text(
+        edited.read_text(encoding="utf-8") + "\nproject-specific learning\n",
+        encoding="utf-8",
+    )
+
+    removed = remove_unmodified_inactive_vertical_skill_seeds(
+        tmp_path,
+        "research",
+    )
+
+    assert set(removed) == MATH_SKILLS - {edited_name}
+    assert edited.exists()
+    assert (
+        tmp_path / "engineer" / "research-visualization-router.md"
+    ).exists()
+
+
+def test_remove_inactive_vertical_seeds_with_no_active_vertical_prunes_all(
+    tmp_path,
+) -> None:
+    seed_vertical_skills(tmp_path, "math")
+
+    removed = remove_unmodified_inactive_vertical_skill_seeds(tmp_path, None)
+
+    assert set(removed) == MATH_SKILLS
+    assert not any((tmp_path / filename).exists() for filename in MATH_SKILLS)
 
 
 def test_vertical_seed_refresh_preserves_identified_shared_evolution(

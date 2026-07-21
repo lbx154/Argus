@@ -793,7 +793,7 @@ class LifeWorker:
         # reach existing projects without replacing unrelated local files.
         from ..skills.builtins import (
             DEFAULT_PROJECT_BUILTIN_SKILLS_DIR,
-            remove_unmodified_vertical_skill_seeds,
+            remove_unmodified_inactive_vertical_skill_seeds,
             seed_builtin_skills,
             seed_builtin_skills_for_vertical,
             seed_vertical_skills,
@@ -801,6 +801,10 @@ class LifeWorker:
 
         skills_target = project_root / DEFAULT_PROJECT_BUILTIN_SKILLS_DIR
         try:
+            remove_unmodified_inactive_vertical_skill_seeds(
+                skills_target,
+                vertical,
+            )
             if vertical:
                 seed_builtin_skills_for_vertical(skills_target, vertical)
             else:
@@ -821,7 +825,10 @@ class LifeWorker:
                     str(default_shared_root),
                 ))
                 project_skills = Path(self.config.life_dir) / "skills"
-                remove_unmodified_vertical_skill_seeds(project_skills, vertical)
+                remove_unmodified_inactive_vertical_skill_seeds(
+                    project_skills,
+                    None,
+                )
                 vertical_shared = shared_vertical_skills_dir(shared_root, vertical)
                 if vertical_shared is None:
                     raise ValueError(f"invalid vertical Skill namespace: {vertical!r}")

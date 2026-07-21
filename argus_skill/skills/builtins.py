@@ -338,6 +338,36 @@ def remove_unmodified_vertical_skill_seeds(
     return removed
 
 
+def remove_unmodified_inactive_vertical_skill_seeds(
+    skills_dir: Path,
+    active_vertical: str | None,
+) -> list[str]:
+    """Remove factory copies owned by built-in verticals other than the active one."""
+    from .vertical_select import VERTICALS
+
+    root = Path(skills_dir)
+    active_filenames = (
+        {filename for filename, _text in iter_vertical_skill_texts(active_vertical)}
+        if active_vertical
+        else set()
+    )
+    removed: set[str] = set()
+    for vertical in VERTICALS:
+        if vertical == active_vertical:
+            continue
+        for filename, source_text in iter_vertical_skill_texts(vertical):
+            if filename in active_filenames or filename in removed:
+                continue
+            path = root / filename
+            try:
+                if path.is_file() and path.read_text(encoding="utf-8") == source_text:
+                    path.unlink()
+                    removed.add(filename)
+            except OSError:
+                continue
+    return sorted(removed)
+
+
 def _validate_builtin(filename: str, text: str) -> None:
     skill = Skill.parse(text, filename)
     if not skill.name.strip():

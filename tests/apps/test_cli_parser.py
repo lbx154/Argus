@@ -303,7 +303,7 @@ def test_export_prunes_legacy_unmodified_research_fallback(
     assert not (
         target / "engineer/research_visual_scripts/browser_render.py"
     ).exists()
-    assert "pruned : 2 inactive unmodified research seed(s)" in out
+    assert "pruned : 2 inactive unmodified vertical seed(s)" in out
 
 
 def test_export_preserves_edited_legacy_research_fallback(
@@ -326,6 +326,32 @@ def test_export_preserves_edited_legacy_research_fallback(
     assert not (
         target / "engineer/research_visual_scripts/browser_render.py"
     ).exists()
+
+
+def test_export_prunes_unmodified_math_skills_after_vertical_switch(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from argus_skill.skills.builtins import iter_vertical_skill_texts
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    project = tmp_path / "project"
+    target = project / "argus_builtin_skills"
+    math_skills = {name for name, _text in iter_vertical_skill_texts("math")}
+    persist_vertical(project, "math")
+    assert main(["--export-builtin-skills", str(target), "--apply"]) == 0
+    assert all((target / filename).is_file() for filename in math_skills)
+    capsys.readouterr()
+
+    persist_vertical(project, "software")
+    assert main(["--export-builtin-skills", str(target), "--apply"]) == 0
+    out = capsys.readouterr().out
+
+    assert not any((target / filename).exists() for filename in math_skills)
+    assert (
+        f"pruned : {len(math_skills)} inactive unmodified vertical seed(s)"
+        in out
+    )
 
 
 def test_main_rejects_objective_without_continuous(capsys: pytest.CaptureFixture[str]) -> None:

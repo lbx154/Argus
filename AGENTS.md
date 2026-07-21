@@ -313,7 +313,7 @@ skill 是 markdown 文件，带 YAML-like frontmatter。
 
 - `GlobalMemory.init()` 会把 `argus_skill/builtin_skills` seed 到 `~/.argus-skill/skills/`。
 - 默认不覆盖用户已经编辑过的 skill。
-- `argus-skill --export-builtin-skills [DIR]` 可以复制内置 skill 到项目目录，默认 `./argus_builtin_skills`。目标项目尚无 Manager 持久化的 vertical 时只导出公共 skill，不回退到 research；已有 vertical 时再叠加该 vertical 的 skill。
+- `argus-skill --export-builtin-skills [DIR]` 可以复制内置 skill 到项目目录，默认 `./argus_builtin_skills`。目标项目尚无 Manager 持久化的 vertical 时只导出公共 skill，不回退到 research；已有 vertical 时再叠加该 vertical 的 skill，并清理其他 vertical 未修改的旧 seed（用户改过的文件保留）。
 
 改内置 skill 时：
 

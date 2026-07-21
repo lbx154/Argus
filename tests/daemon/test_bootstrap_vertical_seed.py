@@ -117,6 +117,24 @@ def test_research_vertical_seeds_runtime_matcher_layer(tmp_path: Path) -> None:
     ).exists()
 
 
+def test_switching_away_from_math_prunes_workspace_skill_seeds(
+    tmp_path: Path,
+) -> None:
+    from argus_skill.skills.builtins import iter_vertical_skill_texts
+
+    math_skills = {name for name, _text in iter_vertical_skill_texts("math")}
+    persist_vertical(tmp_path, "math")
+    worker = _worker("solve the mathematical problem")
+    worker._seed_project_agents_and_venv(tmp_path)
+    skills_root = tmp_path / "argus_builtin_skills"
+    assert all((skills_root / filename).is_file() for filename in math_skills)
+
+    persist_vertical(tmp_path, "software")
+    worker._seed_project_agents_and_venv(tmp_path)
+
+    assert not any((skills_root / filename).exists() for filename in math_skills)
+
+
 def test_env_forced_vertical_seeds_optimize_contract_on_a_fresh_project(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
