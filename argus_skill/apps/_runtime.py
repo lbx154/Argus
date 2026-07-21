@@ -25,7 +25,6 @@ import os
 import shlex
 import signal
 import sys
-import tempfile
 import threading
 from collections.abc import Mapping
 from contextlib import contextmanager
@@ -826,9 +825,7 @@ class _SkillLoopRunner(SelfReplyMixin):
             )
         if maintenance_mission:
             maintenance_checkpoint_dir = (
-                Path(tempfile.gettempdir())
-                / "argus-self-maintenance-checkpoints"
-                / str(mission_id or "maintenance")
+                workdir / ".argus-self-maintenance-runtime"
             )
             maintenance_checkpoint_dir.mkdir(parents=True, exist_ok=True)
             config_kwargs["checkpoint_path"] = (
