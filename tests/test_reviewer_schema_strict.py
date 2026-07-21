@@ -114,6 +114,32 @@ def test_reviewer_schema_has_one_to_one_handoff_fields() -> None:
         assert set(report["required"]) == set(report["properties"])
 
 
+def test_active_schemas_expose_framework_certification_payload() -> None:
+    for schema_path in (SCHEMA_PATH, RESEARCH_SCHEMA_PATH):
+        schema = json.loads(Path(schema_path).read_text(encoding="utf-8"))
+        cert = schema["properties"]["certification_payload"]
+        assert "certification_payload" in schema["required"]
+        assert cert["type"] == ["object", "null"]
+        review = cert["properties"]["review"]
+        assert set(review["required"]) == set(review["properties"])
+        assert review["properties"]["status"]["enum"] == ["done"]
+        assert review["properties"]["scope"]["enum"] == [
+            "bounded",
+            "final_submission",
+        ]
+        item = review["properties"]["checklist"]["items"]
+        assert set(item["required"]) == {
+            "checklist_id",
+            "verdict",
+            "evidence_refs",
+            "reviewer_notes",
+        }
+        assert item["properties"]["verdict"]["enum"] == [
+            "supported",
+            "not_applicable",
+        ]
+
+
 def test_control_object_requires_all_keys_in_active_schemas() -> None:
     for schema_path in (SCHEMA_PATH, RESEARCH_SCHEMA_PATH):
         schema = json.loads(Path(schema_path).read_text(encoding="utf-8"))

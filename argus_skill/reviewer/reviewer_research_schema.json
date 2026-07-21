@@ -377,6 +377,111 @@
         ]
       }
     },
+    "certification_payload": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Reviewer-authored framework certification payload; null unless the objective requires a consumed handoff review object with per-checklist verdicts.",
+      "additionalProperties": false,
+      "properties": {
+        "review": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "enum": [
+                "done"
+              ]
+            },
+            "scope": {
+              "enum": [
+                "bounded",
+                "final_submission"
+              ]
+            },
+            "correctness_status": {
+              "enum": [
+                "verified",
+                "incorrect",
+                "uncertain"
+              ]
+            },
+            "summary": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            "next_action": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 1500
+            },
+            "blocking_issues": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "type": "string",
+                "maxLength": 500
+              }
+            },
+            "checklist": {
+              "type": "array",
+              "maxItems": 200,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "checklist_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 240
+                  },
+                  "verdict": {
+                    "enum": [
+                      "supported",
+                      "not_applicable"
+                    ]
+                  },
+                  "evidence_refs": {
+                    "type": "array",
+                    "maxItems": 12,
+                    "items": {
+                      "type": "string",
+                      "maxLength": 400
+                    }
+                  },
+                  "reviewer_notes": {
+                    "type": "string",
+                    "maxLength": 1000
+                  }
+                },
+                "required": [
+                  "checklist_id",
+                  "verdict",
+                  "evidence_refs",
+                  "reviewer_notes"
+                ]
+              }
+            }
+          },
+          "required": [
+            "status",
+            "scope",
+            "correctness_status",
+            "summary",
+            "next_action",
+            "blocking_issues",
+            "checklist"
+          ]
+        }
+      },
+      "required": [
+        "review"
+      ]
+    },
     "checklist_feedback": {
       "type": [
         "object",
@@ -447,6 +552,7 @@
     "research_result",
     "planner_report",
     "checklist",
+    "certification_payload",
     "checklist_feedback"
   ]
 }

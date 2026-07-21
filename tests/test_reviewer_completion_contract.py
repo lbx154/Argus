@@ -229,6 +229,42 @@ def test_parser_accepts_framework_review_wrapper_with_legacy_tail() -> None:
     ]
 
 
+def test_parser_accepts_schema_certification_payload_wrapper() -> None:
+    certification_payload = {
+        "review": {
+            "status": "done",
+            "scope": "bounded",
+            "correctness_status": "verified",
+            "summary": "Bounded C21 packet is verified without broader claims.",
+            "next_action": "",
+            "checklist": [
+                {
+                    "checklist_id": "solve.checkable-evidence",
+                    "verdict": "supported",
+                    "evidence_refs": ["research/C21_SOLVE_REVIEWER_PACKET.json"],
+                    "reviewer_notes": "Frozen evidence is checkable.",
+                }
+            ],
+            "blocking_issues": [],
+        }
+    }
+    payload = {
+        "status": "done",
+        "reason": "Bounded C21 packet is verified without broader claims.",
+        "next_action": "",
+        "scope": "bounded",
+        "checklist": [],
+        "certification_payload": certification_payload,
+    }
+
+    decision = _parse(payload)
+
+    assert decision is not None
+    assert decision.status == "done"
+    assert decision.scope == "bounded"
+    assert decision.certification_payload == certification_payload
+
+
 def test_parser_drops_malformed_scope() -> None:
     decision = _parse({
         "status": "done",
