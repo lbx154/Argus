@@ -1,14 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, useApp, useInput, useStdout } from 'ink';
-import type { WebSocket } from 'ws';
 import {
   ApiClient,
-  taskDispatchMessage,
   type DaemonStartResult,
   type ArtifactInfo,
-  type EventMsg,
   type ProjectRow,
-  type Snapshot,
 } from './api.js';
 import {
   backspace,
@@ -25,7 +21,7 @@ import {
   type Edit,
 } from './input/editor.js';
 import { EMPTY_HISTORY, newer, older, remember, type History } from './input/history.js';
-import { applyCompletion, didYouMean, isSlash, parseCommand, parseEventViewArgs, parseResumeTarget, slashCompletions } from './input/slash.js';
+import { applyCompletion, isSlash, parseResumeTarget, slashCompletions } from './input/slash.js';
 import { Header } from './components/Header.js';
 import { EventLog } from './components/EventLog.js';
 import { PromptBox } from './components/PromptBox.js';
@@ -34,7 +30,7 @@ import { Footer } from './components/Footer.js';
 import { ThinkingLine } from './components/ThinkingLine.js';
 import { GuardianBanner } from './components/GuardianBanner.js';
 import { NewDaemonForm } from './components/NewDaemonForm.js';
-import { PanelView, type PanelState } from './components/panels.js';
+import { PanelView } from './components/panels.js';
 import { activeGuardianAlert } from './guardian.js';
 import { useTerminalSize } from './useTerminalSize.js';
 import { filterProjects, rankProjects } from '../../core/src/projects.js';
@@ -43,7 +39,6 @@ import { visibleBacklogItems } from '../../core/src/backlog.js';
 import {
   overlayActiveRole,
   overlayRoleActivities,
-  reduceOperatorEvent,
 } from '../../core/src/activity.js';
 import {
   daemonDraftValues,
@@ -53,22 +48,15 @@ import {
 } from './newDaemonForm.js';
 import { MissionCockpit } from './components/MissionCockpit.js';
 import { consumePasteChunk } from './input/paste.js';
-import { transcriptEvents } from './transcript.js';
 import {
   DaemonReplacementPicker,
   type DaemonReplacementState,
 } from './components/DaemonReplacementPicker.js';
 import { projectMissionView } from '../../core/src/missionView.js';
-
-const MAX_EVENTS = 400;
-const STREAM_RENDER_INTERVAL_MS = 50;
-
-interface ActiveManagerRequest {
-  id: number;
-  project: string;
-  controller: AbortController;
-  messageId: string;
-}
+import { useProjectFeed } from './appProjectFeed.js';
+import { useManagerSession } from './appManagerSession.js';
+import { usePanelState } from './appPanelState.js';
+import { dispatchSlashCommand } from './appSlashDispatch.js';
 
 export interface AppProps {
   host: string;
@@ -117,16 +105,22 @@ export function App({
     () => new ApiClient({ host, port, project, token }),
     [host, port, project, token],
   );
-  const [snap, setSnap] = useState<Snapshot | null>(null);
-  const [events, setEvents] = useState<EventMsg[]>([]);
-  const [connected, setConnected] = useState(false);
-  const [snapshotError, setSnapshotError] = useState('');
-  const [streamError, setStreamError] = useState('');
+  const {
+    snap,
+    setSnap,
+    events,
+    setEvents,
+    connected,
+    snapshotError,
+    streamError,
+    closeStream,
+    shutdown: shutdownFeed,
+  } = useProjectFeed(api, project);
   const [edit, setEdit] = useState<Edit>(EMPTY);
   const [history, setHistory] = useState<History>(EMPTY_HISTORY);
   const [menuSel, setMenuSel] = useState(0);
   const [notice, setNotice] = useState(initialNotice);
-  const [panel, setPanel] = useState<PanelState | null>(null);
+  const { panel, setPanel, openPanel } = usePanelState(api, project);
   const [daemonDraft, setDaemonDraft] = useState<NewDaemonDraft | null>(null);
   const [replacement, setReplacement] = useState<DaemonReplacementState | null>(
     () => replacementState(
@@ -136,24 +130,12 @@ export function App({
     ),
   );
   const [pendingExit, setPendingExit] = useState(false);
-  // A Manager turn in flight → drive the live "thinking" indicator (spinner +
-  // elapsed + phase) so the terminal never looks frozen while Argus works.
-  const [pending, setPending] = useState(false);
-  const [phase, setPhase] = useState('');
-  const [phaseHeartbeat, setPhaseHeartbeat] = useState(false);
-  const [phaseQuietS, setPhaseQuietS] = useState(0);
-  const [startedAt, setStartedAt] = useState(0);
-  const [tick, setTick] = useState(0);
-  const wsRef = useRef<WebSocket | null>(null);
-  const aliveRef = useRef(true);
 
   useEffect(() => {
     setMenuSel(0);
   }, [edit.value]);
   const creatingProjectRef = useRef(false);
   const dismissedAdmissionRef = useRef(0);
-  const managerRequestRef = useRef<ActiveManagerRequest | null>(null);
-  const managerEpochRef = useRef(0);
   const pasteActiveRef = useRef(false);
 
   useEffect(() => {
@@ -163,37 +145,6 @@ export function App({
       stdout.write('\u001b[?2004l');
     };
   }, [stdout]);
-
-  const cancelManagerTurn = () => {
-    const cancelled = Boolean(managerRequestRef.current);
-    managerEpochRef.current += 1;
-    managerRequestRef.current?.controller.abort();
-    managerRequestRef.current = null;
-    setPending(false);
-    setPhase('');
-    setPhaseHeartbeat(false);
-    setPhaseQuietS(0);
-    setStartedAt(0);
-    return cancelled;
-  };
-
-  const stopWaiting = () => {
-    if (cancelManagerTurn()) {
-      setNotice('stopped waiting · server-side work may still finish in the project timeline');
-    } else {
-      setNotice('no Manager reply is currently in flight');
-    }
-  };
-
-  const changeProject = (id: string): boolean => {
-    if (id === projectRef.current) return false;
-    cancelManagerTurn();
-    projectRef.current = id;
-    setProject(id);
-    setReplacement(null);
-    dismissedAdmissionRef.current = 0;
-    return true;
-  };
 
   const captureAdmission = (
     start: DaemonStartResult | undefined,
@@ -267,139 +218,40 @@ export function App({
     }
   };
 
-  useEffect(() => () => {
-    managerEpochRef.current += 1;
-    managerRequestRef.current?.controller.abort();
-    managerRequestRef.current = null;
-  }, []);
+  const {
+    pending,
+    phase,
+    phaseHeartbeat,
+    phaseQuietS,
+    startedAt,
+    tick,
+    managerRequestRef,
+    cancelManagerTurn,
+    stopWaiting,
+    submitFreeText,
+  } = useManagerSession({
+    api,
+    projectRef,
+    setEvents,
+    setNotice,
+    captureAdmission,
+  });
 
-  // Switching project: reset the feed/snapshot so stale data never bleeds across.
-  useEffect(() => {
-    setEvents([]);
-    setSnap(null);
-    setConnected(false);
-    setSnapshotError('');
-    setStreamError('');
-  }, [project]);
-
-  useEffect(() => {
-    aliveRef.current = true;
-    let active = true;
-    let retry: ReturnType<typeof setTimeout> | undefined;
-    let renderTimer: ReturnType<typeof setTimeout> | undefined;
-    let pendingEvents: EventMsg[] = [];
-    const flushEvents = () => {
-      renderTimer = undefined;
-      if (!active || pendingEvents.length === 0) return;
-      const batch = pendingEvents;
-      pendingEvents = [];
-      setEvents((prev) =>
-        batch.reduce(
-          (current, event) => reduceOperatorEvent(current, event, MAX_EVENTS),
-          prev,
-        ),
-      );
-    };
-    const queueEvent = (event: EventMsg) => {
-      if (!active) return;
-      pendingEvents.push(event);
-      if (!renderTimer) renderTimer = setTimeout(flushEvents, STREAM_RENDER_INTERVAL_MS);
-    };
-    const connect = () => {
-      if (!active || !aliveRef.current) return;
-      wsRef.current = api.connectStream({
-        replay: 60,
-        onOpen: () => {
-          if (!active) return;
-          setConnected(true);
-          setStreamError('');
-        },
-        onEvent: queueEvent,
-        onClose: () => {
-          if (!active) return;
-          flushEvents();
-          setConnected(false);
-          if (aliveRef.current) retry = setTimeout(connect, 1000);
-        },
-        onError: (error) => {
-          if (active) setStreamError(error.message || 'event stream unavailable');
-        },
-      });
-    };
-    connect();
-    return () => {
-      active = false;
-      if (retry) clearTimeout(retry);
-      if (renderTimer) clearTimeout(renderTimer);
-      pendingEvents = [];
-      wsRef.current?.close();
-    };
-  }, [api]);
-
-  useEffect(() => {
-    let active = true;
-    api.getTranscript(MAX_EVENTS).then(
-      (turns) => {
-        if (!active) return;
-        const persisted = transcriptEvents(turns);
-        setEvents((live) =>
-          [...persisted, ...live]
-            .sort((left, right) => Number(left.ts ?? 0) - Number(right.ts ?? 0))
-            .reduce(
-              (current, event) => reduceOperatorEvent(current, event, MAX_EVENTS),
-              [] as EventMsg[],
-            ),
-        );
-      },
-      () => {
-        // Event streaming remains usable when an old project has no transcript.
-      },
-    );
-    return () => {
-      active = false;
-    };
-  }, [api]);
-
-  useEffect(() => {
-    let alive = true;
-    const tick = async () => {
-      try {
-        const s = await api.snapshot();
-        if (alive) {
-          setSnap((current) => (
-            current && JSON.stringify(current) === JSON.stringify(s)
-              ? current
-              : s
-          ));
-          setSnapshotError('');
-        }
-      } catch (error) {
-        if (alive) setSnapshotError((error as Error).message || 'snapshot refresh failed');
-      }
-    };
-    tick();
-    const id = setInterval(tick, 5_000);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
-  }, [api]);
+  const changeProject = (id: string): boolean => {
+    if (id === projectRef.current) return false;
+    cancelManagerTurn();
+    projectRef.current = id;
+    setProject(id);
+    setReplacement(null);
+    dismissedAdmissionRef.current = 0;
+    return true;
+  };
 
   const quit = () => {
     cancelManagerTurn();
-    aliveRef.current = false;
-    wsRef.current?.close();
+    shutdownFeed();
     exit();
   };
-
-  // While a Manager turn is pending, tick a lightweight clock so the thinking
-  // spinner animates and the elapsed counter climbs (cleared the instant it
-  // settles). ~120ms = a calm, non-jittery cadence.
-  useEffect(() => {
-    if (!pending) return;
-    const id = setInterval(() => setTick((t) => t + 1), 120);
-    return () => clearInterval(id);
-  }, [pending]);
 
   // /resume + /attach — switch the active project (reconnects the stream).
   const switchProject = async (arg: string) => {
@@ -481,358 +333,21 @@ export function App({
     }
   };
 
-  // ── open a read/inspect panel (fetches its data async) ──
-  const openPanel = (kind: PanelState['kind'], opts: Partial<PanelState> = {}) => {
-    const needsFetch = !['help', 'backlog', 'events'].includes(kind);
-    setPanel({ kind, page: 0, ...opts, loading: needsFetch });
-    if (!needsFetch) return;
-    const fetchers: Record<string, () => Promise<unknown>> = {
-      status: () => api.getStatus(),
-      doctor: () => api.getDoctor(),
-      journal: () => api.getJournal(20),
-      config: () => api.getConfig(),
-      identity: () => api.getIdentity(),
-      daemons: () => api.listProjects(),
-      artifacts: () => api.getArtifacts(),
-      artifact: () => api.getArtifact(String(opts.path ?? '')),
-      task: () => api.getBacklogItem(String(opts.itemId ?? '')),
-    };
-    const f = fetchers[kind];
-    if (!f) return;
-    f().then(
-      (data) => setPanel((p) => {
-        if (!p || p.kind !== kind) return p;
-        let selection = p.selection ?? 0;
-        if (kind === 'daemons') {
-          const ranked = filterProjects(rankProjects(data as ProjectRow[]), String(opts.query ?? ''));
-          const current = ranked.findIndex((row) => row.id === project);
-          selection = current >= 0 ? current : 0;
-        }
-        return { ...p, loading: false, data, selection };
-      }),
-      (e) => setPanel((p) => (p && p.kind === kind ? { ...p, loading: false, error: (e as Error).message } : p)),
-    );
-  };
-
   const dispatchSlash = (line: string) => {
-    const p = parseCommand(line);
-    if (!p) return;
-    if (!p.cmd) {
-      const s = didYouMean(p.name);
-      setNotice(s ? `unknown ${p.name} — did you mean ${s}?` : `unknown command ${p.name} — /help`);
-      return;
-    }
-    const ok = (m: string) => () => setNotice(m);
-    const err = (e: unknown) => setNotice(`error: ${(e as Error).message}`);
-    const need = (usage: string) => setNotice(`usage: ${usage}`);
-    const showOutput = (text: string) => setEvents((events) => [
-      ...events,
-      { type: 'ui.argus', text, message_id: `local-${Date.now()}`, ts: Date.now() / 1000 } as EventMsg,
-    ]);
-    switch (p.cmd.name) {
-      case '/help':
-        openPanel('help');
-        break;
-      case '/status':
-        openPanel('status');
-        break;
-      case '/roles':
-        openPanel('config');
-        break;
-      case '/doctor':
-        openPanel('doctor');
-        break;
-      case '/identity':
-        if (!p.rest) openPanel('identity');
-        else if (p.rest.toLowerCase().startsWith('set ')) {
-          const body = p.rest.slice(4).trim();
-          if (body) void api.setIdentity(body).then(ok('identity updated'), err);
-          else need('/identity set <text>');
-        } else need('/identity [set <text>]');
-        break;
-      case '/journal':
-        openPanel('journal');
-        break;
-      case '/backlog':
-        openPanel('backlog', { all: p.rest.trim() === 'all', selection: 0 });
-        break;
-      case '/daemons':
-        openPanel('daemons', { query: p.rest });
-        break;
-      case '/artifacts':
-        openPanel('artifacts');
-        break;
-      case '/artifact':
-        if (p.rest) openPanel('artifact', { path: p.rest });
-        else need('/artifact <path>');
-        break;
-      case '/events': {
-        const view = parseEventViewArgs(p.rest);
-        openPanel('events', { ...view });
-        break;
-      }
-      case '/find':
-        if (p.rest) openPanel('events', { filter: 'all', query: p.rest });
-        else need('/find <text>');
-        break;
-      case '/item':
-        if (p.rest) openPanel('task', { itemId: p.rest });
-        else need('/item <id>');
-        break;
-      case '/resume':
-      case '/attach':
-        void switchProject(p.rest);
-        break;
-      case '/rename':
-        if (!p.rest) {
-          need('/rename <name>');
-          break;
-        }
-        void api.renameProject(p.rest).then((result) => {
-          setSnap((current) => current
-            && current.session.id === result.sid
-            ? {
-                ...current,
-                session: { ...current.session, display_name: result.name },
-              }
-            : current);
-          if (projectRef.current === result.sid) {
-            setNotice(`renamed conversation to ${result.name}`);
-          }
-        }, err);
-        break;
-      case '/clear':
-        setEvents([]);
-        setNotice('feed cleared');
-        break;
-      case '/run':
-        setPanel(null);
-        setNotice('already following the live daemon feed');
-        break;
-      case '/reconnect':
-        setNotice('reconnecting…');
-        wsRef.current?.close();
-        break;
-      case '/cancel':
-        stopWaiting();
-        break;
-      case '/abort':
-        void api.abortMission('operator used /abort').then(
-          (result) => setNotice(result.message),
-          err,
-        );
-        break;
-      case '/quit':
-        quit();
-        break;
-      case '/task':
-        if (p.rest) void api.postTask(p.rest).then((it) => setNotice(`queued ${it.id}`), err);
-        else need('/task <text>');
-        break;
-      case '/plan':
-        if (!p.rest) need('/plan <objective>');
-        else void api.previewPlan(p.rest).then((plan) => {
-          if (plan.error) {
-            showOutput(`Planner could not draft a plan: ${plan.error}`);
-            return;
-          }
-          const lines = ['Planner preview (nothing queued):'];
-          plan.steps.forEach((step, index) => {
-            lines.push(`${index + 1}. ${step.title}${step.detail ? ` — ${step.detail}` : ''}`);
-          });
-          if (plan.notes.length) lines.push(`Notes: ${plan.notes.join('; ')}`);
-          lines.push('Use /task <objective> to queue it.');
-          showOutput(lines.join('\n'));
-        }, err);
-        break;
-      case '/nudge':
-        if (p.rest) void api.postNudge(p.rest).then(ok('nudge sent'), err);
-        else need('/nudge <text>');
-        break;
-      case '/note':
-        if (p.rest) void api.postNote(p.rest).then(ok('note added'), err);
-        else need('/note <text>');
-        break;
-      case '/done':
-        if (p.rest) void api.disposeBacklog(p.rest, 'done').then(ok(`done ${p.rest}`), err);
-        else need('/done <id>');
-        break;
-      case '/skip':
-        if (p.rest) void api.disposeBacklog(p.rest, 'skip').then(ok(`skipped ${p.rest}`), err);
-        else need('/skip <id>');
-        break;
-      case '/stop':
-        if (p.rest) void api.stopBacklog(p.rest).then(ok(`stopped ${p.rest}`), err);
-        else need('/stop <id>');
-        break;
-      case '/new':
-        openNewDaemon(p.rest);
-        break;
-      case '/backend':
-        if (!p.rest) openPanel('config');
-        else void api.setConfig('backend', p.rest).then(
-          () => setNotice(`backend set to ${p.rest}`),
-          err,
-        );
-        break;
-      case '/config': {
-        if (!p.rest) {
-          openPanel('config');
-          break;
-        }
-        const pairs = p.rest.split(/\s+/).filter(Boolean);
-        const invalid = pairs.find((pair) => {
-          const at = pair.indexOf('=');
-          return at <= 0 || at === pair.length - 1;
-        });
-        if (invalid) {
-          setNotice(`expected key=value, got ${invalid}`);
-          break;
-        }
-        const updates = pairs.map((pair) => {
-          const at = pair.indexOf('=');
-          return api.setConfig(pair.slice(0, at), pair.slice(at + 1));
-        });
-        void Promise.all(updates).then(
-          () => setNotice(`updated ${updates.length} setting(s)`),
-          err,
-        );
-        break;
-      }
-      case '/reset':
-        void api.resetManager().then(ok('Manager context reset'), err);
-        break;
-      case '/skills':
-        void api.skills(p.rest || 'ls').then(showOutput, err);
-        break;
-      default:
-        setNotice(`${p.cmd.name} not yet wired`);
-    }
-  };
-
-  const submitFreeText = async (text: string) => {
-    // Natural language goes to the Manager front-door — it decides whether to
-    // reply (chat) or dispatch a mission. No task/nudge modes to think about.
-    // We STREAM the turn (SSE): the operator's line lands immediately, a live
-    // "thinking" indicator shows Argus is working, phases update it in real
-    // time, and the reply grows block-by-block — instead of a frozen screen
-    // until the whole turn ends. Reply blocks share a message_id so EventLog
-    // coalesces them into ONE growing row (kept live, out of <Static>).
-    if (managerRequestRef.current) {
-      setNotice('Argus is still working · wait or switch daemons to cancel');
-      return;
-    }
-    const requestProject = projectRef.current;
-    const requestId = ++managerEpochRef.current;
-    const controller = new AbortController();
-    managerRequestRef.current = {
-      id: requestId,
-      project: requestProject,
-      controller,
-      messageId: '',
-    };
-    const isCurrent = () => {
-      const request = managerRequestRef.current;
-      return Boolean(
-        request
-        && request.id === requestId
-        && request.project === requestProject
-        && projectRef.current === requestProject
-        && !controller.signal.aborted
-      );
-    };
-
-    const replyId = `argus-${Date.now()}`;
-    setEvents((e) => [...e, { type: 'ui.operator', text, ts: Date.now() / 1000 } as EventMsg]);
-    setPhase('');
-    setStartedAt(Date.now());
-    setTick(0);
-    setPending(true);
-    setNotice('');
-
-    const say = (t: string, messageId = replyId) => {
-      if (!isCurrent()) return;
-      setEvents((events) => isCurrent()
-        ? [
-            ...events,
-            { type: 'ui.argus', text: t, message_id: messageId, ts: Date.now() / 1000 } as EventMsg,
-          ]
-        : events);
-    };
-
-    let gotDelta = false;
-    let streamErr: Error | null = null;
-    try {
-      try {
-        await api.messageStream(text, {
-          onPhase: (label, _role, meta) => {
-            if (!isCurrent()) return;
-            setPhase(label);
-            setPhaseHeartbeat(meta.heartbeat);
-            setPhaseQuietS(meta.quietS);
-          },
-          onDelta: (block, messageId) => {
-            if (!isCurrent()) return;
-            gotDelta = true;
-            setPhase('');
-            setPhaseHeartbeat(false);
-            setPhaseQuietS(0);
-            const activeMessageId = messageId || replyId;
-            const request = managerRequestRef.current;
-            if (request?.id === requestId) request.messageId = activeMessageId;
-            say(block, activeMessageId);
-          },
-          onDone: (result) => {
-            if (!isCurrent()) return;
-            if (result.kind === 'task') {
-              captureAdmission(
-                result.daemon,
-                requestProject,
-                Boolean(result.continuous),
-              );
-              say(taskDispatchMessage(result));
-            }
-            else if (!gotDelta) {
-              say(result.reply || '[Manager reply unavailable] No task was dispatched.');
-            }
-          },
-          onError: (err) => {
-            if (isCurrent()) streamErr = err;
-          },
-        }, controller.signal);
-      } catch (error) {
-        if (isCurrent()) streamErr = error as Error; // network failure / stream couldn't open
-      }
-
-      if (!isCurrent()) return;
-
-      // Fallback to the blocking endpoint only if streaming produced nothing.
-      if (streamErr && !gotDelta) {
-        try {
-          const result = await api.message(text, controller.signal);
-          if (!isCurrent()) return;
-          if (result.kind === 'chat' && result.reply) say(result.reply);
-          else if (result.kind === 'task') {
-            captureAdmission(
-              result.daemon,
-              requestProject,
-              Boolean(result.continuous),
-            );
-            say(taskDispatchMessage(result));
-          }
-          else say(result.reply || '(no response)');
-        } catch (error) {
-          if (isCurrent()) say(`(couldn’t reach Argus: ${(error as Error).message})`);
-        }
-      }
-    } finally {
-      if (managerRequestRef.current?.id === requestId) {
-        managerRequestRef.current = null;
-        setPending(false);
-        setPhaseHeartbeat(false);
-        setPhaseQuietS(0);
-      }
-    }
+    dispatchSlashCommand(line, {
+      api,
+      openPanel,
+      setPanel,
+      setEvents,
+      setNotice,
+      setSnap,
+      projectRef,
+      closeStream,
+      stopWaiting,
+      quit,
+      switchProject,
+      openNewDaemon,
+    });
   };
 
   const submit = () => {

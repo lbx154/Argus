@@ -490,8 +490,8 @@ RunnerBackend.run_exec(prompt, options, run_label, resume_thread_id=None) -> Run
 
 实现：
 
-- `argus_skill/adapters/agent_cli_backend.py`: 包 vendored `agent_cli.agent_cli_runner.AgentCliRunner`，真实 codex/claude/copilot/opencode CLI 都从这里走。
-- `argus_skill/agent_cli/`: 旧 ArgusBot autoloop 整套已删除，只保留三个底层 CLI driver 模块 `agent_cli_runner` / `runner_backend` / `models`（+ 薄 `__init__`、`LICENSE`、`_VENDORED.md`）。`__init__` 不再 eager import orchestrator/core，所以 `import argus_skill.agent_cli.agent_cli_runner` 没有遗留副作用。历史的 orchestrator / telegram_daemon / feishu_adapter / 第二份 reviewer·planner·checks / dashboard 等 ~33 个模块（~14.9k 行）都已移除——它们早被 `argus_skill.life` / `engineer` / `planner` 取代（Telegram 远控走的是新的 `life/telegram_bot.py`）。
+- `argus_skill/adapters/agent_cli_backend/`: 真实 codex/claude/copilot/opencode CLI 的稳定适配入口；内部按 admission、spawn、I/O、result/finalize 分层。
+- `argus_skill/agent_cli/`: 对外保持 `agent_cli_runner` / `runner_backend` / `models` 三个底层 driver 表面；命令构造、进程控制、事件解析、prompt delivery、ACP 路由和恢复逻辑在私有模块中。`__init__` 不 eager import 子模块，因此 `import argus_skill.agent_cli.agent_cli_runner` 保持轻量。
 - `argus_skill/adapters/memory_backend.py`: deterministic 测试/smoke。
 - `_SkillLoopRunner` 在 `apps/_runtime.py` 里组装真实 backend，并把 backend 传给 Scientist、engineer、reviewer、planner。
 

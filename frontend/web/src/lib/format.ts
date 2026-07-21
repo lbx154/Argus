@@ -51,3 +51,8 @@ export function clockOf(ev: Record<string, unknown>): string {
   const p = (x: number) => String(x).padStart(2, '0');
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
+
+/** Best-effort human-readable message for a thrown value of unknown shape. */
+export function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error || 'Unknown error');
+}

@@ -1,19 +1,16 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useTranscript, useJournal, useGitDiff } from './hooks';
-import { api, type EventMsg, type ProjectRow } from './api';
-import { TopBar, type ThemeMode } from './components/TopBar';
+import { api, type EventMsg } from './api';
+import { TopBar } from './components/TopBar';
 import { EventStream } from './components/EventStream';
 import { ChatBox } from './components/ChatBox';
 import { CommandPalette, commandPaletteRows, type PaletteItem } from './components/CommandPalette';
 import { KeybindingHelp } from './components/KeybindingHelp';
 import { DoctorModal, ConfigModal, IdentityModal, TranscriptModal } from './components/InfoModals';
 import { PendingBanner } from './components/PendingBanner';
-import { PendingReplyDialog, type PendingReply } from './components/PendingReplyDialog';
+import { PendingReplyDialog } from './components/PendingReplyDialog';
 import { GuardianBanner } from './components/GuardianBanner';
-import { Wordmark } from './components/Wordmark';
-import { BackendHandshake } from './components/BackendHandshake';
-import { TAGLINE } from './lib/soul';
-import { rankProjects, reconcileProjectSelection, resolveProjectSelection } from '../../core/src/projects';
+import { rankProjects } from '../../core/src/projects';
 import { ArtifactModal } from './components/ArtifactModal';
 import { ResearchCanvas } from './components/ResearchCanvas';
 import { ActionNotice, type NoticeTone, type UiNotice } from './components/ActionNotice';
@@ -27,13 +24,14 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faAnglesLeft } from '@fortawesome/free-solid-svg-icons';
 import { MissionControl } from './components/MissionControl';
 import { OperationsModal } from './components/OperationsModal';
-import { Button } from './components/primitives';
+import { Landing } from './components/Landing';
 import { activeGuardianAlert } from './lib/guardian';
 import { projectMissionView } from '../../core/src/missionView';
 import { useQueryClient } from '@tanstack/react-query';
 import { dispatchWebCommand, type WebCommandHandlers } from './lib/webCommands';
+import { buildWebCommandHandlers } from './lib/commandHandlers';
 import { finishManagerMessage } from './lib/messageResult';
-import { COMMANDS, parseEventViewArgs } from '../../core/src/commands';
+import { COMMANDS } from '../../core/src/commands';
 import { type EventViewFilter } from '../../core/src/events';
 import { eventViewReducer, initialEventViewState } from './lib/eventView';
 import {
@@ -41,102 +39,24 @@ import {
   mergeOptimisticManagerDelta,
   optimisticOperatorEvent,
 } from './lib/conversationEvents';
-import { createSessionFast } from './lib/createDaemonFlow';
 import { mergeProjectCosts } from './lib/projectCosts';
+import { errorText } from './lib/format';
+import { useCreateDaemonSession } from './useCreateDaemonSession';
+import { useProjectDaemonActions } from './useProjectDaemonActions';
+import { useGlobalKeyboardShortcuts } from './useGlobalKeyboardShortcuts';
+import { usePendingReplySession } from './usePendingReplySession';
+import { useProjectSelection } from './useProjectSelection';
+import { useWorkbenchLayout } from './useWorkbenchLayout';
 
 type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'operations';
-type ProjectHistoryMode = 'push' | 'replace';
 interface ActiveMessageRequest {
   id: number;
   sid: string;
   controller: AbortController;
 }
 let noticeSequence = 0;
-const BROWSER_PROJECT_KEY = 'argus.browser.project.v1';
-
-function storedBoolean(key: string, fallback: boolean): boolean {
-  const value = localStorage.getItem(key);
-  return value == null ? fallback : value === 'true';
-}
-
-function storedBrowserProject(): string | null {
-  try {
-    return window.sessionStorage.getItem(BROWSER_PROJECT_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function storeBrowserProject(id: string | null): void {
-  try {
-    if (id) window.sessionStorage.setItem(BROWSER_PROJECT_KEY, id);
-    else window.sessionStorage.removeItem(BROWSER_PROJECT_KEY);
-  } catch {
-    /* storage can be disabled; the URL remains authoritative */
-  }
-}
-
-const errorText = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error || 'Unknown error');
-
-function writeProjectLocation(id: string | null, mode: ProjectHistoryMode): void {
-  const url = new URL(window.location.href);
-  if (id) url.searchParams.set('project', id);
-  else url.searchParams.delete('project');
-  const method = mode === 'push' ? 'pushState' : 'replaceState';
-  window.history[method](window.history.state, '', url.toString());
-}
-
-/** Full-viewport picker/empty landing shown until a daemon is selectable. */
-function Landing({
-  loading,
-  hasProjects,
-  error,
-  onRetry,
-  onNew,
-  onChoose,
-  canCreate,
-}: {
-  loading: boolean;
-  hasProjects: boolean;
-  error?: string;
-  onRetry: () => void;
-  onNew: () => void;
-  onChoose: () => void;
-  canCreate: boolean;
-}) {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
-      {loading ? <BackendHandshake /> : (
-        <>
-          <Wordmark size={32} tag={TAGLINE} />
-          <p className={`max-w-md text-sm leading-relaxed ${error ? 'text-err' : 'text-ink-faint'}`}>
-            {error
-              ? error
-              : hasProjects
-              ? 'Select a session from the sidebar, or create a new one.'
-              : 'No sessions yet. Create one to begin.'}
-          </p>
-        </>
-      )}
-      {!loading && (
-        <div className="flex flex-wrap justify-center gap-2">
-          {error ? (
-            <Button onClick={onRetry} variant="danger">Retry</Button>
-          ) : null}
-          {hasProjects ? (
-            <Button onClick={onChoose}>Select session</Button>
-          ) : canCreate ? (
-            <Button onClick={onNew} variant="primary">New session</Button>
-          ) : null}
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default function App() {
-  const params = new URLSearchParams(window.location.search);
   const queryClient = useQueryClient();
   const projectsQ = useProjects();
   const projectCostsQ = useProjectCosts();
@@ -149,46 +69,36 @@ export default function App() {
   );
   const localCwd = projectsQ.data?.local_cwd ?? '';
 
-  const [sid, setSid] = useState<string | null>(
-    params.get('project') || storedBrowserProject(),
-  );
-  const sidRef = useRef(sid);
-  const initialSelectionResolvedRef = useRef(false);
-  sidRef.current = sid;
   const [overlay, setOverlay] = useState<Overlay>('none');
-  const [kiosk, setKiosk] = useState(params.get('kiosk') === '1');
-  const [showReasoning, setShowReasoning] = useState(false);
-  const [workspaceView, setWorkspaceView] = useState<'mission' | 'activity'>(
-    () => localStorage.getItem('argus.workspace.view') === 'mission' ? 'mission' : 'activity',
-  );
-  const [mobileView, setMobileView] = useState<'activity' | 'preview'>('activity');
-  const [rightPanelOpen, setRightPanelOpen] = useState(() => storedBoolean('argus.preview.expanded.v5', true));
-  const [leftWidth, setLeftWidth] = useState(() => {
-    const value = Number(localStorage.getItem('argus.sidebar.width.v2') || 256);
-    return Number.isFinite(value) ? Math.max(220, Math.min(400, value)) : 256;
-  });
-  const [rightWidth, setRightWidth] = useState(() => {
-    const value = Number(localStorage.getItem('argus.preview.width.v2') || 440);
-    return Number.isFinite(value) ? Math.max(320, Math.min(600, value)) : 440;
-  });
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [leftPanelOpen, setLeftPanelOpen] = useState(() => storedBoolean('argus.sidebar.expanded.v4', true));
-  const [manualTheme, setManualTheme] = useState<ThemeMode | null>(() => {
-    const stored = localStorage.getItem('argus.theme');
-    return stored === 'light' || stored === 'dark' ? stored : null;
-  });
-  const [systemDark, setSystemDark] = useState(
-    () => window.matchMedia('(prefers-color-scheme: dark)').matches,
-  );
-  const themeMode: ThemeMode = manualTheme ?? (systemDark ? 'dark' : 'light');
+  const {
+    cycleTheme,
+    kiosk,
+    leftPanelOpen,
+    leftWidth,
+    mobileView,
+    resizeSidebar,
+    rightPanelOpen,
+    rightWidth,
+    setKiosk,
+    setLeftPanelOpen,
+    setLeftWidth,
+    setMobileView,
+    setRightPanelOpen,
+    setRightWidth,
+    setShowReasoning,
+    setSidebarOpen,
+    setWorkspaceView,
+    shellRef,
+    showReasoning,
+    sidebarOpen,
+    themeMode,
+    workspaceView,
+  } = useWorkbenchLayout();
   const [composerFocus, setComposerFocus] = useState(0);
   const [composerDraft, setComposerDraft] = useState('');
   const [slashSelection, setSlashSelection] = useState(0);
   const [chatPending, setChatPending] = useState(false);
   const [localConversationEvents, setLocalConversationEvents] = useState<EventMsg[]>([]);
-  const [pendingReplyOpen, setPendingReplyOpen] = useState(false);
-  const [pendingReplyBusy, setPendingReplyBusy] = useState(false);
-  const promptedReplyRef = useRef('');
   const [managerPhase, setManagerPhase] = useState('');
   const [managerPhaseHeartbeat, setManagerPhaseHeartbeat] = useState(false);
   const [managerPhaseQuietS, setManagerPhaseQuietS] = useState(0);
@@ -197,13 +107,8 @@ export default function App() {
   const [taskItemId, setTaskItemId] = useState<string | null>(null);
   const [newDaemonOpen, setNewDaemonOpen] = useState(false);
   const [daemonManageOpen, setDaemonManageOpen] = useState(false);
-  const [manageTargetSid, setManageTargetSid] = useState<string | null>(null);
-  const [creatingDaemon, setCreatingDaemon] = useState(false);
-  const creatingDaemonRef = useRef(false);
   const messageRequestRef = useRef<ActiveMessageRequest | null>(null);
   const messageEpochRef = useRef(0);
-  const shellRef = useRef<HTMLDivElement>(null);
-  const resizeFrameRef = useRef<number | null>(null);
   const [notice, setNotice] = useState<UiNotice | null>(null);
   const [eventView, dispatchEventView] = useReducer(eventViewReducer, initialEventViewState);
   const [eventFilter, setEventFilter] = useState<EventViewFilter>('all');
@@ -211,38 +116,6 @@ export default function App() {
   const dismissNotice = useCallback(() => setNotice(null), []);
   const notify = useCallback((tone: NoticeTone, message: string) => {
     setNotice({ id: ++noticeSequence, tone, message });
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem('argus.sidebar.expanded.v4', String(leftPanelOpen));
-    localStorage.setItem('argus.preview.expanded.v5', String(rightPanelOpen));
-    localStorage.setItem('argus.sidebar.width.v2', String(leftWidth));
-    localStorage.setItem('argus.preview.width.v2', String(rightWidth));
-  }, [leftPanelOpen, leftWidth, rightPanelOpen, rightWidth]);
-
-  useEffect(() => {
-    localStorage.setItem('argus.workspace.view', workspaceView);
-  }, [workspaceView]);
-
-  useEffect(() => {
-    const media = window.matchMedia('(prefers-color-scheme: dark)');
-    const syncSystemTheme = () => setSystemDark(media.matches);
-    syncSystemTheme();
-    media.addEventListener('change', syncSystemTheme);
-    return () => media.removeEventListener('change', syncSystemTheme);
-  }, []);
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = themeMode;
-  }, [themeMode]);
-
-  useEffect(() => {
-    const sync = () => {
-      document.documentElement.dataset.pageVisible = String(!document.hidden);
-    };
-    sync();
-    document.addEventListener('visibilitychange', sync);
-    return () => document.removeEventListener('visibilitychange', sync);
   }, []);
 
   const cancelActiveMessage = useCallback(() => {
@@ -262,17 +135,23 @@ export default function App() {
     if (!cancelActiveMessage()) return;
     notify('info', 'Stopped waiting for this reply. Server-side work may still finish in the project timeline.');
   }, [cancelActiveMessage, notify]);
-
-  const activateProject = useCallback((id: string | null) => {
-    if (id !== sidRef.current) {
-      cancelActiveMessage();
-      setArtifactPath(null);
-      setTaskItemId(null);
-    }
-    sidRef.current = id;
-    setSid(id);
-    storeBrowserProject(id);
-  }, [cancelActiveMessage]);
+  const {
+    activeSid,
+    clearProjectSelection,
+    prefetchProject,
+    selectProject,
+    sidRef,
+  } = useProjectSelection({
+    cancelActiveMessage,
+    notify,
+    projects,
+    projectsError: projectsQ.isError,
+    projectsReady: projectsQ.isSuccess,
+    queryClient,
+    setArtifactPath,
+    setSidebarOpen,
+    setTaskItemId,
+  });
 
   useEffect(() => () => {
     messageEpochRef.current += 1;
@@ -280,157 +159,15 @@ export default function App() {
     messageRequestRef.current = null;
   }, []);
 
-  const selectProject = useCallback((id: string, mode: ProjectHistoryMode = 'push') => {
-    const locationId = new URLSearchParams(window.location.search).get('project');
-    activateProject(id);
-    if (locationId !== id) writeProjectLocation(id, mode);
-  }, [activateProject]);
+  const { createDaemon, creatingDaemon } = useCreateDaemonSession({
+    localCwd,
+    notify,
+    onFocusComposer: () => setComposerFocus((value) => value + 1),
+    queryClient,
+    refetchProjects: projectsQ.refetch,
+    selectProject,
+  });
 
-  const prefetchProject = useCallback((id: string) => {
-    void queryClient.prefetchQuery({
-      queryKey: ['snapshot', id],
-      queryFn: ({ signal }) => api.snapshot(id, signal),
-      staleTime: 3_000,
-    });
-  }, [queryClient]);
-
-  const createDaemon = async (
-    name: string,
-    objective: string,
-    workdir: string,
-  ): Promise<boolean> => {
-    if (creatingDaemonRef.current) return false;
-    creatingDaemonRef.current = true;
-    setCreatingDaemon(true);
-    try {
-      const { created: r, startCampaign } = await createSessionFast(
-        api,
-        name,
-        objective,
-        workdir,
-      );
-      const outputWorkdir = String(r.workdir || workdir || '');
-      queryClient.setQueryData<{
-        projects: ProjectRow[];
-        local_cwd: string;
-      }>(['projects'], (current) => ({
-        local_cwd: current?.local_cwd ?? localCwd,
-        projects: [
-          {
-            id: r.sid,
-            label: name || r.sid,
-            display_name: name,
-            objective: '',
-            launch_cwd: outputWorkdir,
-            workdir: outputWorkdir,
-            last_active: Date.now() / 1_000,
-            daemon_alive: false,
-            daemon_pid: null,
-            uptime_seconds: null,
-          },
-          ...(current?.projects ?? []).filter((project) => project.id !== r.sid),
-        ],
-      }));
-      selectProject(r.sid);
-      void projectsQ.refetch();
-      window.setTimeout(() => setComposerFocus((x) => x + 1), 0);
-      notify(
-        startCampaign ? 'info' : 'success',
-        startCampaign
-          ? 'Session created and selected. Campaign is starting in the background.'
-          : 'Session created and selected.',
-      );
-      if (startCampaign) {
-        void startCampaign()
-          .then(() => {
-            void queryClient.invalidateQueries({ queryKey: ['snapshot', r.sid] });
-            void projectsQ.refetch();
-            notify('success', 'Campaign started.');
-          })
-          .catch((error) => {
-            notify(
-              'error',
-              `Session was created, but the campaign could not start: ${errorText(error)}`,
-            );
-          });
-      }
-      return true;
-    } catch (error) {
-      notify('error', `Could not create daemon: ${errorText(error)}`);
-      return false;
-    } finally {
-      creatingDaemonRef.current = false;
-      setCreatingDaemon(false);
-    }
-  };
-
-  // Resolve exactly once. Project polling must NEVER auto-follow a newly live
-  // session created by another browser/operator.
-  useEffect(() => {
-    if (!projectsQ.isSuccess) return;
-    const wasResolved = initialSelectionResolvedRef.current;
-    const selection = reconcileProjectSelection(
-      projects,
-      sidRef.current,
-      wasResolved,
-    );
-    if (wasResolved) return;
-    initialSelectionResolvedRef.current = true;
-    if (selection.id !== sidRef.current) activateProject(selection.id);
-    else storeBrowserProject(selection.id);
-    const locationId = new URLSearchParams(window.location.search).get('project');
-    if (locationId !== selection.id) {
-      writeProjectLocation(selection.id, 'replace');
-    }
-    if (selection.recovered) {
-      const fallback = projects.find((project) => project.id === selection.id);
-      notify(
-        'info',
-        fallback
-          ? `Project “${selection.requested}” was not found. Switched to ${fallback.label || fallback.id}.`
-          : `Project “${selection.requested}” was not found. Create a daemon to continue.`,
-      );
-    }
-  }, [activateProject, notify, projects, projectsQ.isSuccess]);
-
-  // Project switches are real browser-history entries. Back/Forward restores
-  // the corresponding cockpit without reloading the page.
-  useEffect(() => {
-    const onPopState = () => {
-      const requested = new URLSearchParams(window.location.search).get('project');
-      setSidebarOpen(false);
-      if (!requested) {
-        activateProject(null);
-        return;
-      }
-      if (!projectsQ.isSuccess) {
-        activateProject(requested);
-        return;
-      }
-      const selection = resolveProjectSelection(projects, requested);
-      activateProject(selection.id);
-      if (selection.recovered) {
-        writeProjectLocation(selection.id, 'replace');
-        const fallback = projects.find((project) => project.id === selection.id);
-        notify(
-          'info',
-          fallback
-            ? `Project “${selection.requested}” was not found. Switched to ${fallback.label || fallback.id}.`
-            : `Project “${selection.requested}” was not found. Create a daemon to continue.`,
-        );
-      }
-    };
-    window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
-  }, [activateProject, notify, projects, projectsQ.isSuccess]);
-
-  const activeSid = projectsQ.isSuccess
-    ? sid && projects.some((project) => project.id === sid)
-      ? sid
-      : null
-    : projectsQ.isError
-    ? sid
-    : null;
 
   const snapQ = useSnapshot(activeSid);
   const snap = snapQ.data;
@@ -458,39 +195,19 @@ export default function App() {
   const guardianAlert = useMemo(() => activeGuardianAlert(events), [events]);
   const transcriptQ = useTranscript(loadedSid, workspaceView === 'activity', 120);
   const journalQ = useJournal(activeSid, 20, overlay === 'inspector');
-  const pendingReply = useMemo<PendingReply | null>(() => {
-    const rows: Array<Record<string, unknown>> = [
-      ...(snap?.pending_questions ?? []),
-      ...(snap?.backlog ?? []).map<Record<string, unknown>>((item) => ({
-        id: item.id,
-        title: item.title,
-        objective: item.objective,
-        pending_question: item.pending_question,
-      })),
-    ];
-    const row = rows.find((item) => {
-      const id = String(item.id ?? '').trim();
-      const question = String(item.pending_question ?? item.question ?? item.text ?? '').trim();
-      return Boolean(id && question);
-    });
-    if (!row) return null;
-    return {
-      id: String(row.id),
-      title: String(row.title ?? row.objective ?? 'Blocked task'),
-      question: String(row.pending_question ?? row.question ?? row.text),
-    };
-  }, [snap?.backlog, snap?.pending_questions]);
-  useEffect(() => {
-    if (!pendingReply || !activeSid) {
-      setPendingReplyOpen(false);
-      return;
-    }
-    const key = `${activeSid}:${pendingReply.id}`;
-    if (promptedReplyRef.current !== key) {
-      promptedReplyRef.current = key;
-      setPendingReplyOpen(true);
-    }
-  }, [activeSid, pendingReply]);
+  const {
+    answerPendingReply,
+    pendingReply,
+    pendingReplyBusy,
+    pendingReplyOpen,
+    setPendingReplyOpen,
+  } = usePendingReplySession({
+    activeSid,
+    backlog: snap?.backlog,
+    notify,
+    pendingQuestions: snap?.pending_questions,
+    refetchSnapshot: snapQ.refetch,
+  });
   const activityEvents = useMemo(() => {
     return mergeConversationEvents(
       events,
@@ -514,311 +231,79 @@ export default function App() {
     dispatchEventView({ kind: 'reset' });
   }, [loadedSid]);
   const actions = useProjectActions(activeSid, snap?.daemon_commands?.revision);
-  const daemonBusy = actions.startDaemon.isPending
-    || actions.stopDaemon.isPending
-    || actions.updateProject.isPending
-    || actions.deleteProject.isPending;
-  const actionFeedback = (success: string) => ({
-    onSuccess: () => notify('success', success),
-    onError: (error: Error) => notify('error', errorText(error)),
+  const {
+    daemonBusy,
+    manageDeleteProject,
+    managePauseDaemon,
+    manageRenameProject,
+    manageStartDaemon,
+    requestDispose,
+    requestManageSession,
+    requestStartDaemon,
+    requestStopDaemon,
+    requestStopIteration,
+    toggleContinuous,
+  } = useProjectDaemonActions({
+    actions,
+    activeSid,
+    clearProjectSelection,
+    continuous,
+    currentSnapshotSid: snap?.session.id,
+    notify,
+    refetchProjects: projectsQ.refetch,
+    selectProject,
+    setDaemonManageOpen,
   });
-  const requestStartDaemon = () =>
-    actions.startDaemon.mutate(undefined, actionFeedback('Daemon start requested.'));
-  const requestStopDaemon = () =>
-    actions.stopDaemon.mutate(true, actionFeedback('Daemon is draining and will stop safely.'));
-  const manageStartDaemon = async (): Promise<boolean> => {
-    try {
-      await actions.startDaemon.mutateAsync();
-      notify('success', 'Daemon resumed.');
-      return true;
-    } catch (error) {
-      notify('error', errorText(error));
-      return false;
-    }
-  };
-  const managePauseDaemon = async (): Promise<boolean> => {
-    try {
-      await actions.stopDaemon.mutateAsync(true);
-      notify('success', 'Daemon paused safely.');
-      return true;
-    } catch (error) {
-      notify('error', errorText(error));
-      return false;
-    }
-  };
-  const manageRenameProject = async (name: string): Promise<boolean> => {
-    if (!activeSid) return false;
-    try {
-      await actions.updateProject.mutateAsync({ sid: activeSid, name });
-      notify('success', 'Session name updated.');
-      return true;
-    } catch (error) {
-      notify('error', errorText(error));
-      return false;
-    }
-  };
-  const manageDeleteProject = async (): Promise<boolean> => {
-    if (!activeSid) return false;
-    try {
-      await actions.deleteProject.mutateAsync();
-      setDaemonManageOpen(false);
-      activateProject(null);
-      writeProjectLocation(null, 'replace');
-      const refreshed = await projectsQ.refetch();
-      const next = rankProjects(refreshed.data?.projects ?? [])[0];
-      if (next) selectProject(next.id, 'replace');
-      notify('success', 'Session moved to recoverable trash.');
-      return true;
-    } catch (error) {
-      notify('error', errorText(error));
-      return false;
-    }
-  };
-  const requestManageSession = useCallback((projectId: string) => {
-    setDaemonManageOpen(false);
-    if (projectId === activeSid && snap?.session.id === projectId) {
-      setManageTargetSid(null);
-      setDaemonManageOpen(true);
-      return;
-    }
-    setManageTargetSid(projectId);
-    selectProject(projectId);
-  }, [activeSid, selectProject, snap?.session.id]);
-  useEffect(() => {
-    if (!manageTargetSid || activeSid !== manageTargetSid || snap?.session.id !== manageTargetSid) return;
-    setManageTargetSid(null);
-    setDaemonManageOpen(true);
-  }, [activeSid, manageTargetSid, snap?.session.id]);
-  const requestDispose = useCallback((id: string, op: 'done' | 'skip' | 'rm') =>
-    actions.disposeBacklog.mutate(
-      { id, op },
-      {
-        onSuccess: () => notify('success', op === 'done' ? 'Work marked done.' : 'Work removed.'),
-        onError: (error: Error) => notify('error', errorText(error)),
-      },
-    ),
-    [actions, notify],
-  );
-  const requestStopIteration = useCallback((id: string) =>
-    actions.stopBacklog.mutate(id, {
-      onSuccess: () => notify('success', 'Iteration stopped.'),
-      onError: (error: Error) => notify('error', errorText(error)),
-    }),
-    [actions, notify],
-  );
-  const toggleContinuous = () => {
-    if (!continuous) return;
-    const enabled = !continuous.enabled;
-    actions.setContinuous.mutate(
-      { enabled, objective: continuous.objective },
-      actionFeedback(enabled ? 'Continuous campaign enabled.' : 'Continuous campaign stopped.'),
-    );
-  };
-  const cycleTheme = () => {
-    const next = themeMode === 'light' ? 'dark' : 'light';
-    setManualTheme(next);
-    localStorage.setItem('argus.theme', next);
-  };
-
-  const commandHandlers = useMemo<WebCommandHandlers>(() => ({
-    status: async () => setOverlay('inspector'),
-    roles: async () => setOverlay('operations'),
-    journal: async () => setOverlay('inspector'),
-    backlog: async () => setWorkspaceView('mission'),
-    item: async (rest) => { if (rest) setTaskItemId(rest); },
-    artifacts: async () => setRightPanelOpen(true),
-    artifact: async (rest) => { if (rest) setArtifactPath(rest); },
-    events: async (rest) => {
-      setWorkspaceView('activity');
-      const { filter, query } = parseEventViewArgs(rest);
-      setEventFilter(filter);
-      setEventQuery(query);
-    },
-    find: async (rest) => {
-      setWorkspaceView('activity');
-      setEventFilter('all');
-      setEventQuery(rest);
-    },
-    run: async () => setWorkspaceView('activity'),
-    clear: async () => {
-      setWorkspaceView('activity');
-      setEventFilter('all');
-      setEventQuery('');
-      dispatchEventView({ kind: 'clear', offset: activityEventsRef.current.length });
-    },
-    cancel: async () => stopWaiting(),
-    task: async (rest) => {
-      if (!activeSid) return;
-      await api.addTask(activeSid, rest);
-      void snapQ.refetch();
-      notify('success', 'Task queued.');
-    },
-    plan: async (rest) => {
-      if (!activeSid) return;
-      const result = await api.previewPlan(activeSid, rest);
-      if (result.error) notify('error', result.error);
-      else notify('info', result.steps.map((s) => s.title).join('\n') || 'Plan preview ready.');
-    },
-    nudge: async (rest) => {
-      if (!activeSid) return;
-      await api.nudge(activeSid, rest);
-      notify('success', 'Guidance injected.');
-    },
-    abort: async (rest) => {
-      if (!activeSid) return;
-      await api.abortMission(activeSid, rest || 'operator abort');
-      notify('info', 'Abort requested.');
-    },
-    note: async (rest) => {
-      if (!activeSid) return;
-      await api.note(activeSid, rest);
-      notify('success', 'Note appended to timeline.');
-    },
-    done: async (rest) => { if (rest) requestDispose(rest, 'done'); },
-    skip: async (rest) => { if (rest) requestDispose(rest, 'rm'); },
-    stop: async (rest) => { if (rest) requestStopIteration(rest); },
-    new: async () => setNewDaemonOpen(true),
-    daemons: async () => setSidebarOpen(true),
-    resume: async (rest) => {
-      if (rest && rest !== 'list') selectProject(rest);
-      else setSidebarOpen(true);
-    },
-    attach: async (rest) => { if (rest) selectProject(rest); },
-    rename: async (rest) => {
-      if (!activeSid || !rest) return;
-      const result = await actions.updateProject.mutateAsync({ sid: activeSid, name: rest });
-      notify('success', `Renamed to "${result.name}".`);
-    },
-    doctor: async () => setOverlay('doctor'),
-    backend: async (rest) => {
-      if (!activeSid || !rest) { setOverlay('config'); return; }
-      await api.setConfig(activeSid, 'runner_backend', rest);
-      notify('success', `Backend set to ${rest}.`);
-    },
-    config: async (rest) => {
-      if (!activeSid || !rest) { setOverlay('config'); return; }
-      const eqIdx = rest.indexOf('=');
-      if (eqIdx > 0) {
-        await api.setConfig(activeSid, rest.slice(0, eqIdx).trim(), rest.slice(eqIdx + 1).trim());
-        notify('success', 'Config updated.');
-      } else {
-        setOverlay('config');
-      }
-    },
-    identity: async () => setOverlay('identity'),
-    reset: async () => {
-      if (!activeSid) return;
-      await api.resetManager(activeSid);
-      notify('success', 'Manager context reset.');
-    },
-    skills: async (rest) => {
-      if (!activeSid) return;
-      const text = await api.skills(activeSid, rest || 'ls');
-      notify('info', text.slice(0, 400));
-    },
-    reconnect: async () => dispatchEventView({ kind: 'reconnect' }),
-    help: async () => setOverlay('help'),
-    quit: async () => notify('info', 'Background work continues; close this browser tab when ready.'),
+  const renameCurrentProject = useCallback(async (name: string) => {
+    if (!activeSid) return;
+    const result = await actions.updateProject.mutateAsync({ sid: activeSid, name });
+    notify('success', `Renamed to "${result.name}".`);
+  }, [actions.updateProject, activeSid, notify]);
+  const commandHandlers = useMemo<WebCommandHandlers>(() => buildWebCommandHandlers({
+    activeSid,
+    activityEventsRef,
+    notify,
+    onClearEvents: (offset) => dispatchEventView({ kind: 'clear', offset }),
+    onDispose: requestDispose,
+    onOpenConfig: () => setOverlay('config'),
+    onOpenDoctor: () => setOverlay('doctor'),
+    onOpenHelp: () => setOverlay('help'),
+    onOpenIdentity: () => setOverlay('identity'),
+    onOpenInspector: () => setOverlay('inspector'),
+    onOpenNewDaemon: () => setNewDaemonOpen(true),
+    onOpenOperations: () => setOverlay('operations'),
+    onOpenSidebar: () => setSidebarOpen(true),
+    onReconnectEvents: () => dispatchEventView({ kind: 'reconnect' }),
+    onRenameProject: renameCurrentProject,
+    onSelectProject: selectProject,
+    onSetArtifactPath: setArtifactPath,
+    onSetEventFilter: setEventFilter,
+    onSetEventQuery: setEventQuery,
+    onSetTaskItemId: setTaskItemId,
+    onSetWorkspaceView: setWorkspaceView,
+    onShowArtifacts: () => setRightPanelOpen(true),
+    onStopIteration: requestStopIteration,
+    onStopWaiting: stopWaiting,
+    refetchSnapshot: snapQ.refetch,
   }), [
-    activeSid, actions, notify, requestDispose, requestStopIteration,
-    selectProject, snapQ, stopWaiting,
-    dispatchEventView, setEventFilter, setEventQuery,
+    activeSid,
+    notify,
+    renameCurrentProject,
+    requestDispose,
+    requestStopIteration,
+    selectProject,
+    snapQ.refetch,
+    stopWaiting,
+    setWorkspaceView,
   ]);
-  const resizeSidebar = useCallback((
-    side: 'left' | 'right',
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) => {
-    const shell = shellRef.current;
-    if (!shell) return;
-    event.preventDefault();
-    const rect = shell.getBoundingClientRect();
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    const move = (pointer: PointerEvent) => {
-      if (resizeFrameRef.current != null) window.cancelAnimationFrame(resizeFrameRef.current);
-      resizeFrameRef.current = window.requestAnimationFrame(() => {
-        if (side === 'left') {
-          const occupiedRight = rightPanelOpen ? rightWidth + 8 : 56;
-          const max = Math.max(220, Math.min(400, rect.width - occupiedRight - 360 - 8));
-          setLeftWidth(Math.max(220, Math.min(max, pointer.clientX - rect.left)));
-        } else {
-          const occupiedLeft = leftPanelOpen ? leftWidth + 8 : 56;
-          const max = Math.max(320, Math.min(600, rect.width - occupiedLeft - 360 - 8));
-          setRightWidth(Math.max(320, Math.min(max, rect.right - pointer.clientX)));
-        }
-      });
-    };
-    const stop = () => {
-      if (resizeFrameRef.current != null) window.cancelAnimationFrame(resizeFrameRef.current);
-      resizeFrameRef.current = null;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', stop);
-      window.removeEventListener('pointercancel', stop);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', stop, { once: true });
-    window.addEventListener('pointercancel', stop, { once: true });
-  }, [leftPanelOpen, leftWidth, rightPanelOpen, rightWidth]);
-  useEffect(() => {
-    const fit = () => {
-      if (window.innerWidth < 1024 || !shellRef.current) return;
-      const shellWidth = shellRef.current.clientWidth;
-      const left = leftPanelOpen ? leftWidth : 56;
-      const right = rightPanelOpen ? rightWidth : 56;
-      const handles = (leftPanelOpen ? 8 : 0) + (rightPanelOpen ? 8 : 0);
-      const availableForSides = Math.max(540, shellWidth - 360 - handles);
-      if (left + right <= availableForSides) return;
-      let nextRight = rightPanelOpen
-        ? Math.max(320, Math.min(rightWidth, availableForSides - left))
-        : right;
-      let nextLeft = leftPanelOpen
-        ? Math.max(220, Math.min(leftWidth, availableForSides - nextRight))
-        : left;
-      if (nextLeft + nextRight > availableForSides && rightPanelOpen) {
-        nextRight = Math.max(320, availableForSides - nextLeft);
-      }
-      if (leftPanelOpen) setLeftWidth(nextLeft);
-      if (rightPanelOpen) setRightWidth(nextRight);
-    };
-    fit();
-    window.addEventListener('resize', fit);
-    return () => window.removeEventListener('resize', fit);
-  }, [leftPanelOpen, leftWidth, rightPanelOpen, rightWidth]);
-
-  // global keybindings — editor-style panel toggles plus cockpit actions.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement | null;
-      const typing = el?.tagName === 'INPUT' || el?.tagName === 'TEXTAREA';
-      const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        setOverlay((o) => (o === 'palette' ? 'none' : 'palette'));
-      } else if (mod && e.key.toLowerCase() === 'o') {
-        e.preventDefault();
-        setShowReasoning((v) => !v);
-      } else if (mod && e.key === '.') {
-        e.preventDefault();
-        setKiosk((v) => !v);
-      } else if (mod && e.key.toLowerCase() === 'b') {
-        e.preventDefault();
-        setLeftPanelOpen((value) => !value);
-      } else if (mod && e.key.toLowerCase() === 'j') {
-        e.preventDefault();
-        setComposerFocus((value) => value + 1);
-      } else if (!typing && e.key === '?') {
-        e.preventDefault();
-        setOverlay('help');
-      } else if (!typing && e.key === '/') {
-        e.preventDefault();
-        setComposerFocus((x) => x + 1);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  useGlobalKeyboardShortcuts({
+    focusComposer: () => setComposerFocus((value) => value + 1),
+    openHelp: () => setOverlay('help'),
+    toggleKiosk: () => setKiosk((value) => !value),
+    togglePalette: () => setOverlay((current) => current === 'palette' ? 'none' : 'palette'),
+    toggleReasoning: () => setShowReasoning((value) => !value),
+    toggleSidebarCollapse: () => setLeftPanelOpen((value) => !value),
+  });
 
   const sendMessage = async (text: string): Promise<boolean> => {
     const requestSid = activeSid;
@@ -960,38 +445,6 @@ export default function App() {
     })();
 
     return true; // draft clears immediately on dispatch, not when stream finishes
-  };
-
-  const answerPendingReply = async (text: string) => {
-    if (!activeSid || !pendingReply || pendingReplyBusy) return;
-    setPendingReplyBusy(true);
-    try {
-      const result = await api.answerPending(activeSid, pendingReply.id, text);
-      if (result.resolved === false) {
-        notify(
-          'info',
-          String(result.reply || 'Manager needs a more specific answer.'),
-        );
-        return;
-      }
-      setPendingReplyOpen(false);
-      await snapQ.refetch();
-      if (result.daemon && Number(result.daemon.rc ?? 0) !== 0) {
-        notify(
-          'error',
-          `Answer queued, but the daemon did not start: ${result.daemon.error || 'operator action required'}`,
-        );
-      } else {
-        notify(
-          'success',
-          String(result.reply || 'Manager delivered your answer to the team.'),
-        );
-      }
-    } catch (error) {
-      notify('error', `Could not send answer: ${errorText(error)}`);
-    } finally {
-      setPendingReplyBusy(false);
-    }
   };
 
   // Stable ref so commandPaletteRows closures always call the latest sendMessage

@@ -1,0 +1,215 @@
+"""Manager streaming/messages API domain: the Manager front-door chat
+endpoints (blocking + SSE-streaming twins) and the live project event
+WebSocket stream.
+
+See :mod:`.meta` for the extraction convention this module follows.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import queue
+import threading
+from contextlib import suppress
+from typing import Any
+
+from fastapi import Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from starlette.concurrency import run_in_threadpool
+from starlette.responses import StreamingResponse
+
+from .context import ServerContext
+from .models import MessageIn
+
+
+def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
+    @app.post("/api/projects/{sid}/message", dependencies=[Depends(ctx.require_auth)])
+    async def _post_message(sid: str, body: MessageIn) -> dict[str, Any]:
+        """The Manager front-door: route natural language through the SAME triage
+        the Manager pipeline uses. A conversational message ("你好") gets a Manager
+        reply and never becomes a mission; only TEAM/complex work is enqueued.
+        Runs in a threadpool because the Manager triage is a blocking LLM call.
+        """
+        if not body.text.strip():
+            raise HTTPException(status_code=400, detail="empty message")
+        project_root = ctx.project_root_or_404(sid)
+        from ..manager_bridge import manager_message, record_task_dispatch_ack
+
+        result = await run_in_threadpool(
+            manager_message, sid, body.text, global_root=project_root
+        )
+        # A task classification lazily spawns the executor, mirroring /tasks.
+        starts_executor = (
+            result.get("kind") == "task"
+            or (
+                result.get("kind") == "pending_question"
+                and bool(result.get("resolved"))
+            )
+        )
+        if starts_executor and not result.get("daemon_alive"):
+            result["daemon"] = await run_in_threadpool(
+                server_mod.start_project_daemon, sid, global_root=project_root,
+                resume_continuous=bool(result.get("continuous")),
+                reclaim_idle=True,
+            )
+        if result.get("kind") == "task":
+            await run_in_threadpool(
+                record_task_dispatch_ack, sid, result, global_root=project_root,
+            )
+        return result
+
+    @app.post("/api/projects/{sid}/message/stream", dependencies=[Depends(ctx.require_auth)])
+    def _post_message_stream(sid: str, body: MessageIn):
+        """Streaming twin of ``/message`` (Server-Sent Events).
+
+        The Manager turn is a blocking CLI call, but copilot/codex emit the reply
+        as blocks *during* the turn and phase transitions fire live — the plain
+        POST throws all that away, so the front-end looks frozen until the whole
+        turn ends. Here we run ``manager_message`` on a worker thread with an
+        ``on_fragment`` callback that pushes each block / phase onto a thread-safe
+        queue; a synchronous generator drains the queue into SSE ``data:`` frames.
+        A sync generator means Starlette runs it in a threadpool — no asyncio
+        queue bridging, which keeps this robust and easy to reason about.
+
+        Frame kinds: ``{"type":"phase",...}`` · ``{"type":"delta",...}`` ·
+        ``{"type":"done","result":{...}}`` · ``{"type":"error","error":...}``.
+        The blocking ``/message`` stays as the fallback for non-streaming clients.
+        """
+        if not body.text.strip():
+            raise HTTPException(status_code=400, detail="empty message")
+        project_root = ctx.project_root_or_404(sid)
+        from ..manager_bridge import manager_message, record_task_dispatch_ack
+
+        q: "queue.Queue[dict | None]" = queue.Queue()
+        cancel_event = threading.Event()
+
+        def _run() -> None:
+            def _on_fragment(kind: str, payload: dict) -> None:
+                q.put({"type": kind, **payload})
+            try:
+                result = manager_message(
+                    sid,
+                    body.text,
+                    global_root=project_root,
+                    on_fragment=_on_fragment,
+                    cancelled=cancel_event.is_set,
+                )
+                # Mirror the blocking endpoint: a task classification lazily spawns
+                # the executor so streamed dispatch behaves like /message + /tasks.
+                starts_executor = (
+                    result.get("kind") == "task"
+                    or (
+                        result.get("kind") == "pending_question"
+                        and bool(result.get("resolved"))
+                    )
+                )
+                if (
+                    not cancel_event.is_set()
+                    and starts_executor
+                    and not result.get("daemon_alive")
+                ):
+                    try:
+                        result["daemon"] = server_mod.start_project_daemon(
+                            sid,
+                            global_root=project_root,
+                            resume_continuous=bool(result.get("continuous")),
+                            reclaim_idle=True,
+                        )
+                    except Exception as exc:  # noqa: BLE001 — surface failure in done frame
+                        result["daemon"] = {
+                            "rc": 2,
+                            "error": (
+                                "background executor failed to start: "
+                                f"{type(exc).__name__}: {exc}"
+                            ),
+                        }
+                # Persist truthful dispatch acknowledgement for task results
+                if result.get("kind") == "task":
+                    try:
+                        record_task_dispatch_ack(
+                            sid, result,
+                            global_root=project_root,
+                            on_fragment=_on_fragment,
+                        )
+                    except Exception as exc:  # noqa: BLE001 — surface in done frame
+                        result["ack_error"] = str(exc)
+                q.put({"type": "done", "result": result})
+            except Exception as exc:  # noqa: BLE001
+                q.put({"type": "error", "error": str(exc)})
+            finally:
+                q.put(None)  # sentinel: generator stops
+
+        threading.Thread(target=_run, name=f"manager-stream-{sid}", daemon=True).start()
+
+        def _gen():
+            try:
+                for item in server_mod._iter_manager_stream_items(
+                    q,
+                    heartbeat_s=server_mod._manager_stream_heartbeat_seconds(),
+                ):
+                    yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+            finally:
+                cancel_event.set()
+
+        return StreamingResponse(
+            _gen(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @app.websocket("/api/projects/{sid}/stream")
+    async def _stream(ws: WebSocket, sid: str, replay: int = 40,
+                      view: str = Query(default="full", pattern="^(full|ui)$"),
+                      token_q: str | None = Query(default=None, alias="token")) -> None:
+        project_root = ctx.root_for_project(sid)
+        life_dir = (
+            server_mod.project_life_dir(sid, global_root=project_root)
+            if project_root is not None
+            else None
+        )
+        await ws.accept()
+        if ctx.token and token_q != ctx.token:
+            await ws.close(code=4401, reason="unauthorized")
+            return
+        if life_dir is None:
+            await ws.close(code=4404, reason="unknown project")
+            return
+        iterator = server_mod.tail_events(
+            life_dir,
+            replay_limit=max(0, min(replay, 200)),
+        ).__aiter__()
+        event_task = asyncio.create_task(anext(iterator))
+        receive_task = asyncio.create_task(ws.receive())
+        try:
+            while True:
+                done, _pending = await asyncio.wait(
+                    {event_task, receive_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if receive_task in done:
+                    message = receive_task.result()
+                    if message.get("type") == "websocket.disconnect":
+                        return
+                    receive_task = asyncio.create_task(ws.receive())
+                if event_task in done:
+                    try:
+                        ev = event_task.result()
+                    except StopAsyncIteration:
+                        return
+                    event_task = asyncio.create_task(anext(iterator))
+                    if view == "ui" and not server_mod._event_visible_in_web_ui(ev):
+                        continue
+                    await ws.send_json(ev)
+        except WebSocketDisconnect:
+            return
+        except Exception:  # noqa: BLE001 — a stream error must not crash the server
+            try:
+                await ws.close(code=1011)
+            except Exception:  # noqa: BLE001
+                pass
+        finally:
+            for task in (event_task, receive_task):
+                task.cancel()
+            await asyncio.gather(event_task, receive_task, return_exceptions=True)
+            with suppress(Exception):
+                await iterator.aclose()

@@ -852,7 +852,7 @@ def test_planner_bounded_scope_node_closes_after_project_incomplete_advance(
 def test_hook_retries_on_empty_output_then_advances(tmp_path: Path, monkeypatch) -> None:
     # An empty manager turn (gpt-5.5/fnyweg flake) must NOT silently default-HOLD
     # and wedge the stage — it retries and picks up the real advance verdict.
-    monkeypatch.setattr("argus_skill.manager._core.time.sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr("argus_skill.manager._stage_ops.time.sleep", lambda *_a, **_k: None)
     root = _project(tmp_path, current="research")
     backend = _EmptyThenRunner(
         {"action": "advance", "target_stage": "plan", "reason": "done"}, empties=1
@@ -871,7 +871,7 @@ def test_hook_persistent_empty_done_satisfied_advances(
 ) -> None:
     # If every Manager turn is empty after a certified reviewer verdict, the
     # Manager-owned fallback advances to the immediate next stage.
-    monkeypatch.setattr("argus_skill.manager._core.time.sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr("argus_skill.manager._stage_ops.time.sleep", lambda *_a, **_k: None)
     root = _project(tmp_path, current="research")
     backend = _EmptyThenRunner({}, empties=99)
     runner = _runner_with(backend)
@@ -898,7 +898,7 @@ def test_hook_persistent_empty_done_satisfied_advances(
 def test_hook_persistent_empty_done_satisfied_completes_final_stage(
     tmp_path: Path, monkeypatch
 ) -> None:
-    monkeypatch.setattr("argus_skill.manager._core.time.sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr("argus_skill.manager._stage_ops.time.sleep", lambda *_a, **_k: None)
     root = _submission_project(tmp_path)
     backend = _EmptyThenRunner({}, empties=99)
     runner = _runner_with(backend)
@@ -954,7 +954,7 @@ def test_hook_does_not_complete_bounded_final_stage_without_required_checklist(
 def test_hook_persistent_empty_unsatisfied_checklist_holds(
     tmp_path: Path, monkeypatch
 ) -> None:
-    monkeypatch.setattr("argus_skill.manager._core.time.sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr("argus_skill.manager._stage_ops.time.sleep", lambda *_a, **_k: None)
     root = _project(tmp_path, current="research")
     backend = _EmptyThenRunner({}, empties=99)
     runner = _runner_with(backend)

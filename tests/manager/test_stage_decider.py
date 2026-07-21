@@ -724,7 +724,7 @@ def test_empty_manager_output_during_planner_wait_holds(
         }),
         encoding="utf-8",
     )
-    monkeypatch.setattr("argus_skill.manager._core.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("argus_skill.manager._stage_ops.time.sleep", lambda _seconds: None)
     planner_verdict = SimpleNamespace(
         project_done=False,
         waiting=True,
@@ -820,7 +820,7 @@ def test_decide_garbage_output_holds(tmp_path: Path) -> None:
 def test_decide_persistent_empty_done_satisfied_advances(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("argus_skill.manager._core.time.sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr("argus_skill.manager._stage_ops.time.sleep", lambda *_a, **_k: None)
     root = _project(tmp_path, current="research")
     backend = _StubRunner("")
     mgr = Manager(project_root=root, runner=backend)
@@ -843,7 +843,7 @@ def test_decide_persistent_empty_done_satisfied_advances(
 def test_decide_persistent_empty_done_satisfied_completes_final_stage(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("argus_skill.manager._core.time.sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr("argus_skill.manager._stage_ops.time.sleep", lambda *_a, **_k: None)
     root = _submission_project(tmp_path)
     backend = _StubRunner("")
     mgr = Manager(project_root=root, runner=backend)
@@ -899,7 +899,7 @@ def test_final_submission_completion_requires_checklist() -> None:
 def test_decide_persistent_empty_unsatisfied_checklist_holds(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("argus_skill.manager._core.time.sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr("argus_skill.manager._stage_ops.time.sleep", lambda *_a, **_k: None)
     root = _project(tmp_path, current="research")
     backend = _StubRunner("")
     review = _review(
@@ -919,7 +919,7 @@ def test_decide_persistent_empty_unsatisfied_checklist_holds(
 def test_decide_persistent_empty_reviewer_not_done_holds(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: str
 ) -> None:
-    monkeypatch.setattr("argus_skill.manager._core.time.sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr("argus_skill.manager._stage_ops.time.sleep", lambda *_a, **_k: None)
     root = _project(tmp_path, current="research")
     st = Manager(project_root=root, runner=_StubRunner("")).decide_stage_transition(
         review=_review(status=status), project_root=root

@@ -579,11 +579,11 @@ def test_missing_copilot_resume_target_does_not_poison_cost_control(
     monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "0")
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend._exec.capture_copilot_usage_cursor",
+        "argus_skill.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
         lambda: None,
     )
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend._exec.read_copilot_usage_since",
+        "argus_skill.adapters.agent_cli_backend._exec_spawn.read_copilot_usage_since",
         lambda *args, **kwargs: None,
     )
     backend = AgentCliBackend(backend="copilot")
@@ -871,11 +871,11 @@ def test_copilot_run_exec_uses_exact_session_store_tokens(
         backend._runner.__class__, "run_exec", fake_run_exec, raising=True
     )
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend._exec.capture_copilot_usage_cursor",
+        "argus_skill.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
         lambda: object(),
     )
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend._exec.read_copilot_usage_since",
+        "argus_skill.adapters.agent_cli_backend._exec_spawn.read_copilot_usage_since",
         lambda cursor, session_id: exact,
     )
 
@@ -930,11 +930,11 @@ def test_copilot_resumed_premium_counter_without_baseline_fails_closed(
         backend._runner.__class__, "run_exec", fake_run_exec, raising=True
     )
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend._exec.capture_copilot_usage_cursor",
+        "argus_skill.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
         lambda: object(),
     )
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend._exec.read_copilot_usage_since",
+        "argus_skill.adapters.agent_cli_backend._exec_spawn.read_copilot_usage_since",
         lambda cursor, session_id: None,
     )
     options = RunnerOptions(model="gpt-5.6-sol", working_dir=str(tmp_path))
@@ -1010,11 +1010,11 @@ def test_copilot_acp_session_model_overrides_mislabeled_usage_row(
         created_at="2026-07-15T10:00:00Z",
     ),))
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend._exec.capture_copilot_usage_cursor",
+        "argus_skill.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
         lambda: object(),
     )
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend._exec.read_copilot_usage_since",
+        "argus_skill.adapters.agent_cli_backend._exec_spawn.read_copilot_usage_since",
         lambda cursor, session_id: mislabeled,
     )
 

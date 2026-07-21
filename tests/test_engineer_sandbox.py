@@ -376,10 +376,19 @@ def test_no_raw_codex_spawn_bypasses_gate_anywhere():
     appear ONLY in the runner/policy (the gated default-OFF fallback). Every
     other module that spawns codex (e.g. team/teammate_entry.py) must go through
     codex_sandbox_args/codex_sandbox_env, so enabling the gate contains them too.
-    Guards against a future raw spawn re-opening the hole the PR closed."""
+    Guards against a future raw spawn re-opening the hole the PR closed.
+
+    ``agent_cli/_sandbox_commands.py`` holds the codex command builders +
+    ``_apply_sandbox_policy`` gate that used to live inline in
+    ``agent_cli_runner.py``; it is the same single chokepoint, just split into
+    its own module, so it is allowed alongside the other two."""
     import argus_skill
     pkg_root = Path(argus_skill.__file__).resolve().parent
-    allowed = {"agent_cli/agent_cli_runner.py", "core/sandbox.py"}
+    allowed = {
+        "agent_cli/agent_cli_runner.py",
+        "agent_cli/_sandbox_commands.py",
+        "core/sandbox.py",
+    }
     offenders = []
     for p in pkg_root.rglob("*.py"):
         rel = p.relative_to(pkg_root).as_posix()

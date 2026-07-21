@@ -54,16 +54,19 @@ def _guard_live_codex_boundaries(monkeypatch: pytest.MonkeyPatch) -> None:
         )
 
     monkeypatch.setattr(_sub._core, "_find_codex", blocked_find_codex)
+    monkeypatch.setattr(_sub._direct_run, "_find_codex", blocked_find_codex)
     monkeypatch.setattr(_sub._core.subprocess, "run", blocked_run)
 
 
 def _install_fake_codex(monkeypatch: pytest.MonkeyPatch, fake_run: Callable[..., object]) -> None:
     monkeypatch.setattr(_sub._core, "_find_codex", lambda: "codex")
+    monkeypatch.setattr(_sub._direct_run, "_find_codex", lambda: "codex")
     monkeypatch.setattr(_sub._core.subprocess, "run", fake_run)
 
 
 def _skip_supervisor_summary(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(_sub._core, "_supervisor_summarize_report", lambda *args, **kwargs: "")
+    monkeypatch.setattr(_sub._reporting, "_supervisor_summarize_report", lambda *args, **kwargs: "")
 
 
 def test_backoff_doubles_while_healthy_up_to_cap() -> None:
@@ -612,10 +615,10 @@ def test_run_discussion_processes_preexisting_engineer_turn(monkeypatch, tmp_pat
         )
 
     monkeypatch.setattr(
-        "argus_skill.tools.subagent._core._supervisor_discuss_with_usage",
+        "argus_skill.tools.subagent._discuss_run._supervisor_discuss_with_usage",
         fake_discuss,
     )
-    monkeypatch.setattr("argus_skill.tools.subagent._core.DISCUSSION_POLL_INTERVAL", 0)
+    monkeypatch.setattr("argus_skill.tools.subagent._discuss_run.DISCUSSION_POLL_INTERVAL", 0)
     from argus_skill.tools.subagent import _run_discussion
     _run_discussion(tid, {"concern": "x", "command": "python t.py"}, "gpt-5.5", str(tmp_path))
 
@@ -700,12 +703,12 @@ def test_run_supervised_persists_supervisor_usage_totals(monkeypatch, tmp_path) 
 
     proc = _Proc()
     monkeypatch.setattr(_sub._core.subprocess, "Popen", lambda *a, **k: proc)
-    monkeypatch.setattr(_sub._core, "_child_env", lambda: {})
-    monkeypatch.setattr(_sub._core, "_tail_file", lambda *a, **k: "")
-    monkeypatch.setattr(_sub._core, "_alert_engineer", lambda *a, **k: "report")
-    monkeypatch.setattr(_sub._core, "_persist_experiment_record", lambda *a, **k: None)
+    monkeypatch.setattr(_sub._registry, "_child_env", lambda: {})
+    monkeypatch.setattr(_sub._supervised_run, "_tail_file", lambda *a, **k: "")
+    monkeypatch.setattr(_sub._supervised_run, "_alert_engineer", lambda *a, **k: "report")
+    monkeypatch.setattr(_sub._supervised_run, "_persist_experiment_record", lambda *a, **k: None)
     monkeypatch.setattr(
-        _sub._core,
+        _sub._supervised_run,
         "_supervisor_check_with_usage",
         lambda *a, **k: ("continue", "healthy", "", "sup-thread", (120, 15, 30, 6)),
     )
@@ -1032,10 +1035,10 @@ def test_preflight_discussion_opening_signals_pre_launch_block(monkeypatch, tmp_
                       "pid": 0, "worker_pid": __import__("os").getpid()})
 
     def fake_discuss(task_id, task_data, model, cwd, thread_id=None):
-        return (True, "I'll set num_generations=8.", thread_id)
+        return (True, "I'll set num_generations=8.", thread_id, (0, 0, 0, 0))
 
-    monkeypatch.setattr("argus_skill.tools.subagent._core._supervisor_discuss", fake_discuss)
-    monkeypatch.setattr("argus_skill.tools.subagent._core.DISCUSSION_POLL_INTERVAL", 0)
+    monkeypatch.setattr("argus_skill.tools.subagent._discuss_run._supervisor_discuss_with_usage", fake_discuss)
+    monkeypatch.setattr("argus_skill.tools.subagent._discuss_run.DISCUSSION_POLL_INTERVAL", 0)
     from argus_skill.tools.subagent import _run_discussion
     td = {
         "preflight": True,
@@ -1057,10 +1060,10 @@ def test_nonpreflight_discussion_opening_uses_stopped_wording(monkeypatch, tmp_p
                       "pid": 0, "worker_pid": __import__("os").getpid()})
 
     def fake_discuss(task_id, task_data, model, cwd, thread_id=None):
-        return (True, "ack", thread_id)
+        return (True, "ack", thread_id, (0, 0, 0, 0))
 
-    monkeypatch.setattr("argus_skill.tools.subagent._core._supervisor_discuss", fake_discuss)
-    monkeypatch.setattr("argus_skill.tools.subagent._core.DISCUSSION_POLL_INTERVAL", 0)
+    monkeypatch.setattr("argus_skill.tools.subagent._discuss_run._supervisor_discuss_with_usage", fake_discuss)
+    monkeypatch.setattr("argus_skill.tools.subagent._discuss_run.DISCUSSION_POLL_INTERVAL", 0)
     from argus_skill.tools.subagent import _run_discussion
     _append_discussion(tid, "engineer", "ack, fixing")
     _run_discussion(tid, {"concern": "x", "command": "python t.py"}, "gpt-5.5", str(tmp_path))
