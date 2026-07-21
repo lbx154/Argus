@@ -32,10 +32,12 @@ _OBSERVED_EVENT_TYPES = frozenset({
     "life.mission.completed",
     "round.start",
     "round.review.completed",
+    "wiki.hook.warning",
 })
 _EVENT_AUDIT_TYPES = frozenset({
     "life.supervisor.error",
     "life.planner.error",
+    "wiki.hook.warning",
 })
 
 
@@ -96,6 +98,7 @@ def _compact_event(event: dict[str, Any]) -> dict[str, Any] | None:
         "wait_mode",
         "waiting_contract",
         "prompt_block_stats",
+        "operation",
     ):
         value = event.get(key)
         if value in (None, "", [], {}):

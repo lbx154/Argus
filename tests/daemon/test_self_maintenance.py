@@ -160,6 +160,23 @@ def test_manager_no_action_never_creates_make_work(tmp_path: Path) -> None:
     assert controller.memory.backlog.all() == []
 
 
+def test_wiki_hook_warning_triggers_manager_audit(tmp_path: Path) -> None:
+    controller = _controller(tmp_path, _Manager(action="no_action"))
+
+    controller.observe({
+        "type": "wiki.hook.warning",
+        "ts": 10.0,
+        "operation": "rebuild_indexes",
+        "error": "ValueError: invalid timestamp",
+    })
+
+    state = controller._state()
+    assert state["event_audit_pending"] is True
+    [observation] = state["observations"]
+    assert observation["type"] == "wiki.hook.warning"
+    assert observation["details"]["operation"] == "rebuild_indexes"
+
+
 def test_budget_block_prevents_manager_maintenance_call(tmp_path: Path) -> None:
     manager = _Manager()
     controller = _controller(tmp_path, manager)
