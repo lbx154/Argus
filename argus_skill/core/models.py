@@ -255,6 +255,10 @@ class ReviewDecision:
     # Structured research assessment used only when the Manager persisted a
     # research_target_level. Ordinary missions leave this ``None``.
     research_result: dict[str, Any] | None = None
+    # Raw machine-readable certification authored by the independent Reviewer.
+    # This is a persistence channel only: the harness may parse it to route the
+    # round, but must not infer or synthesize scientific claims from it.
+    certification_payload: dict[str, Any] | None = None
     # Planner-only structured signals authored by the reviewer. Verdict prose
     # stays in ``reason`` / ``next_action``. Shape:
     # ``{"forward_progress": bool, "plan_signal": "continue"|"reconsider",
@@ -414,6 +418,8 @@ class ReviewDecision:
         }
         if isinstance(self.research_result, dict):
             payload["research_result"] = dict(self.research_result)
+        if isinstance(self.certification_payload, dict) and self.certification_payload:
+            payload["certification_payload"] = dict(self.certification_payload)
         payload.update(extras)
         return payload
 

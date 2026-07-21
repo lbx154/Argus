@@ -79,12 +79,17 @@ def parse_decision_text(
     )
     if status not in allowed_statuses:
         return None
+    certification_payload = _parse_certification_payload(parsed)
     round_summary_markdown = _parse_round_summary(parsed)
     reason = _parse_reason(parsed, round_summary_markdown=round_summary_markdown)
     next_action = _parse_next_action(parsed, status=status)
     completion_summary_markdown = _parse_optional_text(
         parsed.get("completion_summary_markdown")
     ) or ""
+    if reason is None and status == "done" and certification_payload is not None:
+        claim_id = str(certification_payload.get("certified_claim_id") or "").strip()
+        reason = f"Machine certification payload accepted for {claim_id}."
+        next_action = ""
     if reason is None or next_action is None:
         return None
     assert reason is not None
@@ -110,6 +115,7 @@ def parse_decision_text(
         scope=_parse_scope(parsed),
         checklist=_parse_checklist(parsed),
         research_result=_parse_research_result(parsed),
+        certification_payload=certification_payload,
         planner_report=planner_report,
         checkpoint=_parse_checkpoint(parsed),
         failure_cause=_parse_failure_cause(parsed),
@@ -420,6 +426,18 @@ def _parse_failure_cause(parsed: dict) -> str:
 
 def _parse_checklist(parsed: dict) -> list[dict[str, Any]]:
     raw = parsed.get("checklist")
+    if isinstance(raw, dict):
+        items: list[dict[str, Any]] = []
+        for item, status in raw.items():
+            normalized = str(status or "").strip().upper()
+            if not str(item).strip() or not normalized:
+                continue
+            items.append({
+                "item": str(item).strip(),
+                "satisfied": normalized in {"PASS", "NOT_APPLICABLE"},
+                "evidence": f"machine certification checklist status: {normalized}",
+            })
+        return items
     if not isinstance(raw, list):
         return []
     items: list[dict[str, Any]] = []
@@ -432,6 +450,38 @@ def _parse_checklist(parsed: dict) -> list[dict[str, Any]]:
             "evidence": str(entry.get("evidence", "")).strip(),
         })
     return items
+
+
+def _parse_certification_payload(parsed: dict) -> dict[str, Any] | None:
+    nested = parsed.get("certification_payload")
+    if isinstance(nested, dict) and _is_minimal_certification_payload(nested):
+        return dict(nested)
+    if _is_minimal_certification_payload(parsed):
+        return dict(parsed)
+    return None
+
+
+def _is_minimal_certification_payload(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    if str(value.get("status") or "").strip().lower() != "done":
+        return False
+    if not str(value.get("certified_claim_id") or "").strip():
+        return False
+    if value.get("exact_command_exit_zero") is not True:
+        return False
+    if value.get("byte_reproduction") is not True:
+        return False
+    if value.get("blockers") != []:
+        return False
+    if not str(value.get("evidence_sha256") or "").strip():
+        return False
+    if not str(value.get("verifier_sha256") or "").strip():
+        return False
+    if not isinstance(value.get("checklist_counts"), dict):
+        return False
+    checklist = value.get("checklist")
+    return isinstance(checklist, dict) and bool(checklist)
 
 
 _VALID_SKILL_OPS = frozenset({"create", "update", "delete", "archive"})

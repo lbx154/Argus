@@ -141,6 +141,43 @@ def test_parser_defaults_when_scope_checklist_absent() -> None:
     assert decision.final_submission_certified is False
 
 
+def test_parser_accepts_machine_certification_payload() -> None:
+    payload = {
+        "status": "done",
+        "certified_claim_id": "C15/RUN-5",
+        "exact_command_exit_zero": True,
+        "byte_reproduction": True,
+        "evidence_sha256": "960784a1e6c6d36d88307fdb10703852d4984640e672311bdef0dceea91f6a8e",
+        "verifier_sha256": "e86260443b4e205ff44a27e15f12293c201aea8152c20dcf52b201f37af75426",
+        "blockers": [],
+        "checklist_counts": {"supported": 8, "not_applicable": 2},
+        "checklist": {
+            "solve.checkable-evidence": "PASS",
+            "solve.lean-compiled": "NOT_APPLICABLE",
+        },
+        "scope_exclusions": ["global_theorem"],
+    }
+
+    decision = _parse(payload)
+
+    assert decision is not None
+    assert decision.status == "done"
+    assert decision.next_action == ""
+    assert decision.certification_payload == payload
+    assert decision.checklist == [
+        {
+            "item": "solve.checkable-evidence",
+            "satisfied": True,
+            "evidence": "machine certification checklist status: PASS",
+        },
+        {
+            "item": "solve.lean-compiled",
+            "satisfied": True,
+            "evidence": "machine certification checklist status: NOT_APPLICABLE",
+        },
+    ]
+
+
 def test_parser_drops_malformed_scope() -> None:
     decision = _parse({
         "status": "done",

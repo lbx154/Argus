@@ -197,6 +197,24 @@ def record_reviewed_handoff(
     planner_report = canonical_planner_report(
         getattr(review, "planner_report", None)
     )
+    review_payload: dict[str, Any] = {
+        "status": str(getattr(review, "status", "") or ""),
+        "reason": str(getattr(review, "reason", "") or "")[:4000],
+        "next_action": str(getattr(review, "next_action", "") or "")[:4000],
+        "progress_class": str(getattr(review, "progress_class", "") or ""),
+        "failure_cause": str(getattr(review, "failure_cause", "") or ""),
+        "failure_layer": str(getattr(review, "failure_layer", "") or ""),
+        "planner_report": planner_report,
+        "harness_control": dict(
+            getattr(review, "harness_control", {}) or {}
+        ),
+    }
+    checklist = getattr(review, "checklist", None)
+    if isinstance(checklist, list) and checklist:
+        review_payload["checklist"] = list(checklist)
+    certification_payload = getattr(review, "certification_payload", None)
+    if isinstance(certification_payload, dict) and certification_payload:
+        review_payload["certification_payload"] = dict(certification_payload)
     payload = {
         "schema_version": CONTEXT_PACKET_VERSION,
         "kind": "round_reviewed_handoff",
@@ -204,18 +222,7 @@ def record_reviewed_handoff(
         "mission_id": root.name,
         "round": max(1, int(round_index)),
         "producer_role": "reviewer",
-        "review": {
-            "status": str(getattr(review, "status", "") or ""),
-            "reason": str(getattr(review, "reason", "") or "")[:4000],
-            "next_action": str(getattr(review, "next_action", "") or "")[:4000],
-            "progress_class": str(getattr(review, "progress_class", "") or ""),
-            "failure_cause": str(getattr(review, "failure_cause", "") or ""),
-            "failure_layer": str(getattr(review, "failure_layer", "") or ""),
-            "planner_report": planner_report,
-            "harness_control": dict(
-                getattr(review, "harness_control", {}) or {}
-            ),
-        },
+        "review": review_payload,
         "checkpoint": _file_reference(checkpoint_path),
         "created_at": time.time(),
     }
