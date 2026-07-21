@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import time
@@ -368,6 +369,64 @@ def test_each_manager_can_adopt_merged_main_in_its_own_canary(
         summary={"stopped_by": "planner_retry", "planning_cycles": 1}
     ) == candidate
     assert controller._state()["phase"] == "adopted"
+
+
+def test_upstream_adoption_requires_verified_merged_pr(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    controller = _controller(tmp_path, _Manager())
+
+    def fake_run(args, *, cwd, timeout=60.0, check=True):
+        if args[:4] == ["git", "remote", "get-url", "origin"]:
+            stdout = "https://github.com/lbx154/argus-skill.git\n"
+        else:
+            stdout = json.dumps([{
+                "number": 42,
+                "html_url": "https://github.com/lbx154/argus-skill/pull/42",
+                "title": "reviewed repair",
+                "body": "Reviewer evidence",
+                "merged_at": "2026-07-21T00:00:00Z",
+                "merged_by": {"login": "lbx154"},
+            }])
+        return subprocess.CompletedProcess(args, 0, stdout, "")
+
+    monkeypatch.setattr(self_maintenance_mod, "_run", fake_run)
+    monkeypatch.setattr(
+        self_maintenance_mod.shutil,
+        "which",
+        lambda _name: "/usr/bin/gh",
+    )
+
+    evidence = controller._merged_pr_evidence("a" * 40)
+
+    assert evidence is not None
+    assert evidence["number"] == 42
+    assert evidence["merged_by"] == "lbx154"
+
+
+def test_direct_main_commit_is_not_adoption_evidence(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    controller = _controller(tmp_path, _Manager())
+
+    def fake_run(args, *, cwd, timeout=60.0, check=True):
+        stdout = (
+            "https://github.com/lbx154/argus-skill.git\n"
+            if args[:4] == ["git", "remote", "get-url", "origin"]
+            else "[]"
+        )
+        return subprocess.CompletedProcess(args, 0, stdout, "")
+
+    monkeypatch.setattr(self_maintenance_mod, "_run", fake_run)
+    monkeypatch.setattr(
+        self_maintenance_mod.shutil,
+        "which",
+        lambda _name: "/usr/bin/gh",
+    )
+
+    assert controller._merged_pr_evidence("b" * 40) is None
 
 
 def test_failed_canary_requests_prior_source_rollback(tmp_path: Path) -> None:

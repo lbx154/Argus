@@ -603,10 +603,14 @@ class DaemonSelfMaintenance:
             ).stdout[-4000:]
         except (OSError, subprocess.SubprocessError):
             return
+        merged_pr = self._merged_pr_evidence(candidate)
+        if merged_pr is None:
+            return
         details = {
             "current_revision": current,
             "candidate_revision": candidate,
-            "source": "human-merged origin/main",
+            "source": "verified human-merged pull request",
+            "pull_request": merged_pr,
             "commits": log_rows,
             "diffstat": diffstat,
         }
@@ -620,6 +624,65 @@ class DaemonSelfMaintenance:
             "details": details,
         })
         self._write_state(last_upstream_observed=candidate)
+
+    def _merged_pr_evidence(self, commit: str) -> dict[str, Any] | None:
+        gh = shutil.which("gh")
+        if not gh:
+            return None
+        try:
+            origin = _run(
+                ["git", "remote", "get-url", "origin"],
+                cwd=self.framework_root,
+            ).stdout.strip()
+            prefix = "https://github.com/"
+            if not origin.startswith(prefix):
+                return None
+            slug = origin.removeprefix(prefix).removesuffix(".git").strip("/")
+            if slug.count("/") != 1:
+                return None
+            result = _run(
+                [
+                    gh,
+                    "api",
+                    "-H",
+                    "Accept: application/vnd.github+json",
+                    f"repos/{slug}/commits/{commit}/pulls",
+                ],
+                cwd=self.framework_root,
+                timeout=60.0,
+            )
+            rows = json.loads(result.stdout)
+        except (
+            OSError,
+            subprocess.SubprocessError,
+            json.JSONDecodeError,
+            TypeError,
+        ):
+            return None
+        if not isinstance(rows, list):
+            return None
+        merged = next(
+            (
+                row
+                for row in rows
+                if isinstance(row, dict) and row.get("merged_at")
+            ),
+            None,
+        )
+        if merged is None:
+            return None
+        return {
+            "number": merged.get("number"),
+            "url": merged.get("html_url"),
+            "title": str(merged.get("title") or "")[:500],
+            "body": str(merged.get("body") or "")[:4000],
+            "merged_at": merged.get("merged_at"),
+            "merged_by": (
+                (merged.get("merged_by") or {}).get("login")
+                if isinstance(merged.get("merged_by"), dict)
+                else None
+            ),
+        }
 
     def _prepare_adoption_worktree(self, candidate: str) -> Path:
         if (
