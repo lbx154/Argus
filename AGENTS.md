@@ -78,6 +78,14 @@ argus-skill / python -m argus_skill
   - `--resume-continuous` 只采用与 Manager handoff identity（objective hash +
     vertical + lineage generation）匹配的持久化 campaign；升级/崩溃恢复不得重新调用
     Manager。缺失或不匹配 identity 的 legacy/raw objective 仍须走真实 Manager divide。
+  - 每个 daemon 的 Manager 还维护该 daemon 自身：事件实时写入有界结构化观测，故障触发
+    审计、平时按 `ARGUS_SKILL_SELF_MAINTENANCE_AUDIT_SECONDS` 轻量审计。只有绑定真实
+    evidence id 的具体框架问题才能派修复；禁止猜测式重构。Engineer/Reviewer 在该 daemon
+    私有 framework worktree 内隔离执行，Reviewer 通过后本 daemon 在干净 mission 边界
+    blue/green 灰度，失败回滚旧 source；灰度成功才以
+    `lbx154 <lbxhaixing154@sjtu.edu.cn>` 推独立分支并自动开 PR，永不自动 merge/main。
+    其他 daemon 只把人工合并后的 `origin/main` 当证据，各自 Manager 决定采用或延后并
+    本地灰度。隔离能力缺失时 fail closed，不退化为 yolo。
 - `argus_skill/life/memory.py`: 磁盘状态。global root 默认 `~/.argus-skill/`，project state 默认 `~/.argus-skill/projects/<fingerprint>/`。注入 mission 前的 “memory context” prelude(`render_prelude`)走**纯 recency**：surface 最近 N 条 journal(按所传 journal 做 project 隔离),**不再用关键词 Jaccard 给“相关性”打分**——“哪段过往工作相关”是 agent 读这段(标了 non-authoritative 的)advisory 后自己判断的,不是 harness 用词面重叠去猜。
 
 常见状态文件：

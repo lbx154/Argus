@@ -71,6 +71,10 @@ class RunnerOptions:
     # inspect project state without granting write access; None preserves each
     # backend's existing default behavior.
     sandbox_mode: str | None = None
+    # Strong process-level confinement used by daemon self-maintenance. Unlike
+    # backend-native sandbox flags, this applies to every CLI backend and fails
+    # closed when the host cannot provide isolation.
+    isolate_workdir: bool = False
     full_auto: bool = False
     dangerous_yolo: bool = False
     # Watchdog hooks — propagated to the codex subprocess so an outer

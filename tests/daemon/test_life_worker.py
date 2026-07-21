@@ -1448,6 +1448,60 @@ def test_handoff_child_publishes_standby_then_runs(
     assert not config_path.exists()
 
 
+def test_failed_self_maintenance_handoff_marks_failed_before_rollback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import argus_skill.daemon.handoff as handoff_mod
+
+    cfg = LifeWorkerConfig(life_dir=tmp_path / "life", backend="memory")
+    cfg.life_dir.mkdir(parents=True)
+    state_path = cfg.life_dir / "self-maintenance" / "state.json"
+    state_path.parent.mkdir()
+    state_path.write_text(
+        json.dumps({"phase": "canary_running"}),
+        encoding="utf-8",
+    )
+    rollback = tmp_path / "prior-source"
+    rollback.mkdir()
+    config_path = tmp_path / "handoff-config.json"
+    ready_path = tmp_path / "handoff-ready.json"
+    config_path.write_text(
+        json.dumps({"config": _config_payload(cfg)}),
+        encoding="utf-8",
+    )
+    spawned: dict[str, object] = {}
+
+    class FakeLock:
+        def release(self) -> None:
+            return
+
+    def fake_spawn(config, **kwargs):
+        spawned["config"] = config
+        spawned.update(kwargs)
+        return True
+
+    monkeypatch.setenv(life_worker_mod._HANDOFF_CONFIG_ENV, str(config_path))
+    monkeypatch.setenv(life_worker_mod._HANDOFF_READY_ENV, str(ready_path))
+    monkeypatch.setenv(life_worker_mod._HANDOFF_TOKEN_ENV, "token-failed")
+    monkeypatch.setenv(
+        handoff_mod._HANDOFF_ROLLBACK_SOURCE_ENV,
+        str(rollback),
+    )
+    monkeypatch.setattr(
+        life_worker_mod,
+        "_acquire_daemon_lock_with_timeout",
+        lambda *_args: FakeLock(),
+    )
+    monkeypatch.setattr(LifeWorker, "run_forever", lambda _self: 2)
+    monkeypatch.setattr(handoff_mod, "_spawn_handoff_candidate", fake_spawn)
+    monkeypatch.setattr(handoff_mod, "_source_signature", lambda _root=None: "old")
+
+    assert life_worker_mod.run_handoff_child() == 2
+    assert json.loads(state_path.read_text())["phase"] == "canary_failed"
+    assert spawned["candidate_source_root"] == rollback
+
+
 def test_daemon_pid_path(tmp_path: Path) -> None:
     from argus_skill.daemon.life_worker import _daemon_pid_path
     assert _daemon_pid_path(tmp_path).name == "daemon.pid"

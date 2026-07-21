@@ -20,6 +20,10 @@ DAEMON_CAPABILITIES = (
 
 
 def daemon_protocol_metadata() -> dict[str, Any]:
+    runtime = runtime_identity()
+    runtime["self_managed_source"] = str(
+        os.environ.get("ARGUS_SKILL_SELF_MANAGED_SOURCE", "")
+    ).strip().lower() in {"1", "true", "yes", "on"}
     return {
         "protocol": {
             "name": DAEMON_PROTOCOL_NAME,
@@ -27,7 +31,7 @@ def daemon_protocol_metadata() -> dict[str, Any]:
             "minor": DAEMON_PROTOCOL_MINOR,
         },
         "capabilities": list(DAEMON_CAPABILITIES),
-        "runtime": runtime_identity(),
+        "runtime": runtime,
     }
 
 
@@ -68,6 +72,8 @@ def daemon_protocol_compatibility(status: Any) -> tuple[bool | None, str]:
     ):
         return False, "daemon loaded a dirty or detached source checkout"
     expected_runtime = runtime_identity()
+    if isinstance(runtime, dict) and runtime.get("self_managed_source") is True:
+        return True, ""
     expected_release = str(expected_runtime.get("release_id") or "")
     actual_release = str((runtime or {}).get("release_id") or "")
     if expected_release and actual_release and expected_release != actual_release:

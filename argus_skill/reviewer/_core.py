@@ -56,6 +56,8 @@ class ReviewerConfig:
     skip_git_repo_check: bool = False
     full_auto: bool = False
     dangerous_yolo: bool = False
+    sandbox_mode: str | None = None
+    isolate_workdir: bool = False
     working_dir: str | None = None
 
 
@@ -536,6 +538,8 @@ class Reviewer:
                     reasoning_effort=config.reasoning_effort,
                     dangerous_yolo=config.dangerous_yolo,
                     full_auto=config.full_auto,
+                    sandbox_mode=config.sandbox_mode,
+                    isolate_workdir=config.isolate_workdir,
                     skip_git_repo_check=config.skip_git_repo_check,
                     extra_args=list(config.extra_args) if config.extra_args else None,
                     output_schema_path=schema_path,

@@ -256,6 +256,7 @@ class RunnerOptions:
     # ``--dangerously-bypass-approvals-and-sandbox``. None = legacy behaviour
     # (dangerous_yolo / full_auto flags), so existing callers are unaffected.
     sandbox_mode: str | None = None
+    isolate_workdir: bool = False
     skip_git_repo_check: bool = False
     # Enable codex's native live web_search tool (``-c web_search="live"``).
     live_search: bool = False
@@ -380,6 +381,23 @@ class AgentCliRunner:
             resume_thread_id=resume_thread_id, options=options
         )
         command[0] = self._resolve_executable(command[0])
+        if options.isolate_workdir:
+            try:
+                from ..core.sandbox import isolated_workdir_command
+
+                command = isolated_workdir_command(
+                    command,
+                    working_dir=options.working_dir,
+                )
+            except RuntimeError as exc:
+                return AgentRunResult(
+                    command=[self.agent_bin],
+                    exit_code=-1,
+                    thread_id=resume_thread_id,
+                    turn_completed=False,
+                    turn_failed=True,
+                    fatal_error=f"maintenance isolation unavailable: {exc}",
+                )
         process = subprocess.Popen(
             command,
             stdin=subprocess.PIPE,
@@ -1130,14 +1148,19 @@ class AgentCliRunner:
         return True
 
     def _child_env(self, options: RunnerOptions) -> dict[str, str] | None:
-        if not options.sandbox_mode:
+        if not options.sandbox_mode and not options.isolate_workdir:
             return None
         if (
             self.backend == BACKEND_OPENCODE
             and options.sandbox_mode == "read-only"
         ):
             return _opencode_read_only_env()
-        return sandboxed_child_env()
+        env = sandboxed_child_env()
+        if options.isolate_workdir:
+            env["GIT_CONFIG_GLOBAL"] = os.devnull
+            env["GIT_CONFIG_NOSYSTEM"] = "1"
+            env["GH_CONFIG_DIR"] = "/tmp/argus-no-gh-auth"
+        return env
 
     def _recover_opencode_events(
         self,

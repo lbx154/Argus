@@ -106,6 +106,52 @@ class _ResearchBreakthroughRunner:
         )
 
 
+class _MaintenanceRunner:
+    def __init__(self) -> None:
+        self.kwargs: dict[str, Any] = {}
+
+    def execute(self, **kwargs) -> _Outcome:
+        self.kwargs = kwargs
+        outcome = _Outcome()
+        outcome.final_review_status = "done"
+        return outcome
+
+
+def test_framework_maintenance_uses_private_worktree_and_review(
+    tmp_path,
+) -> None:
+    memory = LifeMemory.open(tmp_path / "life")
+    sink = _RecordingSink(memory.root)
+    runner = _MaintenanceRunner()
+    project = tmp_path / "project"
+    project.mkdir()
+    private = tmp_path / "private-framework"
+    private.mkdir()
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=runner,
+        sink=sink,
+        config=LifeSupervisorConfig(
+            project_worktree=project,
+            artifact_root=project,
+        ),
+    )
+    memory.backlog.add(BacklogItem.new(
+        title="repair framework",
+        objective="fix observed defect",
+        tags=["framework_maintenance", "review:required", "scope:bounded"],
+        execution_workdir=str(private),
+    ))
+
+    result = supervisor.tick()
+
+    assert result is not None and result["status"] == "done"
+    assert result["review_status"] == "done"
+    assert runner.kwargs["working_dir_override"] == str(private)
+    assert runner.kwargs["maintenance_mission"] is True
+    assert runner.kwargs["require_independent_review"] is True
+
+
 def _certified_research_result(result_class: str) -> dict[str, Any]:
     return {
         "result_class": result_class,

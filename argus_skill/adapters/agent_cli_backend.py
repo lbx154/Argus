@@ -1675,6 +1675,8 @@ class AgentCliBackend:
             kwargs["live_search"] = getattr(options, "live_search", False)
         if "sandbox_mode" in getattr(argus_cls, "__dataclass_fields__", {}):
             kwargs["sandbox_mode"] = getattr(options, "sandbox_mode", None)
+        if "isolate_workdir" in getattr(argus_cls, "__dataclass_fields__", {}):
+            kwargs["isolate_workdir"] = getattr(options, "isolate_workdir", False)
         # Forward the live assistant-block callback the same guarded way — only
         # the Manager chat front-door sets it, and a vendored copy without the
         # field degrades to no streaming rather than crashing.

@@ -826,6 +826,9 @@ class BacklogItem:
     replan_rejections: int = 0
     authorization_id: str = ""
     authorization_action: str = ""
+    # Optional execution root selected by the Manager for framework maintenance.
+    # Ordinary research tasks leave this empty and execute in project_worktree.
+    execution_workdir: str = ""
     outcome: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -851,6 +854,7 @@ class BacklogItem:
         context_refs: list[dict[str, str]] | None = None,
         authorization_id: str = "",
         authorization_action: str = "",
+        execution_workdir: str = "",
         acceptance_check: str = "",
         non_goals: list[str] | None = None,
     ) -> "BacklogItem":
@@ -877,6 +881,7 @@ class BacklogItem:
             ],
             authorization_id=str(authorization_id),
             authorization_action=str(authorization_action),
+            execution_workdir=str(execution_workdir),
             acceptance_check=str(acceptance_check or "").strip(),
             non_goals=[
                 str(item).strip()
@@ -937,6 +942,7 @@ class BacklogItem:
             replan_rejections=max(0, int(row.get("replan_rejections", 0) or 0)),
             authorization_id=str(row.get("authorization_id", "")),
             authorization_action=str(row.get("authorization_action", "")),
+            execution_workdir=str(row.get("execution_workdir", "")),
             outcome=(
                 {str(key): value for key, value in row.get("outcome", {}).items()}
                 if isinstance(row.get("outcome"), dict)

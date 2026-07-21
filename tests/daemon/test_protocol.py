@@ -165,6 +165,33 @@ def test_daemon_from_different_release_is_incompatible(tmp_path: Path) -> None:
     assert "incompatible with WebAPI release" in error
 
 
+def test_clean_self_managed_canary_may_differ_from_webapi_release(
+    tmp_path: Path,
+) -> None:
+    status = DaemonStatus(
+        alive=True,
+        pid=os.getpid(),
+        started_at_iso=None,
+        uptime_seconds=1.0,
+        life_dir=tmp_path,
+        protocol_name=DAEMON_PROTOCOL_NAME,
+        protocol_major=DAEMON_PROTOCOL_MAJOR,
+        protocol_minor=DAEMON_PROTOCOL_MINOR,
+        capabilities=DAEMON_CAPABILITIES,
+        runtime={
+            "source_root": str(tmp_path),
+            "configured_source_root": str(tmp_path),
+            "source_root_matches_config": True,
+            "release_id": "0.1.0+self-reviewed",
+            "release_matches_source": True,
+            "self_managed_source": True,
+            "worktree": {"dirty": False, "detached": False},
+        },
+    )
+
+    assert daemon_protocol_compatibility(status) == (True, "")
+
+
 def test_daemon_from_stale_process_source_is_incompatible(
     tmp_path: Path,
     monkeypatch,

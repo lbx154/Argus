@@ -235,11 +235,62 @@ def test_sandboxed_child_env_scrubs_vcs_creds(monkeypatch):
     monkeypatch.setenv("GH_TOKEN", "secret")
     monkeypatch.setenv("GITHUB_TOKEN", "secret")
     monkeypatch.setenv("SSH_AUTH_SOCK", "/tmp/a.sock")
+    monkeypatch.setenv("COPILOT_GITHUB_TOKEN", "copilot-secret")
     monkeypatch.setenv("PATH", "/usr/bin")  # a normal var survives
     env = sandbox.sandboxed_child_env()
     assert "GH_TOKEN" not in env and "GITHUB_TOKEN" not in env and "SSH_AUTH_SOCK" not in env
+    assert "COPILOT_GITHUB_TOKEN" not in env
     assert env["PYTHONSAFEPATH"] == "1"
     assert env["PATH"] == "/usr/bin"
+
+
+def test_isolated_workdir_wraps_any_backend_and_hides_vcs_credentials(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    home = tmp_path / "home"
+    workdir = tmp_path / "worktree"
+    (home / ".ssh").mkdir(parents=True)
+    (home / ".config" / "gh").mkdir(parents=True)
+    workdir.mkdir()
+    monkeypatch.setattr(sandbox.Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr(sandbox.shutil, "which", lambda name: "/usr/bin/bwrap")
+
+    command = sandbox.isolated_workdir_command(
+        ["copilot", "--version"],
+        working_dir=workdir,
+    )
+
+    assert command[0] == "/usr/bin/bwrap"
+    assert ["--bind", str(workdir), str(workdir)] == command[
+        command.index("--bind") : command.index("--bind") + 3
+    ]
+    assert str(home / ".ssh") in command
+    assert str(home / ".config" / "gh") in command
+    assert command[-2:] == ["copilot", "--version"]
+
+
+def test_isolated_workdir_fails_closed_without_bubblewrap(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(sandbox.shutil, "which", lambda _name: None)
+    with pytest.raises(RuntimeError, match="bubblewrap"):
+        sandbox.isolated_workdir_command(["copilot"], working_dir=tmp_path)
+
+
+def test_isolated_runner_scrubs_credentials_even_without_native_sandbox(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("GH_TOKEN", "secret")
+    runner = AgentCliRunner(agent_bin="copilot", backend="copilot")
+
+    env = runner._child_env(RunnerOptions(isolate_workdir=True))
+
+    assert env is not None
+    assert "GH_TOKEN" not in env
+    assert env["GIT_CONFIG_GLOBAL"] == os.devnull
+    assert env["GH_CONFIG_DIR"] == "/tmp/argus-no-gh-auth"
 
 
 # ── raw subagent-spawn helpers ───────────────────────────────────────────────

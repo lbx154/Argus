@@ -696,12 +696,30 @@ class LifeSupervisor(
                 else:
                     stopped_by = "planner_error"
                 break
+            maintenance_outcome = "framework_maintenance" in {
+                str(tag).strip().lower()
+                for tag in (outcome.get("tags") or [])
+            }
+            if maintenance_outcome:
+                post_mission_stop = self._post_mission_hook(outcome)
+                if post_mission_stop:
+                    self._emit({
+                        "type": "life.post_mission.stop",
+                        "reason": post_mission_stop,
+                        "item_id": outcome.get("item_id"),
+                        "status": outcome.get("status"),
+                    })
+                    self._emit_status(post_mission_stop)
+                    stopped_by = post_mission_stop
+                    break
             manager_rollback = (
                 self._consume_manager_blocked_rollback_before_planner()
             )
             if manager_rollback is not None:
                 stopped_by = _PLAN_MANAGER_ROLLBACK
                 break
+            if maintenance_outcome:
+                continue
             post_mission_stop = self._post_mission_hook(outcome)
             if post_mission_stop:
                 self._emit({

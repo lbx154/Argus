@@ -159,12 +159,30 @@ class MissionExecutionMixin:
         )
 
         telemetry_monitor: Any = None
+        item_tags = {
+            str(tag).strip().lower()
+            for tag in getattr(item, "tags", [])
+        }
+        execution_workdir = self._project_workdir()
+        configured_execution_workdir = str(
+            getattr(item, "execution_workdir", "") or ""
+        ).strip()
+        if configured_execution_workdir:
+            if "framework_maintenance" not in item_tags:
+                raise ValueError(
+                    "execution_workdir is reserved for framework maintenance"
+                )
+            execution_workdir = Path(
+                configured_execution_workdir
+            ).expanduser().resolve()
+            if not execution_workdir.is_dir():
+                raise ValueError("framework maintenance worktree is unavailable")
         if self.config.telemetry_dir is not None:
             try:
                 from ..telemetry import MissionTelemetryMonitor
                 telemetry_monitor = MissionTelemetryMonitor(
                     life_dir=self.config.telemetry_dir,
-                    workdir=self._project_workdir(),
+                    workdir=execution_workdir,
                     item_id=item.id,
                     title=item.title,
                     interval_seconds=self.config.telemetry_interval_seconds,
@@ -310,10 +328,16 @@ class MissionExecutionMixin:
                     execute_kwargs["context_packet_path"] = (
                         str(context_packet_path) if context_packet_path else ""
                     )
-                tags = {
-                    str(tag).strip().lower()
-                    for tag in getattr(item, "tags", [])
-                }
+                if "working_dir_override" in params or _accepts_kw:
+                    execute_kwargs["working_dir_override"] = (
+                        str(execution_workdir)
+                        if configured_execution_workdir
+                        else ""
+                    )
+                if "maintenance_mission" in params or _accepts_kw:
+                    execute_kwargs["maintenance_mission"] = (
+                        "framework_maintenance" in item_tags
+                    )
                 progressive_matrix = is_progressive_experiment_matrix(item)
                 if (
                     "progressive_experiment_matrix" in params
@@ -322,7 +346,7 @@ class MissionExecutionMixin:
                     execute_kwargs["progressive_experiment_matrix"] = (
                         progressive_matrix
                     )
-                if "bounded_dag_node" in tags and not progressive_matrix:
+                if "bounded_dag_node" in item_tags and not progressive_matrix:
                     if "max_rounds_override" in params or _accepts_kw:
                         execute_kwargs["max_rounds_override"] = (
                             bounded_dag_node_max_rounds()
@@ -1018,8 +1042,14 @@ class MissionExecutionMixin:
         return {
             "item_id": item.id,
             "title": item.title,
+            "tags": list(item.tags),
+            "execution_workdir": str(execution_workdir),
             "success": success,
             "status": status,
+            "review_status": str(
+                getattr(outcome, "final_review_status", "") or ""
+            ),
+            "stop_reason": stop_reason,
             "rounds": rounds,
             "cost_usd": usd,
             "known_cost_usd": known_usd,

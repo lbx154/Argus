@@ -19,6 +19,7 @@ the reviewer without touching the package.
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -166,7 +167,8 @@ def writable_roots(*, life_root: str | os.PathLike[str] | None = None) -> list[s
 # bypassing the local-FS sandbox entirely (network egress is not policed).
 _VCS_CRED_ENV_KEYS = (
     "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
-    "GITHUB_API_TOKEN", "GIT_TOKEN", "GIT_ASKPASS", "SSH_AUTH_SOCK",
+    "GITHUB_API_TOKEN", "COPILOT_GITHUB_TOKEN", "GIT_TOKEN", "GIT_ASKPASS",
+    "SSH_AUTH_SOCK",
 )
 
 
@@ -185,6 +187,50 @@ def sandboxed_child_env(base: dict[str, str] | None = None) -> dict[str, str]:
             env.pop(key, None)
     env["PYTHONSAFEPATH"] = "1"
     return env
+
+
+def isolated_workdir_command(
+    command: list[str],
+    *,
+    working_dir: str | os.PathLike[str] | None,
+) -> list[str]:
+    """Wrap any role CLI in a read-only-root, worktree-write bubblewrap."""
+    if os.name != "posix" or not working_dir:
+        raise RuntimeError("worktree isolation requires POSIX and an explicit workdir")
+    bwrap = shutil.which("bwrap")
+    if not bwrap:
+        raise RuntimeError("worktree isolation requires bubblewrap")
+    root = os.path.realpath(os.fspath(working_dir))
+    if not os.path.isdir(root):
+        raise RuntimeError("isolated workdir does not exist")
+    wrapped = [
+        bwrap,
+        "--die-with-parent",
+        "--new-session",
+        "--ro-bind",
+        "/",
+        "/",
+        "--bind",
+        root,
+        root,
+        "--tmpfs",
+        "/tmp",
+        "--proc",
+        "/proc",
+        "--dev-bind",
+        "/dev",
+        "/dev",
+        "--chdir",
+        root,
+    ]
+    home = Path.home()
+    for hidden in (home / ".ssh", home / ".config" / "gh"):
+        if hidden.is_dir():
+            wrapped.extend(["--tmpfs", str(hidden)])
+    for hidden_file in (home / ".git-credentials", home / ".netrc"):
+        if hidden_file.is_file():
+            wrapped.extend(["--ro-bind", "/dev/null", str(hidden_file)])
+    return [*wrapped, "--", *command]
 
 
 def codex_sandbox_args(
@@ -218,4 +264,3 @@ def codex_sandbox_env() -> dict[str, str] | None:
     if engineer_sandbox_mode() is None:
         return None
     return sandboxed_child_env()
-

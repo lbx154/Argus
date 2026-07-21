@@ -777,6 +777,8 @@ class EngineerConfig:
     full_auto: bool = True
     skip_git_repo_check: bool = True
     dangerous_yolo: bool = False
+    sandbox_mode: str | None = None
+    isolate_workdir: bool = False
     # Pipeline stages in which the engineer runs with codex's native live
     # web_search enabled (``codex exec --search``). Default: the research stage,
     # so idea discovery / literature grounding does REAL live search instead of
@@ -2808,6 +2810,8 @@ class SupervisedEngineer:
                     full_auto=self.engineer_config.full_auto,
                     skip_git_repo_check=self.engineer_config.skip_git_repo_check,
                     dangerous_yolo=self.engineer_config.dangerous_yolo,
+                    sandbox_mode=self.engineer_config.sandbox_mode,
+                    isolate_workdir=self.engineer_config.isolate_workdir,
                     working_dir=str(workdir),
                     live_search=_engineer_live_search(
                         workdir, self.engineer_config.live_search_stages

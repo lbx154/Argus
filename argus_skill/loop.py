@@ -287,6 +287,8 @@ class SkillLoopConfig:
     full_auto: bool = True
     skip_git_repo_check: bool = True
     dangerous_yolo: bool = False
+    sandbox_mode: str | None = None
+    isolate_workdir: bool = False
     extra_args: list[str] | None = None
     session_id: str | None = None
     # Engineer-authored review waivers are explicit and fail closed: no valid
@@ -471,6 +473,8 @@ class SkillLoop:
                 full_auto=self.config.full_auto,
                 skip_git_repo_check=self.config.skip_git_repo_check,
                 dangerous_yolo=self.config.dangerous_yolo,
+                sandbox_mode=self.config.sandbox_mode,
+                isolate_workdir=self.config.isolate_workdir,
             ),
             reviewer_config=ReviewerConfig(
                 model=self.config.resolved_reviewer_model(),
@@ -479,6 +483,8 @@ class SkillLoop:
                 full_auto=self.config.full_auto,
                 skip_git_repo_check=self.config.skip_git_repo_check,
                 dangerous_yolo=self.config.dangerous_yolo,
+                sandbox_mode=self.config.sandbox_mode,
+                isolate_workdir=self.config.isolate_workdir,
             ),
         )
 

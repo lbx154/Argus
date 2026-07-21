@@ -36,6 +36,7 @@ _HANDOFF_TOKEN_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_TOKEN"
 _HANDOFF_GEN_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_GEN"
 _HANDOFF_LOG_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_LOG"
 _SOURCE_SIGNATURE_ENV = "ARGUS_SKILL_DAEMON_SOURCE_SIGNATURE"
+_HANDOFF_ROLLBACK_SOURCE_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_ROLLBACK_SOURCE"
 _TEST_SOURCE_SIGNATURE_FILE_ENV = "ARGUS_SKILL_DAEMON_TEST_SOURCE_SIGNATURE_FILE"
 
 
@@ -104,7 +105,7 @@ def _handoff_max_generations() -> int:
         return 10
 
 
-def _source_signature() -> str:
+def _source_signature(source_root: Path | None = None) -> str:
     """Content hash of runtime files that require a daemon restart.
 
     Covers both Python runtime code and the behavior-defining built-in skill
@@ -118,8 +119,12 @@ def _source_signature() -> str:
             return Path(test_signature_path).expanduser().read_text(encoding="utf-8").strip()
         except OSError:
             return ""
-    package_root = Path(__file__).resolve().parents[1]
-    repo_root = package_root.parent
+    repo_root = (
+        Path(source_root).expanduser().resolve()
+        if source_root is not None
+        else Path(__file__).resolve().parents[2]
+    )
+    package_root = repo_root / "argus_skill"
     paths: list[Path] = sorted(package_root.rglob("*.py"))
     paths += sorted((package_root / "builtin_skills").rglob("*.md"))
     pyproject = repo_root / "pyproject.toml"
@@ -156,6 +161,8 @@ def _spawn_handoff_candidate(
     source_signature: str,
     reason: str,
     standby_timeout: float = 30.0,
+    candidate_source_root: Path | None = None,
+    rollback_source_root: Path | None = None,
 ) -> bool:
     """Start a fresh interpreter and wait until it reaches standby."""
     token = uuid.uuid4().hex
@@ -185,6 +192,25 @@ def _spawn_handoff_candidate(
     env[_HANDOFF_LOG_ENV] = str(log_path)
     env[_SOURCE_SIGNATURE_ENV] = source_signature
     env[_HANDOFF_GEN_ENV] = str(_handoff_generation() + 1)
+    if candidate_source_root is not None:
+        candidate_root = Path(candidate_source_root).expanduser().resolve()
+        pythonpath = [
+            str(candidate_root),
+            *[
+                part
+                for part in env.get("PYTHONPATH", "").split(os.pathsep)
+                if part and Path(part).expanduser().resolve() != candidate_root
+            ],
+        ]
+        env["PYTHONPATH"] = os.pathsep.join(pythonpath)
+        env["ARGUS_SKILL_SOURCE_ROOT"] = str(candidate_root)
+        env["ARGUS_SKILL_SELF_MANAGED_SOURCE"] = "1"
+    if rollback_source_root is not None:
+        env[_HANDOFF_ROLLBACK_SOURCE_ENV] = str(
+            Path(rollback_source_root).expanduser().resolve()
+        )
+    else:
+        env.pop(_HANDOFF_ROLLBACK_SOURCE_ENV, None)
     cmd = [
         sys.executable,
         "-c",
@@ -332,14 +358,49 @@ def run_handoff_child_process(
     if _hlog:
         _point_active_daemon_log(config.life_dir, Path(_hlog))
 
+    rc = 2
     try:
-        return worker.run_forever()
+        rc = int(worker.run_forever())
+    except Exception:  # noqa: BLE001 - a failed canary must release and roll back
+        log.exception("handoff candidate crashed after takeover")
     finally:
         lock.release()
         try:
             status_path.unlink()
         except OSError:
             pass
+    rollback_root = os.environ.get(_HANDOFF_ROLLBACK_SOURCE_ENV, "").strip()
+    if rc != 0 and rollback_root:
+        state_path = config.life_dir / "self-maintenance" / "state.json"
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            if isinstance(state, dict) and state.get("phase") in {
+                "handoff_requested",
+                "canary_running",
+                "publication_failed",
+            }:
+                from .self_maintenance import _atomic_json
+
+                _atomic_json(state_path, {
+                    **state,
+                    "phase": "canary_failed",
+                    "error": f"canary process exited with rc={rc}",
+                    "updated_at": time.time(),
+                })
+        except (OSError, json.JSONDecodeError, TypeError):
+            log.exception("failed to mark crashed self-maintenance canary")
+        root = Path(rollback_root).expanduser().resolve()
+        signature = _source_signature(root)
+        if not _spawn_handoff_candidate(
+            config,
+            source_signature=signature,
+            reason="self-maintenance canary failed; restore prior runtime",
+            candidate_source_root=root,
+        ):
+            log.error(
+                "self-maintenance canary failed and rollback candidate did not start"
+            )
+    return rc
 
 
 # ---------------------------------------------------------------------------
@@ -351,6 +412,7 @@ __all__ = [
     "_HANDOFF_GEN_ENV",
     "_HANDOFF_LOG_ENV",
     "_HANDOFF_READY_ENV",
+    "_HANDOFF_ROLLBACK_SOURCE_ENV",
     "_HANDOFF_TOKEN_ENV",
     "_SOURCE_SIGNATURE_ENV",
     "_TEST_SOURCE_SIGNATURE_FILE_ENV",

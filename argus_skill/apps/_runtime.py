@@ -25,6 +25,7 @@ import os
 import shlex
 import signal
 import sys
+import tempfile
 import threading
 from collections.abc import Mapping
 from contextlib import contextmanager
@@ -693,6 +694,8 @@ class _SkillLoopRunner(SelfReplyMixin):
         progressive_experiment_matrix: bool = False,
         workflow_mode_override: str = "",
         require_independent_review: bool = False,
+        working_dir_override: str = "",
+        maintenance_mission: bool = False,
     ) -> _Outcome:
         # Chat fast-path (operator-front-door-only; gated by _allow_chat_fast_path).
         # The classifier + reply logic lives in ``_maybe_chat_outcome``; here we
@@ -713,9 +716,17 @@ class _SkillLoopRunner(SelfReplyMixin):
                 return _chat
 
         args = self._args
-        _proot = Path(
-            getattr(self, "_artifact_root", None)
-            or (Path(args.workdir).expanduser() if args.workdir else Path.cwd())
+        workdir = (
+            Path(working_dir_override).expanduser().resolve()
+            if working_dir_override
+            else Path(args.workdir).expanduser()
+            if args.workdir
+            else Path.cwd()
+        )
+        _proot = (
+            workdir
+            if maintenance_mission
+            else Path(getattr(self, "_artifact_root", None) or workdir)
         )
         effective_require_independent_review = (
             require_independent_review
@@ -726,7 +737,14 @@ class _SkillLoopRunner(SelfReplyMixin):
         # consents to autonomous execution; the sandbox only fights us
         # (`bwrap: Can't create file at /.codex: Permission denied`).
         # Operators can opt back into sandbox via ARGUS_SKILL_SAFE_MODE=1.
-        safe_mode = _env_flag("ARGUS_SKILL_SAFE_MODE", False)
+        # Framework-maintenance roles are always confined to their private
+        # worktree and receive no push-capable VCS credentials. Authenticated
+        # commit/push/PR publication remains daemon-owned after Reviewer approval.
+        safe_mode = (
+            True
+            if maintenance_mission
+            else _env_flag("ARGUS_SKILL_SAFE_MODE", False)
+        )
         config_kwargs = {
             "engineer_model": args.engineer_model,
             "reviewer_model": args.reviewer_model,
@@ -768,6 +786,8 @@ class _SkillLoopRunner(SelfReplyMixin):
             ),
             "dangerous_yolo": not safe_mode,
             "full_auto": safe_mode,
+            "sandbox_mode": "workspace-write" if maintenance_mission else None,
+            "isolate_workdir": maintenance_mission,
             "skip_git_repo_check": True,
             "engineer_self_review_enabled": (
                 _env_flag("ARGUS_SKILL_ENGINEER_SELF_REVIEW", default=True)
@@ -798,10 +818,21 @@ class _SkillLoopRunner(SelfReplyMixin):
             config_kwargs["max_rounds"] = 2_147_483_647
             config_kwargs["soft_round_limit"] = 0
             config_kwargs["hard_escalate_rounds"] = 0
+        maintenance_checkpoint_dir: Path | None = None
         if context_packet_path:
             config_kwargs["checkpoint_path"] = (
                 Path(context_packet_path).expanduser().resolve().parent
                 / "CHECKPOINT.md"
+            )
+        if maintenance_mission:
+            maintenance_checkpoint_dir = (
+                Path(tempfile.gettempdir())
+                / "argus-self-maintenance-checkpoints"
+                / str(mission_id or "maintenance")
+            )
+            maintenance_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            config_kwargs["checkpoint_path"] = (
+                maintenance_checkpoint_dir / "CHECKPOINT.md"
             )
         _project_state_dir = _project_state_dir_for(
             args, Path(args.workdir).expanduser() if args.workdir else Path.cwd()
@@ -825,10 +856,14 @@ class _SkillLoopRunner(SelfReplyMixin):
         _paper_override = getattr(args, "paper_mission", None)
         _paper_allowed = True if _paper_override is None else bool(_paper_override)
         config_kwargs["paper_mission"] = (
-            _paper_allowed and _paper_mission_for_project_root(_proot)
+            not maintenance_mission
+            and _paper_allowed
+            and _paper_mission_for_project_root(_proot)
         )
         config_kwargs["workflow_mode"] = (
-            workflow_mode_override.strip().lower()
+            "direct"
+            if maintenance_mission
+            else workflow_mode_override.strip().lower()
             or _workflow_mode_for_project_root(_proot)
         )
         try:
@@ -846,9 +881,6 @@ class _SkillLoopRunner(SelfReplyMixin):
         except (TypeError, ValueError):
             pass
         config = self._SkillLoopConfig(**config_kwargs)
-        workdir = (
-            Path(args.workdir).expanduser() if args.workdir else Path.cwd()
-        )
         self._refresh_manager_skill_store(args)
         # The per-project runtime state dir holds inbox.jsonl + events.jsonl.
         operator_state_dir = _project_state_dir_for(args, workdir)
@@ -1006,6 +1038,14 @@ class _SkillLoopRunner(SelfReplyMixin):
             self._current_sink = None
             self._current_failure_ledger = None
             self._set_usage_context(None)
+            if maintenance_checkpoint_dir is not None:
+                try:
+                    (
+                        maintenance_checkpoint_dir / "CHECKPOINT.md"
+                    ).unlink(missing_ok=True)
+                    maintenance_checkpoint_dir.rmdir()
+                except OSError:
+                    pass
         new_tid = getattr(outcome, "last_thread_id", None)
         if should_clear_thread_id_after_outcome(
             status=str(getattr(outcome, "status", "")),
@@ -1102,7 +1142,7 @@ class _SkillLoopRunner(SelfReplyMixin):
         # Direct workflow skips an extra planning pass, not Manager stage
         # authority. A required independent Reviewer verdict must reach the
         # stage writer before any planner-wait reconciliation.
-        if _should_run_stage_transition(
+        if not maintenance_mission and _should_run_stage_transition(
             effective_status,
             planner_report,
             mission_scope=mission_scope,

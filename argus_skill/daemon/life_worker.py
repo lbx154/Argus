@@ -1116,8 +1116,9 @@ class LifeWorker:
         from ..life.event_log import JsonlEventSink
 
         # events.jsonl is the single persistent timeline.
+        daemon_sink = _DaemonSink(self)
         sink = JsonlEventSink(
-            _DaemonSink(self),
+            daemon_sink,
             life_dir=runtime_root,
             verbosity=getattr(cfg, "event_log_verbosity", "signal"),
         )
@@ -1500,6 +1501,75 @@ class LifeWorker:
             planner_runner=getattr(runner, "planner_backend", None)
             or getattr(runner, "backend", None),
         )
+        self._self_maintenance = None
+        maintenance_enabled = os.environ.get(
+            "ARGUS_SKILL_SELF_MAINTENANCE",
+            "1",
+        ).strip().lower() not in {"0", "false", "no", "off"}
+        if maintenance_enabled and cfg.backend != "memory" and cfg.project_workdir:
+            try:
+                from ..core.runtime_identity import (
+                    source_revision,
+                    source_root,
+                )
+                from .self_maintenance import DaemonSelfMaintenance
+
+                self._self_maintenance = DaemonSelfMaintenance(
+                    life_dir=runtime_root,
+                    framework_root=source_root(),
+                    project_workdir=cfg.project_workdir,
+                    manager=runner.manager,
+                    memory=mem,
+                    on_event=sink.handle_event,
+                )
+                daemon_sink.self_maintenance = self._self_maintenance
+                self._self_maintenance.mark_canary_started(
+                    loaded_source_root=source_root(),
+                    revision=str(source_revision() or ""),
+                )
+                failed_canary_rollback = (
+                    self._self_maintenance.failed_start_rollback_candidate(
+                        loaded_source_root=source_root(),
+                    )
+                )
+                if failed_canary_rollback is not None:
+                    if _spawn_handoff_candidate(
+                        self.config,
+                        source_signature=_source_signature(
+                            failed_canary_rollback
+                        ),
+                        reason=(
+                            "loaded self-maintenance source failed reviewed commit "
+                            "identity; restore prior runtime"
+                        ),
+                        candidate_source_root=failed_canary_rollback,
+                    ):
+                        self._stop.set()
+                        return 0
+                    self._self_maintenance.mark_handoff_failed(
+                        "canary identity failed and rollback did not reach standby"
+                    )
+                resume_source = self._self_maintenance.source_resume_candidate(
+                    loaded_source_root=source_root(),
+                )
+                if resume_source is not None:
+                    if _spawn_handoff_candidate(
+                        self.config,
+                        source_signature=_source_signature(resume_source),
+                        reason=(
+                            "restore this daemon's persisted self-managed runtime "
+                            "after process restart"
+                        ),
+                        candidate_source_root=resume_source,
+                        rollback_source_root=source_root(),
+                    ):
+                        self._stop.set()
+                        return 0
+                    self._self_maintenance.mark_handoff_failed(
+                        "persisted self-managed runtime did not reach standby"
+                    )
+            except Exception:  # noqa: BLE001 - research remains available
+                log.exception("daemon: self-maintenance initialization failed")
 
         # Vault pre-flight: refuse to start daemon if a required
         # model_api route is misconfigured (e.g. wrong deployment
@@ -1589,6 +1659,95 @@ class LifeWorker:
                     )
                     with pipeline_lock:
                         summary = sup.run()
+                        if self._self_maintenance is not None:
+                            pr_result = (
+                                self._self_maintenance.reconcile_pull_request()
+                            )
+                            if pr_result.startswith("rollback:"):
+                                rollback_root = Path(
+                                    pr_result.removeprefix("rollback:")
+                                )
+                                if (
+                                    rollback_root.is_dir()
+                                    and _spawn_handoff_candidate(
+                                        self.config,
+                                        source_signature=_source_signature(
+                                            rollback_root
+                                        ),
+                                        reason=(
+                                            "self-maintenance PR closed without "
+                                            "merge; restore prior runtime"
+                                        ),
+                                        candidate_source_root=rollback_root,
+                                    )
+                                ):
+                                    self._stop.set()
+                                    summary["stopped_by"] = "daemon_handoff"
+                                    continue
+                                self._self_maintenance.mark_handoff_failed(
+                                    "closed PR rollback did not reach standby"
+                                )
+                            maintenance_action = self._self_maintenance.audit_if_due(
+                                daemon_state={
+                                    "summary": summary,
+                                    "continuous_enabled": bool(
+                                        read_continuous_state(runtime_root).enabled
+                                    ),
+                                    "project_workdir": str(cfg.project_workdir or ""),
+                                    "budget_allowed": bool(
+                                        sup.config.budget.can_start(
+                                            global_root=cfg.global_root,
+                                        )[0]
+                                    ),
+                                }
+                            )
+                            if maintenance_action.startswith("adopt:"):
+                                candidate_root = Path(
+                                    maintenance_action.removeprefix("adopt:")
+                                )
+                                from ..core.runtime_identity import source_root
+
+                                if _spawn_handoff_candidate(
+                                    self.config,
+                                    source_signature=_source_signature(candidate_root),
+                                    reason=(
+                                        "this daemon's Manager approved a "
+                                        "human-merged framework update"
+                                    ),
+                                    candidate_source_root=candidate_root,
+                                    rollback_source_root=source_root(),
+                                ):
+                                    self._stop.set()
+                                    summary["stopped_by"] = "daemon_handoff"
+                                else:
+                                    self._self_maintenance.mark_handoff_failed(
+                                        "approved upstream canary did not reach standby"
+                                    )
+                    if self._self_maintenance is not None:
+                        canary_result = (
+                            self._self_maintenance.publish_after_canary(
+                                summary=summary
+                            )
+                        )
+                        if canary_result.startswith("rollback:"):
+                            rollback_root = Path(
+                                canary_result.removeprefix("rollback:")
+                            )
+                            if rollback_root.is_dir() and _spawn_handoff_candidate(
+                                self.config,
+                                source_signature=_source_signature(rollback_root),
+                                reason=(
+                                    "self-maintenance canary failed its explicit "
+                                    "health check; restore prior runtime"
+                                ),
+                                candidate_source_root=rollback_root,
+                            ):
+                                self._stop.set()
+                                summary["stopped_by"] = "daemon_handoff"
+                            else:
+                                self._self_maintenance.mark_handoff_failed(
+                                    "canary failed and rollback did not reach standby"
+                                )
                     test_signature_path = os.environ.get(
                         _TEST_SOURCE_SIGNATURE_FILE_ENV, ""
                     ).strip()
@@ -1834,7 +1993,28 @@ class LifeWorker:
         those runtime changes, so check at every mission boundary and hand off
         to a fresh daemon as soon as the new process can stand by.
         """
-        del outcome
+        maintenance = getattr(self, "_self_maintenance", None)
+        if maintenance is not None:
+            candidate_root = maintenance.prepare_reviewed_change(outcome)
+            if candidate_root is not None:
+                signature = _source_signature(candidate_root)
+                from ..core.runtime_identity import source_root
+
+                if _spawn_handoff_candidate(
+                    self.config,
+                    source_signature=signature,
+                    reason=(
+                        "independently reviewed self-maintenance change; "
+                        "canary this daemon before PR publication"
+                    ),
+                    candidate_source_root=candidate_root,
+                    rollback_source_root=source_root(),
+                ):
+                    self._stop.set()
+                    return "daemon_handoff"
+                maintenance.mark_handoff_failed(
+                    "private canary did not reach standby"
+                )
         if self._maybe_handoff_after_source_change(
             planner_reason=(
                 "runtime source changed after mission completion; "
@@ -2089,8 +2269,14 @@ class _DaemonSink:
 
     def __init__(self, worker: LifeWorker) -> None:
         self._worker = worker
+        self.self_maintenance: Any = None
 
     def handle_event(self, event: dict[str, Any]) -> None:
+        if self.self_maintenance is not None:
+            try:
+                self.self_maintenance.observe(event)
+            except Exception:  # noqa: BLE001 - observation never blocks work
+                log.exception("daemon: self-maintenance observation failed")
         kind = event.get("type") or event.get("kind") or ""
         if kind in (
             "life.mission.done",
