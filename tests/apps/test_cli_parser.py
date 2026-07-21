@@ -246,6 +246,27 @@ def test_main_exports_builtin_skills(
     assert str(target) in out
 
 
+def test_export_target_does_not_inherit_unrelated_cwd_vertical(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    caller = tmp_path / "caller"
+    caller.mkdir()
+    persist_vertical(caller, "software")
+    monkeypatch.chdir(caller)
+    target = tmp_path / "fresh-project" / "argus_builtin_skills"
+
+    rc = main(["--export-builtin-skills", str(target)])
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert "vertical: research" in out
+    assert (target / "engineer/research-visualization-router.md").exists()
+
+
 def test_main_rejects_objective_without_continuous(capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["--objective", "hardening objective"])
     err = capsys.readouterr().err

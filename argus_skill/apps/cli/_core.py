@@ -995,7 +995,8 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
     # builtin pointer stub, so the agent workspace carries the real skill that
     # the vertical's REVIEWER_CHECKLISTS reference. ``--vertical`` overrides; by
     # default the active vertical is resolved from research/PIPELINE_STATE.json
-    # in the target/cwd. This is a standalone
+    # in the TARGET project. Never inherit an unrelated caller cwd's vertical
+    # when exporting into another project. This is a standalone
     # operator command that may run outside a decided mission, so fall back to
     # the ``research`` seed when no vertical is resolvable (the mission-internal
     # readers all run post-bootstrap, where resolve_vertical is fail-hard).
@@ -1004,7 +1005,7 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
         vertical = explicit
     else:
         try:
-            vertical = resolve_vertical(Path.cwd())
+            vertical = resolve_vertical(target.parent)
         except VerticalResolutionError:
             vertical = "research"
     if vertical:
