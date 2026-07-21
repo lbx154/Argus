@@ -241,9 +241,27 @@ def test_main_exports_builtin_skills(
     assert (target / "engineer/auto-research-pipeline.md").exists()
     assert (target / "engineer/emnlp-paper-drafting.md").exists()
     assert (target / "engineer/arxiv-paper-search.md").exists()
-    assert (target / "engineer/research-visualization-router.md").exists()
+    assert not (target / "engineer/research-visualization-router.md").exists()
     assert "exported built-in skills" in out
+    assert "vertical: none (common skills only)" in out
     assert str(target) in out
+
+
+def test_main_exports_decided_vertical_skills(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    target = tmp_path / "project" / "argus_builtin_skills"
+    persist_vertical(target.parent, "research")
+
+    rc = main(["--export-builtin-skills", str(target)])
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert "vertical: research" in out
+    assert (target / "engineer/research-visualization-router.md").exists()
 
 
 def test_export_target_does_not_inherit_unrelated_cwd_vertical(
@@ -263,8 +281,8 @@ def test_export_target_does_not_inherit_unrelated_cwd_vertical(
     out = capsys.readouterr().out
 
     assert rc == 0
-    assert "vertical: research" in out
-    assert (target / "engineer/research-visualization-router.md").exists()
+    assert "vertical: none (common skills only)" in out
+    assert not (target / "engineer/research-visualization-router.md").exists()
 
 
 def test_main_rejects_objective_without_continuous(capsys: pytest.CaptureFixture[str]) -> None:

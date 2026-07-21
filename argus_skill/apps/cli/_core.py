@@ -981,7 +981,10 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
         seed_builtin_skills,
         seed_builtin_skills_for_vertical,
     )
-    from ...skills.vertical_select import VerticalResolutionError, resolve_vertical
+    from ...skills.vertical_select import (
+        VerticalResolutionError,
+        resolve_vertical_if_decided,
+    )
 
     raw_target = args.export_builtin_skills or DEFAULT_PROJECT_BUILTIN_SKILLS_DIR
     target = core_paths.resolve_runtime_path(
@@ -990,25 +993,14 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
     )
     if not target.is_absolute():
         target = Path.cwd() / target
-    # Vertical-aware export: a non-research vertical also seeds its OWN domain
-    # skills (verticals/<v>/skills/), with the real bodies overwriting any
-    # builtin pointer stub, so the agent workspace carries the real skill that
-    # the vertical's REVIEWER_CHECKLISTS reference. ``--vertical`` overrides; by
-    # default the active vertical is resolved from research/PIPELINE_STATE.json
-    # in the TARGET project. Never inherit an unrelated caller cwd's vertical
-    # when exporting into another project. This is a standalone
-    # operator command that may run outside a decided mission, so fall back to
-    # the ``research`` seed when no vertical is resolvable (the mission-internal
-    # readers all run post-bootstrap, where resolve_vertical is fail-hard).
-    explicit = getattr(args, "vertical", None)
-    if explicit:
-        vertical = explicit
-    else:
-        try:
-            vertical = resolve_vertical(target.parent)
-        except VerticalResolutionError:
-            vertical = "research"
-    if vertical:
+    # Export the target project's decided vertical, never the caller cwd's.
+    # Before Manager has decided, only cross-vertical builtins are safe to seed.
+    try:
+        vertical = resolve_vertical_if_decided(target.parent)
+    except VerticalResolutionError as exc:
+        sys.stderr.write(f"argus-skill: cannot resolve target vertical: {exc}\n")
+        return 2
+    if vertical is not None:
         result = seed_builtin_skills_for_vertical(
             target, vertical, overwrite=bool(args.apply)
         )
@@ -1025,7 +1017,7 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
     action = "created/replaced" if args.apply else "created"
     print(f"argus-skill: exported built-in skills to {target}")
     print(f"  source : {source}")
-    print(f"  vertical: {vertical}")
+    print(f"  vertical: {vertical or 'none (common skills only)'}")
     print(
         f"  files  : {written} {action}, {skipped} preserved, "
         f"{len(result)} total"
