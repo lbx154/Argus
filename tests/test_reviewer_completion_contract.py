@@ -26,7 +26,6 @@ from argus_skill.life.supervisor import (
     LifeSupervisor,
     LifeSupervisorConfig,
 )
-from argus_skill.life.supervisor._constants import PLAN_RETRY
 from argus_skill.planner import PlannerVerdict, TaskSpec, WaitingContract
 from argus_skill.reviewer import _find_decision_in_messages
 from argus_skill.skills.vertical_select import persist_vertical
@@ -174,6 +173,58 @@ def test_parser_accepts_machine_certification_payload() -> None:
             "item": "solve.lean-compiled",
             "satisfied": True,
             "evidence": "machine certification checklist status: NOT_APPLICABLE",
+        },
+    ]
+
+
+def test_parser_accepts_framework_review_wrapper_with_legacy_tail() -> None:
+    payload = {
+        "review": {
+            "status": "done",
+            "scope": "bounded",
+            "correctness_status": "verified",
+            "summary": "Bounded C21 packet is verified without broader claims.",
+            "checklist": [
+                {
+                    "checklist_id": "solve.checkable-evidence",
+                    "verdict": "supported",
+                    "evidence_refs": ["research/C21_SOLVE_REVIEWER_PACKET.json"],
+                    "reviewer_notes": "Frozen evidence is checkable.",
+                },
+                {
+                    "checklist_id": "solve.counterexample-valid",
+                    "verdict": "not_applicable",
+                    "evidence_refs": ["research/C21_SOLVE_STAGE_CLOSURE.json"],
+                    "reviewer_notes": "No counterexample is claimed.",
+                },
+            ],
+            "blocking_issues": [],
+        }
+    }
+    message = (
+        "```json\n"
+        f"{json.dumps(payload)}\n"
+        "```\n\n"
+        'ARGUS_ENGINEER_DECISION: {"review":"required","skill_action":"none","skill_name":""}'
+    )
+
+    decision = _find_decision_in_messages([message])
+
+    assert decision is not None
+    assert decision.status == "done"
+    assert decision.scope == "bounded"
+    assert decision.reason == "Bounded C21 packet is verified without broader claims."
+    assert decision.certification_payload == payload
+    assert decision.checklist == [
+        {
+            "item": "solve.checkable-evidence",
+            "satisfied": True,
+            "evidence": "research/C21_SOLVE_REVIEWER_PACKET.json",
+        },
+        {
+            "item": "solve.counterexample-valid",
+            "satisfied": True,
+            "evidence": "research/C21_SOLVE_STAGE_CLOSURE.json",
         },
     ]
 

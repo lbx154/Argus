@@ -215,6 +215,21 @@ def record_reviewed_handoff(
     certification_payload = getattr(review, "certification_payload", None)
     if isinstance(certification_payload, dict) and certification_payload:
         review_payload["certification_payload"] = dict(certification_payload)
+        framework_review = certification_payload.get("review")
+        if isinstance(framework_review, dict):
+            for key in (
+                "correctness_status",
+                "summary",
+                "blocking_issues",
+            ):
+                if key in framework_review:
+                    review_payload[key] = framework_review[key]
+            framework_scope = str(framework_review.get("scope") or "").strip()
+            if framework_scope:
+                review_payload["scope"] = framework_scope
+            framework_checklist = framework_review.get("checklist")
+            if isinstance(framework_checklist, list):
+                review_payload["checklist"] = list(framework_checklist)
     payload = {
         "schema_version": CONTEXT_PACKET_VERSION,
         "kind": "round_reviewed_handoff",

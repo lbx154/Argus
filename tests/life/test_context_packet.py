@@ -9,6 +9,7 @@ from argus_skill.life.context_packet import (
     record_engineer_handoff,
     record_reviewed_handoff,
 )
+from argus_skill.reviewer import _find_decision_in_messages
 
 
 def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> None:
@@ -129,3 +130,53 @@ def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> 
     )
     assert "engineer_summary" not in reviewed_payload
     assert "text" not in reviewed_payload["checkpoint"]
+
+
+def test_framework_review_payload_projects_to_top_level_review(tmp_path: Path) -> None:
+    mission = create_mission_context(
+        life_dir=tmp_path,
+        mission_id="mission-framework-review",
+        stage="solve",
+        scope="bounded",
+        objective="Certify one bounded C21 packet.",
+        acceptance_check="framework review object carries the bounded verdict",
+    )
+    checkpoint = mission.parent / "CHECKPOINT.md"
+    checkpoint.write_text("# Current State\n\nReviewer certified C21.\n", encoding="utf-8")
+    framework_payload = {
+        "review": {
+            "status": "done",
+            "scope": "bounded",
+            "correctness_status": "verified",
+            "summary": "Bounded C21 certification is verified.",
+            "checklist": [
+                {
+                    "checklist_id": "solve.checkable-evidence",
+                    "verdict": "supported",
+                    "evidence_refs": ["research/C21_SOLVE_REVIEWER_PACKET.json"],
+                    "reviewer_notes": "Frozen packet is checkable.",
+                }
+            ],
+            "blocking_issues": [],
+        }
+    }
+    review = _find_decision_in_messages([json.dumps(framework_payload)])
+    assert review is not None
+
+    reviewed = record_reviewed_handoff(
+        mission_context_path=mission,
+        round_index=1,
+        engineer_summary="Prepared C21 framework review repair.",
+        review=review,
+        checkpoint_path=checkpoint,
+    )
+
+    assert reviewed is not None
+    reviewed_payload = json.loads(reviewed.read_text())
+    review_payload = reviewed_payload["review"]
+    assert review_payload["status"] == "done"
+    assert review_payload["scope"] == "bounded"
+    assert review_payload["correctness_status"] == "verified"
+    assert review_payload["blocking_issues"] == []
+    assert review_payload["checklist"] == framework_payload["review"]["checklist"]
+    assert review_payload["certification_payload"] == framework_payload

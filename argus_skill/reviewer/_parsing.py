@@ -60,14 +60,22 @@ def parse_decision_text(
     allow_research_pause: bool = False,
 ) -> ReviewDecision | None:
     candidate = _strip_markdown_fences(text.strip())
-    parsed = _load_json(candidate)
-    if parsed is None:
-        left = candidate.find("{")
-        right = candidate.rfind("}")
-        if left >= 0 and right > left:
-            parsed = _load_json(candidate[left : right + 1])
-    if parsed is None:
-        return None
+    for parsed in _candidate_json_objects(candidate):
+        result = _parse_decision_object(
+            parsed,
+            allow_research_pause=allow_research_pause,
+        )
+        if result is not None:
+            return result
+    return None
+
+
+def _parse_decision_object(
+    parsed: dict[str, Any],
+    *,
+    allow_research_pause: bool = False,
+) -> ReviewDecision | None:
+    parsed = _adapt_framework_review_wrapper(parsed) or parsed
     status = _parse_status(
         parsed,
         allow_research_pause=allow_research_pause,
@@ -131,6 +139,87 @@ def parse_decision_text(
         wiki_ops=_parse_wiki_ops(parsed),
         checklist_feedback=_parse_checklist_feedback(parsed),
         step_back=_parse_step_back(parsed),
+    )
+
+
+def _candidate_json_objects(text: str) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def add(value: dict[str, Any] | None) -> None:
+        if value is None:
+            return
+        key = json.dumps(value, sort_keys=True, separators=(",", ":"))
+        if key in seen:
+            return
+        seen.add(key)
+        candidates.append(value)
+
+    add(_load_json(text))
+    left = text.find("{")
+    right = text.rfind("}")
+    if left >= 0 and right > left:
+        add(_load_json(text[left : right + 1]))
+
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            value, _end = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            add(value)
+    return candidates
+
+
+def _adapt_framework_review_wrapper(
+    parsed: dict[str, Any],
+) -> dict[str, Any] | None:
+    review = parsed.get("review")
+    if not _is_framework_review_payload(parsed):
+        return None
+    assert isinstance(review, dict)
+    status = str(review.get("status") or "").strip().lower()
+    summary = (
+        _parse_required_text(review.get("summary"))
+        or _parse_required_text(review.get("reason"))
+        or "Framework-native Reviewer verdict."
+    )
+    next_action = _parse_optional_text(review.get("next_action")) or ""
+    if status != "done" and not next_action:
+        blocking = review.get("blocking_issues")
+        if isinstance(blocking, list) and blocking:
+            next_action = "; ".join(str(item).strip() for item in blocking if str(item).strip())
+        if not next_action:
+            next_action = "Continue implementation and include clear completion evidence."
+    adapted = dict(parsed)
+    adapted.update({
+        "status": status,
+        "reason": summary,
+        "next_action": next_action,
+        "round_summary_markdown": f"# Review Summary\n\n- {summary}\n",
+        "completion_summary_markdown": summary if status == "done" else "",
+        "scope": review.get("scope"),
+        "checklist": review.get("checklist"),
+        "certification_payload": parsed,
+    })
+    return adapted
+
+
+def _is_framework_review_payload(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    review = value.get("review")
+    if not isinstance(review, dict):
+        return False
+    status = str(review.get("status") or "").strip().lower()
+    if status not in _BASE_REVIEW_STATUSES:
+        return False
+    return any(
+        key in review
+        for key in ("correctness_status", "blocking_issues", "checklist")
     )
 
 
@@ -444,6 +533,24 @@ def _parse_checklist(parsed: dict) -> list[dict[str, Any]]:
     for entry in raw:
         if not isinstance(entry, dict):
             continue
+        if "checklist_id" in entry or "verdict" in entry:
+            checklist_id = str(entry.get("checklist_id") or "").strip()
+            verdict = str(entry.get("verdict") or "").strip().lower()
+            evidence_refs = entry.get("evidence_refs")
+            evidence = ""
+            if isinstance(evidence_refs, list):
+                evidence = "; ".join(
+                    str(item).strip()
+                    for item in evidence_refs[:6]
+                    if str(item).strip()
+                )
+            notes = str(entry.get("reviewer_notes") or "").strip()
+            items.append({
+                "item": checklist_id,
+                "satisfied": verdict in {"supported", "not_applicable"},
+                "evidence": evidence or notes or f"framework checklist verdict: {verdict}",
+            })
+            continue
         items.append({
             "item": str(entry.get("item", "")).strip(),
             "satisfied": bool(entry.get("satisfied")),
@@ -456,7 +563,11 @@ def _parse_certification_payload(parsed: dict) -> dict[str, Any] | None:
     nested = parsed.get("certification_payload")
     if isinstance(nested, dict) and _is_minimal_certification_payload(nested):
         return dict(nested)
+    if isinstance(nested, dict) and _is_framework_review_payload(nested):
+        return dict(nested)
     if _is_minimal_certification_payload(parsed):
+        return dict(parsed)
+    if _is_framework_review_payload(parsed):
         return dict(parsed)
     return None
 
