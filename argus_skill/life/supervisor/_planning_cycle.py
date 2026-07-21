@@ -599,11 +599,10 @@ class PlanningCycleMixin:
         if terminal_idle is not None:
             return terminal_idle
 
-        if (
-            revision_request is None
-            and self._planner_event_wait_should_short_circuit()
-        ):
-            return PLAN_AWAITING
+        if revision_request is None:
+            event_wait_outcome = self._planner_event_wait_outcome()
+            if event_wait_outcome:
+                return event_wait_outcome
 
         self._planning_cycles += 1
         manager_intent = self._manager_intent_context()

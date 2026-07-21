@@ -17,6 +17,7 @@ from ..memory import BacklogItem
 from ._constants import (
     FULL_PAPER_GATE_DESCRIPTION,
     PLAN_AWAITING,
+    PLAN_RETRY,
     PLANNER_SCOPE_BOUNDED,
     PLANNER_SCOPE_FINAL_SUBMISSION,
     STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS,
@@ -919,14 +920,14 @@ class PlanningContextMixin:
         blob = json.dumps(revision, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
-    def _planner_event_wait_should_short_circuit(self) -> bool:
+    def _planner_event_wait_outcome(self) -> str:
         state = self._load_planner_waiting_contract_state()
         if (
             state is None
             or not bool(state.get("active"))
             or state.get("wait_mode") != "event"
         ):
-            return False
+            return ""
         expires_at = float(state.get("expires_at") or 0.0)
         current_revision = self._planner_waiting_observed_revision(
             wake_on=list(state.get("wake_on") or []),
@@ -953,11 +954,49 @@ class PlanningContextMixin:
                 "current_revision": current_revision,
             })
             self._reset_idle_backoff()
-            return False
+            return ""
         if not observed_revision:
             state["observed_revision"] = current_revision
             state["updated_at"] = time.time()
             self._write_planner_waiting_contract_state(state)
+
+        # Event waits normally bypass the Planner entirely. Still feed each
+        # unchanged idle cycle through the open-ended Manager reconciliation
+        # cadence; otherwise this short circuit prevents the counter from ever
+        # reaching its liveness threshold and a stale wait can persist forever.
+        from ...planner import PlannerVerdict, WaitingContract
+
+        contract = WaitingContract(
+            blocker_fingerprint=str(state.get("blocker_fingerprint") or ""),
+            recheck_condition=str(state.get("recheck_condition") or ""),
+            recheck_token=str(state.get("recheck_token") or ""),
+            allow_verification_probe=bool(
+                state.get("allow_verification_probe", False)
+            ),
+            recheck_after_seconds=int(state.get("recheck_after_seconds") or 0),
+            stage_reconciliation_required=bool(
+                state.get("stage_reconciliation_required", False)
+            ),
+            wait_mode="event",
+            wake_on=tuple(str(value) for value in state.get("wake_on") or []),
+            watched_paths=tuple(
+                str(value) for value in state.get("watched_paths") or []
+            ),
+            expires_at=expires_at,
+            operator_action_required=bool(
+                state.get("operator_action_required", False)
+            ),
+        )
+        verdict = PlannerVerdict(
+            project_done=False,
+            reason=contract.recheck_condition,
+            waiting=True,
+            waiting_reason=contract.recheck_condition,
+            waiting_contract=contract,
+        )
+        if self._reconcile_open_ended_planner_waiting(verdict):
+            return PLAN_RETRY
+
         sleep_s = self._enter_idle_backoff()
         self._emit({
             "type": EventType.LIFE_PLANNER_WAITING,
@@ -970,7 +1009,7 @@ class PlanningContextMixin:
             "waiting_contract": self._waiting_contract_event_payload(state, None),
         })
         self._emit_status("awaiting declared event; Planner call skipped")
-        return True
+        return PLAN_AWAITING
 
     def _persist_planner_waiting_contract(
         self,

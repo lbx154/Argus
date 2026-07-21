@@ -693,6 +693,40 @@ def test_event_wait_skips_planner_until_declared_revision_changes(
     )
 
 
+def test_event_wait_still_reaches_open_ended_manager_reconciliation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    sup, backend, _project = _make_waiting_supervisor(
+        tmp_path,
+        monkeypatch,
+        reconcile=False,
+        manager_action="hold",
+        manager_resolves_wait=True,
+    )
+    persisted = sup._persist_planner_waiting_contract(WaitingContract(
+        blocker_fingerprint="manager-objective-absent",
+        recheck_condition="an existing standing objective authorizes a successor",
+        recheck_token="no-manager-objective-active",
+        wait_mode="event",
+        wake_on=("artifact_revision",),
+        watched_paths=("AGENTS.md",),
+    ))
+    assert persisted is not None
+
+    assert [sup._plan_next_work() for _ in range(3)] == [PLAN_AWAITING] * 3
+    assert sup._plan_next_work() == PLAN_RETRY
+
+    assert backend.planner_calls == 0
+    assert backend.manager_calls == 1
+    state = sup._load_planner_waiting_contract_state()
+    assert state is not None
+    assert state["active"] is False
+    assert state["manager_resolution"]["reason"] == (
+        "the live external job is correctly owned by measure"
+    )
+
+
 def test_event_wait_still_short_circuits_when_control_binding_fails(
     tmp_path,
     monkeypatch,
