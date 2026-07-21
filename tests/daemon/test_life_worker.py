@@ -40,15 +40,9 @@ from argus_skill.daemon.state import (
 from argus_skill.life.memory import BacklogItem, LifeMemory
 
 _ENV_VARS_TO_CLEAR = (
-    "ARGUS_SKILL_DAEMON_AUTO_RESTART",
     "ARGUS_SKILL_DAEMON_HANDOFF_CONFIG",
-    "ARGUS_SKILL_DAEMON_HANDOFF_GEN",
-    "ARGUS_SKILL_DAEMON_HANDOFF_MAX_GEN",
-    "ARGUS_SKILL_DAEMON_HANDOFF_MIN_S",
     "ARGUS_SKILL_DAEMON_HANDOFF_READY",
     "ARGUS_SKILL_DAEMON_HANDOFF_TOKEN",
-    "ARGUS_SKILL_DAEMON_SOURCE_SIGNATURE",
-    "ARGUS_SKILL_DAEMON_TEST_SOURCE_SIGNATURE_FILE",
     "ARGUS_SKILL_ENGINEER_MODEL",
     "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
     "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD",
@@ -1171,108 +1165,51 @@ def test_handoff_lock_wait_retries_until_available(
     assert attempts == 3
 
 
-def test_life_worker_handoff_stops_after_planner_request(
+def test_life_worker_post_mission_hook_canaries_reviewed_self_maintenance(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    signatures = iter(["old", "new"])
     spawned: dict[str, object] = {}
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    framework = tmp_path / "framework"
+    framework.mkdir()
 
-    monkeypatch.setenv("ARGUS_SKILL_DAEMON_AUTO_RESTART", "1")
-    monkeypatch.delenv(life_worker_mod._SOURCE_SIGNATURE_ENV, raising=False)
-    monkeypatch.setattr(life_worker_mod, "_source_signature", lambda: next(signatures))
+    class _Maintenance:
+        def prepare_reviewed_change(self, _outcome):
+            return candidate
 
-    def _fake_spawn(
-        config: LifeWorkerConfig,
-        *,
-        source_signature: str,
-        reason: str,
-    ) -> bool:
+        def mark_handoff_failed(self, _reason):
+            raise AssertionError("reviewed candidate should reach standby")
+
+    def _fake_spawn(config: LifeWorkerConfig, **kwargs: object) -> bool:
         spawned["config"] = config
-        spawned["source_signature"] = source_signature
-        spawned["reason"] = reason
+        spawned.update(kwargs)
         return True
 
     monkeypatch.setattr(life_worker_mod, "_spawn_handoff_candidate", _fake_spawn)
+    monkeypatch.setattr(
+        "argus_skill.core.runtime_identity.source_root",
+        lambda: framework,
+    )
 
     cfg = LifeWorkerConfig(life_dir=tmp_path, backend="memory")
     worker = LifeWorker(cfg)
-
-    assert worker._planner_restart_handler("planner says restart") is True
-    assert worker._stop.is_set()
-    assert spawned == {
-        "config": cfg,
-        "source_signature": "new",
-        "reason": "planner says restart",
-    }
-
-
-def test_life_worker_planner_runtime_context_reports_source_change(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    signatures = iter(["old", "new"])
-
-    monkeypatch.setenv("ARGUS_SKILL_DAEMON_AUTO_RESTART", "1")
-    monkeypatch.setattr(life_worker_mod, "_source_signature", lambda: next(signatures))
-
-    worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory"))
-
-    context = worker._planner_runtime_context()
-
-    assert "Runtime source changed" in context
-    assert "restart_daemon=true" in context
-    assert not worker._stop.is_set()
-
-
-def test_life_worker_post_mission_hook_handoffs_on_source_change(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    signatures = iter(["old", "new"])
-    spawned: dict[str, object] = {}
-
-    monkeypatch.setenv("ARGUS_SKILL_DAEMON_AUTO_RESTART", "1")
-    monkeypatch.delenv(life_worker_mod._SOURCE_SIGNATURE_ENV, raising=False)
-    monkeypatch.setattr(life_worker_mod, "_source_signature", lambda: next(signatures))
-
-    def _fake_spawn(
-        config: LifeWorkerConfig,
-        *,
-        source_signature: str,
-        reason: str,
-    ) -> bool:
-        spawned["config"] = config
-        spawned["source_signature"] = source_signature
-        spawned["reason"] = reason
-        return True
-
-    monkeypatch.setattr(life_worker_mod, "_spawn_handoff_candidate", _fake_spawn)
-
-    cfg = LifeWorkerConfig(life_dir=tmp_path, backend="memory")
-    worker = LifeWorker(cfg)
+    worker._self_maintenance = _Maintenance()
 
     assert worker._post_mission_hook({"status": "done"}) == "daemon_handoff"
     assert worker._stop.is_set()
-    assert spawned == {
-        "config": cfg,
-        "source_signature": "new",
-        "reason": (
-            "runtime source changed after mission completion; "
-            "blue/green reload needed for self-architecture update"
-        ),
-    }
+    assert spawned["config"] is cfg
+    assert spawned["candidate_source_root"] == candidate
+    assert spawned["rollback_source_root"] == framework
+    assert "self-maintenance" in str(spawned["reason"])
 
 
-def test_life_worker_post_mission_hook_noops_without_source_change(
+def test_life_worker_post_mission_hook_noops_without_reviewed_candidate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     spawn_called = False
-
-    monkeypatch.setenv("ARGUS_SKILL_DAEMON_AUTO_RESTART", "1")
-    monkeypatch.delenv(life_worker_mod._SOURCE_SIGNATURE_ENV, raising=False)
-    monkeypatch.setattr(life_worker_mod, "_source_signature", lambda: "same")
 
     def _fake_spawn(*_args: object, **_kwargs: object) -> bool:
         nonlocal spawn_called
@@ -1282,6 +1219,7 @@ def test_life_worker_post_mission_hook_noops_without_source_change(
     monkeypatch.setattr(life_worker_mod, "_spawn_handoff_candidate", _fake_spawn)
 
     worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory"))
+    worker._self_maintenance = None
 
     assert worker._post_mission_hook({"status": "done"}) == ""
     assert not worker._stop.is_set()
@@ -1355,45 +1293,6 @@ def test_worker_runtime_context_surfaces_operator_special_prompts(
     context = _worker_runtime_context(cfg)
     assert "Operator Directives" in context
     assert "Free the keep-alive before training." in context
-
-
-def test_handoff_source_signature_reads_test_override_file(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    signature_path = tmp_path / "signature.txt"
-    signature_path.write_text("alpha\n", encoding="utf-8")
-    monkeypatch.setenv(
-        life_worker_mod._TEST_SOURCE_SIGNATURE_FILE_ENV,
-        str(signature_path),
-    )
-
-    assert life_worker_mod._source_signature() == "alpha"
-
-    signature_path.write_text("beta\n", encoding="utf-8")
-
-    assert life_worker_mod._source_signature() == "beta"
-
-
-def test_source_signature_includes_builtin_skill_markdown(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # A skill edit changes engineer/reviewer behavior, so the daemon staleness
-    # signature must cover builtin_skills/**/*.md, not just *.py + pyproject.
-    monkeypatch.delenv(
-        life_worker_mod._TEST_SOURCE_SIGNATURE_FILE_ENV, raising=False)
-    pkg_root = Path(life_worker_mod.__file__).resolve().parents[1]
-    tmp_skill = pkg_root / "builtin_skills" / "engineer" / "_sigtest_tmp_skill.md"
-    baseline = life_worker_mod._source_signature()
-    assert len(baseline) == 64  # sha256 hex digest
-    tmp_skill.write_text(
-        "---\nname: sigtest\n---\n# sigtest\nbody\n", encoding="utf-8")
-    try:
-        changed = life_worker_mod._source_signature()
-    finally:
-        tmp_skill.unlink()
-    assert changed != baseline
-    assert life_worker_mod._source_signature() == baseline
 
 
 def test_handoff_child_publishes_standby_then_runs(
@@ -1497,7 +1396,6 @@ def test_failed_self_maintenance_handoff_marks_failed_before_rollback(
     )
     monkeypatch.setattr(LifeWorker, "run_forever", lambda _self: 2)
     monkeypatch.setattr(handoff_mod, "_spawn_handoff_candidate", fake_spawn)
-    monkeypatch.setattr(handoff_mod, "_source_signature", lambda _root=None: "old")
 
     assert life_worker_mod.run_handoff_child() == 2
     assert json.loads(state_path.read_text())["phase"] == "canary_failed"

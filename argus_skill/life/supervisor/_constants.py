@@ -9,7 +9,6 @@ LIFECYCLE_BLOCK_HEARTBEAT_SECONDS = 1800.0
 PLAN_TERMINAL_IDLE = "planner_terminal_idle"
 PLAN_AWAITING = "awaiting_external"
 PLAN_ERROR = "planner_error"
-PLAN_HANDOFF = "daemon_handoff"
 PLAN_RETRY = "planner_retry"
 PLANNER_DEDUP_STATUSES = frozenset({
     "pending",
@@ -47,7 +46,6 @@ __all__ = [
     "PLAN_TERMINAL_IDLE",
     "PLAN_AWAITING",
     "PLAN_ERROR",
-    "PLAN_HANDOFF",
     "PLAN_RETRY",
     "PLANNER_DEDUP_STATUSES",
     "PLANNER_RECENT_FAILURE_STATUS",

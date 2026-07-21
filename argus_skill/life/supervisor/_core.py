@@ -74,9 +74,6 @@ from ._constants import (
     PLAN_ERROR as _PLAN_ERROR,  # noqa: F401
 )
 from ._constants import (
-    PLAN_HANDOFF as _PLAN_HANDOFF,  # noqa: F401
-)
-from ._constants import (
     PLAN_RETRY as _PLAN_RETRY,  # noqa: F401
 )
 from ._constants import (
@@ -1117,11 +1114,6 @@ class LifeSupervisor(
             self._last_open_ended_project_done_signature = terminal_signature
         else:
             clear_planner_verdict_outbox(self.memory.root)
-        if event.get("restart_daemon"):
-            restart_reason = str(event.get("restart_reason") or event.get("reason") or "")
-            if self._handle_planner_restart(restart_reason):
-                return True, _PLAN_HANDOFF
-            return True, _PLAN_ERROR
         return True, outcome
 
     def _emit(self, event: dict[str, Any]) -> bool:

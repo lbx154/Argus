@@ -35,8 +35,6 @@ def test_worker_bounded_disables_full_paper_gate(tmp_path: Path):
         init_continuous=True,
         init_objective="bounded survey",
         continuous_provider=lambda: (True, "bounded survey"),
-        planner_runtime_context_provider=lambda: "",
-        planner_restart_handler=lambda _reason: False,
         post_mission_hook=lambda: "",
     )
 
@@ -52,8 +50,6 @@ def test_worker_unresolved_unbounded_project_does_not_assume_emnlp(tmp_path: Pat
         init_continuous=True,
         init_objective="open ended paper",
         continuous_provider=lambda: (True, "open ended paper"),
-        planner_runtime_context_provider=lambda: "",
-        planner_restart_handler=lambda _reason: False,
         post_mission_hook=lambda: "",
     )
 
@@ -146,8 +142,6 @@ def test_worker_supervisor_enables_paper_mode_only_after_research_resolution(
         init_continuous=True,
         init_objective="paper campaign",
         continuous_provider=lambda: (True, "paper campaign"),
-        planner_runtime_context_provider=lambda: "",
-        planner_restart_handler=lambda _reason: False,
         post_mission_hook=lambda: "",
     )
 

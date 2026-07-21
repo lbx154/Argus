@@ -854,40 +854,6 @@ def test_open_ended_project_change_replans_and_enqueues_tasks(
     assert any(item.title == "Handle changed state" for item in sup.memory.backlog.all())
 
 
-def test_restart_verdict_still_handoffs_without_terminal_idle(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    restart_reasons: list[str] = []
-    sup = _make_supervisor_cfg(
-        tmp_path / "life",
-        continuous=True,
-        continuous_objective="keep improving",
-        open_ended=True,
-        full_paper_gate=False,
-        project_worktree=project,
-        planner_restart_handler=lambda reason: restart_reasons.append(reason) or True,
-    )
-    sup._vertical_resolved = True
-    sup._current_pipeline_stage = lambda: "running"  # type: ignore[method-assign]
-    sup.planner_runner = object()
-
-    def _plan_next(_planner, **_kwargs):
-        return PlannerVerdict(
-            project_done=False,
-            reason="runtime changed",
-            restart_daemon=True,
-            restart_reason="reload runtime",
-        )
-
-    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _plan_next)
-
-    assert sup._plan_next_work() == "daemon_handoff"
-    assert restart_reasons == ["reload runtime"]
-
-
 def test_item_is_final_submission_prefers_structured_tag() -> None:
     from argus_skill.life.memory import BacklogItem
     from argus_skill.life.supervisor import (
@@ -1282,9 +1248,9 @@ def test_pending_probe_reservation_reconciles_against_durable_backlog(
 
 def test_planner_runtime_carries_idle_stall_note(tmp_path: Path) -> None:
     """Change B': the runtime context gains a CURRENT-REALITY note once the
-    planner has idled, and is identical to the base context before then."""
+    planner has idled, and is empty before then."""
     sup = _make_supervisor_cfg(tmp_path / "life")
-    assert sup._planner_runtime_with_idle_note() == sup._planner_project_context()
+    assert sup._planner_runtime_with_idle_note() == ""
 
     sup._consecutive_idle_planner_cycles = 3
     note = sup._planner_runtime_with_idle_note()

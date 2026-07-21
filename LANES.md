@@ -53,18 +53,12 @@ Done: #1-drain, #5-meta-attribution, #8-proxy-gate-visibility, #13-systemd-unit.
 
 **HELD for operator oversight — big/risky/decision-laden, NOT rushed unattended
 (per the honor code "谨慎重构" + the lane rule):**
-- **#7 blue/green handoff** — ⚠️ CORRECTED (verify-first hunt): it is **NOT dead
-  code**. Fully wired (planner `restart_daemon` → `supervisor._handle_planner_restart`
-  → `life_worker._maybe_handoff_after_source_change`) and **unit-tested with the flag
-  ON** (`tests/daemon/test_life_worker.py`); only the final candidate SPAWN is
-  env-gated `ARGUS_SKILL_DAEMON_AUTO_RESTART=0` (your deliberate default). It is the
-  ONLY self-architecture hot-reload path (systemd `Restart=on-failure` only restarts
-  on CRASH, not on source change). So "delete the dead handoff" was wrong —
-  RECOMMEND **keep-disabled** (cost = ~360 dormant LOC, not a correctness risk). The
-  one real defect is a doc-vs-behavior drift: `research_profile.py:323` + the planner
-  tell the agent to "rely on blue/green handoff", but it's disabled → the request
-  silently no-ops. FIX that line to "a human restarts the daemon at a clean mission
-  boundary" (matches your discipline), regardless of keep/delete.
+- **#7 generic checkout self-reload** — retired by operator decision on 2026-07-21.
+  TUI/WebAPI launch-time reconciliation now owns ordinary source upgrades for the
+  API and source-owned daemons, so the dormant `ARGUS_SKILL_DAEMON_AUTO_RESTART`
+  watcher and Planner `restart_daemon` surface duplicated ownership. The blue/green
+  primitive remains only for independently reviewed private self-maintenance
+  canary/rollback.
 - **#3-core strip EMNLP from supervisor/planner/loop** — entangled with #1 (the
   `full_emnlp_gate` DEFAULT is your L-operator call) AND HAPI is concurrently
   de-papering. Coordinate so we don't double-edit the completion path.

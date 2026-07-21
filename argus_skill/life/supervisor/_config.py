@@ -174,13 +174,6 @@ class LifeSupervisorConfig:
     # planner cycle. Return a non-empty stop reason to let the host
     # process defer planning and yield control, e.g. for daemon handoff.
     planner_cycle_gate: Any = None  # Callable[[], str] | None
-    # Optional context injected into the planner prompt. The daemon uses
-    # this to tell L4 that runtime source changed without making another
-    # agent call.
-    planner_runtime_context_provider: Any = None  # Callable[[], str] | None
-    # Optional handler invoked only when the planner verdict explicitly
-    # requests a daemon restart. Return True when the host is yielding.
-    planner_restart_handler: Any = None  # Callable[[str], bool] | None
     # Optional mission-boundary hook. The host may use this to perform
     # process-level actions that are only safe between missions (for example
     # blue/green handoff after the agent modifies its own daemon/runtime

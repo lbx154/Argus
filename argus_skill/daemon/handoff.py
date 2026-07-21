@@ -1,8 +1,7 @@
-"""Blue/green daemon handoff and source-change detection."""
+"""Blue/green handoff for reviewed private framework canaries."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -33,11 +32,8 @@ log = logging.getLogger(__name__)
 _HANDOFF_CONFIG_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_CONFIG"
 _HANDOFF_READY_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_READY"
 _HANDOFF_TOKEN_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_TOKEN"
-_HANDOFF_GEN_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_GEN"
 _HANDOFF_LOG_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_LOG"
-_SOURCE_SIGNATURE_ENV = "ARGUS_SKILL_DAEMON_SOURCE_SIGNATURE"
 _HANDOFF_ROLLBACK_SOURCE_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_ROLLBACK_SOURCE"
-_TEST_SOURCE_SIGNATURE_FILE_ENV = "ARGUS_SKILL_DAEMON_TEST_SOURCE_SIGNATURE_FILE"
 
 
 # ---------------------------------------------------------------------------
@@ -80,73 +76,6 @@ def _strip_git_config_injection(env: MutableMapping[str, str]) -> list[str]:
     return removed
 
 
-def _auto_handoff_enabled() -> bool:
-    return _truthy_env("ARGUS_SKILL_DAEMON_AUTO_RESTART", "0")
-
-
-def _handoff_min_interval_seconds() -> float:
-    try:
-        return max(0.0, float(os.environ.get("ARGUS_SKILL_DAEMON_HANDOFF_MIN_S", "60")))
-    except ValueError:
-        return 60.0
-
-
-def _handoff_generation() -> int:
-    try:
-        return max(0, int(os.environ.get(_HANDOFF_GEN_ENV, "0")))
-    except ValueError:
-        return 0
-
-
-def _handoff_max_generations() -> int:
-    try:
-        return max(1, int(os.environ.get("ARGUS_SKILL_DAEMON_HANDOFF_MAX_GEN", "10")))
-    except ValueError:
-        return 10
-
-
-def _source_signature(source_root: Path | None = None) -> str:
-    """Content hash of runtime files that require a daemon restart.
-
-    Covers both Python runtime code and the behavior-defining built-in skill
-    markdown: a skill edit changes how the engineer/reviewer act, so the daemon
-    is just as stale against a skill change as against a ``.py`` change and the
-    auto-handoff signature must notice it.
-    """
-    test_signature_path = os.environ.get(_TEST_SOURCE_SIGNATURE_FILE_ENV, "").strip()
-    if test_signature_path:
-        try:
-            return Path(test_signature_path).expanduser().read_text(encoding="utf-8").strip()
-        except OSError:
-            return ""
-    repo_root = (
-        Path(source_root).expanduser().resolve()
-        if source_root is not None
-        else Path(__file__).resolve().parents[2]
-    )
-    package_root = repo_root / "argus_skill"
-    paths: list[Path] = sorted(package_root.rglob("*.py"))
-    paths += sorted((package_root / "builtin_skills").rglob("*.md"))
-    pyproject = repo_root / "pyproject.toml"
-    if pyproject.exists():
-        paths.append(pyproject)
-    digest = hashlib.sha256()
-    for path in paths:
-        parts = set(path.parts)
-        if "__pycache__" in parts or ".git" in parts:
-            continue
-        try:
-            rel = path.relative_to(repo_root)
-            data = path.read_bytes()
-        except OSError:
-            continue
-        digest.update(str(rel).encode("utf-8", "surrogateescape"))
-        digest.update(b"\0")
-        digest.update(data)
-        digest.update(b"\0")
-    return digest.hexdigest()
-
-
 def _handoff_ready_path(life_dir: Path) -> Path:
     return life_dir / "daemon.handoff.json"
 
@@ -158,7 +87,6 @@ def _handoff_config_path(life_dir: Path, token: str) -> Path:
 def _spawn_handoff_candidate(
     config: LifeWorkerConfig,
     *,
-    source_signature: str,
     reason: str,
     standby_timeout: float = 30.0,
     candidate_source_root: Path | None = None,
@@ -173,7 +101,6 @@ def _spawn_handoff_candidate(
     payload = {
         "token": token,
         "reason": reason,
-        "source_signature": source_signature,
         "config": _config_payload(config),
     }
     try:
@@ -190,8 +117,6 @@ def _spawn_handoff_candidate(
     env[_HANDOFF_READY_ENV] = str(ready_path)
     env[_HANDOFF_TOKEN_ENV] = token
     env[_HANDOFF_LOG_ENV] = str(log_path)
-    env[_SOURCE_SIGNATURE_ENV] = source_signature
-    env[_HANDOFF_GEN_ENV] = str(_handoff_generation() + 1)
     if candidate_source_root is not None:
         candidate_root = Path(candidate_source_root).expanduser().resolve()
         pythonpath = [
@@ -393,10 +318,8 @@ def run_handoff_child_process(
         except (OSError, json.JSONDecodeError, TypeError):
             log.exception("failed to mark crashed self-maintenance canary")
         root = Path(rollback_root).expanduser().resolve()
-        signature = _source_signature(root)
         if not _spawn_handoff_candidate(
             config,
-            source_signature=signature,
             reason="self-maintenance canary failed; restore prior runtime",
             candidate_source_root=root,
         ):
@@ -412,19 +335,11 @@ def run_handoff_child_process(
 
 __all__ = [
     "_HANDOFF_CONFIG_ENV",
-    "_HANDOFF_GEN_ENV",
     "_HANDOFF_LOG_ENV",
     "_HANDOFF_READY_ENV",
     "_HANDOFF_ROLLBACK_SOURCE_ENV",
     "_HANDOFF_TOKEN_ENV",
-    "_SOURCE_SIGNATURE_ENV",
-    "_TEST_SOURCE_SIGNATURE_FILE_ENV",
     "_acquire_daemon_lock_with_timeout",
-    "_auto_handoff_enabled",
-    "_handoff_generation",
-    "_handoff_max_generations",
-    "_handoff_min_interval_seconds",
-    "_source_signature",
     "_spawn_handoff_candidate",
     "_strip_git_config_injection",
     "_truthy_env",

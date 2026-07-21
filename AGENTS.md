@@ -74,7 +74,7 @@ argus-skill / python -m argus_skill
 - Operator 永远只与 Manager 交互。活跃 mission 的方向调整由 front-door Manager 生成专业 `STEER_DIRECTIVE` 后写入团队 inbox，禁止把 operator 原话直接透传成 Engineer 微操。Front-door classify 使用轻量模型/low；真正的 Manager SELF 回复继承当前最强 Manager 模型并使用 xhigh。Web/TUI 通过 SSE 流式显示 classify、steer、assistant block 和 5s 静默 heartbeat。SELF 默认 120s hard-idle fail-visible，不在超时后再追加一次长等待。
 - Manager 判定为 `BOUNDED` 的 TEAM 请求不会直接入队成一个巨型 mission：先经过紧凑的 bounded-DAG Planner，原子写入带真实 `key/deps/plan_id` 的 backlog 节点；节点数量和任务大小由 Planner 判断，harness 不按数量、artifact、context、文本长度或关键词阶段做硬限制。每个节点强制 direct workflow、最多一次 Engineer→Reviewer round；不得在节点内重新写计划、初始化 Git/worktree、commit 或拉 subagent。`STANDING` 请求仍走 L4 continuous Planner。
 - `argus_skill/life/router.py`: operator 自由文本的 chat-vs-task 路由。**不再用关键词/正则分类**（历史的 `is_conversational` 用 60 字符上限 + 中英文正则猜“这是闲聊吗”，harness 比 agent 聪明）。现在 `classify_is_conversational(text, *, run_exec)` 做一次低 reasoning 的模型调用，只有模型精确回答 `CHAT` 才返回 True，其余（TASK / 模糊 / 空 / 非零退出 / 异常）一律按 task 走完整 pipeline——bias 向 task，宁可多跑也不误吞任务。只有 operator 通过 Manager front-door 发送的自由文本才会被分类；planner / backlog / daemon 的任务都不分类，否则就是 harness 二次猜 planner。
-- `argus_skill/daemon/life_worker.py`: detached daemon 版本的同一套逻辑。这里管 `continuous.json` 热加载、pid lock、blue/green handoff、daemon status、预算环境变量。
+- `argus_skill/daemon/life_worker.py`: detached daemon 版本的同一套逻辑。这里管 `continuous.json` 热加载、pid lock、daemon status、预算环境变量，以及 Reviewer 通过的私有 self-maintenance canary/rollback handoff。普通 checkout 更新统一由 TUI/WebAPI 在启动时识别并调度 source-owned daemon 升级；daemon 不再轮询当前 checkout 自重启。
   - `--resume-continuous` 只采用与 Manager handoff identity（objective hash +
     vertical + lineage generation）匹配的持久化 campaign；升级/崩溃恢复不得重新调用
     Manager。缺失或不匹配 identity 的 legacy/raw objective 仍须走真实 Manager divide。

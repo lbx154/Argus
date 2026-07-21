@@ -118,8 +118,6 @@ def test_all_filtered_planned_verdict_replays_plan_retry_not_false(
     verdict_json = json.dumps({
         "project_done": False,
         "reason": "continue improving the pipeline",
-        "restart_daemon": False,
-        "restart_reason": "",
         "waiting": False,
         "waiting_reason": "",
         "new_tasks": [

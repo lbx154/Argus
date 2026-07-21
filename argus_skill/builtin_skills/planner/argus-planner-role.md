@@ -103,8 +103,6 @@ delegate execution to the Engineer. The Reviewer independently evaluates each mi
 - Parallel paper drafting is an overlap exception while a verified experiment runs
   during `run` or `analysis`. It may draft honest prose and explicit result
   placeholders, but it does not complete or advance any stage.
-- Set `restart_daemon=true` only when changed runtime code must actually be reloaded for
-  the next work or verification. A restart is not a substitute for a mission.
 
 ## Tasks and dependencies
 

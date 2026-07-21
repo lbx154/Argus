@@ -210,14 +210,12 @@ def test_parse_planner_text_uses_latest_json_verdict() -> None:
     placeholder = json.dumps({
         "project_done": False,
         "reason": "inspecting before routing",
-        "restart_daemon": False,
         "waiting": False,
         "new_tasks": [],
     })
     final = json.dumps({
         "project_done": False,
         "reason": "route the no-go pivot",
-        "restart_daemon": False,
         "waiting": False,
         "new_tasks": [{
             "title": "Rollback and pivot the failed positive method plan",
@@ -251,8 +249,6 @@ def test_plan_next_repairs_malformed_json_once_in_same_session() -> None:
     repaired = json.dumps({
         "project_done": False,
         "reason": "repair the loader",
-        "restart_daemon": False,
-        "restart_reason": "",
         "waiting": False,
         "waiting_reason": "",
         "waiting_contract": None,
@@ -1447,8 +1443,6 @@ def test_planner_schema_accepts_dag_and_flat_tasks() -> None:
     base = {
         "project_done": False,
         "reason": "x",
-        "restart_daemon": False,
-        "restart_reason": "",
         "waiting": False,
         "waiting_reason": "",
         "waiting_contract": None,

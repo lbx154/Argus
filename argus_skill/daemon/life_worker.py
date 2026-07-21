@@ -305,17 +305,9 @@ from .config import config_from_payload as _config_from_payload
 from .config import config_payload as _config_payload
 from .handoff import (
     _HANDOFF_CONFIG_ENV,
-    _HANDOFF_GEN_ENV,
     _HANDOFF_LOG_ENV,
     _HANDOFF_READY_ENV,
     _HANDOFF_TOKEN_ENV,
-    _SOURCE_SIGNATURE_ENV,
-    _TEST_SOURCE_SIGNATURE_FILE_ENV,
-    _auto_handoff_enabled,
-    _handoff_generation,
-    _handoff_max_generations,
-    _handoff_min_interval_seconds,
-    _source_signature,
     _spawn_handoff_candidate,
     _strip_git_config_injection,
     _truthy_env,
@@ -393,18 +385,10 @@ __all__ = [
     "_config_from_payload",
     "_config_payload",
     "_HANDOFF_CONFIG_ENV",
-    "_HANDOFF_GEN_ENV",
     "_HANDOFF_LOG_ENV",
     "_HANDOFF_READY_ENV",
     "_HANDOFF_TOKEN_ENV",
-    "_SOURCE_SIGNATURE_ENV",
-    "_TEST_SOURCE_SIGNATURE_FILE_ENV",
     "_acquire_daemon_lock_with_timeout",
-    "_auto_handoff_enabled",
-    "_handoff_generation",
-    "_handoff_max_generations",
-    "_handoff_min_interval_seconds",
-    "_source_signature",
     "_spawn_handoff_candidate",
     "_strip_git_config_injection",
     "_truthy_env",
@@ -585,12 +569,6 @@ class LifeWorker:
         self._adopted_continuous_generation: int | None = None
         self._started_at: float | None = None
         self._missions_completed = 0
-        self._source_signature = (
-            os.environ.get(_SOURCE_SIGNATURE_ENV)
-            or (_source_signature() if _auto_handoff_enabled() else "")
-        )
-        self._failed_handoff_signature = ""
-        self._last_handoff_attempt_at = 0.0
         self._curator: Any = None  # resident teammate-pool Curator (built in run_forever)
 
     # -- signal handling ------------------------------------------------
@@ -1486,8 +1464,6 @@ class LifeWorker:
             init_continuous=init_continuous,
             init_objective=init_objective,
             continuous_provider=_continuous_provider,
-            planner_runtime_context_provider=self._planner_runtime_context,
-            planner_restart_handler=self._planner_restart_handler,
             post_mission_hook=self._post_mission_hook,
         )
 
@@ -1537,9 +1513,6 @@ class LifeWorker:
                 if failed_canary_rollback is not None:
                     if _spawn_handoff_candidate(
                         self.config,
-                        source_signature=_source_signature(
-                            failed_canary_rollback
-                        ),
                         reason=(
                             "loaded self-maintenance source failed reviewed commit "
                             "identity; restore prior runtime"
@@ -1557,7 +1530,6 @@ class LifeWorker:
                 if resume_source is not None:
                     if _spawn_handoff_candidate(
                         self.config,
-                        source_signature=_source_signature(resume_source),
                         reason=(
                             "restore this daemon's persisted self-managed runtime "
                             "after process restart"
@@ -1673,9 +1645,6 @@ class LifeWorker:
                                     rollback_root.is_dir()
                                     and _spawn_handoff_candidate(
                                         self.config,
-                                        source_signature=_source_signature(
-                                            rollback_root
-                                        ),
                                         reason=(
                                             "self-maintenance PR closed without "
                                             "merge; restore prior runtime"
@@ -1711,7 +1680,6 @@ class LifeWorker:
 
                                 if _spawn_handoff_candidate(
                                     self.config,
-                                    source_signature=_source_signature(candidate_root),
                                     reason=(
                                         "this daemon's Manager approved a "
                                         "human-merged framework update"
@@ -1737,7 +1705,6 @@ class LifeWorker:
                             )
                             if rollback_root.is_dir() and _spawn_handoff_candidate(
                                 self.config,
-                                source_signature=_source_signature(rollback_root),
                                 reason=(
                                     "self-maintenance canary failed its explicit "
                                     "health check; restore prior runtime"
@@ -1750,17 +1717,6 @@ class LifeWorker:
                                 self._self_maintenance.mark_handoff_failed(
                                     "canary failed and rollback did not reach standby"
                                 )
-                    test_signature_path = os.environ.get(
-                        _TEST_SOURCE_SIGNATURE_FILE_ENV, ""
-                    ).strip()
-                    if test_signature_path and self._source_signature:
-                        current_signature = _source_signature()
-                        if current_signature and current_signature != self._source_signature:
-                            self._maybe_handoff_after_source_change(
-                                planner_reason=(
-                                    "test-controlled source signature changed"
-                                )
-                            )
                     # When planner declares project done, persist to disk
                     # so we don't re-plan the same objective next loop.
                     if summary.get("stopped_by") == "project_done":
@@ -1917,50 +1873,16 @@ class LifeWorker:
                 return  # new user input — re-drain immediately
             remaining -= chunk
 
-    def _planner_runtime_context(self) -> str:
-        if not _auto_handoff_enabled() or not self._source_signature:
-            return ""
-        current = _source_signature()
-        if not current or current == self._source_signature:
-            return ""
-        if current == self._failed_handoff_signature:
-            return (
-                "Runtime source changed since daemon start, but the latest "
-                "blue/green handoff attempt for this signature failed. Set "
-                "restart_daemon=false unless new evidence shows retrying is necessary."
-            )
-        return (
-            "Runtime source changed since daemon start. A blue/green daemon "
-            "handoff is available if and only if a fresh daemon process is "
-            "needed to load or validate the new code. Set restart_daemon=true "
-            "for daemon/CLI/lifecycle changes, substantial runtime refactors, "
-            "or verification that requires the installed daemon to restart; "
-            "otherwise set restart_daemon=false."
-        )
-
-    def _planner_restart_handler(self, reason: str) -> bool:
-        return self._maybe_handoff_after_source_change(
-            planner_reason=reason or "planner requested daemon restart",
-        )
-
     def _post_mission_hook(self, outcome: dict[str, Any]) -> str:
-        """Trigger blue/green reload after self-architecture changes.
-
-        Engineers may legitimately modify daemon/reviewer/planner/tooling code
-        while solving a research mission. The incumbent process cannot import
-        those runtime changes, so check at every mission boundary and hand off
-        to a fresh daemon as soon as the new process can stand by.
-        """
+        """Canary an independently reviewed private self-maintenance change."""
         maintenance = getattr(self, "_self_maintenance", None)
         if maintenance is not None:
             candidate_root = maintenance.prepare_reviewed_change(outcome)
             if candidate_root is not None:
-                signature = _source_signature(candidate_root)
                 from ..core.runtime_identity import source_root
 
                 if _spawn_handoff_candidate(
                     self.config,
-                    source_signature=signature,
                     reason=(
                         "independently reviewed self-maintenance change; "
                         "canary this daemon before PR publication"
@@ -1973,48 +1895,7 @@ class LifeWorker:
                 maintenance.mark_handoff_failed(
                     "private canary did not reach standby"
                 )
-        if self._maybe_handoff_after_source_change(
-            planner_reason=(
-                "runtime source changed after mission completion; "
-                "blue/green reload needed for self-architecture update"
-            )
-        ):
-            return "daemon_handoff"
         return ""
-
-    def _maybe_handoff_after_source_change(self, *, planner_reason: str) -> bool:
-        if not _auto_handoff_enabled() or not self._source_signature:
-            return False
-        current = _source_signature()
-        if not current or current == self._source_signature:
-            return False
-        if current == self._failed_handoff_signature:
-            return False
-        min_interval = _handoff_min_interval_seconds()
-        now = time.monotonic()
-        if (
-            self._last_handoff_attempt_at
-            and now - self._last_handoff_attempt_at < min_interval
-        ):
-            return False
-        self._last_handoff_attempt_at = now
-        if _handoff_generation() >= _handoff_max_generations():
-            log.warning("daemon handoff disabled: generation cap reached")
-            return False
-        if _spawn_handoff_candidate(
-            self.config,
-            source_signature=current,
-            reason=planner_reason,
-        ):
-            log.info(
-                "daemon handoff candidate ready; stopping incumbent (planner_reason=%s)",
-                planner_reason,
-            )
-            self._stop.set()
-            return True
-        self._failed_handoff_signature = current
-        log.warning("daemon handoff failed for signature=%s; incumbent continues", current)
-        return False
 
 def run_handoff_child() -> int:
     return run_handoff_child_process(
@@ -2171,8 +2052,6 @@ def _build_supervisor_config(
     init_continuous: bool,
     init_objective: str,
     continuous_provider: Any,
-    planner_runtime_context_provider: Any,
-    planner_restart_handler: Any,
     post_mission_hook: Any,
 ) -> LifeSupervisorConfig:
     from ..apps._runtime import (
@@ -2213,8 +2092,6 @@ def _build_supervisor_config(
         manager_pipeline_yield_provider=(
             lambda: manager_pipeline_yield_requested(runtime_root)
         ),
-        planner_runtime_context_provider=planner_runtime_context_provider,
-        planner_restart_handler=planner_restart_handler,
         post_mission_hook=post_mission_hook,
         telemetry_dir=runtime_root,
         artifact_root=cfg.project_workdir or runtime_root,

@@ -143,8 +143,6 @@ class _WaitingThenManagerRunner:
             payload = {
                 "project_done": False,
                 "reason": "the prerequisite profile cannot run at measure",
-                "restart_daemon": False,
-                "restart_reason": "",
                 "waiting": True,
                 "waiting_reason": (
                     "maintenance blocks the profile, and current measure stage "
@@ -300,8 +298,6 @@ def _dag_verdict_json() -> str:
     return json.dumps({
         "project_done": False,
         "reason": "fan out two runs then summarize",
-        "restart_daemon": False,
-        "restart_reason": "",
         "waiting": False,
         "waiting_reason": "",
         "new_tasks": [
@@ -896,8 +892,6 @@ def test_planner_can_enqueue_dynamic_math_route_as_a_dag(tmp_path, monkeypatch) 
     verdict = json.dumps({
         "project_done": False,
         "reason": "use a problem-specific mathematical research route",
-        "restart_daemon": False,
-        "restart_reason": "",
         "waiting": False,
         "waiting_reason": "",
         "new_tasks": [
@@ -1057,8 +1051,6 @@ def test_flat_verdict_enqueues_with_empty_deps(tmp_path, monkeypatch) -> None:
     flat = json.dumps({
         "project_done": False,
         "reason": "two independent fixes",
-        "restart_daemon": False,
-        "restart_reason": "",
         "waiting": False,
         "waiting_reason": "",
         "new_tasks": [
@@ -1096,8 +1088,6 @@ def test_unresolved_dep_key_is_dropped_not_wedged(tmp_path, monkeypatch) -> None
     bad = json.dumps({
         "project_done": False,
         "reason": "one good dep, one stray key",
-        "restart_daemon": False,
-        "restart_reason": "",
         "waiting": False,
         "waiting_reason": "",
         "new_tasks": [

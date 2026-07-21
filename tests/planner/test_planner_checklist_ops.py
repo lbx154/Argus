@@ -10,8 +10,6 @@ def _planner_json(**over):
     base = {
         "project_done": False,
         "reason": "next batch",
-        "restart_daemon": False,
-        "restart_reason": "",
         "waiting": False,
         "waiting_reason": "",
         "new_tasks": [{

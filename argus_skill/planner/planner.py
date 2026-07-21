@@ -363,8 +363,6 @@ class PlannerVerdict:
     project_done: bool
     reason: str
     new_tasks: list[TaskSpec] = field(default_factory=list)
-    restart_daemon: bool = False
-    restart_reason: str = ""
     raw_text: str = ""
     input_tokens: int = 0
     cached_input_tokens: int = 0
@@ -1238,7 +1236,7 @@ class Planner:
             + "\n\nCurrent reality (authoritative over the journal above):\n"
             + (
                 runtime_change_summary.strip()
-                or "No runtime source changes have been detected since daemon start; set restart_daemon=false."
+                or "(no additional runtime context)"
             )
             + "\n\nPlanner hygiene:\n"
             + (
@@ -1525,10 +1523,6 @@ def parse_planner_text(text: str) -> PlannerVerdict:
     checklist_ops = _parse_checklist_ops(data)
     project_done = _parse_json_bool(data.get("project_done", True), True)
     reason = str(data.get("reason", ""))
-    restart_daemon = _parse_json_bool(data.get("restart_daemon", False), False)
-    restart_reason = str(data.get("restart_reason", "")).strip()
-    if restart_daemon and not restart_reason:
-        restart_reason = reason or "planner requested daemon restart"
     waiting = _parse_json_bool(data.get("waiting", False), False)
     waiting_reason = str(data.get("waiting_reason", "")).strip() or reason
     waiting_contract = _parse_waiting_contract(
@@ -1606,10 +1600,10 @@ def parse_planner_text(text: str) -> PlannerVerdict:
         )
     # Explicit, intentional idle: the project is correctly waiting on a live
     # external job and the planner found no genuinely new high-impact work.
-    # Honored ONLY when not also claiming done/restart and no concrete tasks
+    # Honored ONLY when not also claiming done and no concrete tasks
     # were accepted — real tasks always win over waiting. This is NOT an error
     # (it bypasses the "no concrete tasks" retry/churn path below).
-    if waiting and not project_done and not restart_daemon and not new_tasks:
+    if waiting and not project_done and not new_tasks:
         if not waiting_reason:
             waiting_reason = "awaiting a live external job; no new high-impact work"
         if waiting_contract is None:
@@ -1631,7 +1625,7 @@ def parse_planner_text(text: str) -> PlannerVerdict:
             waiting_contract=waiting_contract,
             checklist_ops=checklist_ops,
         )
-    if not project_done and not new_tasks and not restart_daemon:
+    if not project_done and not new_tasks:
         # Inconsistent: not done but no tasks → retry later, don't mark done.
         if raw_task_count:
             reason = "planner proposed only low-impact or unevidenced tasks"
@@ -1652,8 +1646,6 @@ def parse_planner_text(text: str) -> PlannerVerdict:
         project_done=project_done,
         reason=reason,
         new_tasks=new_tasks,
-        restart_daemon=restart_daemon,
-        restart_reason=restart_reason,
         raw_text=blob,
         cached_input_tokens=0,
         checklist_ops=checklist_ops,

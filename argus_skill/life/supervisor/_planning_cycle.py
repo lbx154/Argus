@@ -16,7 +16,6 @@ from ._constants import (
     MANAGER_RECONCILE_AFTER_IDLE_CYCLES,
     PLAN_AWAITING,
     PLAN_ERROR,
-    PLAN_HANDOFF,
     PLAN_RETRY,
     PLAN_TERMINAL_IDLE,
     PLANNER_DEDUP_STATUSES,
@@ -571,9 +570,8 @@ class PlanningCycleMixin:
         """Call the planner to generate new backlog items.
 
         Returns ``True`` if new work was added (caller should loop),
-        ``False`` if the planner declares the project done, and
-        ``"daemon_handoff"`` if the planner asked the host to restart,
-        and ``None`` when the planner fails and should be retried later.
+        ``False`` if the planner declares the project done, and ``None`` when
+        the planner fails and should be retried later.
         """
         revision_request = (
             dict(revision_request) if isinstance(revision_request, dict) else None
@@ -785,8 +783,6 @@ class PlanningCycleMixin:
                 cached_input_tokens=0,
                 output_tokens=0,
                 cost_usd=0.0,
-                restart_daemon=False,
-                restart_reason="",
             )
             if not delivered:
                 return PLAN_RETRY
@@ -1097,8 +1093,6 @@ class PlanningCycleMixin:
                 cached_input_tokens=verdict.cached_input_tokens,
                 output_tokens=verdict.output_tokens,
                 cost_usd=planner_cost_usd,
-                restart_daemon=verdict.restart_daemon,
-                restart_reason=verdict.restart_reason,
                 open_ended_objective=True,
                 **schema_repair_details,
             )
@@ -1127,8 +1121,6 @@ class PlanningCycleMixin:
                 cached_input_tokens=verdict.cached_input_tokens,
                 output_tokens=verdict.output_tokens,
                 cost_usd=planner_cost_usd,
-                restart_daemon=verdict.restart_daemon,
-                restart_reason=verdict.restart_reason,
                 **schema_repair_details,
             )
             if not delivered:
@@ -1136,50 +1128,7 @@ class PlanningCycleMixin:
             self._emit_status(
                 f"planner: project done — {verdict.reason}"
             )
-            if verdict.restart_daemon and self._handle_planner_restart(
-                verdict.restart_reason
-            ):
-                self._emit_status("daemon_handoff")
-                return PLAN_HANDOFF
             return False
-
-        if verdict.restart_daemon and not verdict.new_tasks:
-            restart_reason = verdict.restart_reason or verdict.reason
-            if revision_request is not None:
-                self._emit({
-                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
-                    "reason": "replacement planner requested daemon restart",
-                    "expected_plan_id": expected_plan_id,
-                    "expected_plan_version": expected_plan_version,
-                })
-            delivered = self._emit_planner_verdict(
-                status=PlannerVerdictStatus.INFRA_BLOCKED,
-                completion_kind="daemon_handoff",
-                resume_outcome=PLAN_HANDOFF,
-                cycle=self._planning_cycles,
-                project_done=verdict.project_done,
-                reason=verdict.reason,
-                task_count=0,
-                enqueued_tasks=0,
-                skipped_duplicate_tasks=0,
-                enqueued_titles=[],
-                skipped_duplicate_titles=[],
-                input_tokens=verdict.input_tokens,
-                cached_input_tokens=verdict.cached_input_tokens,
-                output_tokens=verdict.output_tokens,
-                cost_usd=planner_cost_usd,
-                restart_daemon=True,
-                restart_reason=restart_reason,
-                **schema_repair_details,
-            )
-            if not delivered:
-                return PLAN_RETRY
-            if self._handle_planner_restart(restart_reason):
-                self._emit_status("daemon_handoff")
-                return PLAN_HANDOFF
-            self._emit_status("planner requested daemon restart but host did not restart")
-            self._enter_idle_backoff()
-            return PLAN_ERROR
 
         if not verdict.new_tasks:
             if revision_request is not None:
@@ -1606,18 +1555,11 @@ class PlanningCycleMixin:
             cached_input_tokens=verdict.cached_input_tokens,
             output_tokens=verdict.output_tokens,
             cost_usd=planner_cost_usd,
-            restart_daemon=verdict.restart_daemon,
-            restart_reason=verdict.restart_reason,
             manager_intent=manager_intent,
             **schema_repair_details,
         )
         if not delivered:
             return PLAN_RETRY
-        if verdict.restart_daemon and self._handle_planner_restart(
-            verdict.restart_reason
-        ):
-            self._emit_status("daemon_handoff")
-            return PLAN_HANDOFF
         if not added_titles:
             self._enter_idle_backoff()
             self._emit_status(

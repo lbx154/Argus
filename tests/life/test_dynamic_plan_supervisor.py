@@ -99,8 +99,6 @@ def _replacement_verdict() -> str:
         {
             "project_done": False,
             "reason": "replace the falsified route",
-            "restart_daemon": False,
-            "restart_reason": "",
             "waiting": False,
             "waiting_reason": "",
             "new_tasks": [
@@ -116,8 +114,6 @@ def _empty_replacement_verdict() -> str:
         {
             "project_done": False,
             "reason": "no replacement produced",
-            "restart_daemon": False,
-            "restart_reason": "",
             "waiting": False,
             "waiting_reason": "",
             "new_tasks": [],
@@ -130,8 +126,6 @@ def _single_replacement_verdict() -> str:
         {
             "project_done": False,
             "reason": "one replacement",
-            "restart_daemon": False,
-            "restart_reason": "",
             "waiting": False,
             "waiting_reason": "",
             "new_tasks": [
@@ -180,8 +174,6 @@ def _stage_reconciliation_waiting_verdict() -> str:
         {
             "project_done": False,
             "reason": "current stage blocks prerequisite repair",
-            "restart_daemon": False,
-            "restart_reason": "",
             "waiting": True,
             "waiting_reason": "Manager must reconcile the stage",
             "waiting_contract": {
@@ -899,36 +891,6 @@ def test_new_project_evidence_wakes_manager_feedback_circuit_breaker(
 
     assert supervisor._plan_next_work() is True
     assert supervisor._load_manager_planner_feedback() is None
-
-
-def test_revision_restart_without_tasks_resolves_proposal_as_rejected(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    response = json.dumps(
-        {
-            "project_done": False,
-            "reason": "runtime upgrade required",
-            "restart_daemon": True,
-            "restart_reason": "load upgraded code",
-            "waiting": False,
-            "waiting_reason": "",
-            "new_tasks": [],
-        }
-    )
-    supervisor, sink = _supervisor(tmp_path, planner_response=response)
-    _seed_plan(supervisor)
-    _isolate_planning(supervisor, monkeypatch)
-    monkeypatch.setattr(supervisor, "_handle_planner_restart", lambda _reason: False)
-
-    assert supervisor._plan_next_work(revision_request=_revision_request()) is not True
-
-    rejected = [
-        event
-        for event in sink.events
-        if event["type"] == "life.plan.revision.rejected"
-    ]
-    assert rejected[-1]["reason"] == "replacement planner requested daemon restart"
 
 
 def test_revision_bypasses_stale_terminal_idle_short_circuit(

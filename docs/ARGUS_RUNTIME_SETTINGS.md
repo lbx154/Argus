@@ -74,7 +74,6 @@
 | mission | `ARGUS_SKILL_DYNAMIC_PLAN_CONFIRM_ROUNDS` | `2` | default | `2` |
 | mission | `ARGUS_SKILL_MANAGER_LOCK_TIMEOUT_S` | `120` | default | `120` |
 | mission | `ARGUS_SKILL_CHECKPOINT_PERSIST` | `true` | default | `true` |
-| lifecycle | `ARGUS_SKILL_DAEMON_AUTO_RESTART` | `0` | default | `0` |
 | lifecycle | `ARGUS_SKILL_AUTOCOMMIT_SKILLS` | `off` | default | `off` |
 | lifecycle | `ARGUS_SKILL_CROSS_PROJECT_PROPAGATION` | `on` | default | `on` |
 | lifecycle | `ARGUS_SKILL_SAFE_MODE` | `off` | default | `off` |

@@ -607,8 +607,6 @@ def test_planner_waiting_records_external_dependency_status(tmp_path: Path) -> N
             payload = {
                 "project_done": False,
                 "reason": "provider image route is blocked",
-                "restart_daemon": False,
-                "restart_reason": "",
                 "waiting": True,
                 "waiting_reason": (
                     "paper/figures/IMAGE2_OPERATOR_ACTION_REQUIRED.md documents "
@@ -659,7 +657,6 @@ def test_planner_waiting_records_external_dependency_status(tmp_path: Path) -> N
     sup._emit = emitted.append
     sup._emit_status = statuses.append
     sup._render_journal_for_planner = lambda: ""
-    sup._planner_project_context = lambda: ""
     sup._planner_config = lambda: PlannerConfig(
         working_dir=str(tmp_path),
         skip_git_repo_check=True,

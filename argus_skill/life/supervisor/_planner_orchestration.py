@@ -31,24 +31,9 @@ class PlannerOrchestrationMixin:
             return ""
         return str(reason or "").strip()
 
-    def _planner_runtime_context(self) -> str:
-        provider = self.config.planner_runtime_context_provider
-        if provider is None:
-            return ""
-        try:
-            context = provider()
-        except Exception:  # noqa: BLE001
-            log.exception("planner runtime context provider raised; continuing")
-            return ""
-        return str(context or "").strip()
-
-    def _planner_project_context(self) -> str:
-        """Return cheap project-state context that keeps planner work grounded."""
-        return self._planner_runtime_context()
-
     def _planner_runtime_with_idle_note(self) -> str:
         """Prefix repeated idle cycles with a current-reality check."""
-        base = self._planner_project_context()
+        base = ""
         resolution_note = self._planner_wait_resolution_runtime_note()
         contract_note = self._planner_waiting_contract_runtime_note()
         manager_feedback = self._manager_planner_feedback_runtime_note()
@@ -166,16 +151,6 @@ class PlannerOrchestrationMixin:
                 f"{failure.last_task_id!r}{reason}"
             )
         return "\n".join(lines)
-
-    def _handle_planner_restart(self, reason: str) -> bool:
-        handler = self.config.planner_restart_handler
-        if handler is None:
-            return False
-        try:
-            return bool(handler(reason))
-        except Exception:  # noqa: BLE001
-            log.exception("planner restart handler raised; continuing")
-            return False
 
     def _post_mission_hook(self, outcome: dict[str, Any]) -> str:
         hook = self.config.post_mission_hook

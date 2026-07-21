@@ -113,8 +113,6 @@ def _flat_verdict_json(*tasks: tuple[str, str, str]) -> str:
     return json.dumps({
         "project_done": False,
         "reason": "keep pushing the pipeline forward",
-        "restart_daemon": False,
-        "restart_reason": "",
         "waiting": False,
         "waiting_reason": "",
         "new_tasks": [
