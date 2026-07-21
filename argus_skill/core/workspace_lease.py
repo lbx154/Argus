@@ -1,7 +1,7 @@
 """Host-local exclusive leases for agent execution workspaces."""
+
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import tempfile
@@ -34,8 +34,9 @@ def workspace_lease_path(workdir: str | Path) -> Path:
         root.chmod(0o700)
     except OSError:
         pass
-    digest = hashlib.sha256(str(canonical).encode("utf-8")).hexdigest()
-    return root / f"{digest}.lock"
+    lease_dir = root.joinpath(*canonical.parts[1:])
+    lease_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return lease_dir / "lease.lock"
 
 
 def acquire_workspace_lease(
@@ -59,9 +60,7 @@ def acquire_workspace_lease(
             pass
         os.close(fd)
         suffix = f": {detail}" if detail else ""
-        raise WorkspaceLeaseBusy(
-            f"workdir {canonical} is already leased{suffix}"
-        ) from exc
+        raise WorkspaceLeaseBusy(f"workdir {canonical} is already leased{suffix}") from exc
     payload = {
         "workdir": str(canonical),
         "pid": os.getpid(),
