@@ -592,11 +592,12 @@ def _parse_reason(parsed: dict, *, round_summary_markdown: str | None) -> str | 
 
 
 def _parse_next_action(parsed: dict, *, status: str) -> str | None:
+    if status == "done":
+        value = parsed.get("next_action")
+        return str(value).strip() if isinstance(value, str) else ""
     direct = _parse_required_text(parsed.get("next_action"))
     if direct is not None:
         return direct
-    if status == "done":
-        return "No further action needed. Objective complete."
     if status == "blocked":
         return "Need additional user input before continuing."
     if status == "replan_requested":

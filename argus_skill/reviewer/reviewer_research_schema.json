@@ -22,7 +22,6 @@
     },
     "next_action": {
       "type": "string",
-      "minLength": 1,
       "maxLength": 1500
     },
     "operator_question": {

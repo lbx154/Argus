@@ -221,14 +221,16 @@ def test_skill_loop_matched_then_two_rounds_to_done(tmp_path: Path) -> None:
     assert str(mission_context.parent / "latest.json") in r2_prompt
 
     latest = json.loads((mission_context.parent / "latest.json").read_text())
-    assert latest["kind"] == "round_reviewed_handoff"
-    assert latest["round"] == 2
-    assert latest["scope"] == "bounded"
-    assert latest["objective"] == "say hi to the user"
-    assert latest["acceptance_check"] == "the greeting is printed"
-    assert latest["context_refs"][0]["ref"] == "request.txt"
+    assert latest["kind"] == "handoff_ref"
     assert latest["mission"]["path"] == str(mission_context)
-    assert latest["review"]["status"] == "done"
+    mission_payload = json.loads(mission_context.read_text())
+    reviewed_payload = json.loads(Path(latest["handoff"]["path"]).read_text())
+    assert reviewed_payload["round"] == 2
+    assert mission_payload["scope"] == "bounded"
+    assert mission_payload["objective"] == "say hi to the user"
+    assert mission_payload["acceptance_check"] == "the greeting is printed"
+    assert mission_payload["context_refs"][0]["ref"] == "request.txt"
+    assert reviewed_payload["review"]["status"] == "done"
     assert (mission_context.parent / "round-0001-engineer.json").exists()
     assert (mission_context.parent / "round-0001.json").exists()
     assert (mission_context.parent / "round-0002.json").exists()
@@ -262,10 +264,10 @@ def test_scope_changing_reviewer_guidance_escalates_without_second_engineer_roun
     assert outcome.round_count == 1
     assert not any(label == "engineer-r2" for label, _prompt, _opts in backend.history)
     review = outcome.rounds[-1].review
-    assert review.status == "replan_requested"
-    assert review.planner_report["plan_signal"] == "reconsider"
-    assert review.planner_report["stage_reconciliation_required"] is True
-    assert review.planner_report["mission_scope_change_required"] is True
+    assert review.status == "continue"
+    assert review.planner_report["plan_signal"] == "continue"
+    assert review.harness_control["stage_reconciliation_required"] is True
+    assert review.harness_control["mission_scope_change_required"] is True
     assert any(event.get("type") == "round.review.scope_change_escalated" for event in events)
 
 
@@ -497,7 +499,8 @@ def test_skill_loop_blocked_short_circuits(tmp_path: Path) -> None:
     assert "credential" in outcome.reason.lower()
 
 
-def test_skill_loop_max_rounds_hit(tmp_path: Path) -> None:
+def test_skill_loop_max_rounds_hit(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_REPEATED_FAILURE_THRESHOLD", "0")
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("distiller", CannedResponse(message=SKILL_MD))
@@ -517,7 +520,11 @@ def test_skill_loop_max_rounds_hit(tmp_path: Path) -> None:
     assert outcome.round_count == 3
 
 
-def test_repeated_rejections_do_not_spawn_separate_scientist(tmp_path: Path) -> None:
+def test_repeated_rejections_do_not_spawn_separate_scientist(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_REPEATED_FAILURE_THRESHOLD", "0")
     skills_dir = tmp_path / "skills"
     _seed_skill(skills_dir)
     backend = MemoryBackend()

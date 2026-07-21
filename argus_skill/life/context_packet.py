@@ -18,20 +18,6 @@ from ..core.models import canonical_planner_report
 
 CONTEXT_PACKET_VERSION = 2
 HANDOFF_DIRNAME = "handoffs"
-MISSION_CONTEXT_FIELDS = (
-    "mission_id",
-    "stage",
-    "scope",
-    "objective",
-    "acceptance_check",
-    "non_goals",
-    "context_refs",
-    "plan_id",
-    "plan_version",
-    "node_key",
-    "deps",
-    "tags",
-)
 
 
 def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
@@ -68,28 +54,27 @@ def _read_json_object(path: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def _mission_metadata(mission_path: Path) -> dict[str, Any]:
-    mission_payload = _read_json_object(mission_path)
-    return {
-        key: mission_payload[key]
-        for key in MISSION_CONTEXT_FIELDS
-        if key in mission_payload
-    }
-
-
 def _attach_mission_metadata(
     mission_path: Path,
     payload: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Return a round handoff that still carries the binding mission contract."""
+    """Return a round handoff with one reference to the mission contract."""
     out = dict(payload)
-    metadata = _mission_metadata(mission_path)
-    if not metadata:
-        return out
-    for key, value in metadata.items():
-        out.setdefault(key, value)
-    out["mission"] = {"path": str(mission_path), **metadata}
+    out["mission"] = {"path": str(mission_path)}
     return out
+
+
+def _latest_handoff_reference(
+    *,
+    mission_path: Path,
+    handoff_path: Path,
+) -> dict[str, Any]:
+    return {
+        "schema_version": CONTEXT_PACKET_VERSION,
+        "kind": "handoff_ref",
+        "mission": {"path": str(mission_path)},
+        "handoff": _file_reference(handoff_path),
+    }
 
 
 def mission_context_dir(life_dir: Path | str, mission_id: str) -> Path:
@@ -186,7 +171,10 @@ def record_engineer_handoff(
     _atomic_write_json(path, payload)
     _atomic_write_json(
         root / "latest.json",
-        _attach_mission_metadata(mission_path, payload),
+        _latest_handoff_reference(
+            mission_path=mission_path,
+            handoff_path=path,
+        ),
     )
     return path
 
@@ -233,7 +221,10 @@ def record_reviewed_handoff(
     _atomic_write_json(path, payload)
     _atomic_write_json(
         root / "latest.json",
-        _attach_mission_metadata(mission_path, payload),
+        _latest_handoff_reference(
+            mission_path=mission_path,
+            handoff_path=path,
+        ),
     )
     return path
 

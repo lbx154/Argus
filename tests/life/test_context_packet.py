@@ -42,17 +42,27 @@ def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> 
     )
     assert engineer is not None
     latest = json.loads((mission.parent / "latest.json").read_text())
-    assert latest["kind"] == "round_engineer_handoff"
-    assert latest["stage"] == "research"
-    assert latest["scope"] == "bounded"
-    assert latest["objective"] == "Screen one candidate on public tasks."
-    assert latest["acceptance_check"].endswith("binding pass/fail")
-    assert latest["non_goals"] == ["do not preregister", "do not run GPU inference"]
-    assert latest["context_refs"][0]["ref"] == "research/IDEA_CANDIDATES.md"
+    mission_payload = json.loads(mission.read_text())
+    engineer_payload = json.loads(engineer.read_text())
+    assert latest["kind"] == "handoff_ref"
+    assert latest["handoff"]["path"] == str(engineer)
+    assert latest["handoff"]["sha256"]
     assert latest["mission"]["path"] == str(mission)
-    assert latest["checkpoint"]["sha256"]
-    assert "text" not in latest["checkpoint"]
-    assert "engineer_summary" not in latest
+    assert mission_payload["stage"] == "research"
+    assert mission_payload["scope"] == "bounded"
+    assert mission_payload["objective"] == "Screen one candidate on public tasks."
+    assert mission_payload["acceptance_check"].endswith("binding pass/fail")
+    assert mission_payload["non_goals"] == [
+        "do not preregister",
+        "do not run GPU inference",
+    ]
+    assert mission_payload["context_refs"][0]["ref"] == "research/IDEA_CANDIDATES.md"
+    assert not {
+        "stage", "scope", "objective", "acceptance_check", "non_goals", "context_refs"
+    } & latest.keys()
+    assert engineer_payload["checkpoint"]["sha256"]
+    assert "text" not in engineer_payload["checkpoint"]
+    assert "engineer_summary" not in engineer_payload
 
     reviewed = record_reviewed_handoff(
         mission_context_path=mission,
@@ -77,15 +87,15 @@ def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> 
     )
     assert reviewed is not None
     latest = json.loads((mission.parent / "latest.json").read_text())
-    assert latest["kind"] == "round_reviewed_handoff"
-    assert latest["objective"] == "Screen one candidate on public tasks."
-    assert latest["acceptance_check"].endswith("binding pass/fail")
-    assert latest["scope"] == "bounded"
-    assert latest["review"]["status"] == "done"
-    assert latest["review"]["planner_report"]["plan_signal"] == "continue"
-    assert "recommended_next" not in latest["review"]["planner_report"]
-    assert latest["review"]["harness_control"] == {
+    reviewed_payload = json.loads(reviewed.read_text())
+    assert latest["kind"] == "handoff_ref"
+    assert latest["mission"] == {"path": str(mission)}
+    assert latest["handoff"]["path"] == str(reviewed)
+    assert reviewed_payload["review"]["status"] == "done"
+    assert reviewed_payload["review"]["planner_report"]["plan_signal"] == "continue"
+    assert "recommended_next" not in reviewed_payload["review"]["planner_report"]
+    assert reviewed_payload["review"]["harness_control"] == {
         "stage_reconciliation_required": True
     }
-    assert "engineer_summary" not in latest
-    assert "text" not in latest["checkpoint"]
+    assert "engineer_summary" not in reviewed_payload
+    assert "text" not in reviewed_payload["checkpoint"]
