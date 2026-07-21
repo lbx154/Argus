@@ -149,6 +149,7 @@ def record_engineer_handoff(
     round_index: int,
     engineer_summary: str,
     checkpoint_path: Path | None,
+    control_path: Path | None = None,
     thread_id: str = "",
 ) -> Path | None:
     if not mission_context_path:
@@ -165,6 +166,7 @@ def record_engineer_handoff(
         "producer_role": "engineer",
         "session_id": str(thread_id or ""),
         "checkpoint": _file_reference(checkpoint_path),
+        "control": _file_reference(control_path),
         "created_at": time.time(),
     }
     path = root / f"round-{max(1, int(round_index)):04d}-engineer.json"

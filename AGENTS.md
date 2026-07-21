@@ -160,11 +160,15 @@ Engineer 和 Reviewer 不再继承上一轮 raw transcript。每个角色每轮�
   `planner_report` 只存 `forward_progress`、`plan_signal` 和 `evidence_files`。
   不再生成 `round_summary_markdown`、`completion_summary_markdown` 或
   `step_back`；旧事件仍由 parser 兼容读取。
-- Engineer 末行 `ARGUS_ENGINEER_DECISION` 只含 `review`、`skill_action`、
-  `skill_name` 三个控制字段；自然语言结果留在普通输出和 CHECKPOINT。
-- `handoffs/latest.json` v2 只引用 CHECKPOINT 的 path/hash，不复制 Engineer
-  summary 或 CHECKPOINT 正文；event/journal/wiki 只做同名字段投影或路径引用，
-  不要求 agent 重写第二份摘要。
+- Engineer 把 `review`、`skill_action`、`skill_name` 三个控制字段写到
+  mission-scoped `engineer-controls/<scope>/round-NNNN-engineer-control.json`，
+  普通回复只写自然语言结果；旧
+  `ARGUS_ENGINEER_DECISION` 仅作为运行中老 agent 的兼容 fallback，新 prompt
+  不再出现 marker/template。
+- `handoffs/latest.json` v2 只引用最新 round handoff 和 mission 文件；round
+  handoff 再以 path/hash 引用 CHECKPOINT/control file，不复制 Engineer summary
+  或 CHECKPOINT 正文。event/journal/wiki 只做同名字段投影或路径引用，不要求
+  agent 重写第二份摘要。
 - 每个 Engineer round 都必须经过 Reviewer，不再支持 `CONTINUE_WORK` 跳审。
 - `ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS` 默认 0，不用绝对墙钟时间截断正常工作。
 - 测试：`tests/test_checkpoint_loop.py`、`tests/test_session_resume.py`。

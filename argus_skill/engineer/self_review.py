@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 from ..core.models import ReviewDecision
 
@@ -26,13 +28,8 @@ class EngineerCompletionDecision:
     """Machine control authored by the Engineer; prose stays in CHECKPOINT.md."""
 
     review: str
-    # Legacy fields accepted from older agents but no longer requested or
-    # persisted by the new protocol.
-    reason: str
-    verification: str
     skill_action: str = "none"
     skill_name: str = ""
-    skill_reason: str = ""
 
     @property
     def requests_review_skip(self) -> bool:
@@ -49,10 +46,85 @@ class EngineerSkillMaintenanceOutcome:
     thread_id: str | None = None
 
 
+def _parse_engineer_control(payload: object) -> EngineerCompletionDecision | None:
+    if not isinstance(payload, dict):
+        return None
+    review = str(payload.get("review") or "").strip().lower()
+    if review not in _REVIEW_VALUES:
+        return None
+    skill_action = str(payload.get("skill_action") or "none").strip().lower()
+    if skill_action not in _SKILL_ACTIONS:
+        skill_action = "none"
+    skill_name = str(payload.get("skill_name") or "").strip()[:200]
+    if skill_action == "update" and not skill_name:
+        skill_action = "none"
+    return EngineerCompletionDecision(
+        review=review,
+        skill_action=skill_action,
+        skill_name=skill_name,
+    )
+
+
+def engineer_control_path(
+    *,
+    workdir: Path,
+    checkpoint_path: Path | None,
+    round_index: int,
+    control_scope: str,
+) -> Path:
+    parent = (
+        checkpoint_path.parent
+        if checkpoint_path is not None
+        else workdir / ".argus" / "runtime" / "engineer-controls"
+    )
+    scope = hashlib.sha256(
+        str(control_scope or workdir.resolve()).encode("utf-8")
+    ).hexdigest()[:16]
+    root = parent / "engineer-controls" / scope
+    return root / f"round-{max(1, int(round_index)):04d}-engineer-control.json"
+
+
+def prepare_engineer_control(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.unlink(missing_ok=True)
+
+
+def engineer_control_instructions(
+    path: Path,
+    *,
+    allow_self_review: bool,
+    allow_skill_maintenance: bool,
+) -> str:
+    review_values = "`required` or `skip`" if allow_self_review else "`required`"
+    skill_values = (
+        "`none`, `create`, or `update`"
+        if allow_skill_maintenance
+        else "`none`"
+    )
+    return (
+        "## Internal control file\n"
+        f"Before your final response, write machine control to `{path}` as JSON. "
+        "Do not print it in chat. Use exactly three keys: `review` "
+        f"({review_values}), `skill_action` ({skill_values}), and `skill_name` "
+        "(required only for update; otherwise empty). Your final response remains "
+        "ordinary prose."
+    )
+
+
+def read_engineer_completion_decision(
+    path: Path,
+) -> EngineerCompletionDecision | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+    return _parse_engineer_control(payload)
+
+
 def parse_engineer_completion_decision(
     message: str,
 ) -> EngineerCompletionDecision | None:
-    """Parse the final one-line Engineer decision; malformed output is ignored."""
+    """Legacy marker adapter for already-running older agents."""
     matches = list(_DECISION_RE.finditer(str(message or "")))
     if not matches:
         return None
@@ -60,28 +132,12 @@ def parse_engineer_completion_decision(
         payload = json.loads(matches[-1].group(1))
     except (TypeError, ValueError, json.JSONDecodeError):
         return None
-    if not isinstance(payload, dict):
-        return None
-    review = str(payload.get("review") or "").strip().lower()
-    if review not in _REVIEW_VALUES:
-        return None
-    reason = str(payload.get("reason") or "").strip()[:1000]
-    verification = str(payload.get("verification") or "").strip()[:2000]
-    skill_action = str(payload.get("skill_action") or "none").strip().lower()
-    if skill_action not in _SKILL_ACTIONS:
-        skill_action = "none"
-    skill_name = str(payload.get("skill_name") or "").strip()[:200]
-    skill_reason = str(payload.get("skill_reason") or "").strip()[:1000]
-    if skill_action == "update" and not skill_name:
-        skill_action = "none"
-    return EngineerCompletionDecision(
-        review=review,
-        reason=reason,
-        verification=verification,
-        skill_action=skill_action,
-        skill_name=skill_name,
-        skill_reason=skill_reason,
-    )
+    return _parse_engineer_control(payload)
+
+
+def strip_legacy_engineer_control(message: str) -> str:
+    """Remove legacy marker lines before prose reaches Reviewer/events."""
+    return _DECISION_RE.sub("", str(message or "")).rstrip()
 
 
 def verbatim_verification_output(message: str) -> str:
@@ -118,7 +174,12 @@ def engineer_self_approved_review(
 __all__ = [
     "EngineerCompletionDecision",
     "EngineerSkillMaintenanceOutcome",
+    "engineer_control_instructions",
+    "engineer_control_path",
     "engineer_self_approved_review",
     "parse_engineer_completion_decision",
+    "prepare_engineer_control",
+    "read_engineer_completion_decision",
+    "strip_legacy_engineer_control",
     "verbatim_verification_output",
 ]

@@ -32,12 +32,18 @@ def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> 
     )
     checkpoint = mission.parent / "CHECKPOINT.md"
     checkpoint.write_text("# Current State\n\nScreen complete.\n", encoding="utf-8")
+    control = mission.parent / "round-0001-engineer-control.json"
+    control.write_text(
+        '{"review":"required","skill_action":"none","skill_name":""}',
+        encoding="utf-8",
+    )
 
     engineer = record_engineer_handoff(
         mission_context_path=mission,
         round_index=1,
         engineer_summary="Created the screen packet.",
         checkpoint_path=checkpoint,
+        control_path=control,
         thread_id="fresh-engineer-session",
     )
     assert engineer is not None
@@ -61,6 +67,8 @@ def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> 
         "stage", "scope", "objective", "acceptance_check", "non_goals", "context_refs"
     } & latest.keys()
     assert engineer_payload["checkpoint"]["sha256"]
+    assert engineer_payload["control"]["path"] == str(control)
+    assert engineer_payload["control"]["sha256"]
     assert "text" not in engineer_payload["checkpoint"]
     assert "engineer_summary" not in engineer_payload
 

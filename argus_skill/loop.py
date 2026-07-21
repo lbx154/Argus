@@ -1760,16 +1760,6 @@ class SkillLoop:
                 "`review=required`; don't spawn Reviewer subagents. Yield for fresh "
                 "Reviewer session.\n"
             )
-            + "Final line exactly:\n"
-            + (
-                'ARGUS_ENGINEER_DECISION: {"review":"skip|required",'
-                '"skill_action":"none|create|update","skill_name":"<required for '
-                'update, else empty>"}'
-                if require_post_task_learning
-                else
-                'ARGUS_ENGINEER_DECISION: {"review":"skip|required",'
-                '"skill_action":"none","skill_name":""}'
-            )
         )
         if require_post_task_learning and force_post_task_learning:
             required_action = "update" if matched_skill_name else "create"
@@ -1780,7 +1770,8 @@ class SkillLoop:
             )
             sections.append(
                 "## Required self-evolution\n"
-                "After verification, request `skill_action=" + required_action + "` for"
+                "After verification, select `" + required_action + "` in the internal "
+                "control file for"
                 + target
                 + "; the harness resumes this session to author it. Also retain one "
                 "concise `.autors/<project>/wiki/` note with the reusable mechanism, "
@@ -1804,10 +1795,7 @@ class SkillLoop:
             "command; reduce it to the cheapest decisive diagnostic. The original "
             "task, active vertical, and repository instructions remain binding.\n\n"
             "## Handoff\n"
-            "End with a concise natural summary and decisive check, then the exact "
-            "final control line:\n"
-            'ARGUS_ENGINEER_DECISION: {"review":"skip|required",'
-            '"skill_action":"none","skill_name":""}'
+            "End with a concise natural summary and decisive check."
         )
         return compact + ("\n\n" + delta_text if delta_text else "")
 

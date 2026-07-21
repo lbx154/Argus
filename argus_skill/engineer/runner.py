@@ -82,8 +82,13 @@ from .long_job_policy import find_unmanaged_long_jobs
 from .self_review import (
     EngineerCompletionDecision,
     EngineerSkillMaintenanceOutcome,
+    engineer_control_instructions,
+    engineer_control_path,
     engineer_self_approved_review,
     parse_engineer_completion_decision,
+    prepare_engineer_control,
+    read_engineer_completion_decision,
+    strip_legacy_engineer_control,
 )
 
 log = logging.getLogger(__name__)
@@ -1515,6 +1520,9 @@ class SupervisedEngineer:
         # one turn per provider session. The checkpoint file is the baton.
         _ = seed_thread_id
         checkpoint_path = ensure_shared_checkpoint(supervised_config.checkpoint_path)
+        control_scope = str(
+            supervised_config.session_id or uuid.uuid4().hex
+        )
 
         for round_index in range(1, supervised_config.max_rounds + 1):
             if on_event:
@@ -1532,6 +1540,13 @@ class SupervisedEngineer:
                 reviewer_next_action,
                 include_static,
             )
+            control_path = engineer_control_path(
+                workdir=workdir,
+                checkpoint_path=checkpoint_path,
+                round_index=round_index,
+                control_scope=control_scope,
+            )
+            prepare_engineer_control(control_path)
             delta_tail: list[str] = []
             checkpoint_block = shared_checkpoint_instructions(
                 checkpoint_path,
@@ -1539,6 +1554,15 @@ class SupervisedEngineer:
             )
             if checkpoint_block:
                 delta_tail.append(checkpoint_block)
+            delta_tail.append(
+                engineer_control_instructions(
+                    control_path,
+                    allow_self_review=supervised_config.allow_engineer_self_review,
+                    allow_skill_maintenance=(
+                        supervised_config.allow_engineer_skill_maintenance
+                    ),
+                )
+            )
             background_advisory = (
                 render_background_subagents_advisory(workdir)
                 if supervised_config.background_subagent_advisory
@@ -1592,6 +1616,15 @@ class SupervisedEngineer:
                 raw_engineer_message,
                 known_values=known_secret_values(),
             )
+            completion_decision = read_engineer_completion_decision(control_path)
+            if completion_decision is None:
+                completion_decision = parse_engineer_completion_decision(
+                    engineer_message
+                )
+                if completion_decision is not None:
+                    engineer_message = strip_legacy_engineer_control(
+                        engineer_message
+                    )
             if supervised_config.context_packet_path:
                 try:
                     from ..life.context_packet import record_engineer_handoff
@@ -1601,6 +1634,7 @@ class SupervisedEngineer:
                         round_index=round_index,
                         engineer_summary=engineer_message,
                         checkpoint_path=checkpoint_path,
+                        control_path=control_path,
                         thread_id=str(round_thread_id or ""),
                     )
                 except Exception:  # noqa: BLE001 - handoff persistence is fail-soft
@@ -1953,9 +1987,6 @@ class SupervisedEngineer:
             else:
                 no_progress_streak = 0
 
-            completion_decision = parse_engineer_completion_decision(
-                engineer_message
-            )
             if (
                 completion_decision is not None
                 and completion_decision.skill_action == "none"
