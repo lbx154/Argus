@@ -285,6 +285,49 @@ def test_export_target_does_not_inherit_unrelated_cwd_vertical(
     assert not (target / "engineer/research-visualization-router.md").exists()
 
 
+def test_export_prunes_legacy_unmodified_research_fallback(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from argus_skill.skills.builtins import seed_vertical_skills
+
+    target = tmp_path / "legacy-project" / "argus_builtin_skills"
+    seed_vertical_skills(target, "research")
+    assert (target / "engineer/research-visualization-router.md").exists()
+
+    rc = main(["--export-builtin-skills", str(target), "--apply"])
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert not (target / "engineer/research-visualization-router.md").exists()
+    assert not (
+        target / "engineer/research_visual_scripts/browser_render.py"
+    ).exists()
+    assert "pruned : 2 inactive unmodified research seed(s)" in out
+
+
+def test_export_preserves_edited_legacy_research_fallback(
+    tmp_path: Path,
+) -> None:
+    from argus_skill.skills.builtins import seed_vertical_skills
+
+    target = tmp_path / "learned-project" / "argus_builtin_skills"
+    seed_vertical_skills(target, "research")
+    router = target / "engineer/research-visualization-router.md"
+    router.write_text(
+        router.read_text(encoding="utf-8") + "\nproject-specific learning\n",
+        encoding="utf-8",
+    )
+
+    assert main(["--export-builtin-skills", str(target), "--apply"]) == 0
+
+    assert router.exists()
+    assert "project-specific learning" in router.read_text(encoding="utf-8")
+    assert not (
+        target / "engineer/research_visual_scripts/browser_render.py"
+    ).exists()
+
+
 def test_main_rejects_objective_without_continuous(capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["--objective", "hardening objective"])
     err = capsys.readouterr().err
