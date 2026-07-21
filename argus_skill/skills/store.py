@@ -168,6 +168,8 @@ class Skill:
     # cheap overwrite path). Absent in legacy frontmatter -> ``False`` (an
     # ordinary, freely-editable skill).
     protected: bool = False
+    shared_base_digest: str = ""
+    shared_base_version: int = 0
 
     def render(self) -> str:
         history = ""
@@ -195,6 +197,8 @@ class Skill:
             f"created_for_task: {self.created_for_task}\n"
             f"successful_reuses: {int(self.successful_reuses)}\n"
             f"failed_reuses: {int(self.failed_reuses)}\n"
+            f"shared_base_digest: {self.shared_base_digest}\n"
+            f"shared_base_version: {int(self.shared_base_version)}\n"
             f"{protected_lines}"
             f"{history}"
             f"{reuse_history}"
@@ -211,7 +215,11 @@ class Skill:
         content = text[fm_match.end():].strip()
 
         def _get(key: str) -> str:
-            m = re.search(rf"^{key}:\s*(.+)$", fm, re.MULTILINE)
+            m = re.search(
+                rf"^{re.escape(key)}:[ \t]*(.*)$",
+                fm,
+                re.MULTILINE,
+            )
             return m.group(1).strip() if m else ""
 
         history: list[str] = []
@@ -256,6 +264,8 @@ class Skill:
             created_for_task=_get("created_for_task"),
             successful_reuses=_get_int("successful_reuses"),
             failed_reuses=_get_int("failed_reuses"),
+            shared_base_digest=_get("shared_base_digest"),
+            shared_base_version=_get_int("shared_base_version"),
             reuse_fingerprints=reuse_fingerprints,
             protected=_get("protected").strip().strip('"').strip("'").lower()
             in {"true", "yes", "1"},
@@ -368,7 +378,8 @@ class SkillStore:
             # Skip dotfiles AND the archive tree — archived (pruned/retired)
             # skills must never re-enter the matcher candidate pool.
             if any(
-                part.startswith(".") or part in {"_archive", "_history"}
+                part.startswith(".")
+                or part in {"_archive", "_history", "_shared_verticals"}
                 for part in rel.parts
             ):
                 continue
@@ -409,8 +420,14 @@ class SkillStore:
                 "protected": skill.protected,
                 "version": skill.version,
                 "skill_id": skill.skill_id,
+                "candidate_id": (
+                    skill.skill_id
+                    or f"{skill_role}:{skill.name.casefold()}"
+                ),
                 "successful_reuses": skill.successful_reuses,
                 "failed_reuses": skill.failed_reuses,
+                "shared_base_digest": skill.shared_base_digest,
+                "shared_base_version": skill.shared_base_version,
             }
             self._summary_cache[key] = (st.st_mtime_ns, st.st_size, summary)
             summaries.append(summary)
@@ -920,7 +937,19 @@ class SkillStore:
         self, response: str, summaries: list[dict]
     ) -> list[Skill]:
         matched = []
-        name_to_path = {s["name"].casefold(): s["path"] for s in summaries}
+        id_to_path = {
+            str(
+                s.get("candidate_id")
+                or s.get("skill_id")
+                or f"{s.get('role', 'general')}:{s['name'].casefold()}"
+            ): s["path"]
+            for s in summaries
+        }
+        name_to_paths: dict[str, list[str]] = {}
+        for summary in summaries:
+            name_to_paths.setdefault(summary["name"].casefold(), []).append(
+                summary["path"]
+            )
         response_lower = response.lower()
 
         if "none" in response_lower and "no relevant" in response_lower:
@@ -928,7 +957,10 @@ class SkillStore:
 
         parsed_names, json_parsed = self._extract_matched_names(response)
         for parsed_name in parsed_names:
-            path = name_to_path.get(parsed_name.casefold())
+            path = id_to_path.get(parsed_name)
+            if path is None:
+                paths = name_to_paths.get(parsed_name.casefold(), [])
+                path = paths[0] if len(paths) == 1 else None
             if path:
                 matched.append(self.load(path))
 
@@ -938,7 +970,12 @@ class SkillStore:
         if json_parsed:
             return matched
 
+        unique_names = {
+            name for name, paths in name_to_paths.items() if len(paths) == 1
+        }
         for summary in summaries:
+            if summary["name"].casefold() not in unique_names:
+                continue
             if re.search(rf"(^|[^a-z0-9]){re.escape(summary['name'])}([^a-z0-9]|$)", response, re.IGNORECASE):
                 matched.append(self.load(summary["path"]))
 
@@ -962,7 +999,6 @@ class SkillStore:
             if not next_candidate.exists():
                 return next_candidate
         raise RuntimeError(f"unable to allocate skill path for {skill.name!r}")
-
     @staticmethod
     def _scope_summaries(
         summaries: list[dict],
@@ -1040,10 +1076,39 @@ class SkillStore:
                         high_names.append(name)
                 elif isinstance(item, dict):
                     fit = str(item.get("fit", "high")).strip().lower()
-                    name = str(item.get("name", "")).strip()
+                    name = str(
+                        item.get("id") or item.get("name") or ""
+                    ).strip()
                     if not name:
                         continue
                     if fit == "high" or not fit:
                         high_names.append(name)
             return high_names, True
         return [], False
+
+
+def shared_skill_digest(skill: Skill) -> str:
+    """Stable digest of the canonical shared Skill payload."""
+    payload = {
+        "skill_id": str(skill.skill_id or ""),
+        "name": str(skill.name or ""),
+        "description": str(skill.description or ""),
+        "category": str(skill.category or ""),
+        "content": str(skill.content or ""),
+        "version": int(skill.version or 1),
+        "protected": bool(skill.protected),
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def deterministic_skill_id(skill: Skill, *, role: str = "general") -> str:
+    """Stable migration identity for a legacy shared Skill without an ID."""
+    payload = "\0".join([
+        role,
+        str(skill.name or "").casefold(),
+        str(skill.category or "").casefold(),
+        str(skill.created_at or ""),
+        str(skill.content or ""),
+    ])
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]

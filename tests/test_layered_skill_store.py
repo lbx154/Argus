@@ -1,4 +1,4 @@
-"""Tests for the two-layer skill store (project + global).
+"""Tests for the project + vertical-shared + global-shared Skill store.
 
 These cover the contract Phase 2 (p2-layered-skills) introduces:
 
@@ -21,7 +21,9 @@ from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus_skill.skills.layered import (
     LAYER_GLOBAL,
     LAYER_PROJECT,
+    LAYER_VERTICAL,
     LayeredSkillStore,
+    shared_vertical_skills_dir,
 )
 from argus_skill.skills.skill_router import SkillRouter
 from argus_skill.skills.store import Skill, SkillStore
@@ -74,6 +76,132 @@ def test_project_shadows_global_when_names_collide(tmp_path: Path) -> None:
     only = next(s for s in summaries if s["name"] == "shared")
     assert only["layer"] == LAYER_PROJECT
     assert only["description"] == "project version"
+
+
+def test_vertical_shared_layer_is_scoped_and_shadows_global(tmp_path: Path) -> None:
+    global_dir = tmp_path / "global_skills"
+    vertical_dir = shared_vertical_skills_dir(global_dir, "quant")
+    assert vertical_dir is not None
+    layered = LayeredSkillStore(
+        project_dir=tmp_path / "project_skills",
+        global_dir=global_dir,
+        vertical_dir=vertical_dir,
+    )
+    _write(layered.global_, "shared", description="global version")
+    assert layered.vertical is not None
+    _write(layered.vertical, "shared", description="quant version")
+    _write(layered.vertical, "factor diagnostics")
+
+    summaries = {row["name"]: row for row in layered.list_summaries()}
+
+    assert summaries["shared"]["layer"] == LAYER_VERTICAL
+    assert summaries["shared"]["description"] == "quant version"
+    assert summaries["factor diagnostics"]["layer"] == LAYER_VERTICAL
+    unrelated = LayeredSkillStore(
+        project_dir=tmp_path / "other_project",
+        global_dir=global_dir,
+    )
+    assert "factor diagnostics" not in {
+        row["name"] for row in unrelated.list_summaries()
+    }
+
+
+def test_shared_reuse_is_recorded_in_project_without_mutating_shared(
+    tmp_path: Path,
+) -> None:
+    layered = _layered(tmp_path)
+    shared = _make_skill("portable repair")
+    shared.path = str(
+        layered.global_.skills_dir / "engineer" / "portable-repair.md"
+    )
+    layered.global_.save(shared)
+
+    assert layered.record_reuse(
+        shared,
+        task_desc="repair one parser",
+        success=True,
+    ) == "recorded"
+
+    shared_reloaded = layered.global_.load(shared.path)
+    assert shared_reloaded.successful_reuses == 0
+    project_copy = next(
+        layered.project.load(str(row["path"]))
+        for row in layered.project.list_summaries()
+        if row["skill_id"] == shared.skill_id
+    )
+    assert project_copy.successful_reuses == 1
+    project_summary = next(
+        row for row in layered.project.list_summaries()
+        if row["skill_id"] == shared.skill_id
+    )
+    assert project_summary["role"] == "engineer"
+    assert sum(
+        1 for row in layered.list_summaries()
+        if row["name"] == shared.name and row["role"] == "engineer"
+    ) == 1
+
+
+def test_matcher_uses_candidate_id_for_same_named_cross_role_skills(
+    tmp_path: Path,
+) -> None:
+    backend = MemoryBackend()
+    layered = _layered(tmp_path, runner=backend, matcher_model="matcher")
+    engineer = _make_skill("shared name")
+    engineer.path = str(
+        layered.project.skills_dir / "engineer" / "shared-name.md"
+    )
+    layered.project.save(engineer)
+    reviewer = _make_skill("shared name")
+    reviewer.path = str(
+        layered.global_.skills_dir / "reviewer" / "shared-name.md"
+    )
+    layered.global_.save(reviewer)
+    backend.queue(
+        "matcher",
+        CannedResponse(message=json.dumps({
+            "matched": [{
+                "id": engineer.skill_id,
+                "name": engineer.name,
+                "fit": "high",
+                "why": "engineer playbook",
+            }],
+        })),
+    )
+
+    matched, _tokens = layered.find_relevant(
+        "repair parser",
+        role="engineer",
+    )
+
+    assert matched is not None
+    assert [skill.skill_id for skill in matched] == [engineer.skill_id]
+
+
+def test_idless_shared_skill_is_migrated_before_project_fork(
+    tmp_path: Path,
+) -> None:
+    layered = _layered(tmp_path)
+    path = layered.global_.skills_dir / "engineer" / "legacy.md"
+    path.parent.mkdir(parents=True)
+    legacy = _make_skill("legacy")
+    path.write_text(legacy.render(), encoding="utf-8")
+    shared = layered.global_.load(str(path))
+    assert shared.skill_id == ""
+
+    layered.record_reuse(
+        shared,
+        task_desc="reuse legacy",
+        success=True,
+    )
+
+    migrated = layered.global_.load(str(path))
+    project = next(
+        layered.project.load(str(row["path"]))
+        for row in layered.project.list_summaries()
+        if row["name"] == "legacy"
+    )
+    assert migrated.skill_id
+    assert project.skill_id == migrated.skill_id
 
 
 def test_project_shadow_is_case_insensitive(tmp_path: Path) -> None:

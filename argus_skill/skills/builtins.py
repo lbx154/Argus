@@ -287,6 +287,7 @@ def seed_vertical_skills(
     vertical: str,
     *,
     overwrite: bool = False,
+    overwrite_unidentified: bool = False,
 ) -> dict[str, bool]:
     """Seed only the active vertical's skills into a project runtime layer."""
     skills_dir = Path(skills_dir)
@@ -297,12 +298,44 @@ def seed_vertical_skills(
             _validate_builtin(filename, text)
         dest = skills_dir / filename
         if dest.exists() and not overwrite:
+            if overwrite_unidentified:
+                should_refresh = not filename.endswith(".md")
+                if filename.endswith(".md"):
+                    try:
+                        should_refresh = not Skill.parse(
+                            dest.read_text(encoding="utf-8"),
+                            str(dest),
+                        ).skill_id
+                    except OSError:
+                        should_refresh = False
+                if should_refresh:
+                    _atomic_write_text(dest, text)
+                    created[filename] = True
+                    continue
             created[filename] = False
             continue
         dest.parent.mkdir(parents=True, exist_ok=True)
         _atomic_write_text(dest, text)
         created[filename] = True
     return created
+
+
+def remove_unmodified_vertical_skill_seeds(
+    skills_dir: Path,
+    vertical: str,
+) -> list[str]:
+    """Remove legacy project-layer factory copies without touching learned edits."""
+    root = Path(skills_dir)
+    removed: list[str] = []
+    for filename, source_text in iter_vertical_skill_texts(vertical):
+        path = root / filename
+        try:
+            if path.is_file() and path.read_text(encoding="utf-8") == source_text:
+                path.unlink()
+                removed.append(filename)
+        except OSError:
+            continue
+    return removed
 
 
 def _validate_builtin(filename: str, text: str) -> None:

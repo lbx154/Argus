@@ -1,4 +1,4 @@
-"""Two-layer skill store: project (writable default) + global (read mostly).
+"""Layered skill store: project + vertical-shared + global-shared.
 
 Phase 2 (p2-layered-skills) of the unified-argus-skill refactor: the
 single-directory :class:`~argus_skill.skills.store.SkillStore` is no
@@ -10,11 +10,12 @@ active, versioned playbooks; the user-global library lives at
 Design choices
 --------------
 * **Composition over inheritance.** A :class:`LayeredSkillStore`
-  wraps two real :class:`SkillStore` instances. All on-disk concerns
+  wraps real :class:`SkillStore` instances. All on-disk concerns
   (atomic writes, frontmatter caching, slugging) stay in the
   underlying store — we only add merge / dispatch logic.
-* **Project shadows global.** When a project skill and a global
-  skill share the same name, the project version wins for matching
+* **Project shadows vertical/global.** When layers share a skill name, the
+  project version wins, followed by the active vertical's shared version,
+  then the domain-neutral global version.
   purposes. (We never silently delete the global copy; the user can
   still see it via ``layer_summaries("global")``.)
 * **Writes default to project.** :meth:`save`,
@@ -50,7 +51,17 @@ from .store import Skill, SkillStore, _slugify
 log = logging.getLogger(__name__)
 
 LAYER_PROJECT = "project"
+LAYER_VERTICAL = "vertical"
 LAYER_GLOBAL = "global"
+_SHARED_VERTICALS_DIR = "_shared_verticals"
+
+
+def shared_vertical_skills_dir(global_dir: Path, vertical: str) -> Path | None:
+    """Return the shared runtime Skill directory for one vertical."""
+    slug = _slugify(vertical)
+    if not slug:
+        return None
+    return Path(global_dir) / _SHARED_VERTICALS_DIR / slug
 
 
 class LayeredSkillStore:
@@ -66,6 +77,7 @@ class LayeredSkillStore:
         *,
         project_dir: Path,
         global_dir: Path,
+        vertical_dir: Path | None = None,
         runner: RunnerBackend | None = None,
         matcher_model: str = "",
         matcher_reasoning_effort: str | None = None,
@@ -82,10 +94,23 @@ class LayeredSkillStore:
             matcher_model=matcher_model,
             matcher_reasoning_effort=matcher_reasoning_effort,
         )
+        self.vertical = (
+            SkillStore(
+                Path(vertical_dir),
+                runner=runner,
+                matcher_model=matcher_model,
+                matcher_reasoning_effort=matcher_reasoning_effort,
+            )
+            if vertical_dir is not None
+            else None
+        )
         # Resolve once so layer dispatch never gets confused by relative
         # vs absolute paths or by symlinks introduced after init.
         self._project_root = self.project.skills_dir.resolve()
         self._global_root = self.global_.skills_dir.resolve()
+        self._vertical_root = (
+            self.vertical.skills_dir.resolve() if self.vertical is not None else None
+        )
 
     # ------------------------------------------------------------------
     # Layer awareness
@@ -106,6 +131,12 @@ class LayeredSkillStore:
             return LAYER_PROJECT
         except ValueError:
             pass
+        if self._vertical_root is not None:
+            try:
+                p.relative_to(self._vertical_root)
+                return LAYER_VERTICAL
+            except ValueError:
+                pass
         try:
             p.relative_to(self._global_root)
             return LAYER_GLOBAL
@@ -123,6 +154,8 @@ class LayeredSkillStore:
     def store_for_layer(self, layer: str) -> SkillStore:
         if layer == LAYER_PROJECT:
             return self.project
+        if layer == LAYER_VERTICAL and self.vertical is not None:
+            return self.vertical
         if layer == LAYER_GLOBAL:
             return self.global_
         raise ValueError(f"unknown skill layer: {layer!r}")
@@ -131,7 +164,7 @@ class LayeredSkillStore:
         return self.store_for_layer(self.layer_for_skill(skill))
 
     # ------------------------------------------------------------------
-    # Listing — merged view, project shadows global by skill name
+    # Listing — merged view, project shadows vertical/global by role + name
     # ------------------------------------------------------------------
 
     def layer_summaries(self, layer: str) -> list[dict]:
@@ -141,23 +174,48 @@ class LayeredSkillStore:
     def list_summaries(self) -> list[dict]:
         """Return the merged summary list visible to the matcher.
 
-        Project entries shadow global entries with the same
-        case-insensitive ``name``. Each summary is annotated with a
-        ``layer`` field so callers can distinguish them.
+        Project entries shadow vertical/global entries with the same role and
+        case-insensitive name. Each summary carries a ``layer`` field.
         """
         project_summaries = [
             {**s, "layer": LAYER_PROJECT} for s in self.project.list_summaries()
         ]
+        vertical_summaries = (
+            [
+                {**s, "layer": LAYER_VERTICAL}
+                for s in self.vertical.list_summaries()
+            ]
+            if self.vertical is not None
+            else []
+        )
         global_summaries = [
             {**s, "layer": LAYER_GLOBAL} for s in self.global_.list_summaries()
         ]
-        seen_names: set[str] = {
-            (s.get("name") or "").casefold() for s in project_summaries
+        seen_names: set[tuple[str, str]] = {
+            (
+                str(s.get("role") or "general"),
+                (s.get("name") or "").casefold(),
+            )
+            for s in project_summaries
         }
         merged: list[dict] = list(project_summaries)
-        for summary in global_summaries:
-            if (summary.get("name") or "").casefold() in seen_names:
+        for summary in vertical_summaries:
+            normalized = (
+                str(summary.get("role") or "general"),
+                (summary.get("name") or "").casefold(),
+            )
+            if normalized in seen_names:
                 continue
+            seen_names.add(normalized)
+            merged.append(summary)
+        for summary in global_summaries:
+            normalized = (
+                str(summary.get("role") or "general"),
+                (summary.get("name") or "").casefold(),
+            )
+            if normalized in seen_names:
+                continue
+            seen_names.add(normalized)
             merged.append(summary)
         return merged
 
@@ -205,8 +263,8 @@ class LayeredSkillStore:
         self, skill: Skill, new_content: str, task_desc: str
     ) -> Skill:
         target = (
-            self.import_global_skill_into_project(skill)
-            if self.layer_for_skill(skill) == LAYER_GLOBAL
+            self.import_shared_skill_into_project(skill)
+            if self.layer_for_skill(skill) in {LAYER_VERTICAL, LAYER_GLOBAL}
             else skill
         )
         updated = self.project.update_skill_content(
@@ -226,8 +284,8 @@ class LayeredSkillStore:
     ) -> Skill | None:
         """Update a project skill, or fork a global skill into a project shadow."""
         target = (
-            self.import_global_skill_into_project(skill)
-            if self.layer_for_skill(skill) == LAYER_GLOBAL
+            self.import_shared_skill_into_project(skill)
+            if self.layer_for_skill(skill) in {LAYER_VERTICAL, LAYER_GLOBAL}
             else skill
         )
         return self.project.update_skill_content(
@@ -251,8 +309,13 @@ class LayeredSkillStore:
         success: bool,
         on_event: Callable[[dict], None] | None = None,
     ) -> str:
-        return self.store_for_skill(skill).record_reuse(
-            skill,
+        target = (
+            self.import_shared_skill_into_project(skill)
+            if self.layer_for_skill(skill) in {LAYER_VERTICAL, LAYER_GLOBAL}
+            else skill
+        )
+        return self.project.record_reuse(
+            target,
             task_desc=task_desc,
             success=success,
             on_event=on_event,
@@ -319,25 +382,36 @@ class LayeredSkillStore:
                 )
         return skill
 
-    def import_global_skill_into_project(self, skill: Skill) -> Skill:
-        """Copy a global skill into the project layer (project shadow).
-
-        Useful when the user wants to fork a global playbook for
-        project-specific tweaks without affecting the original. The
-        global copy is left untouched. Returns the new project-layer
-        :class:`Skill` (a fresh instance — the caller's ``skill``
-        argument is not mutated so global references still work).
-        """
-        if self.layer_for_skill(skill) != LAYER_GLOBAL:
+    def import_shared_skill_into_project(self, skill: Skill) -> Skill:
+        """Copy a vertical/global shared skill into the project layer."""
+        source_layer = self.layer_for_skill(skill)
+        if source_layer not in {LAYER_VERTICAL, LAYER_GLOBAL}:
             raise ValueError(
-                f"import_global_skill_into_project: skill is not in global layer: {skill.path!r}"
+                f"import_shared_skill_into_project: skill is not shared: {skill.path!r}"
             )
+        source_store = self.store_for_skill(skill)
+        source_role = source_store.role_for(skill)
+        if not skill.skill_id:
+            from .store import deterministic_skill_id
+
+            skill.skill_id = deterministic_skill_id(skill, role=source_role)
+            source_store.save(skill)
+        if skill.skill_id:
+            for summary in self.project.list_summaries():
+                if str(summary.get("skill_id") or "") == skill.skill_id:
+                    return self.project.load(str(summary.get("path") or ""))
+
         # Compute target path with collision avoidance.
         base = _slugify(skill.name) or "skill"
-        candidate = self.project.skills_dir / f"{base}.md"
+        parent = (
+            self.project.skills_dir / source_role
+            if source_role in {"engineer", "reviewer", "planner", "manager"}
+            else self.project.skills_dir
+        )
+        candidate = parent / f"{base}.md"
         if candidate.exists():
             for idx in range(2, 1000):
-                next_candidate = self.project.skills_dir / f"{base}-{idx}.md"
+                next_candidate = parent / f"{base}-{idx}.md"
                 if not next_candidate.exists():
                     candidate = next_candidate
                     break
@@ -347,7 +421,17 @@ class LayeredSkillStore:
                 )
         candidate.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(skill.path, candidate)
-        return self.project.load(str(candidate))
+        project_skill = self.project.load(str(candidate))
+        from .store import shared_skill_digest
+
+        project_skill.shared_base_digest = shared_skill_digest(skill)
+        project_skill.shared_base_version = int(skill.version or 1)
+        self.project.save(project_skill)
+        return project_skill
+
+    def import_global_skill_into_project(self, skill: Skill) -> Skill:
+        """Backward-compatible alias for importing a shared Skill."""
+        return self.import_shared_skill_into_project(skill)
 
     # ------------------------------------------------------------------
     # Matcher — merged view, with layer-aware load on cache hit
@@ -422,5 +506,7 @@ class LayeredSkillStore:
 __all__ = [
     "LayeredSkillStore",
     "LAYER_PROJECT",
+    "LAYER_VERTICAL",
     "LAYER_GLOBAL",
+    "shared_vertical_skills_dir",
 ]

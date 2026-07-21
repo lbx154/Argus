@@ -131,6 +131,13 @@ def _env_int_setting(name: str, default: int) -> int:
         return default
 
 
+def _knob_bool_setting(name: str, default: bool) -> bool:
+    from .core.knobs import resolve_knob
+
+    value = resolve_knob(name, "1" if default else "0").value
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _transfer_terms(text: object) -> list[str]:
     """Return normalized, discriminative terms for cheap Skill retrieval."""
     terms: list[str] = []
@@ -225,15 +232,19 @@ class SkillLoopConfig:
         )
     )
     nearest_transfer_max_bullets: int = 4
+    nearest_transfer_enabled: bool = field(
+        default_factory=lambda: _knob_bool_setting(
+            "ARGUS_SKILL_NEAREST_TRANSFER_ENABLED",
+            False,
+        )
+    )
     # Evaluation/continuous-learning mode: completed tasks are asked to retain
     # only durable reusable learning. ``force_post_task_learning`` restores the
     # legacy every-task create/update contract for controlled ablations.
     require_post_task_learning: bool = field(
-        default_factory=lambda: (
-            os.environ.get("ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING", "0")
-            .strip()
-            .lower()
-            in {"1", "true", "yes", "on"}
+        default_factory=lambda: _knob_bool_setting(
+            "ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING",
+            True,
         )
     )
     max_rounds: int = 500
@@ -434,7 +445,11 @@ class SkillLoop:
         self.engineer_mission = EngineerMission(
             self.skill_store, on_event=self.on_event
         )
-        self.reviewer = Reviewer(self.reviewer_runner, skill_store=self.skill_store)
+        self.reviewer = Reviewer(
+            self.reviewer_runner,
+            skill_store=self.skill_store,
+            memory_maintenance_enabled=self.config.require_post_task_learning,
+        )
         # The single front door to the skill library: selection (delegated to
         # the role matcher) plus structurally-safe CRUD. New versions are active
         # immediately; the Reviewer uses real trajectories to update/archive,
@@ -658,7 +673,7 @@ class SkillLoop:
             except Exception:  # noqa: BLE001
                 log.debug("Scientist skill generation skipped", exc_info=True)
 
-        if skill is None and self.config.require_post_task_learning:
+        if skill is None and self.config.nearest_transfer_enabled:
             loaded: list[tuple[dict[str, Any], Skill]] = []
             for summary in self.skill_store.list_summaries():
                 path = str(summary.get("path") or "").strip()
@@ -1407,6 +1422,7 @@ class SkillLoop:
                 ),
                 allow_engineer_skill_maintenance=(
                     self.config.engineer_skill_maintenance_enabled
+                    and self.config.require_post_task_learning
                 ),
                 required_skill_action=(
                     ("update" if learning_target_name else "create")
@@ -1426,7 +1442,14 @@ class SkillLoop:
             review_completed_hook=capture_reviewed_round,
             continue_adaptor=adapt_after_rejections,
             reviewer_skill_block=reviewer_skill_block,
-            engineer_skill_maintenance=maintain_skill_with_engineer,
+            engineer_skill_maintenance=(
+                maintain_skill_with_engineer
+                if (
+                    self.config.engineer_skill_maintenance_enabled
+                    and self.config.require_post_task_learning
+                )
+                else None
+            ),
         )
 
         # Step 4: learn from the OUTCOME. A called Reviewer may already have
@@ -1466,7 +1489,10 @@ class SkillLoop:
                 ),
                 rounds=rounds,
                 task=skill_task,
-                apply_ops_enabled=self.config.skill_ops_enabled,
+                apply_ops_enabled=(
+                    self.config.skill_ops_enabled
+                    and self.config.require_post_task_learning
+                ),
                 auto_compact_enabled=self.config.auto_compact_enabled,
                 fallback_skills_dir=self.skills_dir,
                 on_event=self.on_event,
@@ -1725,11 +1751,18 @@ class SkillLoop:
                 "Reviewer session.\n"
             )
             + "Final line exactly:\n"
-            'ARGUS_ENGINEER_DECISION: {"review":"skip|required",'
-            '"reason":"<brief judgment>","verification":"<what passed>",'
-            '"skill_action":"none|create|update","skill_name":"<required for '
-            'update, else empty>","skill_reason":"<required for create/update, '
-            'else empty>"}'
+            + (
+                'ARGUS_ENGINEER_DECISION: {"review":"skip|required",'
+                '"reason":"<brief judgment>","verification":"<what passed>",'
+                '"skill_action":"none|create|update","skill_name":"<required for '
+                'update, else empty>","skill_reason":"<required for create/update, '
+                'else empty>"}'
+                if require_post_task_learning
+                else
+                'ARGUS_ENGINEER_DECISION: {"review":"skip|required",'
+                '"reason":"<brief judgment>","verification":"<what passed>",'
+                '"skill_action":"none","skill_name":"","skill_reason":""}'
+            )
         )
         if require_post_task_learning and force_post_task_learning:
             required_action = "update" if matched_skill_name else "create"

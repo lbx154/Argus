@@ -62,6 +62,8 @@
 | budget | `ARGUS_SKILL_COPILOT_MAX_CONCURRENCY` | `10000` | default | `10000` |
 | mission | `ARGUS_SKILL_VERTICAL` | `(unset → research; see LANES #1)` | default | `(unset → research; see LANES #1)` |
 | mission | `ARGUS_SKILL_MAX_ROUNDS` | `500` | default | `500` |
+| mission | `ARGUS_SKILL_NEAREST_TRANSFER_ENABLED` | `0` | default | `0` |
+| mission | `ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING` | `1` | default | `1` |
 | mission | `ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS` | `0` | default | `0` |
 | mission | `ARGUS_SKILL_EFFECTIVE_PROGRESS_TIMEOUT_SECONDS` | `0` | default | `0` |
 | mission | `ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS` | `0` | default | `0` |
@@ -74,6 +76,7 @@
 | mission | `ARGUS_SKILL_CHECKPOINT_PERSIST` | `true` | default | `true` |
 | lifecycle | `ARGUS_SKILL_DAEMON_AUTO_RESTART` | `0` | default | `0` |
 | lifecycle | `ARGUS_SKILL_AUTOCOMMIT_SKILLS` | `off` | default | `off` |
+| lifecycle | `ARGUS_SKILL_CROSS_PROJECT_PROPAGATION` | `on` | default | `on` |
 | lifecycle | `ARGUS_SKILL_PER_MISSION_DISTILL` | `off` | default | `off` |
 | lifecycle | `ARGUS_SKILL_SAFE_MODE` | `off` | default | `off` |
 | lifecycle | `ARGUS_SKILL_ENGINEER_SANDBOX` | `off` | default | `off` |

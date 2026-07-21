@@ -48,10 +48,32 @@ def test_skill_loop_defaults_use_adaptive_reasoning_effort() -> None:
     assert config.engineer_reasoning_effort == "xhigh"
     assert config.matcher_reasoning_effort == "low"
     assert config.reviewer_reasoning_effort == "high"
+    assert config.nearest_transfer_enabled is False
+    assert config.require_post_task_learning is True
+    assert config.force_post_task_learning is False
     # Staged/paper work stays xhigh from round one; direct work opts into high.
     assert config.resolved_initial_engineer_effort() == "xhigh"
     config.workflow_mode = "direct"
     assert config.resolved_initial_engineer_effort() == "high"
+
+
+def test_selective_post_task_learning_can_be_disabled(monkeypatch) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING", "0")
+
+    assert SkillLoopConfig().require_post_task_learning is False
+
+
+def test_selective_post_task_learning_honors_persisted_disable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from argus_skill.core.knob_store import write_persisted_knob
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING", raising=False)
+    assert write_persisted_knob("ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING", "off")
+
+    assert SkillLoopConfig().require_post_task_learning is False
 
 
 def test_nearest_transfer_ignores_self_reinforcing_task_history() -> None:
@@ -384,6 +406,7 @@ def test_low_confidence_transfer_uses_compact_hint_without_adapter(
         config=SkillLoopConfig(
             max_rounds=1,
             require_post_task_learning=True,
+            nearest_transfer_enabled=True,
             nearest_transfer_min_score=1.0,
         ),
     ).run("repair a database migration", workdir=tmp_path)

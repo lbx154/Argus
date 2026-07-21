@@ -127,6 +127,9 @@ def classify_skill_placements(
     """Classify a batch of runtime skills with one metered Manager call."""
     rows = [
         {
+            "candidate_id": str(
+                item.get("candidate_id") or item.get("name") or ""
+            ).strip(),
             "name": str(item.get("name") or "").strip(),
             "task": str(item.get("task") or "").strip()[:2000],
             "content": str(item.get("content") or "").strip()[:12000],
@@ -135,7 +138,11 @@ def classify_skill_placements(
         if str(item.get("name") or "").strip()
     ]
     defaults = {
-        row["name"]: PlacementVerdict("stay", "", "batch placement unavailable")
+        row["candidate_id"]: PlacementVerdict(
+            "stay",
+            "",
+            "batch placement unavailable",
+        )
         for row in rows
     }
     if not rows or runner is None:
@@ -149,7 +156,8 @@ def classify_skill_placements(
         f"Candidate verticals: {', '.join(candidates) or '(none)'}\n\n"
         "Skills JSON:\n"
         f"{json.dumps(rows, ensure_ascii=False)}\n\n"
-        "Reply ONLY as JSON: {\"placements\":[{\"name\":\"exact input name\","
+        "Reply ONLY as JSON: {\"placements\":[{\"candidate_id\":\"exact input "
+        "candidate_id\","
         "\"placement\":\"global|vertical|stay\",\"vertical\":\"\","
         "\"why\":\"...\"}]}. Return exactly one row per input skill."
     )
@@ -176,20 +184,30 @@ def classify_skill_placements(
     for item in placements:
         if not isinstance(item, dict):
             continue
-        name = str(item.get("name") or "").strip()
-        if name not in defaults:
+        candidate_id = str(
+            item.get("candidate_id") or item.get("name") or ""
+        ).strip()
+        if candidate_id not in defaults:
             continue
         placement = str(item.get("placement") or "").strip().lower()
         vertical = str(item.get("vertical") or "").strip()
         why = str(item.get("why") or "").strip()[:500]
         if placement == "global":
-            defaults[name] = PlacementVerdict("global", "", why or "general capability")
+            defaults[candidate_id] = PlacementVerdict(
+                "global",
+                "",
+                why or "general capability",
+            )
         elif placement == "vertical" and vertical in candidates:
-            defaults[name] = PlacementVerdict(
+            defaults[candidate_id] = PlacementVerdict(
                 "vertical", vertical, why or f"belongs to {vertical}"
             )
         else:
-            defaults[name] = PlacementVerdict("stay", "", why or "project-specific")
+            defaults[candidate_id] = PlacementVerdict(
+                "stay",
+                "",
+                why or "project-specific",
+            )
     return defaults
 
 

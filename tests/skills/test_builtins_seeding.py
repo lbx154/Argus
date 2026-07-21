@@ -20,10 +20,12 @@ from argus_skill.skills.builtins import (
     _validate_builtin,
     iter_builtin_skill_texts,
     iter_vertical_skill_texts,
+    remove_unmodified_vertical_skill_seeds,
     seed_builtin_skills_for_vertical,
     seed_vertical_skills,
     vertical_skill_source_path,
 )
+from argus_skill.skills.store import SkillStore
 
 QUANT_SKILLS = {
     "engineer/quant-factor-loop.md",
@@ -147,4 +149,55 @@ def test_seed_vertical_skills_writes_only_research_runtime_layer(
         "engineer/research-visualization-router.md",
         "engineer/research_visual_scripts/browser_render.py",
     }
+
+
+def test_remove_unmodified_vertical_seeds_preserves_learned_edits(tmp_path) -> None:
+    seed_vertical_skills(tmp_path, "research")
+    source_files = dict(iter_vertical_skill_texts("research"))
+    markdown_files = [
+        filename for filename in source_files if filename.endswith(".md")
+    ]
+    assert markdown_files
+    seeded_files = list(source_files)
+    assert len(seeded_files) >= 2
+    modified = tmp_path / markdown_files[0]
+    untouched_name = next(
+        filename for filename in seeded_files if filename != markdown_files[0]
+    )
+    untouched = tmp_path / untouched_name
+    modified.write_text(
+        modified.read_text(encoding="utf-8") + "\nlearned project edit\n",
+        encoding="utf-8",
+    )
+
+    removed = remove_unmodified_vertical_skill_seeds(tmp_path, "research")
+
+    assert untouched_name in removed
+    assert not untouched.exists()
+    assert modified.exists()
+
+
+def test_vertical_seed_refresh_preserves_identified_shared_evolution(
+    tmp_path,
+) -> None:
+    seed_vertical_skills(tmp_path, "research")
+    store = SkillStore(tmp_path)
+    skill = next(
+        store.load(str(row["path"]))
+        for row in store.list_summaries()
+        if row["name"] == "Research Visualization Router"
+    )
+    skill.skill_id = "shared-evolved-id"
+    skill.content += "\nlearned shared mechanism\n"
+    store.save(skill)
+
+    seed_vertical_skills(
+        tmp_path,
+        "research",
+        overwrite_unidentified=True,
+    )
+
+    preserved = store.load(skill.path)
+    assert preserved.skill_id == "shared-evolved-id"
+    assert "learned shared mechanism" in preserved.content
     assert not (tmp_path / "engineer" / "argus-engineer-role.md").exists()

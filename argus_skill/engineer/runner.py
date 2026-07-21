@@ -1981,6 +1981,7 @@ class SupervisedEngineer:
             if (
                 completion_decision is not None
                 and completion_decision.skill_action != "none"
+                and supervised_config.allow_engineer_skill_maintenance
                 and engineer_skill_maintenance is not None
             ):
                 try:

@@ -297,6 +297,45 @@ def test_skill_creation_resumes_same_engineer_session(tmp_path: Path) -> None:
     assert not any(event["type"] == "round.review.started" for event in events)
 
 
+def test_disabled_post_task_learning_blocks_requested_skill_write(
+    tmp_path: Path,
+) -> None:
+    persist_vertical(tmp_path, "direct")
+    skills_dir = tmp_path / "skills"
+    backend = MemoryBackend()
+    backend.queue(
+        "engineer-r1",
+        CannedResponse(
+            message=_engineer_message(skill_action="create"),
+            thread_id="engineer-session",
+        ),
+    )
+    loop = SkillLoop(
+        skills_dir=skills_dir,
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(
+            max_rounds=1,
+            workflow_mode="direct",
+            engineer_self_review_enabled=True,
+            engineer_skill_maintenance_enabled=True,
+            require_post_task_learning=False,
+        ),
+    )
+
+    outcome = loop.run(
+        "repair one deterministic parser test",
+        workdir=tmp_path,
+    )
+
+    assert outcome.status == "done"
+    assert [label for label, _prompt, _options in backend.history] == [
+        "matcher",
+        "engineer-r1",
+    ]
+    assert SkillStore(skills_dir).list_summaries() == []
+
+
 def test_skill_router_create_supports_layered_store(tmp_path: Path) -> None:
     store = LayeredSkillStore(
         project_dir=tmp_path / "project-skills",

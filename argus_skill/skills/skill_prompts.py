@@ -36,7 +36,8 @@ class Prompts:
 
         listing = "\n".join(
             (
-                f"- **{s['name']}**{_role_tag(s)}: {s['description']} "
+                f"- ID `{s.get('candidate_id') or s.get('skill_id') or s['name']}` "
+                f"— **{s['name']}**{_role_tag(s)}: {s['description']} "
                 f"(category: {s['category'] or 'unspecified'})"
                 + ((" | past tasks: " + ", ".join(s["task_history"][:3])) if s.get("task_history") else "")
             )
@@ -68,7 +69,8 @@ class Prompts:
             f"## Available Skills\n{listing}\n\n"
             "## Instructions\n"
             "Reply with ONLY a JSON object of the shape:\n"
-            "{\"matched\": [{\"name\": \"skill-name\", "
+            "{\"matched\": [{\"id\": \"exact-candidate-ID\", "
+            "\"name\": \"skill-name\", "
             "\"fit\": \"high|medium|low\", \"why\": \"<one short clause>\"}, ...]}\n"
             "\n"
             "Grading rubric (anchor each judgement explicitly):\n"

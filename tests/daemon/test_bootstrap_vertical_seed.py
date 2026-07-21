@@ -15,6 +15,7 @@ import pytest
 from argus_skill.core.bootstrap import structured_research_bootstrap_requested
 from argus_skill.daemon.life_worker import LifeWorker, LifeWorkerConfig
 from argus_skill.life.memory import BacklogItem
+from argus_skill.skills.layered import shared_vertical_skills_dir
 from argus_skill.skills.vertical_select import persist_vertical
 
 
@@ -86,9 +87,11 @@ def test_research_vertical_seeds_runtime_matcher_layer(tmp_path: Path) -> None:
     project.mkdir()
     persist_vertical(project, "research")
     state_root = tmp_path / "state"
+    global_root = tmp_path / "home"
     worker = LifeWorker(
         LifeWorkerConfig(
             life_dir=state_root,
+            global_root=global_root,
             project_fingerprint="demo",
             continuous_objective="write a research paper",
         )
@@ -96,12 +99,22 @@ def test_research_vertical_seeds_runtime_matcher_layer(tmp_path: Path) -> None:
 
     worker._seed_project_agents_and_venv(project)
 
+    vertical_shared = shared_vertical_skills_dir(
+        global_root / "skills",
+        "research",
+    )
+    assert vertical_shared is not None
     assert (
+        vertical_shared
+        / "engineer"
+        / "research-visualization-router.md"
+    ).is_file()
+    assert not (
         state_root
         / "skills"
         / "engineer"
         / "research-visualization-router.md"
-    ).is_file()
+    ).exists()
 
 
 def test_env_forced_vertical_seeds_optimize_contract_on_a_fresh_project(
@@ -394,9 +407,14 @@ def test_existing_project_refreshes_framework_owned_vertical_runtime_skill(
 ) -> None:
     persist_vertical(tmp_path, "research")
     life_dir = tmp_path / "state"
+    global_root = tmp_path / "home"
+    vertical_shared = shared_vertical_skills_dir(
+        global_root / "skills",
+        "research",
+    )
+    assert vertical_shared is not None
     runtime_skill = (
-        life_dir
-        / "skills"
+        vertical_shared
         / "engineer"
         / "research-visualization-router.md"
     )
@@ -404,6 +422,7 @@ def test_existing_project_refreshes_framework_owned_vertical_runtime_skill(
     runtime_skill.write_text("stale router\n", encoding="utf-8")
     worker = LifeWorker(LifeWorkerConfig(
         life_dir=life_dir,
+        global_root=global_root,
         project_workdir=tmp_path,
         project_fingerprint="project",
         continuous_objective="standing objective",

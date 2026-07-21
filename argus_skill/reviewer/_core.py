@@ -416,7 +416,13 @@ def _engineer_log_audit_block(
 class Reviewer:
     """One reviewer call per round. Stateless across rounds."""
 
-    def __init__(self, runner: RunnerBackend, *, skill_store: Any | None = None) -> None:
+    def __init__(
+        self,
+        runner: RunnerBackend,
+        *,
+        skill_store: Any | None = None,
+        memory_maintenance_enabled: bool = True,
+    ) -> None:
         self.runner = runner
         self.schema_path = SCHEMA_PATH
         self._last_prompt_block_stats: dict[str, dict[str, int]] = {}
@@ -426,6 +432,7 @@ class Reviewer:
         # references on top of the fixed role/handoff context. ``None`` keeps
         # the legacy fixed-context-only behaviour.
         self.skill_store = skill_store
+        self.memory_maintenance_enabled = memory_maintenance_enabled
         from ..skills.missions import ReviewerMission
         self.mission = ReviewerMission(skill_store)
 
@@ -945,9 +952,10 @@ class Reviewer:
             if wiki_curator_text
             else ""
         )
-        direct_memory_edit_block = _direct_memory_edit_block(
-            self.skill_store,
-            working_dir,
+        direct_memory_edit_block = (
+            _direct_memory_edit_block(self.skill_store, working_dir)
+            if self.memory_maintenance_enabled
+            else ""
         )
 
         venv_skill_block = (

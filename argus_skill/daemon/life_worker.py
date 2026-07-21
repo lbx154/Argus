@@ -815,6 +815,7 @@ class LifeWorker:
         # reach existing projects without replacing unrelated local files.
         from ..skills.builtins import (
             DEFAULT_PROJECT_BUILTIN_SKILLS_DIR,
+            remove_unmodified_vertical_skill_seeds,
             seed_builtin_skills,
             seed_builtin_skills_for_vertical,
             seed_vertical_skills,
@@ -830,10 +831,27 @@ class LifeWorker:
             log.exception("daemon: failed to seed builtin skills during bootstrap")
         if vertical and self.config.project_fingerprint:
             try:
+                from ..skills.layered import shared_vertical_skills_dir
+
+                default_shared_root = (
+                    core_paths.skills_global_root()
+                    if self.config.global_root is None
+                    else Path(self.config.global_root) / "skills"
+                )
+                shared_root = Path(os.environ.get(
+                    "ARGUS_SKILL_SKILLS_DIR",
+                    str(default_shared_root),
+                ))
+                project_skills = Path(self.config.life_dir) / "skills"
+                remove_unmodified_vertical_skill_seeds(project_skills, vertical)
+                vertical_shared = shared_vertical_skills_dir(shared_root, vertical)
+                if vertical_shared is None:
+                    raise ValueError(f"invalid vertical Skill namespace: {vertical!r}")
                 seed_vertical_skills(
-                    Path(self.config.life_dir) / "skills",
+                    vertical_shared,
                     vertical,
-                    overwrite=True,
+                    overwrite=False,
+                    overwrite_unidentified=True,
                 )
             except Exception:  # noqa: BLE001 — best-effort, never break bootstrap
                 log.exception("daemon: failed to seed vertical runtime skills")

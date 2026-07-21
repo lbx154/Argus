@@ -527,15 +527,42 @@ class _SkillLoopRunner(SelfReplyMixin):
         """
         try:
             from ..loop import SkillLoopConfig
+            from ..skills.layered import (
+                LayeredSkillStore,
+                shared_vertical_skills_dir,
+            )
             from ..skills.store import SkillStore
+            from ..skills.vertical_select import _persisted_vertical
 
             # A default config is enough for the matcher: ``resolved_matcher_model``
             # already applies the ``ARGUS_SKILL_MATCHER_MODEL`` env override, and
             # ``matcher_reasoning_effort`` defaults to the same value the SkillLoop
             # uses. We only need the matcher knobs here, not the full mission cfg.
             cfg = SkillLoopConfig()
+            global_dir = Path(args.skills_dir)
+            project_state_dir = str(
+                getattr(args, "project_state_dir", "") or ""
+            ).strip()
+            if project_state_dir:
+                workdir = (
+                    Path(args.workdir).expanduser()
+                    if args.workdir
+                    else Path.cwd()
+                )
+                active_vertical = _persisted_vertical(workdir) or ""
+                return LayeredSkillStore(
+                    project_dir=Path(project_state_dir) / "skills",
+                    global_dir=global_dir,
+                    vertical_dir=shared_vertical_skills_dir(
+                        global_dir,
+                        active_vertical,
+                    ),
+                    runner=self.manager_backend or self._backend,
+                    matcher_model=cfg.resolved_matcher_model(),
+                    matcher_reasoning_effort=cfg.matcher_reasoning_effort,
+                )
             return SkillStore(
-                Path(args.skills_dir),
+                global_dir,
                 runner=self.manager_backend or self._backend,
                 matcher_model=cfg.resolved_matcher_model(),
                 matcher_reasoning_effort=cfg.matcher_reasoning_effort,
@@ -543,6 +570,21 @@ class _SkillLoopRunner(SelfReplyMixin):
         except Exception:  # noqa: BLE001 — never block start-up on the matcher
             log.debug("manager skill store build skipped", exc_info=True)
             return None
+
+    def shared_skills_root(self) -> Path:
+        """Return the exact shared Skill directory used by this runner."""
+        return Path(self._args.skills_dir)
+
+    def _refresh_manager_skill_store(self, args: argparse.Namespace) -> None:
+        """Refresh Manager matching after the Manager persists a vertical."""
+        store = self._build_manager_skill_store(args)
+        if store is None:
+            return
+        self._manager_skill_store = store
+        self.manager.skill_store = store
+        from ..skills.missions import ManagerMission
+
+        self.manager.mission = ManagerMission(store)
 
     def stream_to(self, sink: EventSink):
         """Context manager: temporarily route stream lines to *sink*.
@@ -807,6 +849,7 @@ class _SkillLoopRunner(SelfReplyMixin):
         workdir = (
             Path(args.workdir).expanduser() if args.workdir else Path.cwd()
         )
+        self._refresh_manager_skill_store(args)
         # The per-project runtime state dir holds inbox.jsonl + events.jsonl.
         operator_state_dir = _project_state_dir_for(args, workdir)
         # REAL operator inbox (Change A): drain queued ``--notify`` / ``/nudge``
@@ -843,11 +886,21 @@ class _SkillLoopRunner(SelfReplyMixin):
         skill_store = None
         project_state_dir = str(getattr(args, "project_state_dir", "") or "").strip()
         if project_state_dir:
-            from ..skills.layered import LayeredSkillStore
+            from ..skills.layered import (
+                LayeredSkillStore,
+                shared_vertical_skills_dir,
+            )
+            from ..skills.vertical_select import _persisted_vertical
+
+            active_vertical = _persisted_vertical(workdir) or ""
 
             skill_store = LayeredSkillStore(
                 project_dir=Path(project_state_dir) / "skills",
                 global_dir=global_skills_dir,
+                vertical_dir=shared_vertical_skills_dir(
+                    global_skills_dir,
+                    active_vertical,
+                ),
                 runner=engineer_backend,
                 matcher_model=config.resolved_matcher_model(),
                 matcher_reasoning_effort=config.matcher_reasoning_effort,
