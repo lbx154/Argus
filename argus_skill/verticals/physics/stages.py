@@ -31,6 +31,8 @@ Stage semantics:
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from ...skills.stage_checklists import ChecklistItem
 from .manuscript import PAPER_AUDIT_HEADING, manuscript_review_items
 
@@ -41,6 +43,13 @@ WORKFLOW_MODE = "proportional"
 # Physics missions end through the ordinary reviewer-certified final-stage path.
 # They are neither paper-submission missions nor metric-optimization campaigns.
 completion_gate = "none"
+
+# The terminal ``manuscript`` stage is HARD-gated on its deterministic
+# STAGE_CHECKS: the Manager may not mark it done / reach project_done while
+# ``manuscript check --layer all`` (verify_all_deliverables) reports a failure,
+# even if the reviewer certifies completion. Opt-in flag read by the Manager
+# (argus_skill/manager/_core.py); verticals that omit it keep the old behaviour.
+enforce_terminal_stage_check = True
 
 _PIPELINE_CHECK = (
     "Pipeline state present",
@@ -57,9 +66,94 @@ _MANUSCRIPT_CHECK = (
     "{python} -m argus_skill.verticals.physics.manuscript check --project-root .",
 )
 
+# ``scope`` runs the Literature Positioning gate in ADVISORY mode: it verifies the
+# agent's PRIOR_WORK_MATRIX.csv artifact, writes a machine-readable failure list +
+# repair context (research/LITERATURE_GATE_*), but ALWAYS exits 0 so it never
+# blocks scope->model. Its failures are fed into the next scope/model prompt (via
+# ``role_banner``) and its RESULT feeds the review/claims discipline. It is NOT a
+# hard gate this round; only the terminal manuscript stage hard-blocks completion.
+_LITERATURE_ADVISORY_CHECK = (
+    "Literature positioning (advisory; produces prior-work matrix + repair context)",
+    "{python} -m argus_skill.verticals.physics.gates.literature check --project-root . --advisory",
+)
+
+# ``model`` runs the Theory Capability gate in ADVISORY mode (never blocks
+# model->execute): it verifies DOMAIN_CLASSIFICATION.json + THEORY_OPPORTUNITY_AUDIT.csv
+# and feeds failures into the next-round repair context.
+_THEORY_ADVISORY_CHECK = (
+    "Theory capability audit (advisory; produces theory-opportunity audit + repair context)",
+    "{python} -m argus_skill.verticals.physics.gates.theory check --project-root . --advisory",
+)
+
+# ``execute`` runs the Numerical Capability gate in ADVISORY mode (never blocks
+# execute->review): it verifies NUMERICAL_STUDY_PLAN.csv and cross-checks CLAIMS.csv
+# (robustness / phase-diagram claims need matching numerical evidence).
+_NUMERICAL_ADVISORY_CHECK = (
+    "Numerical study plan (advisory; produces numerical study plan + repair context)",
+    "{python} -m argus_skill.verticals.physics.gates.numerical check --project-root . --advisory",
+)
+
+# ``review`` runs the Novelty gate and the Paper-Type classifier in ADVISORY mode
+# (never blocks review->manuscript). The Paper-Type gate CONSUMES the literature /
+# novelty / numerical gate results: a paper cannot be an original research article
+# candidate unless those gates support it.
+_NOVELTY_ADVISORY_CHECK = (
+    "Novelty audit (advisory; produces novelty claim table + repair context)",
+    "{python} -m argus_skill.verticals.physics.gates.novelty check --project-root . --advisory",
+)
+_PAPER_TYPE_ADVISORY_CHECK = (
+    "Paper-type classification (advisory; consumes literature/novelty/numerical gate results)",
+    "{python} -m argus_skill.verticals.physics.gates.paper_type check --project-root . --advisory",
+)
+
+# ``review`` also runs the Novelty-Seeking Loop gate in ADVISORY mode. It only
+# ENFORCES in original-research-required mode (mode_config): >=10 scored candidate
+# directions, top 2-3 selected + verified, or a justified ORIGINAL_RESEARCH_NO_GO.md.
+_NOVELTY_SEEKING_ADVISORY_CHECK = (
+    "Novelty-seeking loop (advisory; enforced in original-research-required mode)",
+    "{python} -m argus_skill.verticals.physics.gates.novelty_seeking check --project-root . --advisory",
+)
+
+# ``review`` also runs the Manuscript-Package contract gate in ADVISORY mode. Once a
+# paper package exists it surfaces the SAME deterministic contract as the terminal
+# ``manuscript`` HARD gate (verify_all_deliverables), writing the exact failure list +
+# repair context so ``role_banner`` injects an executable repair loop into the next
+# round. It NEVER hard-blocks review->manuscript and NEVER weakens the terminal
+# contract; it closes the gap where a review-stage paper package could stall the
+# mission (no_progress) because the deterministic failures never reached the agent.
+_MANUSCRIPT_PACKAGE_ADVISORY_CHECK = (
+    "Manuscript-package contract (advisory at review; surfaces terminal checker failures + repair loop once a paper package exists)",
+    "{python} -m argus_skill.verticals.physics.gates.manuscript_package check --project-root . --advisory",
+)
+
+# ``execute`` + ``review`` run the Auto-Downgrade gate (ADVISORY): when the run has
+# exhausted the allowed effort at the current innovation tier (model<->execute churn,
+# pivot cap, repeated reviewer rejections / blockers, a closure artifact exists, or a
+# hygiene closure-loop), it proposes+applies a one-rung tier downgrade (S->A->B->C->D)
+# and surfaces a reviewer-ratification directive. Never blocks a stage.
+_DOWNGRADE_ADVISORY_CHECK = (
+    "Auto-downgrade tier gate (advisory; proposes S->A->B->C->D when a tier is exhausted)",
+    "{python} -m argus_skill.verticals.physics.gates.downgrade check --project-root . --advisory",
+)
+
+# ``execute`` + ``review`` run the No-go Terminal gate (ADVISORY): once a bounded
+# negative result is fully evidenced and gate-passing, it AUTONOMOUSLY authorizes a
+# bounded failure-regime / no-go manuscript (manuscript_completion_authorized=true,
+# NO_GO scope) and directs the manuscript build — the missing bridge from s-cbac6ede.
+# If genuinely operator-gated (a stretch tier), it emits ONE operator prompt and idles;
+# it never dispatches infinite hygiene closure.
+_NOGO_TERMINAL_ADVISORY_CHECK = (
+    "No-go terminal gate (advisory; autonomously authorizes a bounded no-go manuscript once evidenced)",
+    "{python} -m argus_skill.verticals.physics.gates.nogo_terminal check --project-root . --advisory",
+)
+
 STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     stage: [_PIPELINE_CHECK] for stage in STAGE_ORDER
 }
+STAGE_CHECKS["scope"] = [_PIPELINE_CHECK, _LITERATURE_ADVISORY_CHECK]
+STAGE_CHECKS["model"] = [_PIPELINE_CHECK, _THEORY_ADVISORY_CHECK]
+STAGE_CHECKS["execute"] = [_PIPELINE_CHECK, _NUMERICAL_ADVISORY_CHECK, _DOWNGRADE_ADVISORY_CHECK, _NOGO_TERMINAL_ADVISORY_CHECK]
+STAGE_CHECKS["review"] = [_PIPELINE_CHECK, _NOVELTY_ADVISORY_CHECK, _PAPER_TYPE_ADVISORY_CHECK, _NOVELTY_SEEKING_ADVISORY_CHECK, _MANUSCRIPT_PACKAGE_ADVISORY_CHECK, _DOWNGRADE_ADVISORY_CHECK, _NOGO_TERMINAL_ADVISORY_CHECK]
 STAGE_CHECKS["manuscript"] = [_PIPELINE_CHECK, _MANUSCRIPT_CHECK]
 
 REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
@@ -353,8 +447,170 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
 }
 
 
-def role_banner(role: str) -> str:
-    """Frame each role around dynamic physics work and honest, bounded evidence."""
+def _current_stage(project_root: object) -> str:
+    """Best-effort read of the current pipeline stage (for stage-entry contracts)."""
+    if project_root is None:
+        return ""
+    try:
+        import json as _json
+
+        p = Path(str(project_root)) / "research" / "PIPELINE_STATE.json"
+        data = _json.loads(p.read_text(encoding="utf-8"))
+        return str(data.get("current_stage", "") or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+# Stage-ENTRY contracts (gate-forward): the required artifacts, minimum standard,
+# claim constraints, and forbidden overclaims are stated BEFORE the stage runs — so
+# the agent builds to the gate standard from the start instead of running-then-repairing.
+_STAGE_ENTRY_CONTRACTS: dict[str, str] = {
+    "scope": (
+        "## STAGE-ENTRY CONTRACT — scope (build to this BEFORE finishing the stage)\n"
+        "- REQUIRED ARTIFACT: PRIOR_WORK_MATRIX.csv — >= 8 direct prior works, >= 6 read FULL-TEXT "
+        "(honest fulltext_status), per-paper overlap/difference/claim-implication.\n"
+        "- MIN STANDARD: every headline claim maps to a closest_prior_work.\n"
+        "- CLAIM CONSTRAINT: no original-research-article framing until the Literature gate passes.\n"
+        "- FORBIDDEN: citing metadata-only as full text; asserting novelty without a prior-work map.\n"
+    ),
+    "model": (
+        "## STAGE-ENTRY CONTRACT — model\n"
+        "- REQUIRED ARTIFACTS: DOMAIN_CLASSIFICATION.json + THEORY_OPPORTUNITY_AUDIT.csv "
+        "(which theory capabilities apply, which were used, at what tier, with evidence).\n"
+        "- MIN STANDARD: variables/units/equations explicit; approximation validity ranges stated.\n"
+        "- CLAIM CONSTRAINT: a claim depending on a theory capability you did NOT execute must be downgraded.\n"
+        "- FORBIDDEN: applying an approximation (e.g. RWA, continuum, mean-field) without a stated validity check.\n"
+    ),
+    "execute": (
+        "## STAGE-ENTRY CONTRACT — execute\n"
+        "- REQUIRED ARTIFACTS: NUMERICAL_STUDY_PLAN.csv + reproducible scripts/ + generated data/ with provenance.\n"
+        "- MIN STANDARD: convergence/finite-size/scan checks proportional to each claim; each result has an evidence_file.\n"
+        "- CLAIM CONSTRAINT: 'robust'/'protected' needs an executed robustness study; 'universal'/'phase diagram' needs an executed scan — else downgrade.\n"
+        "- FORBIDDEN: presenting finite/toy numerics as a universal or infinite-system proof; missing-condition work that pretends to finish (use an honest NO_GO).\n"
+    ),
+    "review": (
+        "## STAGE-ENTRY CONTRACT — review\n"
+        "- REQUIRED ARTIFACTS: NOVELTY_CLAIM_TABLE.csv (closest prior work, already-known vs what-is-new, significance, calibrated wording) + PAPER_TYPE_CLASSIFIER.json.\n"
+        "- MIN STANDARD: every final claim labeled supported/partial/no-go/inconclusive/unknown with its boundary.\n"
+        "- CLAIM CONSTRAINT: paper type must be consistent with the upstream gates; original-article ONLY if Literature AND Novelty gates pass.\n"
+        "- FORBIDDEN: original framing without genuine, prior-work-separated novelty.\n"
+    ),
+    "manuscript": (
+        "## STAGE-ENTRY CONTRACT — manuscript\n"
+        "- REQUIRED: MANUSCRIPT.{md,tex,pdf} + SUPPLEMENT.{tex,pdf} + PAPER_BUILD_LOG.md, honoring PAPER_TYPE_CLASSIFIER.json and NOVELTY_CLAIM_TABLE allowed_wording.\n"
+        "- MIN STANDARD: ONE central thesis + one stated non-trivial physical insight; boundaries/disclaimers stated at most TWICE total, in Results/Limitations — NOT repeated in every section.\n"
+        "- CLAIM CONSTRAINT: spend the space on the PHYSICAL MEANING of what WAS done, not on lists of what was not done.\n"
+        "- FORBIDDEN: over-hedging (repeating 'not a new phase / not universal / no disorder / no materials / no interactions / not a new bulk-edge theorem' across many sections); finite->universal or synthetic->real leaps.\n"
+    ),
+}
+
+
+def stage_entry_contract(stage: str) -> str:
+    """Return the stage-entry contract text for ``stage`` (empty if none)."""
+    return _STAGE_ENTRY_CONTRACTS.get((stage or "").strip().lower(), "")
+
+
+def _mode_banner(project_root: object = None) -> str:
+    """Tiered run-mode notice: the ACTIVE innovation tier + downgrade / no-go policy.
+
+    Replaces the old single Nature/Science original-research notice. The reviewer must
+    evaluate against the ACTIVE tier (from TIER_STATE.json / START_TIER), downgrade is a
+    change of claim TYPE (not a rigor cut), and a Tier-D bounded no-go / negative result
+    is a first-class success terminal. Original-research-required mode (if the operator
+    opted in) is still honoured as a stretch."""
+    try:
+        from .downgrade import read_current_tier
+        from .tiers import nogo_terminal_enabled, tier_rubric_banner
+
+        tier = read_current_tier(project_root)
+        block = "\n" + tier_rubric_banner(tier)
+        block += (
+            "## TIERED RESEARCH MODE\n"
+            "The innovation gate is TIERED (S/A/B/C/D), default target Tier B. If the current tier is "
+            "not supported after the allowed effort (pivot / model<->execute caps, repeated blockers, "
+            "or an existing closure artifact), the Auto-Downgrade gate steps DOWN one rung (a change of "
+            "claim TYPE, never a cut in rigor); the reviewer ratifies and then judges against the new "
+            "tier only. "
+        )
+        if nogo_terminal_enabled():
+            block += (
+                "A Tier-D bounded no-go / negative / failure-regime result is a SUCCESS TERMINAL: once "
+                "the no-go evidence is sufficient, the No-go Terminal gate autonomously authorizes a "
+                "bounded no-go manuscript (manuscript_completion_authorized=true) and advances "
+                "execute->review->manuscript — do NOT keep requiring a positive diagnostic, and do NOT "
+                "run generic hygiene closure.\n"
+            )
+        else:
+            block += "\n"
+        # Original-research stretch notice (only when the operator opted in).
+        try:
+            from .mode_config import is_original_research_required
+
+            if is_original_research_required():
+                block += (
+                    "## STRETCH — ORIGINAL RESEARCH REQUESTED\n"
+                    "The operator set an original-research stretch target. Run the Novelty-Seeking Loop "
+                    "(<=2 pivots); if insufficient, DOWNGRADE per the tier ladder to a bounded contribution "
+                    "or an honest Tier-D no-go — do not livelock at the stretch tier.\n"
+                )
+        except Exception:  # noqa: BLE001
+            pass
+        return block
+    except Exception:  # noqa: BLE001 — mode banner must never break the role banner
+        return ""
+
+
+def role_banner(role: str, project_root: object = None) -> str:
+    """Frame each role around dynamic physics work and honest, bounded evidence.
+
+    When ``project_root`` is given and a manuscript repair context exists (the
+    terminal deterministic verifier failed on a prior round), the exact failure
+    list + forced repair instructions are appended so the next agent round gets
+    them verbatim — see ``argus_skill.skills.manuscript_repair``.
+    """
+    repair = ""
+    if project_root is not None:
+        try:
+            from ...skills.manuscript_repair import read_repair_state, render_repair_block
+
+            block = render_repair_block(read_repair_state(project_root))
+            if block:
+                repair = "\n\n" + block
+        except Exception:  # noqa: BLE001 — repair context must never break the banner
+            repair = ""
+        try:
+            from ...skills.research_gates import render_active_repair_blocks
+
+            gblocks = render_active_repair_blocks(project_root)
+            if gblocks:
+                repair += "\n\n" + gblocks
+        except Exception:  # noqa: BLE001 — research-gate repair context must never break the banner
+            pass
+        # Structured gate-fail feedback (role-addressed): who/what/how-checked/next-stage.
+        try:
+            from .gate_feedback import render_active_feedback
+
+            fblocks = render_active_feedback(project_root)
+            if fblocks:
+                repair += "\n\n" + fblocks
+        except Exception:  # noqa: BLE001 — gate-fail feedback must never break the banner
+            pass
+        # Context-compaction policy: refresh the digest + prepend the pointer directive.
+        try:
+            from .context_policy import context_policy_banner, write_digest
+
+            write_digest(project_root)
+            repair = "\n\n" + context_policy_banner() + repair
+        except Exception:  # noqa: BLE001 — context policy must never break the banner
+            pass
+    # Gate-forward: prepend the CURRENT stage's entry contract + run-mode notice so the
+    # agent builds to the gate standard from the start (not only after a failed exit check).
+    entry = stage_entry_contract(_current_stage(project_root))
+    if entry:
+        repair = "\n\n" + entry + repair
+    mode = _mode_banner(project_root)
+    if mode:
+        repair = "\n\n" + mode + repair
     common = (
         "MISSION TYPE: PHYSICS. Work on a real physical system via theory, "
         "simulation, data analysis, literature synthesis, or experiment design. "
@@ -384,7 +640,12 @@ def role_banner(role: str) -> str:
         "for a manager view — this layer NEVER gates and is not required. "
         "PAPER-LANGUAGE POLISH: the paper main text must read as scientific prose, not an "
         "engineering report. Keep numbered citations in ONE consistent style ([n] or "
-        "superscript, resolved via \\cite). The main text must NOT contain the tokens "
+        "superscript, resolved via \\cite), and DISTRIBUTE them: >= 12 in-text citations "
+        "spread through the core sections — every substantive subsection (>= 60 words) and "
+        "every one-to-two substantive paragraphs carry a citation; do not pile them in the "
+        "Introduction. Cite the source for each mechanism, model/method choice, and "
+        "comparison with prior work; a Results subsection reporting only this study's own "
+        "numerics may cite a Fig./Table instead. The main text must NOT contain the tokens "
         "artifact, verifier, stage_check, project_done, Argus, workspace, 'generated by', "
         "'source table', CLAIMS.csv, REVIEW.md, METHODS_DETAIL.md, REPRODUCIBILITY.md; the "
         "path/extension tokens scripts/, data/, .json, .csv are allowed ONLY inside the "
@@ -394,6 +655,38 @@ def role_banner(role: str) -> str:
         "titled exactly '## " + PAPER_AUDIT_HEADING + "' (this heading lives in REVIEW.md "
         "only, never in the paper). No finite-numerics->universal and no synthetic->real "
         "overclaim.\n"
+        "RESEARCH RAW MATERIALS (produced at the stages, not improvised at the end): at the "
+        "SCOPE stage, actually read and position the closest DIRECT prior work — build "
+        "PRIOR_WORK_MATRIX.csv (>= 8 direct prior works, >= 6 read full-text, honest "
+        "fulltext_status, per-paper overlap/difference/special-features and claim implication) "
+        "and run the Literature Positioning gate "
+        "(`python -m argus_skill.verticals.physics.gates.literature check --project-root .`). "
+        "This gate is ADVISORY (it does not block scope->model), but you MUST resolve every "
+        "failure_id it reports before relying on the literature positioning: read "
+        "research/LITERATURE_GATE_REPAIR_TASKS.md and fix each item. If the literature gate has "
+        "NOT passed, the paper may NOT be framed as an original research article — claims that "
+        "lack a mapped closest prior work must be downgraded (partial/inconclusive) or moved to "
+        "Limitations, and the review must record the gap. "
+        "At the MODEL stage, classify the domain (DOMAIN_CLASSIFICATION.json) and audit which "
+        "theoretical capabilities apply, which you used and at what depth "
+        "(THEORY_OPPORTUNITY_AUDIT.csv), then run the Theory Capability gate "
+        "(`python -m argus_skill.verticals.physics.gates.theory check --project-root .`). "
+        "This gate is ADVISORY; resolve every failure_id, and if a theory capability a claim "
+        "depends on is missing, either execute it or downgrade the claim. "
+        "At the EXECUTE stage, plan and evidence a numerical study proportional to the claims "
+        "(NUMERICAL_STUDY_PLAN.csv) and run the Numerical Capability gate "
+        "(`python -m argus_skill.verticals.physics.gates.numerical check --project-root .`). "
+        "This gate is ADVISORY, but a robust/protected claim needs a used+evidenced robustness "
+        "study and a phase-diagram/universal claim needs a used+evidenced parameter scan — "
+        "otherwise downgrade the claim. "
+        "At the REVIEW stage, audit novelty per claim (NOVELTY_CLAIM_TABLE.csv: closest prior "
+        "work, known vs new, significance, calibrated wording) and classify the result type "
+        "(PAPER_TYPE_CLASSIFIER.json), then run the Novelty and Paper-Type gates "
+        "(`python -m argus_skill.verticals.physics.gates.novelty check --project-root .` and "
+        "`... gates.paper_type check --project-root .`). These are ADVISORY, but the paper "
+        "type must be consistent with the upstream gates: a paper may be an original research "
+        "article candidate ONLY if the Literature and Novelty gates pass; otherwise use a lower "
+        "type (benchmark / reproduction / training report) and the calibrated allowed_wording.\n"
     )
     role_norm = (role or "").strip().lower()
     if role_norm == "planner":
@@ -408,7 +701,7 @@ def role_banner(role: str) -> str:
             "reviewer-certified prior-stage evidence by precise reference; do not "
             "assign another full-tree audit, snapshot, manifest, or checksum without "
             "a concrete new dependency that requires it."
-        )
+        ) + repair
     if role_norm == "engineer":
         return common + (
             "Dynamically choose the path that fits this task — derivation, "
@@ -421,7 +714,7 @@ def role_banner(role: str) -> str:
             "as physical success; when a key condition (data, apparatus, or "
             "full-text literature) is missing, return an honest NO_GO or a clearly "
             "bounded surrogate rather than pretending to finish."
-        )
+        ) + repair
     if role_norm == "reviewer":
         return common + (
             "Independently audit physical-system fidelity, model validity, unit and "
@@ -433,8 +726,8 @@ def role_banner(role: str) -> str:
             "code/data, metadata-only, and unavailable evidence, and never treat "
             "metadata-only as full text. Require every final claim to be labeled "
             "supported, partial, no-go, inconclusive, or unknown."
-        )
-    return common
+        ) + repair
+    return common + repair
 
 
 __all__ = [
@@ -445,5 +738,7 @@ __all__ = [
     "STAGE_ORDER",
     "WORKFLOW_MODE",
     "completion_gate",
+    "enforce_terminal_stage_check",
     "role_banner",
+    "stage_entry_contract",
 ]

@@ -1,0 +1,125 @@
+{
+  "schema": "physics_capability_base_v1",
+  "family": "I",
+  "family_name": "Literature synthesis & positioning",
+  "note": "In-source base capability library (version-controlled). The CapabilityRegistry merges the external distilled library over this base when present; this base guarantees the gates run standalone with no external library.",
+  "capabilities": [
+    {
+      "capability_id": "CAP-LITBASE-01",
+      "capability_name": "Direct prior-work retrieval",
+      "family": "I",
+      "group": "Literature synthesis & positioning",
+      "domains": [
+        "*"
+      ],
+      "is_generic": true,
+      "gates": [
+        "literature"
+      ],
+      "applicability": "Any physics research task that positions a claim relative to prior work.",
+      "basic_criteria": "Retrieve >= 8 DIRECT prior works on the specific problem (not just reviews or textbooks).",
+      "advanced_criteria": "Prioritise the closest competitors and the works whose claims most overlap with the intended contribution.",
+      "hard_fail": [
+        "Fewer than 8 direct prior works identified"
+      ],
+      "metric": "n_direct_prior_works",
+      "pass_threshold": ">= 8 direct prior works",
+      "paper_evidence_refs": [],
+      "version": 1
+    },
+    {
+      "capability_id": "CAP-LITBASE-02",
+      "capability_name": "Structured full-text reading",
+      "family": "I",
+      "group": "Literature synthesis & positioning",
+      "domains": [
+        "*"
+      ],
+      "is_generic": true,
+      "gates": [
+        "literature"
+      ],
+      "applicability": "Whenever prior work must be compared substantively, not just cited.",
+      "basic_criteria": "Read the main text (Introduction, Model/Methods, Results, Discussion) of >= 6 direct prior works; mark ABSTRACT_ONLY / FULLTEXT_UNAVAILABLE honestly.",
+      "advanced_criteria": "Extract each paper's method, main results, and stated limits well enough to compare quantitatively.",
+      "hard_fail": [
+        "Fewer than 6 papers substantially read",
+        "fulltext_status inconsistent with sections_read"
+      ],
+      "metric": "n_fulltext_read",
+      "pass_threshold": ">= 6 papers with FULLTEXT_READ and real sections_read",
+      "paper_evidence_refs": [],
+      "version": 1
+    },
+    {
+      "capability_id": "CAP-LITBASE-03",
+      "capability_name": "Per-paper overlap / difference analysis",
+      "family": "I",
+      "group": "Literature synthesis & positioning",
+      "domains": [
+        "*"
+      ],
+      "is_generic": true,
+      "gates": [
+        "literature"
+      ],
+      "applicability": "Positioning the current work against each closest prior work.",
+      "basic_criteria": "For every prior work record its overlap with, and difference from, the current work, and the implication for the current claims.",
+      "advanced_criteria": "State what each paper did and did NOT solve, and any new opportunity it suggests for the current work.",
+      "hard_fail": [
+        "A prior-work row is missing overlap / difference / claim-implication analysis"
+      ],
+      "metric": "rows_with_overlap_difference_claim",
+      "pass_threshold": "100% of prior-work rows have overlap, difference, and claim implication",
+      "paper_evidence_refs": [],
+      "version": 1
+    },
+    {
+      "capability_id": "CAP-LITBASE-04",
+      "capability_name": "Claim to closest-prior-work mapping",
+      "family": "I",
+      "group": "Literature synthesis & positioning",
+      "domains": [
+        "*"
+      ],
+      "is_generic": true,
+      "gates": [
+        "literature"
+      ],
+      "applicability": "Any headline claim of novelty, mechanism, or result.",
+      "basic_criteria": "Map every headline claim to its closest prior work; never claim 'nobody has done this' without a documented search.",
+      "advanced_criteria": "Decide, per claim, whether a downgrade is needed given the closest prior work.",
+      "hard_fail": [
+        "A headline claim has no closest prior work identified"
+      ],
+      "metric": "claims_with_closest_prior_work",
+      "pass_threshold": "every headline claim maps to a closest prior work",
+      "paper_evidence_refs": [],
+      "version": 1
+    },
+    {
+      "capability_id": "CAP-LITBASE-05",
+      "capability_name": "Evidence-honesty on reading depth",
+      "family": "I",
+      "group": "Literature synthesis & positioning",
+      "domains": [
+        "*"
+      ],
+      "is_generic": true,
+      "gates": [
+        "literature"
+      ],
+      "applicability": "Recording how deeply each source was actually read.",
+      "basic_criteria": "fulltext_status is one of FULLTEXT_READ / ABSTRACT_ONLY / FULLTEXT_UNAVAILABLE and is consistent with sections_read and evidence_quote_or_location.",
+      "advanced_criteria": "Anchor each substantive comparison to a quote or precise location in the source.",
+      "hard_fail": [
+        "FULLTEXT_READ claimed but sections_read/evidence empty",
+        "search too thin yet 'nobody has done this' asserted"
+      ],
+      "metric": "fulltext_status_consistency",
+      "pass_threshold": "no FULLTEXT_READ row lacks sections_read/evidence",
+      "paper_evidence_refs": [],
+      "version": 1
+    }
+  ]
+}

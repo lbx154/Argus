@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import re
 import shutil
 import subprocess
@@ -130,26 +131,112 @@ PAPER_REQUIRED_FILES: tuple[tuple[str, str], ...] = (
 # The structure is read from the .tex; the PDF text is only a confirming        #
 # signal. Thresholds are deliberately lenient to avoid false failures.          #
 # --------------------------------------------------------------------------- #
-MIN_CITE_COMMANDS = 8          # \cite-family call sites in MANUSCRIPT.tex
+MIN_CITE_COMMANDS = 12         # \cite-family call sites in MANUSCRIPT.tex
 MIN_DISPLAY_EQUATIONS = 4      # numbered display-equation environments in .tex
 MIN_EQ_CITATIONS = 3           # in-text equation-number references in the PDF
 MIN_MAIN_TABLES = 2            # table floats in MANUSCRIPT.tex
 MIN_SUPP_TABLES = 2            # table floats in SUPPLEMENT.tex
 MIN_TABLE_CITATIONS = 2        # distinct "Table N" references in the PDF
 MIN_SUPP_CITATIONS = 3         # "Supplementary ..." references in the PDF
+MIN_SUPP_SECTION_SPREAD = 2    # distinct main-text sections that cite the Supplement
 FIGURE_CAPTION_HARD_CAP = 250  # per-figure caption word hard cap
 MIN_INTRO_WORDS = 600          # Introduction anti-thin floor (MANUSCRIPT.md)
 MIN_RESULTS_WORDS = 1200       # Results anti-thin floor (MANUSCRIPT.md)
 RAW_MATH_SIMPLE_MAX = 6        # tolerated count of simple ASCII subscripts in body
 FIG_TEX_END_FRACTION = 0.85    # figures beyond this fraction of body == "dumped at end"
 
+# Anti-over-hedging (issue 六): a paper is over-defensive when the SAME boundary/
+# disclaimer family is repeated across many sentences instead of stated once or twice
+# and then developing the physical meaning of what WAS done. Lenient threshold so a
+# legitimate Limitations paragraph is never blocked; catches egregious repetition only.
+MAX_DISCLAIMER_REPEATS_PER_FAMILY = 4
+_DISCLAIMER_NEGATION_RE = re.compile(
+    r"\b(not|no|without|cannot|can't|neither|nor|excludes?|exclud\w+|beyond|outside|"
+    r"does not|do not|don't|is not|are not|we do not|we did not|not a|no new)\b",
+    re.IGNORECASE,
+)
+#: (family label, keyword regex) — the recurring V4 disclaimers from issue 六.
+_OVERHEDGE_FAMILIES: tuple[tuple[str, "re.Pattern[str]"], ...] = (
+    ("new phase", re.compile(r"\bnew phase|novel phase\b", re.IGNORECASE)),
+    ("universal scaling", re.compile(r"\buniversal\w*|universality|scaling law\b", re.IGNORECASE)),
+    ("disorder", re.compile(r"\bdisorder\w*\b", re.IGNORECASE)),
+    ("materials", re.compile(r"\bmaterial\w*|realistic system|real material\b", re.IGNORECASE)),
+    ("interactions", re.compile(r"\binteract\w+\b", re.IGNORECASE)),
+    ("bulk-edge theorem", re.compile(r"\bbulk[- ]edge|bulk[- ]boundary|theorem\b", re.IGNORECASE)),
+)
+
+
+def _overhedge_counts(text: str) -> dict[str, int]:
+    """Count distinct sentences that DISCLAIM each boundary family in ``text``."""
+    if not text:
+        return {}
+    sentences = re.split(r"(?<=[.!?;])\s+|\n+", text)
+    counts: dict[str, int] = {}
+    for sent in sentences:
+        if not _DISCLAIMER_NEGATION_RE.search(sent):
+            continue
+        for label, kw in _OVERHEDGE_FAMILIES:
+            if kw.search(sent):
+                counts[label] = counts.get(label, 0) + 1
+    return counts
+
+
+#: Core main-text sections that must each carry at least one in-text citation
+#: (References must be used in the body, not just piled at the end). Keyword ->
+#: section synonyms; a section absent from the .tex is not double-penalised here.
+CORE_CITED_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Introduction", ("introduction",)),
+    ("Model/Theory", ("model", "theory", "formulation", "hamiltonian", "governing")),
+    ("Methods", ("method", "methodology", "numerical", "computational", "materials")),
+    ("Discussion", ("discussion",)),
+)
+
+#: Minimum \subsection count each core section must contain (label, synonyms, n).
+#: \subsubsection is never required. Results additionally requires every
+#: subsection to reference a figure or table.
+MIN_SUBSECTIONS: tuple[tuple[str, tuple[str, ...], int], ...] = (
+    ("Introduction", ("introduction",), 2),
+    ("Model/Theory", ("model", "theory", "formulation", "hamiltonian", "governing"), 2),
+    ("Methods", ("method", "methodology", "numerical", "computational", "materials"), 2),
+    ("Results", ("results", "findings"), 3),
+    ("Discussion", ("discussion",), 2),
+)
+
+#: Main-text sections in which a Supplement cross-reference should appear (the
+#: reference must be spread, not clustered): Methods, Results, Availability.
+SUPP_SPREAD_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Methods", ("method", "methodology", "numerical", "computational", "materials")),
+    ("Results", ("results", "findings")),
+    ("Availability", ("availability",)),
+)
+
+#: Core scientific sections subject to citation-DENSITY (distribution) checks.
+CITATION_DENSITY_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Introduction", ("introduction",)),
+    ("Model/Theory", ("model", "theory", "formulation", "hamiltonian", "governing")),
+    ("Methods", ("method", "methodology", "numerical", "computational", "materials")),
+    ("Results", ("results", "findings")),
+    ("Discussion", ("discussion",)),
+)
+
+#: A subsection/paragraph with at least this many prose words (after stripping
+#: LaTeX) is "substantive" and must carry a nearby in-text citation.
+SUBSTANTIVE_WORDS = 60
+
 #: The reviewer-side heading that MUST appear in REVIEW.md (and nowhere in the
 #: paper itself). Pinned exactly, like CLAIMS_HEADER, across agent-facing text.
 PAPER_AUDIT_HEADING = "Paper-Style Delivery Audit"
 
+#: Layout profiles. physics_two_column_article is the DEFAULT: a two-column,
+#: article-based layout ("revtex-like" == two columns, NOT a revtex dependency).
+#: broad_science_review_draft (single-column, 12pt, double-spaced) is used only
+#: on explicit request and is opted into by naming it in MANUSCRIPT.tex.
+PROFILE_DEFAULT = "physics_two_column_article"
+PROFILE_BROAD = "broad_science_review_draft"
+
 #: Supplement content categories, checked by SYNONYM (never by exact title).
 SUPPLEMENT_CONTENT: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("Reproducibility", ("reproducib", "reproduction", "reproduce", "computational detail", "environment version", "seeds")),
+    ("Reproducibility", ("reproducib", "reproduction", "reproduce", "computational detail", "computational details", "replay", "environment version", "seeds")),
     ("Claim audit", ("claim audit", "claim-audit", "evidence ledger", "claim-evidence", "claim to evidence", "claim/evidence")),
     ("Methods detail", ("supplementary methods", "methods detail", "method detail", "numerical detail", "derivation", "additional methods")),
 )
@@ -205,6 +292,33 @@ _RAW_MATH_OBVIOUS: tuple[re.Pattern[str], ...] = (
     re.compile(r"[A-Za-z]\w*_[A-Za-z0-9]+\s*=\s*[A-Za-z0-9]"),
 )
 _RAW_MATH_SIMPLE_RE = re.compile(r"[A-Za-z]_[A-Za-z0-9]")
+
+# Section / subsection / top-matter regexes (read from the .tex source).
+_SECTION_RE = re.compile(r"\\section\*?\s*\{([^}]*)\}")
+_SUBSECTION_RE = re.compile(r"\\subsection\*?\s*\{")
+_ABSTRACT_RE = re.compile(r"\\begin\{abstract\}|\\abstract\b")
+_KEYWORDS_RE = re.compile(r"(?i)\\(?:keywords|ieeekeywords|pacs)\b|\btextbf\{\s*keywords|\bkeywords\b\s*[:{]")
+_TWOCOLUMN_RE = re.compile(r"\\documentclass[^\n]*\btwocolumn\b|\\twocolumn\b|\\begin\{multicols\}")
+#: a \ref/\cref to a figure/table label, or a bare "Fig"/"Table" mention.
+_FIGTAB_REF_RE = re.compile(r"(?i)\\(?:ref|cref|autoref|vref)\{(?:fig|tab)|\bfig(?:ure)?\b|\btable\b")
+#: strong shell-command signals; if any appear in the availability region it is a
+#: command block that belongs in the Supplement, not the main-text statement.
+#: (Length is unreliable — LaTeX wraps and pdftotext clips — so we key on signals.)
+_CMD_BLOCK_RE = re.compile(
+    r"&&|\|\||\$\(|`|(?<=\s)-{1,2}[A-Za-z]|"
+    r"\b(?:pip install|conda (?:env|install|create)|docker run|sbatch|srun|"
+    r"apt-get|kubectl|python3?\s+\S+\.py|rscript\s|make\s+\w)",
+    re.IGNORECASE,
+)
+#: prose that discusses mechanism / prior work / comparison / interpretation and
+#: therefore needs a literature citation even when it already cites a Fig./Table.
+_LIT_CONTEXT_RE = re.compile(
+    r"(?i)\b(mechanism|because|due to|consistent with|in agreement|agrees? with|"
+    r"compared? (?:to|with)|comparison|contrast(?:ed)? with|prior work|previous(?:ly)?|"
+    r"earlier work|literature|as (?:reported|shown|predicted|observed|noted)|"
+    r"attribut\w+|explain\w*|interpret\w*|theoretical(?:ly)?|predicted by|"
+    r"established|well[- ]known|standard(?:ly)?)\b"
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -350,6 +464,74 @@ def _region(raw: str, start_re: re.Pattern[str], end_re: re.Pattern[str]) -> str
         return ""
     me = end_re.search(raw, ms.end())
     return raw[ms.start(): me.start() if me else len(raw)]
+
+
+def _tex_sections(tex: str) -> list[tuple[str, str]]:
+    """Split MANUSCRIPT.tex into ``[(section_title_lower, body), ...]``.
+
+    Each body runs from just after ``\\section{...}`` to the next ``\\section``
+    or the bibliography, whichever comes first. Availability sections declared as
+    ``\\section*{Data availability}`` are included like any other section.
+    """
+    bib = _BIB_OFFSET_RE.search(tex)
+    bib_off = bib.start() if bib else len(tex)
+    matches = [m for m in _SECTION_RE.finditer(tex) if m.start() < bib_off]
+    out: list[tuple[str, str]] = []
+    for i, m in enumerate(matches):
+        start = m.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else bib_off
+        out.append((m.group(1).strip().lower(), tex[start:end]))
+    return out
+
+
+def _find_tex_section(sections: list[tuple[str, str]], keywords: tuple[str, ...]) -> str | None:
+    """Return the body of the first section whose title matches a keyword."""
+    for title, body in sections:
+        if any(k in title for k in keywords):
+            return body
+    return None
+
+
+def _strip_latex_commands_for_words(text: str) -> str:
+    """Approximate the prose of a .tex fragment: drop comments, math, environment
+    delimiters, and commands (with one brace argument), leaving readable words so
+    a substantive-length threshold can be applied."""
+    t = re.sub(r"(?<!\\)%.*", " ", text)                              # comments
+    t = re.sub(r"\\(?:begin|end)\s*\{[^}]*\}", " ", t)               # env delimiters
+    t = re.sub(r"\$\$.*?\$\$|\$[^$]*\$", " ", t, flags=re.S)          # display/inline math
+    t = re.sub(r"\\[a-zA-Z@]+\*?(?:\[[^\]]*\])?(?:\{[^{}]*\})?", " ", t)  # \cmd[..]{..}
+    t = re.sub(r"[{}~^_&\\]", " ", t)                                # stray tokens
+    return t
+
+
+def _tex_word_count(text: str) -> int:
+    return len(_strip_latex_commands_for_words(text).split())
+
+
+def _tex_subsections(section_body: str) -> list[tuple[str, str]]:
+    """Split a section body into ``[(subsection_title, body), ...]``."""
+    out: list[tuple[str, str]] = []
+    for chunk in re.split(r"\\subsection\*?\s*\{", section_body)[1:]:
+        m = re.match(r"([^}]*)\}(.*)", chunk, re.S)
+        out.append((m.group(1).strip(), m.group(2)) if m else ("", chunk))
+    return out
+
+
+def _substantive_paragraphs(text: str) -> list[str]:
+    """Return the raw (un-stripped) paragraphs whose prose is >= SUBSTANTIVE_WORDS
+    words, so citation presence can still be detected on the raw text."""
+    return [p for p in re.split(r"\n\s*\n", text) if _tex_word_count(p) >= SUBSTANTIVE_WORDS]
+
+
+def _paragraph_has_citation(paragraph: str, *, results: bool) -> bool:
+    """A paragraph 'carries' a citation if it has a \\cite-family command, or (in
+    Results only) it purely reports own numerics — cites a Fig./Table and contains
+    no mechanism/comparison/prior-work discussion that would demand a reference."""
+    if _CITE_RE.search(paragraph):
+        return True
+    if results and _FIGTAB_REF_RE.search(paragraph) and not _LIT_CONTEXT_RE.search(paragraph):
+        return True
+    return False
 
 
 # --------------------------------------------------------------------------- #
@@ -511,6 +693,133 @@ def verify_paper_style_deliverables(project_root: object) -> list[str]:
         # (12) figures must not all be dumped at the end
         _check_figures_not_at_end(tex, fail)
 
+        # ---- section-structure checks (A: per-section citation; E: subsections;
+        #      C-spread: Supplement referenced across sections; H: top matter) ---
+        sections = _tex_sections(tex)
+
+        # (A) each core section must actually USE a citation in its body
+        for label, syn in CORE_CITED_SECTIONS:
+            body = _find_tex_section(sections, syn)
+            if body is not None and not _CITE_RE.search(body):
+                fail(
+                    f"MANUSCRIPT.tex '{label}' section has no in-text citation; "
+                    "references must be used in the body, not only listed at the end"
+                )
+
+        # (A2) CITATION DENSITY / DISTRIBUTION — citations must not merely meet the
+        #      count; they must be spread through the substantive core-section prose.
+        tex_before_bib = tex[: (_BIB_OFFSET_RE.search(tex).start() if _BIB_OFFSET_RE.search(tex) else len(tex))]
+        total_cites = len(_CITE_RE.findall(tex_before_bib))
+        intro_body = _find_tex_section(sections, ("introduction",))
+        if intro_body is not None and total_cites >= MIN_CITE_COMMANDS:
+            if len(_CITE_RE.findall(intro_body)) >= total_cites:
+                fail(
+                    "Citations appear clustered in the Introduction; distribute citations "
+                    "across the core sections/subsections (not all in one place)"
+                )
+        for label, syn in CITATION_DENSITY_SECTIONS:
+            body = _find_tex_section(sections, syn)
+            if body is None:
+                continue
+            is_results = "results" in label.lower()
+            # per substantive subsection: must carry a citation
+            for sub_title, sub_body in _tex_subsections(body):
+                if _tex_word_count(sub_body) < SUBSTANTIVE_WORDS:
+                    continue
+                if not _paragraph_has_citation(sub_body, results=is_results):
+                    where = f"{label}/{sub_title}" if sub_title else label
+                    fail(
+                        f"Citation density too low: subsection '{where}' has no in-text "
+                        "citation (substantive prose must cite the literature it relies on"
+                        + (", or clearly report only own numerics with a Fig./Table" if is_results else "")
+                        + ")"
+                    )
+            # sliding window: no 2 consecutive substantive paragraphs without a citation
+            paras = _substantive_paragraphs(body)
+            for i in range(len(paras) - 1):
+                if not _paragraph_has_citation(paras[i], results=is_results) and \
+                        not _paragraph_has_citation(paras[i + 1], results=is_results):
+                    fail(
+                        f"Citation density too low: 2 consecutive substantive paragraphs "
+                        f"in {label} contain no citation; distribute citations so every "
+                        "one-to-two substantive paragraphs carry one"
+                    )
+                    break
+
+        # (E) core sections must be broken into subsections
+        for label, syn, need in MIN_SUBSECTIONS:
+            body = _find_tex_section(sections, syn)
+            if body is None:
+                continue
+            n_sub = len(_SUBSECTION_RE.findall(body))
+            if n_sub < need:
+                fail(
+                    f"MANUSCRIPT.tex '{label}' section has {n_sub} \\subsection block(s); "
+                    f"need >= {need}"
+                )
+        # (E) every Results subsection must reference a figure or table
+        results_body = _find_tex_section(sections, ("results", "findings"))
+        if results_body is not None:
+            for idx, chunk in enumerate(_SUBSECTION_RE.split(results_body)[1:], 1):
+                if not _FIGTAB_REF_RE.search(chunk):
+                    fail(
+                        f"MANUSCRIPT.tex Results subsection {idx} does not reference a "
+                        "figure or table (each Results subsection must cite a Fig. or Table)"
+                    )
+
+        # (C) the Supplement must be cross-referenced from the main text: at
+        #     least MIN_SUPP_CITATIONS times total, spread across >= 2 of the
+        #     Methods/Results/Availability sections (counted from the reliable
+        #     .tex source; two-column PDF text hyphenates "Supplementary").
+        tex_before_bib = tex[: (_BIB_OFFSET_RE.search(tex).start() if _BIB_OFFSET_RE.search(tex) else len(tex))]
+        n_supp_cite = len(_SUPP_CITE_RE.findall(tex_before_bib))
+        if n_supp_cite < MIN_SUPP_CITATIONS:
+            fail(
+                f"MANUSCRIPT.tex cites the Supplement {n_supp_cite} time(s) "
+                "(Supplementary Section/Table/Figure/Methods/Information); need >= "
+                f"{MIN_SUPP_CITATIONS}"
+            )
+        spread = 0
+        for _label, syn in SUPP_SPREAD_SECTIONS:
+            body = _find_tex_section(sections, syn)
+            if body is not None and _SUPP_CITE_RE.search(body):
+                spread += 1
+        if spread < MIN_SUPP_SECTION_SPREAD:
+            fail(
+                f"MANUSCRIPT.tex references the Supplement in {spread} of the "
+                "Methods/Results/Availability sections; spread the reference across "
+                f">= {MIN_SUPP_SECTION_SPREAD} of them (not clustered in one place)"
+            )
+
+        # (H) two-column article top matter: abstract + keywords before Introduction
+        if not _ABSTRACT_RE.search(tex):
+            fail("MANUSCRIPT.tex has no abstract environment (\\begin{abstract} ... \\end{abstract})")
+        if not _KEYWORDS_RE.search(tex):
+            fail(
+                "MANUSCRIPT.tex has no Keywords block; add \\keywords{...} (or a Keywords "
+                "line) immediately after the abstract"
+            )
+        if PROFILE_BROAD not in tex.lower() and not _TWOCOLUMN_RE.search(tex):
+            fail(
+                f"MANUSCRIPT.tex is not two-column (the default {PROFILE_DEFAULT} profile "
+                "needs \\documentclass[10pt,twocolumn]{article} or equivalent); to use a "
+                f"single-column review draft, declare the {PROFILE_BROAD} profile in the .tex"
+            )
+        abs_m = _ABSTRACT_RE.search(tex)
+        kw_m = _KEYWORDS_RE.search(tex)
+        intro_off = next(
+            (m.start() for m in _SECTION_RE.finditer(tex)
+             if "introduction" in m.group(1).strip().lower()),
+            None,
+        )
+        if intro_off is not None:
+            if abs_m and abs_m.start() > intro_off:
+                fail("MANUSCRIPT.tex abstract must be top matter before the Introduction, not in the body")
+            if kw_m and kw_m.start() > intro_off:
+                fail("MANUSCRIPT.tex Keywords must appear (after the abstract) before the Introduction")
+        if abs_m and kw_m and kw_m.start() < abs_m.start():
+            fail("MANUSCRIPT.tex Keywords must appear AFTER the abstract, not before it")
+
     # ---- SUPPLEMENT.tex structural checks -------------------------------- #
     if supp_tex:
         n_supp_tab = len(_TABLE_ENV_RE.findall(supp_tex))
@@ -625,20 +934,18 @@ def verify_paper_style_deliverables(project_root: object) -> list[str]:
                         "Data/Code availability contains an absolute local path; describe "
                         "data/code in words and move paths to the Supplement"
                     )
-                if any(len(line) > 200 for line in avail_raw.splitlines()):
+                # Only a genuine command block fails; a long line that is merely
+                # wrapped LaTeX/PDF-extracted prose is NOT a hard failure
+                # (F: avoid false positives from text-extraction artefacts).
+                if _CMD_BLOCK_RE.search(avail_raw):
                     fail(
-                        "Data/Code availability contains a long command/text block "
-                        "(>200 chars on a line); move detailed commands to the Supplement"
+                        "Data/Code availability contains a command block; move commands, "
+                        "versions and hashes to Supplementary Reproducibility and keep the "
+                        "main-text statement to short natural-language sentences"
                     )
 
-        # (16a) the Supplement is cross-referenced from the main text
-        n_supp_cite = len(_SUPP_CITE_RE.findall(before_refs))
-        if n_supp_cite < MIN_SUPP_CITATIONS:
-            fail(
-                f"MANUSCRIPT.pdf cites the Supplement {n_supp_cite} time(s) "
-                "(Supplementary Section/Table/Figure/Methods); need >= "
-                f"{MIN_SUPP_CITATIONS}"
-            )
+        # (16a) the Supplement is cross-referenced from the main text — see the
+        #       .tex-based count below (robust to two-column hyphenation).
 
     # (13) figure captions within the hard word cap
     legends = _read_text(root / "FIGURE_LEGENDS.md")
@@ -659,6 +966,16 @@ def verify_paper_style_deliverables(project_root: object) -> list[str]:
         results = _section_word_count(md_text, ("results", "findings"))
         if results is not None and results < MIN_RESULTS_WORDS:
             fail(f"MANUSCRIPT.md Results is {results} words; need >= {MIN_RESULTS_WORDS} (too thin)")
+
+    # (W2) anti-over-hedging (issue 六): the SAME boundary/disclaimer family repeated across
+    # too many sentences of the main narrative reads as defensive over-hedging. State each
+    # boundary once or twice (in Results/Limitations) and spend the space on physical meaning.
+    over_src = _norm(pdf) if pdf else md_text
+    for label, n in _overhedge_counts(over_src).items():
+        if n > MAX_DISCLAIMER_REPEATS_PER_FAMILY:
+            fail(f"over-defensive: the boundary '{label}' is disclaimed in {n} sentences "
+                 f"(limit {MAX_DISCLAIMER_REPEATS_PER_FAMILY}); state it once or twice (in "
+                 "Results/Limitations) and develop the physical meaning of what WAS done instead")
 
     # (18) REVIEW.md carries the pinned paper-style delivery audit section
     review = root / "REVIEW.md"
@@ -688,9 +1005,63 @@ def _check_figures_not_at_end(tex: str, fail) -> None:
         )
 
 
+def _verify_original_research_mode(project_root: object) -> list[str]:
+    """In original-research-required mode, refuse a downgrade terminal.
+
+    A diagnostic benchmark / reproduction paper_type may be an INTERMEDIATE result
+    but NOT a success terminal: completion requires either an original-research type
+    or a justified ``ORIGINAL_RESEARCH_NO_GO.md`` (after the Novelty-Seeking Loop /
+    <=2 pivots). Empty when not in that mode. Prefixed ``"[paper] "``.
+    """
+    try:
+        from .mode_config import is_downgrade_type, is_original_research_required
+    except Exception:  # noqa: BLE001
+        return []
+    if not is_original_research_required():
+        return []
+    root = Path(str(project_root or "."))
+    if (root / "ORIGINAL_RESEARCH_NO_GO.md").is_file() or \
+       (root / "research" / "ORIGINAL_RESEARCH_NO_GO.md").is_file():
+        return []
+    classifier = root / "PAPER_TYPE_CLASSIFIER.json"
+    if not classifier.is_file():
+        classifier = root / "research" / "PAPER_TYPE_CLASSIFIER.json"
+    paper_type = ""
+    try:
+        paper_type = str(json.loads(classifier.read_text(encoding="utf-8")).get("paper_type", ""))
+    except (OSError, ValueError):
+        return []  # no valid classifier -> other checks handle it
+    if is_downgrade_type(paper_type):
+        return [
+            "[paper] original-research-required mode: paper_type "
+            f"'{paper_type}' is a downgrade type and cannot be the success terminal. "
+            "Run the Novelty-Seeking Loop and pivot to an original result, or emit "
+            "ORIGINAL_RESEARCH_NO_GO.md (after <=2 pivots) explaining why sufficient "
+            "novelty was not found. Do NOT complete as a diagnostic benchmark."
+        ]
+    return []
+
+
 def verify_all_deliverables(project_root: object) -> list[str]:
     """Both layers: the source research package + the paper composition."""
-    return verify_manuscript_deliverables(project_root) + verify_paper_style_deliverables(project_root)
+    return (
+        verify_manuscript_deliverables(project_root)
+        + verify_paper_style_deliverables(project_root)
+        + _verify_original_research_mode(project_root)
+    )
+
+
+def collect_manuscript_verifier_failures_for_repair_context(project_root: object) -> list[str]:
+    """Full deterministic failure list for the manuscript repair loop.
+
+    Identical to ``manuscript check --layer all`` (:func:`verify_all_deliverables`),
+    returned as plain strings so the Manager can persist them and feed them back,
+    verbatim, into the next manuscript-stage agent round. The Manager normally
+    reuses the ``run_stage_shell_checks`` output instead of calling this directly
+    (no duplicate verifier logic); this is the in-process equivalent for tests and
+    for any caller that already holds the project root.
+    """
+    return verify_all_deliverables(project_root)
 
 
 # --------------------------------------------------------------------------- #
@@ -721,30 +1092,61 @@ def manuscript_review_items() -> str:
         "(5) REPRODUCIBILITY.md (commands, versions, seeds, parameter ranges, input/"
         "generated data, figure scripts, runtime, agent/human provenance). "
         "(6) PAPER COMPOSITION: MANUSCRIPT.tex compiling to a journal-style MANUSCRIPT.pdf "
-        "and SUPPLEMENT.tex to SUPPLEMENT.pdf, with PAPER_BUILD_LOG.md. Default profile is "
-        "a two-column article layout (physics_two_column_article); use a single-column "
-        "12pt double-spaced review draft (broad_science_review_draft) only when the task "
-        "asks for a Nature/Science initial-submission style. Target section thickness: "
-        "Abstract 150-220, Introduction 700-1000, Model/Theory 600-1000, Methods 500-900, "
-        "Results 1400-2300 (>= 3 sub-sections, each citing a figure or table), Discussion "
-        "600-1100 (>= 3 paragraphs: interpretation, relation to prior work, open points), "
-        "Limitations 300-700 (>= 3 distinct kinds), Conclusion 200-450; total body "
-        "3800-5500; formal runs cite 12-30 references. "
+        "and SUPPLEMENT.tex to SUPPLEMENT.pdf, with PAPER_BUILD_LOG.md. The default profile "
+        "physics_two_column_article is a two-column article layout: "
+        "\\documentclass[10pt,twocolumn]{article} (or equivalent), Title (15-17pt bold), "
+        "Author (10-11pt), an Abstract (9-10pt) and a Keywords line as cross-column top "
+        "matter BEFORE the Introduction, 10pt Times-like/Computer-Modern body, 11-12pt bold "
+        "section headings, 10-11pt subsection headings, 8-9pt captions and references, LaTeX "
+        "math font, and page numbers. Use the single-column 12pt double-spaced "
+        "broad_science_review_draft only when the task asks for a Nature/Science "
+        "initial-submission style, and then declare that profile name in the .tex. Every "
+        "core section is broken into \\subsection blocks (Introduction/Model/Methods/"
+        "Discussion >= 2, Results >= 3 with each Results subsection citing a figure or "
+        "table). Target section thickness: Abstract 150-220, Introduction 700-1000 "
+        "(floor 600), Model/Theory 600-1000, Methods 500-900, Results 1400-2300 (floor "
+        "1200), Discussion 600-1100 (>= 3 paragraphs), Limitations 300-700 (>= 3 kinds), "
+        "Conclusion 200-450; total body 3800-5500; formal runs cite 12-30 references. "
         "(7) PAPER LANGUAGE: scientific-paper prose, not an engineering report — no "
         "file-location, script-output, or checker vocabulary in the main text; numbered "
-        "citations in a single consistent style; every display equation LaTeX-rendered, "
-        "numbered and \\label'd, with >= 3 in-text 'Eq. (n)' references and no raw ASCII "
-        "math; figures placed near the text that discusses them and each cited as 'Fig. N'; "
-        "captions 80-180 words (<= 250 hard) with no provenance/paths inside them. "
+        "citations in a single consistent style ([n] or superscript) with >= 12 in-text "
+        "citations, and EVERY core section (Introduction, Model/Theory, Methods, Discussion) "
+        "actually using a citation in its body (references used, not just listed). Citations "
+        "must be DISTRIBUTED, not merely counted: every substantive subsection (>= 60 words "
+        "of prose) in a core section carries an in-text citation, and no two consecutive "
+        "substantive paragraphs go without one — do not pile all citations in the "
+        "Introduction. A Results subsection that only reports this study's own numerics may "
+        "cite a Fig./Table instead of the literature, but any mechanism, interpretation, "
+        "method choice, or comparison-with-prior-work needs a literature citation. Abstract, "
+        "Keywords, and Data/Code availability need no citation. Every display equation is "
+        "LaTeX-rendered, numbered and \\label'd, with >= 3 in-text 'Eq. (n)' references and "
+        "no raw ASCII math; figures placed near the text that discusses them and each cited "
+        "as 'Fig. N'; captions 80-180 words (<= 250 hard) with no provenance/paths inside "
+        "them. Data & Code availability are SHORT natural-language sentences with no absolute "
+        "local paths and no command blocks. "
         "(8) SUPPLEMENT carries the technical detail the main text should not: a "
-        "reproducibility section, a claim-audit / evidence-ledger section, methods detail, "
-        "and supplementary tables, cross-referenced from the main text >= 3 times; script "
-        "names, file names, hashes and commands belong here (and in Data/Code availability), "
-        "not in the main narrative. "
+        "reproducibility / computational-details section, a claim-audit / evidence-ledger "
+        "section, methods detail, and >= 2 supplementary tables, cross-referenced from the "
+        "main text >= 3 times AND spread across at least two of Methods/Results/Availability; "
+        "script names, file names, hashes, commands and environment versions belong here (and "
+        "briefly in Data/Code availability), not in the main narrative. "
+        "(H) The deterministic contract above is a HARD completion gate: the manuscript stage "
+        "cannot be marked done while `manuscript check --layer all` (verify_all_deliverables) "
+        "reports any failure. Reviewer certification does NOT override a failing deterministic "
+        "verifier — if it fails, keep fixing the deliverables or report blocked. "
         "(9) REVIEW.md contains a section titled exactly '## Paper-Style Delivery Audit' "
         "recording the paper-layer verdicts (PDF/Supplement present; citations, equations, "
         "tables, figures, availability, no-overclaim). This heading appears in REVIEW.md "
         "only, never in the paper. "
+        "(10) LITERATURE POSITIONING & PAPER TYPE: if research/LITERATURE_GATE_RESULT.json shows "
+        "the Literature Positioning gate did NOT pass (passed=false, or the file/PRIOR_WORK_MATRIX.csv "
+        "is absent), the manuscript must NOT be framed as an original research article — every "
+        "headline claim lacking a mapped closest prior work must be downgraded (partial/"
+        "inconclusive) or moved to Limitations, and REVIEW.md must record the literature gap. "
+        "If research/PAPER_TYPE_CLASSIFIER.json exists, the manuscript's framing (title/abstract "
+        "tone, claims) must match its paper_type, and every claim must use the "
+        "NOVELTY_CLAIM_TABLE.csv allowed_wording (not the forbidden_wording); an original-article "
+        "framing requires the Literature and Novelty gates to have passed. "
         "Reject: finite numerics presented as universal proof; synthetic/toy results "
         "presented as real-system or real-experiment validation; workflow metadata used as "
         "physical evidence; unsupported novelty/discovery/first/mechanism/universal/SOTA "
@@ -804,11 +1206,19 @@ __all__ = [
     "MIN_SUPP_TABLES",
     "MIN_TABLE_CITATIONS",
     "MIN_SUPP_CITATIONS",
+    "MIN_SUPP_SECTION_SPREAD",
     "FIGURE_CAPTION_HARD_CAP",
     "MIN_INTRO_WORDS",
     "MIN_RESULTS_WORDS",
     "RAW_MATH_SIMPLE_MAX",
     "FIG_TEX_END_FRACTION",
+    "CORE_CITED_SECTIONS",
+    "MIN_SUBSECTIONS",
+    "SUPP_SPREAD_SECTIONS",
+    "CITATION_DENSITY_SECTIONS",
+    "SUBSTANTIVE_WORDS",
+    "PROFILE_DEFAULT",
+    "PROFILE_BROAD",
     "PAPER_AUDIT_HEADING",
     "SUPPLEMENT_CONTENT",
     "MAIN_TEXT_FORBIDDEN_ALWAYS",
@@ -816,6 +1226,7 @@ __all__ = [
     "verify_manuscript_deliverables",
     "verify_paper_style_deliverables",
     "verify_all_deliverables",
+    "collect_manuscript_verifier_failures_for_repair_context",
     "manuscript_review_items",
     "main",
 ]
