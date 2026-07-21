@@ -2055,7 +2055,7 @@ class Manager:
         )
 
     def classify_skill_placements(self, skills: list[dict[str, str]]) -> Any:
-        """Batch variant used by source promotion to avoid one call per skill."""
+        """Batch variant used by shared runtime propagation."""
         from .skill_review import classify_skill_placements as _classify_batch
 
         return _classify_batch(

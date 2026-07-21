@@ -1,4 +1,4 @@
-"""Post-mission source promotion for runtime-evolved skills."""
+"""Post-mission propagation for runtime-evolved Skills."""
 
 from __future__ import annotations
 
@@ -21,11 +21,6 @@ def _cross_project_propagation_enabled() -> bool:
         "ARGUS_SKILL_CROSS_PROJECT_PROPAGATION",
         True,
     )
-
-
-def _per_mission_distill_enabled() -> bool:
-    """Whether successful missions additionally write shared Skills to source."""
-    return _knob_enabled("ARGUS_SKILL_PER_MISSION_DISTILL", False)
 
 
 def _project_state_root(memory: object) -> Path | None:
@@ -54,19 +49,16 @@ class EvolutionMixin:
         success: bool,
         usage_mission_id: str,
     ) -> dict[str, int]:
-        """Run shared propagation and optional source promotion in the usage ledger."""
+        """Propagate reviewed project Skills into shared runtime layers."""
         if not success:
-            return {"to_builtin": 0, "to_vertical": 0, "stayed": 0, "errors": 0}
+            return {"to_shared": 0, "to_vertical_shared": 0, "errors": 0}
 
         set_usage = getattr(self.runner, "_set_usage_context", None)
         try:
             if callable(set_usage):
                 set_usage(usage_mission_id)
 
-            from ...manager.skill_tidy import (
-                propagate_after_mission,
-                tidy_after_mission,
-            )
+            from ...manager.skill_tidy import propagate_after_mission
 
             counts: dict[str, int] = {}
             if _cross_project_propagation_enabled():
@@ -77,22 +69,19 @@ class EvolutionMixin:
                     shared_root=_shared_skills_root(self.runner, self.memory),
                     on_event=self._emit,
                 ))
-            if _per_mission_distill_enabled():
-                source_counts = tidy_after_mission(
-                    self._project_workdir(),
-                    self.runner,
-                    project_state_dir=_project_state_root(self.memory),
-                    on_event=self._emit,
-                )
-                counts.update({
-                    f"source_{key}": value for key, value in source_counts.items()
-                })
+            from ...manager.domain_tidy import tidy_domains_after_mission
+
+            tidy_domains_after_mission(
+                self._project_workdir(),
+                approve=None,
+                on_event=self._emit,
+            )
             if any(counts.values()):
                 log.info("manager skill propagation after mission: %s", counts)
             return counts
         except Exception:  # noqa: BLE001 - evolution must never change verdict
-            log.warning("manager skill tidy-up after mission failed", exc_info=True)
-            return {"to_builtin": 0, "to_vertical": 0, "stayed": 0, "errors": 1}
+            log.warning("manager Skill propagation after mission failed", exc_info=True)
+            return {"to_shared": 0, "to_vertical_shared": 0, "errors": 1}
         finally:
             if callable(set_usage):
                 try:
@@ -104,5 +93,4 @@ class EvolutionMixin:
 __all__ = [
     "EvolutionMixin",
     "_cross_project_propagation_enabled",
-    "_per_mission_distill_enabled",
 ]

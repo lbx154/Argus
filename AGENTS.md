@@ -282,6 +282,9 @@ skill 是 markdown 文件，带 YAML-like frontmatter。
 - `argus_skill/skills/builtins.py`: packaged built-in skill seed/export。
 - `argus_skill/builtin_skills/*.md`: 内置 skill 源文件。
 - `argus_skill/builtin_skills/domains/**`: domain skill 包。
+- **存储边界**：Git 只保存人工维护的 built-in Skill source；初始化时把它们 seed
+  到 runtime。Agent 新建、更新、共享和归档的 Skill 永远只写
+  `ARGUS_SKILL_HOME` 下的 project/shared runtime 层，不得反向写回或提交到 Git。
 - Project wiki 在每个真实 Reviewer verdict 后立即机械写入
   `.autors/<project>/wiki/sources/runs/<mission>-r<round>.md`：内容只来自
   Reviewer verdict / planner_report / research_result，是 immutable、可引用的

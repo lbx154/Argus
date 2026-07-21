@@ -3,7 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from argus_skill.apps import _runtime
-from argus_skill.apps._life_actions import render_backend_cmd, render_run_command
+from argus_skill.apps._life_actions import (
+    render_backend_cmd,
+    render_run_command,
+    render_skills_cmd,
+)
 
 
 def test_remote_backend_command_accepts_opencode() -> None:
@@ -14,6 +18,12 @@ def test_remote_backend_command_accepts_opencode() -> None:
 
     assert render_backend_cmd(["opencode"], state) == "backend: opencode"
     assert state["backend"] == "opencode"
+
+
+def test_runtime_skill_cannot_be_promoted_into_source() -> None:
+    assert render_skills_cmd(["promote", "learned-skill"]) == (
+        "unknown /skills subcommand: promote  (try ls)"
+    )
 
 
 def test_remote_run_accepts_opencode(

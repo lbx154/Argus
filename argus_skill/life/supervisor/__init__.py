@@ -32,7 +32,6 @@ from ._core import (
 from ._cost import (
     _CostTrackingSink,
 )
-from ._evolution import _per_mission_distill_enabled
 from ._helpers import (
     _entry_task_signature,
     _is_recent_no_progress_failure,
@@ -60,7 +59,6 @@ __all__ = [
     "global_daily_usage_summary",
     "_MissionRunner",
     "_CostTrackingSink",
-    "_per_mission_distill_enabled",
     "log",
     "_price_for",
     "_PLANNER_DEDUP_STATUSES",

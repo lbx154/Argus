@@ -77,7 +77,6 @@
 | lifecycle | `ARGUS_SKILL_DAEMON_AUTO_RESTART` | `0` | default | `0` |
 | lifecycle | `ARGUS_SKILL_AUTOCOMMIT_SKILLS` | `off` | default | `off` |
 | lifecycle | `ARGUS_SKILL_CROSS_PROJECT_PROPAGATION` | `on` | default | `on` |
-| lifecycle | `ARGUS_SKILL_PER_MISSION_DISTILL` | `off` | default | `off` |
 | lifecycle | `ARGUS_SKILL_SAFE_MODE` | `off` | default | `off` |
 | lifecycle | `ARGUS_SKILL_ENGINEER_SANDBOX` | `off` | default | `off` |
 | lifecycle | `ARGUS_SKILL_MEASURED_MODE` | `off` | default | `off` |

@@ -1832,7 +1832,6 @@ class LifeWorker:
             time.time() - (self._started_at or time.time()),
             self._missions_completed,
         )
-        self._distill_on_shutdown(sup)
         return 0
 
     def _quiesce_continuous_on_operator_stop(
@@ -1870,49 +1869,6 @@ class LifeWorker:
             log.info("daemon: quiesced continuous mode on operator stop (clock out)")
         except Exception:  # noqa: BLE001 — quiesce is best-effort
             log.exception("daemon: failed to quiesce continuous on operator stop")
-
-    def _distill_on_shutdown(self, sup: Any) -> None:
-        """Final skill-distillation pass when the daemon stops cleanly.
-
-        This is where a daemon's accumulated lessons get promoted into the
-        argus source tree on death — it reuses the existing Manager skill gate
-        (``tidy_after_mission``), inventing no new judgement, and is fully
-        fail-soft. Skipped for the ``memory`` backend: distillation needs a real
-        LLM runner to classify placement, which the in-memory test/cheap backend
-        does not provide (and it would otherwise reach the global skill store).
-        """
-        # Source-tree promotion is a deliberate operator action. It used to run
-        # on every clean shutdown even when auto-commit was disabled, leaving
-        # hundreds of untracked ``-2``/``-3`` skills which were seeded back on
-        # the next boot. Default OFF; runtime skills remain safely persisted.
-        if not _truthy_env("ARGUS_SKILL_PROMOTE_SKILLS_ON_SHUTDOWN", "0"):
-            return
-        if str(getattr(self.config, "backend", "") or "").lower() == "memory":
-            return
-        # Process-lesson distillation is retired. Reusable behavior should be
-        # captured as explicit skill_ops or derived offline from events.jsonl,
-        # not as an extra reviewer-written explanatory text stream.
-        try:
-            from ..manager.skill_tidy import tidy_after_mission
-
-            counts = tidy_after_mission(
-                sup._project_workdir(),
-                sup.runner,
-                project_state_dir=getattr(
-                    getattr(sup, "memory", None), "project_root", None
-                ),
-            )
-        except Exception:  # noqa: BLE001 — shutdown distillation is best-effort
-            log.exception("daemon: shutdown distillation failed; non-critical")
-            return
-        promoted = (counts or {}).get("to_builtin", 0) + (counts or {}).get(
-            "to_vertical", 0
-        )
-        if promoted:
-            log.info(
-                "daemon: shutdown distillation promoted %d skill(s) to source",
-                promoted,
-            )
 
     def _wakeable_sleep(
         self,
