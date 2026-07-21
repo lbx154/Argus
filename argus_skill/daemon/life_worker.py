@@ -1523,6 +1523,8 @@ class LifeWorker:
                     on_event=sink.handle_event,
                 )
                 daemon_sink.self_maintenance = self._self_maintenance
+                self._self_maintenance.preflight_isolation(force=True)
+                self._self_maintenance.prune_obsolete_worktrees()
                 self._self_maintenance.mark_canary_started(
                     loaded_source_root=source_root(),
                     revision=str(source_revision() or ""),

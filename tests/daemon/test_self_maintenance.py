@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -53,13 +54,18 @@ def _controller(tmp_path: Path, manager: _Manager) -> DaemonSelfMaintenance:
     project.mkdir()
     framework = tmp_path / "framework"
     framework.mkdir()
-    return DaemonSelfMaintenance(
+    controller = DaemonSelfMaintenance(
         life_dir=memory.root,
         framework_root=framework,
         project_workdir=project,
         manager=manager,
         memory=memory,
     )
+    controller._write_state(
+        maintenance_available=True,
+        isolation_checked_at=time.time(),
+    )
+    return controller
 
 
 def _publication_repo(tmp_path: Path) -> tuple[Path, str]:
@@ -165,6 +171,23 @@ def test_budget_block_prevents_manager_maintenance_call(tmp_path: Path) -> None:
     assert controller.audit_if_due(
         daemon_state={"budget_allowed": False}
     ) == ""
+    assert manager.calls == 0
+
+
+def test_missing_isolation_prevents_manager_maintenance_call(tmp_path: Path) -> None:
+    manager = _Manager()
+    controller = _controller(tmp_path, manager)
+    controller._write_state(
+        maintenance_available=False,
+        isolation_checked_at=time.time(),
+    )
+    controller.observe({
+        "type": "life.planner.error",
+        "ts": 10.0,
+        "error": "schema failure",
+    })
+
+    assert controller.audit_if_due(daemon_state={}) == ""
     assert manager.calls == 0
 
 
@@ -283,6 +306,8 @@ def test_canary_publication_requires_lbx154_and_never_merges(
             stdout = "https://github.com/lbx154/argus-skill/pull/1\n"
         elif args[:3] == ["git", "rev-parse", "HEAD"]:
             stdout = reviewed_commit + "\n"
+        elif args[:4] == ["git", "remote", "get-url", "origin"]:
+            stdout = "https://github.com/lbx154/argus-skill.git\n"
         else:
             stdout = ""
         return subprocess.CompletedProcess(args, 0, stdout, "")
@@ -300,6 +325,8 @@ def test_canary_publication_requires_lbx154_and_never_merges(
 
     assert url.endswith("/pull/1")
     assert not any("merge" in arg for call in calls for arg in call)
+    push = next(call for call in calls if "push" in call)
+    assert any("gh auth git-credential" in arg for arg in push)
     assert controller._state()["phase"] == "pr_open"
 
 
@@ -492,3 +519,53 @@ def test_publication_stages_new_files_before_release_manifest_and_uses_lbx154(
         cwd=repo,
         check=True,
     )
+
+
+def test_prune_keeps_active_and_rollback_worktrees_only(tmp_path: Path) -> None:
+    repo, _base = _publication_repo(tmp_path)
+    memory = LifeMemory.open(tmp_path / "life-prune")
+    memory.init()
+    project = tmp_path / "project-prune"
+    project.mkdir()
+    controller = DaemonSelfMaintenance(
+        life_dir=memory.root,
+        framework_root=repo,
+        project_workdir=project,
+        manager=_Manager(),
+        memory=memory,
+    )
+    active = controller.root / "worktrees" / "active"
+    obsolete = controller.root / "worktrees" / "obsolete"
+    active.parent.mkdir(parents=True)
+    subprocess.run(
+        ["git", "worktree", "add", "-b", "argus-self/active", str(active), "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "worktree",
+            "add",
+            "-b",
+            "argus-self/obsolete",
+            str(obsolete),
+            "HEAD",
+        ],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    controller._write_state(
+        phase="adopted",
+        canary_source_root=str(active),
+        worktree=str(active),
+        old_source_root=str(repo),
+    )
+
+    removed = controller.prune_obsolete_worktrees()
+
+    assert str(obsolete) in removed
+    assert active.is_dir()
+    assert not obsolete.exists()

@@ -922,6 +922,8 @@ class PlanningContextMixin:
             or state.get("wait_mode") != "event"
         ):
             return ""
+        if isinstance(state.get("manager_resolution"), dict):
+            return ""
         expires_at = float(state.get("expires_at") or 0.0)
         current_revision = self._planner_waiting_observed_revision(
             wake_on=list(state.get("wake_on") or []),
@@ -1128,6 +1130,11 @@ class PlanningContextMixin:
                 and isinstance(previous.get("manager_resolution"), dict)
                 else None
             ),
+            "resolution_retry_count": (
+                int(previous.get("resolution_retry_count") or 0)
+                if same_condition
+                else 0
+            ),
             "active": True,
         }
         if not self._write_planner_waiting_contract_state(payload):
@@ -1284,6 +1291,7 @@ class PlanningContextMixin:
             ),
             "recheck_condition": str(state.get("recheck_condition") or ""),
         }
+        state["resolution_retry_count"] = 0
         state["updated_at"] = now
         self._write_planner_waiting_contract_state(state)
 
@@ -1314,6 +1322,7 @@ class PlanningContextMixin:
         if state is None or not isinstance(state.get("manager_resolution"), dict):
             return
         state["manager_resolution"] = None
+        state["resolution_retry_count"] = 0
         state["updated_at"] = time.time()
         self._write_planner_waiting_contract_state(state)
 

@@ -378,6 +378,9 @@ def run_handoff_child_process(
                 "handoff_requested",
                 "canary_running",
                 "publication_failed",
+                "pr_open",
+                "upstream_merged",
+                "adopted",
             }:
                 from .self_maintenance import _atomic_json
 

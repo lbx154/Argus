@@ -244,7 +244,60 @@ class DaemonSelfMaintenance:
         except ValueError:
             return 1800.0
 
+    def preflight_isolation(self, *, force: bool = False) -> bool:
+        state = self._state()
+        now = time.time()
+        if (
+            not force
+            and now - float(state.get("isolation_checked_at") or 0.0) < 300.0
+        ):
+            return state.get("maintenance_available") is True
+        probe = self.root / "isolation-probe"
+        probe.mkdir(parents=True, exist_ok=True)
+        error = ""
+        try:
+            from ..core.sandbox import isolated_workdir_command
+
+            command = isolated_workdir_command(
+                ["/usr/bin/true"],
+                working_dir=probe,
+            )
+            result = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=15.0,
+            )
+            available = result.returncode == 0
+            if not available:
+                error = (
+                    result.stderr.strip()
+                    or f"bubblewrap probe exited {result.returncode}"
+                )
+        except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+            available = False
+            error = f"{type(exc).__name__}: {exc}"
+        finally:
+            shutil.rmtree(probe, ignore_errors=True)
+        previous = state.get("maintenance_available")
+        self._write_state(
+            maintenance_available=available,
+            isolation_checked_at=now,
+            isolation_error=error[:1000],
+        )
+        if previous is not available:
+            self._emit({
+                "type": "manager.self_maintenance.availability",
+                "available": available,
+                "error": error[:1000],
+                "agent_layer": "manager",
+            })
+        return available
+
     def audit_if_due(self, *, daemon_state: dict[str, Any]) -> str:
+        if not self.preflight_isolation():
+            return ""
         if self._active_item() is not None:
             return ""
         state = self._state()
@@ -913,9 +966,24 @@ class DaemonSelfMaintenance:
                 raise ValueError(
                     f"GitHub CLI identity must be {_GIT_NAME}, got {login or 'unknown'}"
                 )
+            origin_url = _run(
+                ["git", "remote", "get-url", "origin"],
+                cwd=worktree,
+            ).stdout.strip()
+            if not origin_url.startswith("https://github.com/"):
+                raise ValueError(
+                    "self-maintenance publication requires an HTTPS GitHub origin"
+                )
             _run(
                 [
                     "git",
+                    "-c",
+                    "credential.helper=",
+                    "-c",
+                    (
+                        "credential.https://github.com.helper="
+                        f"!{gh} auth git-credential"
+                    ),
                     "push",
                     "-u",
                     "origin",
@@ -1041,6 +1109,53 @@ class DaemonSelfMaintenance:
             )
             return f"rollback:{state.get('old_source_root') or ''}"
         return pr_state
+
+    def prune_obsolete_worktrees(self) -> list[str]:
+        state = self._state()
+        preserve = {self.framework_root.resolve()}
+        old_source = str(state.get("old_source_root") or "")
+        if old_source:
+            preserve.add(Path(old_source).expanduser().resolve())
+        if state.get("phase") not in {"pr_closed", "canary_failed", "handoff_failed"}:
+            for key in ("canary_source_root", "worktree"):
+                value = str(state.get(key) or "")
+                if value:
+                    preserve.add(Path(value).expanduser().resolve())
+        removed: list[str] = []
+        for parent in (self.root / "worktrees", self.root / "adoptions"):
+            try:
+                candidates = [path for path in parent.iterdir() if path.is_dir()]
+            except FileNotFoundError:
+                continue
+            for candidate in candidates:
+                resolved = candidate.resolve()
+                if resolved in preserve:
+                    continue
+                try:
+                    status = _run(
+                        ["git", "status", "--porcelain"],
+                        cwd=resolved,
+                        check=False,
+                    )
+                    if status.returncode != 0 or status.stdout.strip():
+                        continue
+                    removal = _run(
+                        ["git", "worktree", "remove", str(resolved)],
+                        cwd=self.framework_root,
+                        check=False,
+                        timeout=120.0,
+                    )
+                except (OSError, subprocess.SubprocessError):
+                    continue
+                if removal.returncode == 0:
+                    removed.append(str(resolved))
+        if removed:
+            _run(
+                ["git", "worktree", "prune"],
+                cwd=self.framework_root,
+                check=False,
+            )
+        return removed
 
 
 __all__ = ["DaemonSelfMaintenance"]

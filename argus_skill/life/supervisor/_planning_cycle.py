@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import replace
 from typing import Any
 
@@ -317,6 +318,39 @@ class PlanningCycleMixin:
         )
         self._last_planner_wait_reconciliation_key = key
         self._planner_waits_since_reconciliation = waits_since_reconciliation
+        contract_state = self._load_planner_waiting_contract_state()
+        same_contract = (
+            contract_state is not None
+            and contract_state.get("blocker_fingerprint") == blocker_fingerprint
+            and contract_state.get("recheck_token") == recheck_token
+        )
+        existing_resolution = (
+            contract_state.get("manager_resolution")
+            if same_contract and contract_state is not None
+            else None
+        )
+        if isinstance(existing_resolution, dict):
+            resolution_retries = int(
+                contract_state.get("resolution_retry_count") or 0
+            ) + 1
+            contract_state["resolution_retry_count"] = resolution_retries
+            contract_state["updated_at"] = time.time()
+            self._write_planner_waiting_contract_state(contract_state)
+            if resolution_retries < MANAGER_RECONCILE_AFTER_IDLE_CYCLES:
+                self._enter_idle_backoff()
+                self._emit_status(
+                    "Planner repeated a resolved wait; backing off before retry"
+                )
+                return ""
+            contract_state["manager_resolution"] = None
+            contract_state["resolution_retry_count"] = 0
+            contract_state["updated_at"] = time.time()
+            self._write_planner_waiting_contract_state(contract_state)
+            self._planner_waits_since_reconciliation = 0
+            self._emit_status(
+                "Planner repeatedly ignored a Manager wait resolution; "
+                "re-adjudicating"
+            )
         if not (
             key_changed
             or waits_since_reconciliation >= MANAGER_RECONCILE_AFTER_IDLE_CYCLES
@@ -327,12 +361,6 @@ class PlanningCycleMixin:
         # path. Persist a freshly returned contract first so an authoritative
         # Manager resolution has durable state to update and the next Planner
         # call receives that resolution instead of repeating the same wait.
-        contract_state = self._load_planner_waiting_contract_state()
-        same_contract = (
-            contract_state is not None
-            and contract_state.get("blocker_fingerprint") == blocker_fingerprint
-            and contract_state.get("recheck_token") == recheck_token
-        )
         if not same_contract:
             contract_state = self._persist_planner_waiting_contract(contract)
             if contract_state is None:
@@ -340,15 +368,6 @@ class PlanningCycleMixin:
                     "failed to persist Planner wait before Manager reconciliation"
                 )
                 return ""
-        existing_resolution = contract_state.get("manager_resolution")
-        if isinstance(existing_resolution, dict):
-            self._last_planner_wait_reconciliation_key = None
-            self._planner_waits_since_reconciliation = 0
-            self._reset_idle_backoff()
-            self._emit_status(
-                "returning existing Manager wait resolution to Planner"
-            )
-            return "hold"
 
         from ...manager import Manager
 

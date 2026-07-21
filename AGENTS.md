@@ -86,6 +86,8 @@ argus-skill / python -m argus_skill
     `lbx154 <lbxhaixing154@sjtu.edu.cn>` 推独立分支并自动开 PR，永不自动 merge/main。
     其他 daemon 只把人工合并后的 `origin/main` 当证据，各自 Manager 决定采用或延后并
     本地灰度。隔离能力缺失时 fail closed，不退化为 yolo。
+    支持的 Linux host 必须预装 `bubblewrap`（Debian/Ubuntu: `apt install bubblewrap`）；
+    daemon 启动时会做真实隔离 probe，失败只禁用自维护，不影响科研 mission。
 - `argus_skill/life/memory.py`: 磁盘状态。global root 默认 `~/.argus-skill/`，project state 默认 `~/.argus-skill/projects/<fingerprint>/`。注入 mission 前的 “memory context” prelude(`render_prelude`)走**纯 recency**：surface 最近 N 条 journal(按所传 journal 做 project 隔离),**不再用关键词 Jaccard 给“相关性”打分**——“哪段过往工作相关”是 agent 读这段(标了 non-authoritative 的)advisory 后自己判断的,不是 harness 用词面重叠去猜。
 
 常见状态文件：

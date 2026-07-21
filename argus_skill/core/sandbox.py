@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -203,42 +204,125 @@ def isolated_workdir_command(
     root = os.path.realpath(os.fspath(working_dir))
     if not os.path.isdir(root):
         raise RuntimeError("isolated workdir does not exist")
+    runtime_root = Path(root) / ".argus-self-maintenance-runtime"
+    private_copilot = runtime_root / "copilot-home"
+    private_state = private_copilot / "session-state"
+    private_state.mkdir(parents=True, exist_ok=True)
+    copilot_home = Path.home() / ".copilot"
+    for name in ("config.json", "settings.json", "permissions-config.json"):
+        source = copilot_home / name
+        target = private_copilot / name
+        if source.is_file():
+            shutil.copy2(source, target)
+
     wrapped = [
         bwrap,
         "--die-with-parent",
         "--new-session",
+        "--unshare-pid",
+        "--unshare-uts",
+        "--unshare-ipc",
         "--ro-bind",
         "/",
         "/",
         "--tmpfs",
         "/tmp",
-        "--bind",
-        root,
-        root,
-        "--proc",
-        "/proc",
+    ]
+    hidden_roots = (
+        "/root",
+        "/home",
+        "/data",
+        "/scratch",
+        "/mnt",
+        "/workspace",
+        "/var/run/secrets",
+        "/run/secrets",
+        "/var/lib/kubelet",
+        "/etc/kubernetes",
+        "/etc/azure",
+    )
+    for hidden in hidden_roots:
+        if os.path.isdir(hidden):
+            wrapped.extend(["--tmpfs", hidden])
+
+    mount_roots = [
+        Path(value)
+        for value in ("/tmp", *hidden_roots)
+        if os.path.isdir(value)
+    ]
+    created_dirs: set[str] = {str(value) for value in mount_roots}
+
+    def ensure_dir_chain(path: Path) -> None:
+        matching = [
+            candidate
+            for candidate in mount_roots
+            if path == candidate or candidate in path.parents
+        ]
+        if not matching:
+            return
+        current = max(matching, key=lambda value: len(value.parts))
+        relative = path.relative_to(current)
+        for part in relative.parts:
+            current /= part
+            rendered = str(current)
+            if rendered not in created_dirs:
+                wrapped.extend(["--dir", rendered])
+                created_dirs.add(rendered)
+
+    def bind_dir(source: Path, target: Path, *, writable: bool) -> None:
+        if not source.is_dir():
+            return
+        ensure_dir_chain(target)
+        wrapped.extend([
+            "--bind" if writable else "--ro-bind",
+            str(source),
+            str(target),
+        ])
+
+    def bind_file(source: Path, target: Path) -> None:
+        if not source.is_file():
+            return
+        ensure_dir_chain(target.parent)
+        wrapped.extend(["--ro-bind", str(source), str(target)])
+
+    worktree = Path(root)
+    bind_dir(worktree, worktree, writable=True)
+    bind_dir(Path(sys.prefix), Path(sys.prefix), writable=False)
+    bind_dir(
+        Path.home() / ".cache" / "copilot",
+        Path.home() / ".cache" / "copilot",
+        writable=False,
+    )
+    try:
+        common = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            cwd=worktree,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        common = ""
+    if common:
+        common_path = Path(common)
+        bind_dir(common_path, common_path, writable=False)
+    bind_dir(private_copilot, Path.home() / ".copilot", writable=False)
+    bind_dir(private_state, Path.home() / ".copilot" / "session-state", writable=True)
+    for index, value in enumerate(command[:-1]):
+        if value == "--output-schema":
+            schema = Path(command[index + 1]).expanduser().resolve()
+            bind_file(schema, schema)
+
+    wrapped.extend([
         "--dev-bind",
         "/dev",
         "/dev",
+        "--proc",
+        "/proc",
         "--chdir",
         root,
-    ]
-    home = Path.home()
-    for hidden in (home / ".ssh", home / ".config" / "gh"):
-        if hidden.is_dir():
-            wrapped.extend(["--tmpfs", str(hidden)])
-    for hidden_file in (home / ".git-credentials", home / ".netrc"):
-        if hidden_file.is_file():
-            wrapped.extend(["--ro-bind", "/dev/null", str(hidden_file)])
-    copilot_state = home / ".copilot" / "session-state"
-    if copilot_state.is_dir():
-        private_state = (
-            Path(root)
-            / ".argus-self-maintenance-runtime"
-            / "copilot-session-state"
-        )
-        private_state.mkdir(parents=True, exist_ok=True)
-        wrapped.extend(["--bind", str(private_state), str(copilot_state)])
+    ])
     return [*wrapped, "--", *command]
 
 

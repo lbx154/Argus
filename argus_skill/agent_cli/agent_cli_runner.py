@@ -1162,6 +1162,34 @@ class AgentCliRunner:
             return _opencode_read_only_env()
         env = sandboxed_child_env()
         if options.isolate_workdir:
+            secret_markers = (
+                "TOKEN",
+                "SECRET",
+                "PASSWORD",
+                "CREDENTIAL",
+                "API_KEY",
+                "PRIVATE_KEY",
+                "ACCESS_KEY",
+                "COOKIE",
+            )
+            secret_prefixes = (
+                "AWS_",
+                "AZURE_",
+                "GOOGLE_",
+                "OPENAI_",
+                "ANTHROPIC_",
+                "HF_",
+                "WANDB_",
+                "KUBE_",
+            )
+            for key in list(env):
+                upper = key.upper()
+                if (
+                    any(marker in upper for marker in secret_markers)
+                    or upper.startswith(secret_prefixes)
+                    or upper == "KUBECONFIG"
+                ):
+                    env.pop(key, None)
             env["GIT_CONFIG_GLOBAL"] = os.devnull
             env["GIT_CONFIG_NOSYSTEM"] = "1"
             env["GH_CONFIG_DIR"] = "/tmp/argus-no-gh-auth"

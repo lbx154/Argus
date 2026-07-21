@@ -1448,9 +1448,11 @@ def test_handoff_child_publishes_standby_then_runs(
     assert not config_path.exists()
 
 
+@pytest.mark.parametrize("phase", ["canary_running", "pr_open", "adopted"])
 def test_failed_self_maintenance_handoff_marks_failed_before_rollback(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    phase: str,
 ) -> None:
     import argus_skill.daemon.handoff as handoff_mod
 
@@ -1459,7 +1461,7 @@ def test_failed_self_maintenance_handoff_marks_failed_before_rollback(
     state_path = cfg.life_dir / "self-maintenance" / "state.json"
     state_path.parent.mkdir()
     state_path.write_text(
-        json.dumps({"phase": "canary_running"}),
+        json.dumps({"phase": phase}),
         encoding="utf-8",
     )
     rollback = tmp_path / "prior-source"

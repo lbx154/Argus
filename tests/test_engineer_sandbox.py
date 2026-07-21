@@ -266,12 +266,16 @@ def test_isolated_workdir_wraps_any_backend_and_hides_vcs_credentials(
     assert ["--bind", str(workdir), str(workdir)] == command[
         command.index("--bind") : command.index("--bind") + 3
     ]
-    assert str(home / ".ssh") in command
-    assert str(home / ".config" / "gh") in command
+    assert ["--tmpfs", "/root"] == command[
+        command.index("/root") - 1 : command.index("/root") + 1
+    ]
+    assert str(home / ".ssh") not in command
+    assert str(home / ".config" / "gh") not in command
     private_state = (
         workdir
         / ".argus-self-maintenance-runtime"
-        / "copilot-session-state"
+        / "copilot-home"
+        / "session-state"
     )
     assert ["--bind", str(private_state), str(home / ".copilot" / "session-state")] == command[
         command.index(str(private_state)) - 1 : command.index(str(private_state)) + 2
@@ -288,16 +292,45 @@ def test_isolated_workdir_fails_closed_without_bubblewrap(
         sandbox.isolated_workdir_command(["copilot"], working_dir=tmp_path)
 
 
+def test_isolated_workdir_binds_reviewer_schema_from_host_tmp(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workdir = tmp_path / "worktree"
+    workdir.mkdir()
+    schema = tmp_path / "review-schema.json"
+    schema.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(sandbox.shutil, "which", lambda _name: "/usr/bin/bwrap")
+
+    command = sandbox.isolated_workdir_command(
+        ["codex", "--output-schema", str(schema)],
+        working_dir=workdir,
+    )
+
+    schema_index = command.index(str(schema))
+    assert command[schema_index - 1 : schema_index + 2] == [
+        "--ro-bind",
+        str(schema),
+        str(schema),
+    ]
+
+
 def test_isolated_runner_scrubs_credentials_even_without_native_sandbox(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("GH_TOKEN", "secret")
+    monkeypatch.setenv("OPENAI_API_KEY", "secret")
+    monkeypatch.setenv("AWS_SESSION_TOKEN", "secret")
+    monkeypatch.setenv("KUBECONFIG", "/secret/kubeconfig")
     runner = AgentCliRunner(agent_bin="copilot", backend="copilot")
 
     env = runner._child_env(RunnerOptions(isolate_workdir=True))
 
     assert env is not None
     assert "GH_TOKEN" not in env
+    assert "OPENAI_API_KEY" not in env
+    assert "AWS_SESSION_TOKEN" not in env
+    assert "KUBECONFIG" not in env
     assert env["GIT_CONFIG_GLOBAL"] == os.devnull
     assert env["GH_CONFIG_DIR"] == "/tmp/argus-no-gh-auth"
 

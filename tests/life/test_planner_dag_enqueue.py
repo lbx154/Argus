@@ -567,6 +567,19 @@ def test_new_wait_persists_manager_resolution_before_immediate_retry(
         sup._planner_wait_resolution_runtime_note()
     )
 
+    assert sup._plan_next_work() == PLAN_AWAITING
+    assert backend.manager_calls == 1
+    state = sup._load_planner_waiting_contract_state()
+    assert state is not None
+    assert state["resolution_retry_count"] == 1
+
+    assert [sup._plan_next_work() for _ in range(3)] == [
+        PLAN_AWAITING,
+        PLAN_AWAITING,
+        PLAN_RETRY,
+    ]
+    assert backend.manager_calls == 2
+
     # Re-persisting the same blocker must retain the resolution note until the
     # Planner actually moves on to a non-waiting verdict.
     sup._persist_planner_waiting_contract(WaitingContract(
