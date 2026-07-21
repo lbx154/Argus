@@ -89,6 +89,77 @@ def test_reviewer_records_prompt_block_token_estimates(monkeypatch):
     assert stats["static_total"]["chars"] + stats["delta_total"]["chars"] == len(prompt)
 
 
+def test_reviewer_does_not_duplicate_identical_objective(monkeypatch):
+    monkeypatch.delenv("ARGUS_SKILL_MEASURED_MODE", raising=False)
+    reviewer = Reviewer(runner=None, skill_store=None)
+    objective = "repair the exact benchmark evidence " * 120
+
+    prompt = reviewer._build_prompt(
+        objective=objective,
+        original_objective=objective,
+        operator_messages=[],
+        planner_review_instruction="",
+        round_index=1,
+        session_id=None,
+        main_summary="done",
+        main_error=None,
+        prior_checkpoint={},
+    )
+
+    assert prompt.count(objective.strip()) == 1
+    assert "Task objective:" in prompt
+    assert "Original operator request:" not in prompt
+    assert reviewer.last_prompt_block_stats["objective_context"]["chars"] < (
+        len(objective) + 64
+    )
+
+
+def test_reviewer_keeps_distinct_original_and_mission_objectives(monkeypatch):
+    reviewer = Reviewer(runner=None, skill_store=None)
+    prompt = reviewer._build_prompt(
+        objective="repair the benchmark",
+        original_objective="produce a publishable paper",
+        operator_messages=[],
+        planner_review_instruction="",
+        round_index=1,
+        session_id=None,
+        main_summary="done",
+        main_error=None,
+        prior_checkpoint={},
+    )
+
+    assert "Original operator request:\nproduce a publishable paper" in prompt
+    assert "Current mission objective:\nrepair the benchmark" in prompt
+
+
+def test_research_result_contract_stays_compact(tmp_path, monkeypatch):
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    persist_vertical(
+        tmp_path,
+        "research",
+        research_target_level="publishable",
+    )
+    reviewer = Reviewer(runner=None, skill_store=None)
+    reviewer._build_prompt(
+        objective="repair the benchmark",
+        original_objective="repair the benchmark",
+        operator_messages=[],
+        planner_review_instruction="",
+        round_index=1,
+        session_id=None,
+        main_summary="done",
+        main_error=None,
+        prior_checkpoint={},
+        working_dir=str(tmp_path),
+        scope="bounded",
+    )
+
+    stats = reviewer.last_prompt_block_stats["research_result"]
+    assert stats["chars"] < 1_100
+    assert stats["estimated_tokens"] < 300
+
+
 def test_backend_schema_is_minified_without_semantic_change() -> None:
     source = Path(SCHEMA_PATH).read_bytes()
     compact_path, compact = _compact_schema_for_backend(SCHEMA_PATH, source)

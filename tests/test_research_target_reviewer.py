@@ -259,7 +259,10 @@ def test_active_schema_reaches_bounded_completion_without_missing_result(
         Path(backend.options.output_schema_path).read_text(encoding="utf-8")
     )
     assert effective_schema == schema
-    assert "Never use `research_incomplete` solely because the whole project" in backend.prompt
+    assert (
+        "Do not use `research_incomplete` merely because later project work remains"
+        in backend.prompt
+    )
     assert decision.status == "done"
     assert decision.research_result == result
     issue = research_completion_issue(

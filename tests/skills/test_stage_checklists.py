@@ -93,6 +93,14 @@ def test_plan_benchmark_checklist_supports_clinical_mechanism_projects() -> None
     assert "must never be relabeled as benchmark tasks" in text
 
 
+def test_benchmark_provenance_has_one_canonical_source() -> None:
+    text = format_stage_checklist("benchmark", role="reviewer")
+
+    assert "BENCHMARK_PROVENANCE.json (canonical)" in text
+    assert "duplicate prose is not a separate gate" in text
+    assert "BENCHMARK_PROVENANCE.md and .json" not in text
+
+
 def test_format_stage_checklist_unknown_stage_returns_safe_block() -> None:
     text = format_stage_checklist("nonexistent_stage", role="engineer")
     # Should not crash and must fail closed for an undeclared required checklist.

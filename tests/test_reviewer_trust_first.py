@@ -79,9 +79,8 @@ def test_reviewer_reasons_in_prose_structured_only_at_handoff(monkeypatch):
     # JSON. codex --output-schema constrains only the FINAL response, so this is
     # a prompt-framing change with no robustness loss.
     p = _prompt(measured=False, monkeypatch=monkeypatch)
-    assert "talk normally" in p.lower()
-    assert "ONLY your FINAL message is the structured handoff" in p
-    assert "intermediate messages" in p
-    assert "FINAL handoff JSON object" in p
+    assert "reason and use tools normally" in p.lower()
+    assert "only the final message is one json object" in p.lower()
+    assert "matching the attached schema" in p
     # the old "every message is JSON" framing is gone
     assert "Return valid JSON matching the provided schema" not in p

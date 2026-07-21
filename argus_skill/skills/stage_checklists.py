@@ -212,13 +212,14 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="benchmark.provenance",
             statement=(
-                "Benchmark provenance lists every selected public source with "
+                "One canonical machine-readable benchmark provenance record lists "
+                "every selected public source with "
                 "version/date, license/access, split or cohort, evaluation unit, "
                 "metric/evaluator, filtering, claim tested, and execution-readiness. "
-                "Coverage breadth is justified by the claim; no fixed source count "
-                "or task count is imposed."
+                "Coverage breadth is justified by the claim. Markdown may be a "
+                "generated view, but duplicate prose is not a separate gate."
             ),
-            evidence_hint="experiments/BENCHMARK_PROVENANCE.md and .json",
+            evidence_hint="experiments/BENCHMARK_PROVENANCE.json (canonical)",
         ),
         ChecklistItem(
             id="benchmark.smoke",

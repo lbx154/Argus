@@ -791,50 +791,29 @@ class Reviewer:
         _research_target_level = resolve_research_target_level(_proot)
         if _research_target_level is not None:
             _bounded_research_contract = (
-                "This is a structured `bounded` backlog item. `done` certifies "
-                "only this item's explicit objective and acceptance criteria; it "
-                "does NOT certify the persisted project-level research target. "
-                "Still emit an honest `research_result`, but do not require "
-                "verified novelty, publishable significance, or an original "
-                "terminal theorem unless this bounded objective explicitly asks "
-                "for them. A verification probe may therefore finish with a "
-                "correctly classified novelty-unverified result. If this bounded "
-                "item's own acceptance criteria and current-stage checklist are "
-                "satisfied, use `status=done` even though later project stages or "
-                "the final research target remain open. Never use "
-                "`research_incomplete` solely because the whole project is not yet "
-                "complete.\n"
+                "Bounded `done` certifies only this item, not the project target. "
+                "Emit an honest `research_result`; novelty/significance may remain "
+                "unverified unless this objective requires them. Do not use "
+                "`research_incomplete` merely because later project work remains.\n"
                 if (scope or "").strip().lower().replace("-", "_") == "bounded"
                 else ""
             )
             research_result_instruction = (
-                "For this targeted research mission, `research_result` is REQUIRED "
-                "on every verdict. Judge result_class, correctness_status, "
-                "novelty_status, significance_status, and any domain-specific "
-                "fidelity field independently; use concrete evidence and limitations.\n"
-                f"The Manager-persisted `research_target_level` is "
-                f"`{_research_target_level}`. {_bounded_research_contract}"
-                "For non-bounded completion, use exactly this success bar; do not "
-                "downgrade it because a report is polished or a bounded cycle ended. "
-                "For `publishable` or `doctoral`, `done` requires "
-                "correctness_status=verified, novelty_status=verified_new, "
-                "significance_status publishable or "
-                "doctoral, and an original terminal result (complete solution, "
-                "verified new result/theorem, improved bound, new infinite family, "
-                "new reduction, or exact counterexample). Literature review, known "
-                "results, finite verification, local Lean verification, "
-                "novelty-unverified work, and honest/structured failure reports are "
-                "artifacts, not mission success. For NON-BOUNDED project-level "
-                "routing, a genuinely novel negative or boundary result may set "
-                "`significance_status=publishable` and `scientific_decision=go` only "
-                "when it supports a standalone venue-relevant thesis; use a precise "
-                "result class such as partial_result/counterexample rather than "
-                "structured_failure_report. For NON-BOUNDED project-level "
-                "completion only, when the current cycle should end without that "
-                "result, use `research_incomplete`, "
-                "`paused_no_breakthrough`, or `exhausted_current_methods`; these "
-                "preserve evidence and permit a future resume. For `exploratory`, "
-                "an independently verified honest failure report may be `done`.\n\n"
+                "`research_result` is required. Judge its correctness, novelty, "
+                "significance, fidelity, evidence, and limitations independently. "
+                f"Project target: `{_research_target_level}`. "
+                f"{_bounded_research_contract}"
+                "For non-bounded `publishable`/`doctoral` completion require verified "
+                "correctness, verified-new novelty, matching significance, and an "
+                "original terminal result. Known/literature/finite/local-verification "
+                "or generic failure reports are evidence, not success. A novel "
+                "negative/boundary result qualifies only as a standalone venue-level "
+                "thesis; label it `counterexample`/`partial_result`, not "
+                "`structured_failure_report`. Polish never lowers this bar. "
+                "Otherwise end the cycle with `research_incomplete`, "
+                "`paused_no_breakthrough`, or `exhausted_current_methods`. "
+                "For `exploratory`, an independently verified honest failure may be "
+                "`done`.\n\n"
             )
         # Live search-altitude facts (NO verdict) so the reviewer can SEE the
         # floor history when judging forward_progress — i.e. distinguish "this
@@ -957,6 +936,15 @@ class Reviewer:
             if operator_messages
             else "- none"
         )
+        original_text = (original_objective or objective).strip()
+        current_text = objective.strip()
+        if original_text == current_text:
+            objective_block = f"Task objective:\n{current_text}\n\n"
+        else:
+            objective_block = (
+                f"Original operator request:\n{original_text}\n\n"
+                f"Current mission objective:\n{current_text}\n\n"
+            )
         shared_context_block = _format_engineer_shared_context(
             skill_used=active_skill_id,
             prev_review_summary=prev_review_summary,
@@ -1057,22 +1045,18 @@ class Reviewer:
             + research_result_instruction
             + EFFECTIVE_TASK_CONTRACT
             + "\n\n## Reviewer role\n"
-            "Independently judge the current objective against real evidence and the "
-            "applicable checklist. Preserve scope: bounded work may finish without "
-            "the whole project; final-submission work may not. Use `done` only for "
-            "verified completion, `continue` for agent-fixable gaps, and `blocked` "
-            "only for genuine operator/external dependencies.\n\n"
+            "Judge the objective against real evidence and its checklist. Bounded "
+            "work may finish before the project; final-submission work may not. Use "
+            "`done` for verified completion, `continue` for agent-fixable gaps, and "
+            "`blocked` only for operator/external dependencies.\n\n"
             + (
                 ""
                 if _requires_engineering_audit
                 else _verification_directive()
             )
             + "## Output protocol\n"
-            "Talk normally, reason, and use tools; do not format intermediate messages as "
-            "JSON. ONLY your FINAL message is the structured handoff: one FINAL "
-            "handoff JSON object matching the attached schema, with nothing after "
-            "it. Before that final message, directly edit CHECKPOINT.md as instructed "
-            "in the round context.\n\n"
+            "Reason and use tools normally. Only the final message is one JSON object "
+            "matching the attached schema. Edit CHECKPOINT.md first as instructed.\n\n"
             + paper_review_skill_block
             + wiki_curator_skill_block
             + direct_memory_edit_block
@@ -1086,14 +1070,11 @@ class Reviewer:
             + "\n\n"
             + venv_skill_block
             + "\n\n## Final handoff fields\n"
-            "The attached schema is authoritative; fill every required key. "
-            "`reason` is the sole verdict rationale and `next_action` is the sole "
-            "Engineer instruction; use an empty `next_action` for `done`, and do "
-            "not restate either field in another summary.\n"
-            "- `planner_report` carries only honest `forward_progress`, "
-            "`plan_signal`, and file pointers the Planner should open. Use "
-            "`plan_signal=reconsider` only when new evidence invalidates the "
-            "remaining project plan; otherwise use `continue`.\n"
+            "Fill the attached schema. `reason` is the only verdict rationale; "
+            "`next_action` is the only Engineer instruction and is empty for `done`.\n"
+            "- `planner_report`: honest `forward_progress`, `plan_signal`, and file "
+            "pointers only. Use `reconsider` only when new evidence invalidates the "
+            "remaining plan.\n"
             "- Put measured surprises, open questions, and alternative directions "
             "in CHECKPOINT.md once, not in a second structured reflection.\n"
             "- Every valid measured result must identify the strongest supported "
@@ -1157,11 +1138,8 @@ class Reviewer:
             "evidence. Do not declare a method dead from a misconfigured run.\n"
             "- Final-submission `done` requires every full-pipeline checklist item; "
             "bounded scope uses only its objective and relevant stage items.\n\n"
-            "Original operator request:\n"
-            f"{(original_objective or objective).strip()}\n\n"
-            "Current mission objective:\n"
-            f"{objective}\n\n"
-            "Operator messages:\n"
+            + objective_block
+            + "Operator messages:\n"
             f"{operator_text}\n\n"
             "Planner guidance:\n"
             f"{planner_review_instruction or 'none'}\n\n"
@@ -1188,9 +1166,7 @@ class Reviewer:
             + f"{evidence_block}"
         )
         objective_context = (
-            f"{(original_objective or objective).strip()}\n"
-            f"{objective}\n"
-            f"{operator_text}\n"
+            f"{objective_block}{operator_text}\n"
             f"{planner_review_instruction or 'none'}"
         )
         self._last_prompt_block_stats = _prompt_block_stats(
