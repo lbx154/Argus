@@ -236,7 +236,7 @@ class SelfReplyMixin:
         except Exception:  # noqa: BLE001 — context must never block a reply
             workspace_context = ""
         try:
-            runner = getattr(self._backend, "_argus_runner", None)
+            runner = getattr(self._backend, "_runner", None)
             if runner is None or not runner._acp_enabled(run_label):
                 return workspace_context
         except Exception:  # noqa: BLE001 - metadata must never block a reply

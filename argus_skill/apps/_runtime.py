@@ -23,8 +23,8 @@ import argparse
 import logging
 import os
 import shlex
-import signal
 import shutil
+import signal
 import sys
 import threading
 from collections.abc import Mapping
@@ -51,7 +51,9 @@ from ._runtime_backends import (
     _Outcome,
     _ScriptedPlannerBackend,
 )
-from ._self_reply import SelfReplyMixin
+from ._self_reply import (
+    SelfReplyMixin,
+)
 from ._self_reply import (
     self_retryable_transport_failure as _self_retryable_transport_failure,
 )
@@ -261,8 +263,9 @@ class _SkillLoopRunner(SelfReplyMixin):
             from ..adapters.agent_cli_backend import AgentCliBackend
         except ImportError as exc:  # pragma: no cover — depends on optional install
             raise SystemExit(
-                f"Codex backend requested but ArgusBot is unavailable: {exc}.\n"
-                "Install the codex extra: `pip install 'argus-skill[codex]'`."
+                f"Codex backend requested but the bundled agent_cli runtime "
+                f"is unavailable: {exc}.\n"
+                "Reinstall argus-skill to restore it."
             ) from exc
         # Per-call sink swap: backend is built once, but the sink rotates
         # for every execute(). A trampoline callback dispatches to the
@@ -1378,18 +1381,19 @@ def _codex_preflight_warning() -> str | None:
     cannot run, else None.
 
     Surfaced on the banner so the user does not discover at mission time
-    that ArgusBot or the configured CLI binary are missing. Best-effort: if
-    anything raises we stay quiet — a confusing warning is worse than no
-    warning, and the real failure path (``_SkillLoopRunner``) will
-    print a precise error when a mission actually starts.
+    that the bundled agent_cli runtime or the configured CLI binary are
+    missing. Best-effort: if anything raises we stay quiet — a confusing
+    warning is worse than no warning, and the real failure path
+    (``_SkillLoopRunner``) will print a precise error when a mission
+    actually starts.
     """
     try:
-        from ..adapters.agent_cli_backend import _import_argusbot
+        from ..adapters.agent_cli_backend._runtime import load_agent_cli_runtime
     except ImportError:
         return ("bundled agent_cli module not importable — "
                 "reinstall argus-skill")
     try:  # noqa: SIM105
-        _import_argusbot()
+        load_agent_cli_runtime()
     except Exception:  # noqa: BLE001
         return ("bundled agent_cli failed to load — "
                 "check the argus-skill install")

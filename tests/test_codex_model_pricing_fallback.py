@@ -30,7 +30,7 @@ from argus_skill.adapters.agent_cli_backend import (
 )
 from argus_skill.core.models import RunnerOptions
 
-from .test_agent_cli_backend import _make_argus_result
+from .test_agent_cli_backend import _make_cli_result
 
 
 @pytest.fixture(autouse=True)
@@ -121,7 +121,7 @@ def test_codex_model_args_normalize_to_one_direct_flag(
     resolved = backend._resolve_execution_options(
         RunnerOptions(extra_args=["-c", 'model="gpt-5.4"']),
     )
-    command = backend._argus_runner._build_codex_command(
+    command = backend._runner._build_codex_command(
         resume_thread_id=None,
         options=backend._translate_options(resolved),
     )
@@ -152,7 +152,7 @@ def test_codex_profile_model_is_pinned_without_dropping_profile(
         default_extra_args=["--profile", "research"],
     )
     resolved = backend._resolve_execution_options(RunnerOptions())
-    command = backend._argus_runner._build_codex_command(
+    command = backend._runner._build_codex_command(
         resume_thread_id=None,
         options=backend._translate_options(resolved),
     )
@@ -188,7 +188,7 @@ def test_call_profile_replaces_default_profile_once(
     resolved = backend._resolve_execution_options(
         RunnerOptions(extra_args=["--profile=call", "--ephemeral"]),
     )
-    command = backend._argus_runner._build_codex_command(
+    command = backend._runner._build_codex_command(
         resume_thread_id=None,
         options=backend._translate_options(resolved),
     )
@@ -234,7 +234,7 @@ def _codex_backend(tmp_path, monkeypatch, *, model_env: str = "gpt-5.5"):
     def fake_run_exec(self: Any, **kwargs: Any):  # noqa: ANN401
         seen_models.append(kwargs["options"].model)
         # codex echoes NO model in its response (the shape that caused the bug)
-        return _make_argus_result(
+        return _make_cli_result(
             json_events=[{
                 "type": "token_count",
                 "input_tokens": 100,
@@ -244,7 +244,7 @@ def _codex_backend(tmp_path, monkeypatch, *, model_env: str = "gpt-5.5"):
         )
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True,
+        backend._runner.__class__, "run_exec", fake_run_exec, raising=True,
     )
     return backend, root, seen_models
 

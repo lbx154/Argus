@@ -104,7 +104,7 @@ def test_gateway_does_not_hide_backend_exceptions() -> None:
 def test_application_code_has_no_direct_backend_run_exec_bypass() -> None:
     package = Path(__file__).parents[2] / "argus_skill"
     allowed = {
-        package / "adapters" / "agent_cli_backend.py",
+        package / "adapters" / "agent_cli_backend" / "_exec.py",
         package / "core" / "run_gateway.py",
     }
     violations = []

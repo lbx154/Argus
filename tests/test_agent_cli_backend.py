@@ -4,9 +4,9 @@ We do NOT spawn a real codex / claude CLI in CI. Instead we monkey-patch
 the underlying ``AgentCliRunner.run_exec`` to return a synthetic
 ``AgentRunResult``, then verify our adapter:
 
-  * Translates argus-skill ``RunnerOptions`` → ArgusBot ``RunnerOptions``
-    correctly (model, reasoning_effort, working_dir, extra_args,
-    full_auto, skip_git_repo_check, dangerous_yolo).
+  * Translates argus-skill ``RunnerOptions`` → the bundled runner's own
+    ``RunnerOptions`` correctly (model, reasoning_effort, working_dir,
+    extra_args, full_auto, skip_git_repo_check, dangerous_yolo).
   * Translates ``AgentRunResult`` → argus-skill ``RunnerResult``
     correctly, including agent_messages, stdout/stderr lines, thread_id,
     fatal_error.
@@ -37,7 +37,7 @@ from argus_skill.core.models import RunnerOptions
 
 
 @dataclass
-class ArgusRunnerOptions:
+class FakeCliRunnerOptions:
     model: str = "gpt-5.4-mini"
     reasoning_effort: str = "medium"
     dangerous_yolo: bool = False
@@ -90,14 +90,14 @@ class AgentCliRunner:
 
 @pytest.fixture(autouse=True)
 def fake_agent_cli(monkeypatch: pytest.MonkeyPatch) -> None:
-    pkg = ModuleType("agent_cli")
+    pkg = ModuleType("argus_skill.agent_cli")
     setattr(pkg, "__path__", [])
 
-    runner_mod = ModuleType("agent_cli.agent_cli_runner")
+    runner_mod = ModuleType("argus_skill.agent_cli.agent_cli_runner")
     runner_mod.__dict__["AgentCliRunner"] = AgentCliRunner
-    runner_mod.__dict__["RunnerOptions"] = ArgusRunnerOptions
+    runner_mod.__dict__["RunnerOptions"] = FakeCliRunnerOptions
 
-    backend_mod = ModuleType("agent_cli.runner_backend")
+    backend_mod = ModuleType("argus_skill.agent_cli.runner_backend")
     backend_mod.__dict__["BACKEND_CLAUDE"] = "claude"
     backend_mod.__dict__["BACKEND_CODEX"] = "codex"
     backend_mod.__dict__["BACKEND_COPILOT"] = "copilot"
@@ -113,22 +113,16 @@ def fake_agent_cli(monkeypatch: pytest.MonkeyPatch) -> None:
     backend_mod.__dict__["default_runner_bin"] = default_runner_bin
     backend_mod.__dict__["normalize_runner_backend"] = normalize_runner_backend
 
-    models_mod = ModuleType("agent_cli.models")
+    models_mod = ModuleType("argus_skill.agent_cli.models")
     models_mod.__dict__["AgentRunResult"] = AgentRunResult
 
     setattr(pkg, "agent_cli_runner", runner_mod)
     setattr(pkg, "runner_backend", backend_mod)
     setattr(pkg, "models", models_mod)
 
-    monkeypatch.setitem(sys.modules, "agent_cli", pkg)
-    monkeypatch.setitem(sys.modules, "agent_cli.agent_cli_runner", runner_mod)
-    monkeypatch.setitem(sys.modules, "agent_cli.runner_backend", backend_mod)
-    monkeypatch.setitem(sys.modules, "agent_cli.models", models_mod)
-
-    # ``_import_argusbot()`` now prefers the vendored copy at
-    # ``argus_skill.agent_cli`` over the legacy top-level package.
-    # Mirror the mock there so the option-translation contract test
-    # keeps exercising the same surface the production code uses.
+    # ``load_agent_cli_runtime()`` only ever imports from the bundled
+    # ``argus_skill.agent_cli`` package, so that is the only surface we
+    # need to mock here.
     monkeypatch.setitem(sys.modules, "argus_skill.agent_cli", pkg)
     monkeypatch.setitem(
         sys.modules, "argus_skill.agent_cli.agent_cli_runner", runner_mod,
@@ -141,7 +135,7 @@ def fake_agent_cli(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def _make_argus_result(
+def _make_cli_result(
     *,
     command: list[str] | None = None,
     exit_code: int = 0,
@@ -188,8 +182,8 @@ def test_run_exec_translates_options_and_result(
         captured["resume_thread_id"] = resume_thread_id
         captured["options"] = options
         captured["run_label"] = run_label
-        assert isinstance(options, ArgusRunnerOptions)
-        return _make_argus_result(
+        assert isinstance(options, FakeCliRunnerOptions)
+        return _make_cli_result(
             agent_messages=["hello world", "final answer"],
             json_events=[
                 {
@@ -208,7 +202,7 @@ def test_run_exec_translates_options_and_result(
         )
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
     )
 
     options = RunnerOptions(
@@ -272,9 +266,9 @@ def test_opencode_success_persists_provider_reported_cost(
     backend.set_usage_context(project_root=project)
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__,
+        backend._runner.__class__,
         "run_exec",
-        lambda self, **kwargs: _make_argus_result(
+        lambda self, **kwargs: _make_cli_result(
             json_events=[{
                 "type": "step_finish",
                 "part": {
@@ -374,7 +368,7 @@ def test_completed_run_exec_counts_after_mission_process_is_killed(
     backend.set_usage_context(project_root=project, mission_id="mission-killed")
 
     def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
-        return _make_argus_result(
+        return _make_cli_result(
             json_events=[
                 {
                     "type": "token_count",
@@ -387,7 +381,7 @@ def test_completed_run_exec_counts_after_mission_process_is_killed(
         )
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
     )
     result = backend.run_exec(
         prompt="complete one call",
@@ -417,9 +411,9 @@ def test_run_exec_atomically_reserves_and_settles_call_cost(
     backend.set_usage_context(project_root=project, mission_id="mission-1")
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__,
+        backend._runner.__class__,
         "run_exec",
-        lambda self, **kwargs: _make_argus_result(
+        lambda self, **kwargs: _make_cli_result(
             json_events=[{
                 "type": "token_count",
                 "input_tokens": 1_000,
@@ -478,7 +472,7 @@ def test_settled_call_cost_blocks_the_next_call_at_global_cap(
 
     def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
         captured["options"] = kwargs["options"]
-        return _make_argus_result(
+        return _make_cli_result(
             json_events=[{
                 "type": "token_count",
                 "input_tokens": 0,
@@ -488,7 +482,7 @@ def test_settled_call_cost_blocks_the_next_call_at_global_cap(
         )
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
     )
 
     result = backend.run_exec(
@@ -538,7 +532,7 @@ def test_unpriced_call_blocks_next_provider_spawn(
 
     def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
         calls.append(kwargs["run_label"])
-        return _make_argus_result(
+        return _make_cli_result(
             json_events=[{
                 "type": "token_count",
                 "input_tokens": 100,
@@ -548,7 +542,7 @@ def test_unpriced_call_blocks_next_provider_spawn(
         )
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__,
+        backend._runner.__class__,
         "run_exec",
         fake_run_exec,
         raising=True,
@@ -585,11 +579,11 @@ def test_missing_copilot_resume_target_does_not_poison_cost_control(
     monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "0")
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend.capture_copilot_usage_cursor",
+        "argus_skill.adapters.agent_cli_backend._exec.capture_copilot_usage_cursor",
         lambda: None,
     )
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend.read_copilot_usage_since",
+        "argus_skill.adapters.agent_cli_backend._exec.read_copilot_usage_since",
         lambda *args, **kwargs: None,
     )
     backend = AgentCliBackend(backend="copilot")
@@ -600,17 +594,17 @@ def test_missing_copilot_resume_target_does_not_poison_cost_control(
         resume = kwargs["resume_thread_id"]
         resumes.append(resume)
         if resume:
-            return _make_argus_result(
+            return _make_cli_result(
                 exit_code=1,
                 thread_id=resume,
                 fatal_error=(
                     "Error: No session, task, or name matched 'stale-thread'."
                 ),
             )
-        return _make_argus_result(thread_id="fresh-thread")
+        return _make_cli_result(thread_id="fresh-thread")
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__,
+        backend._runner.__class__,
         "run_exec",
         fake_run_exec,
         raising=True,
@@ -657,7 +651,7 @@ def test_run_exec_writes_full_agent_io_log(
         thread.start()
         thread.join()
         self.event_callback("stderr", "tool stderr line")
-        return _make_argus_result(
+        return _make_cli_result(
             command=["copilot", "-p", "<prompt>"],
             agent_messages=["final answer"],
             json_events=[{"type": "agent_message", "message": "thinking"}],
@@ -667,7 +661,7 @@ def test_run_exec_writes_full_agent_io_log(
         )
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
     )
 
     backend.run_exec(
@@ -734,20 +728,20 @@ def test_run_exec_writes_full_agent_io_log(
 def test_full_agent_io_batches_raw_stream_writes(
     tmp_path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import argus_skill.adapters.agent_cli_backend as backend_module
+    from argus_skill.adapters.agent_cli_backend import _io_log
 
     log_path = tmp_path / "events.jsonl"
     monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_LOG", str(log_path))
     monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_BATCH_BYTES", "65536")
     monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_FLUSH_INTERVAL_S", "60")
     batch_sizes: list[int] = []
-    original_append = backend_module._jsonl_append_lines
+    original_append = _io_log._jsonl_append_lines
 
     def recording_append(path, lines, lock):  # noqa: ANN001
         batch_sizes.append(len(lines))
         original_append(path, lines, lock)
 
-    monkeypatch.setattr(backend_module, "_jsonl_append_lines", recording_append)
+    monkeypatch.setattr(_io_log, "_jsonl_append_lines", recording_append)
     backend = AgentCliBackend(backend="copilot")
 
     def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
@@ -760,14 +754,14 @@ def test_full_agent_io_batches_raw_stream_writes(
                     "data": {"index": index, "delta": "x" * 32},
                 }),
             )
-        return _make_argus_result(
+        return _make_cli_result(
             agent_messages=["done"],
             stdout_lines=["tail"],
             thread_id="batch-thread",
         )
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__,
+        backend._runner.__class__,
         "run_exec",
         fake_run_exec,
         raising=True,
@@ -816,13 +810,13 @@ def test_full_io_persists_prompt_once_not_as_user_message_echo(
                 "data": {"deltaContent": "ok"},
             }),
         )
-        return _make_argus_result(
+        return _make_cli_result(
             agent_messages=["ok"],
             thread_id="prompt-once",
         )
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__,
+        backend._runner.__class__,
         "run_exec",
         fake_run_exec,
         raising=True,
@@ -853,7 +847,7 @@ def test_copilot_run_exec_uses_exact_session_store_tokens(
     backend = AgentCliBackend(backend="copilot")
 
     def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
-        return _make_argus_result(
+        return _make_cli_result(
             agent_messages=["OK"],
             json_events=[{"type": "result", "usage": {"premiumRequests": 1.0}}],
             thread_id="session-1",
@@ -874,14 +868,14 @@ def test_copilot_run_exec_uses_exact_session_store_tokens(
         created_at="2026-07-11T09:59:25.919Z",
     ),))
     monkeypatch.setattr(
-        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
     )
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend.capture_copilot_usage_cursor",
+        "argus_skill.adapters.agent_cli_backend._exec.capture_copilot_usage_cursor",
         lambda: object(),
     )
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend.read_copilot_usage_since",
+        "argus_skill.adapters.agent_cli_backend._exec.read_copilot_usage_since",
         lambda cursor, session_id: exact,
     )
 
@@ -923,7 +917,7 @@ def test_copilot_resumed_premium_counter_without_baseline_fails_closed(
     raw_totals = iter((15.0, 22.5))
 
     def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
-        return _make_argus_result(
+        return _make_cli_result(
             agent_messages=["OK"],
             json_events=[{
                 "type": "result",
@@ -933,14 +927,14 @@ def test_copilot_resumed_premium_counter_without_baseline_fails_closed(
         )
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
     )
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend.capture_copilot_usage_cursor",
+        "argus_skill.adapters.agent_cli_backend._exec.capture_copilot_usage_cursor",
         lambda: object(),
     )
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend.read_copilot_usage_since",
+        "argus_skill.adapters.agent_cli_backend._exec.read_copilot_usage_since",
         lambda cursor, session_id: None,
     )
     options = RunnerOptions(model="gpt-5.6-sol", working_dir=str(tmp_path))
@@ -992,9 +986,9 @@ def test_copilot_acp_session_model_overrides_mislabeled_usage_row(
     backend = AgentCliBackend(backend="copilot")
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__,
+        backend._runner.__class__,
         "run_exec",
-        lambda self, **kwargs: _make_argus_result(
+        lambda self, **kwargs: _make_cli_result(
             agent_messages=["OK"],
             thread_id="session-mini",
             usage_model="gpt-5.4-mini",
@@ -1016,11 +1010,11 @@ def test_copilot_acp_session_model_overrides_mislabeled_usage_row(
         created_at="2026-07-15T10:00:00Z",
     ),))
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend.capture_copilot_usage_cursor",
+        "argus_skill.adapters.agent_cli_backend._exec.capture_copilot_usage_cursor",
         lambda: object(),
     )
     monkeypatch.setattr(
-        "argus_skill.adapters.agent_cli_backend.read_copilot_usage_since",
+        "argus_skill.adapters.agent_cli_backend._exec.read_copilot_usage_since",
         lambda cursor, session_id: mislabeled,
     )
 
@@ -1080,7 +1074,7 @@ def test_default_agent_io_is_bounded_and_drops_duplicate_stream(
             '{"type":"assistant.tool_call_delta","data":{"delta":"noise"}}',
         )
         self.event_callback("stdout", '{"type":"assistant.message_delta","data":{"deltaContent":"huge"}}')
-        return _make_argus_result(
+        return _make_cli_result(
             command=["copilot", "-p", "HUGE PROMPT"],
             agent_messages=["result"],
             json_events=[{"large": "payload"}],
@@ -1090,7 +1084,7 @@ def test_default_agent_io_is_bounded_and_drops_duplicate_stream(
         )
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
     )
     backend.run_exec(
         prompt="private compaction prompt" * 100,
@@ -1140,10 +1134,10 @@ def test_codex_quota_events_and_daily_denial(
 
     def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
         calls.append(kwargs["run_label"])
-        return _make_argus_result(agent_messages=["ok"], thread_id="codex-thread")
+        return _make_cli_result(agent_messages=["ok"], thread_id="codex-thread")
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
     )
     first = backend.run_exec(
         prompt="first",
@@ -1200,7 +1194,7 @@ def test_run_exec_normalizes_recoverable_reconnect_notice(
         options: Any,  # noqa: ARG001
         run_label: str,  # noqa: ARG001
     ) -> AgentRunResult:
-        return _make_argus_result(
+        return _make_cli_result(
             agent_messages=["continued after reconnect"],
             fatal_error=(
                 "Reconnecting... 1/100 "
@@ -1209,7 +1203,7 @@ def test_run_exec_normalizes_recoverable_reconnect_notice(
         )
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
     )
 
     result = backend.run_exec(
@@ -1246,7 +1240,7 @@ def test_copilot_policy_denial_with_exit_zero_sets_auth_failure(
         )
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
     )
     result = backend.run_exec(
         prompt="x",
@@ -1274,7 +1268,7 @@ def test_run_exec_normalizes_high_attempt_reconnect_notice(
         options: Any,  # noqa: ARG001
         run_label: str,  # noqa: ARG001
     ) -> AgentRunResult:
-        return _make_argus_result(
+        return _make_cli_result(
             agent_messages=["continued after high-attempt reconnect"],
             fatal_error=(
                 "Reconnecting... 100/100 "
@@ -1283,7 +1277,7 @@ def test_run_exec_normalizes_high_attempt_reconnect_notice(
         )
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
     )
 
     result = backend.run_exec(
@@ -1310,7 +1304,7 @@ def test_run_exec_handles_file_not_found(monkeypatch: pytest.MonkeyPatch) -> Non
         raise FileNotFoundError("codex: not found")
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__, "run_exec", boom, raising=True
+        backend._runner.__class__, "run_exec", boom, raising=True
     )
 
     result = backend.run_exec(
@@ -1340,7 +1334,7 @@ def test_run_exec_handles_generic_exception(
         raise RuntimeError("subprocess died")
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__, "run_exec", boom, raising=True
+        backend._runner.__class__, "run_exec", boom, raising=True
     )
 
     result = backend.run_exec(
@@ -1478,7 +1472,7 @@ def test_usage_delta_for_thread_decumulates_reasoning_output_tokens() -> None:
 def test_run_exec_forwards_watchdog_hooks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Watchdog hooks on argus-skill RunnerOptions must reach ArgusBot.
+    """Watchdog hooks on argus-skill RunnerOptions must reach the bundled runner.
 
     A MissionDaemon-driven supervisor passes ``external_interrupt_reason_provider``
     so it can interrupt a long-running engineer turn promptly when an
@@ -1497,10 +1491,10 @@ def test_run_exec_forwards_watchdog_hooks(
         run_label: str,
     ) -> AgentRunResult:
         captured["options"] = options
-        return _make_argus_result(agent_messages=["ok"])
+        return _make_cli_result(agent_messages=["ok"])
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
     )
 
     interrupt_calls: list[None] = []
@@ -1542,7 +1536,7 @@ def test_consumed_interrupt_returns_canonical_result_without_starting_provider(
         return "operator abort requested: stop now" if provider_calls == 1 else None
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__,
+        backend._runner.__class__,
         "run_exec",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("provider must not start after interrupt is consumed")
@@ -1587,10 +1581,10 @@ def test_run_exec_applies_default_watchdog_hooks(
         run_label: str,
     ) -> AgentRunResult:
         captured["options"] = options
-        return _make_argus_result(agent_messages=["ok"])
+        return _make_cli_result(agent_messages=["ok"])
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
     )
 
     backend.run_exec(
@@ -1635,10 +1629,10 @@ def test_run_exec_composes_explicit_watchdog_with_defaults(
         run_label: str,
     ) -> AgentRunResult:
         captured["options"] = options
-        return _make_argus_result(agent_messages=["ok"])
+        return _make_cli_result(agent_messages=["ok"])
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
     )
 
     backend.run_exec(
@@ -1678,13 +1672,13 @@ def test_run_exec_reports_delta_for_resumed_cumulative_thread(
         run_label: str,
     ) -> AgentRunResult:
         usage = raw_usages.pop(0)
-        return _make_argus_result(
+        return _make_cli_result(
             thread_id="thr-cumulative",
             json_events=[{"type": "turn.completed", "usage": usage}],
         )
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
     )
 
     first = backend.run_exec(
@@ -1739,7 +1733,7 @@ def test_run_exec_preserves_resumed_opencode_per_step_usage(
         run_label: str,
     ) -> AgentRunResult:
         usage = raw_usages.pop(0)
-        return _make_argus_result(
+        return _make_cli_result(
             thread_id="ses-opencode",
             json_events=[
                 {
@@ -1755,7 +1749,7 @@ def test_run_exec_preserves_resumed_opencode_per_step_usage(
         )
 
     monkeypatch.setattr(
-        backend._argus_runner.__class__, "run_exec", fake_run_exec, raising=True
+        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
     )
 
     first = backend.run_exec(
@@ -1786,7 +1780,7 @@ def test_run_exec_preserves_resumed_opencode_per_step_usage(
 
 def test_run_exec_default_watchdog_options_are_inert():
     """When the caller doesn't supply watchdog hooks the translated
-    ArgusBot options must still be valid (None providers + 0 thresholds).
+    options must still be valid (None providers + 0 thresholds).
     """
     options = RunnerOptions(model="gpt-5.4-mini")
     assert options.external_interrupt_reason_provider is None
@@ -1803,8 +1797,8 @@ def test_build_agent_cli_backend_from_env_uses_env(monkeypatch):
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BIN", raising=False)
 
     backend = build_agent_cli_backend_from_env()
-    inner = backend._argus_runner
-    # ArgusBot stores backend on the inner runner.
+    inner = backend._runner
+    # The bundled runner stores the backend name on the inner runner.
     assert inner.backend == "claude"
     assert inner.default_extra_args == ["-c", "model_profile=fast"]
     assert backend._default_watchdog_soft_idle_seconds == 120
@@ -1821,7 +1815,7 @@ def test_build_agent_cli_backend_from_env_strips_legacy_auto_max_profile(
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BIN", raising=False)
     backend = build_agent_cli_backend_from_env()
-    assert backend._argus_runner.default_extra_args == ["--trace"]
+    assert backend._runner.default_extra_args == ["--trace"]
 
 
 def test_build_agent_cli_backend_from_env_defaults(monkeypatch):
@@ -1834,8 +1828,8 @@ def test_build_agent_cli_backend_from_env_defaults(monkeypatch):
     ):
         monkeypatch.delenv(name, raising=False)
     backend = build_agent_cli_backend_from_env()
-    # ArgusBot's default is codex.
-    assert backend._argus_runner.backend == "codex"
-    assert backend._argus_runner.default_extra_args == []
+    # The bundled runner's default is codex.
+    assert backend._runner.backend == "codex"
+    assert backend._runner.default_extra_args == []
     assert backend._default_watchdog_soft_idle_seconds == 0
     assert backend._default_watchdog_hard_idle_seconds == 0

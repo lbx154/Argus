@@ -1,8 +1,8 @@
 """Sanity tests for the vendored ``agent_cli`` module.
 
-After dropping ArgusBot as an external optional dependency, argus-skill
-must be able to drive the codex/claude/copilot/opencode CLI using nothing more
-than its own wheel. These tests fail loudly if the vendored copy ever
+argus-skill drives the codex/claude/copilot/opencode CLI using nothing more
+than its own wheel — the bundled ``argus_skill.agent_cli`` package is the
+only supported runtime. These tests fail loudly if the vendored copy ever
 gets dropped or its public surface diverges from what
 ``argus_skill.adapters.agent_cli_backend`` expects.
 """
@@ -40,17 +40,18 @@ def test_vendored_runner_backend_constants() -> None:
 
 
 def test_agent_cli_backend_resolver_uses_vendored_module() -> None:
-    from argus_skill.adapters.agent_cli_backend import _import_argusbot
-    deps = _import_argusbot()
+    from argus_skill.adapters.agent_cli_backend._runtime import (
+        load_agent_cli_runtime,
+    )
+    deps = load_agent_cli_runtime()
     runner_cls = deps["AgentCliRunner"]
-    # Even if a stale top-level ``agent_cli`` happens to be on path,
-    # the resolver should prefer the vendored copy that ships with us.
+    # The resolver only ever imports the bundled copy that ships with us.
     assert runner_cls.__module__.startswith("argus_skill.agent_cli"), (
         f"expected vendored agent_cli_runner; got {runner_cls.__module__}"
     )
     for required in (
         "AgentCliRunner",
-        "ArgusRunnerOptions",
+        "CliRunnerOptions",
         "BACKEND_CLAUDE",
         "BACKEND_CODEX",
         "BACKEND_COPILOT",
