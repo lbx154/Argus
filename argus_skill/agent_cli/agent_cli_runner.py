@@ -1011,6 +1011,11 @@ class AgentCliRunner:
             command.extend(["--model", options.model])
         if options.reasoning_effort:
             command.extend(["--reasoning-effort", options.reasoning_effort])
+        if options.isolate_workdir:
+            command.extend([
+                "--no-custom-instructions",
+                "--disable-builtin-mcps",
+            ])
         if options.sandbox_mode == "read-only":
             command.extend([
                 "--available-tools", "view,rg,glob",

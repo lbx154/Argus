@@ -24,6 +24,7 @@ import logging
 import os
 import shlex
 import signal
+import shutil
 import sys
 import threading
 from collections.abc import Mapping
@@ -1037,10 +1038,7 @@ class _SkillLoopRunner(SelfReplyMixin):
             self._set_usage_context(None)
             if maintenance_checkpoint_dir is not None:
                 try:
-                    (
-                        maintenance_checkpoint_dir / "CHECKPOINT.md"
-                    ).unlink(missing_ok=True)
-                    maintenance_checkpoint_dir.rmdir()
+                    shutil.rmtree(maintenance_checkpoint_dir)
                 except OSError:
                     pass
         new_tid = getattr(outcome, "last_thread_id", None)

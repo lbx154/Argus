@@ -230,6 +230,15 @@ def isolated_workdir_command(
     for hidden_file in (home / ".git-credentials", home / ".netrc"):
         if hidden_file.is_file():
             wrapped.extend(["--ro-bind", "/dev/null", str(hidden_file)])
+    copilot_state = home / ".copilot" / "session-state"
+    if copilot_state.is_dir():
+        private_state = (
+            Path(root)
+            / ".argus-self-maintenance-runtime"
+            / "copilot-session-state"
+        )
+        private_state.mkdir(parents=True, exist_ok=True)
+        wrapped.extend(["--bind", str(private_state), str(copilot_state)])
     return [*wrapped, "--", *command]
 
 

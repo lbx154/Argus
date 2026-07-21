@@ -252,6 +252,7 @@ def test_isolated_workdir_wraps_any_backend_and_hides_vcs_credentials(
     workdir = tmp_path / "worktree"
     (home / ".ssh").mkdir(parents=True)
     (home / ".config" / "gh").mkdir(parents=True)
+    (home / ".copilot" / "session-state").mkdir(parents=True)
     workdir.mkdir()
     monkeypatch.setattr(sandbox.Path, "home", classmethod(lambda cls: home))
     monkeypatch.setattr(sandbox.shutil, "which", lambda name: "/usr/bin/bwrap")
@@ -267,6 +268,14 @@ def test_isolated_workdir_wraps_any_backend_and_hides_vcs_credentials(
     ]
     assert str(home / ".ssh") in command
     assert str(home / ".config" / "gh") in command
+    private_state = (
+        workdir
+        / ".argus-self-maintenance-runtime"
+        / "copilot-session-state"
+    )
+    assert ["--bind", str(private_state), str(home / ".copilot" / "session-state")] == command[
+        command.index(str(private_state)) - 1 : command.index(str(private_state)) + 2
+    ]
     assert command[-2:] == ["copilot", "--version"]
 
 
@@ -291,6 +300,18 @@ def test_isolated_runner_scrubs_credentials_even_without_native_sandbox(
     assert "GH_TOKEN" not in env
     assert env["GIT_CONFIG_GLOBAL"] == os.devnull
     assert env["GH_CONFIG_DIR"] == "/tmp/argus-no-gh-auth"
+
+
+def test_isolated_copilot_disables_builtin_mcp_and_custom_instructions() -> None:
+    runner = AgentCliRunner(agent_bin="copilot", backend="copilot")
+
+    command = runner._build_copilot_command(
+        resume_thread_id=None,
+        options=RunnerOptions(isolate_workdir=True),
+    )
+
+    assert "--disable-builtin-mcps" in command
+    assert "--no-custom-instructions" in command
 
 
 # ── raw subagent-spawn helpers ───────────────────────────────────────────────
