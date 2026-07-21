@@ -16,7 +16,7 @@ and back. Nothing else in the package should touch YAML directly.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, fields
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Literal, TypeVar
 
 import yaml
@@ -130,8 +130,17 @@ def parse_frontmatter(text: str, cls: type[T]) -> T:
     for f in fields(cls):
         if "date" in str(f.type):
             val = data.get(f.name)
-            if isinstance(val, str):
-                data[f.name] = date.fromisoformat(val)
+            if isinstance(val, datetime):
+                data[f.name] = val.date()
+            elif isinstance(val, str):
+                try:
+                    data[f.name] = date.fromisoformat(val)
+                except ValueError:
+                    # Some legacy/agent-authored cards used a full ISO datetime
+                    # for fields whose canonical schema is a calendar date.
+                    data[f.name] = datetime.fromisoformat(
+                        val.replace("Z", "+00:00")
+                    ).date()
     # Back-compat: legacy cards may carry retired frontmatter keys (e.g. the
     # removed ``confidence`` field). Silently drop any key the dataclass no
     # longer declares so old entries still load instead of raising TypeError.

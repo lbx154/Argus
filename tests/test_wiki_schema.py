@@ -102,6 +102,35 @@ def test_page_card_parses_legacy_minimal_fields():
     assert parsed.reviewer_note == ""
 
 
+@pytest.mark.parametrize(
+    "timestamp",
+    [
+        "'2026-07-18T11:35:16.646+00:00'",
+        "2026-07-18T11:35:16.646+00:00",
+        "'2026-07-18T11:35:16.646Z'",
+    ],
+)
+def test_page_card_normalizes_legacy_datetime_dates(timestamp: str) -> None:
+    legacy = (
+        "---\n"
+        "id: legacy-datetime\n"
+        "type: pattern\n"
+        "status: stable\n"
+        "title: Legacy datetime card\n"
+        f"created_at: {timestamp}\n"
+        f"last_reviewed_at: {timestamp}\n"
+        "---\n\n"
+        "Body.\n"
+    )
+
+    parsed = parse_frontmatter(legacy, PageCard)
+
+    assert parsed.created_at == date(2026, 7, 18)
+    assert parsed.last_reviewed_at == date(2026, 7, 18)
+    assert type(parsed.created_at) is date
+    assert type(parsed.last_reviewed_at) is date
+
+
 def test_source_paper_roundtrip():
     src = SourcePaper(
         id="papers/2406.12345",
