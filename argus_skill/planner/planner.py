@@ -54,6 +54,7 @@ class PlannerConfig:
     skip_git_repo_check: bool = True
     full_auto: bool = False
     dangerous_yolo: bool = False
+    open_ended: bool = False
 
 
 @dataclass(frozen=True)
@@ -507,6 +508,7 @@ class Planner:
             runtime_change_summary=runtime_change_summary,
             mission=self.mission,
             meta_block=(flow.prompt_block if flow is not None else ""),
+            open_ended=cfg.open_ended,
         )
         planner_options = RunnerOptions(
             model=cfg.model,
@@ -759,6 +761,7 @@ class Planner:
         runtime_change_summary: str = "",
         mission: Any | None = None,
         meta_block: str = "",
+        open_ended: bool = False,
     ) -> str:
         cycle_line = f"This is planning cycle #{planning_cycle + 1}."
         from ..skills.harness_overlay import resolve_project_root
@@ -818,6 +821,22 @@ class Planner:
                 "leave the work resumable instead of declaring the research goal "
                 "complete. For `exploratory`, an independently verified honest "
                 "negative report may satisfy the goal.\n\n"
+            )
+
+        standing_research_block = ""
+        if open_ended and _full_paper:
+            standing_research_block = (
+                "## Standing research objective\n"
+                "A failed hypothesis, negative experiment, or rejected direction is "
+                "project memory, not a scheduling command and not completion of the "
+                "standing research goal. Read the stored result and decide for yourself "
+                "what it changes: it may call for a revised explanation, a different "
+                "mechanism, a stronger benchmark, a new framing, or no immediate action. "
+                "The host never maps a failure label to a next task. Set "
+                "`project_done=true` only after the persisted research target itself is "
+                "met and independently reviewed. Do not turn internal stop decisions, "
+                "checklist language, or workflow ceremony into the paper's story unless "
+                "they are scientifically essential.\n\n"
             )
 
         # Live search-altitude facts (NO verdict) so the planner can SEE the
@@ -1187,6 +1206,7 @@ class Planner:
             )
             + optimize_banner
             + research_target_block
+            + standing_research_block
             + format_role_context(
                 "Argus planner role skill",
                 "argus-planner-role.md",

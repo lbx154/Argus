@@ -194,17 +194,6 @@ MANIFEST_SOURCE_PREFERENCES: dict[str, tuple[str, ...]] = {
     "paper/LAYOUT_REVIEW.json": (
         "paper/main.pdf",
     ),
-    "paper/SUBMISSION_ASSURANCE.json": (
-        "paper/main.pdf",
-        "paper/FORMAT_PREFLIGHT.md",
-        "paper/ACADEMIC_LANGUAGE_REVIEW.json",
-        "paper/PAPER_INFRASTRUCTURE_REVIEW.json",
-        "paper/LAYOUT_REVIEW.json",
-        "paper/PAPER_QUALITY_CALIBRATION.json",
-    ),
-    "paper/SUBMISSION_ASSURANCE.md": (
-        "paper/SUBMISSION_ASSURANCE.json",
-    ),
     "paper/main.tex": (
         "paper/RESULTS_REPORT.md",
         "paper/CLAIM_GRAPH.json",

@@ -317,13 +317,10 @@ paper/
   PAGE_BUDGET.md
   PAPER_DRAFT_REPORT.json
   RESULTS_REPORT.md
-  CLAIM_GRAPH.json
-  EVIDENCE_GAPS.json
   ARTIFACT_MANIFEST.json
   ARTIFACT_FRESHNESS.json
   VALIDATION_PRIORITY_POLICY.json
   FIGURE_TABLE_STYLE_GUIDE.json
-  SUBMISSION_ASSURANCE.json
   ACADEMIC_LANGUAGE_REVIEW.json
   PAPER_INFRASTRUCTURE_REVIEW.json
   LAYOUT_REVIEW.json
@@ -338,14 +335,14 @@ paper/
 | --- | --- | --- |
 | 选题/grounding | `research-brief-to-experiment-plan.md`, `auto-research-pipeline.md` | `validate-grounding`, `validate-idea-provenance`, `validate-code-reuse` |
 | 实验/benchmark | `research-experiment-runner.md` | public evidence provenance, raw `experiments/**` artifacts |
-| 结果到 claim | `research-results-analysis-and-figures.md`, `claims-evidence-audit.md`, `result-to-claim.md` | `validate-claim-graph`, `RESULTS_REPORT.md`, `result_to_claim.tsv` |
+| 结果到 claim | `research-results-analysis-and-figures.md`, `claims-evidence-audit.md` | Reviewer 对照 raw results、tables/figures 和正文直接裁决 |
 | 初稿/LaTeX | `emnlp-paper-drafting.md` | `validate-paper-contract`, `validate-paper-format`, `main.tex`, `main.pdf` |
 | 格式预检 | `emnlp-format-preflight.md` | `validate-research-md-format`, `FORMAT_PREFLIGHT.md` |
 | 图表/IMAGE2 | `research-results-analysis-and-figures.md`, `paper-illustration-image2.md`, `paper-framework-figure-studio-pro.md` | `validate-image2-figures`, `validate-figure-table-style` |
 | 学术语言 | `emnlp-academic-language-review.md` | `academic_language_review --write`, `validate-academic-language-review` |
 | 基建泄漏 | `emnlp-paper-infrastructure-review.md` | `paper_infrastructure_review --write`, `validate-paper-infrastructure-review` |
 | 视觉布局 | `paper-review-revision-loop.md`, `emnlp-format-preflight.md` | `paper_layout_review --write`, `validate-layout-review` |
-| 最终提交 | `research-submission-assurance-gate.md` | `submission` stage checklist + full-pipeline `final_submission` 认证（`SUBMISSION_ASSURANCE.json`、`validate_submission_readiness`） |
+| 最终提交 | `research-submission-assurance-gate.md`（兼容文件名，skill 名为 Final Paper Review） | Reviewer 直接阅读当前论文、PDF 和 claim-critical sources；不要求 assurance packet |
 
 ## EMNLP 论文检查（stage checklists + validator 函数）
 
@@ -380,8 +377,8 @@ repair_emnlp_contract_artifacts
 > 要重新引入某项机器校验，优先在 `stage_checklists.py` 的 checklist 里加一条，由 reviewer 验证。
 
 项目是否“EMNLP ready”由 L2 reviewer 的 `format_full_pipeline_checklist` 整链裁决决定
-（evidence、claim graph、paper contract、format、figure provenance、review、manifest、freshness、
-submission assurance 都在 checklist 里），不是看某个 validator 的返回值，也不只是看 PDF
+（真实实验、claim 支撑、paper contract、format、figure quality 和独立 review
+都在 checklist 里），不是看某个 validator 的返回值，也不只是看 PDF
 存不存在。
 
 改 validator 时注意：
@@ -565,7 +562,7 @@ pytest
 ## 常见坑
 
 - 不要把 runtime prelude、daemon 路径、Codex route、capability vault、local cache/device 写进论文正文。
-- 不要手改 review JSON、manifest、freshness、submission assurance 来制造 PASS。优先修源 artifact 后重跑生成器。
+- 不要手改 review JSON、manifest 或 freshness 来制造 PASS。优先修源 artifact 后重跑生成器。
 - 不要假设还存在 `supervisor.py` 里的 EMNLP issue-code 分组 / `_select_emnlp_finalization_repair_task`：它们已删除，完成判定走 L2 reviewer 的 full-pipeline checklist 认证。
 - 不要只在 built-in skill 文案里改规则，却忘了 reviewer 的 stage checklist（底层 `validate_*` 函数）仍然会判红。
 - 不要只让单个 stage 的 paper-contract 检查过就说 EMNLP ready；最终看 `format_full_pipeline_checklist` 的整链裁决。

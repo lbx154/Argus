@@ -90,10 +90,9 @@ def _research_project_done_issue(
     project_root: object,
     journal_entries: list[Any],
 ) -> str:
-    """Require a current-target reviewer certification before Planner success."""
+    """Require a current-target Reviewer completion before Planner success."""
     from ...core.research_contract import (
         adapt_legacy_research_result_payload,
-        research_completion_issue,
         resolve_research_target_contract,
         resolve_research_target_set_at,
     )
@@ -120,12 +119,10 @@ def _research_project_done_issue(
             and str(extra.get("scope") or "").strip().lower() == "bounded"
         ):
             continue
-        research_result = adapt_legacy_research_result_payload(extra)
-        if not research_completion_issue(
-            research_result,
-            research_target_level=target_level,
-            scope=str(extra.get("scope") or "") if isinstance(extra, dict) else "",
-        ):
+        # ``mission_complete`` already means the independent Reviewer returned
+        # done. Keep the structured result for Planner memory, but do not let the
+        # harness reinterpret scientific labels into a second verdict.
+        if adapt_legacy_research_result_payload(extra) is not None:
             return ""
     return f"missing_{target_level}_reviewer_certification"
 
@@ -448,12 +445,42 @@ class PlanningCycleMixin:
         artifact_root = self._artifact_root()
         persisted = _vsel._persisted_vertical(artifact_root)
         if persisted is not None:
-            # A read is sufficient: rewriting the whole pipeline state here can
-            # race a Manager target/stage commit and restore stale fields.
+            from ...core.research_contract import resolve_research_target_level
+            from ...verticals._base import (
+                load_vertical,
+                vertical_research_target_levels,
+            )
+
+            supported_levels = vertical_research_target_levels(
+                load_vertical(persisted, project_root=artifact_root)
+            )
+            target_missing = (
+                bool(supported_levels)
+                and resolve_research_target_level(artifact_root) is None
+            )
+            if target_missing and self.config.continuous_objective:
+                # Legacy research campaigns predate the target field. At this clean
+                # planning boundary, ask the Manager once and persist its judgment;
+                # never infer the target from objective keywords.
+                from ...manager import Manager
+
+                mgr = Manager(project_root=artifact_root, runner=self.planner_runner)
+                target = mgr._decide_research_target(
+                    self.config.continuous_objective,
+                    root_task_id=None,
+                    supported_levels=supported_levels,
+                )
+                _vsel.persist_vertical(
+                    artifact_root,
+                    persisted,
+                    research_target_level=target,
+                )
             self._emit({
                 "type": "life.vertical.resolved",
                 "vertical": persisted,
-                "profile_hint": "persisted",
+                "profile_hint": (
+                    "persisted-target-restored" if target_missing else "persisted"
+                ),
                 "agent_layer": "planner",
             })
             return
@@ -950,23 +977,19 @@ class PlanningCycleMixin:
                     TaskSpec(
                         title="Prove final submission readiness",
                         objective=(
-                            "Project-final task. Scope: final_submission. "
-                            "Complete and verify every item on the full research "
-                            "pipeline checklist (research → run → analysis → draft → "
-                            "submission). The reviewer will certify completion only "
-                            "when EVERY checklist item is satisfied with concrete "
-                            "evidence (command output, file contents, query rows). "
-                            "Do not declare done based on a single stage, a pilot run, "
-                            "or an underlength draft; inspect any unmet checklist item "
-                            "and repair experiments, baselines, ablations, paper "
-                            "contract, figures, citations, manifest, or submission "
-                            "state as needed until the reviewer certifies the project."
+                            "Project-final task. Scope: final_submission. Read and "
+                            "improve the paper as a whole, then let the independent "
+                            "Reviewer judge whether the research objective and selected "
+                            "venue bar are genuinely met. Repair substantive experiment, "
+                            "analysis, claim, citation, writing, or layout weaknesses. "
+                            "Do not create an assurance memo or evidence package merely "
+                            "to certify the workflow."
                         ),
                         impact_score=5,
                         impact_area="requirement_gap",
                         evidence=(
-                            "Planner attempted project_done without an event "
-                            "certifying full-pipeline final-submission readiness."
+                            "The project has not yet received an independent final paper "
+                            "review."
                         ),
                         scope=PLANNER_SCOPE_FINAL_SUBMISSION,
                         stage_closing=True,

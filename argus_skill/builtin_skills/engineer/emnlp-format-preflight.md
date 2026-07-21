@@ -10,12 +10,12 @@ created_at: 2026-05-23T00:00:00+00:00
 EMNLP Format Preflight
 
 ## Description
-Run the dedicated formatting gate for an EMNLP/ACL paper draft. This skill owns the strict `research.md` submission-format contract before the model-backed academic-language review, vision layout review, and submission assurance gate are allowed to pass.
+Run the dedicated formatting check for an EMNLP/ACL paper draft before final paper review.
 
 ## When to use
 - `paper/main.tex` and `paper/main.pdf` exist or the draft is about to be called complete.
 - The draft has just changed figures, tables, page allocation, bibliography, appendices, title/author block, or LaTeX layout.
-- The pipeline is moving from drafting/revision into final review or submission assurance.
+- The paper is moving from drafting/revision into final review.
 
 ## Required inputs
 - `paper/main.tex`, all transitive `\input`, `\include`, `\subfile`, and BibTeX sources.

@@ -143,7 +143,6 @@ class _MemoryRunner:
         brief_path = root / "research" / "RESEARCH_BRIEF.md"
         plan_path = root / "research" / "EXPERIMENT_PLAN.md"
         claims_path = root / "research" / "CLAIMS_TO_TEST.md"
-        go_no_go_path = root / "research" / "GO_NO_GO.md"
         benchmark_path = root / "experiments" / "BENCHMARK_PROVENANCE.md"
 
         if not state_path.exists():
@@ -240,20 +239,6 @@ class _MemoryRunner:
                         "- The pipeline can produce reproducible research artifacts from an empty repo.",
                         "",
                         "Each claim should eventually be paired with a raw artifact path.",
-                        "",
-                    ]
-                ),
-            )
-        if not go_no_go_path.exists():
-            self._write_text(
-                go_no_go_path,
-                "\n".join(
-                    [
-                        "# Go / No-Go",
-                        "",
-                        "- Verdict: blocked",
-                        "- Reason: this is only the bootstrap seed; benchmark selection,",
-                        "  claim validation, and evidence collection are still pending.",
                         "",
                     ]
                 ),

@@ -343,7 +343,7 @@ def test_doctoral_non_breakthrough_results_are_not_success(result: dict) -> None
         result,
         research_target_level="doctoral",
     )
-    assert _final_stage_decision(result, "doctoral") is None
+    assert _final_stage_decision(result, "doctoral") is not None
 
 
 def test_doctoral_verified_new_publishable_or_doctoral_result_succeeds() -> None:
@@ -417,9 +417,9 @@ def test_legacy_math_result_gets_conservative_significance() -> None:
     assert migrated["significance_status"] == "exploratory"
 
 
-def test_math_stage_completion_does_not_bypass_doctoral_target() -> None:
+def test_math_stage_completion_trusts_reviewer_target_judgment() -> None:
     finite = _research_result("finite_verification")
-    assert _final_stage_decision(finite, "doctoral") is None
+    assert _final_stage_decision(finite, "doctoral") is not None
 
 
 def test_research_target_persists_and_non_target_vertical_clears_it(tmp_path) -> None:

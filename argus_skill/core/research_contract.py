@@ -97,17 +97,20 @@ def resolve_research_target_contract(
 ) -> ResearchTargetContract:
     selected = resolve_research_target_level(project_root)
     try:
-        from ..skills.vertical_select import resolve_vertical
+        from ..skills.vertical_select import resolve_checklist_vertical
         from ..verticals._base import (
             load_vertical,
             vertical_research_target_levels,
         )
 
-        module = load_vertical(
-            resolve_vertical(project_root),
-            project_root=project_root,
+        vertical = resolve_checklist_vertical(project_root)
+        supported = (
+            tuple(vertical_research_target_levels(
+                load_vertical(vertical, project_root=project_root)
+            ))
+            if vertical is not None
+            else ()
         )
-        supported = tuple(vertical_research_target_levels(module))
     except Exception:  # noqa: BLE001
         supported = RESEARCH_TARGET_LEVELS if selected is not None else ()
     return ResearchTargetContract(

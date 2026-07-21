@@ -702,32 +702,9 @@ class Reviewer:
                 "Restore the Manager-owned research target contract before "
                 "claiming project completion."
             )
-        elif research_target_level is not None and parsed.status == "done":
-            from ..core.research_contract import (
-                research_completion_issue,
-                research_pause_status,
-            )
-
-            issue = research_completion_issue(
-                parsed.research_result,
-                research_target_level=research_target_level,
-                scope=scope,
-            )
-            if issue:
-                parsed.status = research_pause_status(parsed.research_result)
-                parsed.achievement = None
-                parsed.reason = (
-                    "Research completion gate held for "
-                    f"{research_target_level} target: {issue}. {parsed.reason}"
-                )[:5000]
-                parsed.next_action = (
-                    "Preserve this cycle's evidence and resume or re-plan toward "
-                    "a structured result whose correctness, novelty, and significance "
-                    "satisfy the persisted research target "
-                    f"({research_target_level}; {issue})."
-                )[:1500]
         # The L2 reviewer's verdict is authoritative — the harness must not
-        # second-guess it with keyword heuristics on the engineer's summary.
+        # second-guess its scientific judgment from structured result labels or
+        # keyword heuristics on the engineer's summary.
         # If a generic role-acknowledgment turn slips through, that is a
         # reviewer-prompt concern (the reviewer is told to demand concrete
         # evidence and verify when it is missing/contradictory), not a harness
@@ -1087,11 +1064,7 @@ class Reviewer:
             engineer_call_id=engineer_call_id,
             round_index=round_index,
             measured=_measured,
-            compact=not (
-                is_final_submission
-                or stage in {"review", "submission"}
-                or bool((main_error or "").strip())
-            ),
+            compact=not bool((main_error or "").strip()),
         )
         # Final-submission completion contract. This block replaces the
         # retired hardcoded EMNLP validators: instead of the supervisor
@@ -1101,12 +1074,13 @@ class Reviewer:
         final_submission_block = ""
         if is_final_submission:
             final_submission_block = (
-                "## FINAL SUBMISSION CONTRACT (scope = final_submission)\n"
-                "Set scope accordingly and return one evidenced checklist entry per "
-                "full-pipeline item. `done` requires every item satisfied plus an "
-                "Accept peer-review judgment with Overall >= 6; otherwise return "
-                "`continue` with all blockers and repairs. Trust complete, consistent "
-                "shown evidence; independently check only missing or doubtful claims.\n\n"
+                "## Final paper review\n"
+                "Read the current manuscript, rendered PDF, and claim-critical sources "
+                "as an independent venue reviewer. Use `done` only when the research "
+                "objective and selected venue bar are genuinely met; otherwise return "
+                "`continue` with the few highest-leverage scientific or writing changes. "
+                "Do not require or manufacture an assurance memo, reviewer-question "
+                "bundle, or other certification packet.\n\n"
             )
         if not _full_paper:
             # non-paper vertical: no paper stages to roll back to, and no

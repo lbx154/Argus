@@ -71,7 +71,6 @@ _RESEARCH_BOOTSTRAP_ARTIFACTS = (
     "research/RESEARCH_BRIEF.md",
     "research/EXPERIMENT_PLAN.md",
     "research/CLAIMS_TO_TEST.md",
-    "research/GO_NO_GO.md",
     "experiments/BENCHMARK_PROVENANCE.md",
 )
 

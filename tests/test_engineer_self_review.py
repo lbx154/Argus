@@ -380,7 +380,7 @@ def test_selective_post_task_learning_does_not_force_maintenance(tmp_path: Path)
     engineer_prompt = next(
         prompt for label, prompt, _options in backend.history if label == "engineer-r1"
     )
-    assert "Selective self-evolution" in engineer_prompt
+    assert "Durable learning" in engineer_prompt
     assert "skill_action=none" in engineer_prompt
     assert "inspect about 12 relevant files" in engineer_prompt
     assert "at most 3 focused verification commands" in engineer_prompt

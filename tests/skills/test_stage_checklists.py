@@ -157,7 +157,7 @@ def test_stage_checklist_completeness() -> None:
 
     research_ids = {item.id for item in STAGE_CHECKLISTS["research"]}
     assert "research.literature" in research_ids
-    assert "research.go_no_go" in research_ids
+    assert "research.thesis" in research_ids
 
     run_ids = {item.id for item in STAGE_CHECKLISTS["run"]}
     assert "run.matrix" in run_ids

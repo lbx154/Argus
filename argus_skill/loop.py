@@ -1709,9 +1709,10 @@ class SkillLoop:
             "Ignore `.autors` unless retaining durable learning."
         )
         sections.append(
-            "## Required output\n"
-            "End with `## Verification (verbatim)` containing command "
-            "output in a fenced block, then `## Summary` (at most 8 bullets).\n\n"
+            "## Handoff\n"
+            "End with a short, natural account of what changed and the decisive "
+            "check or observation. Do not recite a checklist or build an evidence "
+            "packet; include only details the next researcher needs.\n\n"
             + (
                 "Use `review=skip` only for low-risk bounded work with a passing "
                 "verifier. Require review for failures, risky cross-module changes, "
@@ -1747,7 +1748,7 @@ class SkillLoop:
             )
         elif require_post_task_learning:
             sections.append(
-                "## Selective self-evolution\n"
+                "## Durable learning\n"
                 "Use `skill_action=create|update` only for a verified durable mechanism "
                 "that changes future work; otherwise use `skill_action=none`. Write a "
                 "wiki note only for similarly durable project knowledge."
@@ -1762,8 +1763,9 @@ class SkillLoop:
             "and the Reviewer guidance below. Do not repeat an unchanged failing "
             "command; reduce it to the cheapest decisive diagnostic. The original "
             "task, active vertical, and repository instructions remain binding.\n\n"
-            "## Required output\n"
-            "End with a concise Verification and Summary, then the exact final line:\n"
+            "## Handoff\n"
+            "End with a concise natural summary and decisive check, then the exact "
+            "final control line:\n"
             'ARGUS_ENGINEER_DECISION: {"review":"skip|required",'
             '"reason":"<brief>","verification":"<result>",'
             '"skill_action":"none","skill_name":"",'

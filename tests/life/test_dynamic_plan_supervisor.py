@@ -719,7 +719,7 @@ def test_backlog_metadata_discloses_context_references_not_payloads(tmp_path) ->
 
     assert "plan-b v2" in rendered
     assert "node_key: discover" in rendered
-    assert "decisive_acceptance_check" in rendered
+    assert "what_good_looks_like" in rendered
     assert "research/replacement.json records a reviewed decision" in rendered
     assert "do not rerun the obsolete route" in rendered
     assert "Open only as needed" in rendered

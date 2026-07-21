@@ -517,7 +517,7 @@ def test_quant_full_pipeline_checklist_is_finance_not_paper(tmp_path: Path) -> N
     for stage in QUANT_STAGES:
         assert f"### {stage}\n" in text
     assert "research.hypotheses" in text
-    assert "research.go_no_go" in text
+    assert "research.hypothesis_priors" in text
     assert "economic" in text  # economic-mechanism mandate
     assert "search ledger" in text  # search-breadth discipline
     # It is a REPORT vertical (full_paper gate) -> keeps the submission-gate

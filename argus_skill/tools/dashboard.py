@@ -713,11 +713,11 @@ _STAGE_ARTIFACTS: dict[str, list[str]] = {
                   "experiments/MATRIX.json", "bench/README.md"],
     "run": ["benchmarks/evidence/*/summary.tsv", "experiments/runs/", "research/BASELINE_REPRODUCTION.md"],
     "analysis": ["paper/RESULTS_REPORT.md", "paper/artifacts/results_table.tsv",
-                 "paper/CLAIMS_EVIDENCE_AUDIT.tsv", "paper/LIT_BASELINES.tsv", "paper/figures/"],
+                 "paper/LIT_BASELINES.tsv", "paper/figures/"],
     "draft": ["paper/main.tex", "paper/main.pdf", "paper/figures/"],
     "review": ["paper/REVIEW_REPORT.md", "paper/LAYOUT_REVIEW.json",
                "paper/ACADEMIC_LANGUAGE_REVIEW.json", "paper/FORMAT_PREFLIGHT.md"],
-    "submission": ["paper/SUBMISSION_ASSURANCE.md", "paper/SUBMISSION_ASSURANCE.json", "paper/main.pdf"],
+    "submission": ["paper/main.pdf", "paper/references.bib", "paper/supplementary/"],
     # speedrun vertical
     "setup": ["mission/SETUP.md", "research/GROUND_TRUTH.md", "reference/results/val_bpb.csv"],
     "optimize": ["attempts/*/CHANGES.md", "attempts/*/train.py"],

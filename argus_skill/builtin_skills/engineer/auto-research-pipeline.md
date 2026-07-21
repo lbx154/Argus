@@ -163,12 +163,11 @@ certifies an independently defensible publication thesis.
 - Build `research/LITERATURE_GROUNDING.json` around claim coverage: nearest
   competitors, foundations, contradictions, negative evidence, and open
   frontier.
-- Write `research/RESEARCH_BRIEF.md`, `research/IDEA_REJECTION_LOG.md`, and
-  `research/GO_NO_GO.md`.
+- Write `research/RESEARCH_BRIEF.md` and preserve rejected ideas with their real
+  observations in the existing project history.
 - Run the cheapest faithful falsification or characterization probe of the
   binding premise.
-- Negative-result directions are locked only when the expected finding would be
-  independently valuable and distinguishable from implementation weakness.
+- Store the probe without a routing verdict; the Planner decides what it changes.
 
 ### 2. Plan
 
@@ -226,10 +225,10 @@ certifies an independently defensible publication thesis.
 
 ### 8. Submission
 
-- Build `paper/SUBMISSION_ASSURANCE.json`.
 - Verify the selected venue deadline/profile is current and the package obeys
   its official rules.
-- Require full-pipeline L2 Reviewer certification before declaring completion.
+- Ask the L2 Reviewer to read the current paper and claim-critical sources
+  directly before declaring completion. Do not build an assurance packet.
 
 ## Response shape
 

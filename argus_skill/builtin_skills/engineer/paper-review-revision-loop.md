@@ -1,119 +1,50 @@
 ---
 name: Paper Review Revision Loop
-description: Review and revise a paper draft against EMNLP-style criteria, applying concrete fixes and rechecking claims, academic language, figures, layout, and compile status.
+description: Review and revise a paper from the reader's perspective, prioritizing scientific argument, natural prose, and the rendered paper over review paperwork.
 category: paper-review
-version: 1
-created_at: 2026-05-23T00:00:00+00:00
+version: 2
+created_at: 2026-07-21T00:00:00+00:00
 ---
 
-## Title
-Paper Review Revision Loop
-
-## Description
-Improve an existing paper draft using an external-review mindset. This adapts ARIS auto-paper-improvement-loop, paper-claim-audit, and MIT-licensed `AI-Research-SKILLs` narrative/rigor review concepts into argus-skill's reviewer-gated loop: find critical weaknesses, patch the paper, recompile, and keep an audit trail.
+# Paper Review Revision Loop
 
 ## When to use
-- `paper/main.tex` or a manuscript draft exists.
-- The operator asks to improve, review, polish, or make the paper EMNLP-ready.
-- Reviewer feedback, paper draft reports, or known weaknesses need to be converted into edits.
 
-## When NOT to use
-- No paper draft exists; use the paper drafting skill first.
-- The task requires new experiments before any writing fix is meaningful; run experiments first or create a benchmark mission.
-- The operator asks for purely stylistic copyediting with no technical review.
+Use when `paper/main.tex` exists and the paper needs scientific review, prose
+revision, or layout repair.
 
-## How to solve
-1. Snapshot the current draft:
-   - Copy or record the current `paper/main.tex`, section files, figures, and compile status.
-   - Do not overwrite prior submission directories.
-   - If `paper/SUBMISSION_ASSURANCE.md` or `paper/SUBMISSION_ASSURANCE.json` exists, treat it as the primary blocker list and revise against it before lower-priority polish.
+## Review like a real reader
 
-2. Review like an EMNLP reviewer:
-   - Check problem motivation, novelty framing, method clarity, experimental validity, comparison fairness, reproducibility, limitations, and ethics.
-   - Check claim/evidence alignment before style.
-   - Check academic story quality: concrete problem gap, What/Why/So-What contribution, methodological related work, evidence-backed abstract, calibrated tone, and non-boilerplate opening.
-   - Check scenario closure: the title, abstract, Introduction, Method, Results lead, and Conclusion should revolve around one concrete pain point and selected scenario. If the method is not broadly strongest, revise toward a supported scenario-specific contribution, trade-off, diagnostic boundary, or operational benefit rather than a self-defeating "our method is bad" narrative. Preserve adverse comparisons that were actually run, but do not make them the paper's only thesis.
-   - Reject validator-shaped abstracts: no result-first numeric opening, appendix/figure/table references, raw artifact paths, evidence-span quotes, review-gate vocabulary, or long defensive caveat strings in the abstract.
-   - Check the `research.md` formatting contract before cosmetic polishing: official ACL/EMNLP review template, anonymous author block (`Anonymous EMNLP Submission`), conclusion by page 8 without a forced manual break immediately before it, References/Appendix starting on page 9 or later with no total-page cap after the body, Limitations and Ethical Considerations after the conclusion, References before Appendix, complete reproducibility appendix, no unresolved refs/citations, no `[?]`, no `% UNVERIFIED` bibliography entries, no placeholders, and no `Overfull \hbox > 5pt`.
-   - Check figure/table constraints: every figure labeled and referenced, every table caption has a numerical headline, the middle-body visual rhythm passes the model-backed layout review, at least one paired-significance table when comparisons are reported, <=5 body figures, only one `figure*`, no square `1024x1024` conceptual figure, and no code-like/snake_case labels in paper-facing visuals.
-   - If the paper is short, weirdly sparse, or References start before page 9, do not treat it as a prose-polish task until evidence sufficiency is checked. Inspect the full-scale experiment-evidence requirement, `paper/EVIDENCE_GAPS.json`, `paper/CLAIM_GRAPH.json`, and raw result logs. If missing evidence is addressable, send the next repair to experiments/analysis, not layout.
-   - Rank weaknesses as critical, major, or minor.
+1. Read the title, abstract, introduction, main result, limitations, and conclusion
+   straight through before opening process artifacts.
+2. Identify the strongest accept argument and the few issues most likely to cause
+   rejection: weak insight, unclear mechanism, unfair comparison, unsupported
+   claim, missing uncertainty, poor positioning, or unreadable presentation.
+3. Check disputed claims against raw results and primary literature. Do not rerun
+   settled checks or create a reviewer-question inventory by default.
+4. Rewrite paragraphs as prose, not as validator responses:
+   - lead with the concrete problem and insight;
+   - name the method, setting, comparator, and result where useful;
+   - vary sentence structure naturally;
+   - remove generic openings, repeated "not X but Y" constructions, compliance
+     language, local paths, role names, and defensive caveat chains;
+   - keep honest limitations without making process failure the paper's identity.
+5. Fix figures and tables from the rendered PDF. One targeted aesthetic repair is
+   enough unless a visible defect remains.
+6. Compile and inspect the current PDF after meaningful source changes.
 
-3. Write `paper/REVIEW_REPORT.md`:
-   - Score estimate if useful.
-   - Top weaknesses and exact minimum fixes.
-   - Any missing evidence or citations.
-   - Any claims that should be softened or removed.
+Model-backed language, infrastructure, and layout tools are optional second
+opinions. Run one when the Reviewer has a concrete doubt; fix the manuscript rather
+than editing generated review JSON.
 
-3a. Write `paper/REVIEWER_QUESTIONS.json` (BLOCKING — `reviewer_simulation` structural gate at review/submission stages will reject the round if this is missing, has <10 questions, has any question whose `addressed_in_section` is empty, or is older than `paper/main.tex`):
+## Stop or route back
 
-   ```json
-   {
-     "schema_version": 1,
-     "generated_at": "<UTC ISO timestamp>",
-     "questions": [
-       {
-         "id": "Q1",
-         "question": "Why is the baseline only random-prompt, not SOTA?",
-         "severity": "critical",
-         "addressed_in_section": "5.2 Baselines",
-         "addressed_evidence": "Table 3 shows SOTA reproduction at row 4."
-       }
-     ]
-   }
-   ```
+- If the argument lacks evidence, return to experiments or analysis.
+- If the evidence does not support a worthwhile thesis, return to research/plan.
+- If the paper is sound, stop polishing minor preferences.
 
-   - At least 10 questions. Channel the hostile reviewer from `kill-argument.md` — ask the things an EMNLP reviewer 2 in a bad mood would ask.
-   - `severity` must be one of `critical`, `major`, `minor`.
-   - Every question must have a non-empty `addressed_in_section` pointing to where the paper now answers it (or `limitations` / `appendix B` if the answer is "we punt"). An unaddressed question = a reviewer-facing blocker.
-   - Regenerate this file after every prose-changing edit; otherwise the freshness check (`mtime(REVIEWER_QUESTIONS.json) >= mtime(paper/main.tex)`) fails.
+## Handoff
 
-4. Apply fixes:
-   - Fix critical claim/evidence issues first.
-   - Prefer conservative language over unsupported expansion.
-   - Update captions, limitations, experiment setup, and result interpretation.
-   - Reframe weak or losing comparative results around the supported scenario and method contribution when evidence permits. Do not hide reported comparisons, and do not claim superiority contradicted by the table; instead make the comparison boundary part of the problem setting, analysis, or scope discussion.
-   - Do not add new numeric claims unless a local artifact supports them.
-   - If `paper/ACADEMIC_LANGUAGE_REVIEW.json` exists and fails, treat its `revision_directives` as concrete prose tasks before layout polish. Allowed language fixes include rewriting the abstract/introduction, tightening the thesis sentence, replacing generic openings, reorganizing related work, adding evidence-aligned takeaway sentences, softening unsupported claims, adding limitation scope, and replacing raw code identifiers in body prose. Evidence alignment should be checked through artifacts and comments outside the abstract, not by stuffing audit text into the abstract.
-   - If the same academic-language blocker repeats after multiple edits (`unsupported headline claim`, `not isolated by ablations`, `missing quantified evidence claim`, or `hype/superlative language`), do not keep making local adjective edits. Apply a claim-scope reset: rewrite the title/abstract/opening/conclusion around one exact end-to-end measured comparison, include method, comparator, task slice, sample size, metric, and value in a single reader-facing sentence, and move any unisolated mechanism explanation to analysis or limitations.
-   - If `paper/PAPER_INFRASTRUCTURE_REVIEW.json` exists and fails, treat its model issue spans as concrete manuscript tasks before layout polish. Remove local device IDs, CUDA variables, cache paths, local filesystem paths, Argus/Codex daemon details, engineer/reviewer routes, validation artifacts, and paper-generation configuration from rendered prose. Rewrite those passages as paper-facing system, benchmark, evaluated model/backend, metric, and budget facts; keep local configuration in manifests/logs.
-   - If `paper/LAYOUT_REVIEW.json` exists and fails, treat its `revision_directives` as concrete layout tasks. Allowed layout fixes include splitting/merging/moving tables, shortening low-value sections, deleting filler, resizing/regenerating figures, rebalancing columns, fixing overfull boxes, and replacing code-like labels with human-readable paper labels. For one table cluster, pick one dominant action in the current pass: merge low-density redundant appendix tables or split an unreadably dense table, but do not alternate merge/split micro-edits on the same target. After Conclusion is on/before page 8 and References/Appendix begin on page 9 or later, do not fill the final appendix/reference page just to remove natural trailing whitespace; revise only concrete readability/content defects named by the reviewer.
-   - For table fixes, prefer the `research.md` table tokens before shrinking content unreadably: `\footnotesize`, `\tabcolsep=3-4pt`, `\arraystretch=1.15`, light-gray header, soft peach "ours" row, alternating row tint, and split/appendix relocation when the table still causes overflow.
-   - Judge figure fixes from the actual rendered PDF. Pass readable, coherent, factually correct, good-looking-enough figures. Request at most one targeted aesthetic repair; further regeneration requires a concrete remaining defect. Optional `FIGURE_PROVENANCE.json` may help locate source but is not a blocker.
-   - For non-overview figure fixes, keep conceptual figures adaptive/landscape page-width assets, preferably `1536x1024 or 1920x1088` (dimensions divisible by 16 for the image route), with clean Figma-style rounded cards, readable labels, and no decorative gradients, photorealism, sketchy/weird fonts, or square `1024x1024` canvas.
-
-5. Recheck artifacts:
-   - Run claim/evidence audit steps.
-   - Re-run each figure through its recorded renderer when its source/data/spec or review-relevant output changes. Do not regenerate an accepted image merely to refresh metadata unless the original proof is missing.
-   - Re-run benchmark or analysis work when page/body failures are caused by missing evidence: finish full-scale runs, add missing baselines, run ablations/sensitivity slices, produce failure taxonomy/error analysis, or generate public-validation/robustness tables before rewriting prose.
-   - Compile the paper when LaTeX is available.
-   - Invoke the EMNLP Format Preflight skill and self-audit the paper-format and `research.md` format-preflight requirements after any LaTeX, figure, table, bibliography, or appendix-order edit; do not continue to assurance while it reports unresolved refs/citations, appendix-before-references ordering, placeholders, code-like display labels, missing figure/table constraints, or `Overfull \hbox > 5pt`.
-   - After every prose-changing edit, run `python -m argus_skill.verticals.research.academic_language_review --project-root . --review-mode model --write` and self-audit the academic-language review thresholds.
-   - After changing Method, Experimental Setup, captions, tables, appendix, or any configuration prose, run `python -m argus_skill.verticals.research.paper_infrastructure_review --project-root . --review-mode model --write` and self-audit the paper-infrastructure review thresholds (leak_free, score).
-   - After every layout-affecting edit, run `python -m argus_skill.verticals.research.paper_layout_review --project-root . --review-mode vision --write` and self-audit the layout review thresholds.
-   - Review JSON, markdown, page snapshots, and history files are read-only feedback except when regenerated by their owning tool commands. Do not hand-edit, normalize, or append `PASS` records for `paper/ACADEMIC_LANGUAGE_REVIEW.*`, `paper/PAPER_INFRASTRUCTURE_REVIEW.*`, or `paper/LAYOUT_REVIEW.*`; if nested model/vision review evidence still has revise, leaks, major/blocking issues, failed checks, low scores, or revision directives, patch the paper/PDF and rerun the owning review tool.
-
-6. Iterate within the mission:
-   - If compile fails, fix compile errors before declaring progress.
-   - If the same `pytest` test, validator issue, or review-span lookup fails twice after edits, switch to repeated-failure mode before making another patch. Read the full traceback/assertion, record expected versus actual values, and identify whether the authoritative source is the generator, raw artifact, generated review, or synthetic fixture.
-   - In repeated-failure mode, do not keep broadening fallback strings or rewriting nearby prose based on guesses. If a synthetic test fixture is the failing surface, align the fixture with the generator's real canonical sentence or explicit test data; if production logic is wrong, patch the production source once and add a narrow regression assertion.
-   - If academic-language review scores below 4/5, has blocking issues, fails a required check, or sets `needs_revision: true`, keep revising prose/claims/related work before layout-only work.
-   - If two academic-language rounds do not improve or keep returning style hard-gates such as `salesy_novel_language`, `calibrated_no_hype=false`, repeated score restatements, contrastive templates, or placeholder labels such as "proposed method", enter the low-score academic-language loop. Do not keep lexical search-and-replace, adjective stripping, or repeated one-sentence patches. Read the complete review JSON, then rewrite the affected paragraph set as prose: abstract, contribution setup, metrics, main-results lead, analysis/failure lead, limitations, and conclusion.
-   - The low-score academic-language loop must protect paper substance. Track `PAPER_DRAFT_REPORT.main_content_pages` or the page-budget artifact before and after prose trimming; preserve 7.5--8 main-content pages and do not let References move into the body. If wording cleanup makes the paper short, add source-backed method/evaluation/failure-analysis content rather than filler or oversized floats. If the body is already over 8 pages or Conclusion has moved after page 8, switch to page-map reflow first: compress repeated paragraphs/tables and move appendix-like material after References without cutting the abstract, Introduction, Method, or Setup substance the reviewer still needs.
-   - If page-count, shallow-section, or prose-quality blockers repeat twice (`rendered_main_body_underfilled`, `abstract_too_short`, `thin_introduction_depth_signal`, `introduction_missing_literature_hooks`, `introduction_missing_quantified_result_preview`, `method_section_too_short`, `experimental_setup_too_short`, `unsupported_result_ratio`, `method_result_number_mismatch`, low academic-language score), stop local add/delete oscillation. Run a section-depth and evidence audit first: check whether the paper has 3 executed real benchmark sources, paper-facing model/backend and configuration facts, cited Introduction framing, and enough ablation/failure analysis. Missing evidence routes to benchmark execution; present evidence with thin prose routes to a full abstract/Introduction/Method/Setup rewrite. Do not trim cited problem framing or method/setup facts to solve later overlength unless the paper already exceeds the evidence-backed page budget.
-   - When removing template language, keep normal scientific readability. Prefer one concrete method name, one task-slice/comparator/result sentence, and table-driven numeric detail over repeated score narration. The goal is a readable paper, not a dry validator worksheet.
-   - If layout review scores below 4/5, has blocking issues, or sets `needs_revision: true`, keep revising layout/content/figures/tables before any assurance PASS.
-   - Stop after three non-improving academic-language rounds only after one claim-scope reset has been attempted. If the reset has not been attempted, do it first, rebuild, and rerun the model-backed academic-language review.
-   - Stop after three non-improving layout rounds and mark the revision `blocked` with the remaining `paper/LAYOUT_REVIEW.json` directives; do not self-assign a prettier score.
-   - If the reviewer would still reject for an addressable issue, continue with concrete patches.
-   - If more evidence is required, write a follow-up benchmark objective instead of inventing text.
-
-7. Update `paper/PAPER_REVISION_LOG.md`:
-   - Round summary, files edited, compile/test output, remaining blockers.
-   - Include raw verification output for compile, academic-language review score, academic-language review thresholds, paper infrastructure review result, paper-infrastructure review thresholds, layout review score, layout review thresholds, and any analysis scripts.
-   - Update `research/PIPELINE_STATE.json` with `revision` status and the next assurance action.
-
-## Response shape
-- Summarize the meaningful paper changes and remaining blockers.
-- Include exact verification commands and outputs.
-- If the draft is not submission-ready, say why plainly and name the next mission.
+Describe the meaningful revision and any remaining reject-level issue naturally.
+Do not generate `REVIEWER_QUESTIONS.json`, `PAPER_REVISION_LOG.md`, or an assurance
+packet solely to prove that review occurred.

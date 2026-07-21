@@ -21,6 +21,8 @@ from __future__ import annotations
 
 from ...skills.stage_checklists import CANONICAL_STAGE_ORDER, STAGE_CHECKLISTS
 
+RESEARCH_TARGET_LEVELS = ("exploratory", "publishable", "doctoral")
+
 STAGE_ORDER = [
     "research", "plan", "benchmark", "run",
     "analysis", "draft", "review", "submission",
@@ -93,8 +95,6 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     ],
     "review": [
         _PIPELINE_CHECK,
-        ("Layout review present", "test -f paper/LAYOUT_REVIEW.json"),
-        ("Academic-language review present", "test -f paper/ACADEMIC_LANGUAGE_REVIEW.json"),
     ],
     "submission": [
         _PIPELINE_CHECK,
@@ -387,11 +387,10 @@ _FRONTIERS_SLEEP_STAGE_OVERRIDES: dict[str, tuple[str, str, list[str]]] = {
         "reviewer/academic-paper-peer-review-benchmark.md",
         "FINAL submission gate — be STRICT, evaluate as an actual Frontiers in Sleep reviewer.\n"
         "All must pass: article-type fit; one central testable thesis with a stated conceptual insight that the article is organized around; testable theoretical contribution; honest claim-evidence alignment (scope claims to the supported evidence, report null or uncertain findings without spin, keep planned and executed evidence distinct, and hide no evidence that was produced); international-standard English; Frontiers Harvard source/PDF; main text ≤12,000 words with no fixed page quota; single spacing; page and line numbers; real single-anonymized author metadata; ethics/funding/conflict/CRediT/data/AI declarations; reviewed figures with alt text; reproducibility of any original analysis; and explicit operator approval for submission/APC exposure.\n"
-        "An explicitly proposed study may remain unimplemented for a Hypothesis and Theory article, but its implementation status and every planning value must remain explicit. Do not pass until SUBMISSION_ASSURANCE.json and every upstream checklist are current and passing.",
+        "An explicitly proposed study may remain unimplemented for a Hypothesis and Theory article, but its implementation status and every planning value must remain explicit. Judge the current manuscript and source evidence directly; do not require a separate assurance packet.",
         [
             "paper/main.tex",
             "paper/main.pdf",
-            "paper/SUBMISSION_ASSURANCE.json",
             "paper/FORMAT_PREFLIGHT.md",
             "paper/artifacts/claims_evidence.tsv",
         ],

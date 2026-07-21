@@ -52,7 +52,11 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     "research": [
         _PIPELINE_CHECK,
         ("Factor hypotheses present", "test -s research/FACTOR_HYPOTHESES.json"),
-        ("GO/NO-GO decision recorded", "test -s research/GO_NO_GO.json"),
+        (
+            "Hypothesis priors recorded",
+            "test -s research/HYPOTHESIS_PRIORS.json "
+            "|| test -s research/GO_NO_GO.json",
+        ),
         ("Prior/known factors identified",
          "test -f research/PRIOR_FACTORS.tsv || test -s research/PRIOR_FACTORS.tsv"),
     ],
@@ -117,11 +121,15 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         _REPORT_REVIEW_SKILL,
         "Evaluate the FACTOR-HYPOTHESES stage (rule on intent stated BEFORE any backtest):\n"
         "1. Economic mechanism — does each hypothesis state a market/economic rationale for why it should predict future returns, with an expected sign, grounded in literature or documented market structure?\n"
-        "2. GO/NO-GO predeclared — is an explicit, dated GO/NO-GO decision and expected direction recorded per hypothesis, so a later result cannot retro-justify a factor that had no prior thesis?\n"
+        "2. Hypothesis priors — are the expected direction, rationale, and rejection conditions recorded before testing, so a later result cannot retro-justify a factor that had no prior thesis?\n"
         "3. Prior art — are overlapping/known factors (the standard factor zoo) identified up front so novelty and redundancy are understood before testing?\n"
-        "Pass: hypotheses are mechanism-grounded with a pre-committed GO/NO-GO, not result-driven fishing.",
-        ["research/FACTOR_HYPOTHESES.json", "research/GO_NO_GO.json",
-         "research/PRIOR_FACTORS.tsv"],
+        "Pass: hypotheses are mechanism-grounded with predeclared expectations, not result-driven fishing.",
+        [
+            "research/FACTOR_HYPOTHESES.json",
+            "research/HYPOTHESIS_PRIORS.json",
+            "research/GO_NO_GO.json",
+            "research/PRIOR_FACTORS.tsv",
+        ],
     ),
     "plan": (
         _REPORT_REVIEW_SKILL,
@@ -248,14 +256,13 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             evidence_hint="research/FACTOR_HYPOTHESES.json",
         ),
         ChecklistItem(
-            id="research.go_no_go",
+            id="research.hypothesis_priors",
             statement=(
-                "An explicit GO/NO-GO decision is recorded for whether each "
-                "hypothesis is worth testing, with its rationale and expected "
-                "direction fixed in advance — so a later result cannot "
+                "The rationale, expected direction, and rejection conditions for "
+                "each hypothesis are fixed before testing, so a later result cannot "
                 "retro-justify a factor that had no prior thesis."
             ),
-            evidence_hint="research/GO_NO_GO.json",
+            evidence_hint="research/HYPOTHESIS_PRIORS.json (legacy GO_NO_GO.json is readable)",
         ),
         ChecklistItem(
             id="research.prior_art",

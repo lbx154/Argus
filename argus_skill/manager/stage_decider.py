@@ -604,16 +604,10 @@ def _review_certifies_completion(
         missing_item_ids = required_item_ids - reviewed_item_ids
         if missing_item_ids:
             return "missing_required_checklist_items"
-    if research_target_level is not None:
-        from ..core.research_contract import research_completion_issue
-
-        issue = research_completion_issue(
-            getattr(review, "research_result", None),
-            research_target_level=research_target_level,
-            scope=scope or review_scope,
-        )
-        if issue:
-            return issue
+    # ``research_target_level`` is presented to the Reviewer, which owns the
+    # scientific completion judgment. The Manager checks the reviewed checklist
+    # shape here but does not reinterpret result-class labels.
+    _ = research_target_level
     return ""
 
 

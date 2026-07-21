@@ -15,7 +15,6 @@ from ...core.event_catalog import EventType
 from ...core.planner_verdict import PlannerVerdictStatus
 from ..memory import BacklogItem
 from ._constants import (
-    FULL_PAPER_GATE_DESCRIPTION,
     PLAN_AWAITING,
     PLAN_RETRY,
     PLANNER_SCOPE_BOUNDED,
@@ -186,7 +185,7 @@ class PlanningContextMixin:
         ):
             return ""
         is_paper_long_horizon = self.config.paper_mission
-        lines = ["## Backlog item metadata"]
+        lines = ["## Task context"]
         if item.plan_id:
             lines.append(f"- dynamic_plan: {item.plan_id} v{item.plan_version}")
         if item.node_key:
@@ -201,28 +200,23 @@ class PlanningContextMixin:
         if item.tags:
             lines.append("- tags: " + ", ".join(item.tags))
         if acceptance_check:
-            lines.append("- decisive_acceptance_check: " + acceptance_check)
+            lines.append("- what_good_looks_like: " + acceptance_check)
         if non_goals:
             lines.append("- non_goals:")
             lines.extend(f"  - {value}" for value in non_goals)
         if scope == PLANNER_SCOPE_FINAL_SUBMISSION:
             lines.append(
-                f"- final_submission_gate: {FULL_PAPER_GATE_DESCRIPTION} must be "
-                "fully satisfied (every checklist item certified by the reviewer "
-                "with concrete evidence) before this item can be marked done."
+                "- final_paper_review: improve the current paper and sources, then "
+                "yield to the independent Reviewer. Do not create certification "
+                "packets unless they are scientifically useful."
             )
         elif scope == PLANNER_SCOPE_BOUNDED:
             if is_paper_long_horizon:
                 lines.append(
                     "- paper_optimization_task: this is a bounded mission, but it is "
-                    "part of a long-horizon paper/submission objective. First satisfy "
-                    "the named acceptance criteria, then continue through adjacent "
-                    "paper blockers while budget allows; do not mark done only because "
-                    "one narrow check passed if the relevant stage checklist items "
-                    "(manuscript, evidence, review, layout, figure/table, citation, "
-                    "manifest, or assurance) are still unmet. Full-pipeline "
-                    "certification is required only for `final_submission`, but fresh "
-                    "concrete evidence for the items you touched is required here."
+                    "part of a long-horizon paper objective. Complete the requested "
+                    "scientific or writing increment without expanding it into "
+                    "paperwork for unrelated stages."
                 )
             else:
                 lines.append(

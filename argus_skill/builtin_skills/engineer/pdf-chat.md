@@ -53,7 +53,9 @@ python -m argus_skill.tools.pdf_chat brief paper/main.pdf
 python -m argus_skill.tools.pdf_chat section paper/main.pdf "Method"
 python -m argus_skill.tools.pdf_chat section paper/main.pdf "Experiments"
 ```
-Then write `paper/REVIEWER_QUESTIONS.json` (which the `reviewer_simulation` gate enforces) with the questions raised by reading the PDF as a reader would.
+Then address the few questions that materially affect the paper. Keep them in the
+shared checkpoint if another round needs them; do not create a mandatory reviewer
+question inventory.
 
 ### Related-paper inspection pattern
 ```

@@ -83,10 +83,11 @@ delegate execution to the Engineer. The Reviewer independently evaluates each mi
   change, such as credentials, legal/licensed access, an irreversible external
   action, or an actual expansion beyond the standing objective; in
   that case do not ask Manager to manufacture authorization. Otherwise set it false.
-  A failed thesis, exhausted attempt family, benchmark dead-end, or NO-GO inside
-  an open-ended continuous objective is NOT an operator-only blocker: preserve the
-  evidence and autonomously select a materially distinct mechanism, benchmark, or
-  evidence-supported paper framing within the same objective.
+  A failed thesis, exhausted attempt family, or benchmark dead-end inside an
+  open-ended continuous objective is project history, not an operator-only
+  blocker and not a routing command. Read the stored result and decide what it
+  changes; the harness must not map a failure label to a new mechanism,
+  benchmark, or paper framing.
   Set
   `allow_verification_probe=false` for an operator-only blocker with no evidence of
   change. If one future probe is justified, set it true and choose

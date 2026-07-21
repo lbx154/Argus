@@ -96,6 +96,7 @@ def test_audit_recipes_scope_searches_to_current_engineer_call(monkeypatch) -> N
         call_id=_CALL_ID,
         monkeypatch=monkeypatch,
         scope="final_submission",
+        main_error="suspicious execution",
     )
 
     assert f"Current engineer call id: `{_CALL_ID}`" in p
@@ -107,7 +108,12 @@ def test_audit_recipes_scope_searches_to_current_engineer_call(monkeypatch) -> N
 
 
 def test_missing_call_id_keeps_legacy_unscoped_recipes(monkeypatch) -> None:
-    p = _build(_LOG_PATH, monkeypatch=monkeypatch, scope="final_submission")
+    p = _build(
+        _LOG_PATH,
+        monkeypatch=monkeypatch,
+        scope="final_submission",
+        main_error="suspicious execution",
+    )
 
     assert "Current engineer call id:" not in p
     assert "grep -nE 'use_attach" in p
@@ -175,16 +181,16 @@ def test_measured_mode_audit_is_red_flag_only(monkeypatch) -> None:
     assert "grep recipes" not in p.lower()
 
 
-def test_final_submission_uses_full_process_audit(monkeypatch) -> None:
+def test_final_submission_uses_on_demand_process_audit(monkeypatch) -> None:
     p = _build(
         _LOG_PATH,
         monkeypatch=monkeypatch,
         measured=False,
         scope="final_submission",
     )
-    assert "RED-FLAG-ONLY" not in p
-    assert "Decide WHEN to dig" in p
-    assert "use_attach" in p
+    assert "Engineer execution log (on-demand)" in p
+    assert "Do not read or grep it routinely" in p
+    assert "use_attach" not in p
 
 
 def test_engineer_error_uses_full_process_audit(monkeypatch) -> None:

@@ -138,7 +138,12 @@ def test_doctoral_planner_done_requires_current_reviewer_certification(
         (tmp_path / "research" / "PIPELINE_STATE.json").read_text()
     )
     target_set_at = state["research_target_set_at"]
-    failure = SimpleNamespace(
+    failed_mission = SimpleNamespace(
+        kind="mission_failed",
+        ts=target_set_at + 1,
+        extra={"research_result": _certified_research_result("honest_final_report")},
+    )
+    reviewer_completed_negative = SimpleNamespace(
         kind="mission_complete",
         ts=target_set_at + 1,
         extra={"research_result": _certified_research_result("honest_final_report")},
@@ -160,13 +165,61 @@ def test_doctoral_planner_done_requires_current_reviewer_certification(
     assert _research_project_done_issue(tmp_path, []) == (
         "missing_doctoral_reviewer_certification"
     )
-    assert _research_project_done_issue(tmp_path, [failure]) == (
+    assert _research_project_done_issue(tmp_path, [failed_mission]) == (
         "missing_doctoral_reviewer_certification"
     )
     assert _research_project_done_issue(tmp_path, [bounded_breakthrough]) == (
         "missing_doctoral_reviewer_certification"
     )
-    assert _research_project_done_issue(tmp_path, [failure, breakthrough]) == ""
+    assert _research_project_done_issue(
+        tmp_path, [reviewer_completed_negative]
+    ) == ""
+    assert _research_project_done_issue(
+        tmp_path, [failed_mission, breakthrough]
+    ) == ""
+
+
+def test_research_project_done_fails_closed_without_success_bar(tmp_path) -> None:
+    persist_vertical(tmp_path, "research")
+
+    assert _research_project_done_issue(tmp_path, []) == (
+        "missing_research_target_level"
+    )
+
+
+def test_persisted_research_campaign_restores_target_via_manager(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    persist_vertical(project, "research")
+    state_path = project / "research" / "PIPELINE_STATE.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["current_stage"] = "analysis"
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    monkeypatch.setattr(
+        "argus_skill.manager.Manager._decide_research_target",
+        lambda self, task, **kwargs: "publishable",
+    )
+    memory = LifeMemory.open(tmp_path / "life")
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=_ResearchBreakthroughRunner(),
+        sink=_RecordingSink(memory.root),
+        config=LifeSupervisorConfig(
+            continuous=True,
+            continuous_objective="develop a submission-quality paper",
+            project_worktree=project,
+            artifact_root=project,
+        ),
+        planner_runner=object(),
+    )
+
+    supervisor._resolve_vertical_once()
+
+    restored = json.loads(state_path.read_text(encoding="utf-8"))
+    assert restored["research_target_level"] == "publishable"
+    assert restored["current_stage"] == "analysis"
 
 
 def test_successful_research_result_is_journaled_for_planner_gate(tmp_path) -> None:

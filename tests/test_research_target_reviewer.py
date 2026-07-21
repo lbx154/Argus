@@ -11,6 +11,7 @@ from argus_skill.core.research_contract import research_completion_issue
 from argus_skill.manager.stage_decider import final_stage_completion_decision
 from argus_skill.reviewer import RESEARCH_SCHEMA_PATH, Reviewer, ReviewerConfig
 from argus_skill.skills.vertical_select import persist_vertical
+from argus_skill.verticals._base import load_vertical, vertical_research_target_levels
 
 
 def _result(
@@ -42,6 +43,7 @@ def _schema_verdict(result: dict) -> dict:
         "failure_cause": None,
         "failure_source": None,
         "scientific_decision": "undecided",
+        "failure_layer": None,
         "progress_class": "decision",
         "control": None,
         "scope": "bounded",
@@ -113,6 +115,16 @@ def _evaluate(tmp_path: Path, target: str, result: dict, *, scope: str = ""):
     )
 
 
+def test_research_vertical_requires_an_explicit_success_bar(tmp_path: Path) -> None:
+    module = load_vertical("research", project_root=tmp_path)
+
+    assert vertical_research_target_levels(module) == (
+        "exploratory",
+        "publishable",
+        "doctoral",
+    )
+
+
 @pytest.mark.parametrize(
     "result",
     [
@@ -125,13 +137,13 @@ def _evaluate(tmp_path: Path, target: str, result: dict, *, scope: str = ""):
         _result("structured_failure_report"),
     ],
 )
-def test_doctoral_non_breakthrough_verdict_is_not_done(
+def test_harness_does_not_second_guess_reviewer_result_labels(
     tmp_path: Path,
     result: dict,
 ) -> None:
     decision = _evaluate(tmp_path, "doctoral", result)
 
-    assert decision.status != "done"
+    assert decision.status == "done"
     assert decision.research_result is not None
 
 
@@ -207,7 +219,7 @@ def test_bounded_doctoral_novelty_probe_can_complete_item(
         ("statement_fidelity_status", "failed"),
     ],
 )
-def test_bounded_item_still_requires_valid_research_evidence(
+def test_structured_result_fields_do_not_override_reviewer_verdict(
     tmp_path: Path,
     invalid_field: str,
     invalid_value: object,
@@ -221,7 +233,7 @@ def test_bounded_item_still_requires_valid_research_evidence(
 
     decision = _evaluate(tmp_path, "doctoral", result, scope="bounded")
 
-    assert decision.status != "done"
+    assert decision.status == "done"
 
 
 def test_active_schema_reaches_bounded_completion_without_missing_result(
@@ -250,7 +262,10 @@ def test_active_schema_reaches_bounded_completion_without_missing_result(
     )
 
     assert backend.options is not None
-    assert backend.options.output_schema_path == RESEARCH_SCHEMA_PATH
+    effective_schema = json.loads(
+        Path(backend.options.output_schema_path).read_text(encoding="utf-8")
+    )
+    assert effective_schema == schema
     assert "Never use `research_incomplete` solely because the whole project" in backend.prompt
     assert decision.status == "done"
     assert decision.research_result == result

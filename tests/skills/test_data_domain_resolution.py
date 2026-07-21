@@ -24,7 +24,7 @@ def test_undecided_legacy_project_keeps_research_seed(tmp_path, monkeypatch):
     body_b = sc.format_full_pipeline_checklist(role="reviewer", project_root=b)
     assert body_a == body_b
     assert "research.literature" in body_a
-    assert "submission.assurance" in body_a
+    assert "submission.readiness" in body_a
 
 
 def test_data_domain_resolves_and_seeds_first_stage(tmp_path, monkeypatch):

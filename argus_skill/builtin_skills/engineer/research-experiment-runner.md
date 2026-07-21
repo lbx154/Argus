@@ -47,8 +47,8 @@ This skill supports:
 
 ## Before execution
 
-1. Read `research/EXPERIMENT_PLAN.md`, `research/GO_NO_GO.md`, and the active
-   stage checklist.
+1. Read `research/EXPERIMENT_PLAN.md`, the research brief, and the active stage
+   checklist.
 2. Confirm the public benchmark/data source, version, split, license/access
    conditions, official metric or evaluator, and any permitted filtering.
 3. Reproduce the strongest feasible reference condition before interpreting the

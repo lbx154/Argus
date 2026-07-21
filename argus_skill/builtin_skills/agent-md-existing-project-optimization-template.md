@@ -28,7 +28,7 @@ This is an existing venue-aware AI research workspace. Improve the current
 paper package while preserving valid source, raw evidence, experiment logs,
 tests, user edits, and operator-approved decisions.
 
-The goal is a submission-quality long-paper package, not a pilot PDF, validator-shaped demo, or superficial review-file edit. Keep the artifact pipeline synchronized: research brief -> literature/source discovery -> idea provenance -> benchmark/code -> experiment runs -> result JSON/TSV -> generated tables/figures -> LaTeX -> PDF -> format preflight -> academic-language review -> visual layout review -> submission assurance.
+The goal is a submission-quality long paper, not a pilot PDF, validator-shaped demo, or superficial review-file edit. Keep the scientific chain coherent: research question -> primary literature -> benchmark/code -> experiment runs -> analysis -> tables/figures -> manuscript -> rendered PDF -> independent final paper review.
 
 ## Binding playbooks and validators
 - Read and follow the operator-provided research playbook when one is available before changing the thesis, benchmark, method name, metric, paper narrative, figure/table design, or final preflight.
@@ -42,7 +42,7 @@ The goal is a submission-quality long-paper package, not a pilot PDF, validator-
 - Final completion is certified only when the L2 reviewer returns a
   `scope: final_submission` verdict with `status: done` and concrete evidence
   covering the full pipeline and selected venue.
-- Full-scale experiment evidence is a prerequisite for analysis, narrative, drafting, assurance, and submission. The L2 reviewer must tick off the run-stage "full-scale evidence" checklist item before any of those stages are marked ready/done.
+- Full-scale experiment evidence is a prerequisite for analysis, narrative, drafting, final review, and submission. The L2 reviewer must tick off the run-stage "full-scale evidence" checklist item before any of those stages are marked ready/done.
 - Treat `missing_full_scale_experiment_run`, `incomplete_full_scale_experiment_run`, `missing_baseline_condition_run`, and `pilot_pdf_without_full_scale_evidence` as hard blockers.
 - the L2 reviewer pipeline-state checklist item, a compiled PDF, a pilot run, or a passing stale review artifact alone is not final readiness.
 
@@ -62,7 +62,7 @@ Before editing, identify and keep synchronized:
 | Benchmark/experiments | benchmark builders, run configs, raw result rows | summaries, tables, plots | manifest checks, uniqueness/leakage checks, statistical tests |
 | Paper source | LaTeX/generator/source tables | `paper/main.tex`, `paper/main.pdf`, submission copy | compile, the L2 reviewer review-stage checklist item for research.md format |
 | Figures | image-2 prompts/provenance and data plotting scripts | raster overview, data plots, figure manifest | image review, layout review, artifact manifest |
-| Reviews/assurance | current PDF/source hashes and validators | review JSON/MD, calibration, assurance | academic-language, layout, the L2 reviewer's final-submission checklist certification |
+| Review | current manuscript, PDF, raw results, and primary sources | source revisions and optional tool feedback | the L2 Reviewer's independent final paper judgment |
 
 If generated artifacts and source disagree, treat source/generator plus raw evidence as authoritative. Regenerate downstream artifacts after source changes, refresh manifests, then rerun the relevant review/validator.
 
@@ -261,7 +261,7 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 
 ## Existing research and evidence repair
 1. Preserve valid raw results and provenance, but do not preserve weak claims, stale reviews, copied text, duplicated benchmark rows, or known-invalid benchmark framing.
-2. If the current evidence is only pilot-scale, label it as pilot evidence and queue a real scale-up run; do not pad the paper or assurance files into final readiness.
+2. If the current evidence is only pilot-scale, label it as pilot evidence and queue a real scale-up run; do not pad the paper or review metadata into final readiness.
 3. A focused public source may support a narrow final claim when controls and
    uncertainty justify it; broader claims require broader public validation.
 4. Benchmark construction is not execution. `benchmarks/full/tasks.jsonl`, benchmark manifests, or `status.json task_count` do not satisfy final evidence unless raw completed scored rows under `experiments/**` cover every required method/baseline condition.
@@ -275,7 +275,7 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
    provers, or other resources only when appropriate to the research design.
 10. GPU utilization is an efficiency observation, not a universal scientific gate.
 11. Every numeric claim must remain tied to current raw artifacts under `results/`, `experiments/`, or `paper/artifacts/`.
-12. the L2 reviewer run-stage "full-scale evidence" checklist item before final analysis/drafting/assurance repair. If it fails, preserve valid raw evidence but queue the missing full-run or matrix-completion work and keep the PDF non-final.
+12. the L2 reviewer run-stage "full-scale evidence" checklist item before final analysis/drafting/review. If it fails, preserve valid raw evidence but queue the missing full-run or matrix-completion work and keep the PDF non-final.
 13. If valid evidence rejects the method-positive thesis, decide whether the
     negative, diagnostic, or boundary finding has research value. Write it
     honestly when it does; pivot only when broken, inconclusive, or not useful.
@@ -340,19 +340,13 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 7. Run `the L2 reviewer ticking off the draft-stage exemplar/structure checklist item`; URL-only exemplars and missing structure blueprints remain blockers. Final readiness additionally checks `STRUCTURE_CONFORMANCE`.
 8. Use exemplars only for structure. Do not copy prose, examples, terminology, claims, bibliography text, figure design, or sentence templates.
 
-## Final review and assurance repair
-1. After content and PDF are stable, run:
-   `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.verticals.research.academic_language_review --project-root . --review-mode model --write`
-   then confirm the L2 reviewer ticks the review-stage academic-language checklist item.
-2. After final compile, run:
-   `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.verticals.research.paper_layout_review --project-root . --review-mode vision --write`
-   then confirm the L2 reviewer ticks the review-stage layout checklist item.
-3. Academic-language and layout review scores must be at least 4/5, fresh, backed by the required model/vision mode, and have `needs_revision: false`.
-4. Write or refresh `paper/SUBMISSION_ASSURANCE.md` and `paper/SUBMISSION_ASSURANCE.json` only from current validator/review results.
-5. Review artifacts, calibration files, and readiness reports are evidence, not targets. Never hand-edit them to say PASS/ready while the underlying paper, PDF, image, evidence, or validator remains blocked.
-6. Never emit PASS/WARN/final-ready if any required validator fails. `WARN`
-   cannot launder pilot scale, stale reviews, missing provenance, or hard
-   blockers into selected-venue readiness.
+## Final paper review
+1. Read the current manuscript and rendered PDF as a venue reviewer.
+2. Check doubtful material claims against raw results or primary sources.
+3. Run language or layout tools only when they answer a concrete unresolved
+   question; their generated files are advisory.
+4. Let the L2 Reviewer decide readiness from the paper and its sources. Do not
+   write an assurance packet or optimize generated review scores.
 
 ## Telemetry and long-run visibility
 1. Long experiments must expose live progress in `progress.jsonl`, `status.json`, logs, and a run manifest.

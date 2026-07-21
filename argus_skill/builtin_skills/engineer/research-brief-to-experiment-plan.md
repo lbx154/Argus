@@ -100,18 +100,12 @@ Scale follows the claim. Do not impose universal benchmark, task, model, seed,
 duration, or effect-size counts. Every empirical paper claim needs authentic
 public evidence; synthetic diagnostics may supplement but not replace it.
 
-## 6. Decide
+## 6. Advise the Planner
 
-Write a short `research/GO_NO_GO.md`:
-
-- **go** when the thesis matters, survives de-risk, and can be tested fairly;
-- **repair** when a concrete engineering issue prevents a fair test;
-- **pivot** when the idea is testable but no longer supports a valuable thesis;
-- **blocked** only for an external dependency the team cannot resolve.
-
-A clean negative probe is evidence, but not automatically a paper direction. It
-earns publication work only if it supports a surprising, robust, independently
-valuable insight. Otherwise preserve it internally and choose a stronger idea.
+End the research brief with the current scientific case for the thesis, the
+strongest concern, and the observations that would most change the plan. Do not
+write a separate binary verdict file or turn a local probe into an automatic
+pivot. The Planner reads the stored evidence and decides the next direction.
 
 ## Minimal artifact set
 
@@ -120,7 +114,6 @@ Use existing canonical artifacts whenever possible:
 - `research/RESEARCH_BRIEF.md`;
 - `research/LITERATURE_GROUNDING.json`;
 - `research/EXPERIMENT_PLAN.md`;
-- `research/GO_NO_GO.md`;
 - benchmark/data provenance and code-reuse notes when applicable.
 
 Do not create duplicate JSON/Markdown mirrors, fixed-length style reports, or

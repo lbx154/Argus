@@ -397,6 +397,7 @@ class LifeSupervisor(
             skip_git_repo_check=True,
             full_auto=safe_mode,
             dangerous_yolo=not safe_mode,
+            open_ended=bool(getattr(self.config, "open_ended", False)),
         )
 
     def _consume_manager_blocked_rollback_before_planner(self) -> dict[str, Any] | None:

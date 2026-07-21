@@ -90,14 +90,14 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             evidence_hint="research/RESEARCH_BRIEF.md",
         ),
         ChecklistItem(
-            id="research.go_no_go",
+            id="research.thesis",
             statement=(
                 "The project states why its proposed thesis would matter to the "
                 "target community, what evidence could falsify it, and whether it is "
                 "worth the experiment budget. A paper-shaped deliverable is not itself "
                 "a reason to continue."
             ),
-            evidence_hint="research/RESEARCH_BRIEF.md and research/GO_NO_GO.md",
+            evidence_hint="research/RESEARCH_BRIEF.md and the primary sources it cites",
         ),
         ChecklistItem(
             id="research.signal_derisk",
@@ -110,8 +110,10 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "resource/stability signal; theoretical or survey work uses its own "
                 "decisive counterexample/coverage test. Prefer <=10 minutes / <=$1 "
                 "when faithful, but do not substitute a toy proxy merely to meet that "
-                "budget. Preserve commands and raw outputs. A failed necessary premise "
-                "forces pivot; a passed wiring-only smoke does not prove the thesis. "
+                "budget. Preserve commands and raw outputs. Store the outcome without "
+                "turning it into a mechanical routing decision; the Planner reads it "
+                "and decides what it changes. A passed wiring-only smoke does not prove "
+                "the thesis. "
                 "`argus_skill.skills.signal_derisk validate` is available only for "
                 "the default scalar-comparison shape and never decides quality."
             ),
@@ -329,7 +331,10 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "supporting raw evidence rows and to the figure / table that will "
                 "show it."
             ),
-            evidence_hint="paper/CLAIM_GRAPH.json + result_to_claim.tsv",
+            evidence_hint=(
+                "paper/claims_to_evidence.tsv + result tables/figures + canonical "
+                "raw outputs"
+            ),
         ),
         ChecklistItem(
             id="analysis.report",
@@ -347,7 +352,7 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "supplement, ablation, or claim downgrade — no missing evidence "
                 "is silently absorbed."
             ),
-            evidence_hint="paper/EVIDENCE_GAPS.json",
+            evidence_hint="paper/main.tex limitations + Reviewer notes + raw results",
         ),
         ChecklistItem(
             id="analysis.thesis",
@@ -360,7 +365,7 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "the main narrative. If the original method claim failed and no "
                 "standalone insight remains, return to research/plan instead of drafting."
             ),
-            evidence_hint="research/NARRATIVE_REPORT.md + paper/CLAIM_GRAPH.json + raw evidence inventory",
+            evidence_hint="paper/main.tex + canonical raw evidence + Reviewer judgment",
         ),
     ),
     "draft": _checklist(
@@ -490,13 +495,13 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             evidence_hint="research/PIPELINE_STATE.json shows every stage status=done",
         ),
         ChecklistItem(
-            id="submission.assurance",
+            id="submission.readiness",
             statement=(
-                "Submission assurance memo states explicit PASS / BLOCKED with "
-                "named blockers and is current against paper/main.tex and the "
-                "latest results."
+                "The independent Reviewer has read the current manuscript and its "
+                "claim-critical sources and judges the paper ready for the selected "
+                "venue. No separate assurance memo or evidence package is required."
             ),
-            evidence_hint="paper/SUBMISSION_ASSURANCE.md and .json",
+            evidence_hint="paper/main.tex + paper/main.pdf + canonical results and sources",
         ),
         ChecklistItem(
             id="submission.package",
@@ -1421,14 +1426,17 @@ def format_stage_checklist(
         f"{framing}\n\n"
         f"{_render_items(items, annotations)}"
     )
-    if stage_norm in VENUE_DEPENDENT_STAGES:
+    if (
+        stage_norm in VENUE_DEPENDENT_STAGES
+        and _full_pipeline_requires_venue(project_root)
+    ):
         try:
             body = _apply_venue_to_checklist_body(
                 body, _resolve_checklist_venue(project_root)
             )
         except KeyError as exc:
-            body = _unresolved_venue_checklist(
-                f"## Stage checklist ({stage_norm})",
+            body += "\n\n" + _unresolved_venue_checklist(
+                "## Venue selection",
                 role=role_norm,
                 error=exc,
             )
@@ -1486,7 +1494,7 @@ def _full_pipeline_requires_venue(project_root) -> bool:
 
         vertical = resolve_checklist_vertical(project_root)
         if vertical is None:
-            return True
+            return False
         return (
             vertical_completion_gate(load_vertical(vertical, project_root=project_root))
             == "full_paper"
@@ -1538,8 +1546,8 @@ def format_full_pipeline_checklist(
                 body, _resolve_checklist_venue(project_root)
             )
         except KeyError as exc:
-            body = _unresolved_venue_checklist(
-                header,
+            body += "\n\n" + _unresolved_venue_checklist(
+                "## Venue selection",
                 role=role_norm,
                 error=exc,
             )

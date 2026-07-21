@@ -73,10 +73,10 @@ selected venue profile and official author kit.
 | Exemplar PDFs, page rhythm, structure blueprint, conformance | `argus_builtin_skills/paper-exemplar-pdf-learning.md` | exemplar PDFs/text, `STYLE_PROFILE.md`, `PAPER_STRUCTURE_BLUEPRINT.md`, structure conformance artifacts |
 | First LaTeX draft, citations, bibliography, narrative | selected venue drafting skill + official author kit | `paper/main.tex`, page/word budget, draft report, BibTeX connected to claims |
 | Format, page/word budget, references, appendix/checklist flow | selected venue format preflight | classify whether to fix layout/prose or route back to evidence |
-| Weak claims, unsupported numbers, evidence gaps, stale artifacts | `argus_builtin_skills/claims-evidence-audit.md` | `CLAIM_GRAPH.json`, `EVIDENCE_GAPS.json`, claim-to-result/freshness repair plan |
+| Weak claims, unsupported numbers, evidence gaps, stale artifacts | `argus_builtin_skills/claims-evidence-audit.md` | source-level claim/result corrections and the smallest missing experiment |
 | Academic tone and model-backed prose critique after evidence is stable | selected venue academic-language review | fresh `ACADEMIC_LANGUAGE_REVIEW.json` and concrete directives |
 | Iterative paper repair after review feedback | `argus_builtin_skills/paper-review-revision-loop.md` | source-level revisions plus review reruns, without hand-editing stale generated outputs |
-| Final submission readiness and go/no-go | `argus_builtin_skills/research-submission-assurance-gate.md` | `SUBMISSION_ASSURANCE.json`, final PASS/FAIL/BLOCKED decision, exact final reviewer evidence |
+| Final paper review | `argus_builtin_skills/research-submission-assurance-gate.md` | independent reading of the current manuscript, PDF, and claim-critical sources |
 
 Routing rule: if the blocker is "paper is too short", "format looks fake", "references look bad", or "figure is wrong", first determine whether evidence/full-scale runs/claim support are missing. Missing evidence routes to benchmark execution or analysis before prose/layout polish.
 
@@ -105,9 +105,9 @@ Use the repository's existing conventions if they are already present; otherwise
 | Research | `research/RESEARCH_BRIEF.md`, canonical `research/LITERATURE_GROUNDING.json`, generated `research/LIT_MATRIX.tsv`, `research/EXPERIMENT_PLAN.md` |
 | Experiments | benchmark source/provenance files, run manifests, `status.json`, `progress.jsonl`, raw result JSON/TSV, logs, STOP-file contract |
 | Style references | `paper/style_ref/exemplars/<slug>/paper.pdf`, extracted text, `paper/style_ref/EXEMPLAR.json`, `paper/style_ref/EXEMPLAR_SUITABILITY.json`, `paper/style_ref/STYLE_PROFILE.md`, `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md`, `paper/style_ref/STRUCTURE_CONFORMANCE.md`, `paper/style_ref/STRUCTURE_CONFORMANCE.json`, `paper/style_ref/SOURCES.md` |
-| Claim/evidence contracts | `paper/CLAIM_GRAPH.json`, `paper/EVIDENCE_GAPS.json`, claim-to-result tables, result-to-claim tables, and freshness hashes |
+| Claim support | canonical raw results, analysis scripts, paper tables/figures, and verified primary citations |
 | Local Argus skills | `argus_builtin_skills/*.md` and `argus_builtin_skills/**/*.md` exported from the active `argus_skill.builtin_skills` package/source checkout |
-| Reviews | `paper/ACADEMIC_LANGUAGE_REVIEW.json`, `paper/LAYOUT_REVIEW.json`, `paper/PAPER_QUALITY_CALIBRATION.json`, `paper/SUBMISSION_ASSURANCE.md`, `paper/SUBMISSION_ASSURANCE.json` |
+| Reviews | Reviewer feedback plus optional language/layout tool output when a concrete doubt needs a second opinion |
 
 ## Model/API and helper-code contract
 1. Model and image credentials are operator capabilities, not project artifacts. The private vault is `~/.argus-skill/capabilities/model_api.json` or `ARGUS_SKILL_CAPABILITY_VAULT`; it should be mode `0600`. Do not manually open/read, print, summarize, copy, or commit its raw contents; only Argus route helpers/tools may load it at runtime.
@@ -506,14 +506,14 @@ checklist to be ticked off by the reviewer.
 4. Image-2 is optional. When selected, preserve prompt, generation provenance, inspect/review artifacts, accepted raster SHA-256, width/height, and `IMAGE2_FIGURES.json`; never wrap a local file in image-2 metadata.
 5. Conceptual figures must be adaptive/landscape and readable at final paper size regardless of renderer. Avoid cramped squares, weird/sketchy fonts, tiny text, heavy gradients, photorealism, excessive logos, or decorative clutter.
 
-## Final review and assurance
-1. Run `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.verticals.research.academic_language_review --project-root . --review-mode model --write` and confirm the L2 reviewer ticks the review-stage "academic language" checklist item. The generated `paper/ACADEMIC_LANGUAGE_REVIEW.json` must score at least 4/5, be model-backed, fresh, contain quoted evidence spans, and have `needs_revision: false` with no active directives.
-2. Run `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.verticals.research.paper_layout_review --project-root . --review-mode vision --write` and confirm the L2 reviewer ticks the review-stage "layout" checklist item. `paper/LAYOUT_REVIEW.json` must score at least 4/5, be vision-backed from rendered PDF page snapshots, fresh, and `needs_revision: false`.
-3. Write `paper/SUBMISSION_ASSURANCE.md` and `paper/SUBMISSION_ASSURANCE.json`.
-4. Review artifacts, calibration files, and readiness reports are evidence, not optimization targets. Never hand-edit them to say PASS/ready while underlying checklist items fail.
-5. Never emit PASS/WARN/final-ready if any required checklist item fails. `WARN`
-   cannot launder pilot scale, stale reviews, missing provenance, or known hard
-   blockers into selected-venue readiness.
+## Final paper review
+1. Compile and read the current paper as a venue reviewer.
+2. Open the raw result or primary source behind any material claim that remains
+   doubtful.
+3. Use language or layout review tools only for a concrete unresolved question;
+   their generated files are advisory.
+4. Let the L2 Reviewer decide readiness from the manuscript and sources. Do not
+   write an assurance packet or optimize generated review scores.
 
 ## Operational safety
 1. Work inside this project directory unless reading an operator-provided research playbook or the active Argus source/package through the launcher-provided environment.

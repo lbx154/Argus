@@ -34,8 +34,7 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
          "|| test -s research/LIT_MATRIX.tsv"),
         ("First-score plan present",
          "test -s research/FIRST_SCORE_PLAN.md "
-         "|| test -s research/RESEARCH_BRIEF.md "
-         "|| test -s research/GO_NO_GO.md"),
+         "|| test -s research/RESEARCH_BRIEF.md"),
     ],
     "setup": [
         _PIPELINE_CHECK,

@@ -274,11 +274,14 @@ def test_mediocrity_finding_is_advisory() -> None:
     assert GATE_KINDS["mediocrity_finding"] == "advisory"
 
 
-def test_review_and_submission_run_both_gates() -> None:
+def test_review_and_submission_skip_paperwork_gates() -> None:
     for stage in ("review", "submission"):
         gates = set(gates_for_stage(stage))
-        assert "evidence_chain" in gates
         assert "mediocrity_finding" in gates
+        assert "paper_structural_minimums" in gates
+        assert "evidence_chain" in gates
+        assert "reviewer_simulation" not in gates
+        assert "experiment_audit" not in gates
 
 
 # ---------------------------------------------------------------------------
@@ -358,8 +361,6 @@ def test_run_stage_gates_review_clean_project_passes_structural(tmp_path: Path) 
         "evidence_chain",
         "mediocrity_finding",
         "paper_structural_minimums",
-        "reviewer_simulation",
-        "experiment_audit",
         "run_evidence_health",
     ]
     # Structural passes, no block.
@@ -554,7 +555,6 @@ def test_stage_check_structural_break_does_fail_exit_code(tmp_path: Path) -> Non
             }
         ],
     )
-
     proc = subprocess.run(
         [sys.executable, "-m", "argus_skill.tools.stage_check",
          "--project-root", str(tmp_path), "--stage", "draft"],

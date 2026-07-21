@@ -10,12 +10,12 @@ created_at: 2026-06-14T00:00:00+00:00
 AAAI Format Preflight
 
 ## Description
-Run the dedicated formatting gate for an AAAI-2026 paper draft. This skill owns the strict `research.md` submission-format contract before the model-backed academic-language review, vision layout review, and submission assurance gate are allowed to pass. The contract is anchored to the official `aaai2026.sty`/`aaai2026.bst` Author Kit: the `\pdfinfo` template stamp, the 7-page technical-content budget, the forbidden-package/command set, and the rule that the style file (not the author) sets the bibliography style.
+Run the dedicated formatting check for an AAAI-2026 paper draft before final paper review. The contract is anchored to the official `aaai2026.sty`/`aaai2026.bst` Author Kit: the `\pdfinfo` template stamp, the 7-page technical-content budget, the forbidden-package/command set, and the rule that the style file (not the author) sets the bibliography style.
 
 ## When to use
 - `paper/main.tex` and `paper/main.pdf` exist or the draft is about to be called complete.
 - The draft has just changed figures, tables, page allocation, bibliography, the reproducibility checklist, title/author block, or LaTeX layout.
-- The pipeline is moving from drafting/revision into final review or submission assurance.
+- The paper is moving from drafting/revision into final review.
 
 ## Required inputs
 - Single-file `paper/main.tex` (AAAI requires one `.tex` source — no `\input`/`\include`/`\subfile`) and the BibTeX source `paper/aaai2026.bib`.

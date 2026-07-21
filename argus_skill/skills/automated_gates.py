@@ -66,16 +66,11 @@ GateKind = Literal["structural", "advisory"]
 # broken drafts. The reviewer still rules on whether a *formed* paper is
 # good enough.
 #
-# ``reviewer_simulation`` forces the agent to produce a machine-readable
-# reviewer-question list at the review+submission gates. Without it the
-# agent can claim "I reviewed the draft" without ever simulating any
-# hostile reviewer objection. Structural floor (≥10 questions, each
-# addressed) — quality of the questions is reviewer's call.
-#
-# ``experiment_audit`` requires the reviewer/experiment-audit skill's
-# JSON+MD artifacts at analysis / review / submission. Anti-fab: the
-# gate only enforces that the audit exists and is structured; the
-# verdict itself (pass/warn/fail) is the reviewer's call.
+# Reviewer-question lists and experiment-audit bundles remain available as
+# on-demand tools. They are not default stage gates: forcing those packets made
+# the harness reward paperwork instead of scientific judgment. The compact
+# claim-to-raw-evidence chain stays structural because dangling or tainted
+# evidence is an integrity defect, not a quality judgment.
 #
 # ``run_evidence_health`` walks evidence bundles for
 # ``raw_status: "call_failed"`` in per-task verifier outputs.
@@ -124,7 +119,6 @@ STAGE_GATES: dict[str, tuple[GateName, ...]] = {
     "analysis": (
         "evidence_chain",
         "mediocrity_finding",
-        "experiment_audit",
         "run_evidence_health",
         "rl_training_plots",
         "rl_training_health",
@@ -138,16 +132,12 @@ STAGE_GATES: dict[str, tuple[GateName, ...]] = {
         "evidence_chain",
         "mediocrity_finding",
         "paper_structural_minimums",
-        "reviewer_simulation",
-        "experiment_audit",
         "run_evidence_health",
     ),
     "submission": (
         "evidence_chain",
         "mediocrity_finding",
         "paper_structural_minimums",
-        "reviewer_simulation",
-        "experiment_audit",
         "run_evidence_health",
     ),
 }

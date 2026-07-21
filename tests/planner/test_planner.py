@@ -23,6 +23,7 @@ from argus_skill.planner import (
     parse_planner_text,
 )
 from argus_skill.skills.role_context import load_builtin_skill_text
+from argus_skill.skills.vertical_select import persist_vertical
 
 
 class _FakeRunner:
@@ -535,12 +536,12 @@ def test_waiting_contract_preserves_explicit_operator_only_scope_expansion() -> 
     assert verdict.waiting_contract.operator_action_required is True
 
 
-def test_planner_role_treats_no_go_as_autonomous_pivot() -> None:
+def test_planner_role_leaves_failure_interpretation_to_planner() -> None:
     text = Path(
         "argus_skill/builtin_skills/planner/argus-planner-role.md"
     ).read_text()
-    assert "NO-GO" in text
-    assert "NOT an operator-only blocker" in text
+    assert "project history, not an operator-only" in text
+    assert "harness must not map a failure label" in text
 
 
 def test_parse_planner_text_no_tasks_without_waiting_is_error() -> None:
@@ -606,15 +607,25 @@ def test_plan_next_preserves_reasoning_output_tokens() -> None:
     assert verdict.reasoning_output_tokens == 321
 
 
-def test_plan_next_passes_planner_config_to_runner() -> None:
+def test_plan_next_passes_planner_config_to_runner(
+    tmp_path,
+    monkeypatch,
+) -> None:
     runner = _FakeRunner(json.dumps({"project_done": True, "reason": "x", "new_tasks": []}))
+    persist_vertical(
+        tmp_path,
+        "research",
+        research_target_level="publishable",
+    )
+    monkeypatch.setenv("ARGUS_SKILL_PROJECT_ROOT", str(tmp_path))
     cfg = PlannerConfig(
         model="gpt-test",
         reasoning_effort="high",
-        working_dir="/tmp/planner",
+        working_dir=str(tmp_path),
         skip_git_repo_check=True,
         full_auto=False,
         dangerous_yolo=True,
+        open_ended=True,
     )
     Planner(runner).plan_next(
         continuous_objective="goal",
@@ -626,11 +637,12 @@ def test_plan_next_passes_planner_config_to_runner() -> None:
     sent_prompt, opts = runner.calls[0]
     assert opts.model == "gpt-test"
     assert opts.reasoning_effort == "high"
-    assert opts.working_dir == "/tmp/planner"
+    assert opts.working_dir == str(tmp_path)
     assert opts.dangerous_yolo is True
     # Structural prompt assertions only — verify the planner prompt
     # carries the runtime context + the current stage checklist headline.
     assert "Runtime source changed since daemon start." in sent_prompt
+    assert "A failed hypothesis, negative experiment, or rejected direction" in sent_prompt
 
 
 def test_plan_next_defaults_to_xhigh_reasoning_effort() -> None:

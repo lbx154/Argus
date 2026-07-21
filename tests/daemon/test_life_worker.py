@@ -200,7 +200,7 @@ def test_inspect_project_bootstrap_detects_research_profile(
     assert "re-check it at execution time" in preflight.bootstrap_objective
     assert "target_venue" in preflight.bootstrap_objective
     assert "research/RESEARCH_BRIEF.md" in preflight.bootstrap_objective
-    assert "research/GO_NO_GO.md" in preflight.bootstrap_objective
+    assert "research/GO_NO_GO.md" not in preflight.bootstrap_objective
     assert "research bootstrap requested" in preflight.event_text
     assert "pyproject.toml" not in preflight.bootstrap_objective
 
@@ -325,7 +325,6 @@ def test_inspect_project_bootstrap_treats_research_seed_as_initialized(
         "research/RESEARCH_BRIEF.md",
         "research/EXPERIMENT_PLAN.md",
         "research/CLAIMS_TO_TEST.md",
-        "research/GO_NO_GO.md",
         "experiments/BENCHMARK_PROVENANCE.md",
     ):
         path = repo_dir / rel_path
@@ -351,7 +350,6 @@ def test_inspect_project_bootstrap_leaves_complete_research_seed_alone(
         "research/RESEARCH_BRIEF.md",
         "research/EXPERIMENT_PLAN.md",
         "research/CLAIMS_TO_TEST.md",
-        "research/GO_NO_GO.md",
         "experiments/BENCHMARK_PROVENANCE.md",
     ):
         path = repo_dir / rel_path
