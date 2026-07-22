@@ -288,6 +288,10 @@ These resources are allocated to you. Use them.
 
 **Subagent** (for long GPU tasks):
 - Submit: `python -m argus_skill.tools.subagent submit --task-id <id> --mode supervised --run-dir experiments/<id> --command '.venv/bin/python ...'`
+- For CPU-exclusive preprocessing/evaluation, add `--cpu-count N` (automatic
+  disjoint selection) or `--cpu-ids i,j` (exact allocation). Admission happens
+  before task/log/run artifacts, and the child process inherits the selected
+  affinity; insufficient or overlapping requests fail closed.
 - `--mode supervised` attaches an RL-aware LLM watcher: it polls the log on an
   increasing interval (backs off while healthy to save tokens, tightens when it
   sees trouble), judges reward/KL/response-length (not just SFT loss), and writes

@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 from . import _core
+from . import _cpu_admission
 from ._core import (
     DISCUSSION_POLL_INTERVAL,
     SUPERVISOR_MODEL,
@@ -112,17 +113,6 @@ def cmd_submit(args: argparse.Namespace) -> int:
                 }))
                 return 1
 
-    # Write initial state
-    _write_task(task_id, {
-        "state": "starting",
-        "task_id": task_id,
-        "description": args.description,
-        "command": args.command,
-        "mode": mode,
-        "run_dir": run_dir,
-        "submitted_at": time.time(),
-    })
-
     if os.name == "nt":
         print(json.dumps({
             "error": "background subagent detach is unavailable in the Windows terminal preview",
@@ -130,8 +120,64 @@ def cmd_submit(args: argparse.Namespace) -> int:
         }))
         return 2
 
+    # Admit and reserve CPUs before creating the first task/log/run artifact.
+    # The starting record is the lease placeholder during the short fork window.
+    try:
+        with _cpu_admission.cpu_admission_lock(Path.cwd()):
+            existing = _read_task(task_id)
+            if existing and existing.get("state") in {"starting", "preflight", "running"}:
+                existing_pid = (
+                    existing.get("pid")
+                    or existing.get("worker_pid")
+                    or existing.get("submitter_pid")
+                    or 0
+                )
+                if _core._is_pid_alive(int(existing_pid or 0)):
+                    print(json.dumps({
+                        "error": (
+                            f"task '{task_id}' is already {existing.get('state')} "
+                            f"(pid {existing_pid})"
+                        ),
+                    }))
+                    return 1
+            selected_cpu_ids = _cpu_admission.select_cpu_ids(
+                cpu_count=getattr(args, "cpu_count", 0),
+                cpu_ids=getattr(args, "cpu_ids", None),
+                tasks=_list_tasks(),
+                is_pid_alive=_core._is_pid_alive,
+            )
+            initial_task = {
+                "state": "starting",
+                "task_id": task_id,
+                "description": args.description,
+                "command": args.command,
+                "mode": mode,
+                "run_dir": run_dir,
+                "submitted_at": time.time(),
+                "submitter_pid": os.getpid(),
+            }
+            if selected_cpu_ids:
+                initial_task["cpu_ids"] = list(selected_cpu_ids)
+                initial_task["cpu_count"] = len(selected_cpu_ids)
+            _write_task(task_id, initial_task)
+    except _cpu_admission.CpuAdmissionError as exc:
+        print(json.dumps({
+            "error": f"CPU admission rejected: {exc}",
+            "task_id": task_id,
+        }))
+        return 1
+
     # Fork: parent returns immediately
-    pid = os.fork()
+    try:
+        pid = os.fork()
+    except OSError as exc:
+        with _cpu_admission.cpu_admission_lock(Path.cwd()):
+            _registry_path(task_id).unlink(missing_ok=True)
+        print(json.dumps({
+            "error": f"failed to fork background subagent: {exc}",
+            "task_id": task_id,
+        }))
+        return 2
     if pid > 0:
         # The forked child owns the rich, evolving task record (it writes
         # "running" with the real training pid + heartbeats). The parent must NOT
@@ -151,6 +197,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "mode": mode,
             "run_dir": run_dir,
             "description": args.description,
+            "cpu_ids": list(selected_cpu_ids),
             "check_with": f"python -m argus_skill.tools.subagent status --task-id {task_id}",
         }))
         return 0
@@ -161,6 +208,18 @@ def cmd_submit(args: argparse.Namespace) -> int:
         os.close(0)
     except OSError:
         pass
+    try:
+        _cpu_admission.apply_current_process_affinity(selected_cpu_ids)
+    except (OSError, RuntimeError) as exc:
+        task = _read_task(task_id) or initial_task
+        task.update({
+            "state": "error",
+            "error": f"CPU affinity setup failed: {exc}",
+            "completed_at": time.time(),
+            "worker_pid": os.getpid(),
+        })
+        _write_task(task_id, task)
+        os._exit(1)
 
     if mode == "supervised":
         _run_supervised(
@@ -409,6 +468,24 @@ def main() -> int:
     p_submit.add_argument("--no-preflight", action="store_true",
                           help="Skip the supervised-mode pre-launch RL config "
                                "preflight (escape hatch for a known-good config).")
+    cpu_group = p_submit.add_mutually_exclusive_group()
+    cpu_group.add_argument(
+        "--cpu-count",
+        type=int,
+        default=0,
+        help=(
+            "Lease this many distinct CPUs before creating task/run artifacts; "
+            "the launched process inherits the selected affinity."
+        ),
+    )
+    cpu_group.add_argument(
+        "--cpu-ids",
+        default=None,
+        help=(
+            "Lease exact comma-separated CPU ids before launch; conflicts with "
+            "other participating live subagents are rejected."
+        ),
+    )
 
     p_status = sub.add_parser("status", help="Show task status")
     p_status.add_argument("--task-id", required=True)
