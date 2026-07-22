@@ -53,7 +53,7 @@ test('mergeFragment grows a multi-block Manager reply (nothing dropped)', () => 
   assert.equal(mergeFragment('full reply here', 'reply'), 'full reply here');
 });
 
-test('a message_id stays live only for the active Manager request', () => {
+test('a Manager message_id stays live only for the active request', () => {
   const lines = buildEventLines([
     { type: 'ui.argus', text: 'partial', message_id: 'reply-1' },
     { type: 'ui.argus', text: 'partial answer', message_id: 'reply-1' },
@@ -66,6 +66,29 @@ test('a message_id stays live only for the active Manager request', () => {
   const settled = partitionEventLines(lines);
   assert.equal(settled.live, null);
   assert.equal(settled.committed[0]?.r.text, 'partial answer');
+});
+
+test('replaceable role progress stays live until a later event settles it', () => {
+  const streaming = buildEventLines([
+    {
+      type: 'engineer.progress', kind: 'agent_message', agent_layer: 'engineer',
+      text: 'checking', message_id: 'engineer-1', replace: true,
+    },
+    {
+      type: 'engineer.progress', kind: 'agent_message', agent_layer: 'engineer',
+      text: 'checking sources', message_id: 'engineer-1', replace: true,
+    },
+  ] as never);
+  const active = partitionEventLines(streaming);
+  assert.equal(active.committed.length, 0);
+  assert.equal(active.live?.r.text, 'checking sources');
+
+  const settled = partitionEventLines(buildEventLines([
+    ...streaming.map((line) => line.ev),
+    { type: 'round.main.completed', round_index: 1 },
+  ] as never));
+  assert.equal(settled.live, null);
+  assert.equal(settled.committed.at(-1)?.r.text, 'round 1 completed');
 });
 
 test('renderEvent surfaces the guardian signals that actually persist to the feed', () => {

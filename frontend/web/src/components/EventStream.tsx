@@ -177,6 +177,75 @@ function RoleLogGroup({
   );
 }
 
+function partitionRoleRows(rows: ActivityRow[]) {
+  const roleRows: Record<typeof ROLE_ORDER[number], ActivityRow[]> = {
+    manager: [],
+    planner: [],
+    engineer: [],
+    reviewer: [],
+  };
+  const systemRows: ActivityRow[] = [];
+  rows.forEach((row) => {
+    if (ROLE_ORDER.includes(row.r.role as typeof ROLE_ORDER[number])) {
+      roleRows[row.r.role as typeof ROLE_ORDER[number]].push(row);
+    } else {
+      systemRows.push(row);
+    }
+  });
+  const lastRole = [...rows].reverse().find((row) =>
+    ROLE_ORDER.includes(row.r.role as typeof ROLE_ORDER[number]),
+  )?.r.role ?? '';
+  return { roleRows, systemRows, lastRole };
+}
+
+function RoleLogCollection({ rows, live }: { rows: ActivityRow[]; live: boolean }) {
+  const { roleRows, systemRows, lastRole } = useMemo(() => partitionRoleRows(rows), [rows]);
+  const [openRoles, setOpenRoles] = useState<Set<string>>(
+    () => new Set(live && lastRole ? [lastRole] : []),
+  );
+  const userToggledRole = useRef(false);
+  useEffect(() => {
+    if (!live || !lastRole || userToggledRole.current) return;
+    setOpenRoles(new Set([lastRole]));
+  }, [lastRole, live]);
+
+  return (
+    <div className="bg-bg/25">
+      {ROLE_ORDER.map((role) => (
+        <RoleLogGroup
+          key={role}
+          role={role}
+          rows={roleRows[role]}
+          open={openRoles.has(role)}
+          active={lastRole === role}
+          onToggle={() => {
+            userToggledRole.current = true;
+            setOpenRoles((current) => {
+              const next = new Set(current);
+              if (next.has(role)) next.delete(role);
+              else next.add(role);
+              return next;
+            });
+          }}
+        />
+      ))}
+      {systemRows.length > 0 ? (
+        <details className="border-b border-line/50">
+          <summary className="flex h-10 cursor-pointer list-none items-center gap-2 px-4 text-xs text-ink-faint hover:bg-bg/60">
+            <span>System</span>
+            <span className="font-mono">{systemRows.length}</span>
+          </summary>
+          <div className="border-t border-line/40">
+            {systemRows.map(({ ev, r, key }, index) => (
+              <EventRow key={key} ev={ev} r={r} first={index === 0} last={index === systemRows.length - 1} />
+            ))}
+          </div>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
 function ConversationThread({ group, latest }: { group: ConversationGroup; latest: boolean }) {
   const isSystemMessage = (row: ActivityRow) =>
     row.ev.type === 'ui.argus' && /^(info:|operation cancelled|cancelled\b)/i.test(row.r.text.trim());
@@ -193,32 +262,6 @@ function ConversationThread({ group, latest }: { group: ConversationGroup; lates
   const replies = replyParts.flatMap((part) => part.reply ? [part.reply] : []);
   const systemMessages = replyParts.flatMap((part) => part.messages);
   const operational = group.rows.filter(({ ev }) => ev.type !== 'ui.argus');
-  const roleRows: Record<typeof ROLE_ORDER[number], ActivityRow[]> = {
-    manager: [],
-    planner: [],
-    engineer: [],
-    reviewer: [],
-  };
-  const systemRows: ActivityRow[] = [];
-  operational.forEach((row) => {
-    if (ROLE_ORDER.includes(row.r.role as typeof ROLE_ORDER[number])) {
-      roleRows[row.r.role as typeof ROLE_ORDER[number]].push(row);
-    } else {
-      systemRows.push(row);
-    }
-  });
-  const lastRole = [...operational].reverse().find((row) =>
-    ROLE_ORDER.includes(row.r.role as typeof ROLE_ORDER[number]),
-  )?.r.role ?? '';
-  const [openRoles, setOpenRoles] = useState<Set<string>>(
-    () => new Set(latest && lastRole ? [lastRole] : []),
-  );
-  const userToggledRole = useRef(false);
-  const logCount = operational.length;
-  useEffect(() => {
-    if (!latest || !lastRole || userToggledRole.current) return;
-    setOpenRoles(new Set([lastRole]));
-  }, [lastRole, latest]);
 
   return (
     <section className="border-b border-line/60">
@@ -229,39 +272,9 @@ function ConversationThread({ group, latest }: { group: ConversationGroup; lates
           {message}
         </div>
       ))}
-      {logCount > 0 ? (
-        <div className="mx-auto w-full max-w-full border-t border-line/40 bg-bg/25 lg:max-w-[61.8vw]">
-          {ROLE_ORDER.map((role) => (
-            <RoleLogGroup
-              key={`${group.key}-${role}`}
-              role={role}
-              rows={roleRows[role]}
-              open={openRoles.has(role)}
-              active={lastRole === role}
-              onToggle={() => {
-                userToggledRole.current = true;
-                setOpenRoles((current) => {
-                  const next = new Set(current);
-                  if (next.has(role)) next.delete(role);
-                  else next.add(role);
-                  return next;
-                });
-              }}
-            />
-          ))}
-          {systemRows.length > 0 ? (
-            <details className="border-b border-line/50">
-              <summary className="flex h-10 cursor-pointer list-none items-center gap-2 px-4 text-xs text-ink-faint hover:bg-bg/60">
-                <span>System</span>
-                <span className="font-mono">{systemRows.length}</span>
-              </summary>
-              <div className="border-t border-line/40">
-                {systemRows.map(({ ev, r, key }, index) => (
-                  <EventRow key={key} ev={ev} r={r} first={index === 0} last={index === systemRows.length - 1} />
-                ))}
-              </div>
-            </details>
-          ) : null}
+      {operational.length > 0 ? (
+        <div className="mx-auto w-full max-w-full border-t border-line/40 lg:max-w-[61.8vw]">
+          <RoleLogCollection rows={operational} live={latest} />
         </div>
       ) : null}
     </section>
@@ -295,7 +308,6 @@ export function EventStream({
   skipFirst?: number;
 }) {
   const [following, setFollowing] = useState(true);
-  const [earlierOpen, setEarlierOpen] = useState(true);
   const [activityTick, setActivityTick] = useState(() => Date.now());
   const scroller = useRef<HTMLDivElement>(null);
   const activeProvider = useMemo(() => activeProviderRequest(events), [events]);
@@ -428,21 +440,16 @@ export function EventStream({
         ) : (
           <>
             {conversations.earlier.length > 0 ? (
-              <details
-                open={earlierOpen}
-                onToggle={(event) => setEarlierOpen(event.currentTarget.open)}
-                className="mx-auto w-full max-w-full border-b border-line/60 lg:max-w-[61.8vw]"
-              >
-                <summary className="flex h-11 cursor-pointer list-none items-center gap-2 px-4 text-xs font-medium text-ink-dim hover:bg-bg/60">
-                  Earlier activity
-                  <span className="font-mono text-ink-faint">{conversations.earlier.length}</span>
-                </summary>
-                <div className="border-t border-line/40">
-                  {conversations.earlier.map(({ ev, r, key }, index) => (
-                    <EventRow key={key} ev={ev} r={r} first={index === 0} last={index === conversations.earlier.length - 1} />
-                  ))}
+              <section className="mx-auto w-full max-w-full border-b border-line/60 lg:max-w-[61.8vw]">
+                <div className="flex h-10 items-center gap-2 border-b border-line/40 px-4 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
+                  Autonomous activity
+                  <span className="font-mono font-normal tracking-normal">{conversations.earlier.length}</span>
                 </div>
-              </details>
+                <RoleLogCollection
+                  rows={conversations.earlier}
+                  live={conversations.groups.length === 0}
+                />
+              </section>
             ) : null}
             {conversations.groups.map((group, index) => (
               <ConversationThread key={group.key} group={group} latest={index === conversations.groups.length - 1} />

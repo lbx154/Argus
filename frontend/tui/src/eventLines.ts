@@ -37,13 +37,25 @@ export function buildEventLines(events: EventMsg[]): EventLine[] {
   return list;
 }
 
-/** Keep only the explicitly active Manager message mutable in Ink's live area. */
+/**
+ * Keep the current streaming row mutable in Ink's live area. Manager supplies
+ * an explicit live id; role progress uses replace=true and settles as soon as a
+ * later milestone/event arrives.
+ */
 export function partitionEventLines(
   lines: EventLine[],
   liveMessageId = '',
 ): EventLinePartition {
   const last = lines.at(-1);
-  const live = liveMessageId && last?.mid === liveMessageId ? last : null;
+  const replaceableRoleProgress = Boolean(
+    last?.mid
+    && last.ev.type === 'engineer.progress'
+    && last.ev.replace === true,
+  );
+  const live = last && (
+    (liveMessageId && last.mid === liveMessageId)
+    || replaceableRoleProgress
+  ) ? last : null;
   return {
     committed: live ? lines.slice(0, -1) : lines,
     live,

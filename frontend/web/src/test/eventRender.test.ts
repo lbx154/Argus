@@ -1,8 +1,11 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, it, expect } from 'vitest';
 import { renderEvent, isReasoning, eventKey, mergeFragment } from '../lib/eventRender';
 import { parseSSEFrames } from '../api';
 import { activeGuardianAlert } from '../lib/guardian';
 import type { EventMsg } from '../api';
+import { EventStream } from '../components/EventStream';
 
 /** The clean whitelist renderer — noise is hidden, meaningful events get a
  *  role + glyph + line, matching the terminal cockpit. */
@@ -159,6 +162,30 @@ describe('renderEvent', () => {
       text: 'Mission ended · legacy_weird_status',
       tone: 'info',
     });
+  });
+});
+
+describe('EventStream role grouping', () => {
+  it('keeps autonomous work in per-role collapsible groups', () => {
+    const html = renderToStaticMarkup(createElement(EventStream, {
+      events: [
+        { type: 'life.planner.task_added', title: 'Choose conjecture', ts: 1 },
+        {
+          type: 'engineer.progress', kind: 'agent_message', agent_layer: 'engineer',
+          text: 'Checking authoritative sources.', ts: 2,
+        },
+        { type: 'round.review.started', round_index: 1, ts: 3 },
+      ] as EventMsg[],
+      connected: true,
+      showReasoning: true,
+      onToggleReasoning: () => undefined,
+    }));
+
+    expect(html).toContain('Autonomous activity');
+    expect(html).toContain('data-role="planner"');
+    expect(html).toContain('data-role="engineer"');
+    expect(html).toContain('data-role="reviewer"');
+    expect(html).toContain('aria-expanded="true"');
   });
 });
 

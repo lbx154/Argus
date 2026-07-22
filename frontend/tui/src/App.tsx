@@ -682,7 +682,7 @@ export function App({
           <EventLog
             events={events}
             width={terminal.columns}
-            mode="conversation"
+            mode="all"
             liveMessageId={managerRequestRef.current?.messageId}
             collapsed={slashMenuOpen || Boolean(panel)}
             showIdle={!missionView}
