@@ -2,6 +2,17 @@
 
 from __future__ import annotations
 
+_PLANNER_HISTORY_KINDS = frozenset({
+    "budget_pause",
+    "mission_complete",
+    "mission_failed",
+    "mission_replan_requested",
+    "provider_pause",
+    "research_pause",
+})
+_PLANNER_HISTORY_COUNT = 3
+_PLANNER_HISTORY_ENTRY_CHARS = 1_800
+
 
 class PlannerRenderingMixin:
     def _item_iteration_cycles(self) -> int:
@@ -12,9 +23,13 @@ class PlannerRenderingMixin:
             return 6
 
     def _render_journal_for_planner(self) -> str:
-        """Render recent event-backed history for the planner's context."""
+        """Render a bounded recency window of terminal mission evidence."""
         try:
-            entries = self.memory.journal.tail(20)
+            entries = [
+                entry
+                for entry in self.memory.journal.tail(64)
+                if entry.kind in _PLANNER_HISTORY_KINDS
+            ][-_PLANNER_HISTORY_COUNT:]
         except Exception:  # noqa: BLE001
             return ""
         lines: list[str] = []
@@ -61,6 +76,8 @@ class PlannerRenderingMixin:
                             "\n    sealed_context_packet: "
                             + context_packet[:600]
                         )
+            if len(line) > _PLANNER_HISTORY_ENTRY_CHARS:
+                line = line[: _PLANNER_HISTORY_ENTRY_CHARS - 1].rstrip() + "…"
             lines.append(line)
         return "\n".join(lines) or "(empty)"
 

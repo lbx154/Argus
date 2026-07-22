@@ -74,6 +74,37 @@ def _join_prompt_blocks(*blocks: str) -> str:
     return "\n\n".join(rendered) + "\n"
 
 
+def _wiki_has_planner_content(
+    wiki_root: Path,
+    *,
+    journal_has_terminal_history: bool,
+) -> bool:
+    """Exclude generated empty wiki scaffolds from the Planner prompt."""
+    if any((wiki_root / "pages").glob("*/*.md")):
+        return True
+    for source_kind in ("notes", "papers", "repos"):
+        if any((wiki_root / "sources" / source_kind).glob("*")):
+            return True
+    if (
+        not journal_has_terminal_history
+        and any((wiki_root / "sources" / "runs").glob("*.md"))
+    ):
+        return True
+    query_pack = wiki_root / "query_pack.md"
+    try:
+        from importlib import resources
+
+        default_pack = (
+            resources.files("argus_skill.wiki")
+            .joinpath("templates/query_pack.md")
+            .read_text(encoding="utf-8")
+            .strip()
+        )
+        return query_pack.read_text(encoding="utf-8").strip() != default_pack
+    except (FileNotFoundError, OSError):
+        return query_pack.exists()
+
+
 def continuous_request(
     project_root: Path | str,
     *,
@@ -398,12 +429,21 @@ def build_continuous_prompt(
     # yet, and we do not want to nag). Pure read; planner never writes.
     # ------------------------------------------------------------------
     wiki_block = ""
+    journal_has_terminal_history = bool(
+        journal_tail.strip() and journal_tail.strip() != "(empty)"
+    )
     autors_root = _proot / ".autors"
     wiki_candidates = (
         sorted(autors_root.glob("*/wiki")) if autors_root.exists() else []
     )
     wiki_candidates = [
-        w for w in wiki_candidates if (w / "query_pack.md").exists()
+        w
+        for w in wiki_candidates
+        if (w / "query_pack.md").exists()
+        and _wiki_has_planner_content(
+            w,
+            journal_has_terminal_history=journal_has_terminal_history,
+        )
     ]
     if wiki_candidates:
         parts: list[str] = ["## Idea wiki (read-only)\n"]
@@ -423,45 +463,46 @@ def build_continuous_prompt(
                 if qf.exists():
                     parts.append(f"#### queries/{name}\n")
                     parts.append(qf.read_text(encoding="utf-8").strip() + "\n\n")
-            runs_dir = wiki_root / "sources" / "runs"
-            run_cards: list[tuple[str, float, Any]] = []
-            if runs_dir.exists():
-                from ...wiki.schema import SourceRun, parse_frontmatter
+            if not journal_has_terminal_history:
+                runs_dir = wiki_root / "sources" / "runs"
+                run_cards: list[tuple[str, float, Any]] = []
+                if runs_dir.exists():
+                    from ...wiki.schema import SourceRun, parse_frontmatter
 
-                for run_path in runs_dir.glob("*.md"):
-                    try:
-                        run = parse_frontmatter(
-                            run_path.read_text(encoding="utf-8"),
-                            SourceRun,
-                        )
-                        run_cards.append(
-                            (
-                                run.closed_at,
-                                run_path.stat().st_mtime,
-                                run,
+                    for run_path in runs_dir.glob("*.md"):
+                        try:
+                            run = parse_frontmatter(
+                                run_path.read_text(encoding="utf-8"),
+                                SourceRun,
                             )
-                        )
-                    except Exception:  # noqa: BLE001 - one bad card is isolated
-                        continue
-                run_cards.sort(key=lambda row: (row[0], row[1]))
-                latest_by_mission = {
-                    row[2].mission_id: row for row in run_cards
-                }
-                run_cards = sorted(
-                    latest_by_mission.values(),
-                    key=lambda row: (row[0], row[1]),
-                )
-            if run_cards:
-                parts.append("#### recent reviewed runs\n")
-                for _closed_at, _mtime, run in reversed(run_cards[-3:]):
-                    excerpt = " ".join(run.body.split())[:500]
-                    parts.append(
-                        f"- `{run.mission_id}` outcome={run.outcome}; "
-                        f"next={run.next_action or '(none)'}\n"
+                            run_cards.append(
+                                (
+                                    run.closed_at,
+                                    run_path.stat().st_mtime,
+                                    run,
+                                )
+                            )
+                        except Exception:  # noqa: BLE001 - one bad card is isolated
+                            continue
+                    run_cards.sort(key=lambda row: (row[0], row[1]))
+                    latest_by_mission = {
+                        row[2].mission_id: row for row in run_cards
+                    }
+                    run_cards = sorted(
+                        latest_by_mission.values(),
+                        key=lambda row: (row[0], row[1]),
                     )
-                    if excerpt:
-                        parts.append(f"  {excerpt}\n")
-                parts.append("\n")
+                if run_cards:
+                    parts.append("#### recent reviewed runs\n")
+                    for _closed_at, _mtime, run in reversed(run_cards[-3:]):
+                        excerpt = " ".join(run.body.split())[:500]
+                        parts.append(
+                            f"- `{run.mission_id}` outcome={run.outcome}; "
+                            f"next={run.next_action or '(none)'}\n"
+                        )
+                        if excerpt:
+                            parts.append(f"  {excerpt}\n")
+                    parts.append("\n")
         parts.append(
             "If backlog is empty, you MAY use the stale watchlist or open "
             "contradictions to seed an `idea-creator` mission. Read-only: "

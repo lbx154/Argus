@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from importlib import resources
 from pathlib import Path
 
 import pytest
@@ -127,6 +128,80 @@ def test_planner_prompt_surfaces_recent_reviewed_run_sources(
     assert prompt.count("`m-reviewed`") == 1
     assert "latest round supersedes the earlier summary" in prompt
     assert "Write the final corollary." in prompt
+
+
+def test_planner_prompt_does_not_duplicate_runs_already_in_journal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ARGUS_SKILL_PROJECT_ROOT", str(tmp_path))
+    wiki = tmp_path / ".autors" / "demo" / "wiki"
+    (wiki / "queries").mkdir(parents=True)
+    (wiki / "sources" / "runs").mkdir(parents=True)
+    (wiki / "query_pack.md").write_text("# pack\nproject knowledge\n")
+
+    from argus_skill.wiki.schema import SourceRun
+    from argus_skill.wiki.store import WikiStore
+
+    WikiStore(wiki).write_source(SourceRun(
+        id="runs/m-reviewed",
+        mission_id="m-reviewed",
+        git_commit="",
+        project="demo",
+        config_path="",
+        dataset="",
+        metrics={},
+        artifacts={},
+        outcome="success",
+        failure_signature="",
+        suspected_cause="",
+        next_action="continue",
+        body="duplicate run summary",
+        closed_at="2026-07-13T14:00:00+00:00",
+    ))
+
+    prompt = Planner._build_planner_prompt(
+        continuous_objective="research X",
+        journal_tail="- [07-13 14:00] mission_complete: m-reviewed — certified",
+        planning_cycle=1,
+        runtime_change_summary="",
+        mission=None,
+    )
+
+    assert "Idea wiki" in prompt
+    assert "project knowledge" in prompt
+    assert "recent reviewed runs" not in prompt
+    assert "duplicate run summary" not in prompt
+
+
+def test_planner_prompt_omits_empty_generated_wiki_scaffold(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ARGUS_SKILL_PROJECT_ROOT", str(tmp_path))
+    wiki = tmp_path / ".autors" / "demo" / "wiki"
+    (wiki / "queries").mkdir(parents=True)
+    (wiki / "pages" / "techniques").mkdir(parents=True)
+    (wiki / "sources" / "runs").mkdir(parents=True)
+    template = (
+        resources.files("argus_skill.wiki")
+        .joinpath("templates/query_pack.md")
+        .read_text(encoding="utf-8")
+    )
+    (wiki / "query_pack.md").write_text(template, encoding="utf-8")
+
+    prompt = Planner._build_planner_prompt(
+        continuous_objective="research X",
+        journal_tail="- [07-13 14:00] mission_complete: reviewed — certified",
+        planning_cycle=1,
+        runtime_change_summary="",
+        mission=None,
+    )
+
+    assert "Idea wiki" not in prompt
+    assert "wiki_collect suggestion" not in prompt
 
 
 def test_planner_prompt_omits_wiki_block_when_absent(

@@ -1,13 +1,22 @@
 """Planner prompt composition and size regression guards."""
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+from argus_skill.life.supervisor import LifeSupervisor
 from argus_skill.planner import Planner
 from argus_skill.skills.vertical_select import persist_vertical
 
 MATH_SCOPE_BUDGET = 9_500
+MATURE_MATH_SCOPE_BUDGET = 15_000
 
 
-def _build_math_scope_prompt(tmp_path, monkeypatch) -> tuple[str, str]:
+def _build_math_scope_prompt(
+    tmp_path,
+    monkeypatch,
+    *,
+    journal_tail: str = "(empty)",
+) -> tuple[str, str]:
     persist_vertical(
         tmp_path,
         "math",
@@ -37,7 +46,7 @@ def _build_math_scope_prompt(tmp_path, monkeypatch) -> tuple[str, str]:
     )
     prompt = Planner._build_planner_prompt(
         continuous_objective=objective,
-        journal_tail="(empty)",
+        journal_tail=journal_tail,
         planning_cycle=0,
         runtime_change_summary=runtime_context,
         open_ended=True,
@@ -74,3 +83,72 @@ def test_math_scope_prompt_excludes_unrelated_modules(
     assert "## Parallel paper-drafting track" not in prompt
     assert "PAPER_INFRASTRUCTURE_REVIEW.json" not in prompt
     assert "RESULT_PLACEHOLDERS.md" not in prompt
+
+
+def test_mature_math_prompt_keeps_only_bounded_terminal_history(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    journal = "\n".join(
+        f"- [07-22 12:0{index}] mission_complete: result-{index} — "
+        + ("evidence " * 210)
+        for index in range(3)
+    )
+
+    prompt, _objective = _build_math_scope_prompt(
+        tmp_path,
+        monkeypatch,
+        journal_tail=journal,
+    )
+
+    assert len(prompt) < MATURE_MATH_SCOPE_BUDGET
+
+
+def test_planner_journal_uses_latest_three_terminal_outcomes() -> None:
+    entries = [
+        SimpleNamespace(
+            kind="mission_started",
+            ts=0.0,
+            title="start-noise",
+            summary="",
+            extra={},
+        ),
+        *[
+            SimpleNamespace(
+                kind="mission_complete",
+                ts=float(index),
+                title=f"terminal-{index}",
+                summary="result " + ("x" * 3_000),
+                extra={},
+            )
+            for index in range(4)
+        ],
+        SimpleNamespace(
+            kind="research_pause",
+            ts=8.0,
+            title="paused-methods",
+            summary="current approach exhausted",
+            extra={},
+        ),
+        SimpleNamespace(
+            kind="planner_cycle",
+            ts=9.0,
+            title="planner-noise",
+            summary="",
+            extra={},
+        ),
+    ]
+    supervisor = LifeSupervisor.__new__(LifeSupervisor)
+    supervisor.memory = SimpleNamespace(
+        journal=SimpleNamespace(tail=lambda _count: entries)
+    )
+
+    rendered = supervisor._render_journal_for_planner()
+
+    assert "start-noise" not in rendered
+    assert "planner-noise" not in rendered
+    assert "terminal-0" not in rendered
+    assert "terminal-1" not in rendered
+    assert all(f"terminal-{index}" in rendered for index in range(2, 4))
+    assert "paused-methods" in rendered
+    assert len(rendered) <= 3 * 1_800 + 2
