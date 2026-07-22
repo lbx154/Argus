@@ -35,9 +35,10 @@ def _make_project(root: Path, sid: str = "s-w1000001") -> Path:
                     "ts": time.time()}) + "\n",
         encoding="utf-8",
     )
-    (life / "journal.jsonl").write_text(
-        json.dumps({"id": "j1", "ts": time.time(), "kind": "mission_complete",
-                    "title": "did a thing", "summary": "completed a mission", "tags": []}) + "\n",
+    (life / "events.jsonl").write_text(
+        json.dumps({"id": "j1", "ts": time.time(), "type": "life.mission.completed",
+                    "success": True, "title": "did a thing",
+                    "summary": "completed a mission", "tags": []}) + "\n",
         encoding="utf-8",
     )
     (life / "transcript.jsonl").write_text(

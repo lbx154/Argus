@@ -23,6 +23,7 @@ from argus_skill.apps._watch import (
     _WatchState,
 )
 from argus_skill.core import project
+from argus_skill.core.usage import UsageLedger, build_usage_record
 from argus_skill.daemon.life_worker import read_continuous_state
 
 
@@ -45,6 +46,24 @@ def _write_events(path: Path, events: list[dict[str, object]], *, mode: str = "w
             fh.write(blob)
     else:
         path.write_text(blob, encoding="utf-8")
+
+
+def _write_usage(project_root: Path, *, call_id: str, cost_usd: float) -> None:
+    now = time.time()
+    UsageLedger(project_root, migrate_legacy=False).append(
+        build_usage_record(
+            call_id=call_id,
+            project_root=project_root,
+            mission_id=None,
+            provider="codex",
+            model="gpt-test",
+            run_label="engineer-r1",
+            started_at=now - 1,
+            completed_at=now,
+            status="completed",
+            provider_cost_usd=cost_usd,
+        )
+    )
 
 
 def _wait_until(predicate, *, timeout: float = 10.0) -> None:
@@ -318,7 +337,7 @@ def test_budget_line_cache_reuses_previous_result_until_inputs_change(
     import argus_skill.apps._watch as watch_mod
 
     cache = _BudgetLineCache()
-    journal_path = tmp_path / "journal.jsonl"
+    journal_path = tmp_path / "events.jsonl"
     journal_path.write_text("", encoding="utf-8")
     class _FakeBudget:
         global_daily_cap_usd = 9.0
@@ -371,7 +390,7 @@ def test_journal_tail_cache_reuses_previous_result_until_file_changes(
 def test_watch_subprocess_journal_panel_derives_kind_from_real_event_shape(
     tmp_path: Path,
 ) -> None:
-    """Regression: the Journal panel used to read raw event dicts expecting the
+    """Regression: the history panel used to read raw event dicts expecting the
     legacy ``kind``/``cost_usd``/``title`` keys directly on the row. Real
     daemon-emitted events (``life.mission.completed``, ``life.status``, ...)
     never carry a ``kind`` key at the top level — only ``type`` — so every row
@@ -465,10 +484,9 @@ def test_watch_subprocess_renders_inbox_guidance_and_keeps_offset(tmp_path: Path
         [
             {
                 "type": "life.mission.completed",
-                "journal_kind": "mission_complete",
                 "id": "journal-1",
                 "ts": time.time(),
-                "kind": "mission_complete",
+                "success": True,
                 "title": "spent budget",
                 "summary": "daily spend",
                 "tags": [],
@@ -487,6 +505,7 @@ def test_watch_subprocess_renders_inbox_guidance_and_keeps_offset(tmp_path: Path
             },
         ],
     )
+    _write_usage(project_root, call_id="watch-budget-1", cost_usd=1.5)
     before = offset_path.read_text(encoding="utf-8")
 
     env = _subprocess_env()
@@ -574,10 +593,9 @@ def test_watch_subprocess_redirected_output_flushes_and_exits_on_sigterm(
         [
             {
                 "type": "life.mission.completed",
-                "journal_kind": "mission_complete",
                 "id": "journal-1",
                 "ts": time.time(),
-                "kind": "mission_complete",
+                "success": True,
                 "title": "spent budget",
                 "summary": "daily spend",
                 "tags": [],
@@ -585,6 +603,11 @@ def test_watch_subprocess_redirected_output_flushes_and_exits_on_sigterm(
                 "extra": {},
             }
         ],
+    )
+    _write_usage(
+        global_root / "projects" / fingerprint,
+        call_id="watch-budget-2",
+        cost_usd=5.0,
     )
     _write_events(
         project_root / "events.jsonl",
@@ -667,10 +690,9 @@ def test_watch_subprocess_shows_paused_budget_when_exhausted(tmp_path: Path) -> 
         [
             {
                 "type": "life.mission.completed",
-                "journal_kind": "mission_complete",
                 "id": "journal-1",
                 "ts": time.time(),
-                "kind": "mission_complete",
+                "success": True,
                 "title": "spent budget",
                 "summary": "daily spend",
                 "tags": [],
@@ -678,6 +700,11 @@ def test_watch_subprocess_shows_paused_budget_when_exhausted(tmp_path: Path) -> 
                 "extra": {},
             }
         ],
+    )
+    _write_usage(
+        global_root / "projects" / fingerprint,
+        call_id="watch-budget-2",
+        cost_usd=5.0,
     )
 
     env = _subprocess_env()

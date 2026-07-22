@@ -15,8 +15,7 @@ operators can answer empirical questions like:
   * Which skills are worth keeping vs. pruning?
   * What's the matcher token bill per mission?
 
-We use ``events.jsonl`` instead of ``journal.jsonl`` because journal
-entries are coarse (one row per mission) and miss the matcher-token
+We use the canonical ``events.jsonl`` timeline, including the matcher-token
 breakdown emitted by the ``skill.outcome`` event in ``loop.py``.
 """
 from __future__ import annotations

@@ -287,7 +287,6 @@ def _legacy_last_active(project_dir: Path) -> float:
         "events.jsonl",
         "backlog.jsonl",
         "transcript.jsonl",
-        "journal.jsonl",
         "continuous.json",
         "lifecycle.json",
         "daemon.log",

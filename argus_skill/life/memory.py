@@ -1,10 +1,9 @@
 """Persistent memory primitives for life-mode.
 
-Three storage shapes:
+Current storage shapes:
 
-- ``Journal``: append-only ``journal.jsonl``. Each entry is one mission
-  outcome (or a manually-recorded note). Atomic append via ``O_APPEND``
-  on POSIX so concurrent writers don't interleave.
+- ``events.jsonl``: the canonical append-only mission/runtime timeline.
+  ``EventJournal`` projects selected event types into compact history entries.
 - ``Backlog``: ordered ``backlog.jsonl`` of pending mission objectives.
   Status field on each row toggles ``pending`` → ``running`` → ``done``
   / ``failed`` / ``skipped`` / ``superseded``. We rewrite the whole file on status
@@ -217,10 +216,6 @@ def _read_jsonl_tail_marked(
     return rows_rev
 
 
-def _journal_rollover_path(path: Path) -> Path:
-    return path.with_suffix(path.suffix + ".1")
-
-
 def _jsonl_history_paths(path: Path) -> list[Path]:
     """All retained JSONL generations, oldest first, then the live file.
 
@@ -262,7 +257,7 @@ def _history_signature(paths: Iterable[Path]) -> tuple:
 
 
 def _read_jsonl_history(path: Path) -> list[dict[str, Any]]:
-    """Return every retained generation plus the live journal, in order."""
+    """Return every retained generation plus the live JSONL file, in order."""
     rows: list[dict[str, Any]] = []
     for history_path in _jsonl_history_paths(path):
         rows.extend(_read_jsonl(history_path))
@@ -382,12 +377,12 @@ def _atomic_rewrite_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Journal
+# Event history projection
 # ---------------------------------------------------------------------------
 
 @dataclass
 class JournalEntry:
-    """One row in ``journal.jsonl``.
+    """Compact history projection of one canonical event.
 
     ``kind`` is a short tag: ``mission_complete``, ``mission_failed``,
     ``user_note``, ``budget_pause``, etc.
@@ -446,83 +441,10 @@ class JournalEntry:
         )
 
 
-class Journal:
-    """Append-only persistent journal."""
+class EventJournal:
+    """Compact history projection over the canonical ``events.jsonl`` timeline."""
 
-    # When the journal file grows past this many bytes, ``append``
-    # rotates it to ``<path>.1`` (single previous generation, simple).
-    # Sized to comfortably hold ~30 days of an active 7×24 daemon
-    # without losing recent context to truncation.
-    ROTATE_BYTES = 50 * 1024 * 1024  # 50 MiB
-
-    def __init__(self, path: Path) -> None:
-        self.path = Path(path)
-        self._total_cost_cache: dict[float, tuple[tuple, float]] = {}
-
-    # --- write ---
-    def append(self, entry: JournalEntry) -> None:
-        self._maybe_rotate()
-        _atomic_append_jsonl(self.path, entry.to_jsonable())
-
-    def _maybe_rotate(self) -> None:
-        try:
-            size = self.path.stat().st_size
-        except FileNotFoundError:
-            return
-        except OSError:
-            return
-        if size < self.ROTATE_BYTES:
-            return
-        backup = self.path.with_suffix(self.path.suffix + ".1")
-        try:
-            if backup.exists():
-                backup.unlink()
-            self.path.rename(backup)
-        except OSError:
-            # Rotation is best-effort: a busy / read-only filesystem
-            # must not crash the daemon. Worst case the journal keeps
-            # growing until the next attempt.
-            pass
-
-    # --- read ---
-    def all(self) -> list[JournalEntry]:
-        return [JournalEntry.from_jsonable(r) for r in _read_jsonl_history(self.path)]
-
-    def tail(self, n: int = 20) -> list[JournalEntry]:
-        if n <= 0:
-            return []
-        rows = _read_jsonl_tail_history(self.path, n)
-        return [JournalEntry.from_jsonable(r) for r in rows]
-
-    def total_cost_since(self, ts: float) -> float:
-        signature = (
-            _path_signature(self.path),
-            _path_signature(_journal_rollover_path(self.path)),
-        )
-        cached = self._total_cost_cache.get(ts)
-        if cached is not None and cached[0] == signature:
-            return cached[1]
-        total = sum(
-            float(r.get("cost_usd", 0.0))
-            for r in _read_jsonl_history(self.path)
-            if float(r.get("ts", 0.0)) >= ts
-        )
-        self._total_cost_cache[ts] = (signature, total)
-        return total
-
-
-class EventJournal(Journal):
-    """Journal API backed by the canonical ``events.jsonl`` timeline.
-
-    ``memory.jsonl`` used to be a second, parallel truth surface. Project memory
-    now reads concrete event types from ``events.jsonl``. The old
-    ``JournalEntry`` write API is retired; ``journal.entry`` is accepted only as a
-    legacy read shape and is never written.
-    """
-
-    LEGACY_EVENT_TYPE = "journal.entry"
     JOURNAL_EVENT_TYPES = {
-        "journal.entry",
         EventType.LIFE_MISSION_STARTED,
         EventType.LIFE_MISSION_COMPLETED,
         EventType.LIFE_PLANNER_VERDICT,
@@ -535,27 +457,24 @@ class EventJournal(Journal):
     _RAW_EVENT_MARKERS = tuple(
         marker.encode("utf-8")
         for marker in (
-            "journal_kind",
             "life.",
             "user.note",
-            "journal.entry",
             "mission.",
         )
     )
     _RG_PATTERN = (
-        r'"(?:type|canonical_type)"\s*:\s*"(?:journal\.entry|user\.note|'
+        r'"(?:type|canonical_type)"\s*:\s*"(?:user\.note|'
         r'mission\.(?:started|completed)|life\.(?:mission|planner|budget|lifecycle)\.[^"]+)"'
-        r'|"journal_kind"\s*:'
     )
 
-    def append(self, entry: JournalEntry) -> None:  # noqa: ARG002
-        """Retired write API: project journals are derived from events only."""
-        return None
+    def __init__(self, path: Path) -> None:
+        self.path = Path(path)
+        self._total_cost_cache: dict[float, tuple[tuple, float]] = {}
 
     @classmethod
     def _is_journal_event(cls, row: dict[str, Any]) -> bool:
         event_type = canonical_event_type(row.get("canonical_type") or row.get("type"))
-        return bool(row.get("journal_kind")) or event_type in cls.JOURNAL_EVENT_TYPES
+        return event_type in cls.JOURNAL_EVENT_TYPES
 
     @classmethod
     def _might_be_journal_event(cls, raw: bytes) -> bool:
@@ -564,8 +483,6 @@ class EventJournal(Journal):
 
     @staticmethod
     def _entry_from_event(row: dict[str, Any]) -> JournalEntry | None:
-        if row.get("journal_kind") or row.get("type") == EventJournal.LEGACY_EVENT_TYPE:
-            return JournalEntry.from_jsonable(row)
         etype = canonical_event_type(row.get("canonical_type") or row.get("type"))
         if etype == EventType.LIFE_PLANNER_VERDICT:
             from ..core.planner_verdict import (
@@ -1857,11 +1774,11 @@ class IdentityCard:
 
 @dataclass
 class LifeMemory:
-    """Facade bundling identity / journal / backlog plus retrieval."""
+    """Facade bundling identity, event history, and backlog."""
 
     root: Path
     identity: IdentityCard
-    journal: Journal
+    journal: EventJournal
     backlog: Backlog
 
     @classmethod
@@ -2052,7 +1969,7 @@ class ProjectMemory:
     fingerprint: str
     label: str
     root: Path
-    memory: Journal
+    memory: EventJournal
     backlog: Backlog
 
     @classmethod
@@ -2130,14 +2047,8 @@ class MemoryBundle:
         return self.project.backlog
 
     @property
-    def journal(self) -> Journal:
-        """The active journal view for this run.
-
-        Writes and reads land as concrete typed events with a ``journal_kind``
-        field in the canonical ``projects/<fingerprint>/events.jsonl`` timeline.
-        Nothing is mirrored to a global journal, so no cross-project audit trail
-        accumulates.
-        """
+    def journal(self) -> EventJournal:
+        """The active history projection over this project's events timeline."""
         return self.project.memory
 
     @classmethod
@@ -2242,7 +2153,7 @@ def _touch_file(path: Path) -> bool:
 
 
 def _recent_journal(
-    journal: Journal,
+    journal: EventJournal,
     *,
     max_entries: int,
     recency_n: int,

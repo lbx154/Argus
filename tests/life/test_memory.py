@@ -14,62 +14,28 @@ from argus_skill.life.memory import (
     BacklogItem,
     EventJournal,
     IdentityCard,
-    Journal,
     JournalEntry,
     LifeMemory,
 )
 
 
-def _append_legacy_event(mem: LifeMemory, entry: JournalEntry) -> None:
+def _append_history_event(mem: LifeMemory, entry: JournalEntry) -> None:
     path = Path(mem.root) / "events.jsonl"
-    row = entry.to_jsonable()
-    row["journal_kind"] = entry.kind
+    mission = entry.kind in {"mission_complete", "mission_failed"}
+    row = {
+        "type": "life.mission.completed" if mission else "user.note",
+        "id": entry.id,
+        "item_id": entry.id,
+        "ts": entry.ts,
+        "success": entry.kind == "mission_complete",
+        "title": entry.title,
+        "summary": entry.summary,
+        "text": entry.summary,
+        "tags": entry.tags,
+        "cost_usd": entry.cost_usd,
+    }
     with path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(row) + "\n")
-
-
-# ---------- Journal --------------------------------------------------------
-
-def test_journal_append_and_read(tmp_path: Path) -> None:
-    j = Journal(tmp_path / "journal.jsonl")
-    e1 = JournalEntry.new(kind="mission_complete", title="A", summary="did a", cost_usd=0.10)
-    e2 = JournalEntry.new(kind="mission_failed", title="B", summary="did b", cost_usd=0.05)
-    j.append(e1)
-    j.append(e2)
-
-    rows = j.all()
-    assert [r.title for r in rows] == ["A", "B"]
-    assert rows[0].kind == "mission_complete"
-    assert pytest.approx(j.total_cost_since(0.0)) == 0.15
-
-
-def test_journal_tail(tmp_path: Path) -> None:
-    j = Journal(tmp_path / "journal.jsonl")
-    for i in range(10):
-        j.append(JournalEntry.new(kind="x", title=f"t{i}", summary="..."))
-    tail = j.tail(3)
-    assert [e.title for e in tail] == ["t7", "t8", "t9"]
-    assert j.tail(0) == []
-
-
-def test_journal_tail_preserves_rotated_history_in_order(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(Journal, "ROTATE_BYTES", 256)
-    j = Journal(tmp_path / "journal.jsonl")
-    j.append(
-        JournalEntry.new(
-            kind="x",
-            title="old",
-            summary="o" * 300,
-            cost_usd=2.0,
-        )
-    )
-    j.append(JournalEntry.new(kind="x", title="mid", summary="m", cost_usd=3.0))
-    j.append(JournalEntry.new(kind="x", title="new", summary="n", cost_usd=5.0))
-
-    assert (tmp_path / "journal.jsonl.1").exists()
-    assert [e.title for e in j.tail(3)] == ["old", "mid", "new"]
 
 
 def test_event_journal_cost_includes_every_retained_rollover(tmp_path: Path) -> None:
@@ -122,18 +88,18 @@ def test_event_journal_reads_every_rollover_in_chronological_order(tmp_path: Pat
     ]
 
 
-def test_event_journal_canonicalizes_legacy_lifecycle_names(tmp_path: Path) -> None:
+def test_event_journal_projects_canonical_lifecycle_events(tmp_path: Path) -> None:
     path = tmp_path / "events.jsonl"
     path.write_text(
         json.dumps({
-            "type": "mission.started",
+            "type": "life.mission.started",
             "ts": 1.0,
             "item_id": "m1",
             "objective": "legacy mission",
         })
         + "\n"
         + json.dumps({
-            "type": "mission.completed",
+            "type": "life.mission.completed",
             "ts": 2.0,
             "item_id": "m1",
             "success": True,
@@ -148,22 +114,6 @@ def test_event_journal_canonicalizes_legacy_lifecycle_names(tmp_path: Path) -> N
         "mission_started",
         "mission_complete",
     ]
-
-
-def test_journal_tail_does_not_call_read_jsonl(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    j = Journal(tmp_path / "journal.jsonl")
-    for i in range(250):
-        j.append(JournalEntry.new(kind="x", title=f"t{i}", summary="..."))
-
-    def _boom(path: Path):  # noqa: ARG001
-        raise AssertionError("tail must not call _read_jsonl")
-
-    monkeypatch.setattr("argus_skill.life.memory._read_jsonl", _boom)
-
-    tail = j.tail(3)
-    assert [e.title for e in tail] == ["t247", "t248", "t249"]
 
 
 def test_event_journal_tail_prefilters_non_journal_json_before_decoding(
@@ -190,18 +140,6 @@ def test_event_journal_tail_prefilters_non_journal_json_before_decoding(
 
     assert [entry.summary for entry in tail] == ["keep me"]
     assert calls <= 2
-
-
-def test_journal_tolerates_partial_trailing_line(tmp_path: Path) -> None:
-    p = tmp_path / "journal.jsonl"
-    j = Journal(p)
-    j.append(JournalEntry.new(kind="x", title="ok", summary="..."))
-    # Simulate a crash mid-write: partial JSON line.
-    with p.open("a", encoding="utf-8") as fh:
-        fh.write('{"id": "broken"\n')
-    rows = j.all()
-    assert len(rows) == 1
-    assert rows[0].title == "ok"
 
 
 # ---------- Backlog --------------------------------------------------------
@@ -424,7 +362,7 @@ def test_relevant_journal_returns_most_recent(tmp_path: Path) -> None:
     # lets the agent judge relevance.
     mem = LifeMemory.open(tmp_path)
     mem.init()
-    _append_legacy_event(
+    _append_history_event(
         mem,
         JournalEntry.new(
             kind="mission_complete",
@@ -433,7 +371,7 @@ def test_relevant_journal_returns_most_recent(tmp_path: Path) -> None:
             tags=["auth", "security"],
         )
     )
-    _append_legacy_event(
+    _append_history_event(
         mem,
         JournalEntry.new(
             kind="mission_complete",
@@ -442,7 +380,7 @@ def test_relevant_journal_returns_most_recent(tmp_path: Path) -> None:
             tags=["frontend"],
         )
     )
-    _append_legacy_event(
+    _append_history_event(
         mem,
         JournalEntry.new(
             kind="mission_failed",
@@ -465,7 +403,7 @@ def test_relevant_journal_recency_ignores_overlap(tmp_path: Path) -> None:
     # agent's call, not the harness's.
     mem = LifeMemory.open(tmp_path)
     mem.init()
-    _append_legacy_event(
+    _append_history_event(
         mem,
         JournalEntry.new(kind="x", title="Pancake recipe", summary="Mix flour with milk."),
     )
@@ -476,7 +414,7 @@ def test_relevant_journal_recency_ignores_overlap(tmp_path: Path) -> None:
 def test_render_prelude_marks_non_authoritative(tmp_path: Path) -> None:
     mem = LifeMemory.open(tmp_path)
     mem.init()
-    _append_legacy_event(
+    _append_history_event(
         mem,
         JournalEntry.new(
             kind="mission_complete",

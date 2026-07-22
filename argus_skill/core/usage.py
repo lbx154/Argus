@@ -469,8 +469,6 @@ class UsageLedger:
                 covered_mission_ids=self._existing_mission_ids(),
             )
         )
-        if not _event_history_paths(self.project_root / "events.jsonl"):
-            records.extend(_legacy_journal_records(self.project_root))
         appended = self.append_many(records)
         _write_json_atomic(
             self.migration_path,
@@ -1077,36 +1075,6 @@ def _legacy_event_records(
             cost_usd=_float(row.get("cost_usd"), 0.0),
             run_label="legacy.mission.aggregate",
         )
-
-
-def _legacy_journal_records(project_root: Path) -> Iterator[UsageRecord]:
-    path = project_root / "journal.jsonl"
-    for history_path in _event_history_paths(path):
-        try:
-            handle = history_path.open("r", encoding="utf-8")
-        except OSError:
-            continue
-        with handle:
-            for index, raw in enumerate(handle):
-                try:
-                    row = json.loads(raw)
-                except (json.JSONDecodeError, ValueError):
-                    continue
-                if not isinstance(row, dict):
-                    continue
-                cost = _optional_float(row.get("cost_usd"))
-                if cost is None:
-                    continue
-                ts = _float(row.get("ts"), 0.0)
-                identity = str(row.get("id") or f"{history_path.name}:{index}")
-                yield _legacy_aggregate_record(
-                    project_root=project_root,
-                    call_id=f"legacy-journal:{identity}:{int(ts * 1_000_000)}",
-                    mission_id=_optional_text(row.get("id")),
-                    completed_at=ts,
-                    cost_usd=cost,
-                    run_label="legacy.journal.aggregate",
-                )
 
 
 def _legacy_aggregate_record(

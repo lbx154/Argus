@@ -115,7 +115,7 @@ checklist 的数据源仍是 `skills/stage_checklists.py`。
     能力缺失时 fail closed，不退化为 yolo。
     支持的 Linux host 必须预装 `bubblewrap`（Debian/Ubuntu: `apt install bubblewrap`）；
     daemon 启动时会做真实隔离 probe，失败只禁用自维护，不影响科研 mission。
-- `argus_skill/life/memory.py`: 磁盘状态。global root 默认 `~/.argus-skill/`，project state 默认 `~/.argus-skill/projects/<fingerprint>/`。注入 mission 前的 “memory context” prelude(`render_prelude`)走**纯 recency**：surface 最近 N 条 journal(按所传 journal 做 project 隔离),**不再用关键词 Jaccard 给“相关性”打分**——“哪段过往工作相关”是 agent 读这段(标了 non-authoritative 的)advisory 后自己判断的,不是 harness 用词面重叠去猜。
+- `argus_skill/life/memory.py`: 磁盘状态。global root 默认 `~/.argus-skill/`，project state 默认 `~/.argus-skill/projects/<fingerprint>/`。`events.jsonl` 是唯一历史事实源；`EventJournal` 只把当前 typed events 投影成短 history entry，不存在独立 `journal.jsonl`、`journal.entry` 或旧版迁移读取。注入 mission 前的 “memory context” prelude(`render_prelude`)走**纯 recency**：surface 最近 N 条项目事件历史，**不再用关键词 Jaccard 给“相关性”打分**——“哪段过往工作相关”是 agent 读这段(标了 non-authoritative 的)advisory 后自己判断的,不是 harness 用词面重叠去猜。
 
 常见状态文件：
 
@@ -295,7 +295,7 @@ L2 reviewer 在 `argus_skill/reviewer/_core.py`。
 - 注入 memory prelude，但保持原始 objective 不被污染。
 - 调用 runner 的 `execute(...)`。
 - 成本统计和 budget gate。
-- 任务完成后写 journal。
+- 任务完成后写 canonical `events.jsonl`。
 - backlog 空时，L4 planner 自动生成下一批任务（历史的 L3 critic 逐轮打磨层已移除）。
 - 论文类 continuous objective 在 planner 误报 `project_done` 时，强制改派一个 `final_submission` 认证任务，由 L2 reviewer 出整链裁决，而不是相信 planner 的早停。
 

@@ -1,15 +1,14 @@
 """``argus-skill --watch`` — read-only live cockpit.
 
-Tails the current project's ``events.jsonl``, ``daemon.status.json``,
-and ``backlog.jsonl`` while reading the shared global ``journal.jsonl``
-and renders a four-pane ``rich.Live`` layout:
+Tails the current project's ``events.jsonl``, ``daemon.status.json``, and
+``backlog.jsonl`` and renders a four-pane ``rich.Live`` layout:
 
   +-------------------+--------------------+
   | Current mission   | Recent events      |
   | (rounds, tokens,  | (latest 20 from    |
   |  cost, status)    |  events.jsonl)     |
   +-------------------+--------------------+
-  | Journal tail      | Backlog            |
+  | Event history     | Backlog            |
   | (last 10 entries) | (pending/running)  |
   +-------------------+--------------------+
 
@@ -331,8 +330,7 @@ def run_watch(life: Any, *, refresh_hz: float = 2.0) -> int:
         bundle = None
         project_root = Path(life)
         global_root = project_root
-        # Legacy single-project facade keeps its journal at journal.jsonl.
-        journal_file = project_root / "journal.jsonl"
+        journal_file = project_root / "events.jsonl"
     if not project_root.exists():
         print(f"watch: life-dir not found: {project_root}", file=sys.stderr)
         return 2
@@ -372,9 +370,9 @@ def run_watch(life: Any, *, refresh_hz: float = 2.0) -> int:
 
     journal = getattr(bundle, "journal", None)
     if journal is None:
-        from ..life.memory import Journal
+        from ..life.memory import EventJournal
 
-        journal = Journal(journal_path)
+        journal = EventJournal(journal_path)
     budget_cache = _BudgetLineCache()
     journal_cache = _JournalTailCache()
     plain_console = None if sys.stdout.isatty() else Console(force_terminal=False, color_system=None)
@@ -449,7 +447,7 @@ def run_watch(life: Any, *, refresh_hz: float = 2.0) -> int:
                 suffix = "+" if pricing_status in {"partial", "unpriced"} else ""
                 cost_text = f"${cost:.4f}{suffix}"
             tbl.add_row(ts_s, kind, cost_text, title)
-        return Panel(tbl, title="Journal (latest)", border_style="magenta")
+        return Panel(tbl, title="History (latest)", border_style="magenta")
 
     def _backlog_panel() -> Panel:
         rows = _read_backlog_rows(backlog_path)

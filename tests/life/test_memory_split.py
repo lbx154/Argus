@@ -22,8 +22,15 @@ from argus_skill.life import (
 def _write_project_event(journal, entry: JournalEntry) -> None:
     row = {
         "type": "user.note" if entry.kind == "note" else "life.mission.completed",
-        "journal_kind": entry.kind,
-        **entry.to_jsonable(),
+        "id": entry.id,
+        "item_id": entry.id,
+        "ts": entry.ts,
+        "success": entry.kind == "mission_complete",
+        "title": entry.title,
+        "summary": entry.summary,
+        "text": entry.summary,
+        "tags": entry.tags,
+        "cost_usd": entry.cost_usd,
     }
     journal.path.parent.mkdir(parents=True, exist_ok=True)
     with journal.path.open("a", encoding="utf-8") as fh:
@@ -53,7 +60,6 @@ def test_global_memory_lazy_creation(isolated_home: Path) -> None:
     """Just calling open() must not write anything to disk."""
     GlobalMemory.open()
     assert not (isolated_home / "identity.md").exists()
-    assert not (isolated_home / "journal.jsonl").exists()
 
 
 def test_global_memory_init_seeds_identity(isolated_home: Path) -> None:
@@ -63,7 +69,6 @@ def test_global_memory_init_seeds_identity(isolated_home: Path) -> None:
     # create a global journal file.
     assert created == {"identity": True}
     assert (isolated_home / "identity.md").read_text(encoding="utf-8")
-    assert not (isolated_home / "journal.jsonl").exists()
     # Idempotent.
     again = mem.init()
     assert again == {"identity": False}
@@ -213,8 +218,6 @@ def test_memory_bundle_init_creates_both(
     assert not (bundle.project.root / "project.md").exists()
     # idempotent
     assert bundle.init()["global"] == {"identity": False}
-    # Per-project logs only: bundle init must never create a global journal.
-    assert not (bundle.global_mem.root / "journal.jsonl").exists()
 
 
 def test_memory_bundle_render_prelude_excludes_cross_project_journal(

@@ -6,7 +6,7 @@ runs an ordered backlog of missions back-to-back, so the agent behaves
 
 Public surface (intentionally small):
 
-- :class:`memory.Journal` — append-only event log of mission outcomes.
+- :class:`memory.EventJournal` — mission-history projection over events.
 - :class:`memory.Backlog` — ranked TODO of pending missions.
 - :class:`memory.IdentityCard` — editable self-card (name, voice, red lines).
 - :class:`memory.LifeMemory` — small facade bundling the three above plus
@@ -29,9 +29,9 @@ from __future__ import annotations
 from .memory import (
     Backlog,
     BacklogItem,
+    EventJournal,
     GlobalMemory,
     IdentityCard,
-    Journal,
     JournalEntry,
     LifeMemory,
     MemoryBundle,
@@ -44,9 +44,9 @@ from .memory import (
 __all__ = [
     "Backlog",
     "BacklogItem",
+    "EventJournal",
     "GlobalMemory",
     "IdentityCard",
-    "Journal",
     "JournalEntry",
     "LifeMemory",
     "MemoryBundle",

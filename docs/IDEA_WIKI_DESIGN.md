@@ -346,7 +346,7 @@ onto something Argus already ships:
 | plan generation from a draft | `planner/planner.py` + `planner_schema.json` |
 | AC-style acceptance criteria | `skills/stage_checklists.py` + reviewer verdicts |
 | upper/lower scope bounds | stage checklist `done` / `continue` / `blocked` |
-| goal tracking across rounds | `life/memory.py` Journal + Backlog |
+| goal tracking across rounds | `life/memory.py` EventJournal + Backlog |
 | independent review | L2 reviewer (with shell access) |
 | BitLesson-style capture | `skills/lessons.py` + `lifecycle.py` distill/revise/promote/retire |
 
