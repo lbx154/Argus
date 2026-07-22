@@ -23,6 +23,16 @@ from ._helpers import (
 class _MaintenanceMixin:
     """Mixin: decide_self_maintenance and _role_skill_block."""
 
+    @staticmethod
+    def role_context() -> str:
+        """Return the Manager's authoritative fixed operating contract."""
+        from ..skills.role_context import format_role_context
+
+        return format_role_context(
+            "Argus manager role skill",
+            "argus-manager-role.md",
+        )
+
     def decide_self_maintenance(
         self,
         observations: list[dict[str, Any]],
@@ -148,12 +158,7 @@ class _MaintenanceMixin:
         """
         if self.skill_store is None:
             return ""
-        from ..skills.role_context import format_role_context
-
-        block = format_role_context(
-            "Argus manager role skill",
-            "argus-manager-role.md",
-        )
+        block = self.role_context()
         # Adaptive matched manager skill(s). Fail-soft: a matcher hiccup must
         # never break a stage decision, so any error degrades to role skill only.
         if match and (objective or "").strip():

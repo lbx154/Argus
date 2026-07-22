@@ -8,7 +8,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import argus_skill.daemon.self_maintenance as self_maintenance_mod
-from argus_skill.daemon.self_maintenance import DaemonSelfMaintenance
+from argus_skill.daemon.self_maintenance import (
+    DaemonSelfMaintenance,
+    read_self_maintenance_snapshot,
+)
 from argus_skill.life.memory import LifeMemory
 
 
@@ -46,6 +49,29 @@ class _Manager:
                 "tests/life/test_planner_dag_enqueue.py",
             ),
         )
+
+
+def test_read_self_maintenance_snapshot_is_typed_and_fail_soft(
+    tmp_path: Path,
+) -> None:
+    assert read_self_maintenance_snapshot(tmp_path) is None
+    path = tmp_path / "self-maintenance" / "state.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        (
+            '{"phase":"canary_running","maintenance_available":true,'
+            '"updated_at":12.5,"last_audit_at":10.0,"pr_url":""}'
+        ),
+        encoding="utf-8",
+    )
+
+    snapshot = read_self_maintenance_snapshot(tmp_path)
+
+    assert snapshot is not None
+    assert snapshot.phase == "canary_running"
+    assert snapshot.maintenance_available is True
+    assert snapshot.updated_at == 12.5
+    assert snapshot.last_audit_at == 10.0
 
 
 def _controller(tmp_path: Path, manager: _Manager) -> DaemonSelfMaintenance:

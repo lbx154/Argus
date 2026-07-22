@@ -271,33 +271,72 @@ class SelfReplyMixin:
                 if item.status == "running"
             ]
             if not running:
-                return self._recent_mission_history_block(root)
-            item = running[0]
-            activity = role_activity(root)
-            lines = [
-                "## Live mission status",
-                "A mission is currently running under your supervision in a "
-                f"separate daemon process (life_dir={root}):",
-                f'- item: "{(item.title or "").strip()[:120]}" (id={item.id})',
-            ]
-            started = getattr(item, "started_ts", None)
-            if isinstance(started, (int, float)) and started > 0:
-                lines[-1] += f", running for {max(0, int(time.time() - started))}s"
-            for role in ("planner", "engineer", "reviewer"):
-                role_state = activity.get(role)
-                if role_state is None or role_state.status == "idle":
-                    continue
-                lines.append(f"- {role}: {role_state.label} ({role_state.status})")
-            lines.extend([
-                "",
-                "Verify progress yourself before answering if useful — you have "
-                f"shell access and Manager authority over state under {root}.",
-                "Operator steering and abort requests are durable control actions. "
-                "Never say you are read-only or unable to direct the team.",
-            ])
-            return "\n".join(lines)
+                mission = self._recent_mission_history_block(root)
+            else:
+                item = running[0]
+                activity = role_activity(root)
+                lines = [
+                    "## Live mission status",
+                    "A mission is currently running under your supervision in a "
+                    f"separate daemon process (life_dir={root}):",
+                    f'- item: "{(item.title or "").strip()[:120]}" (id={item.id})',
+                ]
+                started = getattr(item, "started_ts", None)
+                if isinstance(started, (int, float)) and started > 0:
+                    lines[-1] += (
+                        f", running for {max(0, int(time.time() - started))}s"
+                    )
+                for role in ("planner", "engineer", "reviewer"):
+                    role_state = activity.get(role)
+                    if role_state is None or role_state.status == "idle":
+                        continue
+                    lines.append(
+                        f"- {role}: {role_state.label} ({role_state.status})"
+                    )
+                lines.extend([
+                    "",
+                    "Verify progress yourself before answering if useful — you have "
+                    f"shell access and Manager authority over state under {root}.",
+                    "Operator steering and abort requests are durable control actions. "
+                    "Never say you are read-only or unable to direct the team.",
+                ])
+                mission = "\n".join(lines)
+            maintenance = self._self_maintenance_status_block(root)
+            return "\n\n".join(
+                block for block in (mission, maintenance) if block
+            )
         except Exception:  # noqa: BLE001 - status context is optional
             return ""
+
+    @staticmethod
+    def _self_maintenance_status_block(root: Path) -> str:
+        from ..daemon.self_maintenance import read_self_maintenance_snapshot
+
+        snapshot = read_self_maintenance_snapshot(root)
+        if snapshot is None:
+            return ""
+        if snapshot.maintenance_available is True:
+            isolation = "available"
+        elif snapshot.maintenance_available is False:
+            isolation = "unavailable"
+        else:
+            isolation = "unknown"
+        phase = snapshot.phase or (
+            "ready" if snapshot.maintenance_available is True else "idle"
+        )
+        lines = [
+            "## Manager self-maintenance state",
+            f"- phase: {phase}",
+            f"- isolated repair capability: {isolation}",
+        ]
+        if snapshot.last_audit_at > 0:
+            lines.append(
+                "- last audit: "
+                f"{max(0, int(time.time() - snapshot.last_audit_at))}s ago"
+            )
+        if snapshot.pr_url:
+            lines.append(f"- open maintenance PR: {snapshot.pr_url}")
+        return "\n".join(lines)
 
     def _recent_mission_history_block(self, root: Path) -> str:
         try:
@@ -350,6 +389,7 @@ class SelfReplyMixin:
         self._current_failure_ledger = None
         prompt = build_simple_prompt(
             objective=objective,
+            identity_card=self.manager.role_context(),
             mission_status=self._live_mission_status_block(),
             runtime_context=self._manager_reply_runtime_context("simple-1"),
             operator_workspace=str(

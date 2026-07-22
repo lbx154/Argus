@@ -12,6 +12,7 @@ import tempfile
 import threading
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,47 @@ _EVENT_AUDIT_TYPES = frozenset({
     "life.planner.error",
     "wiki.hook.warning",
 })
+
+
+@dataclass(frozen=True)
+class SelfMaintenanceSnapshot:
+    """Read-only operator-facing projection of persisted maintenance state."""
+
+    phase: str
+    maintenance_available: bool | None
+    updated_at: float
+    last_audit_at: float
+    pr_url: str
+
+
+def read_self_maintenance_snapshot(
+    life_dir: Path | str,
+) -> SelfMaintenanceSnapshot | None:
+    """Read persisted daemon maintenance state without constructing a controller."""
+    path = Path(life_dir) / "self-maintenance" / "state.json"
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(value, dict):
+        return None
+    available = value.get("maintenance_available")
+    if not isinstance(available, bool):
+        available = None
+
+    def timestamp(name: str) -> float:
+        try:
+            return float(value.get(name) or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    return SelfMaintenanceSnapshot(
+        phase=str(value.get("phase") or "").strip(),
+        maintenance_available=available,
+        updated_at=timestamp("updated_at"),
+        last_audit_at=timestamp("last_audit_at"),
+        pr_url=str(value.get("pr_url") or "").strip(),
+    )
 
 
 def _run(
@@ -1224,4 +1266,8 @@ class DaemonSelfMaintenance:
         return removed
 
 
-__all__ = ["DaemonSelfMaintenance"]
+__all__ = [
+    "DaemonSelfMaintenance",
+    "SelfMaintenanceSnapshot",
+    "read_self_maintenance_snapshot",
+]

@@ -70,6 +70,17 @@ def test_manager_role_skill_file_exists_and_loads() -> None:
     assert (_BUILTIN_ROOT / "manager" / "argus-manager-role.md").is_file()
     text = load_builtin_skill_text("argus-manager-role.md")
     assert "Argus Manager Role" in text
+    assert "Daemon supervision and source maintenance" in text
+    assert "blue/green canary" in text
+    assert "never auto-merges" in text
+
+
+def test_manager_role_context_does_not_require_adaptive_store() -> None:
+    manager = Manager(project_root=".", runner=None)
+    context = manager.role_context()
+    assert "Argus manager role skill" in context
+    assert "Daemon supervision and source maintenance" in context
+    assert "reply with ONE JSON" not in context
 
 
 # --------------------------------------------------------------------------

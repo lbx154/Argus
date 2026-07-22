@@ -180,6 +180,15 @@ def test_build_simple_prompt_is_minimal() -> None:
     assert "Answer and act as Argus Manager" in out
 
 
+def test_build_simple_prompt_includes_identity_when_given() -> None:
+    out = build_simple_prompt(
+        objective="are you supervising the daemon?",
+        identity_card="Manager operating contract.",
+    )
+    assert out.startswith("Manager operating contract.\n\n")
+    assert "are you supervising the daemon?" in out
+
+
 def test_build_simple_prompt_never_points_operator_at_the_backend_cli() -> None:
     """Same regression as build_chat_prompt: this is the path a real free-text
     config request (e.g. "把你的模型换成sonnet 5") actually takes once routed

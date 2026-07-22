@@ -134,12 +134,14 @@ def build_chat_prompt(
 def build_simple_prompt(
     *,
     objective: str,
+    identity_card: str = "",
     mission_status: str = "",
     runtime_context: str = "",
     operator_workspace: str = "",
 ) -> str:
     from ...cli.roles_status import runner_backend_label
 
+    identity = f"{identity_card.strip()}\n\n" if identity_card.strip() else ""
     prefix = f"{mission_status.strip()}\n\n" if mission_status.strip() else ""
     runtime = f"{runtime_context.strip()}\n\n" if runtime_context.strip() else ""
     workspace = ""
@@ -155,6 +157,7 @@ def build_simple_prompt(
         )
     return (
         f"{prefix}"
+        f"{identity}"
         f"You are Argus Manager, powered by one {runner_backend_label()} worker. "
         "Answer and act as Argus Manager. You have authority to intervene in the "
         "running mission; never claim that you are read-only or lack permission.\n\n"
