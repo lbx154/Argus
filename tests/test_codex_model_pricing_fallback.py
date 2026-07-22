@@ -3,15 +3,14 @@
 Background: a codex call that does not pin ``options.model`` (every Manager
 classify call — ``manager-frontdoor-classify`` / ``manager-route`` / ... build
 ``RunnerOptions(...)`` with no ``model=``) gets no model echoed back in the
-codex response.  The usage record was then written with an empty model, which
-prices as ``unpriced``; one unresolved ``unpriced`` call trips
-``cost_control``'s block guard and freezes EVERY subsequent provider call on the
-whole root (observed 2026-07-11).
+codex response. The usage record was then written with an empty model and priced
+as ``unpriced``. Historical cost control treated that telemetry gap as a second
+admission gate; current policy keeps it visible without freezing unrelated
+provider calls.
 
-The fix backfills the recorded model with the configured/canonical model
-(``resolve_pricing_model`` + ``AgentCliBackend._configured_pricing_model``),
-while still leaving a genuinely unknown *pinned* model ``unpriced`` so the
-budget guard keeps protecting against real unknown-cost calls.
+The pricing fix still backfills the recorded model with the configured/canonical
+model (``resolve_pricing_model`` + ``AgentCliBackend._configured_pricing_model``),
+while a genuinely unknown *pinned* model remains honestly ``unpriced``.
 
 We never spawn a real codex CLI: ``AgentCliRunner.run_exec`` is monkeypatched to
 return a synthetic result, mirroring ``test_unpriced_call_blocks_next_provider_spawn``.
@@ -286,12 +285,12 @@ def test_codex_call_without_pinned_model_is_priced_not_blocked(
     assert {row["model"] for row in usage_rows} == {"gpt-5.5"}
 
 
-def test_codex_unknown_pinned_model_still_unpriced_and_blocks(
+def test_codex_unknown_pinned_model_stays_unpriced_without_freezing_next_call(
     tmp_path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Safety: the fallback must NOT paper over a genuinely unknown *pinned*
-    # model. A caller that explicitly asked for an unpriceable model still
-    # trips the guard (fallback only fires when the request model is empty).
+    # model. It remains visible as unpriced telemetry, but it is not a second
+    # global admission gate for an unrelated known-price call.
     backend, root, _seen_models = _codex_backend(tmp_path, monkeypatch)
 
     first = backend.run_exec(
@@ -300,12 +299,12 @@ def test_codex_unknown_pinned_model_still_unpriced_and_blocks(
         run_label="engineer-r1",
     )
     second = backend.run_exec(
-        prompt="must not spawn",
+        prompt="continue with known pricing",
         options=RunnerOptions(model="gpt-5.6-sol"),
         run_label="reviewer",
     )
 
     assert first.pricing_status == "unpriced"
     assert first.cost_usd is None
-    assert "unresolved provider cost blocks new calls" in str(second.fatal_error)
-    assert second.pricing_status == "not_billed"
+    assert second.fatal_error is None
+    assert second.pricing_status == "priced"

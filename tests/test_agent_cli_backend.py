@@ -516,7 +516,7 @@ def test_settled_call_cost_blocks_the_next_call_at_global_cap(
     assert "global daily budget exhausted" in str(denied.fatal_error)
 
 
-def test_unpriced_call_blocks_next_provider_spawn(
+def test_unpriced_call_is_observed_without_blocking_next_provider_spawn(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -554,16 +554,16 @@ def test_unpriced_call_blocks_next_provider_spawn(
         run_label="engineer-r1",
     )
     second = backend.run_exec(
-        prompt="must not spawn",
+        prompt="continue with known pricing",
         options=RunnerOptions(model="gpt-5.6-sol"),
         run_label="reviewer",
     )
 
     assert first.pricing_status == "unpriced"
     assert first.cost_usd is None
-    assert calls == ["engineer-r1"]
-    assert "unresolved provider cost blocks new calls" in str(second.fatal_error)
-    assert second.pricing_status == "not_billed"
+    assert calls == ["engineer-r1", "reviewer"]
+    assert second.fatal_error is None
+    assert second.pricing_status == "priced"
     state = json.loads((root / "cost-control.json").read_text())
     assert [row["call_id"] for row in state["unresolved"]] == [first.call_id]
 
