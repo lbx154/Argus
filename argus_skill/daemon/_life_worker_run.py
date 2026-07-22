@@ -206,7 +206,7 @@ class LifeWorkerRunMixin:
             while not self._stop.is_set():
                 summary: dict = {}
                 try:
-                    from ..manager._core import manager_pipeline_yield_requested
+                    from ..manager._session_ops import manager_pipeline_yield_requested
 
                     if manager_pipeline_yield_requested(rf_state.runtime_root):
                         self._stop.wait(0.2)

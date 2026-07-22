@@ -338,7 +338,6 @@ class PreparedManagerHandoff:
             "vertical": getattr(division, "vertical", ""),
             "workflow_mode": getattr(division, "workflow_mode", "staged"),
             "kind": getattr(division, "kind", ""),
-            "regular": bool(getattr(division, "regular", False)),
             "stages": list(getattr(division, "stages", []) or []),
             "reason": getattr(division, "headline", lambda: "")(),
             "text": (
@@ -560,7 +559,6 @@ def _bounded_handoff_division(
         task=prepared.body,
         vertical=vertical,
         kind=prepared.manager._kind_for(vertical),
-        regular=True,
         stages=list(prepared.manager.plan_stages(vertical)),
         workflow_mode=resolve_workflow_mode(project_root),
         execution_task=prepared.execution_task,
@@ -625,7 +623,7 @@ def manager_continuous_handoff(
                     replacement_id=prepared.intent_id,
                 )
 
-    from ._core import (
+    from ._session_ops import (
         clear_manager_pipeline_yield,
         request_manager_pipeline_yield,
     )

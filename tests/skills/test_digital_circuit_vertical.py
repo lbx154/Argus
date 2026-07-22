@@ -4,7 +4,8 @@ import json
 import subprocess
 import sys
 
-from argus_skill.manager._core import _OPTIMIZE_VERTICALS, Manager
+from argus_skill.manager import Manager
+from argus_skill.manager._helpers import _OPTIMIZE_VERTICALS
 from argus_skill.skills.builtins import iter_vertical_skill_texts
 from argus_skill.skills.stage_checklists import (
     ChecklistLoadState,

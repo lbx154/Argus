@@ -51,6 +51,7 @@ _EXISTING_RESEARCH_DECISION = {
     "workflow_mode": "staged",
     "rationale": "the task is a paper with a literature review and submission",
     "execution_task": "Write the paper and prepare it for submission.",
+    "research_target_level": "publishable",
 }
 _NEW_MATH_DOMAIN_DECISION = {
     "choice": "new",

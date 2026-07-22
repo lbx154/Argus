@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 
 from argus_skill.manager import reset_manager_session
-from argus_skill.manager._core import _SESSION_FILE, _ManagerSession
+from argus_skill.manager._session_ops import _SESSION_FILE, _ManagerSession
 
 
 def _write_session(root, tid: str = "thread-abc") -> None:

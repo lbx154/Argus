@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from argus_skill.manager._core import Manager
+from argus_skill.manager import Manager
 from argus_skill.skills.builtins import iter_vertical_skill_texts
 from argus_skill.skills.vertical_select import VERTICAL_PURPOSES, VERTICALS
 from argus_skill.verticals._base import load_vertical, vertical_role_banner

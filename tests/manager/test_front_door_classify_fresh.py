@@ -8,7 +8,7 @@ what made every cockpit message slow), at the cheap ``low`` effort by default.
 """
 from __future__ import annotations
 
-from argus_skill.manager._core import Manager
+from argus_skill.manager import Manager
 
 
 class _FakeResult:

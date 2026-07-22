@@ -1,7 +1,7 @@
-"""The shared Manager codex session (manager/_core._ManagerSession): the lock
-acquire is BOUNDED (no whole-turn cross-process starvation) and the session tid
-persists + resumes. The recovery fallback on a session-mode error is covered by
-tests/manager/test_manager_session.py.
+"""The shared Manager session lock is bounded and its thread id persists.
+
+Recovery from a session-mode error is covered by
+``tests/manager/test_manager_session.py``.
 """
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import fcntl
 import time
 from pathlib import Path
 
-from argus_skill.manager._core import _acquire_session_lock, _ManagerSession
+from argus_skill.manager._session_ops import _acquire_session_lock, _ManagerSession
 
 
 class _CountingRunner:

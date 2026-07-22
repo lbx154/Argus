@@ -13,7 +13,7 @@ the persistent session never touched.
 """
 from __future__ import annotations
 
-from argus_skill.manager._core import Manager
+from argus_skill.manager import Manager
 
 
 class _FakeResult:

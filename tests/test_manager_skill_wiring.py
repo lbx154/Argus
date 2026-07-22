@@ -18,7 +18,7 @@ import pytest
 
 import argus_skill.builtin_skills as _builtin
 from argus_skill.core.models import RunnerResult
-from argus_skill.manager._core import Manager
+from argus_skill.manager import Manager
 from argus_skill.skills.role_context import load_builtin_skill_text
 from argus_skill.skills.store import (
     _ROLE_SUBDIRS,

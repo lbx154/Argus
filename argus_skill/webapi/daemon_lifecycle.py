@@ -602,7 +602,7 @@ def set_project_workdir(
         project_workdir=target,
         project_fingerprint=sid,
     )
-    from ..manager._core import manager_pipeline_lock, manager_session_lock
+    from ..manager._session_ops import manager_pipeline_lock, manager_session_lock
 
     with (
         session_lifecycle_lock(root, sid),

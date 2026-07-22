@@ -149,11 +149,11 @@ def test_set_project_workdir_uses_pipeline_then_session_lock_order(
         yield
 
     monkeypatch.setattr(
-        "argus_skill.manager._core.manager_pipeline_lock",
+        "argus_skill.manager._session_ops.manager_pipeline_lock",
         pipeline_lock,
     )
     monkeypatch.setattr(
-        "argus_skill.manager._core.manager_session_lock",
+        "argus_skill.manager._session_ops.manager_session_lock",
         session_lock,
     )
 

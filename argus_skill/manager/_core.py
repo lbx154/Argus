@@ -1,36 +1,13 @@
-"""argus.manager — the user-facing Manager that DIVIDES a Task.
+"""Composition root for the user-facing Manager.
 
-When the user hands over a Task, the Manager first decides whether it is a
-"regular" task — one that maps to a preset vertical pipeline (a research paper,
-or a lean optimize/speedrun loop) — then splits it into that vertical's Stages
-and commits the choice. The existing engine (LifeSupervisor → Planner → SkillLoop
-→ Engineer ↔ Reviewer) then advances stage-by-stage on its own.
+The Manager owns control-plane decisions around a mission: front-door routing,
+vertical selection and persistence, stage transitions, and bounded
+self-maintenance. Mission execution remains with LifeSupervisor, Planner,
+Engineer, and Reviewer.
 
-This is a thin ORCHESTRATION layer — it reuses the real machinery, adding only
-the user-facing *division* step:
-
-  * decide     → ``Manager.decide_vertical`` — an explicit built-in env choice is
-                 reused directly; otherwise the Manager's tool-free fast pass picks a clear
-                 existing vertical in one model request. Only uncertainty/new-domain
-                 cases escalate to one bounded grounded call (no keyword classifier;
-                 see ``manager/domain_author.py``)
-  * stage list → ``verticals/<v>/stages.py`` ``STAGE_ORDER`` via ``load_vertical``
-  * commit     → ``skills.vertical_select.persist_vertical`` — the supervisor then
-                 TRUSTS the persisted vertical and does NOT re-classify.
-
-The Manager never judges the win and never plans loops itself — it only divides
-the task and hands the current Stage to the existing Planner.
-
-Implementation note
--------------------
-The ``Manager`` class is composed from four mixin classes defined in sibling
-modules (one concern per module).  This file keeps only:
-
-* the ``Division`` / ``StageTransition`` dataclasses (public API);
-* re-exports of all module-level names that external code currently imports
-  from ``argus_skill.manager._core`` (backward compatibility);
-* the thin ``Manager`` class that wires ``__init__``, ``pipeline_lock``, and
-  ``_task_usage_scope`` while inheriting decision logic from the mixins.
+The implementation is split by concern across four sibling mixins. This module
+contains only the public result dataclasses and the ``Manager`` shell that wires
+shared state, usage accounting, and pipeline locking.
 """
 from __future__ import annotations
 
@@ -40,51 +17,9 @@ from pathlib import Path
 from typing import Any
 
 from ._front_door_ops import _FrontDoorMixin
-
-# ---------------------------------------------------------------------------
-# Re-exports — all names that external code already imports from this module.
-# (Webapi server/tests, daemon, and the public __init__.py all depend on
-#  these being addressable as ``argus_skill.manager._core.<name>``.)
-# ---------------------------------------------------------------------------
-from ._helpers import (  # noqa: F401 — re-exported for backward compat
-    _OPTIMIZE_VERTICALS,
-    _manager_backend_failure,
-    _manager_fast_route_enabled,
-    _manager_fast_route_min_confidence,
-    _manager_model,
-    _manager_reasoning_effort,
-    _manager_route_positive_int,
-    _manager_safe_mode,
-    _manager_vertical_reasoning_effort,
-    _read_json_object,
-    gateway_run_exec,
-    log,
-)
-
-# Mixin classes (one concern per module — no circular imports).
 from ._maintenance_ops import _MaintenanceMixin
-from ._session_ops import (  # noqa: F401 — re-exported
-    _PIPELINE_LOCK,
-    _PIPELINE_YIELD_FILE,
-    _SESSION_FILE,
-    _SESSION_LOCK,
-    _acquire_session_lock,
-    _clear_pipeline_yield_if_token,
-    _ManagerSession,
-    _pipeline_lock_timeout_s,
-    _restore_files_on_error,
-    _session_lock_timeout_s,
-    clear_manager_pipeline_yield,
-    manager_pipeline_lock,
-    manager_pipeline_yield_requested,
-    manager_session_lock,
-    request_manager_pipeline_yield,
-    reset_manager_session,
-)
-from ._stage_ops import (
-    _manager_blocked_rollback_artifact,  # noqa: F401 — re-exported
-    _StageDecisionMixin,
-)
+from ._session_ops import _ManagerSession, manager_pipeline_lock
+from ._stage_ops import _StageDecisionMixin
 from ._vertical_ops import _VerticalDecisionMixin
 
 # ---------------------------------------------------------------------------
@@ -96,8 +31,7 @@ class Division:
     """The Manager's verdict on how to divide a Task."""
     task: str
     vertical: str            # research | speedrun | … | a Manager-authored data domain
-    kind: str                # "research" | "optimize" | "custom"
-    regular: bool            # True = maps to a preset pipeline; False = free-form
+    kind: str                # research | optimize | software | custom
     stages: list[str]        # the vertical's Stage template (engine advances current_stage)
     workflow_mode: str = "staged"
     execution_task: str = ""
@@ -114,10 +48,8 @@ class Division:
             return (f"[manager] no preset vertical fit → PROPOSED new domain "
                     f"`{self.vertical}` ({len(self.stages)} stage(s): "
                     f"{' → '.join(self.stages)}) — awaiting confirmation")
-        tag = "regular" if self.regular else "free-form"
-        if self.kind == "custom":
-            tag = "new domain"
-        return (f"[manager] {self.kind} task ({tag}) → vertical={self.vertical}, "
+        label = "custom domain" if self.kind == "custom" else f"{self.kind} task"
+        return (f"[manager] {label} → vertical={self.vertical}, "
                 f"workflow={self.workflow_mode}, "
                 f"{len(self.stages)} stage(s): {' → '.join(self.stages)}")
 
@@ -157,20 +89,14 @@ class Manager(
     _StageDecisionMixin,
     _FrontDoorMixin,
 ):
-    """User-facing entry: divide a Task, then hand it to the existing engine.
+    """User-facing Manager control plane.
 
-    ``project_root`` is the mission's real project WORKDIR — where
-    ``research/PIPELINE_STATE.json``, ``research/DOMAINS/*.json``, and every
-    other stage/vertical artifact live, matching what
-    ``skills.stage_checklists`` / ``skills.vertical_select`` / the reviewer's
-    stage-gated checklist all read and write. It must NEVER be the daemon's
-    internal life_dir (a distinct, life-of-the-daemon scoped directory) — the
-    two are easy to conflate but reads/writes against life_dir are invisible
-    to everything else that tracks pipeline stage. ``manager_session_root``
-    is the separate, orthogonal concern: where the Manager's OWN persistent
-    codex session/lock files live (safe to keep daemon/life_dir-scoped).
-    ``runner`` is an optional LLM backend for classification; without it the
-    classifier degrades to the deterministic keyword heuristic.
+    ``project_root`` is the mission's real project workdir, where pipeline,
+    domain, and stage artifacts live. It must not be the daemon's internal
+    ``life_dir``. ``manager_session_root`` is independent: it stores the
+    Manager's persistent model session and lock files and may be life-dir
+    scoped. ``runner`` is required for model-owned decisions such as vertical
+    selection; those decisions fail loudly when no backend is available.
     """
 
     def __init__(
@@ -190,21 +116,16 @@ class Manager(
             if manager_session_root is not None
             else self.project_root
         )
-        # One persistent, flock-serialized codex session shared by every Manager
-        # LLM call within THIS Argus session. ``None`` when there is no runner —
-        # the classifier then falls back to the keyword heuristic as before.
+        # One persistent, flock-serialized model session shared by stateful
+        # Manager calls. Vertical routing deliberately uses the raw runner with
+        # fresh context instead. ``None`` means model-owned calls are unavailable.
         self._session = (
             _ManagerSession(runner, self.manager_session_root)
             if runner is not None
             else None
         )
-        # Optional role-mission skill matcher (the same scaffold engineer,
-        # reviewer, and planner use). ``None`` skill_store ⇒ an empty match and
-        # NO injected skill block, so the Manager's existing classify / stage /
-        # approve behaviour is byte-for-byte unchanged for every current caller
-        # that does not pass a store (full backward compatibility). When a store
-        # IS wired, the Manager injects its fixed role skill plus any matched
-        # adaptive manager skill into its stage-decision prompt.
+        # Optional role/adaptive skill source for self-maintenance and
+        # stage-decision prompts. No store means no injected skill block.
         self.skill_store = skill_store
         from ..skills.missions import ManagerMission
 

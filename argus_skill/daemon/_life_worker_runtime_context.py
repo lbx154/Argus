@@ -174,7 +174,7 @@ def _build_supervisor_config(
         _pending_question_resolver_for,
     )
     from ..life.telemetry import telemetry_interval_from_env
-    from ..manager._core import manager_pipeline_yield_requested
+    from ..manager._session_ops import manager_pipeline_yield_requested
 
     paper_mission = _paper_mission_for_project_root(cfg.project_workdir or runtime_root)
 

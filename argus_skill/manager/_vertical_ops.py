@@ -342,26 +342,6 @@ class _VerticalDecisionMixin:
             return "software"
         return "custom"  # a project-local (Manager-authored) data domain
 
-    # ---- triage: which vertical/kind, and is this a real task? ----
-    def triage(
-        self,
-        task: str,
-        *,
-        root_task_id: str | None = None,
-    ) -> tuple[str, str, bool]:
-        """Return (vertical, kind, regular) from the Manager's agent decision.
-
-        No keyword classifier: the vertical is whatever :meth:`decide_vertical`
-        returns. ``regular`` is simply whether the task is non-blank — the
-        Manager already judged it a real task by choosing/authoring a vertical.
-        """
-        decision = self.decide_vertical(task, root_task_id=root_task_id)
-        return (
-            decision.vertical,
-            self._kind_for(decision.vertical),
-            bool((task or "").strip()),
-        )
-
     # ---- split into the vertical's Stage template ----
     def plan_stages(self, vertical: str) -> list[str]:
         """The vertical's Stage list (research → the 8-stage paper pipeline).
@@ -489,7 +469,7 @@ class _VerticalDecisionMixin:
             if ask_on_new_domain:
                 division = Division(
                     task=task, vertical=proposal.name, kind="custom",
-                    regular=True, stages=list(proposal.stages),
+                    stages=list(proposal.stages),
                     workflow_mode=decision.workflow_mode,
                     execution_task=decision.execution_task,
                     proposed_domain=proposal, pending_confirmation=True,
@@ -537,7 +517,6 @@ class _VerticalDecisionMixin:
             task=task,
             vertical=vertical,
             kind=self._kind_for(vertical),
-            regular=True,
             stages=stages,
             workflow_mode=decision.workflow_mode,
             execution_task=decision.execution_task,
@@ -620,7 +599,7 @@ class _VerticalDecisionMixin:
                 new_vertical=proposal.name,
             )
         return Division(
-            task=task, vertical=proposal.name, kind="custom", regular=True,
+            task=task, vertical=proposal.name, kind="custom",
             stages=list(proposal.stages), proposed_domain=proposal,
             execution_task=(
                 execution_task

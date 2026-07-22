@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from argus_skill.daemon.state import read_continuous_state, write_continuous_config
 from argus_skill.life.memory import Backlog, BacklogItem
 from argus_skill.manager import front_door
-from argus_skill.manager._core import (
+from argus_skill.manager._session_ops import (
     clear_manager_pipeline_yield,
     manager_pipeline_yield_requested,
     request_manager_pipeline_yield,

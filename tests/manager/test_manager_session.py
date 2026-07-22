@@ -19,7 +19,7 @@ import time
 import pytest
 
 from argus_skill.manager import Manager
-from argus_skill.manager._core import _SESSION_FILE, _ManagerSession
+from argus_skill.manager._session_ops import _SESSION_FILE, _ManagerSession
 
 
 class _Result:
@@ -283,19 +283,19 @@ def test_fail_open_session_error_degrades_to_plain_call(tmp_path):
 
 def test_fail_open_when_root_unwritable(tmp_path, monkeypatch):
     # Lock/IO error (here: a forced mkdir failure) must still degrade, not block.
-    import argus_skill.manager._core as core
+    from argus_skill.manager import _session_ops
 
     fake = _RecordingRunner()
     sess = _ManagerSession(fake, tmp_path)
 
-    real_mkdir = core.Path.mkdir
+    real_mkdir = _session_ops.Path.mkdir
 
     def _boom(self, *a, **k):
         if self == sess.project_root:
             raise OSError("read-only")
         return real_mkdir(self, *a, **k)
 
-    monkeypatch.setattr(core.Path, "mkdir", _boom)
+    monkeypatch.setattr(_session_ops.Path, "mkdir", _boom)
     res = sess.run_exec(prompt="a", options=None, run_label="x")
     # Degraded to a plain no-session call (resume_thread_id not passed → None).
     assert res.thread_id == "t1"
@@ -310,7 +310,8 @@ def test_manager_calls_flow_through_one_session(tmp_path):
         reply=(
             '{"choice": "existing", "vertical": "research", '
             '"confidence": 0.95, '
-            '"execution_task": "write the paper"}'
+            '"execution_task": "write the paper", '
+            '"research_target_level": "publishable"}'
         )
     )
     mgr = Manager(project_root=tmp_path, runner=fake)

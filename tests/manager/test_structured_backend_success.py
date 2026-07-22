@@ -9,7 +9,7 @@ import pytest
 from argus_skill.adapters.agent_cli_backend import AgentCliBackend
 from argus_skill.agent_cli.models import AgentRunResult
 from argus_skill.manager import Manager
-from argus_skill.manager._core import _ManagerSession
+from argus_skill.manager._session_ops import _ManagerSession
 from argus_skill.manager.domain_author import VerticalDecisionError
 
 _FAST_DECISION = json.dumps(

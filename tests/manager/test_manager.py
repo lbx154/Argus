@@ -53,27 +53,29 @@ def _existing(vertical: str) -> _DecisionRunner:
         "confidence": 0.95,
         "execution_task": "perform the requested task",
     }
-    if normalized == "math":
-        decision["research_target_level"] = "exploratory"
+    if normalized in {"math", "research"}:
+        decision["research_target_level"] = (
+            "exploratory" if normalized == "math" else "publishable"
+        )
     return _DecisionRunner(decision)
 
 
-def test_triage_existing_research():
-    vertical, kind, regular = Manager(runner=_existing("research")).triage(
-        "write a paper on retrieval for EMNLP and prepare the submission"
-    )
-    assert vertical == "research"
-    assert kind == "research"
-    assert regular is True
+def test_divide_existing_research(tmp_path):
+    division = Manager(
+        project_root=tmp_path,
+        runner=_existing("research"),
+    ).divide("write a paper on retrieval for EMNLP and prepare the submission")
+    assert division.vertical == "research"
+    assert division.kind == "research"
 
 
-def test_triage_existing_nanochat_is_optimize():
-    vertical, kind, regular = Manager(runner=_existing("nanochat")).triage(
-        "minimize val_bpb on the nanochat train.py"
-    )
-    assert vertical == "nanochat"
-    assert kind == "optimize"
-    assert regular is True
+def test_divide_existing_nanochat_is_optimize(tmp_path):
+    division = Manager(
+        project_root=tmp_path,
+        runner=_existing("nanochat"),
+    ).divide("minimize val_bpb on the nanochat train.py")
+    assert division.vertical == "nanochat"
+    assert division.kind == "optimize"
 
 
 def test_environment_cannot_force_vertical(tmp_path, monkeypatch) -> None:
@@ -174,6 +176,7 @@ def test_research_divide_persists_explicit_target_venue(tmp_path) -> None:
             "workflow_mode": "staged",
             "confidence": 0.99,
             "execution_task": "write the requested paper",
+            "research_target_level": "publishable",
             "target_venue": "AAAI",
         }
     )
@@ -309,7 +312,7 @@ def test_failed_vertical_commit_restores_pipeline_state(tmp_path, monkeypatch):
         execution_task="run nanochat",
     )
     monkeypatch.setattr(
-        "argus_skill.manager._core.vertical_select.reset_stage_for_new_intent",
+        "argus_skill.manager._vertical_ops.vertical_select.reset_stage_for_new_intent",
         lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("reset failed")),
     )
 
@@ -325,7 +328,7 @@ def test_divide_research_persists_and_lists_8_stages(tmp_path):
     )
     assert d.vertical == "research"
     assert d.stages == list(RESEARCH_STAGES)
-    assert "regular" in d.headline()
+    assert "research task" in d.headline()
     state = json.loads((tmp_path / "research" / "PIPELINE_STATE.json").read_text())
     assert state["vertical"] == "research"
 
@@ -433,6 +436,7 @@ def test_fast_vertical_decision_defers_manager_live_view_and_task_rewrite(tmp_pa
         "vertical": "research",
         "confidence": 0.95,
         "execution_task": "Write the substantive manuscript.",
+        "research_target_level": "publishable",
         "live_view": {
             "title": "Live manuscript",
             "reason": "The operator should see the paper evolve.",

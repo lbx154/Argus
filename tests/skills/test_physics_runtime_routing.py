@@ -94,7 +94,8 @@ def test_planner_resolution_chain_reads_physics_role_banner(tmp_path: Path) -> N
 def test_physics_is_custom_kind_not_optimize_not_paper() -> None:
     # Requirement (Part 4): the Manager routes physics as a dynamic/report ("custom")
     # vertical — never a lean optimize loop and never the paper/full_paper kind.
-    from argus_skill.manager._core import _OPTIMIZE_VERTICALS, Manager
+    from argus_skill.manager import Manager
+    from argus_skill.manager._helpers import _OPTIMIZE_VERTICALS
 
     assert Manager._kind_for("physics") == "custom"
     assert "physics" not in _OPTIMIZE_VERTICALS

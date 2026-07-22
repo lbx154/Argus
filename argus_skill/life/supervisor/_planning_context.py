@@ -491,7 +491,7 @@ class PlanningContextMixin:
             keep = (
                 "intent_id", "source", "execution_task", "vertical", "kind",
                 "continuous_generation",
-                "regular", "stages", "reason", "text", "error",
+                "stages", "reason", "text", "error",
             )
             return {k: data.get(k) for k in keep if k in data}
         except Exception:  # noqa: BLE001
