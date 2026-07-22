@@ -286,8 +286,8 @@ class _WatchdogThenHealthyEngineer:
                 exit_code=-1,
                 agent_messages=[],
                 fatal_error=(
-                    "External interrupt: effective progress timeout: no "
-                    "non-token provider event or project file change"
+                    "Forced restart after hard idle timeout "
+                    "(2700s without a model stream event)."
                 ),
             )
         return RunnerResult(

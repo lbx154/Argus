@@ -136,6 +136,7 @@ def test_advisory_and_sentinel_are_explicit_about_liveness_only(tmp_path: Path) 
     advisory = render_external_work_advisory(tmp_path, now=110)
 
     assert "not scientific evidence" in advisory
-    assert "WAIT_FOR_EXTERNAL_WORK:" in advisory
+    assert '"wait_for": "external_work"' in advisory
+    assert "WAIT_FOR_EXTERNAL_WORK:" not in advisory
     assert parse_external_wait_sentinel("summary\nWAIT_FOR_EXTERNAL_WORK: job-1") == "job-1"
     assert parse_external_wait_sentinel("WAIT_FOR_EXTERNAL_WORK: job-1 please") is None

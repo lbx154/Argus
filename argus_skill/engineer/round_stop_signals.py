@@ -72,12 +72,6 @@ _BACKEND_FAILURE_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
     "cli exited with code",
 )
 
-_EFFECTIVE_PROGRESS_TIMEOUT_MARKER = "effective progress timeout"
-# Distinct marker for the in-round auto-compaction amnesia loop (a busy-but-
-# unproductive churn, not a silent stall). Kept separate from the timeout
-# marker so fatal-error metrics/searches don't conflate the two failure modes,
-# while still reusing the same recoverable between-round handling.
-_COMPACTION_THRASH_MARKER = "compaction thrash"
 _RECOVERABLE_RECONNECT_RE = re.compile(r"^reconnecting\.\.\.\s*(\d+)/(\d+)\b")
 _DAEMON_STOP_INTERRUPT_RE = re.compile(r"^external interrupt:\s*daemon stop requested\b")
 # Distinct from the daemon-stop interrupt above: this fires when the Manager
@@ -106,8 +100,6 @@ def fatal_error_looks_like_backend_failure(fatal_error: str | None) -> bool:
     low = str(fatal_error).strip().casefold()
     if fatal_error_looks_like_recoverable_reconnect(fatal_error):
         return False
-    if fatal_error_looks_like_effective_progress_timeout(fatal_error):
-        return True
     return any(pattern in low for pattern in _BACKEND_FAILURE_FATAL_ERROR_PATTERNS)
 
 
@@ -136,20 +128,6 @@ def fatal_error_looks_like_recoverable_reconnect(fatal_error: str | None) -> boo
     low = str(fatal_error).strip().casefold()
     match = _RECOVERABLE_RECONNECT_RE.search(low)
     return bool(match)
-
-
-def fatal_error_looks_like_effective_progress_timeout(fatal_error: str | None) -> bool:
-    """Return True when the semantic-progress watchdog stopped a stale turn."""
-    if not fatal_error:
-        return False
-    return _EFFECTIVE_PROGRESS_TIMEOUT_MARKER in str(fatal_error).strip().casefold()
-
-
-def fatal_error_looks_like_compaction_thrash(fatal_error: str | None) -> bool:
-    """Return True when the watchdog stopped an in-round auto-compaction loop."""
-    if not fatal_error:
-        return False
-    return _COMPACTION_THRASH_MARKER in str(fatal_error).strip().casefold()
 
 
 def fatal_error_looks_like_daemon_stop_request(fatal_error: str | None) -> bool:
@@ -214,14 +192,6 @@ def _runner_result_has_successful_work_signal(
 ) -> bool:
     if normalize_stop_kind(getattr(result, "stop_kind", None)) is not None:
         return False
-    if fatal_error_looks_like_effective_progress_timeout(
-        getattr(result, "fatal_error", None)
-    ):
-        return False
-    if fatal_error_looks_like_compaction_thrash(
-        getattr(result, "fatal_error", None)
-    ):
-        return False
     if engineer_message.strip():
         return True
     if fatal_error_looks_like_backend_failure(getattr(result, "fatal_error", None)):
@@ -251,8 +221,6 @@ def should_clear_thread_id_after_outcome(
     return (
         str(status).strip().casefold() == "no_progress"
         or _fatal_error_looks_like_poisoned_session(fatal_error)
-        or fatal_error_looks_like_effective_progress_timeout(fatal_error)
-        or fatal_error_looks_like_compaction_thrash(fatal_error)
         or fatal_error_looks_like_backend_failure(fatal_error)
         or normalize_stop_kind(stop_kind) in {"backend_unavailable", "transient_error"}
     )
@@ -381,8 +349,6 @@ __all__ = [
     "fatal_error_looks_like_backend_failure",
     "fatal_error_looks_like_model_configuration",
     "fatal_error_looks_like_recoverable_reconnect",
-    "fatal_error_looks_like_effective_progress_timeout",
-    "fatal_error_looks_like_compaction_thrash",
     "fatal_error_looks_like_daemon_stop_request",
     "fatal_error_looks_like_operator_abort_request",
     "runner_result_is_backend_failure",

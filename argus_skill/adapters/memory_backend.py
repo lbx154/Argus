@@ -31,6 +31,8 @@ class CannedResponse:
     cached_input_tokens: int = 0
     output_tokens: int = 0
     thread_id: str | None = None
+    orphan_process_group_id: int = 0
+    orphan_process_group_cleanup_succeeded: bool = False
 
     def render(self, prompt: str, options: RunnerOptions) -> RunnerResult:
         if self.message_factory is not None:
@@ -45,6 +47,10 @@ class CannedResponse:
             input_tokens=self.input_tokens,
             cached_input_tokens=self.cached_input_tokens,
             output_tokens=self.output_tokens,
+            orphan_process_group_id=self.orphan_process_group_id,
+            orphan_process_group_cleanup_succeeded=(
+                self.orphan_process_group_cleanup_succeeded
+            ),
         )
 
 

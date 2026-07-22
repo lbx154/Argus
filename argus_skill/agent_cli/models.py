@@ -22,6 +22,8 @@ class AgentRunResult:
     stop_kind: str | None = None
     tool_activity_observed: bool = False
     usage_model: str = ""
+    orphan_process_group_id: int = 0
+    orphan_process_group_cleanup_succeeded: bool = False
 
     @property
     def last_agent_message(self) -> str:

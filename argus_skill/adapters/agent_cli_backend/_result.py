@@ -414,4 +414,14 @@ def translate_result(
         tool_activity_observed=bool(
             getattr(cli_result, "tool_activity_observed", False)
         ),
+        orphan_process_group_id=int(
+            getattr(cli_result, "orphan_process_group_id", 0) or 0
+        ),
+        orphan_process_group_cleanup_succeeded=bool(
+            getattr(
+                cli_result,
+                "orphan_process_group_cleanup_succeeded",
+                False,
+            )
+        ),
     )

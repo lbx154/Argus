@@ -24,7 +24,6 @@ from ..core.event_catalog import EventType
 from ..core.models import LoopStatus, ReviewDecision, RoundRecord
 from ..reviewer.failure_taxonomy import REPAIRABLE_FAILURE_LAYERS, resolve_failure_layer
 from .background_subagents import inspect_wait_target
-from .failure_signature import review_failure_signature, signature_similarity
 from .round_signals import (
     _DECISION_PROGRESS_CLASSES,
     _next_decision_stall_streak,
@@ -204,47 +203,6 @@ class RoundSettlementMixin:
             review,
             workdir=workdir,
         )
-        planner_report = getattr(review, "planner_report", None)
-        failure_signature = review_failure_signature(review)
-        failure_similarity = 0.0
-        if failure_signature is None:
-            state.repeated_failure_streak = 0
-            state.last_failure_signature = None
-        elif state.last_failure_signature is None:
-            state.repeated_failure_streak = 1
-            state.last_failure_signature = failure_signature
-        else:
-            failure_similarity = signature_similarity(
-                state.last_failure_signature,
-                failure_signature,
-            )
-            if failure_similarity >= float(supervised_config.repeated_failure_similarity):
-                state.repeated_failure_streak += 1
-            else:
-                state.repeated_failure_streak = 1
-            state.last_failure_signature = failure_signature
-        repeated_failure_replan = bool(
-            failure_signature is not None
-            and supervised_config.repeated_failure_threshold > 0
-            and state.repeated_failure_streak >= supervised_config.repeated_failure_threshold
-        )
-        repeated_failure_reason = ""
-        if repeated_failure_replan and not upstream_stage_target:
-            repeated_failure_reason = (
-                "The same reviewed failure signature repeated "
-                f"{state.repeated_failure_streak} times (similarity "
-                f"{failure_similarity:.2f}). Stop rerunning the unchanged "
-                "mission; replan into the cheapest targeted diagnostic or "
-                "scoped repair, then return to the decisive gate."
-            )
-            report = dict(planner_report or {})
-            report["forward_progress"] = False
-            review.planner_report = report
-            control = dict(getattr(review, "harness_control", {}) or {})
-            control["force_replan"] = True
-            control["reason"] = repeated_failure_reason
-            review.harness_control = control
-            planner_report = report
         reconsidered = (
             review.status == "continue"
             and isinstance(planner_report, dict)
@@ -317,32 +275,6 @@ class RoundSettlementMixin:
                     state.rounds,
                     state.last_engineer_message,
                     reconciliation_reason,
-                    None,
-                )
-            )
-
-        if repeated_failure_replan:
-            if on_event:
-                on_event(
-                    {
-                        "type": "round.failure_signature.repeated",
-                        "round_index": round_index,
-                        "round_max": supervised_config.max_rounds,
-                        "signature": failure_signature.digest,
-                        "streak": state.repeated_failure_streak,
-                        "similarity": round(failure_similarity, 3),
-                        "failure_cause": failure_signature.failure_cause,
-                        "unsatisfied_items": list(failure_signature.unsatisfied_items),
-                        "operator_alert": True,
-                        "text": repeated_failure_reason,
-                    }
-                )
-            return control_return(
-                (
-                    "replan_requested",
-                    state.rounds,
-                    state.last_engineer_message,
-                    repeated_failure_reason,
                     None,
                 )
             )

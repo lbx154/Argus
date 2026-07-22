@@ -160,6 +160,11 @@ class RunnerResult:
     # direct-reply turn with tool activity is not safe to replay automatically,
     # even when it produced no assistant text.
     tool_activity_observed: bool = False
+    # Objective process-ownership facts from the CLI runner. A non-zero group id
+    # means the provider process exited while descendants still occupied its
+    # private process group; the runner attempted cleanup by that exact PGID.
+    orphan_process_group_id: int = 0
+    orphan_process_group_cleanup_succeeded: bool = False
 
     @property
     def last_agent_message(self) -> str:

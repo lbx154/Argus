@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -73,3 +74,75 @@ def test_hard_idle_terminates_only_current_model_process_group() -> None:
         if durable_job.poll() is None:
             durable_job.terminate()
             durable_job.wait(timeout=3)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group isolation")
+def test_provider_exit_cleans_descendants_before_waiting_for_pipe_eof() -> None:
+    runner = AgentCliRunner(agent_bin=sys.executable)
+    command = [
+        sys.executable,
+        "-c",
+        (
+            "import subprocess, sys; "
+            "subprocess.Popen([sys.executable, '-c', "
+            "\"import time; time.sleep(30)\"])"
+        ),
+    ]
+    provider = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    started = time.monotonic()
+
+    state = runner._stream_turn_output(
+        process=provider,
+        command=command,
+        options=RunnerOptions(watchdog_hard_idle_seconds=10),
+        run_label="test-orphan-cleanup",
+        thread_id=None,
+    )
+
+    assert time.monotonic() - started < 5
+    assert state.orphan_process_group_id == provider.pid
+    assert state.orphan_process_group_cleanup_succeeded is True
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group isolation")
+def test_provider_exit_does_not_wait_for_separate_owned_process_pipes() -> None:
+    runner = AgentCliRunner(agent_bin=sys.executable)
+    command = [
+        "bash",
+        "-c",
+        "setsid sleep 30 & echo $!",
+    ]
+    provider = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    child_pid = 0
+    try:
+        started = time.monotonic()
+        state = runner._stream_turn_output(
+            process=provider,
+            command=command,
+            options=RunnerOptions(watchdog_hard_idle_seconds=10),
+            run_label="test-independent-pipes",
+            thread_id=None,
+        )
+        child_pid = int(state.stdout_lines[-1])
+
+        assert time.monotonic() - started < 3
+        assert state.orphan_process_group_id == 0
+        os.kill(child_pid, 0)
+    finally:
+        if child_pid:
+            try:
+                os.kill(child_pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass

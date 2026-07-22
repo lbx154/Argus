@@ -227,8 +227,14 @@ Engineer 和 Reviewer 不再继承上一轮 raw transcript。每个角色每轮�
   文本 artifact。
 - 脱敏不裁决科研质量；若改写了 artifact，会通过 `round.secret_redacted` 告知
   Reviewer 重建相关 hash/provenance。扫描错误或大文本未覆盖也会显式阻止无条件认证。
-- raw Engineer 文本只保留给 `WAIT_FOR_SUBAGENT` 控制解析；进入事件、
-  usage、Reviewer prompt 的副本必须已脱敏。
+- 新 Engineer 通过 mission-scoped control file 的 `wait_for` / `wait_id` 请求等待；
+  raw 文本 sentinel 只为运行中老 session 兼容。进入事件、usage、Reviewer prompt 的
+  Engineer 文本副本必须已脱敏。
+- Engineer runtime 不再从 shell command、Codex 私有 session JSONL 或项目文件 mtime
+  猜长任务/有效进度/重复失败。每个 provider turn 使用独立 process group；provider
+  退出后只清理仍留在该精确 PGID 的无主后代，durable subagent 使用自己独立的
+  process group。运行时 watchdog 只看 provider stream/process hard-idle 和显式 stop；
+  科研推进与 replan 由 Reviewer/Planner 的结构化判断负责。
 
 ### Background-subagent cadence wait（别空转盯长实验）
 
@@ -245,11 +251,11 @@ Engineer 和 Reviewer 不再继承上一轮 raw transcript。每个角色每轮�
   （supervised + 健康 + registry mtime 新鲜 + 无 concern + decision≠early_stop）和
   `needs_attention`（direct 模式 / discussing / degrading|stuck|diverging / 有
   concern / supervisor 心跳过期 / worker pid 已死）。
-- **Agent 主导的 cadence 等待**（"只按 supervisor 节奏复查"）：若 engineer 显式回复
-  `WAIT_FOR_SUBAGENT: <task_id>`，runner 检测到该 sentinel 且命中一个
+- **Agent 主导的 cadence 等待**（"只按 supervisor 节奏复查"）：若 engineer 在
+  control file 写入 `wait_for=subagent` 和 `wait_id=<task_id>`，runner 检测到且命中一个
   self-watched in-flight job 时，**跳过昂贵的 reviewer 轮**，按该 job 的
   supervisor 节奏（`monitor_interval`，clamp 到 30–900s）休眠，job 到终态会提前唤醒。
-  是 **agent 显式选择**等待，不是 harness 替它决定。sentinel 命中不到自看护 job 时被
+  是 **agent 显式选择**等待，不是 harness 替它决定。目标命中不到自看护 job 时被
   忽略（退回正常 reviewed 轮），stale/误发不会挂住循环。
 - 开关：`SupervisedConfig.background_subagent_advisory`（env
   `ARGUS_SKILL_BG_SUBAGENT_ADVISORY`，默认 on，0 关闭）。

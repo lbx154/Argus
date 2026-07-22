@@ -1,9 +1,9 @@
 """Runner-level integration for the background-subagent advisory + cadence wait.
 
 Drives :class:`SupervisedEngineer` with the deterministic ``MemoryBackend`` to
-verify the engineer prompt gets the advisory, the ``WAIT_FOR_SUBAGENT`` sentinel
-yields without burning a reviewer round, and that the feature is a no-op (no
-behaviour change) when there are no in-flight subagents.
+verify the engineer prompt gets the advisory, structured Engineer control yields
+without burning a reviewer round, and that the feature is a no-op when there are
+no in-flight subagents.
 """
 from __future__ import annotations
 
@@ -101,7 +101,34 @@ def _engineer(backend: MemoryBackend) -> SupervisedEngineer:
     )
 
 
-def test_wait_sentinel_summary_handoff_final_line_skips_reviewer(
+def _wait_control_response(wait_for: str, wait_id: str, message: str):
+    def _factory(prompt, _options):
+        marker = "write machine control to `"
+        path = Path(prompt.split(marker, 1)[1].split("`", 1)[0])
+        path.write_text(json.dumps({
+            "review": "required",
+            "skill_action": "none",
+            "skill_name": "",
+            "wait_for": wait_for,
+            "wait_id": wait_id,
+        }), encoding="utf-8")
+        return message
+
+    return _factory
+
+
+def _legacy_control_wait_response(prompt, _options):
+    marker = "write machine control to `"
+    path = Path(prompt.split(marker, 1)[1].split("`", 1)[0])
+    path.write_text(json.dumps({
+        "review": "required",
+        "skill_action": "none",
+        "skill_name": "",
+    }), encoding="utf-8")
+    return "WAIT_FOR_SUBAGENT: train-1"
+
+
+def test_structured_subagent_wait_skips_reviewer(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -112,14 +139,10 @@ def test_wait_sentinel_summary_handoff_final_line_skips_reviewer(
     backend = MemoryBackend()
     # Round 1: engineer yields to the self-watched subagent's cadence.
     backend.queue("engineer-r1", CannedResponse(
-        message=(
-            "Summary:\n"
-            "- evaluator repair is queued\n"
-            "\n"
-            "HANDOFF:\n"
-            "- training is healthy; wait for the next checkpoint if no other work opens\n"
-            "\n"
-            "WAIT_FOR_SUBAGENT: train-1"
+        message_factory=_wait_control_response(
+            "subagent",
+            "train-1",
+            "Training is healthy; yielding to its registered supervisor cadence.",
         ),
         thread_id="t1",
     ))
@@ -139,7 +162,7 @@ def test_wait_sentinel_summary_handoff_final_line_skips_reviewer(
     )
 
     labels = [label for (label, _p, _o) in backend.history]
-    # The sentinel round skipped the reviewer: engineer-r2 is called directly
+    # The structured wait round skipped the reviewer: engineer-r2 is called directly
     # after engineer-r1, with no "reviewer" call in between.
     assert labels[0] == "engineer-r1"
     assert labels[1] == "engineer-r2"
@@ -151,7 +174,36 @@ def test_wait_sentinel_summary_handoff_final_line_skips_reviewer(
     assert status == "done"
 
 
-def test_external_work_wait_skips_reviewer_and_preserves_liveness_semantics(
+def test_legacy_three_key_control_still_allows_sentinel_adapter(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(time, "sleep", lambda *_a, **_k: None)
+    _write_record(tmp_path / ".argus_subagents", "train-1")
+    backend = MemoryBackend()
+    backend.queue(
+        "engineer-r1",
+        CannedResponse(message_factory=_legacy_control_wait_response),
+    )
+    backend.queue("engineer-r2", CannedResponse(message="Finished after wait."))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+
+    status, _rounds, _final, _reason, _tid = _engineer(backend).run(
+        objective="finish after the supervised wait",
+        engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
+        supervised_config=SupervisedConfig(max_rounds=2),
+        workdir=tmp_path,
+    )
+
+    assert status == "done"
+    assert [label for label, _prompt, _options in backend.history] == [
+        "engineer-r1",
+        "engineer-r2",
+        "reviewer",
+    ]
+
+
+def test_structured_external_work_wait_skips_reviewer(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -164,7 +216,11 @@ def test_external_work_wait_skips_reviewer_and_preserves_liveness_semantics(
 
     backend = MemoryBackend()
     backend.queue("engineer-r1", CannedResponse(
-        message="WAIT_FOR_EXTERNAL_WORK: experiment-1",
+        message_factory=_wait_control_response(
+            "external_work",
+            "experiment-1",
+            "Yielding to the registered external-work cadence.",
+        ),
         thread_id="t1",
     ))
     backend.queue("engineer-r2", CannedResponse(

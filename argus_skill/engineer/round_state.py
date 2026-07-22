@@ -27,7 +27,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..core.models import LoopStatus, RoundRecord
-from .failure_signature import FailureSignature
 from .self_review import EngineerCompletionDecision
 
 
@@ -40,8 +39,6 @@ class RoundLoopState:
     no_progress_streak: int = 0
     semantic_stall_streak: int = 0
     plan_reconsider_streak: int = 0
-    repeated_failure_streak: int = 0
-    last_failure_signature: FailureSignature | None = None
     reviewer_next_action: str | None = None
     last_decision_progress_at: float = field(default_factory=lambda: time.monotonic())
     backend_failure_streak: int = 0
@@ -61,7 +58,7 @@ class EngineerTurnOutcome:
     raw_engineer_message: str
     engineer_message: str
     completion_decision: EngineerCompletionDecision | None
-    unmanaged_long_job_note: str
+    process_ownership_note: str
     round_started_at: float
 
 

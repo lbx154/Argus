@@ -78,8 +78,8 @@ _CADENCE_CAP_S = 900.0
 # multiplier) to avoid false-flagging a healthy run whose interval has grown.
 _STALE_MULTIPLIER = 2.0
 
-# Sentinel an agent emits when the only remaining work is to wait for a
-# self-watched subagent to reach its next checkpoint / terminal report.
+# Legacy sentinel accepted only for agents started before structured wait
+# controls were added.
 _WAIT_SENTINEL = "WAIT_FOR_SUBAGENT:"
 _WAIT_SENTINEL_RE = re.compile(
     r"^WAIT_FOR_SUBAGENT:\s*(?:`([^`\s]+)`|([^\s`]+))\s*$"
@@ -496,27 +496,27 @@ def render_background_subagents_advisory(
             "independent work that does NOT depend on its result — prepare "
             "downstream steps, repair tooling/evaluators, or scaffold artifacts. "
             "If the ONLY remaining work is to wait for one of these to reach its "
-            "next checkpoint or finish, do not spin another full round: reply with "
-            "exactly"
+            "next checkpoint or finish, do not spin another full round: set the "
+            "internal Engineer control file to"
         )
-        lines.append(f"    {_WAIT_SENTINEL} <task_id>")
+        lines.append('    "wait_for": "subagent", "wait_id": "<task_id>"')
         lines.append(
-            "as your entire action, and the loop will pause on that subagent's "
+            "and the loop will pause on that subagent's "
             "supervisor cadence (no wasted round) and resume you at its next "
             "checkpoint or terminal report instead of re-polling every round."
         )
     elif attention:
         lines.append(
             "Address the attention items above yourself (the supervisor cannot, or "
-            "is asking you to). Do not yield with "
-            f"`{_WAIT_SENTINEL}` while a job needs attention."
+            "is asking you to). Do not request a structured wait while a job needs "
+            "attention."
         )
 
     return "\n".join(lines)
 
 
 def parse_wait_sentinel(message: str | None) -> str | None:
-    """Extract the task id from a ``WAIT_FOR_SUBAGENT: <id>`` agent message.
+    """Legacy adapter for pre-control-file Engineer sessions.
 
     The final non-empty line must be an exact wait directive. Earlier summary or
     handoff text is ignored, but any non-empty text after the directive rejects
@@ -547,10 +547,9 @@ def find_waitable_subagent(
 ) -> InflightSubagent | None:
     """Return the self-watched in-flight subagent named ``task_id``, else None.
 
-    Used by the runner to validate an agent ``WAIT_FOR_SUBAGENT`` request before
-    yielding — a request that does not name a currently self-watched job is
-    ignored (treated as a normal round) so a stale or mistaken sentinel cannot
-    hang the loop.
+    Used by the runner to validate an agent-authored structured wait request
+    before yielding. A request that does not name a currently self-watched job
+    is ignored so stale control cannot hang the loop.
     """
     target = (task_id or "").strip()
     if not target:

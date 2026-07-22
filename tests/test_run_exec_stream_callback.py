@@ -9,6 +9,7 @@ This drives the real ``AgentCliRunner.run_exec`` with a faked copilot CLI proces
 from __future__ import annotations
 
 import json
+import time
 
 import pytest
 
@@ -246,6 +247,52 @@ def test_runner_retains_bounded_stream_tail_with_exact_counts(monkeypatch) -> No
     ]
     assert result.last_agent_message == "final"
     assert result.thread_id == "sess-1"
+
+
+def test_post_exit_drain_keeps_queued_terminal_event_with_slow_callback(
+    monkeypatch,
+) -> None:
+    lines = [
+        json.dumps({
+            "type": "assistant.message",
+            "data": {"content": f"block-{index}"},
+        })
+        for index in range(75)
+    ]
+    lines.append(json.dumps({
+        "type": "result",
+        "sessionId": "sess-slow",
+        "exitCode": 0,
+    }))
+    monkeypatch.setattr(
+        runner_mod.subprocess,
+        "Popen",
+        lambda *args, **kwargs: _FakeProc(lines),
+    )
+    monkeypatch.setattr(
+        AgentCliRunner,
+        "_resolve_executable",
+        staticmethod(lambda value: value),
+    )
+    monkeypatch.setattr(
+        AgentCliRunner,
+        "_build_command",
+        lambda self, **kwargs: ["copilot", "-p", "x"],
+    )
+
+    result = AgentCliRunner(
+        agent_bin="copilot",
+        backend=BACKEND_COPILOT,
+    ).run_exec(
+        prompt="bounded",
+        resume_thread_id=None,
+        options=RunnerOptions(on_agent_message=lambda _message: time.sleep(0.02)),
+        run_label="stream-test",
+    )
+
+    assert result.turn_completed is True
+    assert result.turn_failed is False
+    assert result.thread_id == "sess-slow"
 
 
 def test_runner_keeps_usage_bearing_delta_for_accounting() -> None:

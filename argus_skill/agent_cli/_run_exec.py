@@ -38,6 +38,9 @@ from ._idle_watchdog import (
 from .models import AgentRunResult, InactivitySnapshot
 from .runner_backend import BACKEND_OPENCODE
 
+_POST_EXIT_PIPE_DRAIN_QUIET_SECONDS = 0.1
+_POST_EXIT_PIPE_DRAIN_MAX_SECONDS = 5.0
+
 
 @dataclass
 class _StreamState:
@@ -62,6 +65,9 @@ class _StreamState:
     fatal_error: str | None = None
     watchdog_terminated: bool = False
     watchdog_reason: str | None = None
+    orphan_process_group_id: int = 0
+    orphan_process_group_cleanup_succeeded: bool = False
+    process_group_cleanup_checked: bool = False
 
 
 class RunExecMixin:
@@ -109,6 +115,31 @@ class RunExecMixin:
         )
         return self._finalize_turn_result(
             process=process, command=command, options=options, state=state
+        )
+
+    @classmethod
+    def _cleanup_orphan_process_group(
+        cls,
+        process: subprocess.Popen[str],
+        state: _StreamState,
+    ) -> None:
+        """Clean descendants left in this turn's private process group.
+
+        Durable Argus jobs launch in their own session/process group. Anything
+        still in the provider turn's group after the provider itself exits has
+        no durable owner, regardless of the command text that created it.
+        """
+        process_group_id = int(getattr(process, "pid", 0) or 0)
+        if (
+            os.name == "nt"
+            or process_group_id <= 0
+            or not cls._process_group_alive(process_group_id)
+        ):
+            return
+        state.orphan_process_group_id = process_group_id
+        cls._terminate_process(process)
+        state.orphan_process_group_cleanup_succeeded = (
+            not cls._process_group_alive(process_group_id)
         )
 
     def _run_exec_start_gate(
@@ -222,6 +253,8 @@ class RunExecMixin:
                 _DEFAULT_STREAM_QUEUE_LINES,
             )
         )
+        stop_queueing = threading.Event()
+        last_reader_enqueue_at = [time.monotonic()]
         soft_idle = options.watchdog_soft_idle_seconds or 0
         stalled_idle = options.watchdog_stalled_idle_seconds or 0
         hard_idle = options.watchdog_hard_idle_seconds or 0
@@ -234,14 +267,35 @@ class RunExecMixin:
         turn_started_at = last_activity_at
         turn_wall_clock_seconds = _turn_wall_clock_seconds(run_label)
         last_soft_check_at = last_activity_at
+        provider_exited_at: float | None = None
         stdout_closed = False
         stderr_closed = False
 
         def consume_pipe(stream_name: str, pipe) -> None:
             assert pipe is not None
             for line in pipe:
-                line_queue.put((stream_name, line.rstrip("\n")))
-            line_queue.put((stream_name, None))
+                if stop_queueing.is_set():
+                    # Keep draining the OS pipe so an independently owned
+                    # process cannot block on inherited stdout/stderr, but no
+                    # longer retain output after the provider drain closes.
+                    continue
+                item = (stream_name, line.rstrip("\n"))
+                while not stop_queueing.is_set():
+                    try:
+                        line_queue.put(item, timeout=0.1)
+                        last_reader_enqueue_at[0] = time.monotonic()
+                        break
+                    except queue.Full:
+                        continue
+            if stop_queueing.is_set():
+                return
+            while not stop_queueing.is_set():
+                try:
+                    line_queue.put((stream_name, None), timeout=0.1)
+                    last_reader_enqueue_at[0] = time.monotonic()
+                    return
+                except queue.Full:
+                    continue
 
         stdout_thread = threading.Thread(
             target=consume_pipe,
@@ -299,8 +353,35 @@ class RunExecMixin:
             return True
 
         while True:
-            if process.poll() is not None and stdout_closed and stderr_closed:
-                break
+            if process.poll() is not None:
+                if provider_exited_at is None:
+                    provider_exited_at = time.monotonic()
+                if not state.process_group_cleanup_checked:
+                    state.process_group_cleanup_checked = True
+                    self._cleanup_orphan_process_group(process, state)
+                if stdout_closed and stderr_closed:
+                    break
+                post_exit_elapsed = time.monotonic() - provider_exited_at
+                reader_quiet = (
+                    time.monotonic() - last_reader_enqueue_at[0]
+                    >= _POST_EXIT_PIPE_DRAIN_QUIET_SECONDS
+                )
+                if (
+                    post_exit_elapsed >= _POST_EXIT_PIPE_DRAIN_MAX_SECONDS
+                    or (
+                        post_exit_elapsed >= _POST_EXIT_PIPE_DRAIN_QUIET_SECONDS
+                        and reader_quiet
+                        and line_queue.empty()
+                    )
+                ):
+                    # A separately owned durable process may inherit the
+                    # provider's pipes. Stop retaining new output after a
+                    # bounded/quiet drain, then consume everything already
+                    # queued before returning. Reader threads continue
+                    # discarding from the OS pipe until its real owner closes.
+                    stop_queueing.set()
+                    if line_queue.empty():
+                        break
             check_external_interrupt()
             check_wall_clock_limit()
             try:
@@ -445,11 +526,12 @@ class RunExecMixin:
                 state.stderr_line_count += 1
                 state.stderr_lines.append(text)
 
+        stop_queueing.set()
         if process.poll() is None:
             process.wait(timeout=10.0)
 
-        stdout_thread.join(timeout=2.0)
-        stderr_thread.join(timeout=2.0)
+        stdout_thread.join(timeout=2.0 if stdout_closed else 0.05)
+        stderr_thread.join(timeout=2.0 if stderr_closed else 0.05)
         return state
 
     def _finalize_turn_result(
@@ -540,4 +622,8 @@ class RunExecMixin:
             turn_completed=state.turn_completed,
             turn_failed=state.turn_failed,
             fatal_error=state.fatal_error,
+            orphan_process_group_id=state.orphan_process_group_id,
+            orphan_process_group_cleanup_succeeded=(
+                state.orphan_process_group_cleanup_succeeded
+            ),
         )

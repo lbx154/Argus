@@ -93,13 +93,33 @@ def test_engineer_control_file_is_primary_and_stale_safe(tmp_path: Path) -> None
     assert decision.review == "required"
     assert decision.skill_action == "update"
     assert decision.skill_name == "parser"
+    assert decision.wait_for == "none"
+    assert decision.wait_id == ""
+    assert decision.wait_control_present is False
     instructions = engineer_control_instructions(
         path,
         allow_self_review=False,
         allow_skill_maintenance=True,
     )
     assert "Do not print it in chat" in instructions
+    assert "`wait_for`" in instructions
+    assert "`wait_id`" in instructions
     assert "ARGUS_ENGINEER_DECISION" not in instructions
+
+
+def test_engineer_control_wait_is_structured_and_not_completion() -> None:
+    decision = parse_engineer_completion_decision(
+        'ARGUS_ENGINEER_DECISION: {"review":"skip","skill_action":"update",'
+        '"skill_name":"x","wait_for":"subagent","wait_id":"train-1"}'
+    )
+
+    assert decision is not None
+    assert decision.review == "required"
+    assert decision.skill_action == "none"
+    assert decision.wait_for == "subagent"
+    assert decision.wait_id == "train-1"
+    assert decision.wait_control_present is True
+    assert decision.requests_wait is True
 
 
 def test_engineer_control_paths_are_mission_scoped(tmp_path: Path) -> None:

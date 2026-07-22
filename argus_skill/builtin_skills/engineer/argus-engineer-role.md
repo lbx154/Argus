@@ -2,7 +2,7 @@
 name: Argus Engineer Role
 description: Identity and operating contract for the engineer agent inside argus-skill supervised loops.
 category: role-identity
-version: 1
+version: 2
 created_at: 2026-05-25T00:00:00+00:00
 ---
 
@@ -30,7 +30,8 @@ The Engineer is the execution arm of argus-skill: it reads the operator task, fo
   launched with `python -m argus_skill.tools.subagent submit` (direct or
   supervised mode). Never keep the Engineer turn alive with raw `bash`, repeated
   `read_bash`, or a shell `while/sleep` monitor. Continue independent work or
-  yield with `WAIT_FOR_SUBAGENT: <task_id>`.
+  request a cadence yield through the internal control file with
+  `wait_for=subagent` and the exact registry `wait_id`.
 - CPU-bound jobs that require exclusive cores must declare `--cpu-count N` or
   `--cpu-ids i,j`. Argus rejects insufficient or overlapping allocations before
   it creates task/log/run artifacts, and the launched process inherits the

@@ -21,6 +21,7 @@ _VERIFICATION_RE = re.compile(
 )
 _REVIEW_VALUES = frozenset({"required", "skip"})
 _SKILL_ACTIONS = frozenset({"none", "create", "update"})
+_WAIT_VALUES = frozenset({"none", "subagent", "external_work"})
 
 
 @dataclass(frozen=True)
@@ -30,10 +31,17 @@ class EngineerCompletionDecision:
     review: str
     skill_action: str = "none"
     skill_name: str = ""
+    wait_for: str = "none"
+    wait_id: str = ""
+    wait_control_present: bool = False
 
     @property
     def requests_review_skip(self) -> bool:
         return self.review == "skip"
+
+    @property
+    def requests_wait(self) -> bool:
+        return self.wait_for != "none" and bool(self.wait_id)
 
 
 @dataclass(frozen=True)
@@ -58,10 +66,27 @@ def _parse_engineer_control(payload: object) -> EngineerCompletionDecision | Non
     skill_name = str(payload.get("skill_name") or "").strip()[:200]
     if skill_action == "update" and not skill_name:
         skill_action = "none"
+    wait_for = str(payload.get("wait_for") or "none").strip().lower()
+    wait_control_present = "wait_for" in payload or "wait_id" in payload
+    if wait_for not in _WAIT_VALUES:
+        wait_for = "none"
+    wait_id = str(payload.get("wait_id") or "").strip()[:200]
+    if wait_for != "none" and not wait_id:
+        wait_for = "none"
+    if wait_for == "none":
+        wait_id = ""
+    else:
+        # A wait is not a completion decision and cannot maintain a skill.
+        review = "required"
+        skill_action = "none"
+        skill_name = ""
     return EngineerCompletionDecision(
         review=review,
         skill_action=skill_action,
         skill_name=skill_name,
+        wait_for=wait_for,
+        wait_id=wait_id,
+        wait_control_present=wait_control_present,
     )
 
 
@@ -104,10 +129,12 @@ def engineer_control_instructions(
     return (
         "## Internal control file\n"
         f"Before your final response, write machine control to `{path}` as JSON. "
-        "Do not print it in chat. Use exactly three keys: `review` "
+        "Do not print it in chat. Use exactly five keys: `review` "
         f"({review_values}), `skill_action` ({skill_values}), and `skill_name` "
-        "(required only for update; otherwise empty). Your final response remains "
-        "ordinary prose."
+        "(required only for update; otherwise empty), plus `wait_for` (`none`, "
+        "`subagent`, or `external_work`) and `wait_id` (the exact registry id, "
+        "otherwise empty). A wait forces `review=required` and "
+        "`skill_action=none`. Your final response remains ordinary prose."
     )
 
 

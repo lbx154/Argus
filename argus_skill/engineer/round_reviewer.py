@@ -122,7 +122,7 @@ class RoundReviewerMixin:
         engineer_result,
         engineer_message: str,
         safe_fatal_error: str | None,
-        unmanaged_long_job_note: str,
+        process_ownership_note: str,
         state: RoundLoopState,
         on_event: Callable[[dict], None] | None,
     ) -> ReviewDecision:
@@ -165,7 +165,7 @@ class RoundReviewerMixin:
                             for part in (
                                 engineer_message or "(no message)",
                                 *state.pending_secret_guard_notes,
-                                unmanaged_long_job_note,
+                                process_ownership_note,
                             )
                             if part
                         )
@@ -265,7 +265,7 @@ class RoundReviewerMixin:
         engineer_result = outcome.engineer_result
         engineer_message = outcome.engineer_message
         safe_fatal_error = outcome.safe_fatal_error
-        unmanaged_long_job_note = outcome.unmanaged_long_job_note
+        process_ownership_note = outcome.process_ownership_note
         if prepare_review_context is not None:
             try:
                 prepare_review_context()
@@ -338,7 +338,7 @@ class RoundReviewerMixin:
                 engineer_result=engineer_result,
                 engineer_message=engineer_message,
                 safe_fatal_error=safe_fatal_error,
-                unmanaged_long_job_note=unmanaged_long_job_note,
+                process_ownership_note=process_ownership_note,
                 state=state,
                 on_event=on_event,
             )

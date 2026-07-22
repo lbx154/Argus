@@ -18,23 +18,16 @@ from typing import Any
 
 from .round_signals import _normalize_dynamic_plan_mode
 
-_EFFECTIVE_PROGRESS_WARNING_ENV = "ARGUS_SKILL_EFFECTIVE_PROGRESS_WARNING_SECONDS"
-_EFFECTIVE_PROGRESS_STALLED_ENV = "ARGUS_SKILL_EFFECTIVE_PROGRESS_STALLED_SECONDS"
-_EFFECTIVE_PROGRESS_TIMEOUT_ENV = "ARGUS_SKILL_EFFECTIVE_PROGRESS_TIMEOUT_SECONDS"
-_EFFECTIVE_PROGRESS_CHECK_INTERVAL_ENV = "ARGUS_SKILL_EFFECTIVE_PROGRESS_CHECK_INTERVAL_SECONDS"
 _RUNNER_HARD_IDLE_ENV = "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS"
 _SHIFT_ROUND_LIMIT_ENV = "ARGUS_SKILL_SHIFT_ROUND_LIMIT"
 _THREAD_TOKEN_LIMIT_ENV = "ARGUS_SKILL_THREAD_TOKEN_LIMIT"
 _DECISION_PROGRESS_TIMEOUT_ENV = "ARGUS_SKILL_DECISION_PROGRESS_TIMEOUT_SECONDS"
-_ROUND_COMPACTION_LIMIT_ENV = "ARGUS_SKILL_ROUND_COMPACTION_LIMIT"
 # Toggle for the background-subagent advisory + agent-driven cadence wait. When
 # unset/true, each round surfaces in-flight supervised subagents so the engineer
 # does not babysit a self-watched run. Set to 0 to disable (e.g. tests).
 _BG_SUBAGENT_ADVISORY_ENV = "ARGUS_SKILL_BG_SUBAGENT_ADVISORY"
 _DYNAMIC_PLAN_MODE_ENV = "ARGUS_SKILL_DYNAMIC_PLAN_MODE"
 _DYNAMIC_PLAN_CONFIRM_ROUNDS_ENV = "ARGUS_SKILL_DYNAMIC_PLAN_CONFIRM_ROUNDS"
-_REPEATED_FAILURE_THRESHOLD_ENV = "ARGUS_SKILL_REPEATED_FAILURE_THRESHOLD"
-_REPEATED_FAILURE_SIMILARITY_ENV = "ARGUS_SKILL_REPEATED_FAILURE_SIMILARITY"
 _COMPACT_CONTINUATION_PROMPTS_ENV = "ARGUS_SKILL_COMPACT_CONTINUATION_PROMPTS"
 _CONTINUE_WORK_SENTINEL = "CONTINUE_WORK:"
 _CONTINUE_WORK_MAX_CHARS = 500
@@ -42,14 +35,6 @@ _CONTINUE_WORK_MAX_CHARS = 500
 # Engineer/Reviewer calls are always fresh, so no token roll is needed.
 _DEFAULT_THREAD_TOKEN_LIMIT = 0
 _DEFAULT_DECISION_PROGRESS_TIMEOUT_SECONDS = 30 * 60
-_EFFECTIVE_PROGRESS_DEFAULT_WARNING_SECONDS = 10 * 60
-_EFFECTIVE_PROGRESS_DEFAULT_STALLED_SECONDS = 30 * 60
-_EFFECTIVE_PROGRESS_DEFAULT_TIMEOUT_SECONDS = 45 * 60
-# A handful of ``compacted`` events within one fresh Engineer turn indicates an
-# in-turn re-read/re-emit loop. Keep this emergency detector independent of the
-# cross-round policy; every next round is fresh regardless.
-_DEFAULT_ROUND_COMPACTION_LIMIT = 3
-_EFFECTIVE_PROGRESS_DEFAULT_CHECK_INTERVAL_SECONDS = 30.0
 _RUNNER_DEFAULT_HARD_IDLE_SECONDS = 45 * 60
 
 
@@ -163,14 +148,6 @@ class SupervisedConfig:
     dynamic_plan_confirm_rounds: int = field(
         default_factory=lambda: _env_int(_DYNAMIC_PLAN_CONFIRM_ROUNDS_ENV, 2)
     )
-    # A repeated Reviewer blocker means the mission contract is not producing
-    # a new diagnostic action. End cleanly so L4 can replace the plan.
-    repeated_failure_threshold: int = field(
-        default_factory=lambda: _env_int(_REPEATED_FAILURE_THRESHOLD_ENV, 2)
-    )
-    repeated_failure_similarity: float = field(
-        default_factory=lambda: _env_float(_REPEATED_FAILURE_SIMILARITY_ENV, 0.62)
-    )
     # Round 1 receives the full task/skill contract. Continuation rounds use
     # Reviewer guidance plus the shared CHECKPOINT.md baton.
     compact_continuation_prompts: bool = field(
@@ -223,54 +200,25 @@ class SupervisedConfig:
     checkpoint_path: Path | None = None
     # Mission-level canonical packet. Round handoffs are written beside it.
     context_packet_path: str = ""
-    # Escalate a round with neither a relevant project-file change nor a
-    # substantive provider event. Token-count heartbeats deliberately do not
-    # reset this timer. A hard value of 0 disables the semantic watchdog.
-    effective_progress_warning_seconds: int = field(
-        default_factory=lambda: _env_int(
-            _EFFECTIVE_PROGRESS_WARNING_ENV,
-            _EFFECTIVE_PROGRESS_DEFAULT_WARNING_SECONDS,
-        )
-    )
-    effective_progress_stalled_seconds: int = field(
-        default_factory=lambda: _env_int(
-            _EFFECTIVE_PROGRESS_STALLED_ENV,
-            _EFFECTIVE_PROGRESS_DEFAULT_STALLED_SECONDS,
-        )
-    )
-    effective_progress_timeout_seconds: int = field(
-        default_factory=lambda: _env_int(
-            _EFFECTIVE_PROGRESS_TIMEOUT_ENV,
-            _EFFECTIVE_PROGRESS_DEFAULT_TIMEOUT_SECONDS,
-        )
-    )
-    effective_progress_check_interval_seconds: float = field(
-        default_factory=lambda: _env_float(
-            _EFFECTIVE_PROGRESS_CHECK_INTERVAL_ENV,
-            _EFFECTIVE_PROGRESS_DEFAULT_CHECK_INTERVAL_SECONDS,
-            minimum=1.0,
-        )
-    )
+    # Constructor compatibility for older callers. Semantic progress is never
+    # inferred from provider-private session files or project mtimes.
+    effective_progress_warning_seconds: int = 0
+    effective_progress_stalled_seconds: int = 0
+    effective_progress_timeout_seconds: int = 0
+    effective_progress_check_interval_seconds: float = 0.0
     runner_hard_idle_seconds: int = field(
         default_factory=lambda: _env_int(
             _RUNNER_HARD_IDLE_ENV,
             _RUNNER_DEFAULT_HARD_IDLE_SECONDS,
         )
     )
-    # Interrupt a round once its Codex session auto-compacts this many times
-    # within the single round (the in-round amnesia-loop signature). Set
-    # ARGUS_SKILL_ROUND_COMPACTION_LIMIT=0 to disable.
-    round_compaction_limit: int = field(
-        default_factory=lambda: _env_int(
-            _ROUND_COMPACTION_LIMIT_ENV,
-            _DEFAULT_ROUND_COMPACTION_LIMIT,
-        )
-    )
+    # Constructor compatibility; provider-private compaction logs are not read.
+    round_compaction_limit: int = 0
     # Surface in-flight SUPERVISED subagents (read from
     # ``<workdir>/.argus_subagents``) in the engineer prompt each round so the
     # agent does not burn rounds babysitting a self-watched long job, and can
-    # yield to its supervisor cadence via ``WAIT_FOR_SUBAGENT:`` instead of
-    # busy-polling. Env override: ARGUS_SKILL_BG_SUBAGENT_ADVISORY (0 disables).
+    # yield through its structured control file instead of busy-polling. Env
+    # override: ARGUS_SKILL_BG_SUBAGENT_ADVISORY (0 disables).
     background_subagent_advisory: bool = field(
         default_factory=lambda: _env_bool(_BG_SUBAGENT_ADVISORY_ENV, True)
     )

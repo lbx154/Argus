@@ -28,7 +28,6 @@ from ..core.stop_kinds import (
     pause_status_for_stop_kind,
     stop_kind_from_external_interrupt,
 )
-from .long_job_policy import find_unmanaged_long_jobs
 from .round_signals import _apply_round_secret_guard, _review_event_payload
 from .round_state import (
     EngineerTurnOutcome,
@@ -43,7 +42,6 @@ from .round_stop_signals import (
     daemon_stop_review_decision,
     external_pause_review_decision,
     fatal_error_looks_like_daemon_stop_request,
-    fatal_error_looks_like_effective_progress_timeout,
     fatal_error_looks_like_model_configuration,
     fatal_error_looks_like_operator_abort_request,
     model_configuration_review_decision,
@@ -143,42 +141,34 @@ class RoundExecutionMixin:
             state.pending_secret_guard_notes.append(secret_guard_reviewer_note)
             del state.pending_secret_guard_notes[:-8]
         state.last_engineer_message = engineer_message or state.last_engineer_message
-        unmanaged_long_jobs: list[dict[str, Any]] = []
-        if supervised_config.engineer_log_path:
-            unmanaged_long_jobs = find_unmanaged_long_jobs(
-                supervised_config.engineer_log_path,
-                call_id=(
-                    str(getattr(engineer_result, "call_id", "") or "")
-                    if bool(
-                        getattr(engineer_result, "call_id_log_correlated", False)
-                    )
-                    else ""
-                ),
-                since=round_started_at,
+        orphan_group_id = int(
+            getattr(engineer_result, "orphan_process_group_id", 0) or 0
+        )
+        process_ownership_note = ""
+        if orphan_group_id:
+            cleanup_succeeded = bool(
+                getattr(
+                    engineer_result,
+                    "orphan_process_group_cleanup_succeeded",
+                    False,
+                )
             )
-        unmanaged_long_job_note = ""
-        if unmanaged_long_jobs:
-            examples = "\n".join(
-                f"- {row['classification']}: {row['command'][:500]}"
-                for row in unmanaged_long_jobs[:5]
-            )
-            unmanaged_long_job_note = (
-                "ARGUS LONG-JOB OWNERSHIP WARNING: this Engineer turn launched "
-                "or busy-waited on a long job outside the durable subagent/job "
-                "owner. Preserve any valid terminal artifacts, but classify the "
-                "workflow defect as failure_layer=orchestration and require all "
-                "future long/GPU launches through `python -m "
-                "argus_skill.tools.subagent submit`. Do not interpret owner loss "
-                "or missing finalization as scientific evidence.\n" + examples
+            process_ownership_note = (
+                "ARGUS PROCESS OWNERSHIP FACT: the provider turn exited while "
+                f"descendants remained in its private process group {orphan_group_id}. "
+                "The runner targeted only that exact group for cleanup "
+                f"(cleanup_succeeded={str(cleanup_succeeded).lower()}). Durable "
+                "Argus subagents run in separately owned process groups. Treat this "
+                "as an orchestration fact, not as scientific evidence."
             )
             if on_event:
                 on_event({
-                    "type": "round.unmanaged_long_job",
+                    "type": "round.orphan_process_group",
                     "round_index": round_index,
-                    "count": len(unmanaged_long_jobs),
+                    "process_group_id": orphan_group_id,
+                    "cleanup_succeeded": cleanup_succeeded,
                     "operator_alert": True,
-                    "findings": unmanaged_long_jobs[:5],
-                    "text": unmanaged_long_job_note[:2000],
+                    "text": process_ownership_note,
                 })
 
         # Phase-2 instrumentation: emit ``round.main.completed`` so the
@@ -220,7 +210,7 @@ class RoundExecutionMixin:
             raw_engineer_message=raw_engineer_message,
             engineer_message=engineer_message,
             completion_decision=completion_decision,
-            unmanaged_long_job_note=unmanaged_long_job_note,
+            process_ownership_note=process_ownership_note,
             round_started_at=round_started_at,
         )
 
@@ -402,8 +392,7 @@ class RoundExecutionMixin:
             )
             fatal_error_low = str(fatal_error or "").casefold()
             watchdog_failure = (
-                fatal_error_looks_like_effective_progress_timeout(fatal_error)
-                or "forced restart after hard idle timeout" in fatal_error_low
+                "forced restart after hard idle timeout" in fatal_error_low
                 or "acp hard idle timeout" in fatal_error_low
             )
             threshold = (

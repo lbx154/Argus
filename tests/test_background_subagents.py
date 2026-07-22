@@ -1,7 +1,7 @@
 """Tests for the background-subagent advisory used by the engineer round loop.
 
-Covers registry scanning + self-watched/needs-attention classification, advisory
-rendering, the ``WAIT_FOR_SUBAGENT`` sentinel parser, and the cadence-wait helper.
+Covers registry scanning + self-watched/needs-attention classification,
+structured-wait advisory rendering, the legacy sentinel adapter, and cadence.
 """
 from __future__ import annotations
 
@@ -238,7 +238,8 @@ def test_advisory_lists_watched_and_offers_wait(tmp_path: Path) -> None:
     assert "Background subagents in flight" in text
     assert "Self-watched and healthy" in text
     assert "train-1" in text
-    assert "WAIT_FOR_SUBAGENT:" in text
+    assert '"wait_for": "subagent"' in text
+    assert "WAIT_FOR_SUBAGENT:" not in text
     assert "Needs your attention" not in text
 
 
@@ -251,7 +252,7 @@ def test_advisory_attention_suppresses_wait(tmp_path: Path) -> None:
     assert "direct-1" in text
     # A job needs attention, so the blanket wait affordance must be withheld.
     assert "reply with exactly" not in text
-    assert "Do not yield" in text
+    assert "Do not request a structured wait" in text
 
 
 # ---- sentinel parsing -----------------------------------------------------

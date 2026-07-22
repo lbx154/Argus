@@ -278,7 +278,7 @@ def inspect_external_work(
 
 
 def parse_external_wait_sentinel(message: str | None) -> str | None:
-    """Parse an exact final ``WAIT_FOR_EXTERNAL_WORK`` control line."""
+    """Legacy adapter for pre-control-file Engineer sessions."""
     if not message:
         return None
     text = message.strip()
@@ -353,8 +353,8 @@ def render_external_work_advisory(
         lines.append(f"- `{status.work_id}`: {status.state.value}{suffix}")
     if any(status.waitable for status in statuses):
         lines.extend([
-            "If all remaining work depends on one RUNNING_HEALTHY item, reply with exactly",
-            f"    {_WAIT_SENTINEL} <work_id>",
+            "If all remaining work depends on one RUNNING_HEALTHY item, set the internal Engineer control file to",
+            '    "wait_for": "external_work", "wait_id": "<work_id>"',
             "Argus will pause progress clocks for one declared cadence. File growth alone never counts as progress.",
         ])
     return "\n".join(lines)
