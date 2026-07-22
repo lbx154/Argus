@@ -616,6 +616,10 @@ def test_plan_next_passes_planner_config_to_runner(
     # carries the runtime context + the current stage checklist headline.
     assert "Runtime source changed since daemon start." in sent_prompt
     assert "A failed hypothesis, negative experiment, or rejected direction" in sent_prompt
+    assert "Use project tools at full capacity before deciding" in sent_prompt
+    assert "project files, including code" in sent_prompt
+    assert "Planning is your continuous responsibility" in sent_prompt
+    assert "Keep Planner inspection lightweight" not in sent_prompt
 
 
 def test_plan_next_defaults_to_xhigh_reasoning_effort() -> None:

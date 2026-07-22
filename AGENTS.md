@@ -12,6 +12,11 @@
 
 `argus-skill` 是一个长期运行的 agent harness：外层 `LifeSupervisor` 管 backlog、预算、daemon、L4 planner（forward scheduling）；内层 `SkillLoop` 管单个任务的 skill 匹配、L1 engineer 执行、L2 reviewer 验收和选择性 Skill maintenance。任务内先写 project-layer Skill；成功 mission 边界由 Manager 判断 stay / shared-global / shared-vertical，默认把可迁移经验传播给其他项目。历史上独立的 L3 critic 逐轮打磨循环已经移除。完成来源现在由结构化 `review_source` 明确记录：允许自审的低风险 bounded mission 可由 Engineer 显式 `review=skip` 完成；要求独立审查的 vertical、`stage_closing` / `review:required` 任务，以及 Engineer 主动选择 `review=required` 的任务，仍交给 L2 Reviewer。EMNLP 论文生成 pipeline 是 built-in skill + per-stage reviewer 检查（stage checklists，reviewer 对照 artifact 裁决）+ planner fallback 共同实现的，不是单独一个 `make_paper.py`。`pipeline_contracts.py` 现在只负责 manifest/freshness/validation-priority 这套 artifact 构建-修复工具，不再是质量 gate。
 
+**角色限制责任，不限制能力。** L4 Planner 持续负责 forward planning，但使用完整
+Agent 工具主动读代码、跑有界探针/测试，并可在形成或验证计划所必需时直接编辑代码或规划
+artifact；不能把它降级成只读摘要后输出 JSON 的生成器。持续实现仍由 Engineer 主责，
+Reviewer 负责需要独立验收的结果。
+
 **Token-efficiency rule:** prompt 改动先看边际效果/token。禁止为了“更稳”重复注入同义
 角色规则；优先用文件状态、按需 checklist 和一个权威短契约。必须保留关键证据/gate，
 但新增长文案前先测 prompt 大小，并为常见路径设置回归预算。
@@ -59,7 +64,7 @@ argus-skill / python -m argus_skill
 | Manager | 前门 + stage 权威 | `argus_skill/manager/_core.py`, `argus_skill/manager/front_door.py`, `argus_skill/manager/dispatch.py`, `argus_skill/webapi/manager_bridge.py` | 操作员自由文本的 chat-vs-task 分流（模型判断，非关键词）、vertical 选择、pipeline stage 转移的**唯一**权威（其余角色只能建议）。不在 L1/L2/L4 的编号序列里——它跨越整条流水线，不是流水线上的一站；有自己独立的 backend/model 配置（`ARGUS_SKILL_MANAGER_BACKEND`/`_MODEL`），在 `/roles` 和 cockpit 面板里与其余三个角色平级展示 |
 | L1 | Engineer | `argus_skill/loop.py`, `argus_skill/engineer/runner.py` | 单轮执行 prompt、失败重试、session 续接、进度 watchdog |
 | L2 | Reviewer | `argus_skill/reviewer/_core.py`, `argus_skill/reviewer/reviewer_schema.json` | 对要求或请求独立审查的任务给出 done/continue/blocked，维护 reviewer JSON schema，并承担论文任务的强制 peer-review gate |
-| L4 | Planner | `argus_skill/planner/planner.py`, `argus_skill/life/supervisor/_core.py` | continuous mode 自动排新任务、EMNLP final gate 失败后的自动分流。历史的 L3 critic 逐轮打磨层已移除（见 `planner/planner.py` 顶部说明）；Planner 不负责 mission 验收 |
+| L4 | Planner | `argus_skill/planner/planner.py`, `argus_skill/life/supervisor/_core.py` | 持续读取真实项目并用完整 Agent 工具调查、运行有界探针/测试、必要时编辑代码或规划 artifact，以维护 forward plan 和自动排新任务；也负责 EMNLP final gate 失败后的自动分流。历史的 L3 critic 逐轮打磨层已移除；Planner 不负责 mission 验收 |
 | Skill | 横向能力复用 | `argus_skill/skills/store.py`, `argus_skill/skills/layered.py`, `argus_skill/manager/skill_tidy.py` | project / shared-vertical / shared-global 匹配，Engineer/Reviewer 选择性 maintenance，成功 mission 后 Manager 跨项目传播 |
 | Contracts | 论文 artifact 工具 + 状态机 | `argus_skill/skills/pipeline_contracts.py`, `argus_skill/skills/pipeline_policy.py`, `argus_skill/skills/stage_checklists.py` | manifest/freshness/validation-priority 构建-修复（pipeline_contracts）；质量 gate 走 stage checklist（stage_checklists） |
 
@@ -102,10 +107,12 @@ checklist 的数据源仍是 `skills/stage_checklists.py`。
     审计、平时按 `ARGUS_SKILL_SELF_MAINTENANCE_AUDIT_SECONDS` 轻量审计。只有绑定真实
     evidence id 的具体框架问题才能派修复；禁止猜测式重构。Engineer/Reviewer 在该 daemon
     私有 framework worktree 内隔离执行，Reviewer 通过后本 daemon 在干净 mission 边界
-    blue/green 灰度，失败回滚旧 source；灰度成功才以
-    `lbx154 <lbxhaixing154@sjtu.edu.cn>` 推独立分支并自动开 PR，永不自动 merge/main。
-    其他 daemon 只把人工合并后的 `origin/main` 当证据，各自 Manager 决定采用或延后并
-    本地灰度。隔离能力缺失时 fail closed，不退化为 yolo。
+    blue/green 灰度，失败回滚旧 source；灰度成功即成为该 daemon 的持久本地 source，
+    不依赖 GitHub 账号或仓库权限。若当前 GitHub 身份对 origin 具有 push 权限，可选推
+    独立分支并自动开 PR，永不自动 merge/main；无权限时安静保持 local-active，不把发布
+    失败伪装成修复失败。PR 被拒也不回滚已验证的本地修复。其他 daemon 只把可验证的人工
+    合并 `origin/main` 当作可选采用证据，各自 Manager 决定采用或延后并本地灰度。隔离
+    能力缺失时 fail closed，不退化为 yolo。
     支持的 Linux host 必须预装 `bubblewrap`（Debian/Ubuntu: `apt install bubblewrap`）；
     daemon 启动时会做真实隔离 probe，失败只禁用自维护，不影响科研 mission。
 - `argus_skill/life/memory.py`: 磁盘状态。global root 默认 `~/.argus-skill/`，project state 默认 `~/.argus-skill/projects/<fingerprint>/`。注入 mission 前的 “memory context” prelude(`render_prelude`)走**纯 recency**：surface 最近 N 条 journal(按所传 journal 做 project 隔离),**不再用关键词 Jaccard 给“相关性”打分**——“哪段过往工作相关”是 agent 读这段(标了 non-authoritative 的)advisory 后自己判断的,不是 harness 用词面重叠去猜。
