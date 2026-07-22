@@ -14,6 +14,20 @@ describe('renderEvent', () => {
     expect(renderEvent({ type: 'some.unknown.internal' })).toBeNull();
   });
 
+  it('renders reasoning summaries as pale role context', () => {
+    expect(renderEvent({
+      type: 'engineer.progress',
+      kind: 'reasoning',
+      text: 'I should verify the smallest failing case first.',
+      agent_layer: 'planner',
+    } as EventMsg)).toMatchObject({
+      role: 'planner',
+      glyph: '∴',
+      tone: 'dim',
+      reasoning: true,
+    });
+  });
+
   it('renders an assistant message as a bright role line', () => {
     const r = renderEvent({ type: 'engineer.progress', kind: 'assistant_message', text: '你好', agent_layer: 'engineer' } as EventMsg);
     expect(r).not.toBeNull();

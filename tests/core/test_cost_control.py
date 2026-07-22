@@ -11,7 +11,6 @@ from argus_skill.core.codex_usage import TokenUsage
 from argus_skill.core.cost_control import (
     COST_CONTROL_AUDIT_FILE,
     COST_CONTROL_STATE_FILE,
-    CostControlStateError,
     _locked,
     cost_control_snapshot,
     reserve_call_budget,
@@ -170,6 +169,7 @@ def test_unpriced_cost_is_observed_without_globally_blocking(
     snapshot = cost_control_snapshot(global_root=tmp_path)
     assert snapshot["unresolved_calls"] == 1
     assert snapshot["blocking_unresolved_calls"] == 0
+    assert snapshot["unresolved"][0]["blocking"] is False
 
     next_call, reason = _reserve(tmp_path, project, "call-2")
     assert next_call is not None and reason == ""
@@ -260,7 +260,7 @@ def test_dead_process_hold_is_pruned(tmp_path: Path) -> None:
     current.release(reason="test")
 
 
-def test_snapshot_times_out_on_busy_global_lock(tmp_path: Path) -> None:
+def test_snapshot_falls_back_to_atomic_read_on_busy_global_lock(tmp_path: Path) -> None:
     entered = threading.Event()
     release = threading.Event()
 
@@ -273,11 +273,13 @@ def test_snapshot_times_out_on_busy_global_lock(tmp_path: Path) -> None:
     holder.start()
     assert entered.wait(timeout=1)
     try:
-        with pytest.raises(CostControlStateError, match="cost control lock busy"):
-            cost_control_snapshot(
-                global_root=tmp_path,
-                lock_timeout_seconds=0.02,
-            )
+        snapshot = cost_control_snapshot(
+            global_root=tmp_path,
+            lock_timeout_seconds=0.02,
+        )
+        assert snapshot["snapshot_stale"] is True
+        assert snapshot["active_reservations"] == 0
+        assert snapshot["unresolved_calls"] == 0
     finally:
         release.set()
         holder.join(timeout=1)

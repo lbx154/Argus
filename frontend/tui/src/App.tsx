@@ -130,6 +130,10 @@ export function App({
     ),
   );
   const [pendingExit, setPendingExit] = useState(false);
+  const [showReasoning, setShowReasoning] = useState(() => {
+    const configured = String(process.env.ARGUS_SKILL_SHOW_REASONING ?? '').toLowerCase();
+    return !['0', 'false', 'no', 'off'].includes(configured);
+  });
 
   useEffect(() => {
     setMenuSel(0);
@@ -435,6 +439,13 @@ export function App({
       setPanel((current) => current?.kind === 'operations' ? null : { kind: 'operations' });
       return;
     }
+    if (key.ctrl && input === 't') {
+      setShowReasoning((current) => {
+        setNotice(`reasoning ${current ? 'hidden' : 'shown'}`);
+        return !current;
+      });
+      return;
+    }
     if (pendingExit) setPendingExit(false); // any other key disarms the double-Ctrl-C
     if (panel) {
       const selectable = panel.kind === 'daemons' || panel.kind === 'artifacts' || panel.kind === 'backlog';
@@ -675,6 +686,7 @@ export function App({
             liveMessageId={managerRequestRef.current?.messageId}
             collapsed={slashMenuOpen || Boolean(panel)}
             showIdle={!missionView}
+            showReasoning={showReasoning}
           />
           {panel ? (
             <PanelView

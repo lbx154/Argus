@@ -100,6 +100,18 @@ export async function probeApi(
   }
 }
 
+export function uniqueWarningReporter(
+  report: (warning: string) => void,
+): (warning: string) => void {
+  const seen = new Set<string>();
+  return (warning: string) => {
+    const normalized = warning.trim();
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    report(normalized);
+  };
+}
+
 export interface EnsureResult {
   reachable: boolean;
   spawned: boolean;

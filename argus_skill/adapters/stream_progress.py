@@ -293,6 +293,42 @@ def make_stream_progress_callback(
             delta_emits.pop(key, None)
             delta_rendered.pop(key, None)
 
+    def _accumulate_delta(
+        *,
+        actor: str,
+        message_id: str,
+        delta: str,
+        kind: str,
+        buffer_id: str | None = None,
+    ) -> None:
+        visible_id = message_id.strip()
+        key = (actor, (buffer_id or visible_id).strip())
+        current = delta_buffers.get(key, "") + delta
+        delta_buffers[key] = current
+        if not current.strip():
+            return
+        now = time.monotonic()
+        previous_emit = delta_emits.get(key)
+        if previous_emit is not None:
+            last_at, last_chars = previous_emit
+            if (
+                now - last_at < delta_interval_s
+                and len(current) - last_chars < delta_chars
+            ):
+                return
+        delta_emits[key] = (now, len(current))
+        rendered = _truncate(current.strip())
+        if delta_rendered.get(key) == rendered:
+            return
+        delta_rendered[key] = rendered
+        _emit_progress(
+            kind=kind,
+            text=rendered,
+            actor=actor,
+            replace=True,
+            message_id=visible_id,
+        )
+
     def cb(stream: str, line: str) -> None:
         try:
             sink.handle_stream_line(stream, line)
@@ -432,6 +468,46 @@ def make_stream_progress_callback(
             )
             return
 
+        # Copilot dialect: provider-supplied reasoning summaries. Current
+        # Copilot builds may emit encrypted/empty reasoning; never surface the
+        # opaque reasoningId, only explicit plaintext content.
+        if et in {"assistant.reasoning", "assistant.reasoning_delta"}:
+            data = event.get("data") or {}
+            if not isinstance(data, dict):
+                return
+            reasoning_id = data.get("reasoningId") or data.get("messageId")
+            content = (
+                data.get("deltaContent")
+                if et == "assistant.reasoning_delta"
+                else data.get("content")
+            )
+            if not isinstance(reasoning_id, str) or not reasoning_id.strip():
+                return
+            if not isinstance(content, str) or not content:
+                return
+            visible_id = f"reasoning:{reasoning_id.strip()}"
+            if et == "assistant.reasoning_delta":
+                _accumulate_delta(
+                    actor=actor,
+                    message_id=visible_id,
+                    buffer_id=visible_id,
+                    delta=content,
+                    kind="reasoning",
+                )
+            else:
+                key = (actor, visible_id)
+                delta_buffers.pop(key, None)
+                delta_emits.pop(key, None)
+                delta_rendered.pop(key, None)
+                _emit_progress(
+                    kind="reasoning",
+                    text=content.strip(),
+                    actor=actor,
+                    replace=True,
+                    message_id=visible_id,
+                )
+            return
+
         # Copilot dialect: incremental ``assistant.message_delta`` events
         # keyed by messageId, then a final ``assistant.message``.
         if et == "assistant.message_delta":
@@ -444,31 +520,11 @@ def make_stream_progress_callback(
                 return
             if not isinstance(delta, str) or not delta:
                 return
-            key = (actor, mid.strip())
-            current = delta_buffers.get(key, "") + delta
-            delta_buffers[key] = current
-            if not current.strip():
-                return
-            now = time.monotonic()
-            previous_emit = delta_emits.get(key)
-            if previous_emit is not None:
-                last_at, last_chars = previous_emit
-                if (
-                    now - last_at < delta_interval_s
-                    and len(current) - last_chars < delta_chars
-                ):
-                    return
-            delta_emits[key] = (now, len(current))
-            rendered = _truncate(current.strip())
-            if delta_rendered.get(key) == rendered:
-                return
-            delta_rendered[key] = rendered
-            _emit_progress(
-                kind="agent_message",
-                text=rendered,
+            _accumulate_delta(
                 actor=actor,
-                replace=True,
-                message_id=mid.strip(),
+                message_id=mid,
+                delta=delta,
+                kind="agent_message",
             )
             return
 

@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 
 import {
+  displayObjective,
   formatMissionElapsed,
   metricDisplay,
   missionMetricImprovement,
@@ -68,7 +69,9 @@ export function MissionCockpit({
   globalDailyCapUsd?: number | null;
   requestUsage?: RequestUsage | null;
 }) {
-  const mission = view.mission.objective || view.mission.title || 'Waiting for a mission';
+  const mission = displayObjective(
+    view.mission.objective || view.mission.title || 'Waiting for a mission',
+  );
   const metric = view.primary_metric;
   const improvement = missionMetricImprovement(metric);
   const timeline = view.timeline.slice(-Math.max(3, width < 80 ? 4 : 6));

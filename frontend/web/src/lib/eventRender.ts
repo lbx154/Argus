@@ -65,7 +65,7 @@ export const toneColor = (tone: Tone): string =>
     info: theme.info,
   }[tone]);
 
-/** Is this an inner-monologue reasoning event? (hidden by default, ⌘O shows it) */
+/** Reasoning summaries are shown softly by default; ⌘/Ctrl+T can hide them. */
 /**
  * Render one event to a feed line, or return null to HIDE it (the default for
  * any type not in the whitelist — including agent_io.* raw framing).
@@ -88,9 +88,9 @@ export function renderEvent(ev: EventMsg): Rendered | null {
     const layer = S(ev, 'agent_layer') || 'engineer';
     const text = firstLine((ev as Record<string, unknown>).text ?? (ev as Record<string, unknown>).action_summary);
     if (kind === 'reasoning') {
-      const body = trunc(S(ev, 'text'), 180);
+      const body = trunc(S(ev, 'text'), 280);
       if (!body) return null;
-      return { role: layer, label: ROLE_LABEL[layer] || layer, glyph: '🧠', text: body, tone: 'dim', reasoning: true };
+      return { role: layer, label: ROLE_LABEL[layer] || layer, glyph: '∴', text: body, tone: 'dim', reasoning: true };
     }
     if (kind === 'assistant_message' || kind === 'agent_message' || kind === 'message') {
       if (isStructuredAgentPayload(ev)) return null;

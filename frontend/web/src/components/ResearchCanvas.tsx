@@ -11,7 +11,7 @@ import { useGsapMotion } from '../lib/motion';
 import { HtmlPreview } from './HtmlPreview';
 import { JsonPreview, TablePreview } from './DataPreview';
 import { MarkdownContent } from './MarkdownContent';
-import { formatMissionElapsed } from '../../../core/src/missionView';
+import { displayObjective, formatMissionElapsed } from '../../../core/src/missionView';
 
 export const LIVE_PROGRESS_PATH = '__argus_live_progress__';
 
@@ -113,6 +113,22 @@ export function selectLiveMissionStatus(
   };
 }
 
+export function liveProgressSummary(view: MissionView): {
+  title: string;
+  dagProgress: string;
+} {
+  const activeNode = view.dag.find((node) => ['running', 'in_progress', 'claimed'].includes(node.status));
+  const completed = view.dag.filter((node) => ['done', 'completed'].includes(node.status)).length;
+  const total = view.dag.length;
+  let fallbackTitle = 'Awaiting Planner';
+  if (view.mission.status === 'idle') fallbackTitle = 'Ready for a new mission';
+  else if (view.mission.status === 'complete') fallbackTitle = 'Mission complete';
+  return {
+    title: displayObjective(activeNode?.title || view.mission.title || fallbackTitle),
+    dagProgress: total > 0 ? `${completed} / ${total} complete` : 'Not planned',
+  };
+}
+
 function LiveProgressPreview({
   view,
   liveStatus,
@@ -124,9 +140,7 @@ function LiveProgressPreview({
   artifacts?: ArtifactInfo[];
   onOpenArtifact: (path: string) => void;
 }) {
-  const activeNode = view.dag.find((node) => ['running', 'in_progress', 'claimed'].includes(node.status));
-  const completed = view.dag.filter((node) => node.status === 'done').length;
-  const total = view.dag.length;
+  const summary = liveProgressSummary(view);
   const reviewedArtifacts = [...artifacts]
     .filter((item) => item.exists && item.source !== 'manager_live')
     .sort((left, right) => Number(right.mtime ?? 0) - Number(left.mtime ?? 0))
@@ -144,14 +158,14 @@ function LiveProgressPreview({
       <section className="rounded-lg border border-blue-deep/30 bg-blue-deep/10 p-4">
         <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-sky">Current work</div>
         <h3 className="mt-2 text-base font-semibold leading-snug text-ink">
-          {activeNode?.title || view.mission.title || 'Waiting for the next DAG node'}
+          {summary.title}
         </h3>
         {liveStatus?.detail ? <p className="mt-2 leading-6 text-ink-dim">{liveStatus.detail}</p> : null}
         <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
           <div><span className="text-ink-faint">Stage</span><div className="mt-1 font-medium capitalize text-blue-sky">{view.stage.label || view.stage.id || '—'}</div></div>
           <div><span className="text-ink-faint">Campaign</span><div className="mt-1 font-mono text-ink">{formatMissionElapsed(view.mission.campaign_elapsed_seconds)}</div></div>
           <div><span className="text-ink-faint">Round</span><div className="mt-1 font-mono text-ink">{view.round.current || '—'}{view.round.max ? ` / ${view.round.max}` : ''}</div></div>
-          <div><span className="text-ink-faint">DAG progress</span><div className="mt-1 font-mono text-ink">{completed} / {total || '—'} complete</div></div>
+          <div><span className="text-ink-faint">DAG progress</span><div className="mt-1 font-mono text-ink">{summary.dagProgress}</div></div>
         </div>
       </section>
 

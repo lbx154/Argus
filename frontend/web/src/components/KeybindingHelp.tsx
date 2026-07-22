@@ -5,7 +5,7 @@ const BINDINGS: { keys: string; desc: string }[] = [
   { keys: '⌘K / Ctrl+K', desc: 'command palette' },
   { keys: '⌘B / Ctrl+B', desc: 'toggle sessions' },
   { keys: '⌘J / Ctrl+J', desc: 'focus Manager chat' },
-  { keys: '⌘O / Ctrl+O', desc: 'toggle agent reasoning' },
+  { keys: '⌘T / Ctrl+T', desc: 'toggle agent reasoning' },
   { keys: '⌘. / Ctrl+.', desc: 'toggle kiosk (read-only) mode' },
   { keys: '/', desc: 'focus the composer' },
   { keys: '↵ Enter', desc: 'send message' },

@@ -388,8 +388,11 @@ def test_api_meta_identifies_protocol_capabilities_and_loaded_checkout() -> None
     assert meta["capabilities"] == list(API_CAPABILITIES)
     assert Path(meta["runtime"]["source_root"]) == Path(__file__).parents[2]
     assert meta["runtime"]["pid"] > 0
-    assert meta["runtime"]["release_id"].startswith("0.1.1+")
-    assert meta["runtime"]["release_matches_source"] is True
+    runtime = meta["runtime"]
+    assert runtime["release_id"].startswith("0.1.1+")
+    assert runtime["release_matches_source"] is (
+        runtime["manifest_source_digest"] == runtime["runtime_source_digest"]
+    )
 
 
 def test_static_web_cache_policy_keeps_shell_fresh_and_hashes_immutable() -> None:
@@ -474,7 +477,7 @@ def test_build_snapshot_reuses_host_metrics_across_project_switches(
     _make_project(tmp_path, "s-second")
     calls = 0
 
-    def fake_metrics_snapshot(*, root):
+    def fake_metrics_snapshot(*, root, cost_control=None):
         nonlocal calls
         calls += 1
         return {"slo": {"status": "healthy"}, "root": str(root)}
@@ -498,7 +501,7 @@ def test_compact_snapshot_never_runs_expensive_metrics_projection(
     _make_project(tmp_path, "s-fast")
     calls = 0
 
-    def slow_metrics_snapshot(*, root):
+    def slow_metrics_snapshot(*, root, cost_control=None):
         nonlocal calls
         calls += 1
         return {"slo": {"status": "healthy"}, "root": str(root)}

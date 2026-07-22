@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping
 
-from .cost_control import cost_control_snapshot
+from .cost_control import CostControlLockBusyError, cost_control_snapshot
 from .event_catalog import canonical_event_type, event_spec
 
 METRICS_FILE = "metrics.jsonl"
@@ -287,6 +287,7 @@ def metrics_snapshot(
     *,
     root: Path | str,
     now: float | None = None,
+    cost_control: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     timestamp = time.time() if now is None else float(now)
     path_root = Path(root).expanduser()
@@ -338,15 +339,31 @@ def metrics_snapshot(
         float(row.get("value") or 0.0)
         for row in _metric_rows(rows, "event.validation_failure")
     ))
-    try:
-        cost = cost_control_snapshot(global_root=path_root, now=timestamp)
-    except Exception as exc:  # noqa: BLE001
-        cost = {
-            "active_reservations": 0,
-            "unresolved_calls": -1,
-            "policy": "unknown",
-            "error": f"{type(exc).__name__}: {exc}",
-        }
+    if cost_control is not None:
+        cost = dict(cost_control)
+    else:
+        try:
+            cost = cost_control_snapshot(global_root=path_root, now=timestamp)
+        except CostControlLockBusyError as exc:
+            # A concurrent settlement is ordinary process activity, not an SLO
+            # failure. The Web snapshot path passes its cached projection here;
+            # standalone metric readers expose the transient miss explicitly.
+            cost = {
+                "active_reservations": -1,
+                "unresolved_calls": -1,
+                "blocking_unresolved_calls": 0,
+                "policy": "unknown",
+                "snapshot_stale": True,
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+        except Exception as exc:  # noqa: BLE001
+            cost = {
+                "active_reservations": 0,
+                "unresolved_calls": -1,
+                "blocking_unresolved_calls": -1,
+                "policy": "unknown",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
 
     violations: list[str] = []
     if provider_attempts >= 5 and provider_success_rate < 0.95:
@@ -361,9 +378,17 @@ def metrics_snapshot(
         violations.append(f"WebAPI 5xx rate {web_5xx_rate:.1%} > 1%")
     if validation_failures > 0:
         violations.append(f"event validation failures: {validation_failures}")
-    if int(cost.get("unresolved_calls") or 0) != 0:
+    # Partial/unpriced calls remain visible in cost telemetry, but the current
+    # admission policy explicitly treats them as non-blocking. Only a blocking
+    # unresolved call (or an unreadable cost-control snapshot) is an SLO breach.
+    blocking_unresolved = int(
+        cost.get("blocking_unresolved_calls", cost.get("unresolved_calls", 0)) or 0
+    )
+    if blocking_unresolved < 0:
+        violations.append("cost control snapshot unavailable")
+    elif blocking_unresolved > 0:
         violations.append(
-            f"unresolved cost calls: {cost.get('unresolved_calls')}"
+            f"blocking unresolved cost calls: {blocking_unresolved}"
         )
 
     return {

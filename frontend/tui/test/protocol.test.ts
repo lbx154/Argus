@@ -16,6 +16,7 @@ import {
   ensureApi,
   probeApi,
   scheduleOutdatedDaemonUpgrades,
+  uniqueWarningReporter,
   type ApiProbeResult,
 } from '../src/ensureApi.js';
 import { type ApiOwnershipRecord } from '../src/apiOwnership.js';
@@ -315,6 +316,19 @@ test('launcher does not claim a refused daemon upgrade was scheduled', async () 
     skipped: ['stale'],
     failed: [],
   });
+});
+
+test('warning reporter emits each warning only once', () => {
+  const warnings: string[] = [];
+  const report = uniqueWarningReporter((warning) => warnings.push(warning));
+  report('backend source differs from its release manifest');
+  report('backend source differs from its release manifest');
+  report('  backend source differs from its release manifest  ');
+  report('another warning');
+  assert.deepEqual(warnings, [
+    'backend source differs from its release manifest',
+    'another warning',
+  ]);
 });
 
 test('ensureApi preserves and emits a compatible source-drift warning', async () => {

@@ -32,7 +32,7 @@ function EventRow({ ev, r, first, last }: { ev: EventMsg; r: Rendered; first: bo
   const color = toneColor(r.tone);
   return (
     <div
-      className={`group relative grid grid-cols-[16px_minmax(0,1fr)] gap-3 px-4 py-3 transition-colors hover:bg-bg/70 ${last ? 'animate-appear' : ''} ${r.reasoning ? 'opacity-70' : ''}`}
+      className={`group relative grid grid-cols-[16px_minmax(0,1fr)] gap-3 px-4 py-3 transition-colors hover:bg-bg/70 ${last ? 'animate-appear' : ''} ${r.reasoning ? 'opacity-60' : ''}`}
       style={r.rule ? { marginTop: 4 } : undefined}
     >
       <div className="relative flex justify-center">
@@ -57,7 +57,7 @@ function EventRow({ ev, r, first, last }: { ev: EventMsg; r: Rendered; first: bo
             {clockOf(ev)}
           </time>
         </div>
-        <div className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-5" style={{ color }}>
+        <div className={`mt-0.5 whitespace-pre-wrap break-words text-sm leading-5 ${r.reasoning ? 'italic' : ''}`} style={{ color }}>
           {r.text}
         </div>
       </div>
@@ -271,7 +271,8 @@ function ConversationThread({ group, latest }: { group: ConversationGroup; lates
 /**
  * The live event feed — a CLEAN, whitelisted stream (matching the terminal
  * cockpit), not a raw event dump. Non-whitelisted events (agent_io.* framing,
- * telemetry, internal bookkeeping) are dropped; reasoning is hidden until ⌘O.
+ * telemetry, internal bookkeeping) are dropped; reasoning is pale and visible
+ * by default, with ⌘/Ctrl+T available to hide it.
  * Auto-follows the tail unless the user scrolls up to read history.
  */
 export function EventStream({
@@ -400,7 +401,7 @@ export function EventStream({
               className={`rounded px-1.5 py-0.5 text-xs transition-colors ${
                 showReasoning ? 'text-blue-sky' : 'text-ink-faint hover:text-ink-dim'
               }`}
-              title="toggle agent reasoning (⌘O)"
+              title="toggle agent reasoning (⌘T)"
             >
               reasoning{reasoningTotal ? ` ·${reasoningTotal}` : ''}
             </button>

@@ -11,6 +11,7 @@ import {
   defaultProject,
   reconcileProjectSelection,
   deriveMissionView,
+  displayObjective,
   projectMissionView,
   EVENT_TYPES,
   eventKey,
@@ -32,6 +33,7 @@ import {
   selectPreviewArtifacts,
   selectLiveMissionStatus,
   defaultPreviewPath,
+  liveProgressSummary,
   LIVE_PROGRESS_PATH,
 } from '../components/ResearchCanvas';
 import { emptyMissionView } from '../../../core/src/missionView';
@@ -495,6 +497,20 @@ describe('shared frontend core', () => {
       'paper/main.pdf', 'research/results.jsonl',
     ]);
     expect(selectPreferredPreviewArtifact(artifacts)?.path).toBe('paper/main.pdf');
+  });
+
+  it('decodes transport escapes only for objective presentation', () => {
+    expect(displayObjective('\\*\\*问题\\*\\*: $n=2,3,\\\\dots$')).toBe(
+      '**问题**: $n=2,3,\\dots$',
+    );
+  });
+
+  it('presents an idle project without a fake zero-over-missing DAG', () => {
+    const summary = liveProgressSummary(emptyMissionView());
+    expect(summary).toEqual({
+      title: 'Ready for a new mission',
+      dagProgress: 'Not planned',
+    });
   });
 
   it('lets Manager selection own the default and falls back to live progress', () => {

@@ -25,7 +25,7 @@ export function useGlobalKeyboardShortcuts({
       if (mod && event.key.toLowerCase() === 'k') {
         event.preventDefault();
         togglePalette();
-      } else if (mod && event.key.toLowerCase() === 'o') {
+      } else if (mod && event.key.toLowerCase() === 't') {
         event.preventDefault();
         toggleReasoning();
       } else if (mod && event.key === '.') {

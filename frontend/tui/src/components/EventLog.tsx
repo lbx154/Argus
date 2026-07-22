@@ -21,7 +21,12 @@ function EventRow({ r, compact, width }: { r: Rendered; compact: boolean; width:
           {label}
         </Text>
         <Box width={bodyWidth}>
-          <Text color={toneColor(r.tone)} wrap={compact || r.tone !== 'bright' ? 'truncate-end' : 'wrap'}>
+          <Text
+            color={r.reasoning ? undefined : toneColor(r.tone)}
+            dimColor={r.reasoning}
+            italic={r.reasoning}
+            wrap={compact || r.tone !== 'bright' ? 'truncate-end' : 'wrap'}
+          >
             {r.glyph} {r.text}
           </Text>
         </Box>
@@ -44,6 +49,7 @@ export function EventLog({
   liveMessageId = '',
   collapsed = false,
   showIdle = true,
+  showReasoning = true,
 }: {
   events: EventMsg[];
   width: number;
@@ -51,13 +57,20 @@ export function EventLog({
   liveMessageId?: string;
   collapsed?: boolean;
   showIdle?: boolean;
+  showReasoning?: boolean;
 }) {
   const clean = useMemo<EventLine[]>(() => {
     const lines = buildEventLines(events);
+    const visible = showReasoning
+      ? lines
+      : lines.filter((line) => !line.r.reasoning);
     return mode === 'conversation'
-      ? lines.filter((line) => ['ui.operator', 'ui.argus'].includes(String(line.ev.type ?? '')))
-      : lines;
-  }, [events, mode]);
+      ? visible.filter((line) => (
+          ['ui.operator', 'ui.argus'].includes(String(line.ev.type ?? ''))
+          || line.r.reasoning
+        ))
+      : visible;
+  }, [events, mode, showReasoning]);
 
   // A message_id groups fragments but does not imply that a reply is still
   // streaming. The request lifecycle explicitly names the one mutable row.

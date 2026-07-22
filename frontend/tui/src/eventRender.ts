@@ -27,6 +27,7 @@ export interface Rendered {
   text: string;
   tone: Tone;
   rule?: boolean; // a round/mission boundary — draw a divider
+  reasoning?: boolean; // provider reasoning summary; rendered faint/italic
 }
 
 const ROLE_LABEL: Record<string, string> = {
@@ -78,10 +79,14 @@ export function renderEvent(ev: EventMsg): Rendered | null {
     const kind = S(ev, 'kind');
     const layer = S(ev, 'agent_layer') || 'engineer';
     const label = ROLE_LABEL[layer] || 'Engineer';
-    // Observable action details live in Ctrl+O. Keep the default transcript
-    // focused on user-facing agent messages and settled milestones; never put
-    // chain-of-thought, commands, or tool protocol into terminal scrollback.
-    if (kind === 'reasoning') return null;
+    // Match pi: show provider-supplied reasoning summaries as quiet context.
+    // Raw protocol/encrypted reasoning never reaches this event type.
+    if (kind === 'reasoning') {
+      const body = trunc(S(ev, 'text'), 280);
+      return body
+        ? { role: layer, label, glyph: '∴', text: body, tone: 'dim', reasoning: true }
+        : null;
+    }
     if (kind === 'assistant_message' || kind === 'agent_message' || kind === 'message') {
       if (isStructuredAgentPayload(ev)) return null;
       const body = trunc(S(ev, 'text'), 280);
@@ -241,7 +246,10 @@ export function renderEvent(ev: EventMsg): Rendered | null {
 export function messageId(ev: EventMsg): string {
   const rec = ev as Record<string, unknown>;
   const kind = String(rec.kind ?? '');
-  if (String(rec.type) === 'engineer.progress' && ['assistant_message', 'agent_message', 'message'].includes(kind)) {
+  if (
+    String(rec.type) === 'engineer.progress'
+    && ['assistant_message', 'agent_message', 'message', 'reasoning'].includes(kind)
+  ) {
     return String(rec.message_id ?? '');
   }
   // The locally-injected Manager reply carries a message_id too, so its blocks

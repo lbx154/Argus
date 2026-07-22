@@ -117,8 +117,19 @@ test('renderEvent accepts round and round_index lifecycle schemas', () => {
   );
 });
 
-test('default feed hides internal actions but keeps settled activity milestones', () => {
-  assert.equal(renderEvent({ type: 'engineer.progress', kind: 'reasoning', text: 'private thought' } as never), null);
+test('default feed shows pale reasoning but hides internal actions', () => {
+  assert.deepEqual(
+    renderEvent({
+      type: 'engineer.progress', kind: 'reasoning', text: 'verify the smallest case', agent_layer: 'planner',
+    } as never),
+    {
+      role: 'planner', label: 'Planner', glyph: '∴', text: 'verify the smallest case', tone: 'dim', reasoning: true,
+    },
+  );
+  assert.equal(
+    messageId({ type: 'engineer.progress', kind: 'reasoning', message_id: 'reasoning:r1' } as never),
+    'reasoning:r1',
+  );
   assert.equal(renderEvent({ type: 'engineer.progress', kind: 'command_execution', command: 'pytest' } as never), null);
   const milestone = renderEvent({
     type: 'role.activity', role: 'engineer', status: 'done', milestone: true,

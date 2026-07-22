@@ -460,6 +460,31 @@ test('collapsing the event log preserves Static history without replaying it', a
   assert.equal(clean.split('STATIC_ONCE_MARKER').length - 1, 1);
 });
 
+test('conversation feed shows reasoning softly and can hide it', async () => {
+  const events: EventMsg[] = [{
+    type: 'engineer.progress',
+    kind: 'reasoning',
+    text: 'REASONING_SUMMARY_MARKER',
+    agent_layer: 'engineer',
+    ts: 1,
+  }];
+  const visible = await renderNode(React.createElement(EventLog, {
+    events,
+    width: 80,
+    mode: 'conversation',
+    showReasoning: true,
+  }), 80);
+  const hidden = await renderNode(React.createElement(EventLog, {
+    events,
+    width: 80,
+    mode: 'conversation',
+    showReasoning: false,
+    showIdle: false,
+  }), 80);
+  assert.match(visible.replace(ANSI, ''), /REASONING_SUMMARY_MARKER/);
+  assert.doesNotMatch(hidden.replace(ANSI, ''), /REASONING_SUMMARY_MARKER/);
+});
+
 test('19-row cockpit stays below Ink full-screen clear threshold', async () => {
   const view = emptyMissionView();
   const output = await renderNode(

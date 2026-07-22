@@ -732,6 +732,16 @@ export function missionMetricImprovement(metric: MissionMetricView | null): numb
   return metric?.direction === 'minimize' ? -gain : gain;
 }
 
+/**
+ * Decode only presentation-layer escaping introduced by Markdown/JSON
+ * transport. The persisted objective remains byte-for-byte authoritative.
+ */
+export function displayObjective(value: string): string {
+  return String(value || '')
+    .replace(/\\([*_`~])/g, '$1')
+    .replace(/\\\\(?=[A-Za-z])/g, '\\');
+}
+
 export function formatMissionElapsed(seconds: number): string {
   const total = Math.max(0, Math.floor(seconds));
   const hours = Math.floor(total / 3600);

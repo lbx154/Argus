@@ -9,7 +9,11 @@ function storedBoolean(key: string, fallback: boolean): boolean {
 export function useWorkbenchLayout() {
   const params = new URLSearchParams(window.location.search);
   const [kiosk, setKiosk] = useState(params.get('kiosk') === '1');
-  const [showReasoning, setShowReasoning] = useState(false);
+  // Match pi's default: reasoning summaries are visible but visually quiet.
+  // Users can hide them with Ctrl/⌘+O and the choice survives reloads.
+  const [showReasoning, setShowReasoning] = useState(
+    () => storedBoolean('argus.reasoning.visible.v1', true),
+  );
   const [workspaceView, setWorkspaceView] = useState<'mission' | 'activity'>(
     () => localStorage.getItem('argus.workspace.view') === 'mission' ? 'mission' : 'activity',
   );
@@ -46,6 +50,10 @@ export function useWorkbenchLayout() {
   useEffect(() => {
     localStorage.setItem('argus.workspace.view', workspaceView);
   }, [workspaceView]);
+
+  useEffect(() => {
+    localStorage.setItem('argus.reasoning.visible.v1', String(showReasoning));
+  }, [showReasoning]);
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)');

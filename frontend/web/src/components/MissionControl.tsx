@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { GitDiffView, MissionMetricView, MissionView } from '../../../core/src/types';
 import {
+  displayObjective,
   formatMissionElapsed,
   metricDisplay,
   missionMetricImprovement,
@@ -8,6 +9,7 @@ import {
 import { outcomeDimensionSummary } from '../../../core/src/missionOutcome';
 import { formatBytes } from '../lib/format';
 import { theme } from '../lib/theme';
+import { MarkdownContent } from './MarkdownContent';
 
 const ROLE_ORDER = ['manager', 'planner', 'engineer', 'reviewer'];
 
@@ -135,7 +137,9 @@ export function MissionControl({
   const activeNode = view.dag.find((node) => ['running', 'in_progress', 'claimed'].includes(node.status));
   const dagView = compactMissionDag(view);
   const dag = dagView.nodes;
-  const objective = view.mission.objective || view.mission.title || 'Waiting for a mission';
+  const objective = displayObjective(
+    view.mission.objective || view.mission.title || 'Waiting for a mission',
+  );
   const [replayIndex, setReplayIndex] = useState(Math.max(0, view.timeline.length - 1));
   const [selectedRole, setSelectedRole] = useState(view.active_role || 'planner');
   const [selectedTaskId, setSelectedTaskId] = useState(activeNode?.id || '');
@@ -156,10 +160,20 @@ export function MissionControl({
     <section className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-panel scroll-thin" aria-label="Mission control">
       <header className="border-b border-line/60 px-5 py-5">
         <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">Mission</div>
-        <h1 className="mt-1 line-clamp-4 max-w-4xl text-lg font-semibold leading-snug text-ink" title={objective}>
-          {objective}
-        </h1>
-        {objective.length > 600 ? <details className="mt-2 text-xs text-ink-faint"><summary className="cursor-pointer hover:text-ink">Show full objective</summary><p className="mt-2 whitespace-pre-wrap text-ink-dim">{objective}</p></details> : null}
+        <div
+          role="heading"
+          aria-level={1}
+          className="mt-1 line-clamp-4 max-w-4xl text-lg font-semibold leading-snug text-ink"
+          title={objective}
+        >
+          <MarkdownContent>{objective}</MarkdownContent>
+        </div>
+        {objective.length > 600 ? (
+          <details className="mt-2 text-xs text-ink-faint">
+            <summary className="cursor-pointer hover:text-ink">Show full objective</summary>
+            <div className="mt-2 text-ink-dim"><MarkdownContent>{objective}</MarkdownContent></div>
+          </details>
+        ) : null}
         <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 text-xs sm:grid-cols-4">
           <div><div className="text-ink-faint">Stage</div><div className="mt-0.5 font-medium capitalize text-blue-sky">{view.stage.label || view.stage.id || '—'}</div></div>
           <div><div className="text-ink-faint">Campaign</div><div className="mt-0.5 font-mono text-ink">{formatMissionElapsed(view.mission.campaign_elapsed_seconds)}</div></div>

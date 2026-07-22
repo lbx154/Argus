@@ -147,6 +147,37 @@ def test_command_execution_progress_carries_existing_result_metadata() -> None:
 # Copilot dialect — incremental message_delta + final assistant.message
 # ---------------------------------------------------------------------------
 
+def test_copilot_plaintext_reasoning_is_emitted_but_opaque_reasoning_is_not() -> None:
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(
+        sink,
+        min_delta_interval_s=0,
+        min_delta_chars=0,
+    )
+
+    cb("main.stdout", json.dumps({
+        "type": "assistant.reasoning",
+        "data": {"reasoningId": "r-empty", "content": ""},
+    }))
+    cb("main.stdout", json.dumps({
+        "type": "assistant.reasoning_delta",
+        "data": {"reasoningId": "r1", "deltaContent": "Check the "},
+    }))
+    cb("main.stdout", json.dumps({
+        "type": "assistant.reasoning_delta",
+        "data": {"reasoningId": "r1", "deltaContent": "smallest case."},
+    }))
+
+    progress = [e for e in sink.events if e["type"] == "engineer.progress"]
+    assert [e["text"] for e in progress] == [
+        "Check the",
+        "Check the smallest case.",
+    ]
+    assert all(e["kind"] == "reasoning" for e in progress)
+    assert all(e["message_id"] == "reasoning:r1" for e in progress)
+    assert "r-empty" not in json.dumps(progress)
+
+
 def test_copilot_message_delta_accumulates() -> None:
     """assistant.message_delta events should accumulate per messageId."""
     sink = _RecordingSink()

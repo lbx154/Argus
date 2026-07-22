@@ -12,7 +12,11 @@ import { FirstRun } from './components/FirstRun.js';
 import { ResumePicker } from './components/ResumePicker.js';
 import { Splash } from './components/Splash.js';
 import { Wordmark } from './components/Wordmark.js';
-import { ensureApi, scheduleOutdatedDaemonUpgrades } from './ensureApi.js';
+import {
+  ensureApi,
+  scheduleOutdatedDaemonUpgrades,
+  uniqueWarningReporter,
+} from './ensureApi.js';
 import { SPINNER, theme } from './theme.js';
 import { initialProjectSelection, interactiveStartup } from './initialProject.js';
 import { projectsForLaunchCwd } from '../../core/src/projects.js';
@@ -231,12 +235,15 @@ async function main() {
   }
 
   if (args.once) {
+    const reportWarning = uniqueWarningReporter(
+      (warning) => process.stderr.write(`argus: warning: ${warning}\n`),
+    );
     const ready = await ensureApi({
       host: args.host,
       port: args.port,
       token: args.token,
       ownerFile: args.ownerFile,
-      onWarning: (warning) => process.stderr.write(`argus: warning: ${warning}\n`),
+      onWarning: reportWarning,
     });
     if (!ready.reachable) {
       process.stderr.write(`argus: ${ready.message}\n`);
@@ -248,9 +255,7 @@ async function main() {
       port: args.port,
       project: '_',
       token: args.token,
-      onCompatibilityWarning: (warning) => {
-        process.stderr.write(`argus: warning: ${warning}\n`);
-      },
+      onCompatibilityWarning: reportWarning,
     });
     let project: string;
     try {

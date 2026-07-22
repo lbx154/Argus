@@ -85,6 +85,92 @@ def test_empty_metrics_are_healthy_and_do_not_invent_failures(tmp_path: Path) ->
     assert snapshot["slo"] == {"status": "healthy", "violations": []}
 
 
+def test_nonblocking_unpriced_calls_remain_visible_without_degrading_slo(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        metrics_module,
+        "cost_control_snapshot",
+        lambda **_kwargs: {
+            "active_reservations": 0,
+            "unresolved_calls": 47,
+            "blocking_unresolved_calls": 0,
+            "policy": "block",
+        },
+    )
+
+    snapshot = metrics_snapshot(root=tmp_path)
+
+    assert snapshot["cost_control"]["unresolved_calls"] == 47
+    assert snapshot["slo"] == {"status": "healthy", "violations": []}
+
+
+def test_metrics_reuses_projected_cost_state_without_taking_the_lock(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    def forbidden_reader(**_kwargs):
+        raise AssertionError("cost state should be projected once per Web snapshot")
+
+    monkeypatch.setattr(metrics_module, "cost_control_snapshot", forbidden_reader)
+    projected = {
+        "active_reservations": 1,
+        "unresolved_calls": 3,
+        "blocking_unresolved_calls": 0,
+        "policy": "block",
+    }
+
+    snapshot = metrics_snapshot(root=tmp_path, cost_control=projected)
+
+    assert snapshot["cost_control"] == projected
+    assert snapshot["slo"] == {"status": "healthy", "violations": []}
+
+
+def test_transient_cost_lock_contention_does_not_degrade_slo(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    def busy(**_kwargs):
+        raise metrics_module.CostControlLockBusyError("busy")
+
+    monkeypatch.setattr(metrics_module, "cost_control_snapshot", busy)
+
+    snapshot = metrics_snapshot(root=tmp_path)
+
+    assert snapshot["cost_control"]["snapshot_stale"] is True
+    assert snapshot["slo"] == {"status": "healthy", "violations": []}
+
+
+def test_blocking_unpriced_calls_and_unavailable_snapshot_degrade_slo(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        metrics_module,
+        "cost_control_snapshot",
+        lambda **_kwargs: {
+            "active_reservations": 0,
+            "unresolved_calls": 2,
+            "blocking_unresolved_calls": 2,
+            "policy": "block",
+        },
+    )
+    blocked = metrics_snapshot(root=tmp_path)
+    assert blocked["slo"]["violations"] == [
+        "blocking unresolved cost calls: 2"
+    ]
+
+    def unavailable(**_kwargs):
+        raise OSError("ledger unavailable")
+
+    monkeypatch.setattr(metrics_module, "cost_control_snapshot", unavailable)
+    missing = metrics_snapshot(root=tmp_path)
+    assert missing["slo"]["violations"] == [
+        "cost control snapshot unavailable"
+    ]
+
+
 def test_metrics_snapshot_never_takes_the_writer_lock(tmp_path: Path, monkeypatch) -> None:
     record_metric(
         tmp_path,

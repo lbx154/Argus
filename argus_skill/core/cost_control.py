@@ -572,40 +572,62 @@ def cost_control_snapshot(
 ) -> dict[str, Any]:
     timestamp = time.time() if now is None else float(now)
     root = _global_root(global_root)
-    with _locked(root, timeout_seconds=lock_timeout_seconds):
+    snapshot_stale = False
+    try:
+        with _locked(root, timeout_seconds=lock_timeout_seconds):
+            state = _read_state(root, timestamp)
+            reservations = _prune_reservations(list(state["reservations"]))
+            unresolved = _resolved_unpriced(
+                list(state["unresolved"]),
+                day_start=_local_day_start(timestamp),
+            )
+            state["reservations"] = reservations
+            state["unresolved"] = unresolved
+            _write_state(root, state, timestamp)
+    except CostControlLockBusyError:
+        # State writes use atomic replace, so a lock-free read is consistent.
+        # UI/metrics readers must not become partial merely because a provider
+        # call is settling; prune only in the returned projection and leave the
+        # writer-owned file untouched.
         state = _read_state(root, timestamp)
         reservations = _prune_reservations(list(state["reservations"]))
         unresolved = _resolved_unpriced(
             list(state["unresolved"]),
             day_start=_local_day_start(timestamp),
         )
-        state["reservations"] = reservations
-        state["unresolved"] = unresolved
-        _write_state(root, state, timestamp)
-    return {
+        snapshot_stale = True
+    payload = {
         "day": state["day"],
         "active_reservations": len(reservations),
         "unresolved_calls": len(unresolved),
         "blocking_unresolved_calls": 0,
         "unresolved": [
             {
-                key: row.get(key)
-                for key in (
-                    "call_id",
-                    "project_id",
-                    "mission_id",
-                    "provider",
-                    "model",
-                    "pricing_status",
-                    "reason",
-                    "blocking",
-                    "created_at",
-                )
+                **{
+                    key: row.get(key)
+                    for key in (
+                        "call_id",
+                        "project_id",
+                        "mission_id",
+                        "provider",
+                        "model",
+                        "pricing_status",
+                        "reason",
+                        "created_at",
+                    )
+                },
+                # Legacy state may retain blocking=true from the retired
+                # unknown-price admission gate. Current unresolved rows are
+                # observability-only and must agree with the aggregate count.
+                "blocking": False,
             }
             for row in unresolved
         ],
         "policy": _unpriced_policy(),
     }
+    if snapshot_stale:
+        payload["snapshot_stale"] = True
+    return payload
 
 
 __all__ = [

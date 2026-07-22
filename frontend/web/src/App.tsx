@@ -467,7 +467,7 @@ export default function App() {
       {
         id: 'reasoning',
         label: showReasoning ? 'Hide reasoning' : 'Show reasoning',
-        hint: '⌘O',
+        hint: '⌘T',
         group: 'View',
         run: () => setShowReasoning((v) => !v),
       },

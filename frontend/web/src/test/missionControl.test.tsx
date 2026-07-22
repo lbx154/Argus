@@ -124,6 +124,17 @@ describe('MissionControl', () => {
     expect(markup).toContain('Git changes · main');
   });
 
+  it('renders escaped objective Markdown without exposing transport slashes', () => {
+    const view = emptyMissionView();
+    view.mission.objective = '数论猜想\n- \\*\\*问题\\*\\*: $n=2,3,\\\\dots$';
+
+    const markup = renderToStaticMarkup(<MissionControl view={view} />);
+
+    expect(markup).toContain('<strong');
+    expect(markup).toContain('问题');
+    expect(markup).not.toContain('\\*\\*问题');
+  });
+
   it('collapses old DAG history while retaining the active branch', () => {
     const view = emptyMissionView();
     view.dag = Array.from({ length: 30 }, (_, index) => ({

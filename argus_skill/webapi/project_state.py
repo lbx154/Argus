@@ -94,6 +94,7 @@ def _cached_metrics_snapshot(
     root: Path,
     *,
     nonblocking: bool = False,
+    cost_control: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Reuse the host-wide projection without blocking compact UI snapshots."""
     key = str(root.resolve())
@@ -108,7 +109,7 @@ def _cached_metrics_snapshot(
             # UI by ~500 ms on large daily logs. Serve stale data when present;
             # otherwise omit observability until a full snapshot requests it.
             return cached[1] if cached is not None else None
-    value = metrics_snapshot(root=root)
+    value = metrics_snapshot(root=root, cost_control=cost_control)
     with _METRICS_CACHE_LOCK:
         _METRICS_CACHE[key] = (now + _METRICS_CACHE_TTL_SECONDS, value)
     return value
@@ -501,7 +502,11 @@ def build_snapshot(
         diagnostics.append(diagnostic("daemon_commands", exc))
 
     try:
-        observability = _cached_metrics_snapshot(root, nonblocking=compact)
+        observability = _cached_metrics_snapshot(
+            root,
+            nonblocking=compact,
+            cost_control=cost_control,
+        )
     except Exception as exc:  # noqa: BLE001
         observability = None
         diagnostics.append(diagnostic("observability", exc))
