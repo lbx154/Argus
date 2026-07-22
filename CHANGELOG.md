@@ -49,6 +49,12 @@ the project adheres to semantic versioning once it leaves 0.x.
   distinct `❓ 需要你回复才能继续：` line whenever the field is non-empty.
 
 ### Fixed
+- **Copilot message deltas no longer amplify the durable event log with
+  repeated growing prefixes.** Incremental `assistant.message_delta` and
+  reasoning updates remain available to live UIs as keyed replacement events,
+  but are marked transient and never appended to `events.jsonl`, even in full
+  verbosity. Final messages and tool events remain durable, while the default
+  live update cadence is reduced to 500 ms or 256 new characters.
 - **Scope-changing Reviewer advice no longer bypasses Manager/Planner and run
   directly as the next Engineer round.** `continue` remains the fast lane for
   repairs inside the current mission contract. Guidance that requests a new or

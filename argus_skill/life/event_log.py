@@ -13,6 +13,8 @@ The design is intentionally minimal:
   before downstream delivery, and the return value acknowledges whether the
   canonical log accepted the event.
 * One JSON object per line. ``ts`` is injected if the caller didn't.
+* Transient live-replacement events are delivered downstream but never written
+  to the append-only audit log. Their final message/tool events remain durable.
 * Soft size cap: when ``events.jsonl`` exceeds ``ROLL_BYTES`` we rotate
   to ``events.jsonl.1``. We retain EVERY generation: the previous ``.1``
   is moved aside to the next free ``events.jsonl.<N>`` (``.2``, ``.3``, …)
@@ -136,7 +138,9 @@ class JsonlEventSink:
 
     def handle_event(self, event: dict[str, Any]) -> bool:
         safe_event = self._normalize(event)
-        if self._is_idle_chatter(safe_event):
+        if safe_event.get("transient") is True:
+            persisted = True
+        elif self._is_idle_chatter(safe_event):
             persisted = True
         elif not _should_persist_for_verbosity(safe_event, self._verbosity):
             persisted = True
