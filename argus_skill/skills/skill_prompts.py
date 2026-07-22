@@ -6,14 +6,14 @@ the whole skill-memory pipeline.
 """
 from __future__ import annotations
 
-from .role_context import format_role_context
+_MATCHER_DESCRIPTION_CHARS = 240
 
 
-def _author_role_context() -> str:
-    return format_role_context(
-        "Argus author role skill",
-        "skill-authoring-guide.md",
-    )
+def _matcher_text(value: object, limit: int) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
 
 
 class Prompts:
@@ -37,9 +37,9 @@ class Prompts:
         listing = "\n".join(
             (
                 f"- ID `{s.get('candidate_id') or s.get('skill_id') or s['name']}` "
-                f"— **{s['name']}**{_role_tag(s)}: {s['description']} "
+                f"— **{s['name']}**{_role_tag(s)}: "
+                f"{_matcher_text(s['description'], _MATCHER_DESCRIPTION_CHARS)} "
                 f"(category: {s['category'] or 'unspecified'})"
-                + ((" | past tasks: " + ", ".join(s["task_history"][:3])) if s.get("task_history") else "")
             )
             for s in summaries
         )
@@ -54,8 +54,6 @@ class Prompts:
                 "as a substitute for an OWN skill.\n"
             )
         return (
-            _author_role_context()
-            +
             "You are a skill matcher. Given a task and a list of available "
             "skills, decide which (if any) actually fit. A WRONG skill is "
             "worse than NO skill — it will steer the engineer down the "
