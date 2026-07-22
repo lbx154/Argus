@@ -20,6 +20,7 @@ from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.life.planner_verdict_outbox import (
     OUTBOX_FILE,
     load_planner_verdict_outbox,
+    write_planner_verdict_outbox,
 )
 from argus_skill.life.supervisor import (
     LifeBudget,
@@ -279,3 +280,56 @@ def test_corrupt_outbox_is_retired_and_planning_resumes(
         "without invoking Planner"
     )
     assert outcome_2 is None
+
+
+def test_stale_outbox_diagnostic_does_not_reemit_untrusted_reason(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    mem = LifeMemory.open(tmp_path / "life")
+    sink = _RecordingSink()
+    foreign_reason = (
+        "Inspected another project's private objective, paths, and reviewer handoff."
+    )
+    write_planner_verdict_outbox(
+        mem.root,
+        event={
+            "type": "life.planner.verdict",
+            "cycle": 4,
+            "reason": foreign_reason,
+        },
+        outcome=False,
+        terminal_signature="old-semantic-state",
+        delivered=True,
+    )
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=_NeverCalledRunner(),
+        sink=sink,
+        config=LifeSupervisorConfig(
+            continuous=True,
+            continuous_objective="current project objective",
+            open_ended=True,
+        ),
+    )
+    monkeypatch.setattr(
+        sup,
+        "_open_ended_terminal_idle_signature",
+        lambda: "current-semantic-state",
+    )
+
+    retried, outcome = sup._retry_pending_planner_verdict()
+
+    assert retried is False
+    assert outcome is None
+    diagnostic = next(
+        event
+        for event in sink.events
+        if event.get("type") == "life.planner.error"
+    )
+    assert diagnostic["error"] == (
+        "discarded stale planner verdict outbox after semantic state change"
+    )
+    assert "reason" not in diagnostic
+    assert foreign_reason not in json.dumps(sink.events)
+    assert load_planner_verdict_outbox(mem.root) is None

@@ -1077,7 +1077,6 @@ class LifeSupervisor(
                 "type": EventType.LIFE_PLANNER_ERROR,
                 "cycle": event.get("cycle", self._planning_cycles),
                 "error": "discarded stale planner verdict outbox after semantic state change",
-                "reason": event.get("reason", ""),
                 "delivery_id": record.get("delivery_id", ""),
             })
             return False, None
