@@ -18,6 +18,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
+
 from argus_skill.adapters.stream_progress import make_stream_progress_callback
 from argus_skill.life.event_log import JsonlEventSink
 
@@ -252,6 +254,56 @@ def test_copilot_message_deltas_are_not_persisted_as_prefixes(tmp_path) -> None:
         "Reviewer verdict is final.",
     ]
     assert persisted[0]["agent_layer"] == "reviewer"
+
+
+@pytest.mark.parametrize("role", ["planner.cycle0", "reviewer"])
+def test_structured_role_result_is_live_but_not_persisted(
+    tmp_path,
+    role: str,
+) -> None:
+    live = _RecordingSink()
+    sink = JsonlEventSink(live, life_dir=tmp_path, verbosity="full")
+    cb = make_stream_progress_callback(sink)
+    result = json.dumps({
+        "project_done": False,
+        "status": "continue",
+        "reason": "route the next bounded mission",
+        "new_tasks": [],
+    })
+
+    cb(f"{role}.stdout", json.dumps({
+        "type": "assistant.message",
+        "data": {"messageId": "result-1", "content": result},
+    }))
+
+    progress = [
+        event for event in live.events
+        if event["type"] == "engineer.progress"
+    ]
+    assert len(progress) == 1
+    assert progress[0]["transient"] is True
+    assert progress[0]["text"].startswith('{"project_done"')
+    assert not (tmp_path / "events.jsonl").exists()
+
+
+def test_engineer_json_message_remains_durable(tmp_path) -> None:
+    live = _RecordingSink()
+    sink = JsonlEventSink(live, life_dir=tmp_path, verbosity="full")
+    cb = make_stream_progress_callback(sink)
+    content = json.dumps({"result": "measured evidence"})
+
+    cb("engineer-r1.stdout", json.dumps({
+        "type": "assistant.message",
+        "data": {"messageId": "engineer-1", "content": content},
+    }))
+
+    persisted = [
+        json.loads(line)
+        for line in (tmp_path / "events.jsonl").read_text().splitlines()
+    ]
+    assert len(persisted) == 1
+    assert persisted[0]["text"] == content
+    assert "transient" not in persisted[0]
 
 
 def test_copilot_assistant_message_final_clears_buffer() -> None:

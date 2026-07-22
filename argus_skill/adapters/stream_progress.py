@@ -125,6 +125,18 @@ def _truncate(s: str, n: int = _PROGRESS_TEXT_LIMIT) -> str:
     return s[: n - 1].rstrip() + "…"
 
 
+def _is_structured_role_result(actor: str, text: str) -> bool:
+    """Return whether a role message is a structured control-plane result."""
+    role = (actor or "").lower()
+    if not (role.startswith("planner") or role.startswith("reviewer")):
+        return False
+    try:
+        payload = json.loads((text or "").strip())
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return False
+    return isinstance(payload, dict)
+
+
 def _shell_tool_bucket(command: str) -> str:
     """Group shell commands by leading binary so 'apply_patch'-style
     repeated failures cluster (e.g. all ``git ...`` invocations under
@@ -394,7 +406,16 @@ def make_stream_progress_callback(
             if output_excerpt:
                 extra["output_excerpt"] = output_excerpt
             extra["action_summary"] = _action_summary(kind, text, item)
-            _emit_progress(kind=kind, text=text, actor=actor, extra=extra)
+            _emit_progress(
+                kind=kind,
+                text=text,
+                actor=actor,
+                transient=(
+                    kind in {"assistant_message", "agent_message", "message"}
+                    and _is_structured_role_result(actor, text)
+                ),
+                extra=extra,
+            )
             return
 
         # Claude dialect: {"type": "assistant", "message": {"content": [...]}}
@@ -403,7 +424,12 @@ def make_stream_progress_callback(
             if isinstance(message, dict):
                 text = _extract_text(message)
                 if text:
-                    _emit_progress(kind="agent_message", text=text, actor=actor)
+                    _emit_progress(
+                        kind="agent_message",
+                        text=text,
+                        actor=actor,
+                        transient=_is_structured_role_result(actor, text),
+                    )
             return
 
         # OpenCode dialect: text and completed tool parts are emitted as
@@ -414,7 +440,16 @@ def make_stream_progress_callback(
                 part_text = part.get("text")
                 if isinstance(part_text, str) and part_text.strip():
                     kind = "reasoning" if et == "reasoning" else "agent_message"
-                    _emit_progress(kind=kind, text=part_text.strip(), actor=actor)
+                    text = part_text.strip()
+                    _emit_progress(
+                        kind=kind,
+                        text=text,
+                        actor=actor,
+                        transient=(
+                            kind == "agent_message"
+                            and _is_structured_role_result(actor, text)
+                        ),
+                    )
             return
 
         if et == "tool_use":
@@ -554,6 +589,7 @@ def make_stream_progress_callback(
                 text=text,
                 actor=actor,
                 replace=True,
+                transient=_is_structured_role_result(actor, text),
                 message_id=mid.strip() if isinstance(mid, str) else None,
             )
             return
