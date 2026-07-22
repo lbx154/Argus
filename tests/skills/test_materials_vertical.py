@@ -158,6 +158,18 @@ def test_materials_skills_are_packaged_and_seeded(tmp_path) -> None:
     assert "calibration data reused as independent validation" in skills[
         "reviewer/materials-simulation-signoff.md"
     ]
+    execution_skill = skills["engineer/materials-research-execution.md"].replace(
+        "\n", " "
+    )
+    review_skill = skills["reviewer/materials-simulation-signoff.md"].replace(
+        "\n", " "
+    )
+    assert "Manager-owned lifecycle files as" in execution_skill
+    assert "stage advance alone must not require a repair" in execution_skill
+    assert (
+        "false integrity failure caused only by an authorized Manager stage transition"
+        in review_skill
+    )
 
     seeded = seed_builtin_skills_for_vertical(
         tmp_path,

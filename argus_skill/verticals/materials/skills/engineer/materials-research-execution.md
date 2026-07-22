@@ -2,7 +2,7 @@
 name: Materials Research Execution
 description: Execute materials research with scale-appropriate models, real tools, explicit units and material state, reproducible provenance, and honest capability boundaries.
 category: materials-research-execution
-version: 1
+version: 2
 ---
 
 # Materials Research Execution
@@ -22,6 +22,14 @@ processing history, geometry, units, model parameters, boundary/initial
 conditions, and validity range explicit where they matter. Preserve exact
 inputs, software versions, seeds, commands, raw outputs, failures, and hardware
 or instrument context.
+
+Treat `research/PIPELINE_STATE.json` and other Manager-owned lifecycle files as
+control state, never as scientific model inputs. Do not freeze their whole-file
+hashes in source/model integrity guards: a legitimate Manager stage transition
+changes those bytes between model and execute. Hash immutable data, code, model,
+and protocol artifacts instead; when lifecycle provenance matters, record the
+vertical plus the Manager-authored stage-history transition separately. A stage
+advance alone must not require a repair or preflight mission.
 
 Never infer scientific success from job completion alone. Inspect convergence,
 stability, conservation, element/cell quality, and physical trends. Separate

@@ -2,7 +2,7 @@
 name: Materials Simulation Sign-off
 description: Audit atomistic, continuum, CAD/CAE, and process simulations from native inputs and outputs, including material state, discretization, solver health, convergence, and claim fidelity.
 category: materials-simulation-review
-version: 1
+version: 2
 ---
 
 # Materials Simulation Sign-off
@@ -27,6 +27,12 @@ version: 1
    Agreement at one discretization or a green solver icon is insufficient.
 7. Compare against an independent result under matched conditions and inspect
    sensitivity to assumptions capable of reversing the conclusion.
+8. Keep scientific integrity separate from Manager lifecycle state. Reject a
+   model or execute contract that freezes the whole
+   `research/PIPELINE_STATE.json` hash or spends a repair mission solely because
+   the Manager advanced the stage. Scientific guards should hash immutable data,
+   code, model, and protocol artifacts; lifecycle provenance should cite the
+   Manager-authored stage-history transition.
 
 ## Automatic rejection conditions
 
@@ -37,4 +43,5 @@ version: 1
 - calibration data reused as independent validation;
 - missing units or mismatched geometry, loading, temperature, rate, or metric;
 - stale output, manually edited result, selective deletion, or undocumented rerun;
+- a false integrity failure caused only by an authorized Manager stage transition;
 - commercial solver or instrument result claimed without real access and native evidence.
