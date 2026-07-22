@@ -498,15 +498,17 @@ class PlanningContextMixin:
             return {}
 
     @staticmethod
-    def _manager_intent_prompt_block(intent: dict[str, Any]) -> str:
+    def _manager_intent_prompt_block(
+        intent: dict[str, Any],
+        execution_objective: str = "",
+    ) -> str:
         if not intent:
             return ""
+        intent_objective = str(intent.get("execution_task") or "").strip()
         parts = [
             "## Manager intent boundary (authoritative)",
             f"- intent_id: {intent.get('intent_id') or ''}",
             f"- source: {intent.get('source') or ''}",
-            f"- execution_objective: "
-            f"{intent.get('execution_task') or ''}",
             f"- interpreted_vertical: {intent.get('vertical') or ''}",
             f"- kind: {intent.get('kind') or ''}",
             f"- stages: {', '.join(str(s) for s in (intent.get('stages') or []))}",
@@ -516,6 +518,8 @@ class PlanningContextMixin:
             "wrong, surface a Manager/Planner mismatch instead of silently "
             "switching scope.",
         ]
+        if intent_objective and intent_objective != execution_objective.strip():
+            parts.insert(3, f"- execution_objective: {intent_objective}")
         return "\n".join(parts)
 
     # ------------------------------------------------------------------

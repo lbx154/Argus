@@ -60,7 +60,10 @@ class PlanningCycleVerdictMixin:
                     planning_cycle=self._planning_cycles - 1,
                     runtime_change_summary="\n\n".join(
                         part for part in (
-                            self._manager_intent_prompt_block(state.manager_intent),
+                            self._manager_intent_prompt_block(
+                                state.manager_intent,
+                                self.config.continuous_objective,
+                            ),
                             operator_note,
                             self._planner_authorization_prompt_block(),
                             stuck_families_note,

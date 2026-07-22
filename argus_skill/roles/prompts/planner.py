@@ -24,6 +24,56 @@ OPERATIONS = frozenset(
 )
 
 
+_PLANNER_CORE_CONTRACT = """
+## Planner operating contract
+You are the L4 Planner. Inspect current reality, choose the next high-impact
+mission, and delegate sustained execution to the Engineer; the Reviewer judges
+results independently.
+
+- Use project tools at full capacity before deciding: read relevant state,
+  source, tests, artifacts, Reviewer briefings, and CHECKPOINT.md; run bounded
+  probes and edit project files, including code, when that is the fastest way
+  to resolve a planning uncertainty. Planning is your continuous responsibility,
+  but keep Planner-side work bounded and route long
+  implementation, builds, or experiments as Engineer missions.
+- Work the active vertical's current-stage checklist. The Manager alone changes
+  `current_stage`; Planner owns `checklist_ops`; Reviewer feedback may justify a
+  checklist edit, but generic bookkeeping may not. If a Manager-authored domain
+  has no checklist, author its current-stage gate before routing work.
+- Set `project_done=true` only when the operator objective and its hard success
+  criteria are actually satisfied and no independent high-impact work remains.
+  Empty backlog, a useful negative result, or a failed approach is not
+  automatically completion. A failed thesis is project evidence, not a routing command;
+  inspect what it changes and choose the next move yourself.
+- Use `bounded` for ordinary missions and `final_submission` only for a
+  whole-project final gate. Set `stage_closing=true` only when the mission is
+  meant to satisfy the complete current-stage checklist. A prior accepted
+  Engineer self-review already counts as certification; route a concrete
+  repair, not a redundant review, and never combine repair with final
+  certification in one task.
+- Make each task actionable and short-horizon: one clear outcome, one decisive
+  `acceptance_check`, explicit `non_goals`, and exact `context_refs`. State the
+  required outcome rather than telling the Engineer to load built-in skills.
+- Prefer a small dependency DAG when real artifact boundaries exist. Stop at an
+  unresolved decision frontier instead of speculatively scheduling downstream
+  execution; use unique `key` values and same-batch `deps`.
+- Set `waiting=true` only for a verified external dependency after useful
+  independent current-stage work is exhausted; never create a polling mission.
+  The output schema defines the durable `waiting_contract`. Credentials,
+  licensed access, irreversible external actions, and scope expansion require
+  fresh operator authority; reversible project-local work does not.
+- Finish inspection before returning a substantive final verdict; never emit an
+  inspecting placeholder or empty undecided result. Return JSON matching the
+  provided schema, with no prose or Markdown fence.
+"""
+
+
+def _join_prompt_blocks(*blocks: str) -> str:
+    """Join only applicable prompt modules with one stable separator."""
+    rendered = [block.strip() for block in blocks if block and block.strip()]
+    return "\n\n".join(rendered) + "\n"
+
+
 def continuous_request(
     project_root: Path | str,
     *,
@@ -112,7 +162,6 @@ def build_continuous_prompt(
     from ...core.research_contract import resolve_research_target_level
     from ...skills.ground_truth import ground_truth_mandate
     from ...skills.harness_overlay import resolve_project_root
-    from ...skills.role_context import format_role_context
     from ...skills.vertical_select import resolve_evidence_mode
     from ...verticals.research.stages import CANONICAL_STAGE_ORDER
     from .registry import resolve_role_prompt
@@ -144,20 +193,13 @@ def build_continuous_prompt(
     if _research_target_level is not None:
         research_target_block = (
             "## Manager-owned research target\n"
-            f"`research_target_level` is `{_research_target_level}` in "
-            "`research/PIPELINE_STATE.json`. Every mission and completion "
-            "recommendation must preserve this exact success bar. For "
-            "`publishable` or `doctoral`, do not set project_done or route a "
-            "final-report-only mission as completion unless the Reviewer has "
-            "certified correctness_status=verified, "
-            "novelty_status=verified_new, and an original result "
-            "with publishable/doctoral significance. Literature review, known "
-            "results, finite computation, local Lean verification, and honest "
-            "failure reports remain useful artifacts but are not success. A "
-            "bounded review ends only the current cycle; route a new method or "
-            "leave the work resumable instead of declaring the research goal "
-            "complete. For `exploratory`, an independently verified honest "
-            "negative report may satisfy the goal.\n\n"
+            f"Preserve `research_target_level={_research_target_level}` from "
+            "`research/PIPELINE_STATE.json`. At `publishable` or `doctoral`, "
+            "`project_done` requires Reviewer-certified correctness, verified "
+            "novelty, and an original result at that significance level. Known "
+            "results, finite checks, or honest negative reports remain useful "
+            "progress but are not completion. At `exploratory`, an independently "
+            "verified negative report may satisfy the objective."
         )
 
     standing_research_block = ""
@@ -202,23 +244,15 @@ def build_continuous_prompt(
         f"Pipeline stage order for this vertical: {', '.join(_vstage_order)}.\n"
         f"Earlier stages already passed: {_gate_earlier}.\n"
         f"Downstream stages (LOCKED until the Manager advances the stage): "
-        f"{_gate_downstream}.\n\n"
-        "HARD RULE (overrides the operator objective's optimization pull): "
-        "advance pipeline stages STRICTLY IN ORDER. While the CURRENT stage "
-        f"(`{stage}`) checklist shown above is not fully satisfied, the ONLY "
-        "mission you may queue is one whose body COMPLETES THE CURRENT STAGE "
-        "— i.e. produces the artifacts that the current-stage checklist names "
-        "— so the reviewer can certify this stage. Do NOT queue any "
-        "downstream-stage work — including metric/recipe/throughput "
-        "optimization, measurement, analysis, drafting, review, or "
-        f"submission — until the Manager has advanced `current_stage` past "
-        f"`{stage}` (the Manager owns stage transitions; neither you nor the "
-        "engineer edits `research/PIPELINE_STATE.json`). Skipping "
-        f"`{stage}`, or working ahead of it because the "
-        "objective says to drive the metric down, is FORBIDDEN: the current "
-        "stage's gate exists to be satisfied FIRST. (Sole carve-out: the "
-        "parallel paper-drafting track below, when present — prose-only "
-        "drafting that does NOT advance the stage.)\n\n"
+        f"{_gate_downstream}.\n"
+        "Advance stages STRICTLY IN ORDER. Until the checklist above is "
+        "satisfied, downstream work is FORBIDDEN; queue only current-stage work. "
+        "Use `stage_closing=true` only when one mission COMPLETES THE CURRENT "
+        "STAGE checklist. Manager owns stage transitions; Planner and Engineer "
+        "never edit `research/PIPELINE_STATE.json`. If the stage itself blocks "
+        "a necessary prerequisite, report that through the schema's stage "
+        "reconciliation fields instead of silently working ahead. A paper "
+        "overlap exception exists only when an explicit block below enables it."
     )
 
     # Parallel paper-drafting track: while a long experiment grinds in the
@@ -489,56 +523,55 @@ def build_continuous_prompt(
         "a qualifying mission; they are not a successful mission outcome by "
         "themselves.\n\n"
     )
-    return (
+    planner_hygiene_block = (
+        "## Runtime hygiene\n"
+        "Use active project files, project-local skills, and "
+        "`python -m argus_skill ...` or `ARGUS_SKILL_PYTHON`; do not copy stale "
+        "host paths from history."
+    )
+    if _full_paper:
+        planner_hygiene_block += (
+            " For paper infrastructure, trust the fresh model-backed "
+            "`paper/PAPER_INFRASTRUCTURE_REVIEW.json`; if missing or stale, "
+            "route its generator rather than running an ad hoc keyword scan."
+        )
+
+    # Compile from structured state only: vertical/stage, target contract,
+    # open-ended mode, available wiki, and matched skills. Do not keyword-route
+    # task prose to decide which policy fragments the Planner receives.
+    return _join_prompt_blocks(
         ground_truth_mandate(
             "planner",
             workflow_mode=resolve_evidence_mode(_proot),
-        )
-        + optimize_banner
-        + research_target_block
-        + standing_research_block
-        + format_role_context(
-            "Argus planner role skill",
-            "argus-planner-role.md",
-        )
-        + host_policy_block
-        + objective_contract_block
-        + stage_checklist
-        + "\n\n"
-        + stage_gate_block
-        + matched_planner_skill_block
-        + upstream_rollback_block
-        + "\n"
-        + parallel_drafting_block
-        + ("\n" if parallel_drafting_block else "")
-        + wiki_block
-        + ("\n" if wiki_block else "")
-        + search_altitude_block
-        + "\n\nOriginal operator request (immutable anchor):\n"
-        + continuous_objective.strip()
-        + "\n\nJournal of completed work (most recent last):\n"
-        + (journal_tail.strip() or "(no completed work yet — this is the first cycle)")
-        + "\n\nCurrent reality (authoritative over the journal above):\n"
+        ),
+        optimize_banner,
+        research_target_block,
+        standing_research_block,
+        _PLANNER_CORE_CONTRACT,
+        host_policy_block,
+        objective_contract_block,
+        stage_checklist,
+        stage_gate_block,
+        matched_planner_skill_block,
+        upstream_rollback_block,
+        parallel_drafting_block,
+        wiki_block,
+        search_altitude_block,
+        "## Original operator request (immutable anchor)\n"
+        + continuous_objective.strip(),
+        "## Journal of completed work (most recent last)\n"
+        + (
+            journal_tail.strip()
+            or "(no completed work yet — this is the first cycle)"
+        ),
+        "## Current reality (authoritative over the journal above)\n"
         + (
             runtime_change_summary.strip()
             or "(no additional runtime context)"
-        )
-        + "\n\nPlanner hygiene:\n"
-        + (
-            "Do not copy stale host-specific paths from the journal into new tasks. "
-            "Use the active project files, project-local argus_builtin_skills, and "
-            "`python -m argus_skill ...` or the launcher-provided ARGUS_SKILL_PYTHON "
-            "environment instead of retired absolute paths. For paper infrastructure "
-            "leaks, do not run ad hoc grep/rg pattern scans in the Planner. Inspect "
-            "only whether the model-backed paper infrastructure review artifact under "
-            "`paper/PAPER_INFRASTRUCTURE_REVIEW.json` is fresh; if it is missing or "
-            "stale, queue the Engineer to run `paper_infrastructure_review "
-            "--review-mode model --write`. Do not use a hand-written string-match "
-            "pass as context, acceptance, or a substitute for the reviewer artifact."
-        )
-        + "\n\n"
-        + cycle_line
-        + "\n\nInspect the project now and return the JSON verdict.\n"
+        ),
+        planner_hygiene_block,
+        cycle_line,
+        "Inspect the project now and return the JSON verdict.",
     )
 
 

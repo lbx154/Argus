@@ -969,6 +969,27 @@ def test_planner_events_carry_manager_intent_context(tmp_path, monkeypatch) -> N
     assert "study B200 skill" not in block
 
 
+def test_manager_intent_prompt_omits_duplicate_execution_objective(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    sup = _make_supervisor(tmp_path, monkeypatch, _dag_verdict_json())
+    objective = "search for a verified counterexample"
+    intent = {
+        "intent_id": "intent-1",
+        "source": "daemon_boot",
+        "execution_task": objective,
+        "vertical": "math",
+        "kind": "custom",
+        "stages": ["scope", "solve", "review"],
+    }
+
+    block = sup._manager_intent_prompt_block(intent, objective)
+
+    assert "intent_id: intent-1" in block
+    assert "execution_objective:" not in block
+
+
 def test_planner_ignores_newer_uncompleted_manager_intent(
     tmp_path, monkeypatch,
 ) -> None:
