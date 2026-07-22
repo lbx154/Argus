@@ -448,7 +448,7 @@ class PlanningContextMixin:
             project = getattr(self.memory, "project", None)
             root = getattr(project, "root", None)
             if root is None:
-                root = getattr(self.config, "telemetry_dir", None)
+                root = getattr(self.config, "project_state_dir", None)
             if root is None:
                 root = getattr(self.memory, "root", None)
             if root is None:
@@ -580,7 +580,7 @@ class PlanningContextMixin:
 
     def _planner_waiting_contract_path(self) -> Path:
         root = Path(
-            getattr(self.config, "telemetry_dir", None)
+            getattr(self.config, "project_state_dir", None)
             or getattr(self.memory, "root", None)
             or "."
         )
@@ -633,7 +633,7 @@ class PlanningContextMixin:
 
     def _manager_planner_feedback_path(self) -> Path:
         root = Path(
-            getattr(self.config, "telemetry_dir", None)
+            getattr(self.config, "project_state_dir", None)
             or getattr(self.memory, "root", None)
             or "."
         )

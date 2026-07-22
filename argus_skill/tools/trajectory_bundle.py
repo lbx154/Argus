@@ -34,7 +34,6 @@ _LAYER_FILES: dict[str, str] = {
     "events": "events.jsonl",
     "decisions": "decisions.jsonl",
     "backlog": "backlog.jsonl",
-    "telemetry": "telemetry.jsonl",
     "inbox": "inbox.jsonl",
 }
 

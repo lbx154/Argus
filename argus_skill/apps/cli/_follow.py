@@ -357,126 +357,6 @@ def _format_follow_command(event: dict) -> str:
     return annotate_progress_result(parsed, event_for_render)
 
 
-def _format_bytes(value: Any) -> str:
-    try:
-        amount = float(value)
-    except (TypeError, ValueError):
-        amount = 0.0
-    sign = "+" if amount > 0 else "-" if amount < 0 else ""
-    amount = abs(amount)
-    units = ("B", "KiB", "MiB", "GiB")
-    unit = units[0]
-    for unit in units:
-        if amount < 1024 or unit == units[-1]:
-            break
-        amount /= 1024
-    if unit == "B":
-        body = f"{int(amount)} {unit}"
-    else:
-        body = f"{amount:.1f} {unit}"
-    return f"{sign}{body}" if sign else body
-
-
-def _telemetry_age(event: dict[str, Any], *, now: float | None = None) -> float:
-    now = time.time() if now is None else now
-    try:
-        ts = float(event.get("ts") or 0.0)
-    except (TypeError, ValueError):
-        ts = 0.0
-    return max(0.0, now - ts) if ts > 0 else 0.0
-
-
-def _format_telemetry_process_bits(event: dict[str, Any], *, limit: int = 2) -> str:
-    raw_processes = event.get("processes") or []
-    processes = raw_processes if isinstance(raw_processes, list) else []
-    bits: list[str] = []
-    for proc in processes[:limit]:
-        if not isinstance(proc, dict):
-            continue
-        cmd = str(proc.get("cmd") or proc.get("argv0") or "").strip()
-        if cmd:
-            bits.append(_clean_follow_text(cmd, limit=90))
-    truncated = int(event.get("processes_truncated") or 0)
-    total = int(event.get("process_count") or len(processes))
-    if truncated:
-        bits.append(f"+{truncated} more")
-    if not bits and total:
-        bits.append(f"{total} descendant process(es)")
-    return " · ".join(bits)
-
-
-def _format_telemetry_file_bits(event: dict[str, Any], *, limit: int = 3) -> str:
-    raw_files = event.get("files") or []
-    files = raw_files if isinstance(raw_files, list) else []
-    bits: list[str] = []
-    for item in files[:limit]:
-        if not isinstance(item, dict):
-            continue
-        path = _clean_follow_text(str(item.get("path") or "?"), limit=70)
-        if item.get("new_lines") is not None:
-            detail = f"+{int(item.get('new_lines') or 0)} lines"
-        elif item.get("size_delta") not in (None, 0):
-            detail = _format_bytes(item.get("size_delta"))
-        else:
-            detail = _format_bytes(item.get("size"))
-        bits.append(f"{path} {detail}")
-    changed = int(event.get("files_changed") or len(files))
-    if changed > len(bits):
-        bits.append(f"+{changed - len(bits)} files")
-    return " · ".join(bits)
-
-
-def _format_telemetry_inline(event: dict[str, Any] | None) -> str:
-    if not event:
-        return ""
-    age = _telemetry_age(event)
-    if age > 120:
-        return f"telemetry stale ({_core._format_short_duration(age)} old)"
-    running = bool(event.get("running"))
-    run_for = _core._format_short_duration(float(event.get("running_seconds") or 0.0))
-    state = f"telemetry {'running' if running else 'idle'}"
-    bits = [state, f"updated {_core._format_short_duration(age)} ago"]
-    if running:
-        bits.append(f"mission {run_for}")
-    procs = _format_telemetry_process_bits(event, limit=1)
-    if procs:
-        bits.append(f"proc: {procs}")
-    files = _format_telemetry_file_bits(event, limit=2)
-    if files:
-        bits.append(f"artifacts: {files}")
-    return " · ".join(bits)
-
-
-def _format_telemetry_status_lines(event: dict[str, Any] | None) -> list[str]:
-    if not event:
-        return []
-    age = _telemetry_age(event)
-    running = bool(event.get("running"))
-    run_for = _core._format_short_duration(float(event.get("running_seconds") or 0.0))
-    seq = event.get("seq", "?")
-    if running:
-        state = f"running · mission {run_for} · updated {_core._format_short_duration(age)} ago · seq {seq}"
-    else:
-        state = f"idle · last mission {run_for} · updated {_core._format_short_duration(age)} ago · seq {seq}"
-    lines = [f"    state    : {state}"]
-    if event.get("item_id"):
-        lines.append(f"    item     : {event.get('item_id')}")
-    procs = _format_telemetry_process_bits(event, limit=3)
-    if procs:
-        lines.append(f"    proc     : {procs}")
-    files = _format_telemetry_file_bits(event, limit=4)
-    if files:
-        lines.append(f"    artifacts: {files}")
-    scan_bits = [
-        f"{int(event.get('scanned_files') or 0)} files",
-        f"{int(event.get('scan_ms') or 0)} ms",
-    ]
-    if event.get("scan_truncated"):
-        scan_bits.append("truncated")
-    lines.append(f"    scan     : {' · '.join(scan_bits)}")
-    return lines
-
-
 def _read_recent_jsonl_events(
     path: Path,
     *,
@@ -512,150 +392,15 @@ def _read_recent_jsonl_events(
     return list(rows)
 
 
-def _read_recent_project_events(life_dir: Path, *, limit: int = 80) -> list[dict[str, Any]]:
+def _read_recent_project_events(
+    life_dir: Path,
+    *,
+    limit: int = 80,
+) -> list[dict[str, Any]]:
     events = _read_recent_jsonl_events(life_dir / "events.jsonl", limit=limit)
     if events:
         return events
     return _read_recent_jsonl_events(life_dir / "events.jsonl.1", limit=limit)
-
-
-def _activity_layer_from_event(event: dict[str, Any]) -> str | None:
-    layer = event.get("agent_layer")
-    if isinstance(layer, str) and layer:
-        return layer
-    etype = str(event.get("type") or "")
-    if etype.startswith("life.planner."):
-        return "planner"
-    if etype in {"life.iteration.critic", "life.iteration.continued"}:
-        return "critic"
-    if etype == "round.review.deferred":
-        return "engineer"
-    if etype in {"round.review.started", "round.review.completed"}:
-        return "reviewer"
-    if etype in {
-        "life.mission.started",
-        "loop.start",
-        "round.start",
-        "round.main.completed",
-        "round.review.deferred",
-        "loop.done",
-    }:
-        return "engineer"
-    return None
-
-
-def _latest_activity_event(events: Sequence[dict[str, Any]]) -> dict[str, Any] | None:
-    for event in reversed(events):
-        etype = str(event.get("type") or "")
-        if etype == "life.telemetry":
-            continue
-        if etype.startswith("life.") or etype in {
-            "engineer.progress",
-            "loop.start",
-            "round.start",
-            "round.main.completed",
-            "round.review.deferred",
-            "round.review.started",
-            "round.review.completed",
-            "match.info",
-        }:
-            return event
-    return None
-
-
-def _looks_like_agent_process(proc: dict[str, Any]) -> bool:
-    cmd = str(proc.get("cmd") or proc.get("argv0") or "").lower()
-    return "codex exec" in cmd or "@openai/codex" in cmd
-
-
-def _format_activity_process_bits(processes: Sequence[dict[str, Any]], *, limit: int = 3) -> str:
-    bits: list[str] = []
-    for proc in processes[:limit]:
-        cmd = str(proc.get("cmd") or proc.get("argv0") or "").strip()
-        if cmd:
-            bits.append(_clean_follow_text(cmd, limit=90))
-    if len(processes) > len(bits):
-        bits.append(f"+{len(processes) - len(bits)} more")
-    return " · ".join(bits)
-
-
-def _format_activity_event(event: dict[str, Any]) -> str:
-    etype = str(event.get("type") or "event")
-    kind = str(event.get("kind") or "")
-    actor = str(event.get("actor") or "")
-    status = str(event.get("status") or "")
-    label = kind or etype
-    if actor:
-        label = f"{actor} {label}"
-    if status:
-        label = f"{label} {status}"
-    text = (
-        event.get("text")
-        or event.get("title")
-        or event.get("reason")
-        or event.get("objective")
-        or event.get("error")
-        or ""
-    )
-    if text:
-        return _clean_follow_text(f"{label} · {text}", limit=160)
-    return _clean_follow_text(label, limit=160)
-
-
-def _format_daemon_activity_status_lines(
-    status: Any,
-    *,
-    life_dir: Path,
-    telemetry_event: dict[str, Any] | None,
-) -> list[str]:
-    """Expose planner/critic subprocess activity that mission telemetry cannot see."""
-    if not (getattr(status, "alive", False) and getattr(status, "pid", None) is not None):
-        return []
-    if telemetry_event and bool(telemetry_event.get("running")):
-        return []
-
-    recent_events = _read_recent_project_events(life_dir)
-    latest_event = _latest_activity_event(recent_events)
-    try:
-        from ...life.telemetry import collect_descendant_processes
-
-        proc_snapshot = collect_descendant_processes(int(status.pid), limit=12)
-    except Exception:  # noqa: BLE001
-        proc_snapshot = {"processes": [], "process_count": 0, "processes_truncated": 0}
-    raw_processes = proc_snapshot.get("processes") or []
-    processes = raw_processes if isinstance(raw_processes, list) else []
-    agent_processes = [
-        proc for proc in processes
-        if isinstance(proc, dict) and _looks_like_agent_process(proc)
-    ]
-    if not agent_processes:
-        return []
-
-    layer = None
-    for event in reversed(recent_events):
-        layer = _activity_layer_from_event(event)
-        if layer:
-            break
-    layer = layer or "agent"
-
-    state_bits = [
-        f"{layer} active",
-        f"{len(agent_processes)} agent process(es)",
-    ]
-    if latest_event is not None:
-        state_bits.append(
-            f"last event {_core._format_short_duration(_telemetry_age(latest_event))} ago"
-        )
-    if proc_snapshot.get("processes_truncated"):
-        state_bits.append(f"+{int(proc_snapshot.get('processes_truncated') or 0)} hidden")
-
-    lines = [f"    state    : {' · '.join(state_bits)}"]
-    procs = _format_activity_process_bits(agent_processes)
-    if procs:
-        lines.append(f"    proc     : {procs}")
-    if latest_event is not None:
-        lines.append(f"    last     : {_format_activity_event(latest_event)}")
-    return lines
 
 
 def _format_follow_planner_task_added(event: dict) -> str:
@@ -819,10 +564,6 @@ def _format_follow_event_body(
             verdict = action
         return f"🧭 [{_follow_layer_label('manager')}] {verdict}" + (f" · {reason}" if reason else "")
 
-    if etype == "life.telemetry":
-        inline = _format_telemetry_inline(event)
-        return f"  📡 {inline}" if inline else None
-
     if etype == "life.mission.started":
         bits = ["started", *_format_follow_mission_context(event, mission_context=mission_context)]
         return f"\n🚀 [{_follow_layer_label('engineer')}] " + " · ".join(bits)
@@ -937,15 +678,8 @@ def _format_follow_heartbeat(events_path: Path, current_layer: str, idle_seconds
         state = "daemon not running"
     else:
         state = "daemon state unknown"
-    telemetry = ""
-    try:
-        from ...life.telemetry import read_latest_telemetry
-        telemetry = _format_telemetry_inline(read_latest_telemetry(events_path.parent))
-    except Exception:  # noqa: BLE001
-        telemetry = ""
-    tail = telemetry or "normal during LLM calls"
     return (
         f"  ⏳ [{_follow_layer_label(current_layer)}] waiting "
         f"{_core._format_short_duration(idle_seconds)} without new events · {state} · "
-        f"{tail}"
+        "normal during LLM calls"
     )

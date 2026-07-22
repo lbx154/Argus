@@ -182,11 +182,8 @@ class LifeSupervisorConfig:
     # blue/green handoff after the agent modifies its own daemon/runtime
     # architecture). Return a non-empty stop reason to end this drain pass.
     post_mission_hook: Any = None  # Callable[[dict[str, Any]], str] | None
-    # Optional runtime directory for mission telemetry. When set, the
-    # supervisor starts a daemon-owned heartbeat around runner.execute()
-    # so long-running shell experiments still show process/artifact progress.
-    telemetry_dir: Path | None = None
-    telemetry_interval_seconds: float = 10.0
+    # Session-scoped directory for supervisor state sidecars.
+    project_state_dir: Path | None = None
     # Session-scoped root for pipeline/checklist/domain artifacts. The command
     # working tree may be a git repo, but harness state must not leak across
     # sessions that share that repo.

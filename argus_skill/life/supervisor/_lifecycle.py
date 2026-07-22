@@ -35,14 +35,14 @@ _LIFECYCLE_BLOCK_HEARTBEAT_SECONDS = 1800.0
 class LifecycleMixin:
     def _lifecycle_root(self) -> Path:
         """Return the per-project directory holding ``lifecycle.json``."""
-        telemetry_dir = getattr(self.config, "telemetry_dir", None)
-        if telemetry_dir is not None:
-            return Path(telemetry_dir)
+        project_state_dir = getattr(self.config, "project_state_dir", None)
+        if project_state_dir is not None:
+            return Path(project_state_dir)
         return Path(getattr(self.memory, "root", None) or ".")
 
     def _migrate_global_lifecycle_if_needed(self, per_root: Path) -> None:
         """Carry the legacy global lifecycle sidecar into this project once."""
-        if getattr(self.config, "telemetry_dir", None) is None:
+        if getattr(self.config, "project_state_dir", None) is None:
             return
         if getattr(self, "_lifecycle_migrated", False):
             return

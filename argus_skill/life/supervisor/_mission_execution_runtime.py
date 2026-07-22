@@ -53,7 +53,7 @@ class MissionExecutionRuntimeMixin:
     def _prepare_mission_context(
         self, item: BacklogItem, prelude: str,
     ) -> _MissionRunState:
-        """Build per-mission context: packet, cost sink, telemetry, isolation.
+        """Build per-mission context: packet, cost sink, and isolation.
 
         Emits ``LIFE_MISSION_STARTED``. Returns the scratch state that the
         rest of the lifecycle phases read from and write to.
@@ -151,21 +151,6 @@ class MissionExecutionRuntimeMixin:
             ).expanduser().resolve()
             if not state.execution_workdir.is_dir():
                 raise ValueError("framework maintenance worktree is unavailable")
-        if self.config.telemetry_dir is not None:
-            try:
-                from ..telemetry import MissionTelemetryMonitor
-                state.telemetry_monitor = MissionTelemetryMonitor(
-                    life_dir=self.config.telemetry_dir,
-                    workdir=state.execution_workdir,
-                    item_id=item.id,
-                    title=item.title,
-                    interval_seconds=self.config.telemetry_interval_seconds,
-                    stop_event=self.config.stop_event,
-                )
-                state.telemetry_monitor.start()
-            except Exception:  # noqa: BLE001
-                log.exception("life supervisor: failed to start telemetry monitor")
-
         # Per-item codex SESSION ISOLATION (anti context-pollution). The runner
         # chains its codex thread across execute() calls; left unchecked, a brand
         # new, unrelated backlog item RESUMES the previous mission's session and
@@ -192,8 +177,7 @@ class MissionExecutionRuntimeMixin:
         """Call ``self.runner.execute(...)`` and record the raw outcome.
 
         Mutates ``state`` in place (``outcome``, ``exc_str``, ``elapsed``,
-        the repair-capability trio). Telemetry is stopped in the ``finally``
-        clause regardless of outcome.
+        the repair-capability trio).
         """
         item = state.item
         state.t0 = time.time()
@@ -376,12 +360,6 @@ class MissionExecutionRuntimeMixin:
         except Exception as exc:  # noqa: BLE001
             state.exc_str = f"{type(exc).__name__}: {exc}"
             log.exception("life supervisor: mission raised")
-        finally:
-            if state.telemetry_monitor is not None:
-                try:
-                    state.telemetry_monitor.stop()
-                except Exception:  # noqa: BLE001
-                    log.exception("life supervisor: failed to stop telemetry monitor")
         state.elapsed = time.time() - state.t0
 
     # ------------------------------------------------------------------

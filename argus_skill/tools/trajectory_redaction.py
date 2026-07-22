@@ -1,14 +1,13 @@
 """Trajectory redaction — scrub secrets/PII before research data leaves the box.
 
 EN: The B-line product (sellable research trajectories) must not carry API keys,
-credentials, absolute user paths, or emails. Today only telemetry command-lines
-are scrubbed (``life/telemetry._redact_arg``); this is the reusable, general
-pass over ARBITRARY trajectory text / JSON records the sellable export needs.
+credentials, absolute user paths, or emails. This is the reusable, general pass
+over ARBITRARY trajectory text / JSON records the sellable export needs.
 Fail-soft everywhere — redaction must never break a run or an export.
 
-中文：B 线产品（可售研究轨迹）绝不能带 API key、凭证、绝对用户路径、邮箱。目前只有
-telemetry 命令行被脱敏（``life/telemetry._redact_arg``）；这是可售导出所需的、对任意
-轨迹文本 / JSON 记录通用的可复用脱敏。全程失败即原样返回——脱敏绝不能弄坏一次运行或导出。
+中文：B 线产品（可售研究轨迹）绝不能带 API key、凭证、绝对用户路径、邮箱。这是可售
+导出所需的、对任意轨迹文本 / JSON 记录通用的可复用脱敏。全程失败即原样返回——脱敏绝
+不能弄坏一次运行或导出。
 """
 from __future__ import annotations
 

@@ -13,7 +13,6 @@ describe('renderEvent', () => {
   it('hides raw CLI framing + telemetry (the noise)', () => {
     expect(renderEvent({ type: 'agent.io.stream', text: 'raw' })).toBeNull();
     expect(renderEvent({ type: 'agent.io.start' })).toBeNull();
-    expect(renderEvent({ type: 'life.telemetry', running: true } as EventMsg)).toBeNull();
     expect(renderEvent({ type: 'some.unknown.internal' })).toBeNull();
   });
 

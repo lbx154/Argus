@@ -22,7 +22,7 @@ def _supervisor(*, effective_gate: bool, tmp_path: Path) -> tuple[LifeSupervisor
     sup.config = SimpleNamespace(
         full_paper_gate=True,
         artifact_root=tmp_path,
-        telemetry_dir=None,
+        project_state_dir=None,
     )
     sup._effective_full_paper_gate = lambda _w: effective_gate  # type: ignore[attr-defined]
     sup._project_workdir = lambda: tmp_path  # type: ignore[attr-defined]
@@ -161,7 +161,7 @@ def test_tick_skips_inapplicable_final_submission_for_bounded_domain(
     sup.config = SimpleNamespace(
         full_paper_gate=True,
         artifact_root=tmp_path,
-        telemetry_dir=None,
+        project_state_dir=None,
     )
     sup.memory = SimpleNamespace(backlog=_Backlog())
     sup._emit = lambda event: updates.append({"event": event})  # type: ignore[method-assign]

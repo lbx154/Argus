@@ -58,8 +58,8 @@ def test_reset_clears_backoff() -> None:
 
 
 class _LifecycleRootStub:
-    def __init__(self, *, telemetry_dir: Path | None, memory_root: Path) -> None:
-        self.config = SimpleNamespace(telemetry_dir=telemetry_dir)
+    def __init__(self, *, project_state_dir: Path | None, memory_root: Path) -> None:
+        self.config = SimpleNamespace(project_state_dir=project_state_dir)
         self.memory = SimpleNamespace(root=memory_root)
         self._lifecycle_migrated = False
 
@@ -69,16 +69,16 @@ class _LifecycleRootStub:
     )
 
 
-def test_lifecycle_root_prefers_per_project_telemetry_dir(tmp_path) -> None:
+def test_lifecycle_root_prefers_per_project_state_dir(tmp_path) -> None:
     per = tmp_path / "projects" / "abc123"
     glob = tmp_path / "global"
-    stub = _LifecycleRootStub(telemetry_dir=per, memory_root=glob)
+    stub = _LifecycleRootStub(project_state_dir=per, memory_root=glob)
     assert stub._lifecycle_root() == per
 
 
-def test_lifecycle_root_falls_back_to_global_when_no_telemetry_dir(tmp_path) -> None:
+def test_lifecycle_root_falls_back_to_global_without_project_state_dir(tmp_path) -> None:
     glob = tmp_path / "global"
-    stub = _LifecycleRootStub(telemetry_dir=None, memory_root=glob)
+    stub = _LifecycleRootStub(project_state_dir=None, memory_root=glob)
     assert stub._lifecycle_root() == glob
 
 
@@ -89,7 +89,7 @@ def test_migration_copies_global_and_retires_it(tmp_path) -> None:
     legacy = lifecycle_path(glob)
     legacy.write_text('{"state": "writing"}', encoding="utf-8")
 
-    stub = _LifecycleRootStub(telemetry_dir=per, memory_root=glob)
+    stub = _LifecycleRootStub(project_state_dir=per, memory_root=glob)
     stub._migrate_global_lifecycle_if_needed(per)
 
     # Copied into the per-project dir...
@@ -100,13 +100,13 @@ def test_migration_copies_global_and_retires_it(tmp_path) -> None:
     assert (glob / "lifecycle.json.migrated").exists()
 
 
-def test_migration_noop_when_no_telemetry_dir(tmp_path) -> None:
+def test_migration_noop_without_project_state_dir(tmp_path) -> None:
     glob = tmp_path / "global"
     glob.mkdir(parents=True)
     legacy = lifecycle_path(glob)
     legacy.write_text('{"state": "writing"}', encoding="utf-8")
 
-    stub = _LifecycleRootStub(telemetry_dir=None, memory_root=glob)
+    stub = _LifecycleRootStub(project_state_dir=None, memory_root=glob)
     stub._migrate_global_lifecycle_if_needed(glob)
     # Legacy/global file is untouched in the non-per-project regime.
     assert legacy.exists()
@@ -120,7 +120,7 @@ def test_migration_does_not_overwrite_existing_per_project(tmp_path) -> None:
     glob.mkdir(parents=True)
     lifecycle_path(glob).write_text('{"state": "done"}', encoding="utf-8")
 
-    stub = _LifecycleRootStub(telemetry_dir=per, memory_root=glob)
+    stub = _LifecycleRootStub(project_state_dir=per, memory_root=glob)
     stub._migrate_global_lifecycle_if_needed(per)
     # Existing per-project state wins; global is left as-is (not retired).
     assert '"running"' in lifecycle_path(per).read_text(encoding="utf-8")

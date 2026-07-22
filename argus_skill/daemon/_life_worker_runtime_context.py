@@ -173,7 +173,6 @@ def _build_supervisor_config(
         _paper_mission_for_project_root,
         _pending_question_resolver_for,
     )
-    from ..life.telemetry import telemetry_interval_from_env
     from ..manager._session_ops import manager_pipeline_yield_requested
 
     paper_mission = _paper_mission_for_project_root(cfg.project_workdir or runtime_root)
@@ -203,9 +202,8 @@ def _build_supervisor_config(
         continuous_config_provider=continuous_provider,
         manager_pipeline_yield_provider=(lambda: manager_pipeline_yield_requested(runtime_root)),
         post_mission_hook=post_mission_hook,
-        telemetry_dir=runtime_root,
+        project_state_dir=runtime_root,
         artifact_root=cfg.project_workdir or runtime_root,
-        telemetry_interval_seconds=telemetry_interval_from_env(),
     )
 
 

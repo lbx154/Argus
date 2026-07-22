@@ -75,7 +75,6 @@ class _MissionRunState:
         self.context_packet_path: Path | None = None
         self.usage_ledger: Any = None
         self.cost_sink: Any = None
-        self.telemetry_monitor: Any = None
         self.item_tags: set[str] = set()
         self.execution_workdir: Path | None = None
         self.configured_execution_workdir: str = ""

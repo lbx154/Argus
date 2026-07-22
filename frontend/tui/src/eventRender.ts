@@ -238,7 +238,7 @@ export function renderEvent(ev: EventMsg): Rendered | null {
     return body ? { role: 'manager', label: 'Argus', glyph: '▌', text: body, tone: 'bright' } : null;
   }
 
-  // Everything else (agent.io.*, life.telemetry, internal bookkeeping) → hidden.
+  // Everything else (agent.io.*, internal bookkeeping) → hidden.
   return null;
 }
 

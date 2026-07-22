@@ -100,8 +100,6 @@ def _build_supervisor_config(
     continuous_objective: str,
     open_ended: bool,
 ) -> LifeSupervisorConfig:
-    from ..life.telemetry import telemetry_interval_from_env
-
     # Mission type follows a positive Manager-authored vertical decision.  An
     # undecided or malformed project is bounded/non-paper, never implicitly an
     # EMNLP campaign.
@@ -128,9 +126,8 @@ def _build_supervisor_config(
         open_ended=open_ended,
         full_paper_gate=paper_mission and open_ended,
         paper_mission=paper_mission,
-        telemetry_dir=project_root,
+        project_state_dir=project_root,
         artifact_root=artifact_root or project_root,
-        telemetry_interval_seconds=telemetry_interval_from_env(),
     )
 
 

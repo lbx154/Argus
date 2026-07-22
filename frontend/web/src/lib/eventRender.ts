@@ -234,7 +234,7 @@ export function renderEvent(ev: EventMsg): Rendered | null {
     if (body) return { role: 'system', label: 'Notice', glyph: '!', text: body, tone: 'err', rule: true };
   }
 
-  // Everything else (agent_io.*, life.telemetry, internal bookkeeping) → hidden.
+  // Everything else (agent_io.*, internal bookkeeping) → hidden.
   return null;
 }
 

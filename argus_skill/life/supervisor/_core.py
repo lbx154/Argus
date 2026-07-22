@@ -335,9 +335,9 @@ class LifeSupervisor(
         configured = getattr(self.config, "artifact_root", None)
         if configured is not None:
             return Path(configured).expanduser()
-        telemetry_dir = getattr(self.config, "telemetry_dir", None)
-        if telemetry_dir is not None:
-            return Path(telemetry_dir).expanduser()
+        project_state_dir = getattr(self.config, "project_state_dir", None)
+        if project_state_dir is not None:
+            return Path(project_state_dir).expanduser()
         root = getattr(self.memory, "root", None)
         if root:
             return Path(root)

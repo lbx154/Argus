@@ -15,7 +15,7 @@ def _make_project(tmp_path):
     proj.mkdir()
     (proj / "events.jsonl").write_text('{"a":1}\n{"a":2}\n', encoding="utf-8")
     (proj / "decisions.jsonl").write_text('{"d":1}\n', encoding="utf-8")
-    # backlog/telemetry/inbox intentionally absent -> `missing`
+    # backlog/inbox intentionally absent -> `missing`
     return proj
 
 
@@ -43,7 +43,7 @@ def test_bundle_records_missing_layers(tmp_path):
     present = {ll.layer for ll in m.layers}
     assert present == {"events", "decisions"}
     # absent layers are reported, not fabricated
-    for absent in ("backlog", "telemetry", "inbox"):
+    for absent in ("backlog", "inbox"):
         assert absent in m.missing
 
 

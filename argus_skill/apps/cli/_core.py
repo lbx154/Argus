@@ -35,10 +35,8 @@ from .._target_paths import resolve_life_root
 from ._follow import (
     _clean_follow_text,
     _follow_layer_from_event,
-    _format_daemon_activity_status_lines,
     _format_follow_event,
     _format_follow_heartbeat,
-    _format_telemetry_status_lines,
     _read_backlog_rows,
     _resolve_follow_events_path,
     _select_backlog_row_by_id,
@@ -1555,26 +1553,6 @@ def _cmd_status(args: argparse.Namespace) -> int:
             f"    objective: "
             f"{_clean_follow_text(str(getattr(current_running, 'objective', '')), limit=120)}"
         )
-    try:
-        from ...life.telemetry import read_latest_telemetry
-        telemetry_event = read_latest_telemetry(bundle.project.root)
-        telemetry_lines = _format_telemetry_status_lines(telemetry_event)
-    except Exception:  # noqa: BLE001
-        telemetry_event = None
-        telemetry_lines = []
-    if telemetry_lines:
-        print("  telemetry:")
-        for line in telemetry_lines:
-            print(line)
-    activity_lines = _format_daemon_activity_status_lines(
-        status,
-        life_dir=bundle.project.root,
-        telemetry_event=telemetry_event,
-    )
-    if activity_lines:
-        print("  activity :")
-        for line in activity_lines:
-            print(line)
     print(f"  inbox    : {count_pending_inbox_messages(bundle.project.root)} pending")
     history_parts = [part for part in (
         f"{done} done" if done else "",

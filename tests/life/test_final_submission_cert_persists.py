@@ -30,7 +30,7 @@ def _make_supervisor(tmp_path: Path) -> LifeSupervisor:
         config=LifeSupervisorConfig(
             budget=LifeBudget(),
             poll_interval_seconds=0.01,
-            telemetry_dir=tmp_path / "life",
+            project_state_dir=tmp_path / "life",
             project_worktree=project,
             artifact_root=project,
         ),
