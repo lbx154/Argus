@@ -264,27 +264,6 @@ def _render_show_ack(event: dict[str, Any], *, theme: Theme) -> str:
     )
 
 
-# ── welcome banner ───────────────────────────────────────────────────────
-
-_BANNER_COMMANDS: list[tuple[str, str]] = [
-    ("/status", "round / phase / last verdict / recent"),
-    ("/show prompt|plan|review", "peek at engineer / planner artifacts"),
-    ("/inject <text>", "nudge mid-round (raises External interrupt)"),
-    ("/verbose, /quiet", "toggle internal events"),
-    ("/exit", "leave (daemon shuts down automatically)"),
-]
-
-
-def render_welcome_banner(*, theme: Theme) -> str:
-    """ASCII-only boxed cheatsheet for terminal status output."""
-    cmd_w = max(len(c) for c, _ in _BANNER_COMMANDS)
-    rows = [
-        f"{cmd.ljust(cmd_w)}  {desc}"
-        for cmd, desc in _BANNER_COMMANDS
-    ]
-    return theme.boxed(rows, title="commands at the > prompt")
-
-
 # ── engineer.progress: model speech vs. operations ───────────────────────
 
 # Empty string from the renderer means "swallow this event entirely" —

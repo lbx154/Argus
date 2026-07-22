@@ -6,7 +6,7 @@ assert on, and matches what unit-test environments actually see.
 
 from __future__ import annotations
 
-from argus_skill.cli.render import render_event_for_terminal, render_welcome_banner
+from argus_skill.cli.render import render_event_for_terminal
 from argus_skill.cli.theme import BOX, Theme
 
 _PLAIN = Theme(enabled=False, width=80)
@@ -203,25 +203,6 @@ def test_disabled_theme_yields_no_ansi_codes() -> None:
          "text": "round 1: main agent finished"}
     plain = render_event_for_terminal(e, theme=_PLAIN)
     assert "\x1b" not in plain
-
-
-# ── welcome banner ───────────────────────────────────────────────────────
-
-def test_welcome_banner_is_a_full_box() -> None:
-    out = render_welcome_banner(theme=_PLAIN)
-    lines = out.splitlines()
-    assert lines[0].startswith(BOX["tl"])
-    assert lines[0].endswith(BOX["tr"])
-    assert lines[-1].startswith(BOX["bl"])
-    assert lines[-1].endswith(BOX["br"])
-    assert any("/status" in ln for ln in lines)
-    assert any("/show prompt|plan|review" in ln for ln in lines)
-    assert any("/exit" in ln for ln in lines)
-
-
-def test_welcome_banner_no_ansi_when_disabled() -> None:
-    out = render_welcome_banner(theme=_PLAIN)
-    assert "\x1b" not in out
 
 
 # ── diff colouring in /show ────────────────────────────────────────────────
