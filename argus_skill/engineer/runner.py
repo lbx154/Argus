@@ -136,6 +136,8 @@ class _EffectiveProgressWatchdog:
         workdir: Path,
         timeout_seconds: int,
         check_interval_seconds: float,
+        warning_seconds: int = 0,
+        stalled_seconds: int = 0,
         on_event: Callable[[dict], None] | None = None,
         run_label: str | None = None,
         compaction_limit: int = 0,
@@ -143,6 +145,8 @@ class _EffectiveProgressWatchdog:
     ) -> None:
         self.workdir = Path(workdir).expanduser().resolve()
         self.timeout_seconds = max(0, int(timeout_seconds or 0))
+        self.warning_seconds = max(0, int(warning_seconds or 0))
+        self.stalled_seconds = max(0, int(stalled_seconds or 0))
         self.check_interval_seconds = max(1.0, float(check_interval_seconds or 1.0))
         self.on_event = on_event
         self.run_label = run_label
@@ -152,6 +156,8 @@ class _EffectiveProgressWatchdog:
         self._last_check_at = 0.0
         self._interrupt_reason: str | None = None
         self._interrupted_event_sent = False
+        self._warning_event_sent = False
+        self._stalled_event_sent = False
         self._compaction_thrash_event_sent = False
         self._compaction_count = 0
         self._last_waiting_event_at = 0.0
@@ -189,6 +195,7 @@ class _EffectiveProgressWatchdog:
             return self._interrupt_reason
 
         idle_seconds = time.time() - self.last_effective_progress_at
+        self._emit_staged_events(idle_seconds)
         if idle_seconds < self.timeout_seconds:
             self._emit_waiting_event(idle_seconds)
             return None
@@ -217,6 +224,59 @@ class _EffectiveProgressWatchdog:
 
     def _mark_effective_progress(self) -> None:
         self.last_effective_progress_at = time.time()
+        self._last_waiting_event_at = 0.0
+        self._warning_event_sent = False
+        self._stalled_event_sent = False
+
+    def _emit_staged_events(self, idle_seconds: float) -> None:
+        if self.on_event is None:
+            return
+        stages: list[tuple[str, int, dict[str, object]]] = []
+        if (
+            self.warning_seconds > 0
+            and idle_seconds >= self.warning_seconds
+            and not self._warning_event_sent
+        ):
+            self._warning_event_sent = True
+            stages.append(
+                (
+                    "round.watchdog.no_progress_warning",
+                    self.warning_seconds,
+                    {"operator_alert": True},
+                )
+            )
+        if (
+            self.stalled_seconds > 0
+            and idle_seconds >= self.stalled_seconds
+            and not self._stalled_event_sent
+        ):
+            self._stalled_event_sent = True
+            stages.append(
+                (
+                    "round.watchdog.likely_stalled",
+                    self.stalled_seconds,
+                    {"operator_alert": True, "likely_blocked": True},
+                )
+            )
+        for event_type, threshold, extra in stages:
+            try:
+                self.on_event(
+                    {
+                        "type": event_type,
+                        "run_label": self.run_label,
+                        "idle_seconds": round(idle_seconds, 1),
+                        "threshold_seconds": threshold,
+                        "timeout_seconds": self.timeout_seconds,
+                        "round_started_at": self.started_at,
+                        "last_effective_progress_at": self.last_effective_progress_at,
+                        "relevant_session_count": len(self._relevant_sessions),
+                        "project_signature": self._project_signature,
+                        "compaction_count": int(self._compaction_count),
+                        **extra,
+                    }
+                )
+            except Exception:  # noqa: BLE001
+                log.debug("effective progress watchdog stage event failed", exc_info=True)
 
     def _emit_interrupted_event(self, idle_seconds: float) -> None:
         if self._interrupted_event_sent or self.on_event is None:
@@ -228,6 +288,8 @@ class _EffectiveProgressWatchdog:
                 "run_label": self.run_label,
                 "idle_seconds": round(idle_seconds, 1),
                 "limit_seconds": self.timeout_seconds,
+                "operator_alert": True,
+                "will_retry_fresh_session": True,
                 "text": self._interrupt_reason,
             })
         except Exception:  # noqa: BLE001
@@ -622,7 +684,7 @@ class SupervisedEngineer(
     ) -> tuple[RunnerResult, int]:
         effective_progress_provider: Callable[[], str | None] | None = None
         effective_progress_watchdog: _EffectiveProgressWatchdog | None = None
-        hard_idle_seconds = 0
+        hard_idle_seconds: int | None = None
         if supervised_config is not None:
             timeout_seconds = int(
                 supervised_config.effective_progress_timeout_seconds or 0
@@ -634,6 +696,12 @@ class SupervisedEngineer(
                     timeout_seconds=timeout_seconds,
                     check_interval_seconds=(
                         supervised_config.effective_progress_check_interval_seconds
+                    ),
+                    warning_seconds=(
+                        supervised_config.effective_progress_warning_seconds
+                    ),
+                    stalled_seconds=(
+                        supervised_config.effective_progress_stalled_seconds
                     ),
                     on_event=on_event,
                     run_label=run_label,

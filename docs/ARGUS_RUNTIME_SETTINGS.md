@@ -66,8 +66,12 @@
 | mission | `ARGUS_SKILL_NEAREST_TRANSFER_ENABLED` | `0` | default | `0` |
 | mission | `ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING` | `1` | default | `1` |
 | mission | `ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS` | `0` | default | `0` |
-| mission | `ARGUS_SKILL_EFFECTIVE_PROGRESS_TIMEOUT_SECONDS` | `0` | default | `0` |
-| mission | `ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS` | `0` | default | `0` |
+| mission | `ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS` | `600` | default | `600` |
+| mission | `ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS` | `1800` | default | `1800` |
+| mission | `ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS` | `2700` | default | `2700` |
+| mission | `ARGUS_SKILL_EFFECTIVE_PROGRESS_WARNING_SECONDS` | `600` | default | `600` |
+| mission | `ARGUS_SKILL_EFFECTIVE_PROGRESS_STALLED_SECONDS` | `1800` | default | `1800` |
+| mission | `ARGUS_SKILL_EFFECTIVE_PROGRESS_TIMEOUT_SECONDS` | `2700` | default | `2700` |
 | mission | `ARGUS_SKILL_SHIFT_ROUND_LIMIT` | `1` | default | `1` |
 | mission | `ARGUS_SKILL_BOUNDED_DAG_NODE_MAX_ROUNDS` | `3` | default | `3` |
 | mission | `ARGUS_SKILL_THREAD_TOKEN_LIMIT` | `0` | default | `0` |

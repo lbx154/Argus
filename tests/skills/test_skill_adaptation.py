@@ -152,4 +152,4 @@ def test_scientist_call_does_not_impose_a_time_limit() -> None:
     recording = RecordingBackend()
     SkillScientist(recording, model="test").distill("scope a problem")
     assert recording.kwargs is not None
-    assert recording.kwargs["options"].watchdog_hard_idle_seconds == 0
+    assert recording.kwargs["options"].watchdog_hard_idle_seconds is None

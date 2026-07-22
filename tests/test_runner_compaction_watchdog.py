@@ -32,14 +32,68 @@ _RESPONSE = json.dumps(
 _TOKEN_COUNT = json.dumps({"timestamp": "t", "type": "token_count", "payload": {}})
 
 
-def test_long_running_experiments_have_no_default_idle_deadline(monkeypatch):
+def test_model_calls_have_staged_default_idle_deadlines(monkeypatch):
+    monkeypatch.delenv("ARGUS_SKILL_EFFECTIVE_PROGRESS_WARNING_SECONDS", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_EFFECTIVE_PROGRESS_STALLED_SECONDS", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_EFFECTIVE_PROGRESS_TIMEOUT_SECONDS", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", raising=False)
 
     config = SupervisedConfig()
 
-    assert config.effective_progress_timeout_seconds == 0
-    assert config.runner_hard_idle_seconds == 0
+    assert config.effective_progress_warning_seconds == 600
+    assert config.effective_progress_stalled_seconds == 1800
+    assert config.effective_progress_timeout_seconds == 2700
+    assert config.runner_hard_idle_seconds == 2700
+
+
+def test_effective_progress_stages_emit_once_and_reset(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workdir = tmp_path / "proj"
+    workdir.mkdir()
+    events: list[dict] = []
+    watchdog = _EffectiveProgressWatchdog(
+        workdir=workdir,
+        warning_seconds=10,
+        stalled_seconds=30,
+        timeout_seconds=45,
+        check_interval_seconds=1,
+        on_event=events.append,
+        run_label="test",
+        now=0,
+    )
+    monkeypatch.setattr(watchdog, "_refresh_effective_progress", lambda: None)
+    clock = {"wall": 10.0, "mono": 2.0}
+    monkeypatch.setattr(runner_module.time, "time", lambda: clock["wall"])
+    monkeypatch.setattr(runner_module.time, "monotonic", lambda: clock["mono"])
+
+    assert watchdog.interrupt_reason() is None
+    assert [event["type"] for event in events] == [
+        "round.watchdog.no_progress_warning"
+    ]
+
+    clock.update(wall=20.0, mono=4.0)
+    assert watchdog.interrupt_reason() is None
+    assert len(events) == 1
+
+    clock.update(wall=30.0, mono=6.0)
+    assert watchdog.interrupt_reason() is None
+    assert events[-1]["type"] == "round.watchdog.likely_stalled"
+
+    clock.update(wall=31.0, mono=8.0)
+    watchdog._mark_effective_progress()
+    clock.update(wall=41.0, mono=10.0)
+    assert watchdog.interrupt_reason() is None
+    assert events[-1]["type"] == "round.watchdog.no_progress_warning"
+
+    clock.update(wall=76.0, mono=12.0)
+    reason = watchdog.interrupt_reason()
+    assert reason is not None
+    assert "effective progress timeout" in reason
+    assert events[-2]["type"] == "round.watchdog.likely_stalled"
+    assert events[-1]["type"] == "round.watchdog.effective_progress_timeout"
+    assert events[-1]["will_retry_fresh_session"] is True
 
 
 def _session_meta(workdir: Path) -> str:

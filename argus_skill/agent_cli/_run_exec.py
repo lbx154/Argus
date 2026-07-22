@@ -29,6 +29,12 @@ from ._env import (
     _positive_env_int,
     _turn_wall_clock_seconds,
 )
+from ._idle_watchdog import (
+    STALLED_STAGE,
+    TERMINATE_STAGE,
+    WARNING_STAGE,
+    IdleEscalation,
+)
 from .models import AgentRunResult, InactivitySnapshot
 from .runner_backend import BACKEND_OPENCODE
 
@@ -217,7 +223,13 @@ class RunExecMixin:
             )
         )
         soft_idle = options.watchdog_soft_idle_seconds or 0
+        stalled_idle = options.watchdog_stalled_idle_seconds or 0
         hard_idle = options.watchdog_hard_idle_seconds or 0
+        idle_escalation = IdleEscalation(
+            warning_seconds=soft_idle,
+            stalled_seconds=stalled_idle,
+            terminate_seconds=hard_idle,
+        )
         last_activity_at = time.monotonic()
         turn_started_at = last_activity_at
         turn_wall_clock_seconds = _turn_wall_clock_seconds(run_label)
@@ -341,16 +353,45 @@ class RunExecMixin:
                         self._terminate_process(process)
                         state.watchdog_terminated = True
 
-                if hard_idle > 0 and process.poll() is None and idle_seconds >= hard_idle:
-                    state.watchdog_reason = (
-                        f"Forced restart after hard idle timeout ({int(idle_seconds)}s)."
-                    )
-                    self._emit(
-                        self._stream_name("stderr", run_label),
-                        f"[watchdog] {state.watchdog_reason}",
-                    )
-                    self._terminate_process(process)
-                    state.watchdog_terminated = True
+                last_message_chars = (
+                    len(state.agent_messages[-1]) if state.agent_messages else 0
+                )
+                for stage in idle_escalation.newly_due(idle_seconds):
+                    if process.poll() is not None:
+                        break
+                    if stage == WARNING_STAGE:
+                        self._emit(
+                            self._stream_name("stderr", run_label),
+                            "[watchdog] No model stream event for "
+                            f"{int(idle_seconds)}s (warning threshold "
+                            f"{soft_idle}s, pid={process.pid}, "
+                            f"thread={state.thread_id or '-'}, "
+                            f"stdout_lines={state.stdout_line_count}, "
+                            f"stderr_lines={state.stderr_line_count}, "
+                            f"last_message_chars={last_message_chars}); "
+                            "capturing diagnostics and continuing.",
+                        )
+                    elif stage == STALLED_STAGE:
+                        self._emit(
+                            self._stream_name("stderr", run_label),
+                            "[watchdog] Model call is likely stalled after "
+                            f"{int(idle_seconds)}s without a stream event "
+                            f"(threshold {stalled_idle}s, pid={process.pid}); "
+                            f"stdout_lines={state.stdout_line_count}, "
+                            f"stderr_lines={state.stderr_line_count}; continuing "
+                            "until the hard deadline.",
+                        )
+                    elif stage == TERMINATE_STAGE:
+                        state.watchdog_reason = (
+                            "Forced restart after hard idle timeout "
+                            f"({hard_idle}s without a model stream event)."
+                        )
+                        self._emit(
+                            self._stream_name("stderr", run_label),
+                            f"[watchdog] {state.watchdog_reason}",
+                        )
+                        self._terminate_process(process)
+                        state.watchdog_terminated = True
                 continue
 
             if text is None:
@@ -361,6 +402,7 @@ class RunExecMixin:
                 continue
 
             last_activity_at = time.monotonic()
+            idle_escalation.reset()
             output_stream = self._stream_name(stream_name, run_label)
             self._emit(output_stream, text)
 

@@ -57,14 +57,14 @@ the project adheres to semantic versioning once it leaves 0.x.
   round-loop terminates, Manager arbitrates the stage boundary, and Planner
   authors the replacement task. The handoff is one-way and fail-safe (Manager
   errors HOLD), avoiding a new role-to-role waiting cycle.
-- **Long-running GPU and external experiments are no longer killed after one
-  silent hour by default.** The effective-progress watchdog and the runner
-  stdout/stderr hard-idle watchdog both defaulted to 3600 seconds, so a valid
-  multi-hour subprocess with no intermediate file writes could be mistaken for
-  a stuck Engineer round. Both deadlines are now disabled by default (`0`) and
-  remain available as explicit deployment opt-ins through
-  `ARGUS_SKILL_EFFECTIVE_PROGRESS_TIMEOUT_SECONDS` and
-  `ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS`.
+- **Opaque model calls now have staged no-progress recovery instead of running
+  indefinitely.** At 10 minutes without a real provider/semantic event Argus
+  records diagnostics and alerts; at 30 minutes it marks the call likely
+  stalled; at 45 minutes it terminates only that provider process group and the
+  Engineer retries once in a fresh session from `CHECKPOINT.md`. Any real event
+  resets escalation. Explicit `0` values still disable individual stages.
+  Durable subagent experiments remain independently supervised and outside the
+  model-call process group, so a watchdog restart does not kill them.
 - **qlib-cn OOS backtests no longer crash at the dump's calendar boundary.**
   Quarantined-test OOS trials died with `IndexError: index N out of bounds` —
   the evaluation window ended on the dump's *last* calendar day and qlib

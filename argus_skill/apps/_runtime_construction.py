@@ -146,11 +146,15 @@ class _RunnerConstructionMixin:
             default_interrupt_reason_provider=_stop_reason if stop_event is not None else None,
             default_watchdog_soft_idle_seconds=_env_int(
                 "ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS",
-                0,
+                10 * 60,
+            ),
+            default_watchdog_stalled_idle_seconds=_env_int(
+                "ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS",
+                30 * 60,
             ),
             default_watchdog_hard_idle_seconds=_env_int(
                 "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS",
-                0,
+                45 * 60,
             ),
             event_callback=_trampoline,
         )
@@ -209,11 +213,15 @@ class _RunnerConstructionMixin:
                 ),
                 default_watchdog_soft_idle_seconds=_env_int(
                     "ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS",
-                    0,
+                    10 * 60,
+                ),
+                default_watchdog_stalled_idle_seconds=_env_int(
+                    "ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS",
+                    30 * 60,
                 ),
                 default_watchdog_hard_idle_seconds=_env_int(
                     "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS",
-                    0,
+                    45 * 60,
                 ),
                 event_callback=_trampoline,
             )
