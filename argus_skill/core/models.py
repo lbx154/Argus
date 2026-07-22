@@ -344,6 +344,13 @@ class ReviewDecision:
     backend_fatal_error: str = ""
     backend_exit_code: int | None = None
     backend_stop_kind: StopKind | None = None
+    # Reviewer-authored observation-only routing judgment. It records whether
+    # another Engineer round should proceed before L4 Planner judgment, but no
+    # runtime component consumes it for routing. Appended to preserve every
+    # existing positional ReviewDecision constructor argument.
+    routing_decision: str = ""
+    routing_reason: str = ""
+    routing_handoff: str = ""
 
     @property
     def final_submission_certified(self) -> bool:
@@ -402,6 +409,9 @@ class ReviewDecision:
                 dict(self.achievement) if isinstance(self.achievement, dict) else None
             ),
             "scope": self.scope or "",
+            "routing_decision": self.routing_decision or "",
+            "routing_reason": self.routing_reason or "",
+            "routing_handoff": self.routing_handoff or "",
             "checklist": list(self.checklist or []),
             "planner_report": canonical_planner_report(self.planner_report),
             "checklist_feedback": dict(self.checklist_feedback or {}),

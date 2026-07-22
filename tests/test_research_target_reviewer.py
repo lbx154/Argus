@@ -45,6 +45,9 @@ def _schema_verdict(result: dict) -> dict:
         "progress_class": "decision",
         "control": None,
         "scope": "bounded",
+        "routing_decision": "",
+        "routing_reason": "",
+        "routing_handoff": "",
         "research_result": result,
         "planner_report": {
             "forward_progress": True,

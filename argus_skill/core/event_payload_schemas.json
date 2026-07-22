@@ -320,6 +320,12 @@
         "reason": {"type": "string"},
         "next_action": {"type": "string"},
         "scope": {"type": "string"},
+        "routing_decision": {
+          "type": "string",
+          "enum": ["keep_mission", "return_to_planner", ""]
+        },
+        "routing_reason": {"type": "string"},
+        "routing_handoff": {"type": "string"},
         "checklist": {"type": "array", "items": {"type": "object"}},
         "research_result": {"type": ["object", "null"]},
         "stop_kind": {

@@ -206,6 +206,22 @@
         null
       ]
     },
+    "routing_decision": {
+      "type": "string",
+      "enum": [
+        "",
+        "keep_mission",
+        "return_to_planner"
+      ]
+    },
+    "routing_reason": {
+      "type": "string",
+      "maxLength": 1000
+    },
+    "routing_handoff": {
+      "type": "string",
+      "maxLength": 1000
+    },
     "research_result": {
       "type": [
         "object",
@@ -549,6 +565,9 @@
     "progress_class",
     "control",
     "scope",
+    "routing_decision",
+    "routing_reason",
+    "routing_handoff",
     "research_result",
     "planner_report",
     "checklist",

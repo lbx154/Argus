@@ -104,6 +104,10 @@ def _parse_decision_object(
     assert next_action is not None
     planner_report = _parse_planner_report(parsed, status=status, reason=reason)
     control_action, control_task_id = _parse_control(parsed)
+    routing_decision, routing_reason, routing_handoff = _parse_routing_shadow(
+        parsed,
+        status=status,
+    )
     failure_source, failure_source_evidence, validator_id, repair_paths = (
         _parse_failure_source(parsed)
     )
@@ -120,6 +124,9 @@ def _parse_decision_object(
         progress_class=_parse_progress_class(parsed, planner_report),
         control_action=control_action,
         control_task_id=control_task_id,
+        routing_decision=routing_decision,
+        routing_reason=routing_reason,
+        routing_handoff=routing_handoff,
         scope=_parse_scope(parsed),
         checklist=_parse_checklist(parsed),
         research_result=_parse_research_result(parsed),
@@ -231,6 +238,7 @@ _PROGRESS_CLASSES = frozenset({
     "none",
 })
 _WAIT_FOR_SUBAGENT_CONTROL = "wait_for_subagent"
+_ROUTING_DECISIONS = frozenset({"keep_mission", "return_to_planner"})
 
 
 def _parse_control(parsed: dict[str, Any]) -> tuple[str, str]:
@@ -242,6 +250,24 @@ def _parse_control(parsed: dict[str, Any]) -> tuple[str, str]:
     if action != _WAIT_FOR_SUBAGENT_CONTROL or not task_id:
         return "", ""
     return action, task_id
+
+
+def _parse_routing_shadow(
+    parsed: dict[str, Any],
+    *,
+    status: str,
+) -> tuple[str, str, str]:
+    """Parse Reviewer-authored routing telemetry without changing control flow."""
+    if status != "continue":
+        return "", "", ""
+    decision = str(parsed.get("routing_decision") or "").strip().lower()
+    if decision not in _ROUTING_DECISIONS:
+        return "", "", ""
+    return (
+        decision,
+        str(parsed.get("routing_reason") or "").strip()[:1000],
+        str(parsed.get("routing_handoff") or "").strip()[:1000],
+    )
 
 
 def _parse_progress_class(
