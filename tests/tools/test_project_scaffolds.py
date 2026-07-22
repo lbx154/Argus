@@ -168,11 +168,33 @@ def test_run_experiments_fanout_round_robins_visible_gpus(
 
 def test_run_experiments_build_argv_wraps_cuda_visible_devices(scaffolds) -> None:
     _, _, run_experiments = scaffolds
-    plan = {"id": "proposed", "command": ".venv/bin/python code/run.py", "gpus": "1,2", "timeout": 100}
+    plan = {
+        "id": "proposed",
+        "command": ".venv/bin/python code/run.py",
+        "gpus": "1,2",
+        "cpu_count": 4,
+        "cpu_ids": None,
+        "timeout": 100,
+    }
     argv = run_experiments.build_submit_argv("pyx", plan, "desc")
     assert argv[:4] == ["pyx", "-m", "argus_skill.tools.subagent", "submit"]
     command_index = argv.index("--command") + 1
     assert argv[command_index] == "env CUDA_VISIBLE_DEVICES=1,2 .venv/bin/python code/run.py"
+    assert argv[argv.index("--cpu-count") + 1] == "4"
+
+
+def test_run_experiments_forwards_explicit_cpu_ids(scaffolds) -> None:
+    _, _, run_experiments = scaffolds
+    plan = {
+        "id": "cpu-bound",
+        "command": ".venv/bin/python code/run.py",
+        "gpus": "",
+        "cpu_count": 0,
+        "cpu_ids": "4,5",
+        "timeout": 100,
+    }
+    argv = run_experiments.build_submit_argv("pyx", plan, "desc")
+    assert argv[argv.index("--cpu-ids") + 1] == "4,5"
 
 
 def test_run_experiments_rejects_empty_matrix(scaffolds, tmp_path: Path) -> None:

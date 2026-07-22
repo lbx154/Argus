@@ -71,6 +71,7 @@ class RunnerOptions:
     working_dir: str | None = None
     output_schema_path: str | None = None
     watchdog_soft_idle_seconds: int | None = None
+    watchdog_stalled_idle_seconds: int | None = None
     watchdog_hard_idle_seconds: int | None = None
     inactivity_callback: InactivityCallback | None = None
     external_interrupt_reason_provider: ExternalInterruptProvider | None = None

@@ -11,8 +11,8 @@ Define the matrix in ``experiments/MATRIX.json``::
     {
       "gpu_policy": "explicit",
       "conditions": [
-        {"id": "baseline_no_skill", "command": ".venv/bin/python code/run_eval.py --method no_skill", "gpus": "0"},
-        {"id": "proposed",          "command": ".venv/bin/python code/run_eval.py --method proposed", "gpus": "1,2,3", "run_dir": "experiments/runs/proposed"}
+        {"id": "baseline_no_skill", "command": ".venv/bin/python code/run_eval.py --method no_skill", "gpus": "0", "cpu_count": 4},
+        {"id": "proposed",          "command": ".venv/bin/python code/run_eval.py --method proposed", "gpus": "1,2,3", "cpu_ids": "8,9,10,11", "run_dir": "experiments/runs/proposed"}
       ]
     }
 
@@ -98,8 +98,8 @@ def load_matrix(path: str | os.PathLike[str]) -> dict[str, Any]:
 def assign_gpus(matrix: dict[str, Any]) -> list[dict[str, Any]]:
     """Resolve each condition's GPU set per the matrix policy.
 
-    Returns a list of plans: {id, command, gpus, timeout, run_dir}.
-    Raises ValueError on policy violations (e.g. explicit policy with no gpus).
+    Returns plans with GPU selection, optional CPU lease, timeout, and run_dir.
+    Raises ValueError on policy violations.
     """
     policy = matrix.get("gpu_policy", "explicit")
     visible = gpu_env.visible_devices()
@@ -119,11 +119,24 @@ def assign_gpus(matrix: dict[str, Any]) -> list[dict[str, Any]]:
                 raise ValueError(f"unknown gpu_policy {policy!r}")
         gpus = str(gpus)
         _warn_unallocated(condition["id"], gpus, visible)
+        cpu_count = int(condition.get("cpu_count", 0) or 0)
+        cpu_ids = condition.get("cpu_ids")
+        if cpu_count < 0:
+            raise ValueError(
+                f"condition {condition['id']!r}: cpu_count must be non-negative"
+            )
+        if cpu_count and cpu_ids not in (None, ""):
+            raise ValueError(
+                f"condition {condition['id']!r}: cpu_count and cpu_ids are "
+                "mutually exclusive"
+            )
         plans.append(
             {
                 "id": condition["id"],
                 "command": condition["command"],
                 "gpus": gpus,
+                "cpu_count": cpu_count,
+                "cpu_ids": (str(cpu_ids) if cpu_ids not in (None, "") else None),
                 "timeout": int(condition.get("timeout", DEFAULT_TIMEOUT_SECONDS)),
                 "run_dir": condition.get("run_dir"),
             }
@@ -164,7 +177,7 @@ def build_submit_argv(python: str, plan: dict[str, Any], description: str) -> li
     inner = plan["command"]
     if plan["gpus"]:
         inner = f"env CUDA_VISIBLE_DEVICES={plan['gpus']} {inner}"
-    return [
+    argv = [
         python,
         "-m",
         SUBAGENT_MODULE,
@@ -178,6 +191,11 @@ def build_submit_argv(python: str, plan: dict[str, Any], description: str) -> li
         "--timeout",
         str(plan["timeout"]),
     ]
+    if int(plan.get("cpu_count", 0) or 0):
+        argv.extend(["--cpu-count", str(plan["cpu_count"])])
+    elif plan.get("cpu_ids"):
+        argv.extend(["--cpu-ids", str(plan["cpu_ids"])])
+    return argv
 
 
 def cmd_submit(args: argparse.Namespace) -> int:
@@ -188,7 +206,13 @@ def cmd_submit(args: argparse.Namespace) -> int:
     print(gpu_env.readiness_report())
     print("\n# Experiment matrix")
     for plan in plans:
-        print(f"  - {plan['id']}: GPUs={plan['gpus'] or 'CPU'}  cmd={plan['command']}")
+        cpu_lease = plan.get("cpu_ids") or (
+            f"count:{plan['cpu_count']}" if plan.get("cpu_count") else "shared"
+        )
+        print(
+            f"  - {plan['id']}: GPUs={plan['gpus'] or 'CPU'} "
+            f"CPUs={cpu_lease}  cmd={plan['command']}"
+        )
     print()
 
     if not args.dry_run and not _subagent_importable(python):

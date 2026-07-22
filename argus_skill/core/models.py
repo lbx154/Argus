@@ -91,12 +91,13 @@ class RunnerOptions:
     # ``"restart"`` to force termination + retry semantics, or any
     # other value to keep waiting.
     #
-    # ``watchdog_soft_idle_seconds`` / ``watchdog_hard_idle_seconds``
-    # are absolute idle thresholds; ``0`` disables that level.
+    # Idle thresholds use ``None`` to inherit backend defaults and ``0`` to
+    # disable that stage for this call.
     external_interrupt_reason_provider: Callable[[], str | None] | None = None
     inactivity_callback: Callable[[Any], str | None] | None = None
-    watchdog_soft_idle_seconds: int = 0
-    watchdog_hard_idle_seconds: int = 0
+    watchdog_soft_idle_seconds: int | None = None
+    watchdog_stalled_idle_seconds: int | None = None
+    watchdog_hard_idle_seconds: int | None = None
     # ``on_agent_message`` is invoked with each NEW assistant message block the
     # moment it arrives on the CLI's stdout stream (copilot/codex emit the reply
     # as one or more complete blocks during a turn, not a single final blob).

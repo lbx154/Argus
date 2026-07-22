@@ -600,6 +600,49 @@ def test_acp_soft_idle_heartbeat_resets_on_real_event_and_stops(monkeypatch) -> 
     assert len(snapshots) == count_at_completion  # completion stops heartbeats
 
 
+def test_acp_emits_staged_idle_alerts_before_cancelling(monkeypatch) -> None:
+    def _silent_script(req, _proc):
+        if req.get("method") == "initialize":
+            return [_init_ok(req)]
+        if req.get("method") == "session/new":
+            return [_session_ok(req)]
+        return []
+
+    proc = _FakeAcpProc(_silent_script)
+    monkeypatch.setattr(copilot_acp.subprocess, "Popen", lambda *a, **k: proc)
+    client = CopilotAcpClient("copilot-bin")
+    emitted: list[str] = []
+    options = _Opt()
+    options.watchdog_soft_idle_seconds = 0.02
+    options.watchdog_stalled_idle_seconds = 0.04
+    options.watchdog_hard_idle_seconds = 0.06
+    options.inactivity_callback = None
+
+    result = client.run_prompt(
+        prompt="remain silent",
+        resume_thread_id=None,
+        options=options,
+        run_label="simple-1",
+        emit=emitted.append,
+    )
+
+    event_types = [
+        json.loads(item)["type"]
+        for item in emitted
+        if item.startswith("{") and "watchdog." in item
+    ]
+    assert event_types == [
+        "watchdog.no_progress_warning",
+        "watchdog.likely_stalled",
+        "watchdog.terminated",
+    ]
+    assert "hard idle timeout" in str(result.fatal_error).lower()
+    assert any(
+        row.get("method") == "session/cancel"
+        for row in proc.written
+    )
+
+
 def test_acp_timeout_tracks_inactivity_not_total_turn_time(monkeypatch) -> None:
     """A healthy tool-heavy turn may outlive the ACP idle timeout."""
     monkeypatch.setattr(copilot_acp, "_prompt_timeout", lambda _label: 0.2)

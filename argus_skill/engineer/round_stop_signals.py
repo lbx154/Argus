@@ -106,6 +106,8 @@ def fatal_error_looks_like_backend_failure(fatal_error: str | None) -> bool:
     low = str(fatal_error).strip().casefold()
     if fatal_error_looks_like_recoverable_reconnect(fatal_error):
         return False
+    if fatal_error_looks_like_effective_progress_timeout(fatal_error):
+        return True
     return any(pattern in low for pattern in _BACKEND_FAILURE_FATAL_ERROR_PATTERNS)
 
 

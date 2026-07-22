@@ -258,6 +258,136 @@ def test_loop_escalates_to_error_on_reviewer_backend_death(tmp_path: Path) -> No
     assert continues == []
 
 
+class _DoneReviewer:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def evaluate(self, **_kwargs) -> ReviewDecision:
+        self.calls += 1
+        return ReviewDecision(
+            status="done",
+            reason="watchdog recovery completed",
+            next_action="",
+            progress_class="decision",
+        )
+
+
+class _WatchdogThenHealthyEngineer:
+    def __init__(self, *, always_fail: bool = False) -> None:
+        self.always_fail = always_fail
+        self.calls = 0
+        self.resume_thread_ids: list[str | None] = []
+
+    def run_exec(self, **kwargs):
+        self.calls += 1
+        self.resume_thread_ids.append(kwargs.get("resume_thread_id"))
+        if self.always_fail or self.calls == 1:
+            return RunnerResult(
+                exit_code=-1,
+                agent_messages=[],
+                fatal_error=(
+                    "External interrupt: effective progress timeout: no "
+                    "non-token provider event or project file change"
+                ),
+            )
+        return RunnerResult(
+            exit_code=0,
+            agent_messages=["recovered from CHECKPOINT.md"],
+            thread_id="fresh-provider-session",
+        )
+
+
+def test_watchdog_timeout_retries_once_from_checkpoint_in_fresh_session(
+    tmp_path: Path,
+) -> None:
+    checkpoint = tmp_path / "CHECKPOINT.md"
+    checkpoint.write_text("# Current State\nDurable state is present.\n", encoding="utf-8")
+    events: list[dict] = []
+    prompts: list[tuple[bool, str]] = []
+    runner = _WatchdogThenHealthyEngineer()
+    reviewer = _DoneReviewer()
+    engine = SupervisedEngineer(
+        engineer_runner=runner,
+        reviewer=reviewer,
+        engineer_config=EngineerConfig(model="gpt-5.5"),
+        reviewer_config=ReviewerConfig(model="gpt-5.5"),
+    )
+
+    status, rounds, _message, _reason, _thread_id = engine.run(
+        objective="recover safely",
+        engineer_prompt_builder=lambda _next, include_static=True: prompts.append(
+            (include_static, "continue")
+        )
+        or "continue",
+        supervised_config=SupervisedConfig(
+            max_rounds=4,
+            backend_failure_threshold=2,
+            backend_failure_backoff_seconds=0,
+            checkpoint_path=checkpoint,
+            effective_progress_timeout_seconds=0,
+            runner_hard_idle_seconds=0,
+            background_subagent_advisory=False,
+        ),
+        workdir=tmp_path,
+        on_event=events.append,
+    )
+
+    assert status == "done"
+    assert runner.calls == 2
+    assert runner.resume_thread_ids == [None, None]
+    assert [include_static for include_static, _prompt in prompts] == [True, False]
+    assert reviewer.calls == 1
+    assert len(rounds) == 2
+    retry = next(event for event in events if event["type"] == "round.watchdog.retry")
+    assert retry["fresh_session"] is True
+    assert retry["checkpoint_available"] is True
+    assert retry["checkpoint_path"] == str(checkpoint)
+
+
+def test_watchdog_retry_exhaustion_fails_loudly(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "CHECKPOINT.md"
+    events: list[dict] = []
+    runner = _WatchdogThenHealthyEngineer(always_fail=True)
+    reviewer = _DoneReviewer()
+    engine = SupervisedEngineer(
+        engineer_runner=runner,
+        reviewer=reviewer,
+        engineer_config=EngineerConfig(model="gpt-5.5"),
+        reviewer_config=ReviewerConfig(model="gpt-5.5"),
+    )
+
+    status, rounds, _message, reason, _thread_id = engine.run(
+        objective="do not loop forever",
+        engineer_prompt_builder=lambda _next, _static=True: "continue",
+        supervised_config=SupervisedConfig(
+            max_rounds=10,
+            backend_failure_threshold=5,
+            backend_failure_backoff_seconds=0,
+            checkpoint_path=checkpoint,
+            effective_progress_timeout_seconds=0,
+            runner_hard_idle_seconds=0,
+            background_subagent_advisory=False,
+        ),
+        workdir=tmp_path,
+        on_event=events.append,
+    )
+
+    assert status == "error"
+    assert runner.calls == 2
+    assert runner.resume_thread_ids == [None, None]
+    assert reviewer.calls == 0
+    assert len(rounds) == 2
+    assert "backend failed" in reason.lower()
+    watchdog_events = [
+        event for event in events if event["type"].startswith("round.watchdog.retry")
+    ]
+    assert [event["type"] for event in watchdog_events] == [
+        "round.watchdog.retry",
+        "round.watchdog.retry_exhausted",
+    ]
+    assert all(event["max_attempts"] == 2 for event in watchdog_events)
+
+
 def test_loop_recovers_when_reviewer_backend_comes_back(tmp_path: Path) -> None:
     # A SINGLE transient reviewer-backend blip (streak < threshold) must be
     # tolerated with a backoff retry, then a real verdict resets the streak —

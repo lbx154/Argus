@@ -43,6 +43,7 @@ from .round_stop_signals import (
     daemon_stop_review_decision,
     external_pause_review_decision,
     fatal_error_looks_like_daemon_stop_request,
+    fatal_error_looks_like_effective_progress_timeout,
     fatal_error_looks_like_model_configuration,
     fatal_error_looks_like_operator_abort_request,
     model_configuration_review_decision,
@@ -396,11 +397,25 @@ class RoundExecutionMixin:
         if runner_result_is_backend_failure(engineer_result):
             state.backend_failure_streak += 1
             state.no_progress_streak = 0
+            configured_threshold = max(
+                1, int(supervised_config.backend_failure_threshold or 1)
+            )
+            fatal_error_low = str(fatal_error or "").casefold()
+            watchdog_failure = (
+                fatal_error_looks_like_effective_progress_timeout(fatal_error)
+                or "forced restart after hard idle timeout" in fatal_error_low
+                or "acp hard idle timeout" in fatal_error_low
+            )
+            threshold = (
+                min(configured_threshold, 2)
+                if watchdog_failure
+                else configured_threshold
+            )
             review = backend_failure_review_decision(
                 fatal_error=fatal_error,
                 exit_code=getattr(engineer_result, "exit_code", 0),
                 streak=state.backend_failure_streak,
-                threshold=supervised_config.backend_failure_threshold,
+                threshold=threshold,
             )
             if on_event:
                 on_event(_review_event_payload(
@@ -421,7 +436,35 @@ class RoundExecutionMixin:
                 fatal_error=engineer_result.fatal_error,
                 stop_kind=stop_kind,
             ))
-            threshold = max(1, int(supervised_config.backend_failure_threshold or 1))
+            if watchdog_failure and on_event:
+                exhausted = (
+                    state.backend_failure_streak >= threshold
+                    or round_index >= supervised_config.max_rounds
+                )
+                checkpoint_path = supervised_config.checkpoint_path
+                try:
+                    checkpoint_available = bool(
+                        checkpoint_path is not None and Path(checkpoint_path).exists()
+                    )
+                except OSError:
+                    checkpoint_available = False
+                on_event({
+                    "type": (
+                        "round.watchdog.retry_exhausted"
+                        if exhausted
+                        else "round.watchdog.retry"
+                    ),
+                    "round_index": round_index,
+                    "attempt": state.backend_failure_streak,
+                    "max_attempts": threshold,
+                    "fresh_session": True,
+                    "checkpoint_path": (
+                        str(checkpoint_path) if checkpoint_path is not None else ""
+                    ),
+                    "checkpoint_available": checkpoint_available,
+                    "operator_alert": True,
+                    "fatal_error": fatal_error,
+                })
             if state.backend_failure_streak >= threshold or round_index >= supervised_config.max_rounds:
                 return control_return((
                     "error",

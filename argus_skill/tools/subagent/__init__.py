@@ -17,6 +17,14 @@ from ._cli import (
     cmd_wait,
     main,
 )
+from ._cpu_admission import (
+    CpuAdmissionError,
+    apply_current_process_affinity,
+    available_cpu_ids,
+    cpu_admission_lock,
+    leased_cpu_ids,
+    select_cpu_ids,
+)
 from ._direct_run import (
     _KNOB_ALIASES,
     _RL_COLLAPSE_GUIDANCE_CACHE,
@@ -195,5 +203,11 @@ __all__ = [
     "cmd_wait",
     "cmd_clean",
     "cmd_reply",
+    "CpuAdmissionError",
+    "apply_current_process_affinity",
+    "available_cpu_ids",
+    "cpu_admission_lock",
+    "leased_cpu_ids",
+    "select_cpu_ids",
     "main",
 ]

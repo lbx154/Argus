@@ -50,6 +50,7 @@ class FakeCliRunnerOptions:
     external_interrupt_reason_provider: Any | None = None
     inactivity_callback: Any | None = None
     watchdog_soft_idle_seconds: int = 0
+    watchdog_stalled_idle_seconds: int = 0
     watchdog_hard_idle_seconds: int = 0
 
 
@@ -1511,6 +1512,7 @@ def test_run_exec_forwards_watchdog_hooks(
         external_interrupt_reason_provider=interrupt_provider,
         inactivity_callback=inactivity_callback,
         watchdog_soft_idle_seconds=120,
+        watchdog_stalled_idle_seconds=300,
         watchdog_hard_idle_seconds=600,
     )
     backend.run_exec(prompt="x", options=options, run_label="main")
@@ -1519,6 +1521,7 @@ def test_run_exec_forwards_watchdog_hooks(
     assert forwarded.external_interrupt_reason_provider is interrupt_provider
     assert forwarded.inactivity_callback is inactivity_callback
     assert forwarded.watchdog_soft_idle_seconds == 120
+    assert forwarded.watchdog_stalled_idle_seconds == 300
     assert forwarded.watchdog_hard_idle_seconds == 600
 
 
@@ -1568,6 +1571,7 @@ def test_run_exec_applies_default_watchdog_hooks(
         backend="codex",
         default_interrupt_reason_provider=default_interrupt,
         default_watchdog_soft_idle_seconds=300,
+        default_watchdog_stalled_idle_seconds=900,
         default_watchdog_hard_idle_seconds=1800,
     )
     captured: dict[str, Any] = {}
@@ -1596,7 +1600,45 @@ def test_run_exec_applies_default_watchdog_hooks(
     forwarded = captured["options"]
     assert forwarded.external_interrupt_reason_provider is default_interrupt
     assert forwarded.watchdog_soft_idle_seconds == 300
+    assert forwarded.watchdog_stalled_idle_seconds == 900
     assert forwarded.watchdog_hard_idle_seconds == 1800
+
+
+def test_run_exec_allows_per_call_watchdog_disable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = AgentCliBackend(backend="codex")
+    captured: dict[str, Any] = {}
+
+    def fake_run_exec(
+        self: Any,
+        *,
+        prompt: Any,
+        resume_thread_id: Any,
+        options: Any,
+        run_label: str,
+    ) -> AgentRunResult:
+        captured["options"] = options
+        return _make_cli_result(agent_messages=["ok"])
+
+    monkeypatch.setattr(
+        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
+    )
+    backend.run_exec(
+        prompt="x",
+        options=RunnerOptions(
+            model="gpt-5.4-mini",
+            watchdog_soft_idle_seconds=0,
+            watchdog_stalled_idle_seconds=0,
+            watchdog_hard_idle_seconds=0,
+        ),
+        run_label="main",
+    )
+
+    forwarded = captured["options"]
+    assert forwarded.watchdog_soft_idle_seconds == 0
+    assert forwarded.watchdog_stalled_idle_seconds == 0
+    assert forwarded.watchdog_hard_idle_seconds == 0
 
 
 def test_run_exec_composes_explicit_watchdog_with_defaults(
@@ -1616,6 +1658,7 @@ def test_run_exec_composes_explicit_watchdog_with_defaults(
         backend="codex",
         default_interrupt_reason_provider=default_interrupt,
         default_watchdog_soft_idle_seconds=300,
+        default_watchdog_stalled_idle_seconds=900,
         default_watchdog_hard_idle_seconds=1800,
     )
     captured: dict[str, Any] = {}
@@ -1641,6 +1684,7 @@ def test_run_exec_composes_explicit_watchdog_with_defaults(
             model="gpt-5.4-mini",
             external_interrupt_reason_provider=explicit_interrupt,
             watchdog_soft_idle_seconds=10,
+            watchdog_stalled_idle_seconds=15,
             watchdog_hard_idle_seconds=20,
         ),
         run_label="main",
@@ -1651,6 +1695,7 @@ def test_run_exec_composes_explicit_watchdog_with_defaults(
     assert forwarded.external_interrupt_reason_provider() == "stale"
     assert calls == ["default", "explicit"]
     assert forwarded.watchdog_soft_idle_seconds == 10
+    assert forwarded.watchdog_stalled_idle_seconds == 15
     assert forwarded.watchdog_hard_idle_seconds == 20
 
 
@@ -1778,21 +1823,20 @@ def test_run_exec_preserves_resumed_opencode_per_step_usage(
     assert second.cost_usd == pytest.approx(0.02)
 
 
-def test_run_exec_default_watchdog_options_are_inert():
-    """When the caller doesn't supply watchdog hooks the translated
-    options must still be valid (None providers + 0 thresholds).
-    """
+def test_run_exec_default_watchdog_options_inherit_backend_defaults():
     options = RunnerOptions(model="gpt-5.4-mini")
     assert options.external_interrupt_reason_provider is None
     assert options.inactivity_callback is None
-    assert options.watchdog_soft_idle_seconds == 0
-    assert options.watchdog_hard_idle_seconds == 0
+    assert options.watchdog_soft_idle_seconds is None
+    assert options.watchdog_stalled_idle_seconds is None
+    assert options.watchdog_hard_idle_seconds is None
 
 
 def test_build_agent_cli_backend_from_env_uses_env(monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "claude")
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_EXTRA_ARGS", '-c "model_profile=fast"')
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS", "120")
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS", "600")
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", "900")
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BIN", raising=False)
 
@@ -1802,6 +1846,7 @@ def test_build_agent_cli_backend_from_env_uses_env(monkeypatch):
     assert inner.backend == "claude"
     assert inner.default_extra_args == ["-c", "model_profile=fast"]
     assert backend._default_watchdog_soft_idle_seconds == 120
+    assert backend._default_watchdog_stalled_idle_seconds == 600
     assert backend._default_watchdog_hard_idle_seconds == 900
 
 
@@ -1824,6 +1869,7 @@ def test_build_agent_cli_backend_from_env_defaults(monkeypatch):
         "ARGUS_SKILL_RUNNER_BIN",
         "ARGUS_SKILL_RUNNER_EXTRA_ARGS",
         "ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS",
+        "ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS",
         "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS",
     ):
         monkeypatch.delenv(name, raising=False)
@@ -1831,5 +1877,6 @@ def test_build_agent_cli_backend_from_env_defaults(monkeypatch):
     # The bundled runner's default is codex.
     assert backend._runner.backend == "codex"
     assert backend._runner.default_extra_args == []
-    assert backend._default_watchdog_soft_idle_seconds == 0
-    assert backend._default_watchdog_hard_idle_seconds == 0
+    assert backend._default_watchdog_soft_idle_seconds == 600
+    assert backend._default_watchdog_stalled_idle_seconds == 1800
+    assert backend._default_watchdog_hard_idle_seconds == 2700

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -9,6 +10,18 @@ import time
 from pathlib import Path
 
 import pytest
+
+
+def _wait_for_terminal_record(path: Path, *, timeout: float = 10.0) -> dict:
+    deadline = time.time() + timeout
+    record: dict = {}
+    while time.time() < deadline:
+        if path.exists():
+            record = json.loads(path.read_text())
+            if record.get("state") in {"done", "error", "crashed", "timeout"}:
+                return record
+        time.sleep(0.05)
+    return record
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX owner-loss integration test")
@@ -75,3 +88,50 @@ def test_direct_job_survives_worker_owner_death(tmp_path: Path) -> None:
     assert payload["exit_code"] == 0
     assert payload["terminal_owner"] == "exit_sidecar_reconciler"
     assert "survived" in payload["stdout_tail"]
+
+
+@pytest.mark.skipif(
+    os.name == "nt" or not hasattr(os, "sched_getaffinity"),
+    reason="POSIX CPU-affinity integration test",
+)
+def test_subagent_cpu_lease_is_inherited_by_command(tmp_path: Path) -> None:
+    repo = Path(__file__).resolve().parents[2]
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(repo)
+    selected = min(os.sched_getaffinity(0))
+    script = "import json,os; print(json.dumps(sorted(os.sched_getaffinity(0))))"
+    command = f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"
+
+    submit = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "argus_skill.tools.subagent",
+            "submit",
+            "--task-id",
+            "cpu-affinity",
+            "--description",
+            "CPU affinity inheritance test",
+            "--command",
+            command,
+            "--cpu-ids",
+            str(selected),
+            "--timeout",
+            "20",
+        ],
+        cwd=tmp_path,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+    assert submit.returncode == 0, submit.stderr
+    assert json.loads(submit.stdout)["cpu_ids"] == [selected]
+    record = _wait_for_terminal_record(
+        tmp_path / ".argus_subagents" / "cpu-affinity.json"
+    )
+    assert record.get("state") == "done", record
+    assert record["cpu_ids"] == [selected]
+    assert json.loads(record["stdout_tail"].strip()) == [selected]

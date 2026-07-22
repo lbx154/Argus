@@ -29,9 +29,11 @@ from ._runtime import load_agent_cli_runtime
 log = logging.getLogger(__name__)
 
 _RUNNER_SOFT_IDLE_ENV = "ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS"
+_RUNNER_STALLED_IDLE_ENV = "ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS"
 _RUNNER_HARD_IDLE_ENV = "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS"
-_RUNNER_DEFAULT_SOFT_IDLE_SECONDS = 0
-_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 0
+_RUNNER_DEFAULT_SOFT_IDLE_SECONDS = 10 * 60
+_RUNNER_DEFAULT_STALLED_IDLE_SECONDS = 30 * 60
+_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 45 * 60
 
 
 def _env_int(name: str, default: int, *, minimum: int = 0) -> int:
@@ -83,8 +85,11 @@ class AgentCliBackend:
         runner_bin: str | None = None,
         default_extra_args: list[str] | None = None,
         default_interrupt_reason_provider=None,
-        default_watchdog_soft_idle_seconds: int = 0,
-        default_watchdog_hard_idle_seconds: int = 0,
+        default_watchdog_soft_idle_seconds: int = _RUNNER_DEFAULT_SOFT_IDLE_SECONDS,
+        default_watchdog_stalled_idle_seconds: int = (
+            _RUNNER_DEFAULT_STALLED_IDLE_SECONDS
+        ),
+        default_watchdog_hard_idle_seconds: int = _RUNNER_DEFAULT_HARD_IDLE_SECONDS,
         before_exec=None,
         event_callback=None,
     ) -> None:
@@ -117,6 +122,9 @@ class AgentCliBackend:
         self._default_interrupt_reason_provider = default_interrupt_reason_provider
         self._default_watchdog_soft_idle_seconds = max(
             0, int(default_watchdog_soft_idle_seconds or 0)
+        )
+        self._default_watchdog_stalled_idle_seconds = max(
+            0, int(default_watchdog_stalled_idle_seconds or 0)
         )
         self._default_watchdog_hard_idle_seconds = max(
             0, int(default_watchdog_hard_idle_seconds or 0)
@@ -307,13 +315,21 @@ class AgentCliBackend:
             options.external_interrupt_reason_provider,
         )
         soft_idle = (
-            options.watchdog_soft_idle_seconds
-            or self._default_watchdog_soft_idle_seconds
+            self._default_watchdog_soft_idle_seconds
+            if options.watchdog_soft_idle_seconds is None
+            else max(0, int(options.watchdog_soft_idle_seconds))
+        )
+        stalled_idle = (
+            self._default_watchdog_stalled_idle_seconds
+            if options.watchdog_stalled_idle_seconds is None
+            else max(0, int(options.watchdog_stalled_idle_seconds))
         )
         hard_idle = (
-            options.watchdog_hard_idle_seconds
-            or self._default_watchdog_hard_idle_seconds
+            self._default_watchdog_hard_idle_seconds
+            if options.watchdog_hard_idle_seconds is None
+            else max(0, int(options.watchdog_hard_idle_seconds))
         )
+        option_fields = getattr(cli_cls, "__dataclass_fields__", {})
         kwargs = dict(
             model=options.model,
             reasoning_effort=options.reasoning_effort,
@@ -328,12 +344,14 @@ class AgentCliBackend:
             watchdog_soft_idle_seconds=soft_idle,
             watchdog_hard_idle_seconds=hard_idle,
         )
+        if "watchdog_stalled_idle_seconds" in option_fields:
+            kwargs["watchdog_stalled_idle_seconds"] = stalled_idle
         # Forward live_search ONLY when the target RunnerOptions supports it —
         # a test stub or an older bundled copy may not have the field; then
         # we degrade gracefully to no live search rather than crash.
-        if "live_search" in getattr(cli_cls, "__dataclass_fields__", {}):
+        if "live_search" in option_fields:
             kwargs["live_search"] = getattr(options, "live_search", False)
-        if "sandbox_mode" in getattr(cli_cls, "__dataclass_fields__", {}):
+        if "sandbox_mode" in option_fields:
             kwargs["sandbox_mode"] = getattr(options, "sandbox_mode", None)
         if "isolate_workdir" in getattr(cli_cls, "__dataclass_fields__", {}):
             kwargs["isolate_workdir"] = getattr(options, "isolate_workdir", False)
@@ -400,11 +418,13 @@ def build_agent_cli_backend_from_env() -> AgentCliBackend:
       * ``ARGUS_SKILL_RUNNER_EXTRA_ARGS`` — space-separated default args
         appended to every command (use shell-style quoting at your own
         risk; we use ``shlex.split``).
-      * ``ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS`` — stdout/stderr soft-idle
-        threshold, default disabled.
-      * ``ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS`` — stdout/stderr hard-idle
-        threshold, default disabled. Set it explicitly when a deployment wants
-        a deadline for otherwise silent subprocesses.
+      * ``ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS`` — no-event diagnostic warning,
+        default 600 seconds.
+      * ``ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS`` — likely-stalled warning,
+        default 1800 seconds.
+      * ``ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS`` — terminate only the current
+        model process group, default 2700 seconds. Set any threshold to ``0`` to
+        disable that stage explicitly.
     """
     import shlex
 
@@ -419,6 +439,10 @@ def build_agent_cli_backend_from_env() -> AgentCliBackend:
         default_watchdog_soft_idle_seconds=_env_int(
             _RUNNER_SOFT_IDLE_ENV,
             _RUNNER_DEFAULT_SOFT_IDLE_SECONDS,
+        ),
+        default_watchdog_stalled_idle_seconds=_env_int(
+            _RUNNER_STALLED_IDLE_ENV,
+            _RUNNER_DEFAULT_STALLED_IDLE_SECONDS,
         ),
         default_watchdog_hard_idle_seconds=_env_int(
             _RUNNER_HARD_IDLE_ENV,

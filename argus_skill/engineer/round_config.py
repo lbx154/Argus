@@ -18,6 +18,8 @@ from typing import Any
 
 from .round_signals import _normalize_dynamic_plan_mode
 
+_EFFECTIVE_PROGRESS_WARNING_ENV = "ARGUS_SKILL_EFFECTIVE_PROGRESS_WARNING_SECONDS"
+_EFFECTIVE_PROGRESS_STALLED_ENV = "ARGUS_SKILL_EFFECTIVE_PROGRESS_STALLED_SECONDS"
 _EFFECTIVE_PROGRESS_TIMEOUT_ENV = "ARGUS_SKILL_EFFECTIVE_PROGRESS_TIMEOUT_SECONDS"
 _EFFECTIVE_PROGRESS_CHECK_INTERVAL_ENV = "ARGUS_SKILL_EFFECTIVE_PROGRESS_CHECK_INTERVAL_SECONDS"
 _RUNNER_HARD_IDLE_ENV = "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS"
@@ -40,13 +42,15 @@ _CONTINUE_WORK_MAX_CHARS = 500
 # Engineer/Reviewer calls are always fresh, so no token roll is needed.
 _DEFAULT_THREAD_TOKEN_LIMIT = 0
 _DEFAULT_DECISION_PROGRESS_TIMEOUT_SECONDS = 30 * 60
-_EFFECTIVE_PROGRESS_DEFAULT_TIMEOUT_SECONDS = 0
+_EFFECTIVE_PROGRESS_DEFAULT_WARNING_SECONDS = 10 * 60
+_EFFECTIVE_PROGRESS_DEFAULT_STALLED_SECONDS = 30 * 60
+_EFFECTIVE_PROGRESS_DEFAULT_TIMEOUT_SECONDS = 45 * 60
 # A handful of ``compacted`` events within one fresh Engineer turn indicates an
 # in-turn re-read/re-emit loop. Keep this emergency detector independent of the
 # cross-round policy; every next round is fresh regardless.
 _DEFAULT_ROUND_COMPACTION_LIMIT = 3
 _EFFECTIVE_PROGRESS_DEFAULT_CHECK_INTERVAL_SECONDS = 30.0
-_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 0
+_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 45 * 60
 
 
 def _env_int(name: str, default: int, *, minimum: int = 0) -> int:
@@ -219,13 +223,21 @@ class SupervisedConfig:
     checkpoint_path: Path | None = None
     # Mission-level canonical packet. Round handoffs are written beside it.
     context_packet_path: str = ""
-    # Kill a live Codex subprocess if it keeps emitting heartbeat/token
-    # noise but makes no effective progress for a long time. Effective
-    # progress means either a non-token Codex session event or a project file
-    # change. The default is intentionally long because paper/research turns
-    # often spend many minutes reading, planning, or waiting on model-side
-    # recovery before the next file write.
-    # Set ARGUS_SKILL_EFFECTIVE_PROGRESS_TIMEOUT_SECONDS=0 to disable.
+    # Escalate a round with neither a relevant project-file change nor a
+    # substantive provider event. Token-count heartbeats deliberately do not
+    # reset this timer. A hard value of 0 disables the semantic watchdog.
+    effective_progress_warning_seconds: int = field(
+        default_factory=lambda: _env_int(
+            _EFFECTIVE_PROGRESS_WARNING_ENV,
+            _EFFECTIVE_PROGRESS_DEFAULT_WARNING_SECONDS,
+        )
+    )
+    effective_progress_stalled_seconds: int = field(
+        default_factory=lambda: _env_int(
+            _EFFECTIVE_PROGRESS_STALLED_ENV,
+            _EFFECTIVE_PROGRESS_DEFAULT_STALLED_SECONDS,
+        )
+    )
     effective_progress_timeout_seconds: int = field(
         default_factory=lambda: _env_int(
             _EFFECTIVE_PROGRESS_TIMEOUT_ENV,

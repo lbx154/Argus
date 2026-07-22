@@ -751,7 +751,8 @@ def test_open_discussion_blockers_only_counts_live_fresh(monkeypatch, tmp_path) 
 def _submit_args(**kw) -> argparse.Namespace:
     base = dict(task_id="x", description="d", command="echo hi", mode="direct",
                 timeout=10, monitor_interval=120, model="gpt-5.5", run_dir=None,
-                cwd=None, override_discussion=None, clear_stop=False)
+                cwd=None, override_discussion=None, clear_stop=False,
+                no_preflight=False, cpu_count=0, cpu_ids=None)
     base.update(kw)
     return argparse.Namespace(**base)
 
@@ -799,6 +800,93 @@ def test_cmd_submit_refuses_poisoned_stop(monkeypatch, tmp_path, capsys) -> None
     rc = _sub.cmd_submit(_submit_args(task_id="r", run_dir=str(rd), clear_stop=True))
     assert rc == 0
     assert not (rd / "STOP").exists()
+
+
+def test_cmd_submit_rejects_insufficient_cpus_before_artifacts(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    run_dir = tmp_path / "runs" / "cpu-heavy"
+    monkeypatch.setattr(
+        _sub._cpu_admission, "available_cpu_ids", lambda: (0, 1, 2, 3)
+    )
+    monkeypatch.setattr(
+        _sub._cli.os,
+        "fork",
+        lambda: (_ for _ in ()).throw(AssertionError("forked")),
+    )
+
+    rc = _sub.cmd_submit(
+        _submit_args(task_id="cpu-heavy", run_dir=str(run_dir), cpu_count=8)
+    )
+    out = json.loads(capsys.readouterr().out)
+
+    assert rc == 1
+    assert "need 8 distinct CPUs, only 4 are free" in out["error"]
+    assert not _sub._registry_path("cpu-heavy").exists()
+    assert not (tmp_path / ".argus_subagents").exists()
+    assert not run_dir.exists()
+
+
+def test_cmd_submit_rejects_cpu_conflict_before_new_task_record(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        _sub._cpu_admission, "available_cpu_ids", lambda: (0, 1, 2, 3)
+    )
+    _write_task(
+        "existing",
+        {
+            "state": "running",
+            "task_id": "existing",
+            "pid": __import__("os").getpid(),
+            "cpu_ids": [0, 1],
+            "cpu_count": 2,
+        },
+    )
+    monkeypatch.setattr(
+        _sub._cli.os,
+        "fork",
+        lambda: (_ for _ in ()).throw(AssertionError("forked")),
+    )
+
+    rc = _sub.cmd_submit(_submit_args(task_id="new", cpu_ids="1,2"))
+    out = json.loads(capsys.readouterr().out)
+
+    assert rc == 1
+    assert "already leased" in out["error"]
+    assert not _sub._registry_path("new").exists()
+
+
+def test_cmd_submit_reserves_disjoint_cpus_before_fork(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        _sub._cpu_admission, "available_cpu_ids", lambda: (0, 1, 2, 3)
+    )
+    _write_task(
+        "existing",
+        {
+            "state": "running",
+            "task_id": "existing",
+            "pid": __import__("os").getpid(),
+            "cpu_ids": [0],
+            "cpu_count": 1,
+        },
+    )
+    monkeypatch.setattr(_sub._cli.os, "fork", lambda: 4242)
+
+    rc = _sub.cmd_submit(_submit_args(task_id="new", cpu_count=2))
+    out = json.loads(capsys.readouterr().out)
+    record = _sub._read_task("new")
+
+    assert rc == 0
+    assert out["cpu_ids"] == [1, 2]
+    assert record is not None
+    assert record["cpu_ids"] == [1, 2]
+    assert record["cpu_count"] == 2
 
 
 def test_persist_experiment_record_writes_artifacts_and_dedups(monkeypatch, tmp_path) -> None:

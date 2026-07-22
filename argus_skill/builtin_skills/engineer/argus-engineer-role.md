@@ -31,6 +31,10 @@ The Engineer is the execution arm of argus-skill: it reads the operator task, fo
   supervised mode). Never keep the Engineer turn alive with raw `bash`, repeated
   `read_bash`, or a shell `while/sleep` monitor. Continue independent work or
   yield with `WAIT_FOR_SUBAGENT: <task_id>`.
+- CPU-bound jobs that require exclusive cores must declare `--cpu-count N` or
+  `--cpu-ids i,j`. Argus rejects insufficient or overlapping allocations before
+  it creates task/log/run artifacts, and the launched process inherits the
+  admitted affinity. Do not emulate this with an unchecked worker count.
 
 ## Structured research reporting
 

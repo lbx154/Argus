@@ -27,6 +27,12 @@ import threading
 import time
 from typing import Any, Callable
 
+from ._idle_watchdog import (
+    STALLED_STAGE,
+    TERMINATE_STAGE,
+    WARNING_STAGE,
+    IdleEscalation,
+)
 from .models import AgentRunResult, InactivitySnapshot
 
 _DEFAULT_TIMEOUT_S = 60.0
@@ -628,6 +634,15 @@ class CopilotAcpClient:
             except (TypeError, ValueError):
                 soft_idle = 0.0
             try:
+                stalled_idle = max(
+                    0.0,
+                    float(
+                        getattr(options, "watchdog_stalled_idle_seconds", 0) or 0
+                    ),
+                )
+            except (TypeError, ValueError):
+                stalled_idle = 0.0
+            try:
                 hard_idle = max(
                     0.0, float(getattr(options, "watchdog_hard_idle_seconds", 0) or 0)
                 )
@@ -636,9 +651,15 @@ class CopilotAcpClient:
 
             def _watchdog() -> None:
                 last_soft_check_at = turn.last_activity_at
+                observed_activity_at = turn.last_activity_at
+                idle_escalation = IdleEscalation(
+                    warning_seconds=soft_idle,
+                    stalled_seconds=stalled_idle,
+                    terminate_seconds=hard_idle,
+                )
                 active_thresholds = [
                     value
-                    for value in (soft_idle, hard_idle, idle_timeout)
+                    for value in (soft_idle, stalled_idle, hard_idle, idle_timeout)
                     if value > 0
                 ]
                 poll_s = (
@@ -669,6 +690,9 @@ class CopilotAcpClient:
                         _cancel(f"External interrupt: {reason}")
                         return
 
+                    if turn.last_activity_at > observed_activity_at:
+                        observed_activity_at = turn.last_activity_at
+                        idle_escalation.reset()
                     idle_seconds = max(0.0, now - turn.last_activity_at)
                     if (
                         soft_idle > 0
@@ -698,12 +722,44 @@ class CopilotAcpClient:
                             )
                             return
 
-                    if hard_idle > 0 and idle_seconds >= hard_idle:
-                        _cancel(
-                            f"ACP hard idle timeout after {int(idle_seconds)}s "
-                            f"(last ACP event: {turn.last_event})"
-                        )
-                        return
+                    for stage in idle_escalation.newly_due(idle_seconds):
+                        if stage == WARNING_STAGE:
+                            self._emit_turn_event(
+                                turn,
+                                {
+                                    "type": "watchdog.no_progress_warning",
+                                    "idle_seconds": int(idle_seconds),
+                                    "threshold_seconds": int(soft_idle),
+                                    "operator_alert": True,
+                                },
+                            )
+                        elif stage == STALLED_STAGE:
+                            self._emit_turn_event(
+                                turn,
+                                {
+                                    "type": "watchdog.likely_stalled",
+                                    "idle_seconds": int(idle_seconds),
+                                    "threshold_seconds": int(stalled_idle),
+                                    "operator_alert": True,
+                                    "likely_blocked": True,
+                                },
+                            )
+                        elif stage == TERMINATE_STAGE:
+                            self._emit_turn_event(
+                                turn,
+                                {
+                                    "type": "watchdog.terminated",
+                                    "idle_seconds": int(idle_seconds),
+                                    "threshold_seconds": int(hard_idle),
+                                    "operator_alert": True,
+                                },
+                            )
+                            _cancel(
+                                "Forced restart after hard idle timeout "
+                                f"({int(hard_idle)}s without an ACP stream event; "
+                                f"last event: {turn.last_event})"
+                            )
+                            return
                     if idle_timeout > 0 and idle_seconds >= idle_timeout:
                         _cancel(
                             "ACP prompt idle timeout after "

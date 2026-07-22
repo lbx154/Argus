@@ -139,6 +139,15 @@ def _write_task(task_id: str, data: dict[str, Any]) -> None:
     ):
         data = dict(data)
         data[_SUPERVISOR_USAGE_BASELINE_FIELD] = existing[_SUPERVISOR_USAGE_BASELINE_FIELD]
+    if isinstance(existing, dict):
+        preserved_cpu = {
+            key: existing[key]
+            for key in ("cpu_ids", "cpu_count")
+            if key not in data and key in existing
+        }
+        if preserved_cpu:
+            data = dict(data)
+            data.update(preserved_cpu)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, path)
