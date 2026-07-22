@@ -19,6 +19,7 @@ import json
 from typing import Any
 
 from argus_skill.adapters.stream_progress import make_stream_progress_callback
+from argus_skill.life.event_log import JsonlEventSink
 
 
 class _RecordingSink:
@@ -205,8 +206,52 @@ def test_copilot_message_delta_accumulates() -> None:
     assert progress[2]["text"] == "Hello, how are you?"
     # All marked replace=True so the renderer can update in place.
     assert all(e.get("replace") is True for e in progress)
+    # Growing prefixes are live presentation state, not durable audit events.
+    assert all(e.get("transient") is True for e in progress)
     # All carry the same message_id so the renderer can group them.
     assert all(e.get("message_id") == "m1" for e in progress)
+
+
+def test_copilot_message_deltas_are_not_persisted_as_prefixes(tmp_path) -> None:
+    live = _RecordingSink()
+    sink = JsonlEventSink(live, life_dir=tmp_path, verbosity="full")
+    cb = make_stream_progress_callback(
+        sink,
+        min_delta_interval_s=0,
+        min_delta_chars=0,
+    )
+    for content in ("Reviewer ", "verdict ", "is final."):
+        cb("reviewer.stdout", json.dumps({
+            "type": "assistant.message_delta",
+            "data": {"messageId": "review-1", "deltaContent": content},
+        }))
+    cb("reviewer.stdout", json.dumps({
+        "type": "assistant.message",
+        "data": {
+            "messageId": "review-1",
+            "content": "Reviewer verdict is final.",
+        },
+    }))
+
+    live_progress = [
+        event for event in live.events
+        if event["type"] == "engineer.progress"
+    ]
+    persisted = [
+        json.loads(line)
+        for line in (tmp_path / "events.jsonl").read_text().splitlines()
+    ]
+
+    assert [event["text"] for event in live_progress] == [
+        "Reviewer",
+        "Reviewer verdict",
+        "Reviewer verdict is final.",
+        "Reviewer verdict is final.",
+    ]
+    assert [event["text"] for event in persisted] == [
+        "Reviewer verdict is final.",
+    ]
+    assert persisted[0]["agent_layer"] == "reviewer"
 
 
 def test_copilot_assistant_message_final_clears_buffer() -> None:
@@ -235,6 +280,9 @@ def test_copilot_assistant_message_final_clears_buffer() -> None:
     assert progress[0]["text"] == "draft"
     assert progress[1]["text"] == "Final answer."
     assert progress[2]["text"] == "second"
+    assert progress[0]["transient"] is True
+    assert "transient" not in progress[1]
+    assert progress[2]["transient"] is True
 
 
 def test_copilot_result_clears_actor_buffers() -> None:
@@ -256,6 +304,7 @@ def test_copilot_result_clears_actor_buffers() -> None:
     progress = [e for e in sink.events if e["type"] == "engineer.progress"]
     assert progress[0]["text"] == "partial"
     assert progress[1]["text"] == "fresh"  # buffer cleared by 'result'
+    assert all(event["transient"] is True for event in progress)
 
 
 def test_copilot_buffers_isolated_per_callback() -> None:
@@ -348,6 +397,8 @@ def test_copilot_message_deltas_are_throttled_but_final_is_flushed() -> None:
     progress = [e for e in sink.events if e["type"] == "engineer.progress"]
     assert [len(e["text"]) for e in progress[:-1]] == [1, 51, 101]
     assert progress[-1]["text"] == "final answer"
+    assert all(event["transient"] is True for event in progress[:-1])
+    assert "transient" not in progress[-1]
 
 
 # ---------------------------------------------------------------------------

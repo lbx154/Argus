@@ -1,7 +1,6 @@
 """Tests for JsonlEventSink verbosity (signal vs full).
 
-- "full" (default, what an isolated teammate gets) persists EVERYTHING — the
-  play-by-play tooling relies on engineer command/message detail.
+- "full" persists durable play-by-play events, but never transient UI updates.
 - "signal" (the daemon default) persists only high-value events, but NEVER
   drops a win/result/error.
 - The downstream sink always receives every event regardless of verbosity.
@@ -44,6 +43,36 @@ def test_full_persists_everything(tmp_path):
     )
     types = [e["type"] for e in _read(tmp_path)]
     assert types == ["engineer.progress", "session.roll", "round.review.completed"]
+
+
+def test_transient_progress_is_live_only_even_in_full_mode(tmp_path):
+    cap = _Capture()
+    sink = JsonlEventSink(cap, life_dir=tmp_path, verbosity="full")
+    transient = {
+        "type": "engineer.progress",
+        "kind": "agent_message",
+        "text": "growing prefix",
+        "replace": True,
+        "transient": True,
+        "message_id": "m1",
+    }
+    final = {
+        "type": "engineer.progress",
+        "kind": "agent_message",
+        "text": "final message",
+        "replace": True,
+        "message_id": "m1",
+    }
+
+    _feed(sink, transient, final)
+
+    assert [event["text"] for event in cap.events] == [
+        "growing prefix",
+        "final message",
+    ]
+    assert cap.events[0]["transient"] is True
+    assert "transient" not in cap.events[1]
+    assert [event["text"] for event in _read(tmp_path)] == ["final message"]
 
 
 def test_default_verbosity_is_signal_clean_episode(tmp_path):

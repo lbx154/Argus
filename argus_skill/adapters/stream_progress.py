@@ -30,8 +30,8 @@ from typing import Any, Callable
 # payload is still recoverable from the raw ``stream`` lines in the
 # outbox.
 _PROGRESS_TEXT_LIMIT = 600
-_DEFAULT_DELTA_INTERVAL_S = 0.1
-_DEFAULT_DELTA_CHARS = 96
+_DEFAULT_DELTA_INTERVAL_S = 0.5
+_DEFAULT_DELTA_CHARS = 256
 
 
 def _nonnegative_float_env(name: str, default: float) -> float:
@@ -259,6 +259,7 @@ def make_stream_progress_callback(
 
     def _emit_progress(*, kind: str, text: str, actor: str = "main",
                        replace: bool = False,
+                       transient: bool = False,
                        message_id: str | None = None,
                        extra: dict[str, Any] | None = None) -> None:
         if not text:
@@ -280,6 +281,8 @@ def make_stream_progress_callback(
                     payload[key] = value
         if replace:
             payload["replace"] = True
+        if transient:
+            payload["transient"] = True
         if message_id:
             payload["message_id"] = message_id
         try:
@@ -326,6 +329,7 @@ def make_stream_progress_callback(
             text=rendered,
             actor=actor,
             replace=True,
+            transient=True,
             message_id=visible_id,
         )
 
