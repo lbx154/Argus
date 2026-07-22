@@ -60,7 +60,9 @@ def test_read_self_maintenance_snapshot_is_typed_and_fail_soft(
     path.write_text(
         (
             '{"phase":"canary_running","maintenance_available":true,'
-            '"updated_at":12.5,"last_audit_at":10.0,"pr_url":""}'
+            '"updated_at":12.5,"last_audit_at":10.0,"pr_url":"",'
+            '"publication_status":"unavailable",'
+            '"publication_error":"no push permission"}'
         ),
         encoding="utf-8",
     )
@@ -72,6 +74,8 @@ def test_read_self_maintenance_snapshot_is_typed_and_fail_soft(
     assert snapshot.maintenance_available is True
     assert snapshot.updated_at == 12.5
     assert snapshot.last_audit_at == 10.0
+    assert snapshot.publication_status == "unavailable"
+    assert snapshot.publication_error == "no push permission"
 
 
 def _controller(tmp_path: Path, manager: _Manager) -> DaemonSelfMaintenance:
@@ -235,11 +239,9 @@ def test_missing_isolation_prevents_manager_maintenance_call(tmp_path: Path) -> 
     assert manager.calls == 0
 
 
-def test_private_worktree_does_not_overwrite_shared_git_identity(
+def test_private_worktree_uses_current_source_without_remote(
     tmp_path: Path,
 ) -> None:
-    origin = tmp_path / "origin.git"
-    subprocess.run(["git", "init", "--bare", str(origin)], check=True)
     repo = tmp_path / "framework"
     subprocess.run(["git", "init", "-b", "main", str(repo)], check=True)
     subprocess.run(["git", "config", "user.name", "seed"], cwd=repo, check=True)
@@ -251,8 +253,6 @@ def test_private_worktree_does_not_overwrite_shared_git_identity(
     (repo / "README").write_text("seed\n", encoding="utf-8")
     subprocess.run(["git", "add", "README"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-m", "seed"], cwd=repo, check=True)
-    subprocess.run(["git", "remote", "add", "origin", str(origin)], cwd=repo, check=True)
-    subprocess.run(["git", "push", "-u", "origin", "main"], cwd=repo, check=True)
 
     memory = LifeMemory.open(tmp_path / "life")
     memory.init()
@@ -321,7 +321,7 @@ def test_canary_revision_mismatch_requires_startup_rollback(
     ) == prior
 
 
-def test_canary_publication_requires_lbx154_and_never_merges(
+def test_canary_publication_uses_current_authorized_github_identity(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -342,8 +342,12 @@ def test_canary_publication_requires_lbx154_and_never_merges(
 
     def fake_run(args, *, cwd, timeout=60.0, check=True):
         calls.append(list(args))
-        if args[:3] == ["/usr/bin/gh", "api", "user"]:
-            stdout = "lbx154\n"
+        if args[:3] == [
+            "/usr/bin/gh",
+            "api",
+            "repos/lbx154/argus-skill",
+        ]:
+            stdout = "true\n"
         elif args[:3] == ["/usr/bin/gh", "pr", "list"]:
             stdout = "\n"
         elif args[:3] == ["/usr/bin/gh", "pr", "create"]:
@@ -372,6 +376,171 @@ def test_canary_publication_requires_lbx154_and_never_merges(
     push = next(call for call in calls if "push" in call)
     assert any("gh auth git-credential" in arg for arg in push)
     assert controller._state()["phase"] == "pr_open"
+
+
+def test_canary_remains_local_without_github_account(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    controller = _controller(tmp_path, _Manager())
+    repo = controller.framework_root
+    reviewed_commit = "e" * 40
+    controller._write_state(
+        phase="canary_running",
+        canary_source_root=str(repo),
+        worktree=str(repo),
+        branch="argus-self/session/incident",
+        incident_id="incident",
+        commit=reviewed_commit,
+    )
+
+    def fake_run(args, *, cwd, timeout=60.0, check=True):
+        stdout = (
+            reviewed_commit + "\n"
+            if args[:3] == ["git", "rev-parse", "HEAD"]
+            else ""
+        )
+        return subprocess.CompletedProcess(args, 0, stdout, "")
+
+    monkeypatch.setattr(self_maintenance_mod, "_run", fake_run)
+    monkeypatch.setattr(self_maintenance_mod.shutil, "which", lambda _name: None)
+
+    result = controller.publish_after_canary(
+        summary={"stopped_by": "planner_retry", "planning_cycles": 1}
+    )
+
+    state = controller._state()
+    assert result == reviewed_commit
+    assert state["phase"] == "local_active"
+    assert state["publication_status"] == "unavailable"
+    assert "GitHub CLI is unavailable" in state["publication_error"]
+
+
+def test_canary_remains_local_without_repository_permission(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    controller = _controller(tmp_path, _Manager())
+    repo = controller.framework_root
+    reviewed_commit = "f" * 40
+    controller._write_state(
+        phase="canary_running",
+        canary_source_root=str(repo),
+        worktree=str(repo),
+        branch="argus-self/session/incident",
+        incident_id="incident",
+        commit=reviewed_commit,
+    )
+    calls: list[list[str]] = []
+
+    def fake_run(args, *, cwd, timeout=60.0, check=True):
+        calls.append(list(args))
+        if args[:3] == ["git", "rev-parse", "HEAD"]:
+            stdout = reviewed_commit + "\n"
+        elif args[:4] == ["git", "remote", "get-url", "origin"]:
+            stdout = "https://github.com/lbx154/argus-skill.git\n"
+        elif args[:3] == [
+            "/usr/bin/gh",
+            "api",
+            "repos/lbx154/argus-skill",
+        ]:
+            stdout = "false\n"
+        else:
+            stdout = ""
+        return subprocess.CompletedProcess(args, 0, stdout, "")
+
+    monkeypatch.setattr(self_maintenance_mod, "_run", fake_run)
+    monkeypatch.setattr(
+        self_maintenance_mod.shutil,
+        "which",
+        lambda _name: "/usr/bin/gh",
+    )
+
+    result = controller.publish_after_canary(
+        summary={"stopped_by": "planner_retry", "planning_cycles": 1}
+    )
+
+    state = controller._state()
+    assert result == reviewed_commit
+    assert state["phase"] == "local_active"
+    assert state["publication_status"] == "unavailable"
+    assert "no push permission" in state["publication_error"]
+    assert not any("push" in call for call in calls)
+
+
+def test_legacy_publication_failure_migrates_to_local_active(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    controller = _controller(tmp_path, _Manager())
+    repo = controller.framework_root
+    reviewed_commit = "a" * 40
+    controller._write_state(
+        phase="publication_failed",
+        canary_source_root=str(repo),
+        worktree=str(repo),
+        branch="argus-self/session/incident",
+        incident_id="incident",
+        commit=reviewed_commit,
+        error="legacy push permission denied",
+    )
+
+    def fake_run(args, *, cwd, timeout=60.0, check=True):
+        stdout = (
+            reviewed_commit + "\n"
+            if args[:3] == ["git", "rev-parse", "HEAD"]
+            else ""
+        )
+        return subprocess.CompletedProcess(args, 0, stdout, "")
+
+    monkeypatch.setattr(self_maintenance_mod, "_run", fake_run)
+    monkeypatch.setattr(self_maintenance_mod.shutil, "which", lambda _name: None)
+
+    result = controller.publish_after_canary(summary={})
+
+    state = controller._state()
+    assert result == reviewed_commit
+    assert state["phase"] == "local_active"
+    assert state["publication_status"] == "unavailable"
+    assert state["error"] == ""
+
+
+def test_closed_upstream_pr_does_not_rollback_local_repair(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    controller = _controller(tmp_path, _Manager())
+    worktree = controller.framework_root
+    controller._write_state(
+        phase="pr_open",
+        worktree=str(worktree),
+        pr_url="https://github.com/example/argus-skill/pull/7",
+        old_source_root="/prior/argus",
+    )
+
+    monkeypatch.setattr(
+        self_maintenance_mod.shutil,
+        "which",
+        lambda _name: "/usr/bin/gh",
+    )
+    monkeypatch.setattr(
+        self_maintenance_mod,
+        "_run",
+        lambda args, **_kwargs: subprocess.CompletedProcess(
+            args,
+            0,
+            "CLOSED\n",
+            "",
+        ),
+    )
+
+    result = controller.reconcile_pull_request()
+
+    state = controller._state()
+    assert result == "CLOSED"
+    assert state["phase"] == "local_active"
+    assert state["publication_status"] == "closed"
+    assert state["error"] == ""
 
 
 def test_each_manager_can_adopt_merged_main_in_its_own_canary(
@@ -517,7 +686,7 @@ def test_normal_restart_restores_persisted_self_managed_source(
     candidate.mkdir()
     commit = "b" * 40
     controller._write_state(
-        phase="adopted",
+        phase="local_active",
         canary_source_root=str(candidate),
         commit=commit,
     )
@@ -584,7 +753,7 @@ def test_publication_rejects_rename_from_unauthorized_source(
     assert "argus_skill/base.py" in controller._state()["error"]
 
 
-def test_publication_stages_new_files_before_release_manifest_and_uses_lbx154(
+def test_publication_stages_new_files_and_preserves_repository_identity(
     tmp_path: Path,
 ) -> None:
     controller = _controller(tmp_path, _Manager())
@@ -615,7 +784,7 @@ def test_publication_stages_new_files_before_release_manifest_and_uses_lbx154(
         capture_output=True,
         text=True,
     ).stdout.strip()
-    assert author == "lbx154 <lbxhaixing154@sjtu.edu.cn>"
+    assert author == "seed <seed@example.com>"
     subprocess.run(
         [sys.executable, "scripts/generate_release_manifest.py", "--check"],
         cwd=repo,

@@ -223,7 +223,8 @@ def test_self_prompt_projects_live_manager_maintenance_state(
         (
             '{"phase":"pr_open","maintenance_available":true,'
             '"last_audit_at":1,"updated_at":2,'
-            '"pr_url":"https://github.com/lbx154/argus-skill/pull/42"}'
+            '"pr_url":"https://github.com/lbx154/argus-skill/pull/42",'
+            '"publication_status":"opened"}'
         ),
         encoding="utf-8",
     )
@@ -238,6 +239,7 @@ def test_self_prompt_projects_live_manager_maintenance_state(
     assert "- phase: pr_open" in prompt
     assert "- isolated repair capability: available" in prompt
     assert "https://github.com/lbx154/argus-skill/pull/42" in prompt
+    assert "- upstream publication: opened" in prompt
 
 
 def test_self_grounds_in_operator_workspace_without_moving_state_root(

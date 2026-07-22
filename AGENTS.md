@@ -107,10 +107,12 @@ checklist 的数据源仍是 `skills/stage_checklists.py`。
     审计、平时按 `ARGUS_SKILL_SELF_MAINTENANCE_AUDIT_SECONDS` 轻量审计。只有绑定真实
     evidence id 的具体框架问题才能派修复；禁止猜测式重构。Engineer/Reviewer 在该 daemon
     私有 framework worktree 内隔离执行，Reviewer 通过后本 daemon 在干净 mission 边界
-    blue/green 灰度，失败回滚旧 source；灰度成功才以
-    `lbx154 <lbxhaixing154@sjtu.edu.cn>` 推独立分支并自动开 PR，永不自动 merge/main。
-    其他 daemon 只把人工合并后的 `origin/main` 当证据，各自 Manager 决定采用或延后并
-    本地灰度。隔离能力缺失时 fail closed，不退化为 yolo。
+    blue/green 灰度，失败回滚旧 source；灰度成功即成为该 daemon 的持久本地 source，
+    不依赖 GitHub 账号或仓库权限。若当前 GitHub 身份对 origin 具有 push 权限，可选推
+    独立分支并自动开 PR，永不自动 merge/main；无权限时安静保持 local-active，不把发布
+    失败伪装成修复失败。PR 被拒也不回滚已验证的本地修复。其他 daemon 只把可验证的人工
+    合并 `origin/main` 当作可选采用证据，各自 Manager 决定采用或延后并本地灰度。隔离
+    能力缺失时 fail closed，不退化为 yolo。
     支持的 Linux host 必须预装 `bubblewrap`（Debian/Ubuntu: `apt install bubblewrap`）；
     daemon 启动时会做真实隔离 probe，失败只禁用自维护，不影响科研 mission。
 - `argus_skill/life/memory.py`: 磁盘状态。global root 默认 `~/.argus-skill/`，project state 默认 `~/.argus-skill/projects/<fingerprint>/`。注入 mission 前的 “memory context” prelude(`render_prelude`)走**纯 recency**：surface 最近 N 条 journal(按所传 journal 做 project 隔离),**不再用关键词 Jaccard 给“相关性”打分**——“哪段过往工作相关”是 agent 读这段(标了 non-authoritative 的)advisory 后自己判断的,不是 harness 用词面重叠去猜。

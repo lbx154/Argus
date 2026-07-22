@@ -69,10 +69,12 @@ def test_manager_in_role_subdirs_and_pools() -> None:
 def test_manager_role_skill_file_exists_and_loads() -> None:
     assert (_BUILTIN_ROOT / "manager" / "argus-manager-role.md").is_file()
     text = load_builtin_skill_text("argus-manager-role.md")
+    compact = " ".join(text.split())
     assert "Argus Manager Role" in text
     assert "Daemon supervision and source maintenance" in text
     assert "blue/green canary" in text
-    assert "never auto-merges" in text
+    assert "no GitHub account or repository permission" in compact
+    assert "never auto-merges" in compact
 
 
 def test_manager_role_context_does_not_require_adaptive_store() -> None:

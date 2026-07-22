@@ -336,6 +336,10 @@ class SelfReplyMixin:
             )
         if snapshot.pr_url:
             lines.append(f"- open maintenance PR: {snapshot.pr_url}")
+        if snapshot.publication_status:
+            lines.append(f"- upstream publication: {snapshot.publication_status}")
+        if snapshot.publication_error:
+            lines.append(f"- publication note: {snapshot.publication_error}")
         return "\n".join(lines)
 
     def _recent_mission_history_block(self, root: Path) -> str:

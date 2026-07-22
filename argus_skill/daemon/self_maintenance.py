@@ -24,8 +24,8 @@ except ImportError:  # pragma: no cover - Windows
     fcntl = None  # type: ignore[assignment]
 
 _STATE_SCHEMA = 1
-_GIT_NAME = "lbx154"
-_GIT_EMAIL = "lbxhaixing154@sjtu.edu.cn"
+_FALLBACK_GIT_NAME = "Argus Self-Maintenance"
+_FALLBACK_GIT_EMAIL = "argus-self-maintenance@localhost"
 _OBSERVED_EVENT_TYPES = frozenset({
     "life.supervisor.error",
     "life.planner.error",
@@ -51,6 +51,14 @@ class SelfMaintenanceSnapshot:
     updated_at: float
     last_audit_at: float
     pr_url: str
+    publication_status: str
+    publication_error: str
+
+
+@dataclass(frozen=True)
+class _PublicationTarget:
+    gh: str
+    slug: str
 
 
 def read_self_maintenance_snapshot(
@@ -80,6 +88,8 @@ def read_self_maintenance_snapshot(
         updated_at=timestamp("updated_at"),
         last_audit_at=timestamp("last_audit_at"),
         pr_url=str(value.get("pr_url") or "").strip(),
+        publication_status=str(value.get("publication_status") or "").strip(),
+        publication_error=str(value.get("publication_error") or "").strip()[:500],
     )
 
 
@@ -558,7 +568,12 @@ class DaemonSelfMaintenance:
         if repo != self.framework_root:
             raise ValueError("framework source root is not the git repository root")
         worktree = self.root / "worktrees" / incident_id
-        _run(["git", "fetch", "origin", "main"], cwd=repo, timeout=120.0)
+        base_revision = _run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo,
+        ).stdout.strip()
+        if not base_revision:
+            raise ValueError("framework source has no current revision")
         branch = f"argus-self/{self.life_dir.name[:12]}/{incident_id}"
         if worktree.exists():
             status = _run(
@@ -576,11 +591,7 @@ class DaemonSelfMaintenance:
                 ["git", "rev-parse", "HEAD"],
                 cwd=worktree,
             ).stdout.strip()
-            upstream = _run(
-                ["git", "rev-parse", "origin/main"],
-                cwd=worktree,
-            ).stdout.strip()
-            if actual_branch != branch or head != upstream:
+            if actual_branch != branch or head != base_revision:
                 raise ValueError("existing private worktree has stale identity")
             return worktree, branch
         worktree.parent.mkdir(parents=True, exist_ok=True)
@@ -592,7 +603,7 @@ class DaemonSelfMaintenance:
                 "-B",
                 branch,
                 str(worktree),
-                "origin/main",
+                base_revision,
             ],
             cwd=repo,
             timeout=120.0,
@@ -873,13 +884,30 @@ class DaemonSelfMaintenance:
             if staged.returncode != 1:
                 raise ValueError("could not inspect staged maintenance changes")
             incident_id = str(state.get("incident_id") or "")
+            name = _run(
+                ["git", "config", "user.name"],
+                cwd=worktree,
+                check=False,
+            ).stdout.strip()
+            email = _run(
+                ["git", "config", "user.email"],
+                cwd=worktree,
+                check=False,
+            ).stdout.strip()
+            identity_args = (
+                []
+                if name and email
+                else [
+                    "-c",
+                    f"user.name={_FALLBACK_GIT_NAME}",
+                    "-c",
+                    f"user.email={_FALLBACK_GIT_EMAIL}",
+                ]
+            )
             _run(
                 [
                     "git",
-                    "-c",
-                    f"user.name={_GIT_NAME}",
-                    "-c",
-                    f"user.email={_GIT_EMAIL}",
+                    *identity_args,
                     "commit",
                     "-m",
                     f"fix(self): repair daemon incident {incident_id}",
@@ -940,6 +968,7 @@ class DaemonSelfMaintenance:
             "handoff_requested",
             "canary_running",
             "publication_failed",
+            "local_active",
             "pr_open",
             "upstream_merged",
             "adopted",
@@ -989,10 +1018,132 @@ class DaemonSelfMaintenance:
         ).expanduser().resolve()
         return prior if prior.is_dir() else None
 
+    def _publication_target(
+        self,
+        worktree: Path,
+    ) -> tuple[_PublicationTarget | None, str]:
+        gh = shutil.which("gh")
+        if not gh:
+            return None, "GitHub CLI is unavailable"
+        try:
+            origin_url = _run(
+                ["git", "remote", "get-url", "origin"],
+                cwd=worktree,
+            ).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            return None, "repository has no readable origin"
+        prefix = "https://github.com/"
+        if not origin_url.startswith(prefix):
+            return None, "origin is not an HTTPS GitHub repository"
+        slug = origin_url.removeprefix(prefix).removesuffix(".git").strip("/")
+        if slug.count("/") != 1:
+            return None, "origin GitHub repository could not be identified"
+        try:
+            can_push = _run(
+                [
+                    gh,
+                    "api",
+                    f"repos/{slug}",
+                    "--jq",
+                    ".permissions.push // false",
+                ],
+                cwd=worktree,
+            ).stdout.strip().lower()
+        except (OSError, subprocess.SubprocessError):
+            return None, "GitHub authentication or repository lookup is unavailable"
+        if can_push != "true":
+            return None, "current GitHub identity has no push permission"
+        return _PublicationTarget(gh=gh, slug=slug), ""
+
+    def _publish_reviewed_change(
+        self,
+        *,
+        state: dict[str, Any],
+        worktree: Path,
+        branch: str,
+        reviewed_commit: str,
+        target: _PublicationTarget,
+    ) -> str:
+        gh = target.gh
+        _run(
+            [
+                "git",
+                "-c",
+                "credential.helper=",
+                "-c",
+                (
+                    "credential.https://github.com.helper="
+                    f"!{gh} auth git-credential"
+                ),
+                "push",
+                "-u",
+                "origin",
+                f"{reviewed_commit}:refs/heads/{branch}",
+            ],
+            cwd=worktree,
+            timeout=180.0,
+        )
+        existing = _run(
+            [
+                gh,
+                "pr",
+                "list",
+                "--repo",
+                target.slug,
+                "--head",
+                branch,
+                "--state",
+                "open",
+                "--json",
+                "url",
+                "--jq",
+                ".[0].url // \"\"",
+            ],
+            cwd=worktree,
+        ).stdout.strip()
+        if existing:
+            return existing
+        body_path = self.root / "pr-body.md"
+        body_path.write_text(
+            "## Observed problem\n\n"
+            + str(state.get("problem") or "")
+            + "\n\n## Acceptance\n\n"
+            + str(state.get("acceptance_check") or "")
+            + "\n\n## Provenance\n\n"
+            "Implemented by this daemon's Engineer, independently accepted "
+            "by its Reviewer, and locally canaried before publication. "
+            "This PR must not be auto-merged.\n",
+            encoding="utf-8",
+        )
+        return _run(
+            [
+                gh,
+                "pr",
+                "create",
+                "--repo",
+                target.slug,
+                "--base",
+                "main",
+                "--head",
+                branch,
+                "--title",
+                (
+                    "fix(self): "
+                    f"{state.get('problem') or state.get('incident_id')}"
+                )[:240],
+                "--body-file",
+                str(body_path),
+            ],
+            cwd=worktree,
+            timeout=120.0,
+        ).stdout.strip().splitlines()[-1]
+
     def publish_after_canary(self, *, summary: dict[str, Any]) -> str:
         state = self._state()
-        if state.get("phase") not in {"canary_running", "publication_failed"}:
+        phase = str(state.get("phase") or "")
+        if phase not in {"canary_running", "publication_failed"}:
             return ""
+        legacy_publication_failure = phase == "publication_failed"
         expected_root = Path(
             str(state.get("canary_source_root") or "")
         ).expanduser().resolve()
@@ -1002,51 +1153,55 @@ class DaemonSelfMaintenance:
                 error="reviewed canary is no longer the loaded daemon source",
             )
             return ""
-        stopped_by = str(summary.get("stopped_by") or "")
-        if stopped_by in {"supervisor_error", "planner_error"}:
-            self._write_state(
-                phase="canary_failed",
-                error=f"canary supervisor stopped by {stopped_by}",
+        if not legacy_publication_failure:
+            stopped_by = str(summary.get("stopped_by") or "")
+            if stopped_by in {"supervisor_error", "planner_error"}:
+                self._write_state(
+                    phase="canary_failed",
+                    error=f"canary supervisor stopped by {stopped_by}",
+                )
+                return f"rollback:{state.get('old_source_root') or ''}"
+            results = summary.get("results")
+            made_progress = (
+                isinstance(results, list)
+                and any(
+                    isinstance(result, dict)
+                    and result.get("success") is True
+                    and str(result.get("status") or "") == "done"
+                    for result in results
+                )
+            ) or (
+                int(summary.get("planning_cycles") or 0) > 0
+                and stopped_by
+                in {
+                    "planner_retry",
+                    "awaiting_external",
+                    "terminal_idle",
+                    "project_done",
+                }
             )
-            return f"rollback:{state.get('old_source_root') or ''}"
-        results = summary.get("results")
-        made_progress = (
-            isinstance(results, list)
-            and any(
-                isinstance(result, dict)
-                and result.get("success") is True
-                and str(result.get("status") or "") == "done"
-                for result in results
-            )
-        ) or (
-            int(summary.get("planning_cycles") or 0) > 0
-            and stopped_by
-            in {
-                "planner_retry",
-                "awaiting_external",
-                "terminal_idle",
-                "project_done",
-            }
-        )
-        if not made_progress:
-            return ""
-        if state.get("canary_kind") == "adoption":
-            self._write_state(
-                phase="adopted",
-                adopted_at=time.time(),
-                error="",
-            )
-            self._emit({
-                "type": "manager.self_maintenance.adopted",
-                "commit": state.get("commit"),
-                "agent_layer": "manager",
-            })
-            return str(state.get("commit") or "")
+            if not made_progress:
+                return ""
+            if state.get("canary_kind") == "adoption":
+                self._write_state(
+                    phase="adopted",
+                    adopted_at=time.time(),
+                    error="",
+                )
+                self._emit({
+                    "type": "manager.self_maintenance.adopted",
+                    "commit": state.get("commit"),
+                    "agent_layer": "manager",
+                })
+                return str(state.get("commit") or "")
         worktree = Path(str(state.get("worktree") or ""))
         branch = str(state.get("branch") or "")
         if not worktree.is_dir() or not branch:
-            self._write_state(phase="publication_failed", error="worktree or branch missing")
-            return ""
+            self._write_state(
+                phase="canary_failed",
+                error="reviewed canary worktree or branch is missing",
+            )
+            return f"rollback:{state.get('old_source_root') or ''}"
         try:
             clean = _run(
                 ["git", "status", "--porcelain"],
@@ -1063,104 +1218,77 @@ class DaemonSelfMaintenance:
                 raise ValueError(
                     "canary HEAD no longer matches the reviewed commit"
                 )
-            gh = shutil.which("gh")
-            if not gh:
-                raise ValueError("GitHub CLI is unavailable")
-            login = _run(
-                [gh, "api", "user", "--jq", ".login"],
-                cwd=worktree,
-            ).stdout.strip()
-            if login != _GIT_NAME:
-                raise ValueError(
-                    f"GitHub CLI identity must be {_GIT_NAME}, got {login or 'unknown'}"
-                )
-            origin_url = _run(
-                ["git", "remote", "get-url", "origin"],
-                cwd=worktree,
-            ).stdout.strip()
-            if not origin_url.startswith("https://github.com/"):
-                raise ValueError(
-                    "self-maintenance publication requires an HTTPS GitHub origin"
-                )
-            _run(
-                [
-                    "git",
-                    "-c",
-                    "credential.helper=",
-                    "-c",
-                    (
-                        "credential.https://github.com.helper="
-                        f"!{gh} auth git-credential"
-                    ),
-                    "push",
-                    "-u",
-                    "origin",
-                    f"{reviewed_commit}:refs/heads/{branch}",
-                ],
-                cwd=worktree,
-                timeout=180.0,
-            )
-            existing = _run(
-                [
-                    gh,
-                    "pr",
-                    "list",
-                    "--head",
-                    branch,
-                    "--state",
-                    "open",
-                    "--json",
-                    "url",
-                    "--jq",
-                    ".[0].url // \"\"",
-                ],
-                cwd=worktree,
-            ).stdout.strip()
-            if existing:
-                pr_url = existing
-            else:
-                body_path = self.root / "pr-body.md"
-                body_path.write_text(
-                    "## Observed problem\n\n"
-                    + str(state.get("problem") or "")
-                    + "\n\n## Acceptance\n\n"
-                    + str(state.get("acceptance_check") or "")
-                    + "\n\n## Provenance\n\n"
-                    "Implemented by this daemon's Engineer, independently accepted "
-                    "by its Reviewer, and locally canaried before publication. "
-                    "This PR must not be auto-merged.\n",
-                    encoding="utf-8",
-                )
-                pr_url = _run(
-                    [
-                        gh,
-                        "pr",
-                        "create",
-                        "--base",
-                        "main",
-                        "--head",
-                        branch,
-                        "--title",
-                        (
-                            "fix(self): "
-                            f"{state.get('problem') or state.get('incident_id')}"
-                        )[:240],
-                        "--body-file",
-                        str(body_path),
-                    ],
-                    cwd=worktree,
-                    timeout=120.0,
-                ).stdout.strip().splitlines()[-1]
-        except (OSError, subprocess.SubprocessError, ValueError, IndexError) as exc:
+        except (OSError, subprocess.SubprocessError, ValueError) as exc:
             self._write_state(
-                phase="publication_failed",
+                phase="canary_failed",
                 error=f"{type(exc).__name__}: {exc}"[:2000],
             )
-            return ""
+            return f"rollback:{state.get('old_source_root') or ''}"
+
+        accepted_at = time.time()
+        self._write_state(
+            phase="local_active",
+            local_accepted_at=accepted_at,
+            active_item_id="",
+            publication_status="pending",
+            publication_error=(
+                str(state.get("error") or "")[:2000]
+                if legacy_publication_failure
+                else ""
+            ),
+            error="",
+        )
+        self._emit({
+            "type": "manager.self_maintenance.local_active",
+            "incident_id": state.get("incident_id"),
+            "commit": reviewed_commit,
+            "worktree": str(worktree),
+            "agent_layer": "manager",
+        })
+
+        target, unavailable_reason = self._publication_target(worktree)
+        if target is None:
+            self._write_state(
+                phase="local_active",
+                publication_status="unavailable",
+                publication_error=unavailable_reason,
+            )
+            self._emit({
+                "type": "manager.self_maintenance.publication_skipped",
+                "incident_id": state.get("incident_id"),
+                "reason": unavailable_reason,
+                "agent_layer": "manager",
+            })
+            return reviewed_commit
+
+        try:
+            pr_url = self._publish_reviewed_change(
+                state=state,
+                worktree=worktree,
+                branch=branch,
+                reviewed_commit=reviewed_commit,
+                target=target,
+            )
+        except (OSError, subprocess.SubprocessError, ValueError, IndexError) as exc:
+            publication_error = f"{type(exc).__name__}: {exc}"[:2000]
+            self._write_state(
+                phase="local_active",
+                publication_status="failed",
+                publication_error=publication_error,
+            )
+            self._emit({
+                "type": "manager.self_maintenance.publication_failed",
+                "incident_id": state.get("incident_id"),
+                "error": publication_error,
+                "agent_layer": "manager",
+            })
+            return reviewed_commit
         self._write_state(
             phase="pr_open",
             pr_url=pr_url,
             published_at=time.time(),
+            publication_status="opened",
+            publication_error="",
             error="",
         )
         self._emit({
@@ -1210,12 +1338,13 @@ class DaemonSelfMaintenance:
             )
         elif pr_state == "CLOSED":
             self._write_state(
-                phase="pr_closed",
+                phase="local_active",
                 closed_at=time.time(),
                 active_item_id="",
-                error="self-maintenance PR closed without merge",
+                publication_status="closed",
+                publication_error="self-maintenance PR closed without merge",
+                error="",
             )
-            return f"rollback:{state.get('old_source_root') or ''}"
         return pr_state
 
     def prune_obsolete_worktrees(self) -> list[str]:
