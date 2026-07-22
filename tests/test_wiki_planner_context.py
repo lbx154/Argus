@@ -172,7 +172,7 @@ def test_planner_prompt_does_not_warn_when_query_pack_diagnosis_refs_exist(
     assert "missing diagnosis refs from query_pack.md" not in prompt
 
 
-def test_planner_prompt_warns_when_query_pack_diagnosis_refs_are_stale(
+def test_planner_prompt_surfaces_query_pack_without_interpreting_refs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -192,7 +192,7 @@ def test_planner_prompt_warns_when_query_pack_diagnosis_refs_are_stale(
         mission=None,
     )
 
-    assert "missing diagnosis refs from query_pack.md" in prompt
+    assert "missing diagnosis refs from query_pack.md" not in prompt
     assert "diagnosis/operator_only_external_blocker_lock_20260605.json" in prompt
 
 

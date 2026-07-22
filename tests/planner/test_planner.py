@@ -413,6 +413,7 @@ def test_parse_planner_text_preserves_agent_authored_waiting_contract() -> None:
             "recheck_condition": "a licensed full-text path appears",
             "recheck_token": "no-source-v1",
             "stage_reconciliation_required": False,
+            "operator_action_required": True,
             "allow_verification_probe": False,
             "recheck_after_seconds": 0,
             "wait_mode": "event",
@@ -632,7 +633,7 @@ def test_plan_next_defaults_to_xhigh_reasoning_effort() -> None:
     assert "## Stage checklist" in sent_prompt
 
 
-def test_plan_next_rejects_nonproof_task_for_hard_theorem_objective(
+def test_plan_next_does_not_keyword_reject_planner_authored_math_work(
     monkeypatch,
 ) -> None:
     runner = _FakeRunner(json.dumps({
@@ -658,11 +659,6 @@ def test_plan_next_rejects_nonproof_task_for_hard_theorem_objective(
         "_build_planner_prompt",
         staticmethod(lambda **_kwargs: "prompt"),
     )
-    from argus_skill.skills import harness_overlay, stage_checklists
-
-    monkeypatch.setattr(harness_overlay, "resolve_project_root", lambda: Path("."))
-    monkeypatch.setattr(stage_checklists, "current_stage", lambda _root: "solve")
-
     verdict = Planner(runner).plan_next(
         continuous_objective=(
             "The hard success criterion is at least one nontrivial theorem with "
@@ -671,11 +667,13 @@ def test_plan_next_rejects_nonproof_task_for_hard_theorem_objective(
         ),
     )
 
-    assert verdict.new_tasks == []
-    assert "hard objective contract violation" in verdict.error
+    assert not verdict.error
+    assert [task.title for task in verdict.new_tasks] == [
+        "Validate partitioned order-22 certificate route"
+    ]
 
 
-def test_plan_next_accepts_proof_task_for_hard_theorem_objective(
+def test_plan_next_preserves_planner_authored_proof_task(
     monkeypatch,
 ) -> None:
     runner = _FakeRunner(json.dumps({
@@ -716,7 +714,7 @@ def test_plan_next_accepts_proof_task_for_hard_theorem_objective(
     ]
 
 
-def test_theorem_contract_allows_honest_prior_no_theorem_context(
+def test_plan_next_preserves_planner_authored_stage_closing_task(
     monkeypatch,
 ) -> None:
     runner = _FakeRunner(json.dumps({
@@ -760,7 +758,9 @@ def test_theorem_contract_allows_honest_prior_no_theorem_context(
     ]
 
 
-def test_theorem_contract_allows_review_stage_closure(monkeypatch) -> None:
+def test_planner_preserves_stage_closing_task_without_semantic_gate(
+    monkeypatch,
+) -> None:
     runner = _FakeRunner(json.dumps({
         "project_done": False,
         "reason": "close the accepted theorem's review delta",
@@ -784,11 +784,6 @@ def test_theorem_contract_allows_review_stage_closure(monkeypatch) -> None:
         "_build_planner_prompt",
         staticmethod(lambda **_kwargs: "prompt"),
     )
-    from argus_skill.skills import harness_overlay, stage_checklists
-
-    monkeypatch.setattr(harness_overlay, "resolve_project_root", lambda: Path("."))
-    monkeypatch.setattr(stage_checklists, "current_stage", lambda _root: "review")
-
     verdict = Planner(runner).plan_next(
         continuous_objective=(
             "The hard success criterion is at least one nontrivial theorem with "
@@ -802,8 +797,8 @@ def test_theorem_contract_allows_review_stage_closure(monkeypatch) -> None:
     ]
 
 
-def test_theorem_contract_relies_on_runtime_reviewer_not_task_wording(
-    monkeypatch, tmp_path,
+def test_planner_preserves_task_acceptance_wording(
+    monkeypatch,
 ) -> None:
     runner = _FakeRunner(json.dumps({
         "project_done": False,
@@ -829,11 +824,6 @@ def test_theorem_contract_relies_on_runtime_reviewer_not_task_wording(
         "_build_planner_prompt",
         staticmethod(lambda **_kwargs: "prompt"),
     )
-    from argus_skill.skills import harness_overlay, stage_checklists
-
-    monkeypatch.setattr(harness_overlay, "resolve_project_root", lambda: tmp_path)
-    monkeypatch.setattr(stage_checklists, "current_stage", lambda _root: "solve")
-
     verdict = Planner(runner).plan_next(
         continuous_objective=(
             "The hard success criterion is a theorem with a complete "
@@ -847,7 +837,7 @@ def test_theorem_contract_relies_on_runtime_reviewer_not_task_wording(
     ]
 
 
-def test_theorem_contract_rejects_nonadvancing_theorem_after_baseline(
+def test_plan_next_does_not_parse_project_artifacts_to_override_planner(
     monkeypatch, tmp_path,
 ) -> None:
     research = tmp_path / "research"
@@ -879,11 +869,6 @@ def test_theorem_contract_rejects_nonadvancing_theorem_after_baseline(
         "_build_planner_prompt",
         staticmethod(lambda **_kwargs: "prompt"),
     )
-    from argus_skill.skills import harness_overlay, stage_checklists
-
-    monkeypatch.setattr(harness_overlay, "resolve_project_root", lambda: tmp_path)
-    monkeypatch.setattr(stage_checklists, "current_stage", lambda _root: "solve")
-
     verdict = Planner(runner).plan_next(
         continuous_objective=(
             "The hard success criterion is a theorem with a complete "
@@ -891,19 +876,15 @@ def test_theorem_contract_rejects_nonadvancing_theorem_after_baseline(
         ),
     )
 
-    assert verdict.new_tasks == []
-    assert "strict improvement" in verdict.error
+    assert not verdict.error
+    assert [task.title for task in verdict.new_tasks] == [
+        "Re-derive a standard degree lemma"
+    ]
 
 
-def test_theorem_contract_accepts_strict_bound_improvement_after_baseline(
-    monkeypatch, tmp_path,
+def test_planner_preserves_task_with_project_artifact_refs(
+    monkeypatch,
 ) -> None:
-    research = tmp_path / "research"
-    research.mkdir()
-    (research / "CLAIM_LEDGER.md").write_text(
-        "C22 | complete bounded theorem with self-contained proof\n",
-        encoding="utf-8",
-    )
     runner = _FakeRunner(json.dumps({
         "project_done": False,
         "reason": "strictly improve the current blocker bound",
@@ -929,11 +910,6 @@ def test_theorem_contract_accepts_strict_bound_improvement_after_baseline(
         "_build_planner_prompt",
         staticmethod(lambda **_kwargs: "prompt"),
     )
-    from argus_skill.skills import harness_overlay, stage_checklists
-
-    monkeypatch.setattr(harness_overlay, "resolve_project_root", lambda: tmp_path)
-    monkeypatch.setattr(stage_checklists, "current_stage", lambda _root: "solve")
-
     verdict = Planner(runner).plan_next(
         continuous_objective=(
             "The hard success criterion is a theorem with a complete "
@@ -947,15 +923,9 @@ def test_theorem_contract_accepts_strict_bound_improvement_after_baseline(
     ]
 
 
-def test_theorem_contract_allows_guarded_overlap_node_after_strict_theorem(
-    monkeypatch, tmp_path,
+def test_planner_preserves_authored_dependency_batch(
+    monkeypatch,
 ) -> None:
-    research = tmp_path / "research"
-    research.mkdir()
-    (research / "CLAIM_LEDGER.md").write_text(
-        "C22 | complete bounded theorem with self-contained proof\n",
-        encoding="utf-8",
-    )
     runner = _FakeRunner(json.dumps({
         "project_done": False,
         "reason": "improve the theorem, then audit its mechanism",
@@ -999,11 +969,6 @@ def test_theorem_contract_allows_guarded_overlap_node_after_strict_theorem(
         "_build_planner_prompt",
         staticmethod(lambda **_kwargs: "prompt"),
     )
-    from argus_skill.skills import harness_overlay, stage_checklists
-
-    monkeypatch.setattr(harness_overlay, "resolve_project_root", lambda: tmp_path)
-    monkeypatch.setattr(stage_checklists, "current_stage", lambda _root: "solve")
-
     verdict = Planner(runner).plan_next(
         continuous_objective=(
             "The hard success criterion is a theorem with a complete "
@@ -1018,15 +983,9 @@ def test_theorem_contract_allows_guarded_overlap_node_after_strict_theorem(
     ]
 
 
-def test_theorem_contract_allows_round16_audit_to_inherit_proof_dependency(
-    monkeypatch, tmp_path,
+def test_planner_preserves_stage_closing_dependent_task(
+    monkeypatch,
 ) -> None:
-    research = tmp_path / "research"
-    research.mkdir()
-    (research / "CLAIM_LEDGER.md").write_text(
-        "C23 | complete bounded theorem with self-contained proof\n",
-        encoding="utf-8",
-    )
     runner = _FakeRunner(json.dumps({
         "project_done": False,
         "reason": "strict theorem advancement followed by overlap audit",
@@ -1071,11 +1030,6 @@ def test_theorem_contract_allows_round16_audit_to_inherit_proof_dependency(
         "_build_planner_prompt",
         staticmethod(lambda **_kwargs: "prompt"),
     )
-    from argus_skill.skills import harness_overlay, stage_checklists
-
-    monkeypatch.setattr(harness_overlay, "resolve_project_root", lambda: tmp_path)
-    monkeypatch.setattr(stage_checklists, "current_stage", lambda _root: "solve")
-
     verdict = Planner(runner).plan_next(
         continuous_objective=(
             "The hard success criterion is a theorem with a complete "
@@ -1090,7 +1044,7 @@ def test_theorem_contract_allows_round16_audit_to_inherit_proof_dependency(
     ]
 
 
-def test_theorem_first_prompt_makes_nonproof_fallback_illegal(
+def test_planner_prompt_keeps_objective_semantics_model_owned(
     monkeypatch, tmp_path,
 ) -> None:
     from argus_skill.skills import harness_overlay, stage_checklists
@@ -1115,8 +1069,9 @@ def test_theorem_first_prompt_makes_nonproof_fallback_illegal(
         planning_cycle=0,
     )
 
-    assert "Active hard theorem-proof contract" in prompt
-    assert "MUST NOT be written as an alternative successful fallback" in prompt
+    assert "## Immutable objective acceptance contract" in prompt
+    assert "Active hard theorem-proof contract" not in prompt
+    assert "CLAIM_LEDGER.md" not in prompt
 
 
 def test_plan_next_returns_error_verdict_on_runner_exception() -> None:
@@ -1477,6 +1432,7 @@ def test_planner_schema_accepts_dag_and_flat_tasks() -> None:
             "recheck_condition": "a licensed full-text path appears",
             "recheck_token": "source-missing-v1",
             "stage_reconciliation_required": False,
+            "operator_action_required": True,
             "allow_verification_probe": False,
             "recheck_after_seconds": 0,
                 "wait_mode": "event",

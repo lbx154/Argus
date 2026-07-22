@@ -34,6 +34,7 @@
         "recheck_condition",
         "recheck_token",
         "stage_reconciliation_required",
+        "operator_action_required",
         "allow_verification_probe",
         "recheck_after_seconds",
         "wait_mode",

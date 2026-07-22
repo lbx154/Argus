@@ -110,11 +110,6 @@ def build_continuous_prompt(
 ) -> str:
     """Build the continuous Planner prompt from the unified role catalog."""
     from ...core.research_contract import resolve_research_target_level
-    from ...planner.planner import (
-        Planner,
-        _project_has_theorem_baseline,
-        _requires_theorem_proof_contract,
-    )
     from ...skills.ground_truth import ground_truth_mandate
     from ...skills.harness_overlay import resolve_project_root
     from ...skills.role_context import format_role_context
@@ -384,16 +379,6 @@ def build_continuous_prompt(
             pack = (wiki_root / "query_pack.md").read_text(encoding="utf-8")
             parts.append("#### query_pack.md\n")
             parts.append(pack.strip() + "\n\n")
-            missing_refs = Planner._missing_query_pack_diagnosis_refs(_proot, pack)
-            if missing_refs:
-                parts.append("#### missing diagnosis refs from query_pack.md\n")
-                for ref in missing_refs:
-                    parts.append(f"- `{ref}`\n")
-                parts.append(
-                    "Repair by restoring the referenced diagnosis file or updating "
-                    "query_pack.md to a current path before routing missions that "
-                    "depend on those instructions.\n\n"
-                )
             # by-status surfaces the CURRENT page inventory (incl. freshly
             # learned technique pages), so knowledge distilled into the wiki
             # actually reaches the planner instead of being write-only. It is
@@ -504,46 +489,6 @@ def build_continuous_prompt(
         "a qualifying mission; they are not a successful mission outcome by "
         "themselves.\n\n"
     )
-    if _requires_theorem_proof_contract(continuous_objective):
-        objective_contract_block += (
-            "### Active hard theorem-proof contract\n"
-            "Every queued solve mission MUST require all of the following as "
-            "its acceptance outcome: (1) a precisely quantified nontrivial "
-            "theorem, lemma, proposition, or corollary; (2) a complete "
-            "self-contained rigorous proof; (3) an updated lemma dependency "
-            "graph and claim ledger; and (4) independent Reviewer acceptance. "
-            "Enumeration, SAT/CP calibration, finite verification, literature "
-            "review, witness search, and resource-limited route pruning may be "
-            "used inside that mission, but MUST NOT be written as an alternative "
-            "successful fallback. If proof search fails, the mission fails or "
-            "remains unresolved and the next cycle changes proof strategy; it "
-            "does not close successfully as feasibility evidence.\n\n"
-        )
-        if _project_has_theorem_baseline(_proot):
-            objective_contract_block += (
-                "### Monotone theorem progression is active\n"
-                "This project already has at least one proved theorem in "
-                "`research/CLAIM_LEDGER.md`. A further solve mission cannot "
-                "succeed by independently re-deriving another weaker or "
-                "incomparable known lemma. It MUST read both "
-                "`research/CLAIM_LEDGER.md` and `research/LEMMA_GRAPH.md`, "
-                "name the strongest baseline claim/node it consumes, and "
-                "state the strict mathematical delta. Qualifying progress is "
-                "one of: a stronger conclusion under the same hypotheses, "
-                "the same conclusion under weaker hypotheses, a strictly "
-                "improved explicit bound/constant, or a missing bridge lemma "
-                "that enables a previously blocked proof chain. Known results "
-                "may be used as premises but do not count as success unless "
-                "the proved package strictly advances the recorded project "
-                "boundary. A dependent overlap-audit node may follow a "
-                "qualifying theorem node, but cannot substitute for it. "
-                "A dependent `stage_closing` mechanism/novelty audit "
-                "inherits the proof contract through that DAG dependency. "
-                "It need not repeat the theorem's complete-proof wording in "
-                "its own objective, but it cannot run unless the qualifying "
-                "theorem dependency completed.\n\n"
-            )
-
     return (
         ground_truth_mandate(
             "planner",
