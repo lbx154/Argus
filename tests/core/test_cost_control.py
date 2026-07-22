@@ -50,6 +50,7 @@ def _reserve(
     *,
     global_daily_cap_usd: float = 10.0,
     pid: int | None = None,
+    lock_timeout_seconds: float = 0.25,
 ):
     return reserve_call_budget(
         call_id=call_id,
@@ -61,6 +62,7 @@ def _reserve(
         global_root=root,
         global_daily_cap_usd=global_daily_cap_usd,
         pid=pid,
+        lock_timeout_seconds=lock_timeout_seconds,
     )
 
 
@@ -100,6 +102,77 @@ def test_concurrent_projects_do_not_take_fixed_call_holds(tmp_path: Path) -> Non
     first.release(reason="test")
     second.release(reason="test")
     third.release(reason="test")
+
+
+def test_admission_does_not_wait_for_busy_housekeeping_lock(tmp_path: Path) -> None:
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+    entered = threading.Event()
+    release = threading.Event()
+
+    def hold_lock() -> None:
+        with _locked(tmp_path):
+            entered.set()
+            release.wait(timeout=2)
+
+    holder = threading.Thread(target=hold_lock)
+    holder.start()
+    assert entered.wait(timeout=1)
+    try:
+        started = time.monotonic()
+        reservation, reason = _reserve(
+            tmp_path,
+            project,
+            "call-during-contention",
+            lock_timeout_seconds=0.02,
+        )
+        elapsed = time.monotonic() - started
+
+        assert reservation is not None and reason == ""
+        assert reservation.state_tracked is False
+        assert elapsed < 0.2
+
+        record = _record(project, reservation.call_id)
+        UsageLedger(project, migrate_legacy=False).append(record)
+        assert reservation.settle(record) is True
+    finally:
+        release.set()
+        holder.join(timeout=1)
+
+
+def test_settlement_does_not_delay_result_behind_busy_housekeeping_lock(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+    reservation, reason = _reserve(tmp_path, project, "tracked-call")
+    assert reservation is not None and reason == ""
+    assert reservation.state_tracked is True
+
+    record = _record(project, reservation.call_id)
+    UsageLedger(project, migrate_legacy=False).append(record)
+    entered = threading.Event()
+    release = threading.Event()
+
+    def hold_lock() -> None:
+        with _locked(tmp_path):
+            entered.set()
+            release.wait(timeout=2)
+
+    holder = threading.Thread(target=hold_lock)
+    holder.start()
+    assert entered.wait(timeout=1)
+    try:
+        started = time.monotonic()
+        assert reservation.settle(record) is True
+        assert time.monotonic() - started < 0.6
+    finally:
+        release.set()
+        holder.join(timeout=1)
+
+    # The durable usage row lets the next read prune the deferred reservation.
+    snapshot = cost_control_snapshot(global_root=tmp_path)
+    assert snapshot["active_reservations"] == 0
 
 
 def test_settled_global_spend_enforces_the_daily_cap(tmp_path: Path) -> None:

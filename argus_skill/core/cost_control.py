@@ -32,6 +32,7 @@ COST_CONTROL_LOCK_FILE = "cost-control.lock"
 COST_CONTROL_AUDIT_FILE = "cost-control.jsonl"
 
 _STATE_VERSION = 1
+_CALL_STATE_LOCK_TIMEOUT_SECONDS = 0.25
 _THREAD_LOCKS: dict[str, threading.Lock] = {}
 _THREAD_LOCKS_GUARD = threading.Lock()
 class CostControlStateError(RuntimeError):
@@ -198,11 +199,17 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
-def _prune_reservations(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _prune_reservations(
+    rows: list[dict[str, Any]],
+    *,
+    settled_call_ids: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    settled = settled_call_ids or set()
     return [
         {**row, "amount_usd": 0.0}
         for row in rows
         if _pid_alive(int(row.get("pid") or 0))
+        and str(row.get("call_id") or "") not in settled
     ]
 
 
@@ -303,6 +310,7 @@ class CallBudgetReservation:
     provider: str = ""
     model: str = ""
     run_label: str = ""
+    state_tracked: bool = True
     _closed: bool = False
 
     def release(self, *, reason: str = "not_started") -> bool:
@@ -339,6 +347,7 @@ def reserve_call_budget(
     global_daily_cap_usd: float | None = None,
     now: float | None = None,
     pid: int | None = None,
+    lock_timeout_seconds: float = _CALL_STATE_LOCK_TIMEOUT_SECONDS,
 ) -> tuple[CallBudgetReservation | None, str]:
     """Atomically admit one call against settled host-global daily spend."""
     timestamp = time.time() if now is None else float(now)
@@ -357,65 +366,73 @@ def reserve_call_budget(
     owner_pid = os.getpid() if pid is None else int(pid)
     project_key = str(project.resolve()) if project is not None else ""
     mission_key = str(mission_id or "")
+    # Reading distributed usage ledgers is the expensive part. Never do it
+    # while holding the host-global state lock: concurrent daemons otherwise
+    # form a lock convoy and even a greeting can wait tens of seconds.
+    project_records = _project_records(project, day_start) if project else []
+    global_records = _global_records(root, day_start)
+    if project is not None:
+        projects_root = (root / "projects").resolve()
+        try:
+            inside_global = project.resolve().parent == projects_root
+        except OSError:
+            inside_global = False
+        if not inside_global:
+            global_records.extend(project_records)
+
+    global_spend = _known_cost(global_records)
+    available = global_cap - global_spend
+    if global_cap > 0 and available <= 0:
+        reason = f"global daily budget exhausted (${available:.6f} available)"
+        _append_audit(
+            root,
+            EventType.BUDGET_RESERVATION_DENIED,
+            call_id=call_id,
+            project_id=project.name if project is not None else "",
+            mission_id=mission_key or None,
+            provider=provider,
+            model=model,
+            run_label=run_label,
+            reason=reason,
+            global_spend_usd=global_spend,
+        )
+        return None, reason
+
+    amount = 0.0
+    reservation_id = uuid.uuid4().hex
+    row = {
+        "id": reservation_id,
+        "call_id": call_id,
+        "pid": owner_pid,
+        "project_root": project_key,
+        "project_id": project.name if project is not None else "",
+        "mission_id": mission_key or None,
+        "provider": str(provider or ""),
+        "model": str(model or ""),
+        "run_label": str(run_label or ""),
+        "amount_usd": amount,
+        "created_at": timestamp,
+    }
+    state_tracked = True
+    settled_call_ids = {
+        record.call_id for record in global_records if record.call_id
+    }
     try:
-        with _locked(root):
+        with _locked(root, timeout_seconds=lock_timeout_seconds):
             state = _read_state(root, timestamp)
-            reservations = _prune_reservations(list(state["reservations"]))
-            unresolved = _resolved_unpriced(
-                list(state["unresolved"]),
-                day_start=day_start,
+            reservations = _prune_reservations(
+                list(state["reservations"]),
+                settled_call_ids=settled_call_ids,
             )
-            state["reservations"] = reservations
-            state["unresolved"] = unresolved
-            project_records = _project_records(project, day_start) if project else []
-            global_records = _global_records(root, day_start)
-            if project is not None:
-                projects_root = (root / "projects").resolve()
-                try:
-                    inside_global = project.resolve().parent == projects_root
-                except OSError:
-                    inside_global = False
-                if not inside_global:
-                    global_records.extend(project_records)
-
-            global_spend = _known_cost(global_records)
-            available = global_cap - global_spend
-            if global_cap > 0 and available <= 0:
-                reason = f"global daily budget exhausted (${available:.6f} available)"
-                state["reservations"] = reservations
-                _write_state(root, state, timestamp)
-                _append_audit(
-                    root,
-                    EventType.BUDGET_RESERVATION_DENIED,
-                    call_id=call_id,
-                    project_id=project.name if project is not None else "",
-                    mission_id=mission_key or None,
-                    provider=provider,
-                    model=model,
-                    run_label=run_label,
-                    reason=reason,
-                    global_spend_usd=global_spend,
-                )
-                return None, reason
-
-            amount = 0.0
-            reservation_id = uuid.uuid4().hex
-            row = {
-                "id": reservation_id,
-                "call_id": call_id,
-                "pid": owner_pid,
-                "project_root": project_key,
-                "project_id": project.name if project is not None else "",
-                "mission_id": mission_key or None,
-                "provider": str(provider or ""),
-                "model": str(model or ""),
-                "run_label": str(run_label or ""),
-                "amount_usd": amount,
-                "created_at": timestamp,
-            }
             reservations.append(row)
             state["reservations"] = reservations
             _write_state(root, state, timestamp)
+    except CostControlLockBusyError:
+        # The authoritative spend check above succeeded. Because reservations
+        # carry no speculative USD hold, skipping only this telemetry write
+        # does not weaken the settled-cost cap. Final usage remains durable in
+        # the per-project ledger and later snapshots reconcile stale rows.
+        state_tracked = False
     except CostControlStateError as exc:
         reason = f"cost control unavailable: {exc}"
         _append_audit(
@@ -442,6 +459,7 @@ def reserve_call_budget(
         model=model,
         run_label=run_label,
         amount_usd=amount,
+        state_tracked=state_tracked,
     )
     return (
         CallBudgetReservation(
@@ -454,6 +472,7 @@ def reserve_call_budget(
             provider=str(provider or ""),
             model=str(model or ""),
             run_label=str(run_label or ""),
+            state_tracked=state_tracked,
         ),
         "",
     )
@@ -467,78 +486,84 @@ def _close_reservation(
     unknown_reason: str = "",
 ) -> bool:
     timestamp = time.time()
-    with _locked(reservation.root):
-        state = _read_state(reservation.root, timestamp)
-        rows = list(state["reservations"])
-        matched = next(
-            (row for row in rows if row.get("id") == reservation.reservation_id),
-            None,
+    pricing_status = record.pricing_status if record is not None else "unknown"
+    cost_usd = record.cost_usd if record is not None else None
+    error = record.error if record is not None else unknown_reason
+    unresolved_row: dict[str, Any] | None = None
+    if record is not None and (
+        record.status != "denied"
+        and (
+            record.cost_usd is None
+            or record.pricing_status in {"partial", "unpriced"}
         )
-        if matched is None and not unknown_reason:
-            return False
-        state["reservations"] = [
-            row for row in rows if row.get("id") != reservation.reservation_id
-        ]
-        unresolved = [
-            row
-            for row in state["unresolved"]
-            if str(row.get("call_id") or "") != reservation.call_id
-        ]
-        pricing_status = "unknown"
-        cost_usd: float | None = None
-        error = ""
-        if record is not None:
-            pricing_status = record.pricing_status
-            cost_usd = record.cost_usd
-            error = record.error
-            if (
-                record.status != "denied"
-                and (
-                    record.cost_usd is None
-                    or record.pricing_status in {"partial", "unpriced"}
-                )
+    ):
+        unresolved_row = {
+            "call_id": record.call_id,
+            "project_root": (
+                str(reservation.project_root.resolve())
+                if reservation.project_root is not None
+                else ""
+            ),
+            "project_id": record.project_id,
+            "mission_id": record.mission_id,
+            "provider": record.provider,
+            "model": record.model,
+            "pricing_status": record.pricing_status,
+            "reason": record.error or "provider usage is not fully priced",
+            "blocking": False,
+            "created_at": timestamp,
+        }
+    elif unknown_reason:
+        unresolved_row = {
+            "call_id": reservation.call_id,
+            "project_root": (
+                str(reservation.project_root.resolve())
+                if reservation.project_root is not None
+                else ""
+            ),
+            "project_id": (
+                reservation.project_root.name
+                if reservation.project_root is not None
+                else ""
+            ),
+            "mission_id": reservation.mission_id,
+            "provider": reservation.provider,
+            "model": reservation.model,
+            "run_label": reservation.run_label,
+            "pricing_status": "unknown",
+            "reason": unknown_reason,
+            "blocking": False,
+            "created_at": timestamp,
+        }
+
+    state_updated = False
+    if reservation.state_tracked:
+        try:
+            with _locked(
+                reservation.root,
+                timeout_seconds=_CALL_STATE_LOCK_TIMEOUT_SECONDS,
             ):
-                unresolved.append({
-                    "call_id": record.call_id,
-                    "project_root": (
-                        str(reservation.project_root.resolve())
-                        if reservation.project_root is not None
-                        else ""
-                    ),
-                    "project_id": record.project_id,
-                    "mission_id": record.mission_id,
-                    "provider": record.provider,
-                    "model": record.model,
-                    "pricing_status": record.pricing_status,
-                    "reason": record.error or "provider usage is not fully priced",
-                    "blocking": False,
-                    "created_at": timestamp,
-                })
-        elif unknown_reason:
-            error = unknown_reason
-            unresolved.append({
-                "call_id": reservation.call_id,
-                "project_root": (
-                    str(reservation.project_root.resolve())
-                    if reservation.project_root is not None
-                    else ""
-                ),
-                "project_id": (
-                    reservation.project_root.name
-                    if reservation.project_root is not None
-                    else ""
-                ),
-                "mission_id": reservation.mission_id,
-                "provider": reservation.provider,
-                "model": reservation.model,
-                "run_label": reservation.run_label,
-                "pricing_status": "unknown",
-                "reason": unknown_reason,
-                "blocking": False,
-                "created_at": timestamp,
-            })
-        state["unresolved"] = unresolved
-        _write_state(reservation.root, state, timestamp)
+                state = _read_state(reservation.root, timestamp)
+                rows = list(state["reservations"])
+                state["reservations"] = [
+                    row
+                    for row in rows
+                    if row.get("id") != reservation.reservation_id
+                ]
+                unresolved = [
+                    row
+                    for row in state["unresolved"]
+                    if str(row.get("call_id") or "") != reservation.call_id
+                ]
+                if unresolved_row is not None:
+                    unresolved.append(unresolved_row)
+                state["unresolved"] = unresolved
+                _write_state(reservation.root, state, timestamp)
+                state_updated = True
+        except CostControlLockBusyError:
+            # Usage is already durable in the project ledger. Do not delay the
+            # user-visible result behind unrelated cost-state housekeeping.
+            state_updated = False
 
     if release_reason:
         _append_audit(
@@ -548,6 +573,7 @@ def _close_reservation(
             call_id=reservation.call_id,
             amount_usd=reservation.amount_usd,
             reason=release_reason,
+            state_tracked=state_updated,
         )
     else:
         actual = float(cost_usd) if cost_usd is not None else None
@@ -560,6 +586,7 @@ def _close_reservation(
             cost_usd=actual,
             pricing_status=pricing_status,
             error=error,
+            state_tracked=state_updated,
         )
     return True
 
@@ -572,14 +599,23 @@ def cost_control_snapshot(
 ) -> dict[str, Any]:
     timestamp = time.time() if now is None else float(now)
     root = _global_root(global_root)
+    day_start = _local_day_start(timestamp)
+    settled_call_ids = {
+        record.call_id
+        for record in _global_records(root, day_start)
+        if record.call_id
+    }
     snapshot_stale = False
     try:
         with _locked(root, timeout_seconds=lock_timeout_seconds):
             state = _read_state(root, timestamp)
-            reservations = _prune_reservations(list(state["reservations"]))
+            reservations = _prune_reservations(
+                list(state["reservations"]),
+                settled_call_ids=settled_call_ids,
+            )
             unresolved = _resolved_unpriced(
                 list(state["unresolved"]),
-                day_start=_local_day_start(timestamp),
+                day_start=day_start,
             )
             state["reservations"] = reservations
             state["unresolved"] = unresolved
@@ -590,10 +626,13 @@ def cost_control_snapshot(
         # call is settling; prune only in the returned projection and leave the
         # writer-owned file untouched.
         state = _read_state(root, timestamp)
-        reservations = _prune_reservations(list(state["reservations"]))
+        reservations = _prune_reservations(
+            list(state["reservations"]),
+            settled_call_ids=settled_call_ids,
+        )
         unresolved = _resolved_unpriced(
             list(state["unresolved"]),
-            day_start=_local_day_start(timestamp),
+            day_start=day_start,
         )
         snapshot_stale = True
     payload = {
