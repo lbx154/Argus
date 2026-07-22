@@ -15,7 +15,7 @@ jobs actually finished.
 """
 from __future__ import annotations
 
-from ...skills.stage_checklists import ChecklistItem
+from ...skills.stage_machine import ChecklistItem
 
 STAGE_ORDER = ["execute"]
 CHECKLIST_STAGE_ORDER = tuple(STAGE_ORDER)

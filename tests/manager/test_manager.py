@@ -129,7 +129,7 @@ def test_plan_stages_defaults_when_vertical_has_no_stage_order(monkeypatch):
     STAGE_ORDER (an optional hook, not a failure) still gets the canonical
     template — this is NOT the guessing anti-pattern, it's the documented
     optional-hook default used throughout verticals/_base.py."""
-    from argus_skill.skills.stage_checklists import CANONICAL_STAGE_ORDER
+    from argus_skill.verticals.research.stages import CANONICAL_STAGE_ORDER
     from argus_skill.verticals import _base
 
     class _BareModule:
@@ -615,7 +615,7 @@ def test_divide_resets_stage_when_new_intent_supersedes_finished_prior_vertical(
     brand-new project. After the fix, ``divide`` must reset ``current_stage``
     to research's FIRST stage.
     """
-    from argus_skill.skills.stage_checklists import current_stage
+    from argus_skill.skills.stage_machine import current_stage
     from argus_skill.verticals._data_domain import write_data_domain
 
     old_stage_order = ("investigate", "configure", "dry_run", "document", "review")

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.skills.stage_checklists import current_stage, rollback_stage
+from argus_skill.skills.stage_machine import current_stage, rollback_stage
 
 
 def _write_state(root: Path, stage: str) -> Path:

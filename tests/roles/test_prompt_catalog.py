@@ -32,7 +32,7 @@ from argus_skill.roles.prompts.planner import (
     preview_request,
 )
 from argus_skill.roles.prompts.reviewer import evaluate_request
-from argus_skill.skills.stage_checklists import (
+from argus_skill.skills.stage_machine import (
     format_full_pipeline_checklist,
     format_stage_checklist,
 )

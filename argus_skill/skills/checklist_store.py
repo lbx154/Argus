@@ -1,7 +1,7 @@
 """Per-project, stage-keyed checklist STORE — the Planner-authored override.
 
-Historically the per-stage checklist was a frozen Python constant
-(``stage_checklists.STAGE_CHECKLISTS`` + each vertical's ``CHECKLIST_ITEMS``).
+Historically the per-stage checklist was a frozen Python constant in the
+research vertical plus each vertical's ``CHECKLIST_ITEMS``.
 That floor is now a *reference seed*: the Planner is the sole runtime author of
 the current task's checklist, per stage, and this module stores it —
 ``<project_root>/research/CHECKLISTS.json``.
@@ -11,7 +11,7 @@ is ignored after the Manager changes the project to math (and vice versa); stage
 names or gates never leak across verticals.
 
 Read path: :func:`store_items_for_stage` is consulted by
-``stage_checklists.format_stage_checklist`` / ``format_full_pipeline_checklist``
+``stage_machine.format_stage_checklist`` / ``format_full_pipeline_checklist``
 BEFORE the seed constants. It returns:
 
 * a tuple of items when the store vertical matches the committed project
@@ -30,7 +30,7 @@ emits ``checklist_feedback`` for the Planner to act on next cycle.
 Fail-open everywhere: a missing/corrupt store reads as empty; a write error
 leaves the store untouched and the planning cycle continues. ``ChecklistItem``
 and the active-vertical seed lookup are late-imported to avoid the module-load
-cycle ``stage_checklists`` ↔ this module.
+cycle ``stage_machine`` ↔ this module.
 """
 from __future__ import annotations
 
@@ -129,7 +129,7 @@ def _coerce_item(raw: object) -> Any | None:
     statement = str(raw.get("statement") or "").strip()
     if not item_id or not statement:
         return None
-    from .stage_checklists import ChecklistItem  # late import (cycle)
+    from .stage_machine import ChecklistItem  # late import (cycle)
 
     return ChecklistItem(
         id=item_id,
@@ -229,7 +229,7 @@ def seed_items_for(project_root: object, stage: str) -> "tuple[Any, ...]":
     if not stage_n:
         return ()
     try:
-        from .stage_checklists import _active_vertical_checklist_defs
+        from .stage_machine import _active_vertical_checklist_defs
 
         _order, items = _active_vertical_checklist_defs(project_root)
         return tuple(items.get(stage_n, ()))

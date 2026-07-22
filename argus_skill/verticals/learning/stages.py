@@ -63,7 +63,7 @@ WIRING STATUS (be honest about what is live vs pending — no overselling):
 """
 from __future__ import annotations
 
-from ...skills.stage_checklists import ChecklistItem
+from ...skills.stage_machine import ChecklistItem
 
 STAGE_ORDER = ["ingest", "study", "curate", "review"]
 

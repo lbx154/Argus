@@ -69,7 +69,7 @@ def _reviewer_checklist_for(
 
 def _get_current_stage(project_root: Path) -> str:
     try:
-        from ..skills.stage_checklists import current_stage
+        from ..skills.stage_machine import current_stage
 
         return current_stage(project_root)
     except Exception:  # noqa: BLE001
@@ -642,7 +642,7 @@ def main() -> int:
 
     # Venue format is irrelevant before drafting. In particular, an intentionally
     # undecided venue must not prevent research/plan/benchmark review.
-    from argus_skill.skills.stage_checklists import VENUE_DEPENDENT_STAGES
+    from argus_skill.verticals.research.stages import VENUE_DEPENDENT_STAGES
 
     if vertical_name == "research" and stage in VENUE_DEPENDENT_STAGES:
         from argus_skill.skills.venue_profiles import resolve_venue_profile

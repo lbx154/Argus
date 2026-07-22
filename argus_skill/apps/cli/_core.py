@@ -314,10 +314,6 @@ def main(argv: list[str] | None = None) -> int:
         return _run_with_path_resolution_errors(lambda: _cmd_query(args))
     if args.command == "learn":
         return _run_with_path_resolution_errors(lambda: _cmd_learn(args))
-    if args.command == "report":
-        from ...tools.research_report import run_report
-
-        return _run_with_path_resolution_errors(lambda: run_report(args))
     if args.daemon:
         return _run_with_path_resolution_errors(
             lambda: _cmd_daemon_start(args, foreground=False)
@@ -720,7 +716,7 @@ def _cmd_notify(args: argparse.Namespace) -> int:
     target_stage = str(getattr(args, "notify_stage", "") or "").strip()
     if target_stage:
         from ...daemon.state import read_daemon_status
-        from ...skills.stage_checklists import normalize_stage_for_project
+        from ...skills.stage_machine import normalize_stage_for_project
 
         status = read_daemon_status(bundle.project.root)
         stage_root = (

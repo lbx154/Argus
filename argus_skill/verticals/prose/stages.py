@@ -18,7 +18,7 @@ Stages (``completion_gate="none"``):
 """
 from __future__ import annotations
 
-from ...skills.stage_checklists import ChecklistItem
+from ...skills.stage_machine import ChecklistItem
 
 STAGE_ORDER = ["intake", "plan", "draft", "structure_check", "review", "revise"]
 CHECKLIST_OPTIONAL_STAGES = ("intake", "plan", "draft", "revise")

@@ -365,7 +365,7 @@ class _VerticalDecisionMixin:
         )
         if order:
             return list(order)
-        from ..skills.stage_checklists import CANONICAL_STAGE_ORDER
+        from ..verticals.research.stages import CANONICAL_STAGE_ORDER
 
         return list(CANONICAL_STAGE_ORDER)
 
@@ -399,7 +399,7 @@ class _VerticalDecisionMixin:
         is reset to the selected vertical's first stage even when the new task
         uses the same vertical (via
         ``vertical_select.reset_stage_for_new_intent`` /
-        ``stage_checklists.rollback_stage``) instead of silently inheriting a
+        ``stage_machine.rollback_stage``) instead of silently inheriting a
         stale terminal stage. This does NOT touch ``persist_vertical``'s
         seed-only, never-reset contract for the (common) in-project
         reclassification case, where the prior vertical was not yet finished.

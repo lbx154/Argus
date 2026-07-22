@@ -344,7 +344,7 @@ onto something Argus already ships:
 | Humanize concept | Argus equivalent |
 |---|---|
 | plan generation from a draft | `planner/planner.py` + `planner_schema.json` |
-| AC-style acceptance criteria | `skills/stage_checklists.py` + reviewer verdicts |
+| AC-style acceptance criteria | `skills/stage_machine.py` + reviewer verdicts |
 | upper/lower scope bounds | stage checklist `done` / `continue` / `blocked` |
 | goal tracking across rounds | `life/memory.py` EventJournal + Backlog |
 | independent review | L2 reviewer (with shell access) |

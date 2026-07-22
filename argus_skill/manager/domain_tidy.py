@@ -126,7 +126,7 @@ def _render_stages_py(name: str, project_root: Path) -> str:
     lines.append('wins over the (now-inert) project data domain on resolution."""')
     lines.append("from __future__ import annotations")
     lines.append("")
-    lines.append("from ...skills.stage_checklists import ChecklistItem")
+    lines.append("from ...skills.stage_machine import ChecklistItem")
     lines.append("")
     lines.append(f"STAGE_ORDER = {stage_order!r}")
     lines.append(f"CHECKLIST_STAGE_ORDER = {tuple(checklist_order)!r}")

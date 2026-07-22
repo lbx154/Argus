@@ -342,8 +342,8 @@ def render_reviewer_prompt(
     from ...core.research_contract import resolve_research_target_level
     from ...engineer.checkpoint import shared_checkpoint_instructions
     from ...skills.harness_overlay import resolve_project_root
-    from ...skills.stage_checklists import CANONICAL_STAGE_ORDER
     from ...skills.vertical_select import _persisted_vertical
+    from ...verticals.research.stages import CANONICAL_STAGE_ORDER
     from ..task_contract import EFFECTIVE_TASK_CONTRACT
     from .registry import resolve_role_prompt
 

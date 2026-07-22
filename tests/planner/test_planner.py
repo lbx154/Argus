@@ -1051,13 +1051,13 @@ def test_planner_preserves_stage_closing_dependent_task(
 def test_planner_prompt_keeps_objective_semantics_model_owned(
     monkeypatch, tmp_path,
 ) -> None:
-    from argus_skill.skills import harness_overlay, stage_checklists
+    from argus_skill.skills import harness_overlay, stage_machine
     from argus_skill.skills.vertical_select import persist_vertical
 
     persist_vertical(tmp_path, "math")
-    monkeypatch.setattr(stage_checklists, "current_stage", lambda *_a, **_k: "solve")
+    monkeypatch.setattr(stage_machine, "current_stage", lambda *_a, **_k: "solve")
     monkeypatch.setattr(
-        stage_checklists,
+        stage_machine,
         "format_stage_checklist",
         lambda s, **_k: f"<<CHECKLIST:{s}>>",
     )
@@ -1100,15 +1100,15 @@ def test_plan_next_returns_error_verdict_on_runner_exception() -> None:
 
 def _prompt_for_stage(monkeypatch, tmp_path, stage: str) -> str:
     """Build the planner prompt with current_stage pinned to ``stage``."""
-    from argus_skill.skills import harness_overlay, stage_checklists
+    from argus_skill.skills import harness_overlay, stage_machine
     from argus_skill.skills.vertical_select import persist_vertical
 
     # In a real mission the Manager decides + persists the vertical before the
     # planner builds a prompt; resolve_vertical is now fail-hard, so seed it.
     persist_vertical(tmp_path, "research")
-    monkeypatch.setattr(stage_checklists, "current_stage", lambda *_a, **_k: stage)
+    monkeypatch.setattr(stage_machine, "current_stage", lambda *_a, **_k: stage)
     monkeypatch.setattr(
-        stage_checklists,
+        stage_machine,
         "format_stage_checklist",
         lambda s, **_k: f"<<CHECKLIST:{s}>>",
     )

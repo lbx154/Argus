@@ -5,7 +5,7 @@ Main's vertical packages (``argus_skill.verticals.<name>.stages``) ship a
 (consumed by the System-(A) shell-check runner in
 ``argus_skill.tools.stage_check``). This module extends that contract with the
 OPTIONAL hooks System (B) — the markdown stage checklists in
-``argus_skill.skills.stage_checklists`` — needs to become vertical-aware:
+``argus_skill.skills.stage_machine`` — needs to become vertical-aware:
 
 * ``CHECKLIST_STAGE_ORDER: tuple[str, ...]`` — the stage order System (B)
   iterates (default: research's ``CANONICAL_STAGE_ORDER``).
@@ -131,10 +131,10 @@ def load_vertical(name: object, project_root: object = None) -> VerticalDefiniti
 def _research_defaults() -> tuple[tuple[str, ...], dict]:
     """Return research's ``(CANONICAL_STAGE_ORDER, STAGE_CHECKLISTS)`` defaults.
 
-    Late import to avoid a module-load cycle with ``stage_checklists`` (which
+    Late import to avoid a module-load cycle with ``stage_machine`` (which
     late-imports this module).
     """
-    from ..skills.stage_checklists import CANONICAL_STAGE_ORDER, STAGE_CHECKLISTS
+    from .research.stages import CANONICAL_STAGE_ORDER, STAGE_CHECKLISTS
 
     return CANONICAL_STAGE_ORDER, STAGE_CHECKLISTS
 

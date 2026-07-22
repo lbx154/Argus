@@ -156,7 +156,7 @@ class MissionExecutionSettlementMixin:
             guard_applied = live_stage == state.pipeline_stage_at_start
             if not guard_applied:
                 try:
-                    from ...skills.stage_checklists import rollback_stage
+                    from ...skills.stage_machine import rollback_stage
 
                     rollback_stage(
                         self._artifact_root(),

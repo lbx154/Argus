@@ -25,7 +25,7 @@ the Python package first, so the data domain becomes inert (idempotent).
 All reads are FAIL-OPEN: a missing / corrupt / malformed domain yields ``None``
 (or an empty listing) and never raises, so resolution and prompt building can
 never break on a bad data domain. ``ChecklistItem`` is late-imported to avoid a
-module-load cycle (``stage_checklists`` ↔ ``verticals._base`` ↔ this module).
+module-load cycle (``stage_machine`` ↔ ``verticals._base`` ↔ this module).
 """
 from __future__ import annotations
 
@@ -134,7 +134,7 @@ class DataDomain:
     def _build_checklist_items(raw: object) -> dict[str, tuple[Any, ...]]:
         if not isinstance(raw, dict):
             return {}
-        from ..skills.stage_checklists import ChecklistItem  # late import (cycle)
+        from ..skills.stage_machine import ChecklistItem  # late import (cycle)
 
         out: dict[str, tuple[Any, ...]] = {}
         for stage, items in raw.items():

@@ -10,7 +10,7 @@ and integration quality matter as much as a latency number.
 
 from __future__ import annotations
 
-from ...skills.stage_checklists import ChecklistItem
+from ...skills.stage_machine import ChecklistItem
 from ..speedrun.stages import _PIPELINE_CHECK
 
 STAGE_ORDER = [

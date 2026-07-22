@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.skills.stage_checklists import format_stage_checklist
+from argus_skill.skills.stage_machine import format_stage_checklist
 from argus_skill.skills.venue_profiles import (
     FRONTIERS_SLEEP_PROFILE,
     get_venue_profile,

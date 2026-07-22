@@ -50,26 +50,17 @@ detection as a narrow publication-safety FINDING (`leak_free`, `leak_findings`,
 - All STRUCTURAL blocking (missing `main.tex`/source/PDF/snapshots, model error).
 - Publication-integrity findings: TODO/TBD/placeholder markers, infra/secret
   leak detection.
-- Anti-fabrication taxonomy in `pipeline_policy.py`: `experiment_evidence`
-  (method/result number mismatch, hosted-model-contradicts-no-external-model
-  claim, missing baseline run, proposed-result-missing,
-  quality-signal-contradicts-results, benchmark provenance), `claim_graph`,
-  `freshness`, `artifact_manifest`.
+- Evidence integrity remains the Reviewer's responsibility against current
+  artifacts and the active stage checklist.
 
 ### Pruned
 
-- `pipeline_policy.py` quality classes removed: `content_sufficiency`,
-  `exemplar_suitability`, `exemplar_structure`, `figure_table_style`,
-  `format_layout`, `layout_vision`, `academic_language`, `paper_infrastructure`
-  (+ the "needs N benchmark sources" prefixes `single_source_benchmark`,
-  `insufficient_executed_benchmark_sources`, `missing_benchmark`, which are a
-  quality bar, not fabrication). `pipeline_contracts.py`
-  `DEFAULT_VALIDATION_REPAIR_MODES` pruned to match. Contracts iterate the
-  taxonomy dynamically, so the validation-priority artifact stays consistent.
+- Machine-authored quality taxonomies and repair-mode routing were removed;
+  Reviewer judgment and vertical-owned checklists now carry that responsibility.
 
 ### Migrated to the agent checklist
 
-`stage_checklists.py` already covered section order incl. Conclusion placement,
+`stage_machine.py` already covered section order incl. Conclusion placement,
 references on page 9+, 7.5–8.0 body pages, no overfull hbox, figures from raw
 results, infra-leak grep, placeholders, table style, citations. Added a new
 `review.language` item covering abstract shape, introduction roadmap / cited
@@ -97,5 +88,5 @@ reviewer agent self-verifies (the academic-language reviewer is advisory input).
 ## Verification
 
 - Full test suite green; converted files lint-clean (the one remaining ruff
-  finding in `stage_checklists.py` import ordering is pre-existing).
+  finding in `stage_machine.py` import ordering is pre-existing).
 - Test-induced `paper/artifacts/slm_llm_human_hierarchy.json` churn reverted.

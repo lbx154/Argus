@@ -22,7 +22,7 @@ Stages (``completion_gate="none"`` — reviewer verdict ends the mission):
 """
 from __future__ import annotations
 
-from ...skills.stage_checklists import ChecklistItem
+from ...skills.stage_machine import ChecklistItem
 
 STAGE_ORDER = ["intake", "form_plan", "compose", "prosody_check", "review", "revise"]
 CHECKLIST_OPTIONAL_STAGES = ("intake", "form_plan", "compose", "revise")

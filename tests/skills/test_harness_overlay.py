@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from argus_skill.skills import harness_overlay as ho
-from argus_skill.skills.stage_checklists import format_stage_checklist
+from argus_skill.skills.stage_machine import format_stage_checklist
 from argus_skill.skills.vertical_select import persist_vertical
 
 

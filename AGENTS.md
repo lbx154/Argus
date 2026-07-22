@@ -10,7 +10,7 @@
 
 ## 一句话架构
 
-`argus-skill` 是一个长期运行的 agent harness：外层 `LifeSupervisor` 管 backlog、预算、daemon、L4 planner（forward scheduling）；内层 `SkillLoop` 管单个任务的 skill 匹配、L1 engineer 执行、L2 reviewer 验收和选择性 Skill maintenance。任务内先写 project-layer Skill；成功 mission 边界由 Manager 判断 stay / shared-global / shared-vertical，默认把可迁移经验传播给其他项目。历史上独立的 L3 critic 逐轮打磨循环已经移除。完成来源现在由结构化 `review_source` 明确记录：允许自审的低风险 bounded mission 可由 Engineer 显式 `review=skip` 完成；要求独立审查的 vertical、`stage_closing` / `review:required` 任务，以及 Engineer 主动选择 `review=required` 的任务，仍交给 L2 Reviewer。EMNLP 论文生成 pipeline 是 built-in skill + per-stage reviewer 检查（stage checklists，reviewer 对照 artifact 裁决）+ planner fallback 共同实现的，不是单独一个 `make_paper.py`。`pipeline_contracts.py` 现在只负责 manifest/freshness/validation-priority 这套 artifact 构建-修复工具，不再是质量 gate。
+`argus-skill` 是一个长期运行的 agent harness：外层 `LifeSupervisor` 管 backlog、预算、daemon、L4 planner（forward scheduling）；内层 `SkillLoop` 管单个任务的 skill 匹配、L1 engineer 执行、L2 reviewer 验收和选择性 Skill maintenance。任务内先写 project-layer Skill；成功 mission 边界由 Manager 判断 stay / shared-global / shared-vertical，默认把可迁移经验传播给其他项目。历史上独立的 L3 critic 逐轮打磨循环已经移除。完成来源现在由结构化 `review_source` 明确记录：允许自审的低风险 bounded mission 可由 Engineer 显式 `review=skip` 完成；要求独立审查的 vertical、`stage_closing` / `review:required` 任务，以及 Engineer 主动选择 `review=required` 的任务，仍交给 L2 Reviewer。论文 pipeline 是 built-in skill + vertical-owned checklist + Reviewer 裁决 + Planner fallback 共同实现的，不是机器 validator 工具链。
 
 **角色限制责任，不限制能力。** L4 Planner 持续负责 forward planning，但使用完整
 Agent 工具主动读代码、跑有界探针/测试，并可在形成或验证计划所必需时直接编辑代码或规划
@@ -66,7 +66,7 @@ argus-skill / python -m argus_skill
 | L2 | Reviewer | `argus_skill/reviewer/_core.py`, `argus_skill/reviewer/reviewer_schema.json` | 对要求或请求独立审查的任务给出 done/continue/blocked，维护 reviewer JSON schema，并承担论文任务的强制 peer-review gate |
 | L4 | Planner | `argus_skill/planner/planner.py`, `argus_skill/life/supervisor/_core.py` | 持续读取真实项目并用完整 Agent 工具调查、运行有界探针/测试、必要时编辑代码或规划 artifact，以维护 forward plan 和自动排新任务；也负责 EMNLP final gate 失败后的自动分流。历史的 L3 critic 逐轮打磨层已移除；Planner 不负责 mission 验收 |
 | Skill | 横向能力复用 | `argus_skill/skills/store.py`, `argus_skill/skills/layered.py`, `argus_skill/manager/skill_tidy.py` | project / shared-vertical / shared-global 匹配，Engineer/Reviewer 选择性 maintenance，成功 mission 后 Manager 跨项目传播 |
-| Contracts | 论文 artifact 工具 + 状态机 | `argus_skill/skills/pipeline_contracts.py`, `argus_skill/skills/pipeline_policy.py`, `argus_skill/skills/stage_checklists.py` | manifest/freshness/validation-priority 构建-修复（pipeline_contracts）；质量 gate 走 stage checklist（stage_checklists） |
+| Stage | 通用状态机 + vertical checklist | `argus_skill/skills/stage_machine.py`, `argus_skill/verticals/*/stages.py`, `argus_skill/skills/checklist_store.py` | 通用 stage 状态转移/渲染在 `stage_machine`；stage 顺序、seed checklist 和领域渲染归各 vertical |
 
 > **常见误解**：读到 L0/L1/L2/L4 这个编号，容易以为 argus 是"三层 agent"（Planner/Engineer/Reviewer，L3 critic 已退役）。实际常驻跑着的是**四个**角色——Manager/Planner/Engineer/Reviewer（`cli/roles_status.py`: `ROLES = ("manager", "planner", "engineer", "reviewer")`）；Manager 不占 L 编号只是因为它跨越整条流水线（前门 + stage 权威），不代表它级别更低。另外还有一个可选的 **Curator** 角色（`ARGUS_SKILL_CURATOR_*`），只在并行 subagent/团队模式下才跑，管 skill 池维护和团队排行榜蒸馏，不参与日常单任务流水线，因此不在上表中。README 和三份 pitch 文档（商业计划书/项目介绍/一页纸概览）历史上都只画了三个角色（未包含 Manager），已于 2026-07-07 全部修正为四个角色。
 
@@ -85,7 +85,8 @@ argus-skill / python -m argus_skill
 兼容薄代理；它们收集动态 fragment 后也必须调用 `roles/prompts/` 完成最终字符串
 拼接，不得在 runtime 重新组合 Prompt 或出现第二份 Prompt 长字符串。Vertical 的动态内容仍由
 `verticals/<name>/stages.py` 提供，通过 `roles/prompts/registry.py` 注入；stage
-checklist 的数据源仍是 `skills/stage_checklists.py`。
+checklist seed 的数据源是各 `verticals/*/stages.py`；`skills/stage_machine.py`
+只负责通用状态转移、active-vertical 解析和渲染。
 
 ## 入口和运行面
 
@@ -312,7 +313,7 @@ L2 reviewer 在 `argus_skill/reviewer/_core.py`。
 > 注意：历史上的 `_EMNLP_*_CODES` issue-code 分组、`_select_emnlp_finalization_repair_task`、
 > `_automatic_emnlp_finalization_task_for_current_gate`、`_build_emnlp_finalization_objective`、
 > `_planner_tasks_need_emnlp_finalization_override` 这套“按 issue code 选 repair lane”的确定性
-> 分流**已经移除**。现在 supervisor 不读 `pipeline_contracts` 的 validator 结果来决定派活，
+> 分流**已经移除**。现在 supervisor 不读机器 validator 结果来决定派活，
 > 完成与否只由 L2 reviewer 对 full-pipeline checklist 的 `final_submission` 认证决定。改完成判定
 > 逻辑看上面这几个函数，不要再去找 issue-code 分组。
 
@@ -391,7 +392,7 @@ paper/
   style_ref/
 ```
 
-主要 stage 和 ownership（下表第三列的 `validate-*` 是历史 CLI 名，现已是 `stage_checklists.py` 里的 stage checklist 检查项，由 L2 reviewer 对照 artifact 裁决，不再是可调用的 CLI 子命令或 `pipeline_contracts` 函数）：
+主要 stage 和 ownership（下表第三列的 `validate-*` 是历史 CLI 名；当前由 L2 Reviewer 按 research vertical checklist 直接对照 artifact 裁决）：
 
 | Stage | 主要 skill | 主要 artifact / 检查项 |
 | --- | --- | --- |
@@ -406,37 +407,14 @@ paper/
 | 视觉布局 | `paper-review-revision-loop.md`, `emnlp-format-preflight.md` | `paper_layout_review --write`, `validate-layout-review` |
 | 最终提交 | `research-submission-assurance-gate.md`（兼容文件名，skill 名为 Final Paper Review） | Reviewer 直接阅读当前论文、PDF 和 claim-critical sources；不要求 assurance packet |
 
-## EMNLP 论文检查（stage checklists + validator 函数）
+## 论文检查（vertical-owned stage checklists）
 
-质量校验由 L2 reviewer 读 stage checklist 完成（`argus_skill/skills/stage_checklists.py` 的 `format_stage_checklist` / `format_full_pipeline_checklist`），对照 artifact 做裁决。`pipeline_contracts.py` 现在只剩 **manifest / freshness / validation-priority** 这套 artifact 构建-修复子系统，不再托管成套的论文质量 `validate-*` gate。
+质量校验由 L2 Reviewer 读取 active vertical 在 `verticals/*/stages.py` 定义的 checklist，并通过 `skills/stage_machine.py` 的通用渲染入口对照真实 artifact 裁决。仓库不再提供独立的 pipeline validator/policy 模块。
 
 ```bash
 # 完成判定由 reviewer 走 stage checklist：
-python -c "from argus_skill.skills.stage_checklists import format_full_pipeline_checklist; print(format_full_pipeline_checklist(role='reviewer'))"
+python -c "from argus_skill.skills.stage_machine import format_full_pipeline_checklist; print(format_full_pipeline_checklist(role='reviewer'))"
 ```
-
-`pipeline_contracts.py` 现存的 CLI / 可 import 表面（全部是 artifact 构建-修复工具，**不是**质量 gate）：
-
-```text
-# CLI（skill 文案会让 agent 直接跑这几个）
-python -m argus_skill.skills.pipeline_contracts refresh-manifest --project-root .
-python -m argus_skill.skills.pipeline_contracts refresh-artifact-freshness --project-root .
-python -m argus_skill.skills.pipeline_contracts write-validation-priority-policy --project-root .
-python -m argus_skill.skills.pipeline_contracts repair-emnlp-contract-artifacts --project-root .
-
-# 对应可 import 的函数
-refresh_artifact_manifest      / validate_artifact_manifest
-refresh_artifact_freshness     / validate_artifact_freshness
-write_validation_priority_policy / validate_validation_priority_policy
-repair_emnlp_contract_artifacts
-```
-
-> 历史上 `pipeline_contracts.py` 还有约 20 个成套的论文质量 `validate-*` 函数
-> （`validate_emnlp_paper_contract` / `validate_claim_graph` / `validate_full_scale_experiment_evidence`
-> / `validate_image2_figures` / `validate_layout_review` …）和一个把它们串起来的
-> `validate_full_emnlp_readiness` 总 gate。完成判定改成 L2 reviewer 的 full-pipeline checklist
-> 认证后，这些函数**没有任何运行时 / 测试 / skill 调用方**，已整体**删除**（文件从 ~11.5k 行降到 ~2.5k 行）。
-> 要重新引入某项机器校验，优先在 `stage_checklists.py` 的 checklist 里加一条，由 reviewer 验证。
 
 项目是否“EMNLP ready”由 L2 reviewer 的 `format_full_pipeline_checklist` 整链裁决决定
 （真实实验、claim 支撑、paper contract、format、figure quality 和独立 review
@@ -446,7 +424,7 @@ repair_emnlp_contract_artifacts
 改 validator 时注意：
 
 - `ContractIssue(code, path, message)` 的 `code` 仍是有用的诊断标识，重命名前先 grep 引用（tests、reviewer 文案）。
-- full-pipeline 完成判定现在走 L2 reviewer 的 `stage_checklists` 整链裁决，不再有 `supervisor.py` 里的 EMNLP issue-code 分组；新增检查项时改 `stage_checklists.py` 的 checklist，而不是去找已删除的 issue-code lane。
+- full-pipeline 完成判定现在走 L2 Reviewer 对 active vertical checklist 的整链裁决，不再有 `supervisor.py` 里的 EMNLP issue-code 分组；新增检查项时改对应 `verticals/*/stages.py` 的 seed，而不是通用状态机或已删除的 issue-code lane。
 - 新增 artifact 后，通常还要更新 manifest/freshness/validation priority 相关逻辑。
 - 先改 narrow validator，再考虑是否需要在 checklist 里新增一项。
 
@@ -513,7 +491,7 @@ image-2。
 所以：
 
 - 改“项目什么时候算完成 / 还差认证时下一步派什么”，改 `supervisor.py` 的 `_plan_next_work` 改派分支和 `_journal_has_full_emnlp_gate_success`。
-- 改“full-pipeline checklist 里某一项该不该判过”，改 `skills/stage_checklists.py`（reviewer 实际读的 checklist）；manifest/freshness/policy 这类 artifact 的构建-修复仍在 `pipeline_contracts.py`。
+- 改“full-pipeline checklist 里某一项该不该判过”，改对应 `verticals/*/stages.py` 的 checklist seed；通用状态转移/渲染才改 `skills/stage_machine.py`。
 - 改“agent 读到任务后应该怎么做”，改 `builtin_skills/*.md` 或 `SkillLoop._build_engineer_prompt`。
 
 ## Backend / runner
@@ -587,7 +565,7 @@ USD 预算只读全局配置；项目没有独立预算文件。
 
 ```bash
 pytest tests/test_loop_smoke.py
-pytest tests/skills/test_pipeline_contracts_cli.py
+pytest tests/skills/test_stage_checklists.py tests/skills/test_verticals.py
 pytest tests/skills/test_paper_layout_review_snapshots.py tests/skills/test_paper_layout_review_venue.py
 pytest tests/skills/test_academic_language_review_venue.py
 pytest tests/test_paper_infrastructure_review.py
@@ -606,7 +584,7 @@ pytest tests/tools/test_image_tool.py
 pytest
 ```
 
-只改文档通常不用全跑。改 `pipeline_contracts.py` 至少跑 pipeline/review/image 相关 tests。改 `supervisor.py` 至少跑 life/daemon/planner 相关 tests。
+只改文档通常不用全跑。改 `stage_machine.py` 或 vertical checklist 至少跑 stage/vertical/Manager/Reviewer 相关 tests。改 `supervisor.py` 至少跑 life/daemon/planner 相关 tests。
 
 ## 修改时的层级规则
 
@@ -616,7 +594,7 @@ pytest
 4. L2 验收标准改 `reviewer/_core.py` 和相关 role skill。
 5. L4 调度策略改 `life/supervisor/_core.py` / `planner/planner.py`。
 6. Skill 匹配、蒸馏、writeback 改 `skills/store.py` / `scientist/*`。
-7. EMNLP 质量是否合格改 `skills/stage_checklists.py` 的 checklist；manifest/freshness/policy artifact 构建-修复改 `skills/pipeline_contracts.py`。
+7. Vertical 质量标准改对应 `verticals/*/stages.py` 的 checklist；通用状态转移和 checklist 渲染改 `skills/stage_machine.py`。
 8. EMNLP 项目何时算完成 / 还差认证时改派什么，改 `life/supervisor/_core.py` 的 `_plan_next_work` 与 `_journal_has_full_emnlp_gate_success`。
 9. Agent 读到 paper 任务后的操作手册改 `argus_skill/builtin_skills/*.md`。
 10. 生成 evidence/review JSON 的工具改 `skills/*_review.py` 或 `tools/image_tool.py`，不要只改 validator 放宽。

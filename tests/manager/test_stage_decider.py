@@ -21,7 +21,7 @@ from argus_skill.manager.stage_decider import (
     final_stage_completion_decision,
     parse_stage_decision,
 )
-from argus_skill.skills.stage_checklists import (
+from argus_skill.skills.stage_machine import (
     ChecklistItem,
     ChecklistLoadState,
     StageChecklistContract,
@@ -443,49 +443,6 @@ def test_decide_rollback_writes_state(tmp_path: Path) -> None:
     assert _read_stage(root) == "benchmark"
 
 
-def test_unchanged_ground_truth_snapshot_cannot_undo_legal_advance(
-    tmp_path: Path,
-) -> None:
-    root = _project(tmp_path, current="research")
-    ground_truth = root / "research" / "GROUND_TRUTH.md"
-    ground_truth.write_text(
-        "Observed pipeline stage: research\n",
-        encoding="utf-8",
-    )
-    advance_stage(
-        root,
-        target_stage="plan",
-        reason="research evidence certified",
-        advanced_by="manager",
-    )
-    state = json.loads(
-        (root / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
-    )
-    snapshot = state["stage_history"][-1]["ground_truth_snapshot"]
-    assert snapshot["observed_pipeline_stage"] == "research"
-    assert snapshot["pipeline_revision"] == 0
-
-    mgr = Manager(project_root=root, runner=_StubRunner({
-        "action": "rollback",
-        "target_stage": "research",
-        "reason": (
-            "research/GROUND_TRUTH.md contradicts the live "
-            "research/PIPELINE_STATE.json plan stage"
-        ),
-    }))
-    transition = mgr.decide_stage_transition(
-        review=_review(status="continue"),
-        project_root=root,
-    )
-
-    assert transition.action == "hold"
-    assert (
-        transition.diagnostic
-        == "certified_ground_truth_snapshot_rollback_rejected"
-    )
-    assert _read_stage(root) == "plan"
-
-
 def test_changed_ground_truth_can_still_support_real_rollback(
     tmp_path: Path,
 ) -> None:
@@ -847,7 +804,7 @@ def test_decide_persistent_empty_done_satisfied_completes_final_stage(
     root = _submission_project(tmp_path)
     backend = _StubRunner("")
     mgr = Manager(project_root=root, runner=backend)
-    from argus_skill.skills.stage_checklists import (
+    from argus_skill.skills.stage_machine import (
         resolve_stage_checklist_contract,
     )
 

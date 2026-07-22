@@ -12,7 +12,7 @@ import pytest
 
 from argus_skill.manager import Manager
 from argus_skill.manager.domain_author import VerticalDecisionError
-from argus_skill.skills import stage_checklists as sc
+from argus_skill.skills import stage_machine as sc
 from argus_skill.skills import vertical_select as vs
 
 

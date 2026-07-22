@@ -83,7 +83,7 @@ class RolePromptCatalog:
         stage_order = tuple(vertical_checklist_stage_order(vertical_module))
         stage = str(request.stage or "").strip()
         if not stage and request.checklist_mode is not ChecklistMode.NONE:
-            from ...skills.stage_checklists import current_stage
+            from ...skills.stage_machine import current_stage
 
             stage = current_stage(root or ".")
 
@@ -99,7 +99,7 @@ class RolePromptCatalog:
         checklist = ""
         checklist_role = request.checklist_role or request.role
         if checklist_mode is ChecklistMode.STAGE:
-            from ...skills.stage_checklists import format_stage_checklist
+            from ...skills.stage_machine import format_stage_checklist
 
             checklist = format_stage_checklist(
                 stage,
@@ -108,7 +108,7 @@ class RolePromptCatalog:
                 scope=scope,
             )
         elif checklist_mode is ChecklistMode.FULL_PIPELINE:
-            from ...skills.stage_checklists import format_full_pipeline_checklist
+            from ...skills.stage_machine import format_full_pipeline_checklist
 
             checklist = format_full_pipeline_checklist(
                 role=checklist_role.value,

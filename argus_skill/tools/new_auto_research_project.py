@@ -65,7 +65,6 @@ Ownership map:
 | L4 planner continuous-mode task creation and mission supervision | `argus_skill/life/supervisor.py`, `argus_skill/planner/planner.py` |
 | Reviewer-proposed skill memory (selection + structurally safe CRUD, no Manager approval or admission gate), compaction, storage, builtin seeding | `argus_skill/skills/skill_router.py` (SkillRouter: identity + protected-skill guards), `argus_skill/manager/skill_review.py` (Manager's post-hoc library PLACEMENT tidy-up only), `argus_skill/skills/compaction.py`, `argus_skill/skills/store.py`, `argus_skill/skills/builtins.py`, `argus_skill/builtin_skills/` |
 | Reviewer-proposed project wiki memory (structured CRUD, no Manager gate), evidence-verbatim anti-fabrication | `argus_skill/wiki/router.py` (WikiRouter), `argus_skill/wiki/store.py`, `argus_skill/wiki/auto_hooks.py`, `argus_skill/skills/provenance.py` |
-| EMNLP artifact-validation helpers (importable checks, no completion gating) | `argus_skill/skills/pipeline_contracts.py`, `argus_skill/skills/pipeline_policy.py` |
 | Final-submission completion certification (L2 reviewer contract + checklist) | `argus_skill/reviewer/_core.py`, `argus_skill/reviewer/reviewer_schema.json` |
 | Academic-language, infrastructure-leak, and visual-layout review tools | `argus_skill/skills/academic_language_review.py`, `argus_skill/skills/paper_infrastructure_review.py`, `argus_skill/skills/paper_layout_review.py` |
 | Image-2 paper figure prompt/generation/review/metadata helpers | `argus_skill/tools/image_tool.py` |
@@ -73,9 +72,8 @@ Ownership map:
 
 Modification rule: final-submission completion is certified by the L2 reviewer
 contract — to change what "done" requires, edit the reviewer prompt/checklist in
-`argus_skill/reviewer/_core.py` and `reviewer_schema.json`; if an artifact
-check should be stricter or looser, change `pipeline_contracts.py`; if an agent
-needs different instructions while executing paper work, change the relevant
+`argus_skill/reviewer/_core.py` and `reviewer_schema.json`; if an agent needs
+different instructions while executing paper work, change the relevant
 `argus_skill/builtin_skills/*.md` or `SkillLoop._build_engineer_prompt`. Do not
 hand-edit generated review JSON, manifest/freshness records, or
 submission-assurance artifacts just to make completion look certified.

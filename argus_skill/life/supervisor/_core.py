@@ -353,7 +353,7 @@ class LifeSupervisor(
         """
         try:
             root = self._artifact_root()
-            from ...skills.stage_checklists import current_stage
+            from ...skills.stage_machine import current_stage
 
             return current_stage(root)
         except Exception:  # noqa: BLE001

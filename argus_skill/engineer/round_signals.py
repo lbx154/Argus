@@ -230,7 +230,7 @@ def _upstream_stage_reconciliation_target(
     if not candidate:
         return ""
     try:
-        from ..skills.stage_checklists import (
+        from ..skills.stage_machine import (
             _active_vertical_checklist_defs,
             current_stage,
         )

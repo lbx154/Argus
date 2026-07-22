@@ -8,7 +8,7 @@ reproducible tool output.
 """
 from __future__ import annotations
 
-from ...skills.stage_checklists import ChecklistItem
+from ...skills.stage_machine import ChecklistItem
 
 STAGE_ORDER = ("specification", "rtl", "verification", "synthesis", "delivery")
 CHECKLIST_STAGE_ORDER = STAGE_ORDER

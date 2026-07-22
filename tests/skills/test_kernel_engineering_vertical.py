@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from argus_skill.skills.builtins import seed_builtin_skills_for_vertical
-from argus_skill.skills.stage_checklists import format_full_pipeline_checklist
+from argus_skill.skills.stage_machine import format_full_pipeline_checklist
 from argus_skill.skills.vertical_select import VERTICALS, persist_vertical, require_vertical
 from argus_skill.verticals._base import (
     load_vertical,

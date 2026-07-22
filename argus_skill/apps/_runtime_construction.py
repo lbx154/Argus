@@ -259,7 +259,7 @@ class _RunnerConstructionMixin:
         )
         # ``_artifact_root`` / Manager's ``project_root`` MUST be the real
         # mission WORKDIR, never the daemon's internal life_dir: every OTHER
-        # reader/writer of ``research/PIPELINE_STATE.json`` (stage_checklists.
+        # reader/writer of ``research/PIPELINE_STATE.json`` (stage_machine.
         # current_stage/advance_stage, the reviewer's stage-gated checklist,
         # engineer/runner.py's stage-based branching, resolve_vertical, custom
         # data-domain lookups) operates against the WORKDIR. Pointing the
@@ -560,7 +560,7 @@ def _inbox_drainer_for(
 
     def _drain_one() -> str | None:
         try:
-            from ..skills.stage_checklists import current_stage
+            from ..skills.stage_machine import current_stage
 
             messages = drain_inbox_messages(
                 life_dir,

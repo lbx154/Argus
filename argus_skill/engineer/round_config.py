@@ -120,7 +120,7 @@ def _engineer_live_search(workdir: Any, stages: "frozenset[str]") -> bool:
     if not stages:
         return False
     try:
-        from ..skills.stage_checklists import current_stage
+        from ..skills.stage_machine import current_stage
 
         return (current_stage(workdir) or "").strip().lower() in stages
     except Exception:  # noqa: BLE001 — stage lookup must never break the round

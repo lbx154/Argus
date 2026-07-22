@@ -19,7 +19,7 @@ from argus_skill.apps._runtime import _SkillLoopRunner
 from argus_skill.core.models import ReviewDecision
 from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus_skill.skills.stage_checklists import resolve_stage_checklist_contract
+from argus_skill.skills.stage_machine import resolve_stage_checklist_contract
 from argus_skill.skills.vertical_select import persist_vertical
 
 
@@ -110,7 +110,7 @@ class _MutatingAdvanceRunner:
         self.project_root = project_root
 
     def execute(self, **_kwargs) -> _MissionOutcome:
-        from argus_skill.skills.stage_checklists import advance_stage
+        from argus_skill.skills.stage_machine import advance_stage
 
         advance_stage(
             self.project_root,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.skills.stage_checklists import STAGE_CHECKLISTS
+from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
 
 _SKILLS = Path(__file__).parents[2] / "argus_skill" / "builtin_skills"
 

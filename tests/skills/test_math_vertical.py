@@ -12,7 +12,7 @@ from argus_skill.core.research_contract import (
     resolve_research_target_level,
 )
 from argus_skill.manager.stage_decider import final_stage_completion_decision
-from argus_skill.skills.stage_checklists import (
+from argus_skill.skills.stage_machine import (
     ChecklistLoadState,
     format_stage_checklist,
     resolve_stage_checklist_contract,

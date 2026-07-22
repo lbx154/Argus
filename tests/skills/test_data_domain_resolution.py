@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 
 from argus_skill.skills import checklist_store as cs
-from argus_skill.skills import stage_checklists as sc
+from argus_skill.skills import stage_machine as sc
 from argus_skill.skills import vertical_select as vs
 from argus_skill.verticals import _data_domain as dd
 

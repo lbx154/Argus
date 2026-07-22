@@ -228,7 +228,7 @@ class SkillSelectionMixin:
             "off",
         ):
             try:
-                from .stage_checklists import current_stage as _vr_stage
+                from .stage_machine import current_stage as _vr_stage
                 from .venue_research import (
                     needs_venue_research,
                     research_venue_profile,
@@ -786,7 +786,7 @@ class SkillSelectionMixin:
                 from .idea_search import (
                     augment_idea_candidates as _augment_ideas,
                 )
-                from .stage_checklists import current_stage as _cur_stage
+                from .stage_machine import current_stage as _cur_stage
                 from .vertical_select import _persisted_vertical
 
                 is_research_vertical = (

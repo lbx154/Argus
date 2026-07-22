@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ...skills.stage_checklists import ChecklistItem
+from ...skills.stage_machine import ChecklistItem
 from .manuscript import PAPER_AUDIT_HEADING, manuscript_review_items
 
 STAGE_ORDER = ("scope", "model", "execute", "review", "manuscript")

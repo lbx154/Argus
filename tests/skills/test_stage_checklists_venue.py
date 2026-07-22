@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.skills.stage_checklists import (
+from argus_skill.skills.stage_machine import (
     format_full_pipeline_checklist,
     format_stage_checklist,
 )

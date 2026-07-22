@@ -60,7 +60,7 @@ class PlanningCycleMixin(
         except Exception:  # noqa: BLE001
             return None
         from ...planner import TaskSpec
-        from ...skills.stage_checklists import current_stage
+        from ...skills.stage_machine import current_stage
 
         stage = current_stage(root)
         job_ids = ", ".join(job.task_id for job in watched[:4])
@@ -195,7 +195,7 @@ class PlanningCycleMixin(
         )
 
         root = self._artifact_root()
-        from ...skills.stage_checklists import current_stage
+        from ...skills.stage_machine import current_stage
 
         stage = current_stage(root)
         key = (

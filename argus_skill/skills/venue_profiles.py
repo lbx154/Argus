@@ -9,7 +9,7 @@ References on page 9+), the mandatory ``Limitations``/``Ethical Considerations``
 end-matter, the ``Anonymous EMNLP Submission`` author block, the ACL style
 files, and the ``emnlp-academic-language-v2`` rubric were all hardcoded as bare
 constants spread across ``paper_layout_review``, ``stage_check``,
-``stage_checklists``, ``paper_structural_minimums`` and the academic-language
+``stage_machine``, ``paper_structural_minimums`` and the academic-language
 review. An ``aaai2026`` run would still have been graded against EMNLP rules.
 
 AAAI-2026 differs on every axis the format layer enforces (verified against the

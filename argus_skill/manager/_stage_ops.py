@@ -101,11 +101,11 @@ class _StageDecisionMixin:
         or a ``StageTransition(hold, ...)`` when the required checklist is not loaded
         (short-circuit before any model call).
         """
-        from ..skills.stage_checklists import (
+        from ..skills.stage_machine import (
             _active_vertical_checklist_defs as _vertical_defs,
         )
-        from ..skills.stage_checklists import current_stage as _current_stage
-        from ..skills.stage_checklists import (
+        from ..skills.stage_machine import current_stage as _current_stage
+        from ..skills.stage_machine import (
             resolve_stage_checklist_contract as _resolve_checklist_contract,
         )
         from ._core import StageTransition
@@ -279,7 +279,6 @@ class _StageDecisionMixin:
             fallback_empty_stage_decision,
             final_stage_completion_decision,
             parse_stage_decision,
-            reject_certified_ground_truth_snapshot_rollback,
         )
 
         if not str(raw or "").strip():
@@ -357,11 +356,6 @@ class _StageDecisionMixin:
                 })
 
         decision = parse_stage_decision(raw, current_stage=cur, stage_order=order)
-        decision = reject_certified_ground_truth_snapshot_rollback(
-            decision,
-            project_root=root,
-            current_stage=cur,
-        )
 
         if not open_ended:
             from ..core.research_contract import resolve_research_target_level
@@ -402,13 +396,13 @@ class _StageDecisionMixin:
     ) -> "StageTransition":  # noqa: F821
         """Phase 5: write the chosen action to ``PIPELINE_STATE.json`` and return a
         ``StageTransition`` describing what happened."""
-        from ..skills.stage_checklists import (
+        from ..skills.stage_machine import (
             advance_stage as _advance,
         )
-        from ..skills.stage_checklists import (
+        from ..skills.stage_machine import (
             complete_final_stage as _complete,
         )
-        from ..skills.stage_checklists import (
+        from ..skills.stage_machine import (
             rollback_stage as _rollback,
         )
         from ._core import StageTransition
@@ -483,14 +477,14 @@ class _StageDecisionMixin:
         THICK: the Manager makes its own LLM judgment from the reviewer's
         structured feedback + the current-stage checklist, parses a strict JSON
         verdict, and on advance/rollback calls
-        :func:`stage_checklists.advance_stage` / ``rollback_stage``.
+        :func:`stage_machine.advance_stage` / ``rollback_stage``.
 
         Fail-safe — writes NOTHING and returns a HOLD when: ``review is None``
         (no feedback → never advance), there is no backend, the LLM/parse errors,
         or the model picks an illegal target. A HOLD simply leaves the stage put;
         the mission/planner loop continues, so the daemon never deadlocks.
         """
-        from ..skills.stage_checklists import rollback_stage as _rollback
+        from ..skills.stage_machine import rollback_stage as _rollback
         from ._core import StageTransition
 
         root = Path(project_root) if project_root is not None else self.project_root

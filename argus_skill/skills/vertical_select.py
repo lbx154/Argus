@@ -369,7 +369,7 @@ def resolve_vertical(project_root: object = ".") -> str:
 def _vertical_first_stage(vertical: str, project_root: object = None) -> str | None:
     """Return the active vertical's first System-(B) checklist stage, if any.
 
-    Late import to avoid a module-load cycle (``_base`` ↔ ``stage_checklists``).
+    Late import to avoid a module-load cycle (``_base`` ↔ ``stage_machine``).
     ``project_root`` is threaded so a project-local DATA domain resolves to its
     own first stage. Fail-open: any error yields ``None`` so persistence never
     breaks bootstrap.
@@ -405,7 +405,7 @@ def persist_vertical(
 
     STAGE AUTHORITY — the harness must NOT control ``current_stage``; only the
     reviewer agent moves it (advance via its verdict, or roll back via
-    ``stage_checklists.rollback_stage``). So this function SEEDS the vertical's
+    ``stage_machine.rollback_stage``). So this function SEEDS the vertical's
     first stage only when no stage exists yet (bootstrap of a fresh state
     file); it NEVER overwrites or resets an existing stage. A stale stage left
     by a vertical change is real progress — clobbering it to the first stage is
@@ -583,7 +583,7 @@ def reset_stage_for_new_intent(
     the new task complete. For a different vertical, a same-named stage can
     similarly look like false progress. This function detects both cases and
     rolls the state back to the selected vertical's first stage via
-    ``stage_checklists.rollback_stage`` (audited, ``rolled_back_by="manager"``),
+    ``stage_machine.rollback_stage`` (audited, ``rolled_back_by="manager"``),
     without touching ``persist_vertical``'s own never-reset contract.
 
     Returns ``True`` iff a reset was actually applied. Without forced
@@ -615,7 +615,7 @@ def reset_stage_for_new_intent(
 
     try:
         if force_replacement:
-            from .stage_checklists import reset_stage_for_replacement_intent
+            from .stage_machine import reset_stage_for_replacement_intent
 
             reset_stage_for_replacement_intent(
                 project_root,
@@ -628,7 +628,7 @@ def reset_stage_for_new_intent(
                 reset_by="manager",
             )
         else:
-            from .stage_checklists import rollback_stage  # late (cycle)
+            from .stage_machine import rollback_stage  # late (cycle)
 
             rollback_stage(
                 project_root,

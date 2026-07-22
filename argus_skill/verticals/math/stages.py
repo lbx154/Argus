@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ...skills.stage_checklists import ChecklistItem
+from ...skills.stage_machine import ChecklistItem
 
 STAGE_ORDER = ("scope", "solve", "review")
 CHECKLIST_STAGE_ORDER = STAGE_ORDER

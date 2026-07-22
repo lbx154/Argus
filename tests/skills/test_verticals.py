@@ -28,7 +28,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.skills.stage_checklists import (
+from argus_skill.skills.stage_machine import (
     ChecklistLoadState,
     current_stage,
     format_full_pipeline_checklist,

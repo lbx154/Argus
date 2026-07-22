@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.skills.stage_checklists import format_stage_checklist
+from argus_skill.skills.stage_machine import format_stage_checklist
 from argus_skill.skills.venue_profiles import get_venue_profile, resolve_venue_profile
 from argus_skill.tools.stage_check import _reviewer_checklist_for
 from argus_skill.verticals.research.paper_layout_review import _deterministic_assessment

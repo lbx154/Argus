@@ -59,7 +59,7 @@ def test_rendered_stages_py_is_valid_and_exposes_contract(tmp_path, monkeypatch)
     monkeypatch.setenv("ARGUS_SKILL_PROMOTE_DOMAINS", "1")
     _seed_proven_domain(tmp_path)
     src = dt._render_stages_py("robotics_sim", tmp_path)
-    src = src.replace("from ...skills.stage_checklists", "from argus_skill.skills.stage_checklists")
+    src = src.replace("from ...skills.stage_machine", "from argus_skill.skills.stage_machine")
     mod = types.ModuleType("promoted_stages")
     exec(compile(src, "<stages>", "exec"), mod.__dict__)
     assert mod.STAGE_ORDER == ["scope", "simulate", "measure", "report"]
@@ -129,7 +129,7 @@ def test_render_preserves_seed_plus_custom_items(tmp_path):
     ])
 
     src = dt._render_stages_py("robotics_sim", tmp_path)
-    src = src.replace("from ...skills.stage_checklists", "from argus_skill.skills.stage_checklists")
+    src = src.replace("from ...skills.stage_machine", "from argus_skill.skills.stage_machine")
     mod = types.ModuleType("promoted_stages_seed_test")
     exec(compile(src, "<stages>", "exec"), mod.__dict__)
 

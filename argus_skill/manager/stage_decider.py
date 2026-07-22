@@ -16,8 +16,6 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from hashlib import sha256
-from pathlib import Path
 from typing import Any, Sequence
 
 from ..roles.prompts.manager import build_stage_decision_prompt
@@ -52,83 +50,6 @@ def extract_answer(result: Any) -> str:
         msgs = getattr(result, "agent_messages", None) or []
         msg = msgs[-1] if msgs else ""
     return str(msg or "")
-
-
-def reject_certified_ground_truth_snapshot_rollback(
-    decision: StageDecision,
-    *,
-    project_root: Path | str,
-    current_stage: str,
-) -> StageDecision:
-    """Reject rollback attempts that reinterpret an accepted snapshot as drift.
-
-    An advance records the exact ``GROUND_TRUTH.md`` digest it accepted. If that
-    same immutable snapshot is later cited as stale merely because the live stage
-    advanced, it is historical evidence, not a newly broken prerequisite.
-    """
-    if decision.action != "rollback":
-        return decision
-    reason = decision.reason.lower()
-    if "ground_truth" not in reason and "ground truth" not in reason:
-        return decision
-    stage_drift_terms = (
-        "stage differs",
-        "stage mismatch",
-        "stage conflict",
-        "contradicts the live",
-        "contradicts the current",
-        "pipeline_state",
-        "pipeline state",
-    )
-    independent_blocker_terms = (
-        "missing evidence",
-        "insufficient evidence",
-        "unreliable evidence",
-        "invalid contract",
-        "broken contract",
-        "failed prerequisite",
-        "missing prerequisite",
-        "unmet prerequisite",
-    )
-    if not any(term in reason for term in stage_drift_terms):
-        return decision
-    if any(term in reason for term in independent_blocker_terms):
-        return decision
-
-    root = Path(project_root)
-    state_path = root / "research" / "PIPELINE_STATE.json"
-    ground_truth_path = root / "research" / "GROUND_TRUTH.md"
-    try:
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-        current_digest = sha256(ground_truth_path.read_bytes()).hexdigest()
-    except (OSError, json.JSONDecodeError):
-        return decision
-    history = state.get("stage_history")
-    if not isinstance(history, list):
-        return decision
-    current = str(current_stage or "").strip().lower()
-    accepted_snapshot = next(
-        (
-            entry.get("ground_truth_snapshot")
-            for entry in reversed(history)
-            if isinstance(entry, dict)
-            and entry.get("direction") == "advance"
-            and str(entry.get("to_stage") or "").strip().lower() == current
-        ),
-        None,
-    )
-    if (
-        not isinstance(accepted_snapshot, dict)
-        or accepted_snapshot.get("sha256") != current_digest
-    ):
-        return decision
-    return StageDecision(
-        "hold",
-        current,
-        "GROUND_TRUTH is the unchanged snapshot certified by the latest legal "
-        "advance; its recorded stage is historical and cannot trigger rollback",
-        "certified_ground_truth_snapshot_rollback_rejected",
-    )
 
 
 def _loads_first_json(text: str) -> tuple[Any, str]:

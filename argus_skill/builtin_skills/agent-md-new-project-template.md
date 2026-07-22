@@ -375,7 +375,7 @@ The Supervisor then hands control to the Manager, which must schedule a fresh
 mission to run:
 
 ```python
-from argus_skill.skills.stage_checklists import rollback_stage
+from argus_skill.skills.stage_machine import rollback_stage
 rollback_stage(
     ".",
     target_stage="<earlier-stage>",
@@ -449,7 +449,7 @@ checklist to be ticked off by the reviewer.
 ## Paper-quality contract files
 1. `paper/CLAIM_GRAPH.json` must bind every major claim to its section, required evidence, raw result artifact, figure/table/citation support, and allowed fallback if evidence is weak. `paper/EVIDENCE_GAPS.json` must list missing or weak evidence and the planned supplement, ablation, negative result framing, or claim downgrade.
 2. `paper/FIGURE_TABLE_STYLE_GUIDE.json` must specify the intended body/appendix float inventory, width, font/readability target, legend/caption length, color discipline, column density, information hierarchy, and whether each float belongs in the main body or appendix. Ugly, cramped, or audit-table-like floats are blockers even if the PDF compiles.
-3. `paper/VALIDATION_PRIORITY_POLICY.json` must order repair work as freshness, full-scale experiment evidence, claim evidence, and content sufficiency first; exemplar structure next; figure/table and format/layout next; academic language only after evidence and structure are stable; manifest/readiness cleanup last. It must include every reviewer checklist failure class, not only the currently failing ones. Run `python -m argus_skill.skills.pipeline_contracts write-validation-priority-policy --project-root .` to create the standard scaffold before final review loops. Underlength, underfilled body, missing full-scale runs, missing baselines, weak ablations, or missing failure analysis are not layout-only problems: route them to `run_more_experiments`, additional ablations/failure studies, source-backed Introduction/Related Work/Method expansion, or evidence-backed analysis according to the actual gap. After repeated non-improving edits, reset the skeleton/float plan instead of looping on review JSON or cosmetic micro-edits.
+3. Repair missing evidence before structure, figure/table, format/layout, or language polish. Underlength, underfilled body, missing full-scale runs, missing baselines, weak ablations, or missing failure analysis are not layout-only problems: route them to additional experiments, ablations/failure studies, source-backed Introduction/Related Work/Method expansion, or evidence-backed analysis according to the actual gap. After repeated non-improving edits, reset the skeleton/float plan instead of looping on review JSON or cosmetic micro-edits.
 5. the L2 reviewer analysis/draft-stage paper-quality checklist items before final academic-language and layout review. Missing, stale, or thin contract artifacts are hard blockers.
 
 ## Citation and related-work contract

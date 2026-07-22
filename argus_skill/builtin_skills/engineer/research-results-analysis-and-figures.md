@@ -158,14 +158,7 @@ unless a separate, compelling insight supports that framing. Internal paths,
 commands, GPU/cache details, route names, hashes, and daemon mechanics stay in
 provenance artifacts—not manuscript prose.
 
-## 7. Refresh and verify
-
-```bash
-python -m argus_skill.skills.pipeline_contracts refresh-manifest \
-  --project-root .
-python -m argus_skill.skills.pipeline_contracts refresh-artifact-freshness \
-  --project-root .
-```
+## 7. Verify
 
 Run the analysis from a clean shell. Confirm every table and figure exists and
 is current against the claim graph and manuscript.

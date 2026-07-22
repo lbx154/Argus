@@ -25,8 +25,8 @@ Design contract (operator: each project owns its own interface so it can both
   bias its own judge.
 
 This module is intentionally free of any import from
-:mod:`argus_skill.skills.stage_checklists` (which imports *this* module for the
-merge) to avoid a circular import. The merge/render lives in stage_checklists;
+:mod:`argus_skill.skills.stage_machine` (which imports *this* module for the
+merge) to avoid a circular import. The merge/render lives in stage_machine;
 this module owns the data, IO, validation and protected-floor policy only.
 """
 from __future__ import annotations

@@ -277,7 +277,7 @@ def current_stage_for_session(
     session: dict[str, Any],
     life_dir: Path,
 ) -> str:
-    from ..skills.stage_checklists import current_stage
+    from ..skills.stage_machine import current_stage
 
     candidates = [session.get("workdir"), session.get("cwd"), life_dir]
     for raw in candidates:

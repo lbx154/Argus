@@ -113,8 +113,8 @@ def build_continuous_prompt(
     from ...skills.ground_truth import ground_truth_mandate
     from ...skills.harness_overlay import resolve_project_root
     from ...skills.role_context import format_role_context
-    from ...skills.stage_checklists import CANONICAL_STAGE_ORDER
     from ...skills.vertical_select import resolve_evidence_mode
+    from ...verticals.research.stages import CANONICAL_STAGE_ORDER
     from .registry import resolve_role_prompt
 
     cycle_line = f"This is planning cycle #{planning_cycle + 1}."

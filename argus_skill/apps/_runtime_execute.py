@@ -338,7 +338,7 @@ class SkillLoopExecuteMixin:
             msgs: list[str] = []
             if inbox_life_dir is not None:
                 try:
-                    from ..skills.stage_checklists import current_stage
+                    from ..skills.stage_machine import current_stage
                     from ._inbox import drain_inbox_messages
 
                     msgs.extend(

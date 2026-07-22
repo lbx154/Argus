@@ -59,7 +59,7 @@ Design invariants (harness-enforced; all narrative judgment is the agent's):
 """
 from __future__ import annotations
 
-from ...skills.stage_checklists import ChecklistItem
+from ...skills.stage_machine import ChecklistItem
 
 STAGE_ORDER = ["intake", "plan", "draft", "state_update", "review", "revise"]
 

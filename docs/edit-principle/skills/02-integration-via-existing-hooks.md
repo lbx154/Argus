@@ -17,7 +17,7 @@ argus-skill 已经有大量"约定即接口"的点，先找它们。
 | 层 | 接入点 | 怎么用 |
 |---|---|---|
 | **agent 验证工具** | 可 import 模块或 `python -m argus_skill.<area>.<module>` | 给 agent 真实工具访问，让 engineer/reviewer 自己运行并判断输出 |
-| **reviewer 验收标准** | `argus_skill/skills/stage_checklists.py` + reviewer role skill | 写清要核验的事实，不用 harness exit code 覆盖 reviewer 裁决 |
+| **reviewer 验收标准** | `argus_skill/skills/stage_machine.py` + reviewer role skill | 写清要核验的事实，不用 harness exit code 覆盖 reviewer 裁决 |
 | **CLI 顶层 flag** | `argus_skill/apps/cli.py` `build_parser()` + `main()` 的 `action_flags` 元组 | 同时加 arg、加 dispatch、更新 mutual-exclusion 元组 |
 | **env-var 配置** | `os.environ.get("ARGUS_SKILL_*")` | 不改函数签名传配置，避免动 supervisor 接口 |
 | **BacklogItem 元数据** | `BacklogItem.tags: list[str]` | 加 lifecycle / project / scope 标签 |

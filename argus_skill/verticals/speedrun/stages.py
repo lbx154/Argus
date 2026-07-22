@@ -37,7 +37,7 @@ where there is nothing to write up.
 """
 from __future__ import annotations
 
-from ...skills.stage_checklists import ChecklistItem
+from ...skills.stage_machine import ChecklistItem
 
 STAGE_ORDER = ["setup", "optimize", "measure", "report"]
 
@@ -189,7 +189,7 @@ __all__ = [
 # System (B) — markdown stage checklists for the speedrun vertical
 # ===========================================================================
 #
-# These feed ``argus_skill.skills.stage_checklists`` (the markdown checklist
+# These feed ``argus_skill.skills.stage_machine`` (the markdown checklist
 # that drives the planner/engineer/reviewer round loop) via the optional-hook
 # contract in ``argus_skill.verticals._base``. The research vertical re-exports
 # the paper floor; the speedrun vertical declares its OWN 4-stage, metric-

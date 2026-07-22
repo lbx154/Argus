@@ -27,7 +27,7 @@ and are resolved by path by ``argus_skill.tools.stage_check``.
 """
 from __future__ import annotations
 
-from ...skills.stage_checklists import ChecklistItem
+from ...skills.stage_machine import ChecklistItem
 
 STAGE_ORDER = [
     "research", "plan", "benchmark", "run",

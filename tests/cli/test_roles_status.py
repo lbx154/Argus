@@ -466,8 +466,10 @@ def _panel_max_width(theme, configs, acts, width, header_right):
 def test_panel_lines_never_reach_terminal_edge(tmp_path):
     from argus_skill.cli.roles_status import RoleActivity
     configs = resolve_all_roles(env={})
-    long_cmd = ("python -m argus_skill.skills.pipeline_contracts "
-                "refresh-manifest --project-root /a/very/long/path " + "跑基准测试" * 8)
+    long_cmd = (
+        "python -m argus_skill.tools.stage_check --project-root /a/very/long/path "
+        + "跑基准测试" * 8
+    )
     acts = {
         "engineer": RoleActivity(role="engineer", active=True, label=long_cmd,
                                  status="running", age_s=42.0),

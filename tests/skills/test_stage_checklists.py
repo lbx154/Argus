@@ -6,12 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.skills.stage_checklists import (
-    CANONICAL_STAGE_ORDER,
-    STAGE_CHECKLISTS,
+from argus_skill.skills.stage_machine import (
     current_stage,
     format_full_pipeline_checklist,
     format_stage_checklist,
+)
+from argus_skill.verticals.research.stages import (
+    CANONICAL_STAGE_ORDER,
+    STAGE_CHECKLISTS,
     get_stage_checklist,
     list_stages,
 )
@@ -194,7 +196,7 @@ def test_stage_checklist_completeness() -> None:
 
 
 def test_rollback_stage_moves_state_machine_backward(tmp_path: Path) -> None:
-    from argus_skill.skills.stage_checklists import rollback_stage
+    from argus_skill.skills.stage_machine import rollback_stage
 
     research_dir = tmp_path / "research"
     research_dir.mkdir()
@@ -236,7 +238,7 @@ def test_rollback_stage_moves_state_machine_backward(tmp_path: Path) -> None:
 def test_rollback_stage_rejects_forward_or_same_target(tmp_path: Path) -> None:
     import pytest as _pytest
 
-    from argus_skill.skills.stage_checklists import rollback_stage
+    from argus_skill.skills.stage_machine import rollback_stage
 
     research_dir = tmp_path / "research"
     research_dir.mkdir()
@@ -253,7 +255,7 @@ def test_rollback_stage_rejects_forward_or_same_target(tmp_path: Path) -> None:
 
 
 def test_rollback_stage_appends_history_across_calls(tmp_path: Path) -> None:
-    from argus_skill.skills.stage_checklists import rollback_stage
+    from argus_skill.skills.stage_machine import rollback_stage
 
     research_dir = tmp_path / "research"
     research_dir.mkdir()
@@ -293,7 +295,7 @@ def test_rollback_onto_completed_stage_reopens_it_no_deadlock(tmp_path: Path) ->
     ``planner_waiting``. The harness must guarantee the landing stage is
     actionable.
     """
-    from argus_skill.skills.stage_checklists import rollback_stage
+    from argus_skill.skills.stage_machine import rollback_stage
 
     research_dir = tmp_path / "research"
     research_dir.mkdir()
@@ -317,7 +319,7 @@ def test_rollback_onto_completed_stage_reopens_it_no_deadlock(tmp_path: Path) ->
 
 
 def test_advance_stage_moves_forward_and_marks_previous_done(tmp_path: Path) -> None:
-    from argus_skill.skills.stage_checklists import advance_stage
+    from argus_skill.skills.stage_machine import advance_stage
 
     research_dir = tmp_path / "research"
     research_dir.mkdir()
@@ -348,7 +350,7 @@ def test_advance_stage_moves_forward_and_marks_previous_done(tmp_path: Path) -> 
 def test_advance_stage_rejects_backward_or_skip(tmp_path: Path) -> None:
     import pytest as _pytest
 
-    from argus_skill.skills.stage_checklists import advance_stage
+    from argus_skill.skills.stage_machine import advance_stage
 
     research_dir = tmp_path / "research"
     research_dir.mkdir()
@@ -367,7 +369,7 @@ def test_advance_stage_rejects_backward_or_skip(tmp_path: Path) -> None:
 def test_advance_stage_is_vertical_aware_speedrun(tmp_path: Path, monkeypatch) -> None:
     import pytest as _pytest
 
-    from argus_skill.skills.stage_checklists import advance_stage
+    from argus_skill.skills.stage_machine import advance_stage
 
     monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
     research_dir = tmp_path / "research"
@@ -389,7 +391,7 @@ def test_advance_stage_is_vertical_aware_speedrun(tmp_path: Path, monkeypatch) -
 
 
 def test_rollback_stage_also_writes_unified_stage_history(tmp_path: Path) -> None:
-    from argus_skill.skills.stage_checklists import rollback_stage
+    from argus_skill.skills.stage_machine import rollback_stage
 
     research_dir = tmp_path / "research"
     research_dir.mkdir()

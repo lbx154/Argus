@@ -14,7 +14,7 @@ must directly enable first score and SOTA-oriented optimization.
 """
 from __future__ import annotations
 
-from ...skills.stage_checklists import ChecklistItem
+from ...skills.stage_machine import ChecklistItem
 from ..speedrun.stages import _PIPELINE_CHECK
 from ..speedrun.stages import CHECKLIST_ITEMS as SPEEDRUN_CHECKLIST_ITEMS
 

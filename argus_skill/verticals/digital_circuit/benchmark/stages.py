@@ -1,7 +1,7 @@
 """Direct, single-stage workflow for fixed-harness RTL benchmarks."""
 from __future__ import annotations
 
-from ....skills.stage_checklists import ChecklistItem
+from ....skills.stage_machine import ChecklistItem
 from ..stages import role_banner as _digital_circuit_role_banner
 
 STAGE_ORDER = ("execute",)
