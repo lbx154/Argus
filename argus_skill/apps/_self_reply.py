@@ -212,7 +212,7 @@ class SelfReplyMixin:
     def _manager_reply_runtime_context(self, run_label: str) -> str:
         workspace_context = ""
         try:
-            from ..manager.live_view import manager_workspace_capability_prompt
+            from ..roles.prompts.manager import manager_workspace_capability_prompt
 
             configured_workspace = str(
                 getattr(self._args, "operator_workspace", "")
@@ -336,7 +336,7 @@ class SelfReplyMixin:
         seed_thread_id: str | None = None,
     ) -> _Outcome:
         from ..cli.roles_status import runner_backend_label
-        from ..life.router import build_simple_prompt
+        from ..roles.prompts.manager import build_simple_prompt
 
         args = self._args
         seed = self._next_seed_thread_id if seed_thread_id is None else seed_thread_id

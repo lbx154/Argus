@@ -264,12 +264,12 @@ def _write_no_score_attempt(root, name: str, wdelta: float | None) -> None:
 
 
 def test_no_score_facts_surfaces_proxy_gated_attempts(tmp_path):
-    _write_no_score_attempt(tmp_path, "a010_regime_jump", 0.0036)
+    _write_no_score_attempt(tmp_path, "a010_candidate_jump", 0.0036)
     _write_no_score_attempt(tmp_path, "a011_unrecorded", None)
     out = _no_score_facts(tmp_path)
     assert "Proxy-gated NO-SCORE" in out
     assert "NO verdict" in out
-    assert "a010_regime_jump" in out
+    assert "a010_candidate_jump" in out
     assert "+0.003600" in out
     assert "(not recorded)" in out          # the wdelta=None case
     assert "research call" in out           # the no-verdict disclaimer

@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / "technical_report"
 
@@ -315,6 +314,48 @@ def test_readmes_bound_runtime_evolution_claim() -> None:
     assert "does not guarantee that every run adds capability" in english
     assert "不依赖在线参数训练" in chinese
     assert "不保证每次 run 都增加能力" in chinese
+
+
+def test_completion_authority_docs_match_engineer_self_review_runtime() -> None:
+    english = _read("README.md")
+    chinese = _read("README.zh-CN.md")
+    architecture = _read("docs/ARCHITECTURE.md")
+    agents = _read("AGENTS.md")
+    runtime_settings = _read("docs/ARGUS_RUNTIME_SETTINGS.md")
+    ena_engineer = _read(
+        "argus_skill/builtin_skills/engineer/argus-engineer-role.md"
+    )
+    formulation = _read("technical_report/sections/03_problem_formulation.tex")
+    method = _read("technical_report/sections/04_argus_method.tex")
+
+    assert "`review=skip|required`" in english
+    assert "Engineer 自审" in chinese
+    assert "review_source=engineer_self_review" in architecture
+    assert "不再加第二套 heuristic/validator" in agents
+    assert "does not override vertical-wide" in runtime_settings
+    assert "Vertical policy" in ena_engineer
+    assert "allowed Engineer\nself-review" in formulation
+    assert r"review\_source=engineer\_self\_review" in method
+
+    stale_claims = (
+        "the sole authority on completion",
+        "the sole source of a mission completion verdict",
+        "完成的唯一权威",
+        "任务算不算完成」的唯一事实来源",
+    )
+    combined = "\n".join(
+        (
+            english,
+            chinese,
+            architecture,
+            agents,
+            runtime_settings,
+            formulation,
+            method,
+        )
+    )
+    for claim in stale_claims:
+        assert claim not in combined
 
 
 def test_reliability_decision_stall_default_is_four() -> None:

@@ -6,6 +6,7 @@
   drops a win/result/error.
 - The downstream sink always receives every event regardless of verbosity.
 """
+
 from __future__ import annotations
 
 import json
@@ -25,7 +26,7 @@ def _read(life_dir):
     p = life_dir / "events.jsonl"
     if not p.exists():
         return []
-    return [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
+    return [json.loads(line) for line in p.read_text().splitlines() if line.strip()]
 
 
 def _feed(sink, *events):
@@ -52,7 +53,7 @@ def test_default_verbosity_is_signal_clean_episode(tmp_path):
     _feed(
         sink,
         {"type": "engineer.progress", "kind": "command_execution", "text": "ls"},  # churn → dropped
-        {"type": "round.review.completed", "status": "continue"},                  # signal → kept
+        {"type": "round.review.completed", "status": "continue"},  # signal → kept
         {"type": "engineer.progress", "text": "RESULT cand_ms=1.5 correct=true"},  # win → kept
     )
     types = [e["type"] for e in _read(tmp_path)]
@@ -66,14 +67,14 @@ def test_signal_drops_noise_keeps_signal(tmp_path):
     _feed(
         sink,
         {"type": "engineer.progress", "kind": "command_execution", "text": "ls -la"},  # noise
-        {"type": "session.roll"},                                                       # noise
-        {"type": "round.watchdog.waiting"},                                             # noise
-        {"type": "round.review.completed", "status": "continue"},                       # signal
-        {"type": "life.manager.intent.completed", "vertical": "learning"},               # signal
-        {"type": "life.planner.start", "manager_intent": {"vertical": "learning"}},      # signal
-        {"type": "life.planner.task_added", "title": "t"},                               # signal
-        {"type": "skill.created", "name": "x"},                                         # signal
-        {"type": "loop.done", "text": "status=done"},                                   # signal
+        {"type": "session.roll"},  # noise
+        {"type": "round.watchdog.waiting"},  # noise
+        {"type": "round.review.completed", "status": "continue"},  # signal
+        {"type": "life.manager.intent.completed", "vertical": "learning"},  # signal
+        {"type": "life.planner.start", "manager_intent": {"vertical": "learning"}},  # signal
+        {"type": "life.planner.task_added", "title": "t"},  # signal
+        {"type": "skill.created", "name": "x"},  # signal
+        {"type": "loop.done", "text": "status=done"},  # signal
     )
     types = [e["type"] for e in _read(tmp_path)]
     assert types == [
@@ -90,11 +91,17 @@ def test_signal_never_drops_a_win_or_error(tmp_path):
     sink = JsonlEventSink(None, life_dir=tmp_path, verbosity="signal")
     _feed(
         sink,
-        {"type": "engineer.progress", "kind": "agent_message",
-         "text": "RESULT problem=053 correct=true cand_ms=0.0186"},  # WIN in prose
-        {"type": "engineer.progress", "kind": "agent_message",
-         "text": "Traceback (most recent call last): RuntimeError"},  # ERROR in prose
-        {"type": "some.backend_failure", "text": "429"},              # error by type
+        {
+            "type": "engineer.progress",
+            "kind": "agent_message",
+            "text": "RESULT problem=053 correct=true cand_ms=0.0186",
+        },  # WIN in prose
+        {
+            "type": "engineer.progress",
+            "kind": "agent_message",
+            "text": "Traceback (most recent call last): RuntimeError",
+        },  # ERROR in prose
+        {"type": "some.backend_failure", "text": "429"},  # error by type
         {"type": "engineer.progress", "kind": "command_execution", "text": "echo hi"},  # noise
     )
     texts = [e.get("text", "")[:12] for e in _read(tmp_path)]

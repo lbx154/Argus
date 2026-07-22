@@ -13,8 +13,8 @@ from argus_skill.manager.live_view import (
     manager_checkpoint_refresh_required,
     manager_rendering_prompt,
     normalize_live_view_path,
-    parse_manager_presentations,
     parse_live_view_response,
+    parse_manager_presentations,
     repair_manager_checkpoint_response,
 )
 

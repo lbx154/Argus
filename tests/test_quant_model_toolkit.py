@@ -75,7 +75,8 @@ def test_select_model_ledgers_every_trial_and_picks_positive():
     # trim MLP epochs for test speed
     space = [ModelSpec(s.name, s.family, {**s.config, **({"epochs": 25} if s.family == "mlp" else {})},
                        s.description, s.tags) for s in space]
-    import tempfile, os
+    import os
+    import tempfile
     with tempfile.TemporaryDirectory() as d:
         ledger = SearchLedger(os.path.join(d, "model_ledger.jsonl"))
         res = select_model(X, y, dev, ledger=ledger, space=space, n_folds=3, seed=0)

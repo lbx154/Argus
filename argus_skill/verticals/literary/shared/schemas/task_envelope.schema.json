@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "argus://literary/task_envelope.schema.json",
   "title": "task_envelope",
-  "description": "Cross-vertical creative-authoring task contract. The single intake artifact every literary vertical (fiction, poetry, prose, editor) normalizes a raw operator request into BEFORE planning. Vertical-agnostic: `form` and `genre_profile` are free strings each vertical interprets itself; `mode` is a CLOSED enum of authoring task types. Semantic rules the schema cannot express (e.g. an editing mode requires a source reference) live in literary.task_envelope.normalize_envelope.",
+  "description": "Cross-vertical creative-authoring task contract. The single intake artifact every literary vertical (fiction, poetry, prose, editor) normalizes a raw operator request into BEFORE planning. Vertical-agnostic: `form` and `genre_profile` are free strings each vertical interprets itself; `mode` is a CLOSED enum of authoring task types. Semantic rules the schema cannot express (e.g. an editing mode requires a source reference) live in verticals.literary.shared.task_envelope.normalize_envelope.",
   "type": "object",
   "additionalProperties": false,
   "required": ["task_id", "mode", "language", "form", "intent"],

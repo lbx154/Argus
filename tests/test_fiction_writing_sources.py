@@ -16,8 +16,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 from argus_skill.verticals.fiction_writing.sources import load_fiction_registry
 from argus_skill.verticals.fiction_writing.stages import STAGE_CHECKS
 

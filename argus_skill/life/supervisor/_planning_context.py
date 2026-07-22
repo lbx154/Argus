@@ -544,7 +544,7 @@ class PlanningContextMixin:
     # Planner — continuous improvement mode
     # ------------------------------------------------------------------
 
-    def _record_planner_waiting(self, verdict: Any, *, planner_cost_usd: float) -> str:
+    def _record_planner_waiting(self, verdict: Any) -> str:
         contract = getattr(verdict, "waiting_contract", None)
         contract_state = (
             self._persist_planner_waiting_contract(contract)
@@ -566,10 +566,6 @@ class PlanningContextMixin:
             "reason": reason,
             "consecutive_idle_cycles": self._consecutive_idle_planner_cycles,
             "suggested_sleep_s": sleep_s,
-            "input_tokens": getattr(verdict, "input_tokens", 0),
-            "cached_input_tokens": getattr(verdict, "cached_input_tokens", 0),
-            "output_tokens": getattr(verdict, "output_tokens", 0),
-            "cost_usd": planner_cost_usd,
             "waiting_contract": self._waiting_contract_event_payload(
                 contract_state,
                 contract,

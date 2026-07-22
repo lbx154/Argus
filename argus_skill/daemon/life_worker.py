@@ -470,7 +470,7 @@ class LifeWorker(LifeWorkerBootMixin, LifeWorkerRunMixin):
                 from ..skills.layered import shared_vertical_skills_dir
 
                 default_shared_root = (
-                    core_paths.skills_global_root()
+                    core_paths.shared_skills_root()
                     if self.config.global_root is None
                     else Path(self.config.global_root) / "skills"
                 )

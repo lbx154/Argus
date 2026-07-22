@@ -1,8 +1,9 @@
 """fiction_writing runtime PROVENANCE gate — invoked by STAGE_CHECKS at run time.
 
 Binds the shared source-registry + provenance contracts
-(:mod:`argus_skill.literary.source_registry`,
-:mod:`argus_skill.literary.provenance`) to fiction's committed rights catalog so
+(:mod:`argus_skill.verticals.literary.shared.source_registry`,
+:mod:`argus_skill.verticals.literary.shared.provenance`) to fiction's committed
+rights catalog so
 that source consumption is gated on real rights at RUN TIME, not only in unit
 tests.
 
@@ -30,8 +31,8 @@ import json
 import sys
 from pathlib import Path
 
-from ...literary.provenance import ProvenanceError, normalize_usage
-from ...literary.source_registry import RegistryError
+from ..literary.shared.provenance import ProvenanceError, normalize_usage
+from ..literary.shared.source_registry import RegistryError
 from .sources import load_fiction_registry
 
 

@@ -30,7 +30,6 @@ from typing import Any
 
 import pytest
 
-
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _FIGURES_DIR = _REPO_ROOT / "technical_report" / "figures"
 _MODULE_PATH = _FIGURES_DIR / "validate_ai_figures.py"

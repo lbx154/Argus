@@ -1331,12 +1331,10 @@ def _legacy_call_threads(project_root: Path) -> dict[str, str]:
 def _copilot_reconcile_enabled_for(project_root: Path) -> bool:
     if os.environ.get("COPILOT_HOME", "").strip():
         return True
-    root = Path(
-        os.environ.get("ARGUS_SKILL_HOME", "").strip()
-        or (Path.home() / ".argus-skill")
-    ).expanduser()
+    from .paths import session_states_root
+
     try:
-        return project_root.resolve().parent == (root / "projects").resolve()
+        return project_root.resolve().parent == session_states_root().resolve()
     except OSError:
         return False
 

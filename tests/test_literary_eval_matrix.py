@@ -9,15 +9,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.literary.eval_matrix import (
+from tests.literary_support.eval_matrix import (
+    _LIVE_ONLY_TERMS,
     CAPABILITIES,
     TIERS,
-    Capability,
     by_tier,
     gaps,
     render_matrix,
 )
-from argus_skill.literary.eval_matrix import _LIVE_ONLY_TERMS
 
 _REPO = Path(__file__).resolve().parents[1]
 

@@ -102,7 +102,7 @@ def _active_workspace_owner(
     except (OSError, RuntimeError):
         return None
     root = _daemon_global_root(config)
-    projects = root / "projects"
+    projects = core_paths.session_states_root(root)
     try:
         candidates = [path for path in projects.iterdir() if path.is_dir()]
     except OSError:
@@ -221,7 +221,7 @@ def _active_daemon_count(config: LifeWorkerConfig) -> int:
     # be a top-level import.
     from .life_worker import read_daemon_status
 
-    projects = _daemon_global_root(config) / "projects"
+    projects = core_paths.session_states_root(_daemon_global_root(config))
     try:
         dirs = [path for path in projects.iterdir() if path.is_dir()]
     except OSError:

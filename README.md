@@ -5,13 +5,13 @@
 > **Every run expands the frontier.**
 
 <p align="center">
-  <img src="technical_report/figures/master_spine.png" alt="The Argus technical spine: an unknown out-of-distribution objective enters a dense-intelligence runtime driven by Manager, Planner, Engineer, and Reviewer; reviewer-verified work passes an evidence gate; the gate updates durable runtime state — memory, skills, tools, verifiers, routing, evaluations; and the enlarged runtime meets the next unknown task from a higher floor" width="100%">
+  <img src="technical_report/figures/master_spine.png" alt="The Argus technical spine: an unknown out-of-distribution objective enters a dense-intelligence runtime driven by Manager, Planner, Engineer, and Reviewer; explicitly verified work passes an evidence gate; the gate updates durable runtime state — memory, skills, tools, verifiers, routing, evaluations; and the enlarged runtime meets the next unknown task from a higher floor" width="100%">
 </p>
 
 Argus is an autonomous-research runtime that keeps decision, execution, and
 verification coupled over long horizons. Four persistent, model-driven roles
 sustain **dense intelligence** across a continuous loop; every run's
-reviewer-verified **evidence** updates durable **runtime state** — memory,
+explicitly verified **evidence** updates durable **runtime state** — memory,
 skills, tools, verifiers, routing, and evaluations — with the model's parameters
 held fixed; and the enlarged runtime meets the next out-of-distribution
 objective from a higher floor. That single spine — dense intelligence, evidence,
@@ -20,60 +20,34 @@ measured on.
 
 ## Dense Intelligence for Long-Horizon Research
 
-Model intelligence is sparse in time. A capable coding-and-reasoning model is
-brilliant for the length of a single call and then stops: the reasoning that
-produced an insight evaporates when its context is dropped or lossily compacted,
-and the next call begins again with no durable trace of what was learned. A
-longer context window only postpones the moment the episode ends. Long-horizon
-research is the opposite of a single call — thousands of coupled decisions
-sustained over hours to days, where value comes not from one clever step but from
-keeping judgment, execution, and verification connected across all of them.
+Strong models are episodic; long-horizon research spans thousands of coupled
+decisions across hours or days. Argus keeps that work connected by running four
+model-driven roles over persistent project state: Manager fixes intent and
+lifetime, Planner schedules, Engineer builds and experiments, and Reviewer
+independently checks work when required or requested. Allowed low-risk bounded
+work may instead use explicit Engineer self-review.
 
-Argus makes intelligence **dense** by running four persistent, model-driven roles
-as a continuous loop over persisted project state. A Manager fixes intent and
-lifetime, a Planner decomposes and schedules, an Engineer retrieves and builds and
-experiments, and a Reviewer inspects the evidence and decides. Because the loop
-never dissolves back into a stateless call, decision, execution, and verification
-stay coupled, so the system can carry a thread of research reasoning far past the
-horizon at which an episodic agent would have forgotten why it started. We write
-this intended density as `rho_DI(T)`, a conceptual measure of how much coupled
-decision, execution, and verification a system sustains over a horizon `T`. It is
-an explanatory construct for what the runtime is designed to maximize — not a
-reported benchmark metric, and not a score of universal superiority over models,
-humans, or other systems.
+This persistent coupling of judgment, execution, and verification is what we
+call **dense intelligence**. `rho_DI(T)` is only a conceptual description of
+that design goal, not a reported benchmark or a universal superiority score.
 
 ## From Work to Evidence to Runtime Evolution
 
-Continuity alone is not enough; it has to compound. Every run deposits verified
-evidence, and the Reviewer gates what counts, so only checked results change the
-system. Those results update the **runtime state** the fixed model reads and
-writes — its memory, skills, tools, verifiers, routing, and evaluations — which
-the technical report writes compactly as `H(t+1) = U(H(t), trajectory,
-evidence)`. This is **Runtime Evolution**: the system grows more capable not by
-retraining a model but by accumulating audited, reusable capability around it.
-Every update is attributable — it names a source, an authoritative owner, and a
-named persistence surface. That ownership is honestly scoped, not universal: only
-for the memory and skills a mission *earns* is the owner a distinct role — the
-**Reviewer certifies** work it did not author, the same work-versus-certification
-separation that governs completion. The rest are **operator-owned** (tools),
-**Planner-owned** with the Reviewer **feedback-only** (verifiers), or
-operator-sourced-and-Manager-committed (routing) and
-Planner-authored-and-scheduler-committed (evaluations).
+Each run records checked evidence and its completion source. Engineer self-review
+is allowed for low-risk bounded work; vertical policy, `stage_closing` /
+`review:required`, or an Engineer request invokes an independent Reviewer. The
+result updates persistent memory, skills, tools, verifiers, routing, and
+evaluations: `H(t+1) = U(H(t), trajectory, evidence)`.
 
-Two boundaries keep this claim honest. First, runtime evolution
-**does not require online parameter training**: the underlying model's weights
-are held fixed for the campaign (`theta_(t+1) = theta_t`), no gradient step is
-taken on the base model, and no weight-level learning is claimed anywhere.
-Second, the design **does not guarantee that every run adds capability** — a run
-may fail, return only a negative result, or add nothing verified. Even then it
-can add durable value by recording what not to repeat, which trims future
-duplicate search. Retained capability is evidence-gated and revisable through an
-ordinary reinforce–distill–revise–retire lifecycle, not empirically monotone.
+Ownership is scoped. On independently reviewed missions, the **Reviewer
+certifies** memory and skill work it did not author. Tools are **operator-owned**;
+verifiers are **Planner-owned** with the Reviewer **feedback-only**; routing is
+Manager-committed; evaluations are Planner-authored and scheduler-committed.
 
-The consequence is out-of-distribution reach. When the next task arrives, the
-runtime it inherits already carries the skills, tools, and verifiers earned on
-prior problems, so the next unknown objective does not start from zero. Each
-verified increment enlarges the frontier of problems the system can attempt.
+Runtime evolution **does not require online parameter training**: base-model
+weights stay fixed (`theta_(t+1) = theta_t`). It also does not guarantee that every run adds capability. Results may fail, add only a negative finding, or
+later be revised or retired. The claim is limited to evidence-gated, reusable
+runtime state—not monotonic improvement.
 
 ## Evidence from the Frontier
 
@@ -127,22 +101,23 @@ planes through explicit interfaces:
 |---|---|---|
 | **Manager** · control | Front door for operator intent; selects lifetime and vertical; owns pipeline-stage transitions | Other roles may recommend a stage change but cannot apply it |
 | **Planner (L4)** · control | Builds and revises the work backlog; schedules certification work when required | Produces structured tasks and project-level planning verdicts |
-| **Engineer (L1)** · execution | Executes one bounded round using real files, tools, searches, and hardware | Produces artifacts and a concrete continuation request |
-| **Reviewer (L2)** · execution → evidence | Inspects artifacts and logs against the active checklist | Returns `done`, `continue`, or `blocked`; the sole authority on completion |
+| **Engineer (L1)** · execution | Executes one bounded round using real files, tools, searches, and hardware | Produces artifacts and selects `review=skip|required`; `skip` is accepted only when self-review is enabled and independent review is not mandatory |
+| **Reviewer (L2)** · execution → evidence | Independently inspects artifacts and logs when required or requested | Returns `done`, `continue`, or `blocked`; mandatory for stage-closing and vertical-required review |
 
 The append-only event tape is the canonical timeline, so an operator can move
 from a published number to its mission, round, review verdict, command record,
 and artifact set without trusting a prose summary. A mission moves through a
 durable lifecycle — an operator request is interpreted, planned into backlog
-items, atomically claimed, executed through Engineer–Reviewer rounds, and returned
-as complete, blocked, paused, or ready for more planning — and after a controlled
+items, atomically claimed, executed through an Engineer self-review or
+Engineer–Reviewer path, and returned as complete, blocked, paused, or ready for
+more planning — and after a controlled
 restart the daemon resumes the same campaign only when its persisted identity
 matches the current objective, vertical, and lineage. The runtime treats
 reliability as a first-class concern: one host-global daily USD cap with atomic
 call reservations, plus host-concurrency limits; bounded retry and backoff for backend failures
-instead of success-looking fallbacks; a Reviewer-authored, hard-capped
-`checkpoint.json` that carries curated working memory across bounded session
-rolls; and credential redaction before events and artifacts enter review.
+instead of success-looking fallbacks; a shared `CHECKPOINT.md` edited by the
+Engineer and, when invoked, corrected by the Reviewer between fresh role
+sessions; and credential redaction before events and artifacts enter review.
 Evaluation inputs may be randomized when a fixed known input distribution would
 otherwise permit hard-coded optimization. These mechanisms govern execution; they
 never score novelty, choose ideas, or infer completion from keywords. Scientific
@@ -240,7 +215,9 @@ with `make -C technical_report clean all`.
 
 Argus is under active development, and its guarantees are deliberately bounded.
 Research quality remains limited by the underlying models, tools, data, and
-compute. The Reviewer is a single fallible completion authority. Four of the six
+compute. Completion is a fallible model judgment: either explicit Engineer
+self-review on an allowed low-risk bounded mission or an independent Reviewer
+verdict on required/requested paths. Four of the six
 public arena results do not yet have artifact-digest corroboration, and even the
 two corroborated rows reference external project artifacts rather than storing
 their bytes here. Benchmark integrity must be engineered separately for each

@@ -24,7 +24,7 @@ import json
 import sys
 from pathlib import Path
 
-from ...literary.task_envelope import EnvelopeError
+from ..literary.shared.task_envelope import EnvelopeError
 from .intake import FictionIntakeError, brief_from_envelope
 from .style import StyleProfileError, validate_voice_card
 

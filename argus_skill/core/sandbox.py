@@ -56,6 +56,8 @@ def _package_root() -> str | None:
 
 def forbidden_write_roots(*, life_root: str | os.PathLike[str] | None = None) -> list[str]:
     """Paths a sandboxed builder must NEVER be able to write."""
+    from .paths import global_root
+
     home = Path.home()
     # ~/.argus-skill = the gate's brain; ~/.codex = codex config; the package
     # source = the harness itself; ``sys.prefix`` = the active venv, whose
@@ -64,7 +66,12 @@ def forbidden_write_roots(*, life_root: str | os.PathLike[str] | None = None) ->
     # un-sandboxed interpreter (the daemon worker, the gate-check subprocess,
     # the reviewer/planner). On a non-editable install ``sys.prefix`` also *is*
     # where the package source lives.
-    roots = [str(home / ".argus-skill"), str(home / ".codex"), str(Path(sys.prefix))]
+    roots = [
+        str(global_root()),
+        str(home / ".argus-skill"),
+        str(home / ".codex"),
+        str(Path(sys.prefix)),
+    ]
     pkg = _package_root()
     if pkg:
         roots.append(pkg)

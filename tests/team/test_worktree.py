@@ -7,7 +7,6 @@ import pytest
 
 from argus_skill.team import worktree as wt
 
-
 INVALID_IDS = ["", ".", "..", "../escape", "a/b", "a\\b", "bad\x00id"]
 
 

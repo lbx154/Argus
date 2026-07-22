@@ -12,7 +12,7 @@ import json
 
 import pytest
 
-from argus_skill.literary.review_contract import (
+from argus_skill.verticals.literary.shared.review_contract import (
     ReviewError,
     assert_plan_covers,
     blocking_findings,

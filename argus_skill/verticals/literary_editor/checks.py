@@ -15,6 +15,7 @@ does not rewrite, a proofread does not become a rewrite, an expand adds material
 and that every must-keep segment survived verbatim. Whether the edit reads better
 is live-reviewer, not gated here.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -22,26 +23,33 @@ import json
 import sys
 from pathlib import Path
 
-from ...literary.artifact_manifest import (
+from ..literary.shared.artifact_manifest import (
     ManifestError,
     assert_content_present,
     normalize_manifest,
 )
-from ...literary.provenance import ProvenanceError, normalize_usage
-from ...literary.review_contract import (
+from ..literary.shared.provenance import ProvenanceError, normalize_usage
+from ..literary.shared.review_contract import (
     ReviewError,
     assert_plan_covers,
     normalize_review,
 )
-from ...literary.source_registry import RegistryError, load_validated_registry
-from ...literary.task_envelope import EnvelopeError
+from ..literary.shared.source_registry import RegistryError, load_validated_registry
+from ..literary.shared.task_envelope import EnvelopeError
 from .artifacts import EDITOR_ARTIFACT_KINDS, EDITOR_FINDING_TYPES
 from .edit_ops import EditError, check_edit
 from .intake import EditorIntakeError, brief_from_envelope
 
 _SOURCE_REGISTRY = Path(__file__).resolve().parent / "sources.yaml"
-_ERRORS = (EnvelopeError, EditorIntakeError, ReviewError, ManifestError,
-           RegistryError, ProvenanceError, EditError)
+_ERRORS = (
+    EnvelopeError,
+    EditorIntakeError,
+    ReviewError,
+    ManifestError,
+    RegistryError,
+    ProvenanceError,
+    EditError,
+)
 
 
 def _load_json(path: str):
@@ -71,8 +79,7 @@ def _cmd_edit_check(a) -> int:
     brief = _load_json(a.brief)
     if not isinstance(brief, dict) or "mode" not in brief:
         raise EditError("edit_brief must be an object carrying a 'mode'")
-    findings = check_edit(_read(a.source), _read(a.edited),
-                          brief["mode"], brief.get("must_keep"))
+    findings = check_edit(_read(a.source), _read(a.edited), brief["mode"], brief.get("must_keep"))
     if findings:
         for f in findings:
             print(f"  FAIL [{f['type']}] {f['detail']}", file=sys.stderr)
@@ -123,21 +130,41 @@ def _cmd_check_usage(a) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="editor-checks")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("intake-validate"); p.add_argument("envelope"); p.set_defaults(func=_cmd_intake_validate)
-    p = sub.add_parser("edit-check"); p.add_argument("source"); p.add_argument("edited"); p.add_argument("brief"); p.set_defaults(func=_cmd_edit_check)
-    p = sub.add_parser("review-validate"); p.add_argument("review"); p.set_defaults(func=_cmd_review_validate)
-    p = sub.add_parser("check-plan"); p.add_argument("review"); p.add_argument("plan"); p.set_defaults(func=_cmd_check_plan)
-    p = sub.add_parser("manifest-validate"); p.add_argument("manifest"); p.set_defaults(func=_cmd_manifest_validate)
-    p = sub.add_parser("manifest-content"); p.add_argument("manifest"); p.set_defaults(func=_cmd_manifest_content)
-    p = sub.add_parser("source-registry"); p.set_defaults(func=_cmd_source_registry)
-    p = sub.add_parser("check-usage"); p.add_argument("usage"); p.set_defaults(func=_cmd_check_usage)
+    p = sub.add_parser("intake-validate")
+    p.add_argument("envelope")
+    p.set_defaults(func=_cmd_intake_validate)
+    p = sub.add_parser("edit-check")
+    p.add_argument("source")
+    p.add_argument("edited")
+    p.add_argument("brief")
+    p.set_defaults(func=_cmd_edit_check)
+    p = sub.add_parser("review-validate")
+    p.add_argument("review")
+    p.set_defaults(func=_cmd_review_validate)
+    p = sub.add_parser("check-plan")
+    p.add_argument("review")
+    p.add_argument("plan")
+    p.set_defaults(func=_cmd_check_plan)
+    p = sub.add_parser("manifest-validate")
+    p.add_argument("manifest")
+    p.set_defaults(func=_cmd_manifest_validate)
+    p = sub.add_parser("manifest-content")
+    p.add_argument("manifest")
+    p.set_defaults(func=_cmd_manifest_content)
+    p = sub.add_parser("source-registry")
+    p.set_defaults(func=_cmd_source_registry)
+    p = sub.add_parser("check-usage")
+    p.add_argument("usage")
+    p.set_defaults(func=_cmd_check_usage)
     args = parser.parse_args(argv)
     try:
         return args.func(args)
     except OSError as exc:
-        print(f"FAIL: {exc}", file=sys.stderr); return 1
+        print(f"FAIL: {exc}", file=sys.stderr)
+        return 1
     except _ERRORS as exc:
-        print(f"FAIL: {exc}", file=sys.stderr); return 1
+        print(f"FAIL: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

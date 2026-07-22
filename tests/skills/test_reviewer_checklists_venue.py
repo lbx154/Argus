@@ -10,13 +10,13 @@ from argus_skill.skills.venue_profiles import (
     EMNLP_PROFILE,
     FRONTIERS_SLEEP_PROFILE,
 )
+from argus_skill.tools.stage_check import _reviewer_checklist_for
 from argus_skill.verticals.research.stages import (
     REVIEWER_CHECKLISTS,
     REVIEWER_CHECKLISTS_BY_VENUE,
     completion_gate,
     reviewer_checklists_for,
 )
-from argus_skill.tools.stage_check import _reviewer_checklist_for
 
 
 def test_both_venues_registered_as_peers():

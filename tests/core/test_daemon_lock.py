@@ -6,8 +6,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 from argus_skill.core.daemon_lock import (
     DaemonAlreadyRunning,
     acquire_global_daemon_lock,
@@ -138,18 +136,3 @@ def test_is_pid_running_dead_pid() -> None:
 def test_is_pid_running_invalid() -> None:
     assert is_pid_running(0) is False
     assert is_pid_running(-1) is False
-
-
-@pytest.mark.parametrize("env_var", ["ARGUS_SKILL_HOME"])
-def test_default_pid_path_uses_core_paths(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env_var: str
-) -> None:
-    monkeypatch.setenv(env_var, str(tmp_path))
-    monkeypatch.delenv("ARGUS_SKILL_LIFE_DIR", raising=False)
-    lock = acquire_global_daemon_lock()
-    try:
-        expected = tmp_path / "bus" / "daemon.pid"
-        assert lock.pid_path == expected
-        assert expected.exists()
-    finally:
-        lock.release()

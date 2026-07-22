@@ -262,7 +262,6 @@ def test_plan_next_repairs_malformed_json_once_in_same_session() -> None:
             "key": None,
             "deps": [],
         }],
-        "meta_decision": None,
         "checklist_ops": [],
     })
     runner = _SequencedRunner(
@@ -300,10 +299,6 @@ def test_plan_next_repairs_malformed_json_once_in_same_session() -> None:
     assert verdict.schema_repair_original_sha256 == hashlib.sha256(
         malformed.encode("utf-8")
     ).hexdigest()
-    assert verdict.input_tokens == 14
-    assert verdict.cached_input_tokens == 2
-    assert verdict.output_tokens == 8
-    assert verdict.schema_repair_input_tokens == 4
     assert verdict.schema_repair_event_payload() == {
         "schema_repair_attempted": True,
         "schema_repair_succeeded": True,
@@ -311,11 +306,6 @@ def test_plan_next_repairs_malformed_json_once_in_same_session() -> None:
             malformed.encode("utf-8")
         ).hexdigest(),
         "schema_repair_error": "",
-        "schema_repair_input_tokens": 4,
-        "schema_repair_cached_input_tokens": 2,
-        "schema_repair_output_tokens": 5,
-        "schema_repair_reasoning_output_tokens": 0,
-        "schema_repair_premium_requests": 0.0,
     }
 
 
@@ -587,20 +577,6 @@ def test_plan_next_returns_done_when_runner_says_so() -> None:
     assert verdict.project_done is True
     assert verdict.new_tasks == []
     assert len(runner.calls) == 1
-
-
-def test_plan_next_preserves_reasoning_output_tokens() -> None:
-    runner = _FakeRunner(
-        json.dumps({"project_done": True, "reason": "everything is done", "new_tasks": []}),
-        reasoning_output_tokens=321,
-    )
-    verdict = Planner(runner).plan_next(
-        continuous_objective="keep going",
-        journal_tail="",
-        planning_cycle=0,
-        runtime_change_summary="",
-    )
-    assert verdict.reasoning_output_tokens == 321
 
 
 def test_plan_next_passes_planner_config_to_runner(
@@ -1446,7 +1422,6 @@ def test_planner_schema_accepts_dag_and_flat_tasks() -> None:
         "waiting": False,
         "waiting_reason": "",
         "waiting_contract": None,
-        "meta_decision": None,
         "checklist_ops": None,
     }
 

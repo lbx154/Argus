@@ -13,8 +13,8 @@ role/routing/schema explanations must stay compact.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 from argus_skill.reviewer import Reviewer
 from argus_skill.reviewer._core import (

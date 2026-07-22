@@ -10,9 +10,9 @@ import copy
 
 import pytest
 
-from argus_skill.literary.task_envelope import (
-    EnvelopeError,
+from argus_skill.verticals.literary.shared.task_envelope import (
     VALID_MODES,
+    EnvelopeError,
     normalize_envelope,
     validate_envelope,
 )

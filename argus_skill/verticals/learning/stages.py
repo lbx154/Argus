@@ -13,19 +13,20 @@ The 4 stages:
 2. **study**: read the material AND inventory the current skill + wiki libraries,
    then produce ``learning/CHANGE_PLAN.json`` — the create/update/archive/retire
    decisions, each with EVIDENCE SPANS ``{source_id, locator, quote}``. This is
-   the judgment stage; the reviewer gates the plan for faithfulness / redundancy /
-   scope before anything is written.
+   the judgment stage; when independent review is required or requested, the
+   Reviewer gates the plan for faithfulness / redundancy / scope before anything
+   is written.
 
-3. **curate**: apply the plan. Skill CRUD flows through the reviewer's
-   ``skill_ops`` and the SkillRouter gates (mechanical / dedup / retire /
-   protected — no Manager gate, the reviewer is sole authority); wiki
-   CRUD flows through the structured ``wiki_ops`` / WikiRouter. Removals are
-   always reversible.
+3. **curate**: apply the plan. Skill CRUD flows through the active role's
+   structured maintenance request and the SkillRouter gates (mechanical / dedup /
+   retire / protected — no Manager content gate); wiki CRUD flows through the
+   structured ``wiki_ops`` / WikiRouter. Removals are always reversible.
 
 4. **review**: final gate — every committed change is evidence-anchored, nothing
-   protected was removed, no existing item regressed, indexes rebuilt. The
-   reviewer verdict ends the mission (``completion_gate="none"`` — no numeric
-   metric, no paper submission).
+   protected was removed, no existing item regressed, indexes rebuilt. Mission
+   completion records either an allowed Engineer self-review or, when required /
+   requested, an independent Reviewer verdict (``completion_gate="none"`` — no
+   numeric metric, no paper submission).
 
 Design invariants (the hard, harness-enforced rules; all judgment is the
 agent's / reviewer's):

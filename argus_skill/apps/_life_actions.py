@@ -429,7 +429,7 @@ def render_skills_cmd(tokens: Sequence[str]) -> str:
         from ..core import paths as core_paths
         from ..skills.store import SkillStore
 
-        global_store = SkillStore(core_paths.skills_global_root())
+        global_store = SkillStore(core_paths.shared_skills_root())
         rows = global_store.list_summaries()
         if not rows:
             return "(no global skills)"

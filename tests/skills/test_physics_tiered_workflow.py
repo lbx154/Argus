@@ -9,8 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.verticals.physics import context_policy, downgrade, gate_feedback, tiers
-from argus_skill.verticals.physics import stages
+from argus_skill.verticals.physics import context_policy, downgrade, gate_feedback, stages, tiers
 from argus_skill.verticals.physics.gates import downgrade as dgate
 from argus_skill.verticals.physics.gates import nogo_terminal as ngate
 

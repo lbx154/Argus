@@ -250,44 +250,6 @@ def vertical_search_altitude(mod: VerticalDefinition, project_root: object) -> s
     return result if isinstance(result, str) else ""
 
 
-def vertical_search_altitude_facts(
-    mod: VerticalDefinition, project_root: object
-) -> dict:
-    """Return ``mod.search_altitude_facts(project_root)`` or ``{}``.
-
-    Structured twin of :func:`vertical_search_altitude` for the meta-control
-    layer: a vertical may expose the live floor / since-improve / per-attempt
-    records as DATA (not rendered prose) so the cross-vertical meta layer detects
-    saturation without re-implementing the vertical's metric parsing (keeps the
-    harness metric-blind). Fail-open: missing/buggy hook → ``{}``.
-    """
-    fn = getattr(mod, "search_altitude_facts", None)
-    if not callable(fn):
-        return {}
-    try:
-        result = fn(project_root)
-    except Exception:  # noqa: BLE001 — detection hook must never break prompts
-        return {}
-    return result if isinstance(result, dict) else {}
-
-
-def vertical_strategy_pool(mod: VerticalDefinition, project_root: object) -> str:
-    """Return ``mod.strategy_pool(project_root)`` or ``""``.
-
-    Optional hook: the regime strategy pool a vertical offers when the meta layer
-    convenes a JUMP (the axes menu + coverage + diverse inspirations). Fail-open:
-    missing/buggy hook → no pool, so jump framing degrades gracefully.
-    """
-    fn = getattr(mod, "strategy_pool", None)
-    if not callable(fn):
-        return ""
-    try:
-        result = fn(project_root)
-    except Exception:  # noqa: BLE001 — strategy hook must never break prompts
-        return ""
-    return result if isinstance(result, str) else ""
-
-
 __all__ = [
     "DEFAULT_VERTICAL",
     "VerticalDefinition",
@@ -301,6 +263,4 @@ __all__ = [
     "vertical_research_target_levels",
     "vertical_workflow_mode",
     "vertical_search_altitude",
-    "vertical_search_altitude_facts",
-    "vertical_strategy_pool",
 ]

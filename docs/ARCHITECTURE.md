@@ -20,11 +20,12 @@ argus-skill (CLI)                         apps/cli/_parser.py + apps/cli/_core.p
   └─ runtime wiring                       argus_skill/apps/_runtime.py
   └─ LifeSupervisor (mission scheduler)   argus_skill/life/supervisor/_core.py
        └─ SkillLoop                        argus_skill/loop.py
-            └─ SupervisedEngineer  ◄────►  Reviewer-until-done
-               engineer/runner.py          reviewer/_core.py (+ reviewer_schema.json)
+            └─ SupervisedEngineer          engineer/runner.py
+                 ├─ allowed low-risk work: Engineer self-review → done
+                 └─ required/requested review: Reviewer-until-done
+                                              reviewer/_core.py (+ reviewer_schema.json)
   sits on:
     core/  (budget, persistence, structured I/O, paths, locks)
-    regime_jump/  (the SINGLE anti-stuck mechanism: regime-jump)
     verticals/<name>/  (the task-specific shape + reviewer gate)
     backend: agent_cli/ + adapters/  (codex / claude / copilot / opencode CLI runners)
 ```
@@ -38,13 +39,12 @@ argus-skill (CLI)                         apps/cli/_parser.py + apps/cli/_core.p
 | Cockpit | `frontend/tui/`, `frontend/web/`, `webapi/server.py` | Ink/Web operator surfaces; there is no Python line REPL |
 | Runtime wiring | `apps/_runtime.py` | builds the live runner / supervisor from config |
 | Mission scheduler | `life/supervisor/_core.py` | the 7×24 outer loop: claim backlog → run mission → plan next; budget, lifecycle, drain |
-| Skill loop | `loop.py` | per-mission glue: build engineer prompt → run → review |
-| Engineer | `engineer/runner.py` | `SupervisedEngineer` round-loop control flow |
-| Reviewer | `reviewer/_core.py`, `reviewer/reviewer_schema.json` | the **sole source of truth for "done"** — no hardcoded completion gate |
-| Planner | `planner/planner.py` | L4 continuous planner: next tasks + (optional) meta decision |
+| Skill loop | `loop.py` | per-mission glue: build engineer prompt → run → select self-review or independent review |
+| Engineer | `engineer/runner.py` | `SupervisedEngineer` round-loop control flow; may explicitly self-verify allowed low-risk bounded work |
+| Reviewer | `reviewer/_core.py`, `reviewer/reviewer_schema.json` | independent `done` / `continue` / `blocked` verdict when required by the vertical/task or requested by Engineer |
+| Planner | `planner/planner.py` | L4 continuous planner: next tasks |
 | Core (dumb pipe) | `core/models.py`, `core/ports.py`, `core/paths.py`, `core/pricing.py`, `core/daemon_lock.py`, `core/bootstrap.py` | budget, persistence, structured I/O, paths, locks |
-| Meta (anti-stuck) | `regime_jump/` (`saturation.py`, `flow_controller.py`, `ledger.py`, `meta_prompter.py`, `config.py`) | regime-jump: DETECT (dumb counter) / JUDGE (planner LLM) / ENFORCE (never-cleared forbidden ledger). Fail-soft to no-op. |
-| Verticals | `verticals/_base.py` + `verticals/{nanochat,nanogpt_speedrun,kernelbench,speedrun,quant,research,learning,ale_last_exam}/` | per-task shape via a plugin contract (`role_banner`, `completion_gate`, `search_altitude`, `strategy_pool`); `ale_last_exam` is the single-stage hidden-reference artifact-delivery shape |
+| Verticals | `verticals/_base.py` + `verticals/{nanochat,nanogpt_speedrun,kernelbench,speedrun,quant,research,learning,ale_last_exam}/` | per-task shape via a plugin contract (`role_banner`, `completion_gate`, `search_altitude`); `ale_last_exam` is the single-stage hidden-reference artifact-delivery shape |
 | Daemon | `daemon/life_worker.py` | detached 7×24 worker around `LifeSupervisor`; SIGTERM/drain, pid lock |
 | Backend | `agent_cli/agent_cli_runner.py`, `adapters/agent_cli_backend.py`, `adapters/memory_backend.py` | the CLI runner (codex/claude/copilot/opencode) + a deterministic memory backend for tests |
 
@@ -65,11 +65,17 @@ current project state alongside the shared global journal.
 ## How a mission flows
 
 1. **Select.** `Manager.divide` routes the objective to ONE vertical.
-2. **Round k.** `SupervisedEngineer.run` builds the engineer prompt, runs the
-   vertical's checks, then asks the reviewer for a verdict.
-3. **Classify.** Reviewer says `done` (and checks pass) → done; `blocked` →
-   surface; otherwise iterate up to `max_rounds`. The reviewer's verdict is the
-   only completion authority.
+2. **Round k.** `SupervisedEngineer.run` builds the Engineer prompt and executes
+   the work. The Engineer writes structured control with `review=skip|required`.
+3. **Classify.** If self-review is enabled, the task/vertical does not require
+   independent review, and the Engineer explicitly selects `skip`, the runtime
+   records `review_source=engineer_self_review` and ends `done`. The prompt limits
+   `skip` to low-risk work with a passing verifier; the harness intentionally does
+   not add a second heuristic or validator to overrule that agent judgment.
+   Otherwise a fresh Reviewer returns `done`, `continue`, or `blocked`;
+   `continue` iterates up to `max_rounds`. `stage_closing`, `review:required`, and
+   vertical-wide independent-review policy disable the self-review path. The
+   harness records the selected authority and never infers completion from prose.
 4. **Plan next.** Between missions the planner proposes a persisted backlog DAG.
    Every batch receives an opaque `plan_id`, `plan_version`, and stable node
    keys. By default Dynamic Plan is off. In `shadow` mode the Reviewer can emit

@@ -16,7 +16,7 @@ replace it; the new `CapabilityRegistry` sits alongside it.
 | role matcher | `argus_skill/skills/role_match.py`, `missions.py` | `match_role_skills` → prompt block per role |
 | skill mutations | `argus_skill/skills/skill_router.py`, `evolution.py`, `lifecycle.py` | validated create/update/archive; protected-category guard |
 | bundled skills | `argus_skill/builtin_skills/` (engineer/reviewer/planner/manager/curator) | version-controlled role playbooks |
-| global skills dir | `~/.argus-skill/skills` (`core/paths.py::skills_global_root`) | learned skills |
+| global skills dir | `$ARGUS_SKILL_HOME/skills` (`core/paths.py::shared_skills_root`) | learned skills |
 
 Skill schema (frontmatter): `name, description, category, version, created_at,
 skill_id, successful_reuses, failed_reuses, task_history, protected`.

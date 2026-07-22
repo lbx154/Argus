@@ -38,6 +38,8 @@ import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..core.paths import global_root, resolve_runtime_path
+
 # Section heading detector. We accept LaTeX-style ``1 Introduction`` and
 # bare numerals (``2.1 Background``). Heuristic — perfect parsing isn't
 # possible from extracted text, so the tool surfaces best-effort matches
@@ -52,10 +54,12 @@ _RE_SECTION_HEAD = re.compile(
 )
 
 ARXIV_ID_RE = re.compile(r"^\d{4}\.\d{4,5}(v\d+)?$")
-DEFAULT_CACHE = Path(os.environ.get(
-    "ARGUS_SKILL_PDF_CACHE",
-    str(Path.home() / ".argus-skill" / "pdf_cache"),
-)).expanduser()
+_CACHE_OVERRIDE = os.environ.get("ARGUS_SKILL_PDF_CACHE", "").strip()
+DEFAULT_CACHE = (
+    resolve_runtime_path(_CACHE_OVERRIDE, context="ARGUS_SKILL_PDF_CACHE")
+    if _CACHE_OVERRIDE
+    else global_root() / "pdf_cache"
+)
 MAX_FULL_CHARS = 200_000  # safety cap on `full` output
 
 

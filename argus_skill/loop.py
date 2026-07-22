@@ -382,20 +382,30 @@ class SkillLoop(
         """
         workdir = Path(workdir) if workdir else Path.cwd()
         run_id = self.config.session_id or f"run-{uuid.uuid4().hex}"
-        from .skills.vertical_select import resolve_vertical
-        from .verticals._base import load_vertical, vertical_role_banner
-
-        active_vertical = resolve_vertical(workdir)
-        vertical_module = load_vertical(active_vertical, project_root=workdir)
-        engineer_role_banner = vertical_role_banner(vertical_module, "engineer")
-        scientist_create_banner = vertical_role_banner(
-            vertical_module,
-            "scientist_create",
+        from .roles.prompts import resolve_role_prompt
+        from .roles.prompts.engineer import (
+            SKILL_ADAPT,
+            SKILL_CREATE,
+            mission_request,
+            skill_request,
         )
-        scientist_adaptation_banner = vertical_role_banner(
-            vertical_module,
-            "scientist",
-        )
+        engineer_prompt_context = resolve_role_prompt(mission_request(workdir))
+        active_vertical = engineer_prompt_context.vertical
+        engineer_role_banner = engineer_prompt_context.role_banner
+        scientist_create_banner = resolve_role_prompt(
+            skill_request(
+                workdir,
+                operation=SKILL_CREATE,
+                vertical=active_vertical,
+            )
+        ).role_banner
+        scientist_adaptation_banner = resolve_role_prompt(
+            skill_request(
+                workdir,
+                operation=SKILL_ADAPT,
+                vertical=active_vertical,
+            )
+        ).role_banner
         if self.config.wiki_ops_enabled:
             from .wiki.lifecycle import ensure_project_wiki
 

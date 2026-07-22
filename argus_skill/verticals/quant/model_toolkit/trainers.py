@@ -15,6 +15,7 @@ Three families cover the tabular-cross-section task honestly:
 MLP/linear cannot eat NaN, so they standardise on train stats then zero-fill;
 gbdt keeps NaN. GPU is used for the MLP when available.
 """
+
 from __future__ import annotations
 
 from typing import Any, Protocol
@@ -25,7 +26,9 @@ import numpy as np
 class ModelTrainer(Protocol):
     """Common surface: fit on train (early-stop on valid), predict a 1-D score."""
 
-    def fit(self, X_tr: np.ndarray, y_tr: np.ndarray, X_va: np.ndarray, y_va: np.ndarray) -> "ModelTrainer": ...
+    def fit(
+        self, X_tr: np.ndarray, y_tr: np.ndarray, X_va: np.ndarray, y_va: np.ndarray
+    ) -> "ModelTrainer": ...
     def predict(self, X: np.ndarray) -> np.ndarray: ...
 
 
@@ -60,15 +63,24 @@ class GBDTTrainer:
         import lightgbm as lgb
 
         params = {
-            "objective": "regression", "metric": "l2", "verbosity": -1,
-            "num_threads": 0, **self.config,
+            "objective": "regression",
+            "metric": "l2",
+            "verbosity": -1,
+            "num_threads": 0,
+            **self.config,
         }
         dtr = lgb.Dataset(X_tr, label=y_tr)
         dva = lgb.Dataset(X_va, label=y_va, reference=dtr)
         self.booster = lgb.train(
-            params, dtr, num_boost_round=self.num_boost_round,
-            valid_sets=[dva], valid_names=["valid"],
-            callbacks=[lgb.early_stopping(self.early_stopping, verbose=False), lgb.log_evaluation(0)],
+            params,
+            dtr,
+            num_boost_round=self.num_boost_round,
+            valid_sets=[dva],
+            valid_names=["valid"],
+            callbacks=[
+                lgb.early_stopping(self.early_stopping, verbose=False),
+                lgb.log_evaluation(0),
+            ],
         )
         return self
 
@@ -149,8 +161,12 @@ class TorchMLPTrainer:
             perm = torch.randperm(n)
             for i in range(0, n, self.batch_size):
                 idx = perm[i : i + self.batch_size]
-                xb = Xtr[idx].to(self._device); yb = ytr[idx].to(self._device)
-                opt.zero_grad(); loss = lossf(self.net(xb), yb); loss.backward(); opt.step()
+                xb = Xtr[idx].to(self._device)
+                yb = ytr[idx].to(self._device)
+                opt.zero_grad()
+                loss = lossf(self.net(xb), yb)
+                loss.backward()
+                opt.step()
             self.net.eval()
             with torch.no_grad():
                 vloss = float(lossf(self.net(Xva_d), yva_d))

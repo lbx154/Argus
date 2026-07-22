@@ -4,8 +4,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .transcript import append_turn
 from ..life.event_log import JsonlEventSink
+from .transcript import append_turn
 
 
 def publish_operator_message(

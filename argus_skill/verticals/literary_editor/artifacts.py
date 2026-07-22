@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...literary.artifact_manifest import normalize_manifest
-from ...literary.review_contract import normalize_review, revision_plan
+from ..literary.shared.artifact_manifest import normalize_manifest
+from ..literary.shared.review_contract import normalize_review, revision_plan
 from .edit_ops import EDIT_FINDING_TYPES
 
 #: Editor finding vocabulary: the machine edit-discipline types (blocking) PLUS

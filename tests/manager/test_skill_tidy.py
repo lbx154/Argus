@@ -4,8 +4,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus_skill.manager import skill_tidy
 from argus_skill.manager.skill_review import (

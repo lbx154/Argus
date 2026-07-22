@@ -15,7 +15,6 @@ import types
 
 from argus_skill.life.supervisor import LifeSupervisor
 
-
 _GOOD_FB = {
     "stage": "run",
     "summary": "the run-stage checklist demands real data that is not yet released",

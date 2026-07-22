@@ -15,6 +15,7 @@ poetry mission is gated on real contracts at RUN TIME exactly like fiction:
 Each exits 1 with a diagnostic on any violation, failing the stage. The prosody
 gate is the crown: a poem with 出韵/失替/三平尾/孤平 fails here mechanically.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -22,27 +23,34 @@ import json
 import sys
 from pathlib import Path
 
-from ...literary.artifact_manifest import (
+from ..literary.shared.artifact_manifest import (
     ManifestError,
     assert_content_present,
     normalize_manifest,
 )
-from ...literary.provenance import ProvenanceError, normalize_usage
-from ...literary.review_contract import (
+from ..literary.shared.provenance import ProvenanceError, normalize_usage
+from ..literary.shared.review_contract import (
     ReviewError,
     assert_plan_covers,
     normalize_review,
 )
-from ...literary.source_registry import RegistryError, load_validated_registry
-from ...literary.task_envelope import EnvelopeError
+from ..literary.shared.source_registry import RegistryError, load_validated_registry
+from ..literary.shared.task_envelope import EnvelopeError
 from .artifacts import POETRY_ARTIFACT_KINDS, POETRY_FINDING_TYPES
 from .intake import PoetryIntakeError, brief_from_envelope
 from .prosody import ProsodyError, analyze, render_report
 
 _SOURCE_REGISTRY = Path(__file__).resolve().parent / "sources.yaml"
 
-_ERRORS = (EnvelopeError, PoetryIntakeError, ReviewError, ManifestError,
-           RegistryError, ProvenanceError, ProsodyError)
+_ERRORS = (
+    EnvelopeError,
+    PoetryIntakeError,
+    ReviewError,
+    ManifestError,
+    RegistryError,
+    ProvenanceError,
+    ProsodyError,
+)
 
 
 def _load_json(path: str):
@@ -57,8 +65,9 @@ def _load_json(path: str):
 
 def _cmd_intake_validate(args) -> int:
     brief = brief_from_envelope(_load_json(args.envelope))
-    print(f"OK: envelope valid + poetry-consumable (form={brief['form']}, "
-          f"jinti={brief['is_jinti']})")
+    print(
+        f"OK: envelope valid + poetry-consumable (form={brief['form']}, jinti={brief['is_jinti']})"
+    )
     return 0
 
 
@@ -74,8 +83,7 @@ def _cmd_prosody(args) -> int:
 
 def _cmd_review_validate(args) -> int:
     review = normalize_review(_load_json(args.review), type_vocabulary=POETRY_FINDING_TYPES)
-    print(f"OK: review conforms ({len(review['findings'])} findings, "
-          f"verdict={review['verdict']})")
+    print(f"OK: review conforms ({len(review['findings'])} findings, verdict={review['verdict']})")
     return 0
 
 
@@ -116,14 +124,30 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="poetry-checks")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    p = sub.add_parser("intake-validate"); p.add_argument("envelope"); p.set_defaults(func=_cmd_intake_validate)
-    p = sub.add_parser("prosody"); p.add_argument("poem"); p.set_defaults(func=_cmd_prosody)
-    p = sub.add_parser("review-validate"); p.add_argument("review"); p.set_defaults(func=_cmd_review_validate)
-    p = sub.add_parser("check-plan"); p.add_argument("review"); p.add_argument("plan"); p.set_defaults(func=_cmd_check_plan)
-    p = sub.add_parser("manifest-validate"); p.add_argument("manifest"); p.set_defaults(func=_cmd_manifest_validate)
-    p = sub.add_parser("manifest-content"); p.add_argument("manifest"); p.set_defaults(func=_cmd_manifest_content)
-    p = sub.add_parser("source-registry"); p.set_defaults(func=_cmd_source_registry)
-    p = sub.add_parser("check-usage"); p.add_argument("usage"); p.set_defaults(func=_cmd_check_usage)
+    p = sub.add_parser("intake-validate")
+    p.add_argument("envelope")
+    p.set_defaults(func=_cmd_intake_validate)
+    p = sub.add_parser("prosody")
+    p.add_argument("poem")
+    p.set_defaults(func=_cmd_prosody)
+    p = sub.add_parser("review-validate")
+    p.add_argument("review")
+    p.set_defaults(func=_cmd_review_validate)
+    p = sub.add_parser("check-plan")
+    p.add_argument("review")
+    p.add_argument("plan")
+    p.set_defaults(func=_cmd_check_plan)
+    p = sub.add_parser("manifest-validate")
+    p.add_argument("manifest")
+    p.set_defaults(func=_cmd_manifest_validate)
+    p = sub.add_parser("manifest-content")
+    p.add_argument("manifest")
+    p.set_defaults(func=_cmd_manifest_content)
+    p = sub.add_parser("source-registry")
+    p.set_defaults(func=_cmd_source_registry)
+    p = sub.add_parser("check-usage")
+    p.add_argument("usage")
+    p.set_defaults(func=_cmd_check_usage)
 
     args = parser.parse_args(argv)
     try:

@@ -38,6 +38,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from ..core.paths import global_root, session_states_root
 from ..core.usage import project_usage_summary
 
 # ---------------------------------------------------------------------------
@@ -47,8 +48,7 @@ from ..core.usage import project_usage_summary
 def _dashboard_roots() -> list[Path]:
     """Life roots to scan. Default global root + env-listed extras."""
     roots: list[Path] = []
-    base = Path(os.environ.get("ARGUS_SKILL_HOME") or (Path.home() / ".argus-skill"))
-    roots.append(base)
+    roots.append(global_root())
     extra = os.environ.get("ARGUS_SKILL_DASHBOARD_ROOTS", "")
     for p in extra.split(":"):
         p = p.strip()
@@ -76,7 +76,7 @@ def discover_life_dirs(roots: list[Path] | None = None) -> list[Path]:
     found: list[Path] = []
     seen_real: set[str] = set()
     for root in roots:
-        pdir = root / "projects"
+        pdir = session_states_root(root)
         if not pdir.exists():
             continue
         for life in sorted(pdir.iterdir()):

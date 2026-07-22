@@ -1,7 +1,8 @@
 """fiction_writing runtime review gate — invoked by STAGE_CHECKS at run time.
 
 Binds the shared literary review contract
-(:mod:`argus_skill.literary.review_contract`) to fiction's finding VOCABULARY so
+(:mod:`argus_skill.verticals.literary.shared.review_contract`) to fiction's
+finding VOCABULARY so
 the review / revise stages are gated on a real contract at RUN TIME (via the
 STAGE_CHECKS shell runner), not only in unit tests. This is what makes the
 review->revise link a genuine runtime closed loop rather than a helper that only
@@ -24,7 +25,7 @@ import json
 import sys
 from pathlib import Path
 
-from ...literary.review_contract import (
+from ..literary.shared.review_contract import (
     ReviewError,
     assert_plan_covers,
     normalize_review,

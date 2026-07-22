@@ -281,11 +281,6 @@ export interface LifePlannerVerdictEvent extends EventMsg {
   "schema_repair_succeeded"?: boolean;
   "schema_repair_original_sha256"?: string;
   "schema_repair_error"?: string;
-  "schema_repair_input_tokens"?: number;
-  "schema_repair_cached_input_tokens"?: number;
-  "schema_repair_output_tokens"?: number;
-  "schema_repair_reasoning_output_tokens"?: number;
-  "schema_repair_premium_requests"?: number;
 }
 
 export interface LifePlannerErrorEvent extends EventMsg {

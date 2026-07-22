@@ -72,10 +72,8 @@ class _VerticalDecisionMixin:
             )
             return conservative_target
         from ..core.models import RunnerOptions
-        from .domain_author import (
-            build_research_target_prompt,
-            parse_research_target_level,
-        )
+        from ..roles.prompts.manager import build_research_target_prompt
+        from .domain_author import parse_research_target_level
         from .stage_decider import extract_answer
 
         with self._task_usage_scope(root_task_id):
@@ -140,10 +138,12 @@ class _VerticalDecisionMixin:
                 "cannot decide the vertical: the Manager has no backend/runner"
             )
         from ..core.models import RunnerOptions
-        from ..verticals._data_domain import list_data_domains
-        from .domain_author import (
+        from ..roles.prompts.manager import (
             build_fast_vertical_decision_prompt,
             build_vertical_decision_prompt,
+        )
+        from ..verticals._data_domain import list_data_domains
+        from .domain_author import (
             parse_fast_vertical_decision,
             parse_vertical_decision,
         )

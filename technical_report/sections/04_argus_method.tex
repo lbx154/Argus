@@ -13,10 +13,11 @@ the immutable record but no completion decision.
 
 The four roles divide research authority as summarized in
 Table~\ref{tab:roles}. The Manager spans the campaign rather than one execution
-round. The Planner authors future work, the Engineer performs it, and the Reviewer
-is the sole mission-level completion authority. The interfaces are structured
-objects rather than untyped prose, which makes ownership and recovery behavior
-explicit.
+round. The Planner authors future work and the Engineer performs it. Mission-level
+completion has an explicit source: allowed low-risk bounded work may use Engineer
+self-review, while vertical policy, stage-closing tasks, or the Engineer's own
+request require an independent Reviewer. The interfaces are structured objects
+rather than untyped prose, which makes ownership and recovery behavior explicit.
 
 \begin{table}[H]
 \centering
@@ -28,12 +29,13 @@ explicit.
 \midrule
 Manager & Commit the objective, lifetime, route, and campaign stage & Campaign division and stage transition \\
 Planner & Decompose the current research state into bounded tasks and dependencies & Task specifications, plan status, and stage checklist updates \\
-Engineer & Modify artifacts, invoke tools, and run experiments for one round & Execution result, artifacts, measurements, and a proposed handoff \\
-Reviewer & Inspect artifacts and execution records; decide whether work is complete & \code{done}, \code{continue}, or \code{blocked}, plus grounded next action and retained-state edits \\
+Engineer & Modify artifacts, invoke tools, and run experiments for one round & Execution result, artifacts, measurements, handoff, and structured \code{review=skip|required} selection \\
+Reviewer & Independently inspect artifacts and execution records when required or requested & \code{done}, \code{continue}, or \code{blocked}, plus grounded next action and retained-state edits \\
 \bottomrule
 \end{tabularx}
-\caption{Role separation in \systemname. Execution belongs to the Engineer;
-completion belongs to the Reviewer.}
+\caption{Role separation in \systemname. The Engineer executes and may self-review
+allowed low-risk bounded work; mandatory or requested independent review belongs to
+the Reviewer.}
 \label{tab:roles}
 \end{table}
 
@@ -47,8 +49,11 @@ $c \leftarrow \operatorname{ManagerCommit}(o)$; persist campaign identity \\
 \> $q \leftarrow \operatorname{Planner}(B,H_t,c)$; claim one bounded task \\
 \> $\tau_t \leftarrow [\,]$ \\
 \> \textbf{repeat} \\
-\>\> $(y,e) \leftarrow \operatorname{Engineer}(q,H_t)$ \\
-\>\> $r \leftarrow \operatorname{Reviewer}(q,y,e)$; append $(q,y,e,r)$ to $\tau_t$ \\
+\>\> $(y,e,d) \leftarrow \operatorname{Engineer}(q,H_t)$ \\
+\>\> \textbf{if} $d=\code{skip}$ and $\operatorname{SelfReviewAllowed}(q)$ \\
+\>\>\> $r \leftarrow \operatorname{EngineerSelfReview}(q,y,e)$ \\
+\>\> \textbf{else} $r \leftarrow \operatorname{Reviewer}(q,y,e)$ \\
+\>\> append $(q,y,e,r,r.\code{source})$ to $\tau_t$ \\
 \>\> \textbf{if} $r=\code{continue}$ \textbf{then} $q \leftarrow r.\code{next\_action}$ \\
 \> \textbf{until} $r\in\{\code{done},\code{blocked},\code{paused}\}$ \\
 \> $E_t \leftarrow \operatorname{AdmitResult}(e,r)$ \\
@@ -68,16 +73,15 @@ its result, and advances only at a clean mission boundary. Mission assignment is
 transactional, preventing duplicate work under concurrency, and resumed execution
 is tied to the persistent campaign identity.
 
-Model sessions are treated as bounded caches. Engineer and Reviewer sessions can be
-resumed briefly to preserve useful local context, but they are rolled at explicit
-limits. Cross-session continuity comes from a curated checkpoint containing the
-goal, reviewed progress, failed approaches, the current blocker, and the next step.
-This follows the broader move from monolithic context toward managed memory tiers
-and reusable workflows~\citep{packer2023memgpt,wang2024workflowmemory,xu2025amem}.
-The Engineer proposes the handoff; the Reviewer validates and writes the canonical
-checkpoint. Hard size limits keep this object focused on current state, while the
-full history remains in artifacts and the event record. Concrete storage layouts
-and roll thresholds are implementation choices around the core method.
+Engineer and Reviewer calls use fresh provider sessions for each round. Cross-session
+continuity comes from an ordinary shared \code{CHECKPOINT.md} containing durable
+state, evidence references, open questions, and the next step. This follows the
+broader move from monolithic context toward managed memory tiers and reusable
+workflows~\citep{packer2023memgpt,wang2024workflowmemory,xu2025amem}. The Engineer
+updates the checkpoint after execution. When independent review is invoked, the
+Reviewer reads and corrects the same file and is its final editor for that round;
+on an accepted self-review path, the Engineer's version remains the handoff. The
+full history remains in artifacts and the event record.
 
 This design makes restart and upgrade behavior part of the method. A running process
 hands off only at a mission boundary, and the replacement resumes from the same
@@ -93,10 +97,16 @@ the same artifact state, allowing review of the actual outputs and execution rec
 rather than only the Engineer's summary. A typed, append-only trace is the canonical
 timeline; user interfaces are projections over that record.
 
-The Reviewer is the sole source of a mission completion verdict. Completion comes
-from the structured verdict rather than filenames, Token volume, or keywords. The
-corresponding artifacts and execution records remain inspectable, while credential
-redaction and result provenance preserve the same completion rule.
+The source of a mission completion verdict is explicit. When self-review is enabled
+and no vertical or task policy requires independence, an Engineer may select
+\code{review=skip}; its prompt restricts that choice to low-risk bounded work with
+a passing verifier. The runtime accepts the explicit agent judgment without adding
+a second heuristic or validator and records
+\code{review\_source=engineer\_self\_review}. Otherwise a fresh Reviewer
+returns the structured verdict, and stage-closing or vertical-required review cannot
+be waived. Completion never comes from filenames, Token volume, or prose keywords.
+The corresponding artifacts and execution records remain inspectable, while
+credential redaction and result provenance preserve the selected verdict source.
 
 \subsection{Fixed-Model Runtime Self-Evolution}
 
@@ -161,7 +171,8 @@ calls are strong. \systemname therefore combines round-level progress
 classification with mission-boundary replanning. Work that repeatedly produces no
 decision or artifact change is stopped or reformulated, while long-running external
 jobs are tracked separately from model reasoning. These mechanisms bound execution;
-scientific correctness remains with the task evaluator and Reviewer.
+scientific correctness remains with the task evaluator and the explicitly selected
+Engineer-self-review or independent-Reviewer judgment path.
 
 Resource accounting is centralized at model-call and external-job boundaries.
 Budgets are checked before work begins and reconciled after completion, preventing

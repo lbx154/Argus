@@ -42,7 +42,7 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
         cfg.reviewer_reasoning_effort,
     )
     default_skills_dir = (
-        core_paths.skills_global_root()
+        core_paths.shared_skills_root()
         if cfg.global_root is None
         else Path(cfg.global_root) / "skills"
     )

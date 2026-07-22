@@ -18,7 +18,8 @@ from typing import Any
 DEFAULT_TIMEOUT_SECONDS = 180.0
 DEFAULT_MAX_RETRIES = 5
 TRANSIENT_HTTP_STATUS_CODES = {429, 500, 502, 503, 504}
-_VAULT_PATH = Path.home() / ".argus-skill" / "capabilities" / "model_api.json"
+_ARGUS_HOME = Path(os.environ.get("ARGUS_SKILL_HOME") or (Path.home() / ".argus-skill"))
+_VAULT_PATH = _ARGUS_HOME / "capabilities" / "model_api.json"
 
 
 class ModelCallError(RuntimeError):

@@ -28,6 +28,8 @@ htmlcov/
 .argus_subagents/
 # per-round failing-check logs (give-access artifacts, never benchmark evidence)
 .argus/
+# local Web mission-view coordination lock
+/mission-view.lock
 
 # scratch
 benchmarks/results/
@@ -62,13 +64,6 @@ hello-mission-smoke.txt
 
 # fiction_writing eval run outputs (generated + timestamped; regenerate via run_evals.py)
 argus_skill/verticals/fiction_writing/evaluations/reports/
-
-# meta-layer ledger lives under a MISSION's research/ — never a repo artifact.
-# resolve_project_root() resolves to the repo cwd during planner tests, so guard
-# the stray write from ever being committed.
-/research/
-META_LEDGER.json
-META_LEDGER.jsonl
 
 # per-user secrets / local overrides — API keys, tokens, DB passwords NEVER commit
 *.api-key.local

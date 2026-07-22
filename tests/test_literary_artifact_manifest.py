@@ -12,7 +12,7 @@ import copy
 
 import pytest
 
-from argus_skill.literary.artifact_manifest import (
+from argus_skill.verticals.literary.shared.artifact_manifest import (
     ManifestError,
     assert_content_present,
     lineage,

@@ -12,7 +12,7 @@ import copy
 
 import pytest
 
-from argus_skill.literary.provenance import (
+from argus_skill.verticals.literary.shared.provenance import (
     ProvenanceError,
     normalize_usage,
     validate_usage,

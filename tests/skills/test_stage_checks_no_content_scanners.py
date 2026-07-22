@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-
 _VERTICALS_ROOT = Path(__file__).resolve().parents[2] / "argus_skill" / "verticals"
 _CONTENT_SCANNER = re.compile(
     r"\b(?:grep|egrep|fgrep|awk|sed|cat|head|tail|jq|perl|ruby)\b"

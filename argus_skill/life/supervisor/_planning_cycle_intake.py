@@ -199,10 +199,7 @@ class PlanningCycleIntakeMixin:
                 project_root=self._project_workdir(),
             )
         if short_circuit is not None:
-            return self._record_planner_waiting(
-                short_circuit,
-                planner_cost_usd=0.0,
-            )
+            return self._record_planner_waiting(short_circuit)
 
         # The mission is now committing to real planning work — every idle /
         # blocked / no-runner / done short-circuit above has returned. Decide +

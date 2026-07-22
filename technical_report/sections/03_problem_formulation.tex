@@ -358,12 +358,14 @@ the four role-owned actions
 
 where $m_t$ is the Manager's objective or stage decision, $p_t$ is the Planner's
 bounded task and dependency decision, $x_t$ is the Engineer's artifact-producing
-execution, $r_t$ is the Reviewer's acceptance decision, and $\Delta H_t$ is the
-durable state update exposed to later missions. The decomposition makes two
-authority constraints explicit: only the Manager changes campaign stage, and only
-the Reviewer admits a mission as complete. The Engineer may propose results and
-the Planner may propose future work, but neither can self-certify the resulting
-research state.
+execution, $r_t$ is the structured completion decision together with its source,
+and $\Delta H_t$ is the durable state update exposed to later missions. The
+decomposition makes two authority constraints explicit: only the Manager changes
+campaign stage, while mission completion records either an allowed Engineer
+self-review or a required/requested independent Reviewer verdict. Vertical policy
+and stage-closing tasks prevent Engineer self-certification where independent
+review is mandatory; the Planner may propose future work but cannot certify the
+mission.
 
 A vertical trace is useful when these tuples remain linked across many missions.
 It shows whether the objective survived failures, whether the Planner consumed

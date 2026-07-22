@@ -24,6 +24,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from ..core.paths import resolve_runtime_path, special_prompts_root
+
 
 def _enforce_posix_trust_bits() -> bool:
     return os.name != "nt"
@@ -32,8 +34,8 @@ def _enforce_posix_trust_bits() -> bool:
 def special_prompts_dir() -> Path:
     env = os.environ.get("ARGUS_SKILL_SPECIAL_PROMPTS_DIR")
     if env:
-        return Path(env).expanduser()
-    return Path.home() / ".argus-skill" / "special_prompts"
+        return resolve_runtime_path(env, context="ARGUS_SKILL_SPECIAL_PROMPTS_DIR")
+    return special_prompts_root()
 
 
 def _scoped_body(raw: str) -> tuple[str, str]:

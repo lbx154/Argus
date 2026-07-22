@@ -12,7 +12,7 @@ import importlib
 
 import pytest
 
-from argus_skill.literary.stage_protocol import (
+from tests.literary_support.stage_protocol import (
     StageProtocolError,
     extract_protocol,
     validate_stage_module,

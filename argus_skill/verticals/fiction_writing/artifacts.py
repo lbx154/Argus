@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...literary.artifact_manifest import normalize_manifest
+from ..literary.shared.artifact_manifest import normalize_manifest
 
 #: Fiction's artifact kinds — the closed vocabulary the shared contract validates
 #: this vertical's manifest against. A kind outside this set is rejected.

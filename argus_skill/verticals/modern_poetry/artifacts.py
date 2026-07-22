@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...literary.artifact_manifest import normalize_manifest
-from ...literary.review_contract import normalize_review, revision_plan
+from ..literary.shared.artifact_manifest import normalize_manifest
+from ..literary.shared.review_contract import normalize_review, revision_plan
 from .form import FORM_FINDING_TYPES
 
 #: Modern-poetry finding vocabulary: the machine hard-constraint types (blocking)

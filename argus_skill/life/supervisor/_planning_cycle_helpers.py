@@ -145,8 +145,6 @@ class _PlanCycleState:
         self.subagent_family_failures: dict[str, Any] = {}
         self.verdict: Any = None
 
-        # Set by the verdict-normalization phase.
-        self.planner_cost_usd: float = 0.0
         self.schema_repair_details: dict[str, Any] = {}
 
         # Set by the dedupe/enqueue phases.

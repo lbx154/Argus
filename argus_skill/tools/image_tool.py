@@ -214,11 +214,13 @@ def _json_request(
 
 
 def _image_usage_path() -> Path:
+    from ..core.paths import capabilities_root, resolve_runtime_path
+
     raw = os.environ.get("ARGUS_SKILL_IMAGE_USAGE_LEDGER", "").strip()
     return (
-        Path(raw).expanduser()
+        resolve_runtime_path(raw, context="ARGUS_SKILL_IMAGE_USAGE_LEDGER")
         if raw
-        else Path.home() / ".argus-skill" / "capabilities" / "image_usage.jsonl"
+        else capabilities_root() / "image_usage.jsonl"
     )
 
 

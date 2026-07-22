@@ -36,7 +36,6 @@ def _write_project_event(journal, entry: JournalEntry) -> None:
 @pytest.fixture
 def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    monkeypatch.delenv("ARGUS_SKILL_LIFE_DIR", raising=False)
     return tmp_path
 
 

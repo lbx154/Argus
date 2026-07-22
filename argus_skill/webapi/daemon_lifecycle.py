@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from ..cli.roles_status import resolve_all_roles, role_activity
+from ..core import paths as core_paths
 from ..core.event_catalog import EventType
 from ..core.session import (
     SessionMeta,
@@ -127,7 +128,7 @@ def list_running_daemons(
         sid = str(project.get("id") or "")
         if not sid or sid == exclude_sid or not project.get("daemon_alive"):
             continue
-        life_dir = root / "projects" / sid
+        life_dir = core_paths.session_state_root(sid, root=root)
         try:
             items = LifeMemory.open(life_dir).backlog.all()
         except Exception:  # noqa: BLE001
@@ -190,7 +191,7 @@ def _admission_required(
         "running_daemons": running,
     }
     try:
-        path = root / "projects" / sid / _DAEMON_ADMISSION_FILE
+        path = core_paths.session_state_root(sid, root=root) / _DAEMON_ADMISSION_FILE
         tmp = path.with_suffix(f".{os.getpid()}.tmp")
         tmp.write_text(
             json.dumps(admission, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -462,7 +463,7 @@ def create_daemon(
     sid = new_session_id()
     now = _time.time()
     requested_objective = (objective or "").strip()
-    life_dir = root / "projects" / sid
+    life_dir = core_paths.session_state_root(sid, root=root)
     if workdir:
         effective_workdir = str(
             Path(workdir).expanduser().resolve(strict=True)

@@ -21,9 +21,16 @@ import subprocess
 import sys
 from pathlib import Path
 
+from ..core.paths import (
+    capabilities_root,
+    logs_root,
+    resolve_runtime_path,
+    special_prompts_root,
+)
+
 
 def _capabilities_dir() -> Path:
-    d = Path.home() / ".argus-skill" / "capabilities"
+    d = capabilities_root()
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -292,7 +299,11 @@ _KEEPALIVE_TOKEN = "argus-skill-gpu-keepalive"
 
 def _special_prompts_dir() -> Path:
     env = os.environ.get("ARGUS_SKILL_SPECIAL_PROMPTS_DIR")
-    d = Path(env).expanduser() if env else Path.home() / ".argus-skill" / "special_prompts"
+    d = (
+        resolve_runtime_path(env, context="ARGUS_SKILL_SPECIAL_PROMPTS_DIR")
+        if env
+        else special_prompts_root()
+    )
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -316,7 +327,7 @@ def _keepalive_config_path() -> Path:
 
 
 def _keepalive_log_path() -> Path:
-    return Path.home() / ".argus-skill" / "logs" / "gpu_keepalive.log"
+    return logs_root() / "gpu_keepalive.log"
 
 
 def _load_existing_keepalive() -> dict | None:

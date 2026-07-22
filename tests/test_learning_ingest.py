@@ -7,7 +7,6 @@ import argparse
 import hashlib
 import json
 from datetime import date
-from pathlib import Path
 
 import pytest
 

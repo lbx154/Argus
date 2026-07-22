@@ -1,4 +1,4 @@
-"""Loop 12: the literary platform's EVALUATION MATRIX — the honest, checkable
+"""Test-only literary EVALUATION MATRIX — the honest, checkable
 capability ledger.
 
 Every capability is classified into exactly one tier:

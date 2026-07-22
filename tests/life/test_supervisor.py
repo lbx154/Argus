@@ -11,7 +11,7 @@ import pytest
 from argus_skill.core.event_catalog import EventType
 from argus_skill.core.pricing import usd_for_tokens
 from argus_skill.core.transcript import read_turns
-from argus_skill.life.memory import BacklogItem, Journal, JournalEntry, LifeMemory
+from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.life.supervisor import (
     LifeBudget,
     LifeSupervisor,

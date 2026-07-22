@@ -5,11 +5,11 @@
 > **每一次 run，都在拓展下一次研究的边界。**
 
 <p align="center">
-  <img src="technical_report/figures/master_spine.png" alt="Argus 技术主线：未知的分布外目标进入由 Manager、Planner、Engineer、Reviewer 驱动的持续密集智能运行时；经 Reviewer 核验的工作通过证据门；证据门更新持久运行时状态——记忆、skill、工具、verifier、路由、评测；扩大后的运行时以更高的起点迎接下一个未知任务" width="100%">
+  <img src="technical_report/figures/master_spine.png" alt="Argus 技术主线：未知的分布外目标进入由 Manager、Planner、Engineer、Reviewer 驱动的持续密集智能运行时；经显式核验的工作通过证据门；证据门更新持久运行时状态——记忆、skill、工具、verifier、路由、评测；扩大后的运行时以更高的起点迎接下一个未知任务" width="100%">
 </p>
 
 Argus 是一个自主科研运行时，在长周期里让判断、执行与验证始终耦合。四个持久、
-由模型驱动的角色在一个连续循环中维持**持续密集智能**；每一次 run 经 Reviewer
+由模型驱动的角色在一个连续循环中维持**持续密集智能**；每一次 run 经显式
 核验的**证据**都会更新持久的**运行时状态**——记忆、skill、工具、verifier、路由
 与评测——而底层模型参数保持固定；扩大后的运行时随后以更高的起点迎接下一个分布外
 目标。这条主线——持续密集智能、证据、运行时演化、不断拓展的边界——正是本项目被
@@ -17,42 +17,29 @@ Argus 是一个自主科研运行时，在长周期里让判断、执行与验�
 
 ## 持续密集智能与长周期研究
 
-模型智能在时间上是稀疏的。一个强大的编码与推理模型只在单次调用的长度内保持出色，
-随后便停下：产生洞见的推理在上下文被丢弃或有损压缩时蒸发，下一次调用又从零开始，
-没有任何对已学内容的持久痕迹。更长的上下文窗口只是推迟 episode 结束的时刻。长周期
-研究恰恰相反——它是跨越数小时到数天、成千上万个彼此耦合的决策，价值不在某一步的
-聪明，而在于让判断、执行与验证在所有决策之间保持连接。
+强模型通常只在一次调用内保持连续，而长周期研究跨越数小时到数天。Argus 在持久项目状态上
+运行四个模型角色：Manager 固定意图与 lifetime，Planner 调度，Engineer 构建和实验；任务、
+vertical 或 Engineer 要求时，Reviewer 做独立审查。允许的低风险 bounded 工作可以由
+Engineer 显式自审。
 
-Argus 通过在持久化项目状态上，把四个持久、由模型驱动的角色作为连续循环运行，让智能
-变得**密集**。Manager 固定意图与 lifetime，Planner 分解并调度，Engineer 检索、构建
-并做实验，Reviewer 核查证据并裁决。因为这个循环从不重新塌缩回一次无状态调用，判断、
-执行与验证始终耦合，系统得以把一条研究推理的线索延续到远超 episodic agent 会忘记初衷
-的地平线之外。我们把这种预期的密度记作 `rho_DI(T)`，一个关于系统在长度为 `T` 的时程
-上维持了多少耦合决策、执行与验证的概念性度量。它是对运行时设计目标的解释性构造，而非
-可上报的 benchmark 指标，也不是任何"对模型、人类或其他系统普适更优"的分数。
+这种让判断、执行与验证持续耦合的机制称为**持续密集智能**。`rho_DI(T)` 只是对该设计目标的
+概念性描述，不是可上报 benchmark，也不是普适优越性分数。
 
 ## 从工作到证据再到运行时演化
 
-只有连续还不够，它必须复利累积。每一次 run 都沉淀经过核验的证据，而 Reviewer 决定
-什么才算数，因此只有被核验的结果才会改变系统。这些结果更新固定模型所读写的**运行时
-状态**——记忆、skill、工具、verifier、路由与评测——技术报告将其紧凑地写作
-`H(t+1) = U(H(t), trajectory, evidence)`。这就是**运行时演化**：系统变得更有能力，
-不是靠重新训练模型，而是靠在其周围累积可审计、可复用的能力。每一次更新都可归因——它
-标注一个来源、一个权威所有者，以及一个具名的持久化面。但这种所有权是诚实分层的，而非
-普适：只有对一次 mission 真正*挣得*的记忆与 skill，其所有者才是一个不同的角色——
-**Reviewer 认证**它并未亲自产出的工作，这正是支配「完成」的那套工作-认证分离。其余组件
-则是 **operator 拥有**（工具）、**Planner 拥有**且 Reviewer **仅提供反馈**（verifier），
-以及路由由 operator 发起、Manager 提交，评测由 Planner 编写、scheduler 提交。
+每次 run 都保存核验证据及完成来源：允许的低风险 bounded 工作可由 Engineer 自审；
+vertical 策略、`stage_closing` / `review:required` 或 Engineer 主动请求会调用独立 Reviewer。
+结果更新记忆、skill、工具、verifier、路由与评测：
+`H(t+1) = U(H(t), trajectory, evidence)`。
 
-两条边界让这一 claim 保持诚实。**运行时能力演化不依赖在线参数训练**：底层模型的权重
-在整个 campaign 内保持固定（`theta_(t+1) = theta_t`），不对基础模型做任何梯度步，也不
-在任何地方声称权重层面的学习。**这一设计不保证每次 run 都增加能力**；失败、负结果和
-NO-GO 也可能只减少未来重复搜索。被保留的能力是证据门控且可修订的——通过通常的
-reinforce–distill–revise–retire 生命周期——并非经验上单调递增。
+所有权按组件划分。独立审查时由 **Reviewer 认证**未亲自产出的记忆与 skill；工具由
+**operator 拥有**；verifier 由 **Planner 拥有**且 Reviewer **仅提供反馈**；路由由
+Manager 提交，评测由 Planner 编写、scheduler 提交。
 
-其结果是分布外的触达能力。当下一个任务到来时，它继承的运行时已经带着在先前问题上
-习得的 skill、工具与 verifier，因此下一个未知目标不必从零开始。每一次被核验的增量，
-都在扩大系统可以尝试的问题边界。
+运行时能力演化**不依赖在线参数训练**，模型权重保持固定
+（`theta_(t+1) = theta_t`）。这一设计也**不保证每次 run 都增加能力**：结果可能失败、
+只留下负面发现，或随后被修订、归档。这里的 claim 仅限于证据门控、可复用的运行时状态，
+不意味着能力单调增长。
 
 ## 来自前沿的证据
 
@@ -96,17 +83,18 @@ manifest）。四个由模型驱动的角色通过明确接口在这些平面上
 |---|---|---|
 | **Manager** · 控制 | operator 意图的前门；决定 lifetime 与 vertical；独占 pipeline stage 迁移 | 其他角色可建议 stage 变更，但无权执行 |
 | **Planner（L4）** · 控制 | 构建并修订工作 backlog；必要时排定认证任务 | 产出结构化任务与项目级规划裁决 |
-| **Engineer（L1）** · 执行 | 用真实文件、工具、搜索与硬件执行一个有边界的回合 | 产出 artifact 与一个具体的续作请求 |
-| **Reviewer（L2）** · 执行 → 证据 | 对照当前 checklist 核查 artifact 与日志 | 返回 `done`、`continue` 或 `blocked`；完成的唯一权威 |
+| **Engineer（L1）** · 执行 | 用真实文件、工具、搜索与硬件执行一个有边界的回合 | 产出 artifact 并选择 `review=skip|required`；只有启用自审且任务不强制独立审查时才接受 `skip` |
+| **Reviewer（L2）** · 执行 → 证据 | 在任务要求或 Engineer 请求时独立核查 artifact 与日志 | 返回 `done`、`continue` 或 `blocked`；stage-closing 与 vertical 强制审查路径必须经过 Reviewer |
 
 append-only 事件流是规范时间线，operator 因此可以从一个公开数字追溯到它的 mission、
 round、review verdict、命令记录与 artifact 集合，而不必依赖总结性文字。一个 mission
 沿着持久生命周期推进——operator 请求被解释、规划为 backlog item、原子 claim、经
-Engineer–Reviewer 多轮执行，最终返回完成、阻塞、暂停或继续规划——受控重启后，只有当
+Engineer 自审或 Engineer–Reviewer 路径执行，最终返回完成、阻塞、暂停或继续规划——
+受控重启后，只有当
 持久化 identity 与当前 objective、vertical 和 lineage 一致时，daemon 才会续接原
 campaign。运行时把可靠性作为一等问题处理：有界的 mission/每日/provider call/主机并发
-预算；对 backend 失败使用有界重试与退避，而不是伪装成成功的兜底；一份 Reviewer 撰写、
-带硬上限的 `checkpoint.json`，在有界的 session 滚动之间携带经过筛选的工作记忆；以及在
+预算；对 backend 失败使用有界重试与退避，而不是伪装成成功的兜底；一份由 Engineer 编辑、在 Reviewer 被调用时由其纠正的共享
+`CHECKPOINT.md`，在 fresh role session 之间传递当前工作状态；以及在
 证据与 artifact 进入审查前对凭据脱敏。当固定的已知输入分布会允许硬编码优化时，评测
 输入可被随机化。这些机制只约束执行；它们从不给新颖性打分、不替 agent 选题、也不用
 关键词推断完成——科研质量始终是一个由真实产物支撑的、结构化的 agent 判断。
@@ -173,7 +161,8 @@ LaTeX 源码位于 [`technical_report/`](technical_report/)，使用
 `make -C technical_report clean all` 构建。
 
 Argus 仍在快速开发，其保证是刻意有边界的。研究质量受底层模型、工具、数据与算力限制；
-Reviewer 是单一且可能犯错的完成权威；六项公开结果中有四项尚无 artifact digest 佐证，
+完成判定仍是可能犯错的模型判断：允许的低风险 bounded mission 可由 Engineer 显式自审，
+要求或请求独立审查的路径则由 Reviewer 裁决；六项公开结果中有四项尚无 artifact digest 佐证，
 另两项也只在本仓库保存外部项目 artifact 的 ID 与 hash，而非本体；每个 benchmark 的
 完整性仍需按其协议单独设计；持续运行会产生真实的 GPU 与 provider 成本；当前证据系统
 提供内容 hash 与 provenance manifest，不提供密码学结果签名。所有性能数字都应按其明确

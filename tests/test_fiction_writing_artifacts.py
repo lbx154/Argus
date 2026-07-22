@@ -17,14 +17,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
-from argus_skill.literary.artifact_manifest import lineage
 from argus_skill.verticals.fiction_writing.artifacts import (
     FICTION_ARTIFACT_KINDS,
     build_fiction_manifest,
 )
 from argus_skill.verticals.fiction_writing.stages import STAGE_CHECKS
+from argus_skill.verticals.literary.shared.artifact_manifest import lineage
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 

@@ -13,6 +13,7 @@ from ...core.usage import (
     summarize_usage,
 )
 
+
 class _MemoryView(Protocol):
     @property
     def root(self) -> Path: ...
@@ -44,7 +45,9 @@ def global_daily_usage_summary(
         root = resolve_global_root()
     else:
         root = Path(global_root).expanduser()
-    projects_dir = root / "projects"
+    from ...core.paths import session_states_root
+
+    projects_dir = session_states_root(root)
     try:
         project_dirs = sorted(p for p in projects_dir.iterdir() if p.is_dir())
     except OSError:

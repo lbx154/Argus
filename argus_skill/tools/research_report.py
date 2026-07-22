@@ -120,7 +120,7 @@ def _add_experiment_identity_args(parser: argparse.ArgumentParser) -> None:
 def _session_root(session_id: str = "") -> Path:
     explicit = str(session_id or os.environ.get("ARGUS_SKILL_SESSION_ID") or "").strip()
     if explicit:
-        root = core_paths.global_root() / "projects" / explicit
+        root = core_paths.session_state_root(explicit)
         if root.is_dir():
             return root
         raise ReportError(f"unknown Argus session: {explicit}")

@@ -243,10 +243,24 @@ def known_secret_values(
         and len(str(value)) >= 8
         and "\n" not in str(value)
     }
-    vault_candidates = [
-        Path(str(source.get("ARGUS_SKILL_CAPABILITY_VAULT") or "")).expanduser(),
-        Path.home() / ".argus-skill" / "capabilities" / "model_api.json",
-    ]
+    from .paths import capabilities_root, resolve_runtime_path
+
+    configured_vault = str(source.get("ARGUS_SKILL_CAPABILITY_VAULT") or "").strip()
+    configured_root = str(source.get("ARGUS_SKILL_HOME") or "").strip()
+    runtime_root = (
+        resolve_runtime_path(configured_root, context="ARGUS_SKILL_HOME")
+        if configured_root
+        else None
+    )
+    vault_candidates = [capabilities_root(runtime_root) / "model_api.json"]
+    if configured_vault:
+        vault_candidates.insert(
+            0,
+            resolve_runtime_path(
+                configured_vault,
+                context="ARGUS_SKILL_CAPABILITY_VAULT",
+            ),
+        )
     for path in vault_candidates:
         if not str(path) or not path.is_file():
             continue

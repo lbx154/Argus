@@ -2,7 +2,8 @@
 run time.
 
 Binds the shared artifact-manifest contract
-(:mod:`argus_skill.literary.artifact_manifest`) to fiction's artifact VOCABULARY
+(:mod:`argus_skill.verticals.literary.shared.artifact_manifest`) to fiction's
+artifact VOCABULARY
 so the revise stage is gated on a real lineage record at RUN TIME (via the
 STAGE_CHECKS shell runner), not only in unit tests. This is what makes the
 artifact chain an auditable runtime fact rather than a helper only tests call.
@@ -28,7 +29,7 @@ import json
 import sys
 from pathlib import Path
 
-from ...literary.artifact_manifest import (
+from ..literary.shared.artifact_manifest import (
     ManifestError,
     assert_content_present,
     lineage,

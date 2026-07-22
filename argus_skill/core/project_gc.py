@@ -155,12 +155,13 @@ def gc_stale_projects(
     cutoff = now - retention_days * 86400.0
     empty_cutoff = now - max(0.0, float(empty_grace_seconds))
 
-    root = (global_root or core_paths.global_root()) / "projects"
+    runtime_root = global_root or core_paths.global_root()
+    root = core_paths.session_states_root(runtime_root)
     if not root.exists():
         return []
 
     pruned: list[str] = []
-    trash_dir = (global_root or core_paths.global_root()) / "projects_trash"
+    trash_dir = core_paths.session_trash_root(runtime_root)
     date = time.strftime("%Y%m%d", time.localtime(now))
 
     for project_dir in sorted(root.iterdir()):

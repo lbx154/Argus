@@ -1,4 +1,4 @@
-"""Shared literary ARTIFACT MANIFEST contract — the creative-artifact version &
+"""Shared literary-vertical ARTIFACT MANIFEST contract — the creative-artifact version &
 lineage record every literary vertical maintains for one authoring mission.
 
 Where :mod:`.review_contract` governs the reviewer's finding payload and

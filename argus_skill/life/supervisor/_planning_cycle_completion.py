@@ -104,10 +104,7 @@ class PlanningCycleCompletionMixin:
                 and self._reconcile_open_ended_planner_waiting(verdict)
             ):
                 return PLAN_RETRY
-            record = self._record_planner_waiting(
-                verdict,
-                planner_cost_usd=state.planner_cost_usd,
-            )
+            record = self._record_planner_waiting(verdict)
             # Stall-breaker: if the planner has idled K+ cycles on the same
             # blocker, force a verification probe so reality (not a memory of
             # the blocker) drives the next decision. Running it next tick resets
@@ -213,10 +210,6 @@ class PlanningCycleCompletionMixin:
                 skipped_duplicate_tasks=0,
                 enqueued_titles=[],
                 skipped_duplicate_titles=[],
-                input_tokens=verdict.input_tokens,
-                cached_input_tokens=verdict.cached_input_tokens,
-                output_tokens=verdict.output_tokens,
-                cost_usd=state.planner_cost_usd,
                 open_ended_objective=True,
                 **state.schema_repair_details,
             )
@@ -241,10 +234,6 @@ class PlanningCycleCompletionMixin:
                 skipped_duplicate_tasks=0,
                 enqueued_titles=[],
                 skipped_duplicate_titles=[],
-                input_tokens=verdict.input_tokens,
-                cached_input_tokens=verdict.cached_input_tokens,
-                output_tokens=verdict.output_tokens,
-                cost_usd=state.planner_cost_usd,
                 **state.schema_repair_details,
             )
             if not delivered:

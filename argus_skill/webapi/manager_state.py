@@ -18,6 +18,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from ..core import paths as core_paths
+
 # Per-project chat_state cache: keeps the Manager runner + codex/copilot thread
 # id warm across turns so a conversation stays coherent and each message doesn't
 # rebuild the runner. Keyed by sid. A per-sid lock serialises triage for one
@@ -203,10 +205,13 @@ def reset_manager_context(
     from ..manager import reset_manager_session
 
     root = Path(global_root) if global_root else None
-    life_dir = (root / "projects" / sid) if root is not None else None
+    life_dir = (
+        core_paths.session_state_root(sid, root=root)
+        if root is not None
+        else None
+    )
     if life_dir is None:
-        from ..core import paths as core_paths
-        life_dir = core_paths.global_root() / "projects" / sid
+        life_dir = core_paths.session_state_root(sid)
     if not life_dir.is_dir():
         return False
     with _lock_for(sid):

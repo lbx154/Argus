@@ -16,7 +16,6 @@ def _planner_json(**over):
             "title": "t", "impact_score": 5, "impact_area": "correctness",
             "evidence": "e", "scope": "bounded", "objective": "o",
         }],
-        "meta_decision": None,
     }
     base.update(over)
     return json.dumps(base)

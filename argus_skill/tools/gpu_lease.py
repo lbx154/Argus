@@ -43,36 +43,41 @@ from pathlib import Path
 from typing import Iterable, Iterator
 
 from ..core.file_lock import exclusive_file_lock
+from ..core.paths import capabilities_root, logs_root, resolve_runtime_path, run_root
 
 # -- config -----------------------------------------------------------------
 
 def _config_path() -> Path:
     env = os.environ.get("ARGUS_SKILL_GPU_KEEPALIVE_CONFIG")
     if env:
-        return Path(env).expanduser()
-    return Path.home() / ".argus-skill" / "capabilities" / "gpu_keepalive.json"
+        return resolve_runtime_path(env, context="ARGUS_SKILL_GPU_KEEPALIVE_CONFIG")
+    return capabilities_root() / "gpu_keepalive.json"
 
 
 def _state_dir() -> Path:
     env = os.environ.get("ARGUS_SKILL_GPU_LEASE_STATE_DIR")
-    base = Path(env).expanduser() if env else (
-        Path.home() / ".argus-skill" / "run" / "gpu_lease"
+    base = (
+        resolve_runtime_path(env, context="ARGUS_SKILL_GPU_LEASE_STATE_DIR")
+        if env
+        else run_root() / "gpu_lease"
     )
     (base / "leases").mkdir(parents=True, exist_ok=True)
     return base
 
 
-_DEFAULT_CONFIG = {
-    "command": ["python", "gpu_load.py", "--util", "0.5", "--mem", "0.5"],
-    "cwd": str(Path.home()),
-    "match": "gpu_load.py",
-    "log": str(Path.home() / ".argus-skill" / "logs" / "gpu_keepalive.log"),
-}
+def _default_config() -> dict:
+    return {
+        "command": ["python", "gpu_load.py", "--util", "0.5", "--mem", "0.5"],
+        "cwd": str(Path.home()),
+        "match": "gpu_load.py",
+        "log": str(logs_root() / "gpu_keepalive.log"),
+    }
 
 
 def load_config() -> dict:
     """Load keep-alive config, falling back to sane defaults if absent."""
-    cfg = dict(_DEFAULT_CONFIG)
+    defaults = _default_config()
+    cfg = dict(defaults)
     try:
         data = json.loads(_config_path().read_text(encoding="utf-8"))
         if isinstance(data, dict):
@@ -80,9 +85,9 @@ def load_config() -> dict:
     except (OSError, ValueError):
         pass
     if not cfg.get("match"):
-        cfg["match"] = _DEFAULT_CONFIG["match"]
+        cfg["match"] = defaults["match"]
     if not cfg.get("command"):
-        cfg["command"] = list(_DEFAULT_CONFIG["command"])
+        cfg["command"] = list(defaults["command"])
     return cfg
 
 
@@ -377,7 +382,7 @@ def claim(cfg: dict, *, timeout: float = 20.0) -> dict:
 def _start_keepalive(cfg: dict) -> dict:
     command = [str(part) for part in cfg["command"]]
     cwd = str(cfg.get("cwd") or Path.home())
-    log_path = Path(str(cfg.get("log") or _DEFAULT_CONFIG["log"])).expanduser()
+    log_path = Path(str(cfg.get("log") or _default_config()["log"])).expanduser()
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with open(log_path, "ab") as log_fh:
         proc = subprocess.Popen(

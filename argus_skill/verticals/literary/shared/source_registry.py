@@ -1,4 +1,4 @@
-"""Shared literary SOURCE REGISTRY contract — the rights-and-provenance catalog a
+"""Shared literary-vertical SOURCE REGISTRY contract — the rights-and-provenance catalog a
 literary vertical consults before it uses any external text.
 
 Where :mod:`.task_envelope` governs the request and :mod:`.artifact_manifest`

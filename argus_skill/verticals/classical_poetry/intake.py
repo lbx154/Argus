@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...literary.task_envelope import normalize_envelope
+from ..literary.shared.task_envelope import normalize_envelope
 
 #: Classical-poetry forms this vertical handles (zh names + english aliases).
 POETRY_FORMS: frozenset[str] = frozenset({

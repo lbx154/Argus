@@ -3,8 +3,9 @@
 ``Manager.decide_vertical`` first makes one compact, tool-free routing request.
 A clear existing vertical commits immediately; uncertainty or a potentially new
 domain escalates once to a bounded, read-only repository investigation. This
-module holds both prompts and their fail-closed parsers, mirroring
-:mod:`argus_skill.manager.stage_decider` (which keeps ``manager/_core`` thin).
+Prompt bodies live in :mod:`argus_skill.roles.prompts.manager` and are
+re-exported here for source compatibility; this module owns their fail-closed
+parsers.
 
 The proposed domain (when authored) is persisted as project-local DATA by
 :func:`argus_skill.verticals._data_domain.write_data_domain`; the per-stage
@@ -21,6 +22,12 @@ import re
 from dataclasses import dataclass
 from typing import Any, Sequence
 
+from ..roles.prompts.manager import (
+    build_domain_author_prompt,
+    build_fast_vertical_decision_prompt,
+    build_research_target_prompt,
+    build_vertical_decision_prompt,
+)
 from .live_view import LiveViewDecision, parse_live_view
 
 _NAME_SANITIZE_RE = re.compile(r"[^a-z0-9_]+")
@@ -46,55 +53,6 @@ class DomainProposal:
     rationale: str = ""
     confidence: float = 0.0
     execution_task: str = ""
-
-
-def build_domain_author_prompt(
-    task: str,
-    *,
-    known_verticals: Sequence[str],
-    existing_data_domains: Sequence[str] = (),
-) -> str:
-    """Render the prompt asking the Manager to author a new domain for ``task``."""
-    known = ", ".join(f"`{v}`" for v in known_verticals) or "(none)"
-    existing = ", ".join(f"`{v}`" for v in existing_data_domains) or "(none)"
-    return (
-        "You are the MANAGER of an automated research/engineering pipeline. The "
-        "Task below does NOT fit any preset vertical, so you must DEFINE a new "
-        "domain for it: a domain slug and an ordered list of Stages the "
-        "pipeline will advance through (research → ... → final deliverable).\n\n"
-        "You have shell access in this repository. Before proposing anything, "
-        "INVESTIGATE — do not guess a generic stage template from the task "
-        "sentence alone. Read `AGENTS.md`/`README` if present, look at the "
-        "project's actual structure, language, and existing tooling (tests, "
-        "build, profiling, benchmarks — whatever is relevant to this task), and "
-        "ground the stage skeleton in what this specific repo actually needs to "
-        "go from the current state to a verifiable deliverable. This is a "
-        "READ-ONLY investigation: do NOT edit, create, or delete any file — "
-        "you are only gathering context to inform your classification.\n\n"
-        f"Preset verticals (do NOT reuse these names): {known}\n"
-        f"Existing project domains (do NOT reuse these names): {existing}\n\n"
-        "## Task\n"
-        f"{(task or '').strip()}\n\n"
-        "## Rules\n"
-        f"- Propose {_MIN_STAGES}-{_MAX_STAGES} Stages, ordered from first to "
-        "last. Each Stage is a lowercase slug naming a PHASE OF WORK you move "
-        "through (e.g. `scope`, `simulate`, `measure`, `report`) — NOT a "
-        "checklist item, and NOT a metric, target number, outcome, or benchmark "
-        "name (a stage is something you DO, not a score you hit or an artifact "
-        "you emit). The per-stage checklist is authored later by the Planner; "
-        "you only define the stage SKELETON.\n"
-        "- The domain `name` is a lowercase slug (letters/digits/"
-        "underscore), distinct from every name above (if it collides it is "
-        "auto-suffixed).\n"
-        "- Prefer a small, coherent stage set a domain expert would recognize, "
-        "grounded in what you actually found in the repo — do not pad with "
-        "ceremony stages.\n\n"
-        "When your investigation is done, reply with ONE JSON object and "
-        "NOTHING else (no prose before or after it) — ONLY these four fields:\n"
-        '{"name": "<slug>", "stages": ["<stage1>", "<stage2>", ...], '
-        '"rationale": "<clear explanation citing what you found in the repo>", '
-        '"confidence": <0.0-1.0>}\n'
-    )
 
 
 def _loads_first_json(text: str) -> Any:
@@ -264,61 +222,6 @@ class FastVerticalRoute:
     target_venue: str = ""
 
 
-def build_fast_vertical_decision_prompt(
-    task: str,
-    *,
-    verticals_with_purpose: dict[str, str],
-    existing_data_domains: Sequence[str] = (),
-    research_target_verticals: Sequence[str] = (),
-) -> str:
-    """Render the compact, tool-free first-pass vertical router prompt."""
-    menu = "\n".join(
-        f"  - `{name}`: {purpose}" for name, purpose in verticals_with_purpose.items()
-    ) or "  (none)"
-    existing = ", ".join(f"`{v}`" for v in existing_data_domains) or "(none)"
-    target_verticals = (
-        ", ".join(f"`{name}`" for name in research_target_verticals)
-        or "(none)"
-    )
-    return (
-        "You are the MANAGER performing your fast, tool-free classification pass. "
-        "Choose an existing vertical only when the operator's task text makes the "
-        "fit clear. You have NO tools in this call: do not inspect files, infer "
-        "repository facts that were not stated, expand the task, choose Live View "
-        "artifacts, or design a new domain. If more repository context is needed "
-        "or a new domain may be appropriate, request `grounded` instead.\n\n"
-        "## Existing built-in verticals\n"
-        f"{menu}\n\n"
-        f"## Existing project data domains: {existing}\n\n"
-        "## Classification rules\n"
-        "- `vertical` is the capability/domain (software, research, math, etc.). "
-        "Never use an execution topology such as direct/full/staged as a vertical.\n"
-        "- Independently choose `workflow_mode=direct` when one Engineer mission "
-        "can finish the bounded request. Choose `workflow_mode=staged` when the "
-        "Manager should invoke planning and stage progression.\n"
-        "- Never invent a task-specific alias for an existing capability.\n"
-        "- If the task is ambiguous, depends on unstated repository structure, "
-        "or appears to require a new domain, choose `grounded`.\n\n"
-        "The following existing verticals require a research target level: "
-        f"{target_verticals}. For one of those, use `exploratory`, `publishable`, "
-        "or `doctoral` according to the operator's requested success bar. For "
-        "all other verticals use null. If and only if the operator explicitly "
-        "names a publication venue for a `research` task, copy it into "
-        "`target_venue`; otherwise use null. Never infer a venue from topic.\n\n"
-        "## Task\n"
-        f"{(task or '').strip()}\n\n"
-        "Reply with exactly one compact JSON object and nothing else:\n"
-        '{"choice":"existing","vertical":"<existing name>",'
-        '"workflow_mode":"direct|staged",'
-        '"confidence":<0.0-1.0>,"research_target_level":'
-        '"<exploratory|publishable|doctoral>"|null,'
-        '"target_venue":"<explicit venue>"|null,"rationale":"<brief>"}\n'
-        "OR\n"
-        '{"choice":"grounded","confidence":<0.0-1.0>,'
-        '"rationale":"<what additional context is needed>"}\n'
-    )
-
-
 def parse_fast_vertical_decision(
     raw_text: str,
     *,
@@ -384,146 +287,6 @@ def parse_fast_vertical_decision(
         rationale=rationale,
         research_target_level=target_level,
         target_venue=target_venue,
-    )
-
-
-def build_vertical_decision_prompt(
-    task: str,
-    *,
-    verticals_with_purpose: dict[str, str],
-    existing_data_domains: Sequence[str] = (),
-    research_target_verticals: Sequence[str] = (),
-) -> str:
-    """Render the prompt asking the Manager to CHOOSE a vertical for ``task``.
-
-    The Manager picks an existing built-in vertical when one fits, else an
-    existing project data domain, else authors a NEW data domain. Built-ins are
-    listed with a one-line purpose so the model can prefer them (they ship
-    expert per-stage reviewer checklists; a freshly-authored domain starts with
-    none). This is a GROUNDED, read-only call: investigate the repo first.
-    """
-    menu = "\n".join(
-        f"  - `{name}`: {purpose}" for name, purpose in verticals_with_purpose.items()
-    ) or "  (none)"
-    existing = ", ".join(f"`{v}`" for v in existing_data_domains) or "(none)"
-    target_verticals = (
-        ", ".join(f"`{name}`" for name in research_target_verticals)
-        or "(none)"
-    )
-    return (
-        "You are the MANAGER of an automated research/engineering pipeline. "
-        "Decide which capability VERTICAL and execution WORKFLOW should run the "
-        "Task below. A vertical is a "
-        "stable, reusable capability contract with its own ordered Stages and, "
-        "for built-ins, expert per-stage reviewer checklists. It is NOT the "
-        "task-specific route or DAG of literature, experiment, proof, and review "
-        "work that the Planner may create inside one mission.\n\n"
-        "Your tool-free classification pass requested grounded context. INVESTIGATE with "
-        "read-only shell access in this repository. Use ONE focused inspection batch of at "
-        "most four file/search operations, then decide. Avoid broad recursive "
-        "searches and do not read unrelated UI, generated, vendor, or build-output "
-        "trees. Read `AGENTS.md`/`README` only when they are directly useful, and "
-        "look only at the minimum project structure, language, or tooling needed "
-        "to resolve the routing uncertainty. "
-        "Treat project/task artifacts as READ-ONLY: do NOT edit, create, or delete "
-        "files with tools. This call decides routing/domain structure only; do not "
-        "choose Live View artifacts or expand the Engineer task.\n\n"
-        "## Built-in verticals (PREFER one of these when it fits the Task)\n"
-        f"{menu}\n\n"
-        f"## Existing project data domains (also selectable): {existing}\n\n"
-        "## How to choose (in this order)\n"
-        "1. If a BUILT-IN vertical above fits the Task, choose it — built-ins "
-        "carry expert reviewer checklists a fresh domain would lack. E.g. a "
-        "production/repository GPU kernel implementation, optimization, or PR is "
-        "`kernel_engineering`; a fixed GPU/CUDA/SOL-ExecBench competition objective "
-        "is `kernelbench`; a finance "
-        "factor-research report is `quant`; a paper is `research`. Mathematical "
-        "conjectures, proofs, and open mathematical research problems are `math`. "
-        "Within `math`, literature retrieval, computational experiments, proof "
-        "construction, Lean work, and independent review remain dynamic Planner "
-        "backlog/DAG tasks; they are not competing verticals. Never author a "
-        "task-specific alias such as `math_conjecture` for work already covered "
-        "by `math`.\n"
-        "2. Else if an existing project data domain fits, choose it.\n"
-        "3. ONLY if nothing above provides the stable capability the Task needs, "
-        "AUTHOR a new data domain. Do not author one merely to encode this "
-        "mission's route, deliverable subtype, or task DAG. A new domain is a slug "
-        "name plus an ordered list of Stages (a phase of work each, lowercase slug, "
-        f"{_MIN_STAGES}-{_MAX_STAGES} stages) grounded in what the repo needs to "
-        "reach a verifiable deliverable. The per-stage checklist is authored "
-        "later by the Planner; you define only the stage SKELETON.\n\n"
-        "Independently choose `workflow_mode`: `direct` when one Engineer mission "
-        "can finish the bounded task; `staged` when planning/stage progression is "
-        "needed. This topology is never a vertical.\n\n"
-        "## Task\n"
-        f"{(task or '').strip()}\n\n"
-        "The following built-ins declare a project-level research target contract: "
-        f"{target_verticals}. If you choose one of them, set "
-        "`research_target_level` from "
-        "the operator's requested success bar (not from how hard you think the "
-        "problem is): `exploratory` when a bounded investigation, known proof, "
-        "finite computation, local Lean check, or honest negative report can "
-        "satisfy the request; `publishable` when success requires a verified "
-        "original result of publication significance; `doctoral` when success "
-        "explicitly requires doctoral/thesis-level original research. For every "
-        "vertical outside that declared set, set it to null. For a `research` "
-        "vertical, copy an explicitly operator-named publication venue into "
-        "`target_venue`; otherwise use null. Do not infer one from the topic.\n\n"
-        "When your investigation is done, reply with ONE JSON object and "
-        "NOTHING else (no prose before or after it), in ONE of these two shapes. "
-        "In BOTH shapes the chosen name goes in the field named `vertical`:\n"
-        '{"choice": "existing", "vertical": "<one of the names above>", '
-        '"workflow_mode": "<direct|staged>", '
-        '"rationale": "<why it fits, citing what you found in the repo>", '
-        '"research_target_level": "<exploratory|publishable|doctoral when the '
-        'vertical declares a target contract, otherwise null>", '
-        '"target_venue": "<explicit venue for research>"|null}\n'
-        "OR\n"
-        '{"choice": "new", "vertical": "<a new lowercase a-z0-9_ slug, distinct '
-        'from every name above>", "stages": ["<stage1>", ...], '
-        '"workflow_mode": "<direct|staged>", '
-        '"rationale": "<why no existing vertical fits + what you found>", '
-        '"research_target_level": null, '
-        '"confidence": <0.0-1.0>}\n'
-        "(If your new slug collides with an existing name it is auto-suffixed.)\n"
-    )
-
-
-def build_research_target_prompt(
-    task: str,
-    *,
-    supported_levels: Sequence[str] = (
-        "exploratory",
-        "publishable",
-        "doctoral",
-    ),
-) -> str:
-    """Ask the Manager for a success bar when research routing is fixed."""
-    return (
-        "You are the MANAGER of a targeted research pipeline. The operator has "
-        "already fixed the vertical; do not revisit routing. Decide only the "
-        "requested research success bar from the task below. Judge what outcome "
-        "the operator requires, not the problem's apparent difficulty.\n\n"
-        "- exploratory: a bounded investigation, known result, finite computation, "
-        "domain-specific local verification, or honest negative report may satisfy "
-        "the task.\n"
-        "- publishable: success requires a correctness-verified, novelty-verified "
-        "original result with publishable significance.\n"
-        "- doctoral: success explicitly requires doctoral/thesis-level original "
-        "research. Reports, literature review, finite checks, and local validation "
-        "alone are not success.\n"
-        "Do not choose exploratory merely because it makes an honest negative report "
-        "easy to close. A request to develop a submission-quality paper, find a "
-        "publishable method, or continue autonomous research requires at least the "
-        "publishable bar unless the operator explicitly asks only for a bounded "
-        "investigation.\n\n"
-        "Task:\n"
-        f"{(task or '').strip()}\n\n"
-        "Allowed levels for this vertical: "
-        f"{', '.join(supported_levels)}.\n\n"
-        "Reply with one JSON object and nothing else:\n"
-        '{"research_target_level":"one allowed level",'
-        '"rationale":"brief reason tied to the requested success bar"}'
     )
 
 

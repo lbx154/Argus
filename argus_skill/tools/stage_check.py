@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ..core.paths import skills_global_root
+from ..core.paths import shared_skills_root
 
 # --------------------------------------------------------------------------
 # Stage definitions live in the research vertical. The shell-check runner
@@ -124,7 +124,7 @@ def _knowledge_curation_review_gate(project_root: Path) -> tuple[bool, str, str]
     skills_root = (
         Path(configured_skills_root).expanduser()
         if configured_skills_root
-        else skills_global_root()
+        else shared_skills_root()
     )
     skill_path = skills_root / "grpo-practical-tricks.md"
     pipeline_state_path = project_root / "research" / "PIPELINE_STATE.json"

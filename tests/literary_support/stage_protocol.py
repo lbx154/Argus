@@ -1,4 +1,4 @@
-"""Shared literary STAGE PROTOCOL — the minimal common stage interface, EXTRACTED
+"""Test-only literary STAGE PROTOCOL conformance helper, extracted
 from the real verticals, not designed in a vacuum.
 
 By loop 11 there are five real literary verticals (fiction, classical_poetry,

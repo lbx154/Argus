@@ -17,6 +17,7 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
+from ..core import paths as core_paths
 from . import project_state
 
 log = logging.getLogger(__name__)
@@ -356,7 +357,7 @@ def reconcile_pending_daemon_upgrades(
     """Resume durable upgrade requests whenever the WebAPI starts."""
     scheduled: list[str] = []
     for root in roots:
-        projects = root / "projects"
+        projects = core_paths.session_states_root(root)
         try:
             life_dirs = [path for path in projects.iterdir() if path.is_dir()]
         except FileNotFoundError:

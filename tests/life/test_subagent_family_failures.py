@@ -18,7 +18,6 @@ from argus_skill.life.supervisor._subagent_family_failures import (
     recent_subagent_family_failures,
 )
 
-
 # ---------------------------------------------------------------------------
 # family_from_task_id
 # ---------------------------------------------------------------------------

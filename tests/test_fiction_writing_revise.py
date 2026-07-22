@@ -10,12 +10,12 @@ import json
 
 import pytest
 
-from argus_skill.literary.review_contract import ReviewError
 from argus_skill.verticals.fiction_writing.revise import (
     FICTION_FINDING_TYPES,
     fiction_revision_plan,
     fiction_revision_plan_from_text,
 )
+from argus_skill.verticals.literary.shared.review_contract import ReviewError
 
 
 def _review(findings, verdict="revise"):
@@ -77,4 +77,3 @@ def test_blocking_voice_finding_passes_the_contract():
     plan = fiction_revision_plan(review)
     assert plan[0]["finding_id"] == "v1"
     assert plan[0]["blocking"] is True
-

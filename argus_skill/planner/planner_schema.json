@@ -9,7 +9,6 @@
     "waiting_reason",
     "waiting_contract",
     "new_tasks",
-    "meta_decision",
     "checklist_ops"
   ],
   "properties": {
@@ -220,23 +219,6 @@
             "minLength": 1
           }
         }
-      }
-    },
-    "meta_decision": {
-      "type": ["object", "null"],
-      "additionalProperties": false,
-      "description": "OPTIONAL — only on a meta-control jump/explore turn. Your OWN call about the search regime (the harness convened the turn on a counter but does not decide for you). The harness records it and re-surfaces your declared forbidden directions next cycle as visibility; it does NOT hard-gate or reject your next candidate. Emit null if you have nothing to declare.",
-      "required": [
-        "mode",
-        "reasoning",
-        "strategy_type",
-        "forbidden"
-      ],
-      "properties": {
-        "mode": { "type": "string", "enum": ["explore", "exploit", "jump"] },
-        "reasoning": { "type": "string" },
-        "strategy_type": { "type": "string" },
-        "forbidden": { "type": "array", "items": { "type": "string" } }
       }
     },
     "checklist_ops": {

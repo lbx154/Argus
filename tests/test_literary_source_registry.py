@@ -8,11 +8,9 @@ prohibited overlap, unknown rights_status, and the ingestion honesty guard
 """
 from __future__ import annotations
 
-import copy
-
 import pytest
 
-from argus_skill.literary.source_registry import (
+from argus_skill.verticals.literary.shared.source_registry import (
     USES_REQUIRING_INGESTION,
     RegistryError,
     assert_use_allowed,

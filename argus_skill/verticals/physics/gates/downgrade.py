@@ -15,7 +15,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ....skills.research_gates import clear_gate_state, update_gate_state, write_gate_outputs
-from ..downgrade import compute_triggers, evaluate_and_maybe_downgrade, fired_triggers, read_current_tier
+from ..downgrade import (
+    compute_triggers,
+    evaluate_and_maybe_downgrade,
+    fired_triggers,
+    read_current_tier,
+)
 from ..gate_feedback import build_feedback, clear_feedback, write_feedback
 
 GATE_ID = "downgrade"

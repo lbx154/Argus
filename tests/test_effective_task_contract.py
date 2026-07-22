@@ -5,7 +5,7 @@ from argus_skill.reviewer import Reviewer
 
 
 def _contract() -> str:
-    from argus_skill.core.task_contract import EFFECTIVE_TASK_CONTRACT
+    from argus_skill.roles.task_contract import EFFECTIVE_TASK_CONTRACT
 
     return EFFECTIVE_TASK_CONTRACT
 

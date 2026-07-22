@@ -6,8 +6,6 @@ observation, and movement are NOT here — they are live-reviewer.
 """
 from __future__ import annotations
 
-import pytest
-
 from argus_skill.verticals.prose.structure import (
     PROSE_STATE_FIELDS,
     STRUCTURE_FINDING_TYPES,

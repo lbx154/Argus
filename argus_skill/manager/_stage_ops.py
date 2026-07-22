@@ -203,6 +203,9 @@ class _StageDecisionMixin:
 
         Returns the raw model output string (may be empty on repeated failure).
         """
+        from ..roles.prompts.manager import (
+            build_manager_checkpoint_correction_prompt,
+        )
         from .live_view import (
             manager_checkpoint_refresh_required,
             repair_manager_checkpoint_response,
@@ -228,13 +231,8 @@ class _StageDecisionMixin:
                 raw,
                 manifest_root=self.manager_session_root,
             ):
-                correction_prompt = (
+                correction_prompt = build_manager_checkpoint_correction_prompt(
                     prompt
-                    + "\n\n## Required correction\n"
-                    + "Your previous response did not refresh the Manager-owned "
-                    + "checkpoint. Return the same evidence-based stage ruling, "
-                    + "but include a substantive `.argus/live/` presentation with "
-                    + "Current node, Verified progress, Current blocker, and Next action."
                 )
                 candidate = self._extract_answer_safe(run_exec(correction_prompt))
                 if str(candidate or "").strip():
@@ -620,48 +618,42 @@ class _StageDecisionMixin:
             cur_idx = order.index(cur) if cur in order else -1
             next_stage = order[cur_idx + 1] if 0 <= cur_idx < len(order) - 1 else ""
             earlier = order[:cur_idx] if cur_idx > 0 else []
-            from ..skills.stage_checklists import format_stage_checklist as _format_checklist
-            from .live_view import manager_rendering_prompt
-            from .stage_decider import build_stage_decision_prompt
-
-            checklist_md = _format_checklist(cur, role="planner", project_root=root)
-            prompt = build_stage_decision_prompt(
-                current_stage=cur,
-                next_stage=next_stage,
-                earlier_stages=earlier,
-                checklist_md=checklist_md,
-                review=review,
-                planner_verdict=planner_verdict,
-                rendering_block=manager_rendering_prompt(
-                    root,
-                    review=review,
-                    manifest_root=self.manager_session_root,
-                ),
-                open_ended=open_ended,
-                continuous_objective=continuous_objective,
+            from ..roles.prompts import resolve_role_prompt
+            from ..roles.prompts.manager import (
+                assemble_manager_prompt,
+                build_stage_decision_prompt,
+                manager_rendering_prompt,
+                stage_decision_request,
             )
-            from ..skills.vertical_select import resolve_vertical
-            from ..verticals._base import load_vertical, vertical_role_banner
 
-            manager_vertical_context = vertical_role_banner(
-                load_vertical(resolve_vertical(root), project_root=root),
-                "manager",
+            prompt_context = resolve_role_prompt(
+                stage_decision_request(root, stage=cur)
             )
-            if manager_vertical_context:
-                prompt = (
-                    "## Active vertical Manager skill\n"
-                    f"{manager_vertical_context}\n\n{prompt}"
-                )
-            # Inject the Manager's fixed role skill (+ any matched adaptive
-            # manager skill) ahead of the decision prompt. No-op when no
-            # skill_store is wired — the prompt is then byte-for-byte identical to
-            # before, preserving the stage-decision output contract. The matcher
-            # objective is the current stage + the reviewer's reason so the
-            # role-scoped matcher has a concrete task descriptor.
             _match_objective = " ".join(
                 p for p in (cur, str(getattr(review, "reason", "") or "")) if p
             )
-            prompt = self._role_skill_block(_match_objective, match=False) + prompt
+            prompt = assemble_manager_prompt(
+                build_stage_decision_prompt(
+                    current_stage=cur,
+                    next_stage=next_stage,
+                    earlier_stages=earlier,
+                    checklist_md=prompt_context.stage_checklist,
+                    review=review,
+                    planner_verdict=planner_verdict,
+                    rendering_block=manager_rendering_prompt(
+                        root,
+                        review=review,
+                        manifest_root=self.manager_session_root,
+                    ),
+                    open_ended=open_ended,
+                    continuous_objective=continuous_objective,
+                ),
+                role_banner=prompt_context.role_banner,
+                role_skill_block=self._role_skill_block(
+                    _match_objective,
+                    match=False,
+                ),
+            )
 
             raw = self._run_stage_model(run_exec, prompt, root, root_task_id)
 

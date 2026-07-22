@@ -1,6 +1,6 @@
 # Source registry for classical_poetry — two layers (providers + items).
 #
-# Same shared contract as fiction's registry (literary.source_registry): rights
+# Same shared contract as fiction's registry (verticals.literary.shared): rights
 # are per work/edition; allowed_uses draw from allowed_use_vocabulary. Honest
 # status: the Tang corpus is NOT ingested (scaffold); the 平水韵 lexical table IS
 # ingested (rights-neutral rhyme categories, pinned by version).

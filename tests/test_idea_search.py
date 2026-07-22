@@ -16,8 +16,8 @@ import tempfile
 from argus_skill.core.models import RunnerResult
 from argus_skill.skills.idea_search import (
     SOURCE_MARKER,
-    _build_prompt,
     _already_seeded,
+    _build_prompt,
     augment_idea_candidates,
 )
 

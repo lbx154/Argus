@@ -24,7 +24,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-_GPU_RESOURCES_PATH = Path.home() / ".argus-skill" / "capabilities" / "gpu_resources.json"
+_ARGUS_HOME = Path(os.environ.get("ARGUS_SKILL_HOME") or (Path.home() / ".argus-skill"))
+_GPU_RESOURCES_PATH = _ARGUS_HOME / "capabilities" / "gpu_resources.json"
 
 CACHE_ENV_VARS = (
     "HF_HOME",

@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from ..core.paths import capabilities_root, global_root, resolve_runtime_path
+
 try:  # Python 3.11+
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - py311+ in this project
@@ -111,8 +113,14 @@ def default_vault_path(env: Mapping[str, str] | None = None) -> Path:
     source = env if env is not None else os.environ
     raw = _env_text(source, _VAULT_ENV)
     if raw:
-        return Path(raw).expanduser()
-    return Path.home() / ".argus-skill" / "capabilities" / "model_api.json"
+        return resolve_runtime_path(raw, context=_VAULT_ENV)
+    configured_root = _env_text(source, "ARGUS_SKILL_HOME")
+    root = (
+        resolve_runtime_path(configured_root, context="ARGUS_SKILL_HOME")
+        if configured_root
+        else global_root()
+    )
+    return capabilities_root(root) / "model_api.json"
 
 
 def default_auth_json_path(env: Mapping[str, str] | None = None) -> Path:
@@ -769,7 +777,7 @@ def status_payload(env: Mapping[str, str]) -> dict[str, Any]:
 
 
 def _gpu_resources_path() -> Path:
-    return Path.home() / ".argus-skill" / "capabilities" / "gpu_resources.json"
+    return capabilities_root() / "gpu_resources.json"
 
 
 def load_gpu_resources() -> dict[str, Any] | None:

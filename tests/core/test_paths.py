@@ -11,7 +11,6 @@ from argus_skill.core import paths
 @pytest.fixture(autouse=True)
 def _reset_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ARGUS_SKILL_HOME", raising=False)
-    monkeypatch.delenv("ARGUS_SKILL_LIFE_DIR", raising=False)
 
 
 def test_default_root_is_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -41,70 +40,36 @@ def test_argus_skill_home_rejects_unresolved_placeholders(
         paths.global_root()
 
 
-def test_legacy_life_dir_pointing_at_life_subdir(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_LIFE_DIR", str(tmp_path / "legacy" / "life"))
-    assert paths.global_root() == tmp_path / "legacy"
-
-
-def test_legacy_life_dir_pointing_elsewhere(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_LIFE_DIR", str(tmp_path / "weird"))
-    assert paths.global_root() == tmp_path / "weird"
-
-
-def test_argus_skill_home_takes_precedence_over_legacy(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "new"))
-    monkeypatch.setenv("ARGUS_SKILL_LIFE_DIR", str(tmp_path / "old" / "life"))
-    assert paths.global_root() == tmp_path / "new"
-
-
 def test_top_level_paths_compose_from_root(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     assert paths.identity_path() == tmp_path / "identity.md"
     assert paths.config_path() == tmp_path / "config.json"
-    assert paths.journal_path() == tmp_path / "journal.jsonl"
-    assert paths.bus_root() == tmp_path / "bus"
-    assert paths.commands_path() == tmp_path / "bus" / "commands.jsonl"
-    assert paths.outbox_path() == tmp_path / "bus" / "outbox.jsonl"
-    assert paths.status_path() == tmp_path / "bus" / "status.json"
-    assert paths.daemon_pid_path() == tmp_path / "bus" / "daemon.pid"
-    assert paths.skills_global_root() == tmp_path / "skills"
-    assert paths.skills_archive_root() == tmp_path / "skills" / "_archive"
-    assert paths.projects_root() == tmp_path / "projects"
+    assert paths.shared_skills_root() == tmp_path / "skills"
+    assert paths.shared_skills_archive_root() == tmp_path / "skills" / "_archive"
+    assert paths.tools_root() == tmp_path / "tools"
+    assert paths.capabilities_root() == tmp_path / "capabilities"
+    assert paths.special_prompts_root() == tmp_path / "special_prompts"
+    assert paths.logs_root() == tmp_path / "logs"
+    assert paths.run_root() == tmp_path / "run"
+    assert paths.session_states_root() == tmp_path / "projects"
+    assert paths.session_trash_root() == tmp_path / "projects_trash"
 
 
-def test_project_subtree(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_session_state_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    fp = "abc123def456"
-    assert paths.project_root(fp) == tmp_path / "projects" / fp
-    assert paths.project_memory_path(fp) == tmp_path / "projects" / fp / "events.jsonl"
-    assert paths.project_backlog_path(fp) == tmp_path / "projects" / fp / "backlog.jsonl"
-    assert paths.project_skills_root(fp) == tmp_path / "projects" / fp / "skills"
-    assert paths.project_missions_root(fp) == tmp_path / "projects" / fp / "missions"
-    assert paths.mission_root(fp, "m-001") == tmp_path / "projects" / fp / "missions" / "m-001"
+    sid = "s-abc12345"
+    assert paths.session_state_root(sid) == tmp_path / "projects" / sid
+    assert paths.session_state_root(sid, root=tmp_path / "other") == (
+        tmp_path / "other" / "projects" / sid
+    )
 
 
-@pytest.mark.parametrize("bad", ["", "../escape", "/abs", "with/slash", ".hidden"])
-def test_invalid_fingerprint_rejected(bad: str) -> None:
+@pytest.mark.parametrize(
+    "bad",
+    ["", "../escape", "/abs", "with/slash", r"with\\slash", ".hidden", "bad\x00id"],
+)
+def test_invalid_session_id_rejected(bad: str) -> None:
     with pytest.raises(ValueError):
-        paths.project_root(bad)
-
-
-@pytest.mark.parametrize("bad", ["", "../escape", "with/slash", ".hidden"])
-def test_invalid_mission_id_rejected(bad: str) -> None:
-    with pytest.raises(ValueError):
-        paths.mission_root("validfp1234", bad)
-
-
-def test_ensure_dir_idempotent(tmp_path: Path) -> None:
-    target = tmp_path / "a" / "b" / "c"
-    assert paths.ensure_dir(target) == target
-    assert target.is_dir()
-    assert paths.ensure_dir(target) == target
+        paths.session_state_root(bad)

@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ..core import paths as core_paths
 from ..core.session import (
     SessionMeta,
     normalize_session_name,
@@ -190,8 +191,8 @@ def restore_trashed_project(
     sid = str(payload.get("id") or source.name.split(".", 1)[0]).strip()
     if not sid or Path(sid).name != sid:
         return None
-    destination = (root / "projects" / sid).resolve()
-    if destination.parent != (root / "projects").resolve():
+    destination = core_paths.session_state_root(sid, root=root).resolve()
+    if destination.parent != core_paths.session_states_root(root).resolve():
         return None
     roots_to_check = tuple(existing_roots or (root,))
     lock_root = _global_root(roots_to_check[0])

@@ -470,9 +470,11 @@ class SupervisedEngineer(
         interprets each phase's ``RoundControl`` verdict: ``return`` ends the
         mission with a terminal result, ``continue_loop`` immediately starts
         the next round, and falling through (``proceed``) lets the round
-        continue to the next phase. The Reviewer remains the sole completion
-        authority; every phase here only ever forwards or bookkeeps its
-        verdict, never overrides it.
+        continue to the next phase. Completion authority is explicit rather
+        than inferred: an allowed `review=skip` control produces an Engineer
+        self-review verdict, while `review=required` and mandatory-review tasks
+        invoke the independent Reviewer. Every phase only forwards or records
+        the selected verdict source; it never overrides that source.
         """
         if on_event is not None:
             raw_on_event = on_event

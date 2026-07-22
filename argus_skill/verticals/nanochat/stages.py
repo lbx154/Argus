@@ -600,6 +600,16 @@ def _training_dynamics_block(project_root: object, attempts: list) -> str:
         return ""
 
 
+__all__ = [
+    "REVIEWER_CHECKLISTS",
+    "STAGE_CHECKS",
+    "STAGE_ORDER",
+    "CHECKLIST_STAGE_ORDER",
+    "CHECKLIST_ITEMS",
+    "completion_gate",
+    "role_banner",
+    "search_altitude_context",
+]
 #: How many recent proxy-gated NO-SCORE attempts to list (with their proxy delta).
 _NO_SCORE_RECENT_N = 8
 
@@ -763,149 +773,3 @@ def search_altitude_context(project_root: object) -> str:
         ) + _training_dynamics_block(project_root, attempts) + _no_score_facts(project_root)
     except Exception:  # noqa: BLE001 — must never break prompt building
         return ""
-
-
-def search_altitude_facts(project_root: object) -> dict:
-    """Structured twin of :func:`search_altitude_context` for the meta layer.
-
-    Returns ``{floor, floor_name, since_improve, raw_best, n_attempts,
-    attempts:[{name,index,score,decision,strategy_type}]}`` — the same numbers
-    the rendered block shows, re-surfaced as data so the cross-vertical meta
-    layer can detect saturation WITHOUT re-implementing this vertical's
-    ``val_bpb`` parsing (the harness stays metric-blind). Floor anchoring is
-    identical to the rendered block: the agent's BEST structured-``promoted``
-    attempt, else the best raw score; ``since_improve`` counts candidate attempts
-    (incl. no-score) since the floor. Fail-soft: ``{}`` on any error.
-    """
-    try:
-        attempts = _scored_attempts(project_root)
-        if not attempts:
-            return {}
-        scores = [t[2] for t in attempts]
-        promoted = [i for i, t in enumerate(attempts) if _is_promote(t[5], t[3])]
-        floor_pos = (
-            min(promoted, key=lambda i: scores[i])
-            if promoted
-            else min(range(len(scores)), key=lambda i: scores[i])
-        )
-        raw_pos = min(range(len(scores)), key=lambda i: scores[i])
-        return {
-            "floor": scores[floor_pos],
-            "floor_name": attempts[floor_pos][1],
-            "since_improve": _frozen_since(project_root, attempts[floor_pos][0]),
-            "raw_best": scores[raw_pos],
-            "n_attempts": len(attempts),
-            "attempts": [
-                {
-                    "name": t[1],
-                    "index": t[0],
-                    "score": t[2],
-                    "decision": t[3],
-                    "strategy_type": t[4],
-                }
-                for t in attempts
-            ],
-        }
-    except Exception:  # noqa: BLE001 — meta detection must never break prompts
-        return {}
-
-
-def strategy_pool(project_root: object) -> str:
-    """Regime strategy pool for a JUMP: the menu + coverage + diverse inspirations.
-
-    Composed from things that already exist for this vertical:
-      * the ``_CATEGORY_AXES`` taxonomy (the mechanism-CHANGING axes menu),
-      * a coverage annotation (which canonical regime axes the agent's recorded
-        ``strategy_type`` labels have already touched vs are UNTOUCHED),
-      * the promoted FLOOR as the "parent", plus a handful of the EARLIEST,
-        most behaviourally-distinct attempts as diverse "inspirations"
-        (AlphaEvolve parent+inspirations; bounded per the EMNLP negative
-        result — NOT a full-history dump).
-    Fail-soft: ``""`` on any error.
-    """
-    try:
-        try:
-            from ...regime_jump.config import REGIME_AXES
-        except Exception:  # noqa: BLE001
-            REGIME_AXES = (
-                "optimizer",
-                "architecture",
-                "update_mechanics",
-                "data",
-                "numerics",
-            )
-        facts = search_altitude_facts(project_root)
-        attempts = facts.get("attempts", []) if facts else []
-        cov = {ax: 0 for ax in REGIME_AXES}
-        for a in attempts:
-            st = str(a.get("strategy_type") or "").strip().lower()
-            if st in cov:
-                cov[st] += 1
-        touched = [ax for ax in REGIME_AXES if cov[ax] > 0]
-        untouched = [ax for ax in REGIME_AXES if cov[ax] == 0]
-
-        # Diverse early inspirations: walk oldest→newest, take the first attempt
-        # of each distinct name-axis token, up to a small bound.
-        seen: set[str] = set()
-        inspirations: list[str] = []
-        for a in attempts:
-            toks = _name_tokens(str(a.get("name") or ""))
-            key = toks[0] if toks else ""
-            if key and key not in seen:
-                seen.add(key)
-                inspirations.append(f"{a['name']} ({a['score']:.6f})")
-            if len(inspirations) >= 6:
-                break
-
-        floor = facts.get("floor")
-        floor_name = facts.get("floor_name", "?")
-        parent = (
-            f"{floor:.6f} (from `{floor_name}`)"
-            if isinstance(floor, (int, float))
-            else "(unknown)"
-        )
-        # Island mode: migrated population-best candidates dropped by the
-        # orchestrator into inspirations/ are first-class diverse parents.
-        migrated = ""
-        try:
-            insp = Path(str(project_root)) / "inspirations"
-            if insp.is_dir():
-                names = sorted(p.name for p in insp.iterdir() if p.is_file())
-                if names:
-                    migrated = (
-                        "MIGRATED population-best (from sibling islands — study, do "
-                        "NOT blindly copy):\n"
-                        + "\n".join(f"  - inspirations/{n}" for n in names[:6])
-                        + "\n"
-                    )
-        except Exception:  # noqa: BLE001
-            pass
-        return (
-            "REGIME AXES MENU (biggest-lever-first; pick an UNDER-EXPLORED one):\n"
-            f"{_CATEGORY_AXES}\n\n"
-            f"COVERAGE (from your recorded strategy_type labels): "
-            f"touched = {', '.join(touched) or '(none labelled)'}; "
-            f"UNTOUCHED = {', '.join(untouched) or '(all touched)'}.\n"
-            f"PARENT (the floor to beat, your safe deliverable): {parent}\n"
-            + migrated
-            + "DIVERSE INSPIRATIONS (early, behaviourally-distinct attempts to mine "
-            "for a different regime — NOT to copy):\n"
-            + ("\n".join(f"  - {x}" for x in inspirations) or "  (none)")
-            + "\n"
-        )
-    except Exception:  # noqa: BLE001
-        return ""
-
-
-__all__ = [
-    "REVIEWER_CHECKLISTS",
-    "STAGE_CHECKS",
-    "STAGE_ORDER",
-    "CHECKLIST_STAGE_ORDER",
-    "CHECKLIST_ITEMS",
-    "completion_gate",
-    "role_banner",
-    "search_altitude_context",
-    "search_altitude_facts",
-    "strategy_pool",
-]

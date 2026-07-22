@@ -137,7 +137,7 @@ def project_life_dir(
     global_root: Path | str | None = None,
 ) -> Path | None:
     """Resolve one safe direct child of ``<global_root>/projects``."""
-    projects = (resolve_global_root(global_root) / "projects").resolve()
+    projects = core_paths.session_states_root(resolve_global_root(global_root)).resolve()
     try:
         life_dir = (projects / sid).resolve()
     except (OSError, ValueError):
@@ -555,7 +555,7 @@ def list_projects(
     out: list[dict[str, Any]] = []
     for meta in list_sessions(root, include_empty=include_empty):
         item = session_dict(meta, meta.id)
-        life_dir = root / "projects" / meta.id
+        life_dir = core_paths.session_state_root(meta.id, root=root)
         try:
             status = read_daemon_status(life_dir)
             item["daemon_alive"] = bool(status.alive)
@@ -615,7 +615,7 @@ def list_project_costs(
     root = resolve_global_root(global_root)
     out: list[dict[str, Any]] = []
     for meta in list_sessions(root, include_empty=include_empty):
-        life_dir = root / "projects" / meta.id
+        life_dir = core_paths.session_state_root(meta.id, root=root)
         spend = settled_spend(None, life_dir)
         try:
             updated_at = (life_dir / "usage.jsonl").stat().st_mtime

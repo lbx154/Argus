@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from ..core.event_catalog import EventType
+
 log = logging.getLogger(__name__)
 
 _ROLE_SUBDIRS = ("engineer", "reviewer", "planner", "manager")

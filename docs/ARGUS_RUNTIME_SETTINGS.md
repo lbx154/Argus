@@ -62,6 +62,7 @@
 | budget | `ARGUS_SKILL_COPILOT_MAX_CONCURRENCY` | `10000` | default | `10000` |
 | mission | `ARGUS_SKILL_VERTICAL` | `(unset → research; see LANES #1)` | default | `(unset → research; see LANES #1)` |
 | mission | `ARGUS_SKILL_MAX_ROUNDS` | `500` | default | `500` |
+| mission | `ARGUS_SKILL_ENGINEER_SELF_REVIEW` | `1` | default | `1` |
 | mission | `ARGUS_SKILL_NEAREST_TRANSFER_ENABLED` | `0` | default | `0` |
 | mission | `ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING` | `1` | default | `1` |
 | mission | `ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS` | `0` | default | `0` |
@@ -80,12 +81,17 @@
 | lifecycle | `ARGUS_SKILL_ENGINEER_SANDBOX` | `off` | default | `off` |
 | lifecycle | `ARGUS_SKILL_MEASURED_MODE` | `off` | default | `off` |
 | lifecycle | `ARGUS_SKILL_SKIP_VAULT_PREFLIGHT` | `off` | default | `off` |
-| meta | `ARGUS_META_JUMP_FROZEN_THRESHOLD` | `12` | default | `12` |
 | telemetry | `ARGUS_SKILL_ENABLE_TELEGRAM` | `off` | default | `off` |
 | telemetry | `ARGUS_SKILL_TELEGRAM_BOT_TOKEN` | `(unset)` | default | `(unset)` |
 | telemetry | `ARGUS_SKILL_TELEGRAM_CHAT_ID` | `(unset)` | default | `(unset)` |
 | telemetry | `ARGUS_SKILL_SHOW_REASONING` | `0` | default | `0` |
 | telemetry | `ARGUS_SKILL_AGENT_IO_MODE` | `full` | default | `full` |
+
+`ARGUS_SKILL_ENGINEER_SELF_REVIEW=1` allows an Engineer to select
+`review=skip` for low-risk bounded work. It does not override vertical-wide
+`REQUIRE_INDEPENDENT_REVIEW`, `stage_closing` / `review:required` backlog tags,
+or any other call-site requirement for independent review; those paths always
+invoke a fresh Reviewer. Completion events retain the selected `review_source`.
 
 `ARGUS_SKILL_DYNAMIC_PLAN_MODE=shadow` records Reviewer-authored
 `reconsider` signals without changing control flow. `active` ends the current

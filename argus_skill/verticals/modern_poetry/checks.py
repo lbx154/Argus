@@ -19,19 +19,19 @@ import json
 import sys
 from pathlib import Path
 
-from ...literary.artifact_manifest import (
+from ..literary.shared.artifact_manifest import (
     ManifestError,
     assert_content_present,
     normalize_manifest,
 )
-from ...literary.provenance import ProvenanceError, normalize_usage
-from ...literary.review_contract import (
+from ..literary.shared.provenance import ProvenanceError, normalize_usage
+from ..literary.shared.review_contract import (
     ReviewError,
     assert_plan_covers,
     normalize_review,
 )
-from ...literary.source_registry import RegistryError, load_validated_registry
-from ...literary.task_envelope import EnvelopeError
+from ..literary.shared.source_registry import RegistryError, load_validated_registry
+from ..literary.shared.task_envelope import EnvelopeError
 from .artifacts import MODERN_ARTIFACT_KINDS, MODERN_FINDING_TYPES
 from .form import FormError, check_form
 from .intake import ModernPoetryIntakeError, brief_from_envelope

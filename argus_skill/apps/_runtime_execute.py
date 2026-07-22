@@ -439,21 +439,12 @@ class SkillLoopExecuteMixin:
             return
         try:
             from ..manager.plan_mode import draft_plan
-            from ..skills.vertical_select import resolve_vertical
-            from ..verticals._base import (
-                load_vertical,
-                vertical_role_banner,
-            )
+            from ..roles.prompts import resolve_role_prompt
+            from ..roles.prompts.planner import preview_request
 
-            active_vertical = resolve_vertical(workdir)
-            vertical_module = load_vertical(
-                active_vertical,
-                project_root=workdir,
-            )
-            planner_role_banner = vertical_role_banner(
-                vertical_module,
-                "planner",
-            )
+            planner_role_banner = resolve_role_prompt(
+                preview_request(workdir)
+            ).role_banner
             plan = draft_plan(
                 getattr(self, "planner_backend", None) or self._backend,
                 original_objective or objective,
@@ -659,11 +650,12 @@ class SkillLoopExecuteMixin:
         usage_mission_id: str | None,
         maintenance_mission: bool,
     ) -> None:
-        """Hand this round's reviewer verdict to the Manager's stage
-        authority when this round is eligible to move the pipeline stage.
+        """Hand this round's structured completion verdict to the Manager's
+        stage authority when this round is eligible to move the pipeline stage.
 
         STAGE AUTHORITY: the Manager is the SOLE post-bootstrap writer of the
-        pipeline stage. After this round's reviewer verdict, the Manager makes
+        pipeline stage. After this round's Engineer-self-review or independent
+        Reviewer verdict, the Manager makes
         its OWN judgment (advance / hold / rollback) and writes
         PIPELINE_STATE.json. See ``_decide_stage_transition``.
         """

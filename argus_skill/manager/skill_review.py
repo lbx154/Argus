@@ -9,6 +9,10 @@ from typing import Any
 
 from ..core.models import RunnerOptions
 from ..core.run_gateway import run_exec as gateway_run_exec
+from ..roles.prompts.manager import (
+    build_skill_placement_prompt,
+    build_skill_placements_prompt,
+)
 
 log = logging.getLogger(__name__)
 
@@ -68,22 +72,10 @@ def classify_skill_placement(
         return PlacementVerdict("stay", "", "no manager runner available")
     candidates = [v for v in (candidate_verticals or []) if isinstance(v, str) and v]
 
-    prompt = (
-        "You are the Manager tidying the skill library after a project finished. "
-        "A reviewer distilled the playbook below while working this project. "
-        "Decide where it belongs.\n\n"
-        "## Placement policy\n"
-        "- global: reusable across unrelated domains without domain assumptions.\n"
-        "- vertical: meaningful only within one named candidate vertical.\n"
-        "- stay: project-specific or uncertain; prefer stay over mis-filing.\n\n"
-        f"## Candidate verticals\n{', '.join(candidates) or '(none)'}\n\n"
-        f"## The task the skill was distilled on\n{task.strip()[:2000]}\n\n"
-        f"## The skill playbook\n{content.strip()[:12000]}\n\n"
-        "Reply with ONLY a JSON object: "
-        '{"placement": "global"|"vertical"|"stay", '
-        '"vertical": "<name or empty>", "why": "<clear explanation>"}. '
-        'Use "vertical" only with a name from the candidate list; when unsure, '
-        'use "stay".'
+    prompt = build_skill_placement_prompt(
+        content=content,
+        task=task,
+        candidate_verticals=candidates,
     )
     try:
         result = gateway_run_exec(
@@ -148,18 +140,9 @@ def classify_skill_placements(
     if not rows or runner is None:
         return defaults
     candidates = [v for v in candidate_verticals if isinstance(v, str) and v]
-    prompt = (
-        "You are the Manager tidying several project-distilled skills after a "
-        "mission. Classify every row independently.\n\n"
-        "Placement policy: global = cross-domain; vertical = only one named "
-        "candidate vertical; stay = project-specific or uncertain. Prefer stay.\n\n"
-        f"Candidate verticals: {', '.join(candidates) or '(none)'}\n\n"
-        "Skills JSON:\n"
-        f"{json.dumps(rows, ensure_ascii=False)}\n\n"
-        "Reply ONLY as JSON: {\"placements\":[{\"candidate_id\":\"exact input "
-        "candidate_id\","
-        "\"placement\":\"global|vertical|stay\",\"vertical\":\"\","
-        "\"why\":\"...\"}]}. Return exactly one row per input skill."
+    prompt = build_skill_placements_prompt(
+        skills=rows,
+        candidate_verticals=candidates,
     )
     try:
         result = gateway_run_exec(

@@ -1,9 +1,7 @@
-"""Global daemon singleton lock.
+"""Session-scoped daemon process lock.
 
-Phase 1 of the unification refactor introduces ONE global daemon process
-per user (running under ``~/.argus-skill/bus/``). To prevent two daemons
-fighting over the same command/outbox files we use an OS-level advisory
-file lock plus a PID file:
+Each session supplies its own ``daemon.pid`` path. The lock uses an OS-level
+advisory file lock plus the PID file:
 
 * ``acquire_global_daemon_lock()`` opens ``daemon.pid`` (creating it),
   takes a non-blocking exclusive ``flock`` on it, writes the current
@@ -14,9 +12,8 @@ file lock plus a PID file:
   lock), the OS will let us acquire it. We then overwrite the file with
   our own pid.
 
-This is the singleton daemon lock: one live daemon per project. (A legacy
-``daemon/token_lock.py`` Telegram-token-uniqueness lock once sat alongside it;
-that module had no importers and has been removed.)
+This enforces one live daemon per session while allowing independent sessions to
+run concurrently.
 """
 from __future__ import annotations
 
@@ -25,8 +22,6 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-from . import paths as core_paths
 
 fcntl: Any = None
 try:
@@ -109,16 +104,10 @@ class DaemonLock:
 
 def acquire_global_daemon_lock(
     *,
-    pid_path: Path | str | None = None,
+    pid_path: Path | str,
 ) -> DaemonLock:
-    """Acquire the singleton lock; raise :class:`DaemonAlreadyRunning` if held.
-
-    ``pid_path`` is ``~/.argus-skill/bus/daemon.pid`` by default. Passing
-    a custom path is intended for tests; production code should use the
-    default so multiple agent invocations in the same user account
-    coordinate via the same file.
-    """
-    target = Path(pid_path).expanduser() if pid_path else core_paths.daemon_pid_path()
+    """Acquire the lock at an explicit session-scoped PID path."""
+    target = Path(pid_path).expanduser()
     target.parent.mkdir(parents=True, exist_ok=True)
 
     fd = os.open(str(target), os.O_CREAT | os.O_RDWR, 0o600)
@@ -148,9 +137,9 @@ def acquire_global_daemon_lock(
     return DaemonLock(pid=pid, pid_path=target, fd=fd)
 
 
-def read_daemon_pid(pid_path: Path | str | None = None) -> int | None:
+def read_daemon_pid(pid_path: Path | str) -> int | None:
     """Read the pid recorded in ``daemon.pid``; return None if missing/garbage."""
-    target = Path(pid_path).expanduser() if pid_path else core_paths.daemon_pid_path()
+    target = Path(pid_path).expanduser()
     try:
         raw = target.read_text(encoding="ascii").strip()
     except FileNotFoundError:

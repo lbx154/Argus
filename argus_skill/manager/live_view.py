@@ -11,10 +11,14 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
+
+from ..roles.prompts.manager import (
+    manager_rendering_prompt,
+    manager_workspace_capability_prompt,
+)
 
 LIVE_VIEW_MANIFEST = Path(".argus") / "live-view.json"
 MANAGER_LIVE_DIR = Path(".argus") / "live"
@@ -102,40 +106,6 @@ def manager_workspace_context(
             f"--workspace {workspace} --state-dir {state_root}"
         ),
     }
-
-
-def manager_workspace_capability_prompt(
-    project_root: Path | str,
-    *,
-    manifest_root: Path | str | None = None,
-) -> str:
-    context = manager_workspace_context(
-        project_root,
-        manifest_root=manifest_root,
-    )
-    tool = str(context["manager_live_view_tool"])
-    workspace_q = shlex.quote(str(context["workspace"]))
-    state_q = shlex.quote(str(context["state_root"]))
-    tool = (
-        "python -m argus_skill.tools.manager_live_view "
-        f"--workspace {workspace_q} --state-dir {state_q}"
-    )
-    return (
-        "## Manager workspace and rendering authority\n"
-        f"{json.dumps(context, ensure_ascii=False)}\n"
-        "The canonical workspace is where project outputs live and where every render path "
-        "is resolved. The state_root is private session memory/control state; never "
-        "select a state-root file as a workspace artifact. You own the right-side "
-        "content choice. Inspect current files, choose the most useful existing "
-        "artifact, or author a presentation under the presentation_root. For an "
-        "operator-facing chat turn, inspect or change the view with:\n"
-        f"- `{tool} status`\n"
-        f"- `{tool} set --title <title> --reason <reason> --path <workspace-relative-path> [--path ...]`\n"
-        f"- `{tool} clear`\n"
-        "Path order is presentation order and the first selected Manager artifact "
-        "is the default right-side content. Never claim rendering succeeded until "
-        "the tool returns `ok: true` with `exists: true`.\n"
-    )
 
 
 def normalize_live_view_path(value: object) -> str | None:
@@ -612,88 +582,6 @@ def apply_manager_rendering_response(
     return view if decided else load_live_view_decision(
         project_root,
         manifest_root=manifest_root,
-    )
-
-
-def manager_rendering_prompt(
-    project_root: Path | str,
-    *,
-    review: object | None = None,
-    manifest_root: Path | str | None = None,
-) -> str:
-    """Prompt block making right-sidebar presentation Manager-owned."""
-    current = load_live_view_decision(
-        project_root,
-        manifest_root=manifest_root,
-    )
-    current_text = (
-        json.dumps(
-            {
-                "title": current.title,
-                "reason": current.reason,
-                "paths": list(current.paths),
-            },
-            ensure_ascii=False,
-        )
-        if current is not None
-        else "null"
-    )
-    status = str(getattr(review, "status", "") or "")
-    reason = str(getattr(review, "reason", "") or "")
-    progress_context = _manager_progress_context(
-        project_root,
-        manifest_root=manifest_root,
-    )
-    return (
-        manager_workspace_capability_prompt(
-            project_root,
-            manifest_root=manifest_root,
-        )
-        + "\n"
-        "## Right-sidebar presentation — MANAGER ownership\n"
-        "You alone own what Argus Web renders in the right sidebar. Do not assign "
-        "rendering work, Manager paths, or presentation-only files to Engineer.\n"
-        "Use read-only tools to inspect current intermediate artifacts. Never "
-        "write files with tools. You "
-        "may point the panel directly at a useful existing text/image/PDF artifact. "
-        "If it is missing, stale, or unattractive, author presentation content in "
-        "the final JSON for a single-file path under `.argus/live/`; the harness "
-        "will write it safely. Never alter source evidence, task outputs, code, or "
-        "paper claims merely for display.\n"
-        f"Current live view: {current_text}\n"
-        f"Latest reviewer status: {status or '(none)'}\n"
-        f"Latest reviewer reason: {reason or '(none)'}\n"
-        "Current event-sourced progress: "
-        f"{json.dumps(progress_context, ensure_ascii=False)}\n"
-        "All existing artifact paths are resolved relative to the canonical "
-        "workspace shown by your working directory, never the session state/life "
-        "directory. Do not use `manager_live/...`; use an existing workspace path "
-        "such as `research/...`, or author content under `.argus/live/` through "
-        "`presentations`. A selection with zero materialized workspace artifacts is "
-        "rejected and the prior view is preserved. "
-        "At every stage decision, if the current view uses `.argus/live/`, refresh "
-        "that checkpoint in `presentations`. It must contain substantive sections "
-        "for `Current node`, `Verified progress`, `Current blocker`, and `Next action`; "
-        "a slogan, a restatement of the mission, or stale prose is invalid. "
-        "Choose 1-6 safe workspace-relative files. If this turn has no better "
-        "view, set `live_view` to null and the last valid view is preserved. Set "
-        "`clear_live_view` to true only when keeping the prior view would actively "
-        "mislead the operator. "
-        "You may select existing Markdown, HTML, JSON, CSV/TSV, text/code, image, "
-        "PDF, audio, or video artifacts. You may also CREATE the operator-facing "
-        "view yourself under `.argus/live/` as Markdown, sandboxed HTML, JSON, "
-        "CSV/TSV, or text; the harness supplies safe transport, not content choices. "
-        "Every `.argus/live/` path newly selected in `live_view.paths` MUST have a "
-        "matching entry in `presentations` in the same response. Never name a new "
-        "Manager path without its content. If you omit that content for an existing "
-        "`.argus/live/` path, the harness replaces it with a minimal status page "
-        "from this response so the sidebar never displays stale prose. "
-        "In your final JSON include:\n"
-        '"live_view": null | {"title": "<short title>", "reason": "<why this is '
-        'useful now>", "paths": ["<existing artifact or .argus/live/file>", ...]},\n'
-        '"clear_live_view": false | true,\n'
-        '"presentations": [{"path": ".argus/live/<file>.<md|html|json|csv|tsv|txt>", '
-        '"content": "<Manager-authored presentation>"}]\n'
     )
 
 

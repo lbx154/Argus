@@ -30,10 +30,11 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..roles.prompts.manager import build_plan_prompt
+
 # Product contract: a preview plan has a bounded number of steps;
 # :func:`draft_plan` trims to this ceiling. :func:`parse_plan_text` stays
 # uncapped so it faithfully reports whatever it parsed (tests target it).
-_MIN_STEPS = 3
 _MAX_STEPS = 8
 
 # Separators that split a single list line into "title — detail", in priority
@@ -239,46 +240,6 @@ def parse_plan_notes(text: str) -> list[str]:
                 out.append(_clean(item))
         return out
     return []
-
-
-# ---------------------------------------------------------------------------
-# Prompt + model call
-# ---------------------------------------------------------------------------
-
-def build_plan_prompt(
-    objective: str,
-    *,
-    role_banner: str = "",
-) -> str:
-    """Render the prompt asking the model for a preview plan.
-
-    The model must OUTLINE only — never do the work, run tools, or write code.
-    """
-    obj = (objective or "").strip()
-    step_shape = '{"title": "<imperative title>", "detail": "<what/why>"}'
-    prompt = (
-        "You are the planning front-end of an autonomous coding/research agent. "
-        "The operator wants to PREVIEW a plan BEFORE any work begins. "
-        f"Produce an ordered plan ({_MIN_STEPS}-{_MAX_STEPS} steps) of how "
-        "you WOULD approach the objective.\n\n"
-        "Hard rules:\n"
-        "1. Do NOT do the work. Do NOT run any shell command, inspect the repo, "
-        "or write code. This is an outline only.\n"
-        "2. Each step is one concrete action with an imperative title.\n"
-        f"3. Keep it to {_MIN_STEPS}-{_MAX_STEPS} steps, but include enough detail "
-        "for the operator to understand the approach.\n"
-        "\n"
-        "## Objective\n"
-        f"{obj}\n\n"
-        "## Your answer\n"
-        "Reply with ONE JSON object and NOTHING else:\n"
-        f'{{"steps": [{step_shape}, ...], '
-        '"notes": ["<optional caveat or assumption>", ...]}\n'
-    )
-    banner = str(role_banner or "").strip()
-    if not banner:
-        return prompt
-    return f"## Active vertical role\n{banner}\n\n{prompt}"
 
 
 def _resolve_run_exec(

@@ -1,9 +1,9 @@
 """Planning-cycle phase: planner invocation and verdict error/overlap handling.
 
 Covers building the planner prompt context and calling ``planner.plan_next()``
-(with exception handling), then the immediately-following cost accounting and
-``verdict.error`` / operator-external-blocker-defer / independent-overlap-task
-normalization that happens before any waiting/project_done interpretation.
+(with exception handling), then ``verdict.error`` /
+operator-external-blocker-defer / independent-overlap-task normalization that
+happens before any waiting/project_done interpretation.
 """
 
 from __future__ import annotations
@@ -13,16 +13,14 @@ from dataclasses import replace
 from typing import Any
 
 from ...core.event_catalog import EventType
-from ...core.pricing import price_for, usd_for_tokens
 from ._constants import PLAN_ERROR, PLAN_RETRY
-from ._cost import copilot_usd_for_premium_requests
 from ._planning_cycle_helpers import _PlanCycleState, _render_revision_request
 
 log = logging.getLogger(__name__)
 
 
 class PlanningCycleVerdictMixin:
-    """Planner invocation, cost accounting, and error/overlap normalization."""
+    """Planner invocation and error/overlap normalization."""
 
     def _pc_invoke_planner(self, state: _PlanCycleState) -> Any | None:
         revision_request = state.revision_request
@@ -97,14 +95,6 @@ class PlanningCycleVerdictMixin:
         revision_request = state.revision_request
         verdict = state.verdict
 
-        state.planner_cost_usd = usd_for_tokens(
-            self.reviewer_model,
-            verdict.input_tokens,
-            verdict.cached_input_tokens,
-            verdict.output_tokens,
-            reasoning_output_tokens=verdict.reasoning_output_tokens,
-            price_lookup=price_for,
-        ) + copilot_usd_for_premium_requests(verdict.premium_requests)
         state.schema_repair_details = (
             verdict.schema_repair_event_payload()
             if hasattr(verdict, "schema_repair_event_payload")

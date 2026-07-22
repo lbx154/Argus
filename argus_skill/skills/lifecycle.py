@@ -2,9 +2,11 @@
 
 Historically this module also held a mission-completion → skill-lifecycle
 dispatcher (``decide_action`` / ``apply_action``). That dispatcher is gone:
-skill memory is now reviewer-proposed and applied by ``SkillRouter``
-(storage structure + protected-skill safeguards — no Manager gate, the reviewer
-is sole authority), so the only thing that survives here is the low-level
+skill memory is now authored by the active role path and applied by
+``SkillRouter`` (storage structure + protected-skill safeguards — no Manager
+content gate). An allowed Engineer self-review may author same-session
+maintenance; an invoked Reviewer may revise retained state. The only thing that
+survives here is the low-level
 ``archive_skill`` move, reused by ``SkillStore.archive`` and ``compaction``.
 """
 
@@ -42,7 +44,7 @@ def archive_skill(
         return None
     if archive_root is None:
         from ..core import paths as core_paths
-        archive_root = core_paths.skills_archive_root()
+        archive_root = core_paths.shared_skills_archive_root()
     archive_root.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
     target = archive_root / f"{src.stem}.{stamp}.{uuid.uuid4().hex[:6]}{src.suffix}"

@@ -457,10 +457,6 @@ class PlanningCycleEnqueueMixin:
                 family: failure.streak
                 for family, failure in state.subagent_family_failures.items()
             },
-            input_tokens=verdict.input_tokens,
-            cached_input_tokens=verdict.cached_input_tokens,
-            output_tokens=verdict.output_tokens,
-            cost_usd=state.planner_cost_usd,
             manager_intent=state.manager_intent,
             **state.schema_repair_details,
         )

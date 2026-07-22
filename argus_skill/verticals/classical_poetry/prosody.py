@@ -26,6 +26,7 @@ poetry review contract consume; ``main`` is a CLI for the STAGE_CHECK.
 
 Adapted from: classical-poetry-prototype/classical-chinese-poetry/scripts/check_prosody.py
 """
+
 from __future__ import annotations
 
 import json
@@ -38,10 +39,10 @@ _DATA = Path(__file__).resolve().parent / "data" / "pingshui.json"
 
 # 四种基本律句（五言核心），"平"/"仄"
 _FIVE = {
-    "a": "仄仄平平仄",   # 仄收 · 二字仄
-    "b": "平平仄仄平",   # 平收(韵) · 二字平
-    "c": "平平平仄仄",   # 仄收 · 二字平
-    "d": "仄仄仄平平",   # 平收(韵) · 二字仄
+    "a": "仄仄平平仄",  # 仄收 · 二字仄
+    "b": "平平仄仄平",  # 平收(韵) · 二字平
+    "c": "平平平仄仄",  # 仄收 · 二字平
+    "d": "仄仄仄平平",  # 平收(韵) · 二字仄
 }
 _BASE = {"仄": ["a", "b", "c", "d"], "平": ["c", "d", "a", "b"]}
 _RUYUN_SWAP = {"a": "d", "c": "b"}
@@ -140,9 +141,9 @@ def _check_rhyme(lines: list[str]) -> tuple[str | None, bool, list[dict[str, Any
             tally[g] = tally.get(g, 0) + 1
     findings: list[dict[str, Any]] = []
     if not tally:
-        findings.append(_finding(
-            "rhyme", "blocking",
-            "韵脚均非平声（近体诗须押平声韵），或均为生僻字无法判定"))
+        findings.append(
+            _finding("rhyme", "blocking", "韵脚均非平声（近体诗须押平声韵），或均为生僻字无法判定")
+        )
         return None, False, findings
     main = max(tally, key=lambda k: tally[k])
     for i in even_idx:
@@ -150,18 +151,20 @@ def _check_rhyme(lines: list[str]) -> tuple[str | None, bool, list[dict[str, Any
         groups = _ping_groups(ch)
         t = _tone(ch)
         if t == "?":
-            findings.append(_finding(
-                "rhyme", "note", f"韵脚「{ch}」不在字表，无法判定", i + 1))
+            findings.append(_finding("rhyme", "note", f"韵脚「{ch}」不在字表，无法判定", i + 1))
         elif main in groups:
             continue
         elif not groups:
-            findings.append(_finding(
-                "rhyme", "blocking", f"韵脚「{ch}」为仄声，出韵", i + 1))
+            findings.append(_finding("rhyme", "blocking", f"韵脚「{ch}」为仄声，出韵", i + 1))
         else:
-            findings.append(_finding(
-                "rhyme", "blocking",
-                f"韵脚「{ch}」属【{'/'.join(sorted(groups))}】，与主韵【{main}】不同 → 出韵",
-                i + 1))
+            findings.append(
+                _finding(
+                    "rhyme",
+                    "blocking",
+                    f"韵脚「{ch}」属【{'/'.join(sorted(groups))}】，与主韵【{main}】不同 → 出韵",
+                    i + 1,
+                )
+            )
     ruyun = main in _ping_groups(lines[0][-1])
     return main, ruyun, findings
 
@@ -184,7 +187,9 @@ def _pick_qi(lines: list[str], ruyun: bool, yan: int) -> tuple[str, list[str]]:
     return best[1], best[2]
 
 
-def _check_meter(lines: list[str], expected: list[str], yan: int) -> tuple[bool, list[dict[str, Any]]]:
+def _check_meter(
+    lines: list[str], expected: list[str], yan: int
+) -> tuple[bool, list[dict[str, Any]]]:
     key_pos = [1, 3] if yan == 5 else [1, 3, 5]
     findings: list[dict[str, Any]] = []
     ok = True
@@ -197,10 +202,15 @@ def _check_meter(lines: list[str], expected: list[str], yan: int) -> tuple[bool,
                 bad_here.append(p + 1)
         if bad_here:
             ok = False
-            findings.append(_finding(
-                "meter", "blocking",
-                f"第{'、'.join(map(str, bad_here))}字失替（分明位应作 "
-                f"{'/'.join(exp[p - 1] for p in bad_here)}）", li + 1))
+            findings.append(
+                _finding(
+                    "meter",
+                    "blocking",
+                    f"第{'、'.join(map(str, bad_here))}字失替（分明位应作 "
+                    f"{'/'.join(exp[p - 1] for p in bad_here)}）",
+                    li + 1,
+                )
+            )
     return ok, findings
 
 
@@ -210,18 +220,27 @@ def _check_faults(lines: list[str]) -> list[dict[str, Any]]:
         at = _tones_of(line)
         last3 = at[-3:]
         if all(t == "平" for t in last3):
-            findings.append(_finding(
-                "hard_fault", "blocking", f"「{line[-3:]}」三平尾（三平调），近体诗大忌", li + 1))
+            findings.append(
+                _finding(
+                    "hard_fault", "blocking", f"「{line[-3:]}」三平尾（三平调），近体诗大忌", li + 1
+                )
+            )
         if all(t == "仄" for t in last3):
-            findings.append(_finding(
-                "hard_fault", "note", f"「{line[-3:]}」三仄尾，出句可容、韵句应避", li + 1))
+            findings.append(
+                _finding("hard_fault", "note", f"「{line[-3:]}」三仄尾，出句可容、韵句应避", li + 1)
+            )
         if at[-1] == "平" and at[-2] == "仄":
             ping_cnt = sum(1 for t in at[:-1] if t == "平")
             if ping_cnt <= 1:
                 save = "三" if len(line) == 5 else "五"
-                findings.append(_finding(
-                    "hard_fault", "blocking",
-                    f"疑犯孤平（韵脚外仅余孤立平声），可自救：改第{save}字为平", li + 1))
+                findings.append(
+                    _finding(
+                        "hard_fault",
+                        "blocking",
+                        f"疑犯孤平（韵脚外仅余孤立平声），可自救：改第{save}字为平",
+                        li + 1,
+                    )
+                )
     return findings
 
 
@@ -233,18 +252,29 @@ def _check_duizhang(lines: list[str], yan: int) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     for name, (o, d) in [("颔联", (2, 3)), ("颈联", (4, 5))]:
         ao, ad = _tones_of(lines[o]), _tones_of(lines[d])
-        bad = [p + 1 for p in key_pos
-               if ao[p] in ("平", "仄") and ad[p] in ("平", "仄") and ao[p] == ad[p]]
+        bad = [
+            p + 1
+            for p in key_pos
+            if ao[p] in ("平", "仄") and ad[p] in ("平", "仄") and ao[p] == ad[p]
+        ]
         if bad:
-            findings.append(_finding(
-                "parallelism", "blocking",
-                f"{name}第{'、'.join(map(str, bad))}字平仄未相对", o + 1))
-        dup = [k + 1 for k in range(min(len(lines[o]), len(lines[d])))
-               if lines[o][k] == lines[d][k]]
+            findings.append(
+                _finding(
+                    "parallelism",
+                    "blocking",
+                    f"{name}第{'、'.join(map(str, bad))}字平仄未相对",
+                    o + 1,
+                )
+            )
+        dup = [
+            k + 1 for k in range(min(len(lines[o]), len(lines[d]))) if lines[o][k] == lines[d][k]
+        ]
         if dup:
-            findings.append(_finding(
-                "parallelism", "note",
-                f"{name}同位重字：第{'、'.join(map(str, dup))}字", o + 1))
+            findings.append(
+                _finding(
+                    "parallelism", "note", f"{name}同位重字：第{'、'.join(map(str, dup))}字", o + 1
+                )
+            )
     return findings
 
 
@@ -289,11 +319,16 @@ def analyze(text: str) -> dict[str, Any]:
     else:
         form = "非近体（仅押韵可判）" if yan is None else f"{yan}言{n}句（非绝句/律诗）"
 
-    undecidable = sorted({ch for l in lines for ch in l if _tone(ch) == "?"})
+    undecidable = sorted({ch for line in lines for ch in line if _tone(ch) == "?"})
     compliant = not any(f["severity"] == "blocking" for f in findings)
     return {
-        "form": form, "yan": yan, "n": n, "is_jinti": is_jinti,
-        "rhyme_group": main, "compliant": compliant, "findings": findings,
+        "form": form,
+        "yan": yan,
+        "n": n,
+        "is_jinti": is_jinti,
+        "rhyme_group": main,
+        "compliant": compliant,
+        "findings": findings,
         "undecidable": undecidable,
     }
 
@@ -304,8 +339,7 @@ def machine_findings(text: str) -> list[dict[str, Any]]:
 
 
 def render_report(result: dict[str, Any]) -> str:
-    lines = [f"体裁：{result['form']}（{result['n']} 句）",
-             f"主韵部：{result['rhyme_group']}"]
+    lines = [f"体裁：{result['form']}（{result['n']} 句）", f"主韵部：{result['rhyme_group']}"]
     if result["undecidable"]:
         lines.append(f"未判定字（不在字表）：{' '.join(result['undecidable'])}")
     if not result["findings"]:

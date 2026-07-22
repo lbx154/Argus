@@ -2,9 +2,15 @@
 
 这份说明给后续接手的 agent 看。目标不是替代代码阅读，而是让你先知道“哪里管哪里”，避免在 EMNLP 论文 pipeline 或 7x24 harness 里乱改错层。
 
+## Git 发布边界
+
+`docs/Argus_项目介绍.md`、`docs/Argus_一页纸概览.md`、
+`docs/Argus_商业计划书.md` 是冻结的非代码材料。除非 operator 再次明确授权，
+不要修改、重新生成或把这些文件的变更提交到 GitHub。
+
 ## 一句话架构
 
-`argus-skill` 是一个长期运行的 agent harness：外层 `LifeSupervisor` 管 backlog、预算、daemon、L4 planner（forward scheduling）；内层 `SkillLoop` 管单个任务的 skill 匹配、L1 engineer 执行、L2 reviewer 验收和选择性 Skill maintenance。任务内先写 project-layer Skill；成功 mission 边界由 Manager 判断 stay / shared-global / shared-vertical，默认把可迁移经验传播给其他项目。历史上独立的 L3 critic 逐轮打磨循环已经移除——验收完全交给 L2 reviewer。EMNLP 论文生成 pipeline 是 built-in skill + per-stage reviewer 检查（stage checklists，reviewer 对照 artifact 裁决）+ planner fallback 共同实现的，不是单独一个 `make_paper.py`。`pipeline_contracts.py` 现在只负责 manifest/freshness/validation-priority 这套 artifact 构建-修复工具，不再是质量 gate。
+`argus-skill` 是一个长期运行的 agent harness：外层 `LifeSupervisor` 管 backlog、预算、daemon、L4 planner（forward scheduling）；内层 `SkillLoop` 管单个任务的 skill 匹配、L1 engineer 执行、L2 reviewer 验收和选择性 Skill maintenance。任务内先写 project-layer Skill；成功 mission 边界由 Manager 判断 stay / shared-global / shared-vertical，默认把可迁移经验传播给其他项目。历史上独立的 L3 critic 逐轮打磨循环已经移除。完成来源现在由结构化 `review_source` 明确记录：允许自审的低风险 bounded mission 可由 Engineer 显式 `review=skip` 完成；要求独立审查的 vertical、`stage_closing` / `review:required` 任务，以及 Engineer 主动选择 `review=required` 的任务，仍交给 L2 Reviewer。EMNLP 论文生成 pipeline 是 built-in skill + per-stage reviewer 检查（stage checklists，reviewer 对照 artifact 裁决）+ planner fallback 共同实现的，不是单独一个 `make_paper.py`。`pipeline_contracts.py` 现在只负责 manifest/freshness/validation-priority 这套 artifact 构建-修复工具，不再是质量 gate。
 
 **Token-efficiency rule:** prompt 改动先看边际效果/token。禁止为了“更稳”重复注入同义
 角色规则；优先用文件状态、按需 checklist 和一个权威短契约。必须保留关键证据/gate，
@@ -52,12 +58,29 @@ argus-skill / python -m argus_skill
 | L0 | CLI / daemon / cockpit | `argus_skill/apps/cli/_core.py`, `argus_skill/webapi/`, `frontend/tui/`, `argus_skill/daemon/life_worker.py`, `argus_skill/apps/_watch.py` | 命令行参数、Ink/Web cockpit、daemon 启停、`--status`、`--follow`、Telegram/事件展示 |
 | Manager | 前门 + stage 权威 | `argus_skill/manager/_core.py`, `argus_skill/manager/front_door.py`, `argus_skill/manager/dispatch.py`, `argus_skill/webapi/manager_bridge.py` | 操作员自由文本的 chat-vs-task 分流（模型判断，非关键词）、vertical 选择、pipeline stage 转移的**唯一**权威（其余角色只能建议）。不在 L1/L2/L4 的编号序列里——它跨越整条流水线，不是流水线上的一站；有自己独立的 backend/model 配置（`ARGUS_SKILL_MANAGER_BACKEND`/`_MODEL`），在 `/roles` 和 cockpit 面板里与其余三个角色平级展示 |
 | L1 | Engineer | `argus_skill/loop.py`, `argus_skill/engineer/runner.py` | 单轮执行 prompt、失败重试、session 续接、进度 watchdog |
-| L2 | Reviewer | `argus_skill/reviewer/_core.py`, `argus_skill/reviewer/reviewer_schema.json` | done/continue/blocked 判断、reviewer JSON schema、论文任务的 peer-review gate |
-| L4 | Planner | `argus_skill/planner/planner.py`, `argus_skill/life/supervisor/_core.py` | continuous mode 自动排新任务、EMNLP final gate 失败后的自动分流。历史的 L3 critic 逐轮打磨层已移除（见 `planner/planner.py` 顶部说明），验收只由 L2 reviewer 负责 |
+| L2 | Reviewer | `argus_skill/reviewer/_core.py`, `argus_skill/reviewer/reviewer_schema.json` | 对要求或请求独立审查的任务给出 done/continue/blocked，维护 reviewer JSON schema，并承担论文任务的强制 peer-review gate |
+| L4 | Planner | `argus_skill/planner/planner.py`, `argus_skill/life/supervisor/_core.py` | continuous mode 自动排新任务、EMNLP final gate 失败后的自动分流。历史的 L3 critic 逐轮打磨层已移除（见 `planner/planner.py` 顶部说明）；Planner 不负责 mission 验收 |
 | Skill | 横向能力复用 | `argus_skill/skills/store.py`, `argus_skill/skills/layered.py`, `argus_skill/manager/skill_tidy.py` | project / shared-vertical / shared-global 匹配，Engineer/Reviewer 选择性 maintenance，成功 mission 后 Manager 跨项目传播 |
 | Contracts | 论文 artifact 工具 + 状态机 | `argus_skill/skills/pipeline_contracts.py`, `argus_skill/skills/pipeline_policy.py`, `argus_skill/skills/stage_checklists.py` | manifest/freshness/validation-priority 构建-修复（pipeline_contracts）；质量 gate 走 stage checklist（stage_checklists） |
 
 > **常见误解**：读到 L0/L1/L2/L4 这个编号，容易以为 argus 是"三层 agent"（Planner/Engineer/Reviewer，L3 critic 已退役）。实际常驻跑着的是**四个**角色——Manager/Planner/Engineer/Reviewer（`cli/roles_status.py`: `ROLES = ("manager", "planner", "engineer", "reviewer")`）；Manager 不占 L 编号只是因为它跨越整条流水线（前门 + stage 权威），不代表它级别更低。另外还有一个可选的 **Curator** 角色（`ARGUS_SKILL_CURATOR_*`），只在并行 subagent/团队模式下才跑，管 skill 池维护和团队排行榜蒸馏，不参与日常单任务流水线，因此不在上表中。README 和三份 pitch 文档（商业计划书/项目介绍/一页纸概览）历史上都只画了三个角色（未包含 Manager），已于 2026-07-07 全部修正为四个角色。
+
+### 四角色 Prompt 的唯一源码
+
+四个常驻角色的 Prompt 本体统一放在 `argus_skill/roles/prompts/`：
+
+- `manager.py`：front door、vertical/domain、stage decision、SELF、维护等 Manager Prompt。
+- `planner.py`：continuous、bounded DAG、schema repair 等 Planner Prompt。
+- `engineer.py`：mission/continuation 和 live directive 等 Engineer Prompt。
+- `reviewer.py`：完整 Reviewer static/delta Prompt 及其审查 block。
+- `registry.py`：按 `role / operation / vertical / stage / scope` 解析 banner、
+  checklist、completion gate 等 Prompt 参数。
+
+`manager/`、`planner/`、`engineer/`、`reviewer/` 只保留运行、解析、状态副作用和
+兼容薄代理；它们收集动态 fragment 后也必须调用 `roles/prompts/` 完成最终字符串
+拼接，不得在 runtime 重新组合 Prompt 或出现第二份 Prompt 长字符串。Vertical 的动态内容仍由
+`verticals/<name>/stages.py` 提供，通过 `roles/prompts/registry.py` 注入；stage
+checklist 的数据源仍是 `skills/stage_checklists.py`。
 
 ## 入口和运行面
 
@@ -166,7 +189,7 @@ Engineer 和 Reviewer 不再继承上一轮 raw transcript。每个角色每轮�
   handoff 再以 path/hash 引用 CHECKPOINT/control file，不复制 Engineer summary
   或 CHECKPOINT 正文。event/journal/wiki 只做同名字段投影或路径引用，不要求
   agent 重写第二份摘要。
-- 每个 Engineer round 都必须经过 Reviewer，不再支持 `CONTINUE_WORK` 跳审。
+- 每个 Engineer round 都必须写结构化 control。Prompt 要求只在低风险 bounded 工作且 verifier 通过时写 `review=skip`；只要自审已启用且任务未强制独立审查，runner 就接受这个显式判断（不再加第二套 heuristic/validator），生成 `review_source=engineer_self_review` 的 `done`，不会调用 Reviewer。若 vertical 声明 `REQUIRE_INDEPENDENT_REVIEW=True`、backlog item 带 `stage_closing` / `review:required`，或 Engineer 写 `review=required`，则禁用/放弃自审并调用独立 Reviewer。`CONTINUE_WORK` 跳审仍已移除。
 - `ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS` 默认 0，不用绝对墙钟时间截断正常工作。
 - 测试：`tests/test_checkpoint_loop.py`、`tests/test_session_resume.py`。
 

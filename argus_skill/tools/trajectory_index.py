@@ -40,12 +40,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Iterator
 
+from ..core.paths import global_root, session_states_root
+
 _SCHEMA_VERSION = 1
 
 
 def default_db_path() -> Path:
     """Return the canonical index db path under ~/.argus-skill/."""
-    base = Path(os.environ.get("ARGUS_SKILL_HOME") or (Path.home() / ".argus-skill"))
+    base = global_root()
     base.mkdir(parents=True, exist_ok=True)
     return base / "trajectory_index.sqlite"
 
@@ -55,8 +57,7 @@ def default_codex_root() -> Path:
 
 
 def default_argus_projects_root() -> Path:
-    base = Path(os.environ.get("ARGUS_SKILL_HOME") or (Path.home() / ".argus-skill"))
-    return base / "projects"
+    return session_states_root()
 
 
 # ---------------------------------------------------------------------------

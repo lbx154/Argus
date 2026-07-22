@@ -20,6 +20,8 @@ from typing import Any, Callable
 
 from fastapi import Header, HTTPException
 
+from ...core import paths as core_paths
+
 
 class ServerContext:
     """Shared state + helpers for one ``create_app`` instance's route domains."""
@@ -78,7 +80,7 @@ class ServerContext:
             try:
                 root_session_ids = {
                     path.name
-                    for path in (root / "projects").iterdir()
+                    for path in core_paths.session_states_root(root).iterdir()
                     if path.is_dir()
                 }
             except OSError:
@@ -99,7 +101,9 @@ class ServerContext:
                 # rows in investor/demo sessions.
                 if (
                     not sid.startswith("s-")
-                    and not (root / "projects" / sid / "session.json").is_file()
+                    and not (
+                        core_paths.session_state_root(sid, root=root) / "session.json"
+                    ).is_file()
                 ):
                     continue
                 projects.append(project)
@@ -119,7 +123,7 @@ class ServerContext:
             try:
                 root_session_ids = {
                     path.name
-                    for path in (root / "projects").iterdir()
+                    for path in core_paths.session_states_root(root).iterdir()
                     if path.is_dir()
                 }
             except OSError:

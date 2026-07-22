@@ -155,7 +155,7 @@ def _resolve_project_bundle(args: argparse.Namespace):
         resolve_session_workdir,
     )
 
-    state_dir = Path(global_root) / "projects" / sid
+    state_dir = core_paths.session_state_root(sid, root=global_root)
     meta = read_session_meta(global_root, sid)
     try:
         if meta is None:

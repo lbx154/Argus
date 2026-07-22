@@ -13,15 +13,20 @@ Everything about imagery, lineation, tone, and cliché beyond the list is a
 live-reviewer judgement and lives in the review rubric, not here. Returns
 structured findings so the runtime gate and the review contract can consume them.
 """
+
 from __future__ import annotations
 
-import re
 from typing import Any
 
 #: The machine-decidable modern-poetry finding types (hard constraints only).
-FORM_FINDING_TYPES: frozenset[str] = frozenset({
-    "language", "line_count", "banned_word", "empty_line",
-})
+FORM_FINDING_TYPES: frozenset[str] = frozenset(
+    {
+        "language",
+        "line_count",
+        "banned_word",
+        "empty_line",
+    }
+)
 
 
 class FormError(ValueError):
@@ -55,7 +60,6 @@ def check_form(text: str, spec: dict[str, Any] | None = None) -> list[dict[str, 
     if not isinstance(spec, dict):
         raise FormError("form_spec must be an object")
     findings: list[dict[str, Any]] = []
-    raw_lines = text.splitlines()
     lines = _lines(text)
 
     if not lines:
@@ -66,14 +70,17 @@ def check_form(text: str, spec: dict[str, Any] | None = None) -> list[dict[str, 
     if spec.get("line_count") is not None:
         want = int(spec["line_count"])
         if len(lines) != want:
-            findings.append(_finding(
-                "line_count", f"declared {want} lines but poem has {len(lines)}"))
+            findings.append(
+                _finding("line_count", f"declared {want} lines but poem has {len(lines)}")
+            )
     if spec.get("min_lines") is not None and len(lines) < int(spec["min_lines"]):
-        findings.append(_finding(
-            "line_count", f"poem has {len(lines)} lines, below min {spec['min_lines']}"))
+        findings.append(
+            _finding("line_count", f"poem has {len(lines)} lines, below min {spec['min_lines']}")
+        )
     if spec.get("max_lines") is not None and len(lines) > int(spec["max_lines"]):
-        findings.append(_finding(
-            "line_count", f"poem has {len(lines)} lines, above max {spec['max_lines']}"))
+        findings.append(
+            _finding("line_count", f"poem has {len(lines)} lines, above max {spec['max_lines']}")
+        )
 
     lang = spec.get("language")
     if lang == "zh" and _han_ratio(text) < 0.5:

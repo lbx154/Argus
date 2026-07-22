@@ -71,11 +71,12 @@ def _project_state_dir_for(args: argparse.Namespace, workdir: Path) -> Path | No
             state_dir.mkdir(parents=True, exist_ok=True)
             return state_dir
 
+        from ..core.paths import session_state_root
         from ..core.project import project_fingerprint
 
         global_root = _resolve_global_root(args)
         fingerprint = project_fingerprint(workdir).fingerprint
-        state_dir = global_root / "projects" / fingerprint
+        state_dir = session_state_root(fingerprint, root=global_root)
         state_dir.mkdir(parents=True, exist_ok=True)
         return state_dir
     except Exception:  # noqa: BLE001 — never let path resolution break a mission

@@ -28,7 +28,6 @@ from .venue_profiles import (
     _venue_key_from_pipeline_state,
     is_builtin_venue,
     load_local_venue_profile,
-    venue_profile_path,
 )
 
 log = logging.getLogger(__name__)

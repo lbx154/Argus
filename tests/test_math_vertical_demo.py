@@ -6,7 +6,6 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
 
-
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC = ROOT / "frontend" / "web" / "public" / "math-vertical"
 DIST = ROOT / "frontend" / "web" / "dist" / "math-vertical"

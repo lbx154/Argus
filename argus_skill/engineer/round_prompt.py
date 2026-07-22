@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 from ..core.event_catalog import EventType
+from ..roles.prompts.engineer import assemble_round_prompt
 from .background_subagents import render_background_subagents_advisory
 from .checkpoint import shared_checkpoint_instructions
 from .external_work import render_external_work_advisory
@@ -58,34 +59,30 @@ class RoundPromptMixin:
             control_scope=control_scope,
         )
         prepare_engineer_control(control_path)
-        delta_tail: list[str] = []
         checkpoint_block = shared_checkpoint_instructions(
             checkpoint_path,
             role="engineer",
         )
-        if checkpoint_block:
-            delta_tail.append(checkpoint_block)
-        delta_tail.append(
-            engineer_control_instructions(
-                control_path,
-                allow_self_review=supervised_config.allow_engineer_self_review,
-                allow_skill_maintenance=(
-                    supervised_config.allow_engineer_skill_maintenance
-                ),
-            )
+        control_block = engineer_control_instructions(
+            control_path,
+            allow_self_review=supervised_config.allow_engineer_self_review,
+            allow_skill_maintenance=(
+                supervised_config.allow_engineer_skill_maintenance
+            ),
         )
         background_advisory = (
             render_background_subagents_advisory(workdir)
             if supervised_config.background_subagent_advisory
             else ""
         )
-        if background_advisory:
-            delta_tail.append(background_advisory)
         external_work_advisory = render_external_work_advisory(workdir)
-        if external_work_advisory:
-            delta_tail.append(external_work_advisory)
-        if delta_tail:
-            engineer_prompt = engineer_prompt + "\n\n" + "\n\n".join(delta_tail)
+        engineer_prompt = assemble_round_prompt(
+            engineer_prompt,
+            checkpoint_block=checkpoint_block,
+            control_block=control_block,
+            background_advisory=background_advisory,
+            external_work_advisory=external_work_advisory,
+        )
         if on_event:
             on_event({
                 "type": EventType.ROUND_START,

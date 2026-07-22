@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ..core import paths as core_paths
 from .manager_state import _chat_state_for
 
 
@@ -93,27 +94,10 @@ def _resolve_pending_question_with_manager(
     from ..core.event_catalog import EventType
     from ..life.event_log import JsonlEventSink
     from ..manager.front_door import manager_triage
+    from ..roles.prompts.manager import build_pending_question_prompt
 
     question = str(getattr(item, "pending_question", "") or "").strip()
-    prompt = (
-        "You are the Manager resolving an operator-only blocker for an existing "
-        "mission. Interpret the operator response in the blocked mission context. "
-        "Return ONLY one JSON object with exactly these fields: "
-        '{"is_answer": boolean, "resolved": boolean, "decision": string, '
-        '"reply": string}. Set is_answer=false when the message is unrelated '
-        "chat, status, configuration, or control rather than an attempted answer; "
-        "in that case also set resolved=false and leave decision and reply empty. "
-        "Set resolved=true only when the response supplies enough authority or "
-        "information for the team to continue. decision must then be an explicit, "
-        "role-clean instruction for Planner/Engineer. If it is unrelated or "
-        "insufficient, set resolved=false, keep decision empty, and use reply to "
-        "ask one concise clarification question.\n\n"
-        f"Blocked item id: {item.id}\n"
-        f"Blocked mission title: {item.title}\n"
-        f"Blocked mission objective:\n{item.objective}\n\n"
-        f"Reviewer question:\n{question}\n\n"
-        f"Operator response:\n{answer.strip()}"
-    )
+    prompt = build_pending_question_prompt(item, answer)
     try:
         manager_reply = manager_triage(
             mem,
@@ -286,9 +270,8 @@ def record_task_dispatch_ack(
     # Resolve life_dir
     root = Path(global_root) if global_root else None
     if root is None:
-        from ..core import paths as core_paths
         root = core_paths.global_root()
-    life_dir = root / "projects" / sid
+    life_dir = core_paths.session_state_root(sid, root=root)
 
     # Persist transcript — errors propagate (not swallowed).
     # We inline the write because the public append_turn() swallows exceptions

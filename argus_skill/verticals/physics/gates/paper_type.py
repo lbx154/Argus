@@ -20,12 +20,12 @@ import json
 import sys
 from pathlib import Path
 
+from ....skills.capability_trace import trace_gate_run
 from ....skills.research_gates import (
     clear_gate_state,
     update_gate_state,
     write_gate_outputs,
 )
-from ....skills.capability_trace import trace_gate_run
 from ..mode_config import is_downgrade_type, is_original_research_required
 
 GATE_ID = "paper_type"

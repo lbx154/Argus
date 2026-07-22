@@ -37,9 +37,9 @@ def _shared_skills_root(runner: object, memory: object) -> Path:
     global_root = getattr(memory, "global_root", None)
     if global_root is not None:
         return Path(global_root) / "skills"
-    from ...core.paths import skills_global_root
+    from ...core.paths import shared_skills_root
 
-    return skills_global_root()
+    return shared_skills_root()
 
 
 class EvolutionMixin:

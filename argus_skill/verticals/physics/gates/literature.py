@@ -28,7 +28,6 @@ from ....skills.capability_registry import CapabilityRegistry
 from ....skills.capability_trace import trace_gate_run
 from ....skills.research_gates import (
     clear_gate_state,
-    render_gate_repair_block,
     update_gate_state,
     write_gate_outputs,
 )

@@ -26,6 +26,14 @@ paper pipeline's convenience.
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------
+# Generic anti-fraud gate (lives in skills/, re-exported for the paper pipeline)
+# ---------------------------------------------------------------------------
+from ...skills.evidence_chain import (
+    ChainIssue,
+    ChainReport,
+)
+
+# ---------------------------------------------------------------------------
 # Shared review-contract constants / helpers
 # ---------------------------------------------------------------------------
 from ._review_contract_constants import (
@@ -51,20 +59,6 @@ from .academic_language_review import (
     MIN_ACADEMIC_LANGUAGE_SCORE,
     AcademicLanguageReviewError,
     generate_academic_language_review,
-)
-from .paper_infrastructure_review import (
-    MIN_PAPER_INFRASTRUCTURE_REVIEW_SCORE,
-    PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH,
-    PAPER_INFRASTRUCTURE_REVIEW_MD_PATH,
-    PaperInfrastructureReviewError,
-    generate_paper_infrastructure_review,
-)
-from .paper_layout_review import (
-    LAYOUT_REVIEW_JSON_PATH,
-    LAYOUT_REVIEW_MD_PATH,
-    LAYOUT_REVIEW_PAGE_DIR,
-    LayoutReviewError,
-    generate_layout_review,
 )
 
 # ---------------------------------------------------------------------------
@@ -102,6 +96,20 @@ from .method_differentiation import (
     PairFinding,
     validate_method_differentiation,
 )
+from .paper_infrastructure_review import (
+    MIN_PAPER_INFRASTRUCTURE_REVIEW_SCORE,
+    PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH,
+    PAPER_INFRASTRUCTURE_REVIEW_MD_PATH,
+    PaperInfrastructureReviewError,
+    generate_paper_infrastructure_review,
+)
+from .paper_layout_review import (
+    LAYOUT_REVIEW_JSON_PATH,
+    LAYOUT_REVIEW_MD_PATH,
+    LAYOUT_REVIEW_PAGE_DIR,
+    LayoutReviewError,
+    generate_layout_review,
+)
 from .paper_structural_minimums import (
     StructuralIssue,
     StructuralReport,
@@ -117,14 +125,6 @@ from .run_evidence_health import (
     HealthIssue,
     RunEvidenceHealthReport,
     validate_run_evidence_health,
-)
-
-# ---------------------------------------------------------------------------
-# Generic anti-fraud gate (lives in skills/, re-exported for the paper pipeline)
-# ---------------------------------------------------------------------------
-from ...skills.evidence_chain import (
-    ChainIssue,
-    ChainReport,
 )
 
 # ---------------------------------------------------------------------------

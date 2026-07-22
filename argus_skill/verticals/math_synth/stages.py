@@ -440,64 +440,8 @@ def search_altitude_context(project_root: object) -> str:
         return ""
 
 
-def search_altitude_facts(project_root: object) -> dict:
-    """Structured twin. ``floor`` = BEST score (higher better)."""
-    try:
-        attempts = _scored_attempts(project_root)
-        if not attempts:
-            return {}
-        scores = [t[2] for t in attempts]
-        promoted = [i for i, t in enumerate(attempts) if _is_promote(t[5], t[3])]
-        best_pos = (max(promoted, key=lambda i: scores[i]) if promoted
-                    else max(range(len(scores)), key=lambda i: scores[i]))
-        raw_pos = max(range(len(scores)), key=lambda i: scores[i])
-        return {
-            "floor": scores[best_pos],
-            "floor_name": attempts[best_pos][1],
-            "since_improve": _frozen_since(project_root, attempts[best_pos][0]),
-            "raw_best": scores[raw_pos],
-            "n_attempts": len(attempts),
-            "attempts": [
-                {"name": t[1], "index": t[0], "score": t[2],
-                 "decision": t[3], "strategy_type": t[4]}
-                for t in attempts
-            ],
-        }
-    except Exception:  # noqa: BLE001
-        return {}
-
-
-def strategy_pool(project_root: object) -> str:
-    """Regime strategy pool for a JUMP: the pipeline axes menu + coverage."""
-    try:
-        axes = ("difficulty", "parametric", "yield", "diversity", "prompt")
-        facts = search_altitude_facts(project_root)
-        attempts = facts.get("attempts", []) if facts else []
-        cov = {ax: 0 for ax in axes}
-        for a in attempts:
-            st = str(a.get("strategy_type") or "").strip().lower()
-            if st in cov:
-                cov[st] += 1
-        touched = [ax for ax in axes if cov[ax] > 0]
-        untouched = [ax for ax in axes if cov[ax] == 0]
-        best = facts.get("floor")
-        parent = (f"{best:.3f} (from `{facts.get('floor_name','?')}`)"
-                  if isinstance(best, (int, float)) else "(unknown)")
-        return (
-            "PIPELINE AXES MENU (biggest-lever-first; pick an UNDER-EXPLORED one):\n"
-            f"{_CATEGORY_AXES}\n\n"
-            f"COVERAGE (from your strategy_type labels): touched = "
-            f"{', '.join(touched) or '(none)'}; UNTOUCHED = "
-            f"{', '.join(untouched) or '(all touched)'}.\n"
-            f"PARENT (the best score to beat, your safe deliverable): {parent}\n"
-        )
-    except Exception:  # noqa: BLE001
-        return ""
-
-
 __all__ = [
     "REVIEWER_CHECKLISTS", "STAGE_CHECKS", "STAGE_ORDER",
     "CHECKLIST_STAGE_ORDER", "CHECKLIST_ITEMS",
-    "completion_gate", "role_banner",
-    "search_altitude_context", "search_altitude_facts", "strategy_pool",
+    "completion_gate", "role_banner", "search_altitude_context",
 ]

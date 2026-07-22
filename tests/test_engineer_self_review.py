@@ -14,8 +14,8 @@ from argus_skill.engineer.runner import (
 from argus_skill.engineer.self_review import (
     engineer_control_instructions,
     engineer_control_path,
-    prepare_engineer_control,
     parse_engineer_completion_decision,
+    prepare_engineer_control,
     read_engineer_completion_decision,
     strip_legacy_engineer_control,
     verbatim_verification_output,

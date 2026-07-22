@@ -28,6 +28,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from ..core.paths import session_states_root
+
 __all__ = ["Check", "run_diagnostics", "render_report"]
 
 
@@ -278,7 +280,7 @@ def _count_global_empty_sessions(global_root: Path) -> int:
     (a running daemon lock) so the number lines up with what ``--gc``
     would consider. Fully fail-soft.
     """
-    root = Path(global_root) / "projects"
+    root = session_states_root(global_root)
     if not root.exists():
         return 0
     try:
@@ -334,7 +336,7 @@ def _check_empty_session(
         try:
             n = _count_global_empty_sessions(global_root)
             if n:
-                extra = f"; {n} empty session shell(s) under {Path(global_root) / 'projects'}"
+                extra = f"; {n} empty session shell(s) under {session_states_root(global_root)}"
         except Exception:  # noqa: BLE001
             extra = ""
     return Check(

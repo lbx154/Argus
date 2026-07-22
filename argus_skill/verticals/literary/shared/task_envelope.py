@@ -1,4 +1,4 @@
-"""The Task Envelope — shared cross-vertical creative-authoring task contract.
+"""The Task Envelope — shared literary-vertical creative-authoring task contract.
 
 The single intake artifact every literary vertical (fiction, poetry, prose,
 editor) normalizes a raw operator request into BEFORE any planning. It is

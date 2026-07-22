@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ...literary.source_registry import load_validated_registry
+from ..literary.shared.source_registry import load_validated_registry
 
 #: Fiction's rights catalog — the two-layer providers+items registry.
 FICTION_SOURCE_REGISTRY_PATH: Path = (
@@ -22,7 +22,9 @@ FICTION_SOURCE_REGISTRY_PATH: Path = (
 def load_fiction_registry() -> dict[str, Any]:
     """Load AND validate fiction's source registry; return the parsed dict.
 
-    Raises :class:`argus_skill.literary.source_registry.RegistryError` if the
+    Raises
+    :class:`argus_skill.verticals.literary.shared.source_registry.RegistryError`
+    if the
     committed registry is malformed — so a broken registry fails the intake gate.
     """
     return load_validated_registry(FICTION_SOURCE_REGISTRY_PATH)

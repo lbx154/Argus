@@ -52,17 +52,10 @@ except ImportError:  # pragma: no cover - Windows fallback
 # ---------------------------------------------------------------------------
 
 def default_life_dir() -> Path:
-    """Return the on-disk root for the user's life directory.
+    """Return the legacy single-project facade under the canonical runtime root."""
+    from ..core.paths import global_root
 
-    Honours ``ARGUS_SKILL_LIFE_DIR`` so tests / multi-tenant setups can
-    redirect to a tmp location. Defaults to ``~/.argus-skill/life``.
-    """
-    raw = os.environ.get("ARGUS_SKILL_LIFE_DIR")
-    if raw:
-        from ..core.paths import resolve_runtime_path
-
-        return resolve_runtime_path(raw, context="ARGUS_SKILL_LIFE_DIR")
-    return Path.home() / ".argus-skill" / "life"
+    return global_root() / "life"
 
 
 # ---------------------------------------------------------------------------
@@ -1999,10 +1992,12 @@ def _resolve_project_root(
     fingerprint: str, *, global_root: Path | None = None
 ) -> Path:
     if global_root is not None:
-        return Path(global_root) / "projects" / fingerprint
+        from ..core import paths as core_paths
+
+        return core_paths.session_state_root(fingerprint, root=global_root)
     from ..core import paths as core_paths
 
-    return core_paths.project_root(fingerprint)
+    return core_paths.session_state_root(fingerprint)
 
 
 @dataclass
@@ -2020,9 +2015,11 @@ class GlobalMemory:
     @classmethod
     def open(cls, root: Path | None = None) -> "GlobalMemory":
         actual = Path(root) if root is not None else _resolve_global_root()
+        from ..core.paths import identity_path
+
         return cls(
             root=actual,
-            identity=IdentityCard(actual / "identity.md"),
+            identity=IdentityCard(identity_path(actual)),
         )
 
     def init(self) -> dict[str, bool]:
@@ -2032,10 +2029,11 @@ class GlobalMemory:
         side effect. Logs are per-project
         (``projects/<fingerprint>/events.jsonl``); there is no global journal.
         """
+        from ..core.paths import shared_skills_root
         from ..skills.builtins import seed_builtin_skills
 
         self.root.mkdir(parents=True, exist_ok=True)
-        seed_builtin_skills(self.root / "skills")
+        seed_builtin_skills(shared_skills_root(self.root))
         return {
             "identity": self.identity.ensure_default(),
         }

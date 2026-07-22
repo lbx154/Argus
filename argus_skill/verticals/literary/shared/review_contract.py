@@ -1,4 +1,4 @@
-"""Shared literary REVIEW contract — the structured finding payload every literary
+"""Shared literary-vertical REVIEW contract — the structured finding payload every literary
 reviewer emits and the revise stage consumes.
 
 Complementary to the framework reviewer ENVELOPE

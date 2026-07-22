@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "argus://literary/source_usage.schema.json",
   "title": "source_usage",
-  "description": "The per-mission log of how external sources were CONSUMED — the provenance record a literary vertical records whenever it queries a corpus, reads a text, or quotes a passage. Each entry names the source, the exact USE (drawn from the registry's allowed_use_vocabulary), the pipeline stage that consumed it, and what output it fed. literary.provenance.validate_usage cross-checks every entry against the source registry: the source must exist, the use must be permitted by its rights, an evidence_citation must carry attribution, and a use that implies ingestion (cite/index/train/redistribute) requires the source to actually be ingested.",
+  "description": "The per-mission log of how external sources were CONSUMED — the provenance record a literary vertical records whenever it queries a corpus, reads a text, or quotes a passage. Each entry names the source, the exact USE (drawn from the registry's allowed_use_vocabulary), the pipeline stage that consumed it, and what output it fed. verticals.literary.shared.provenance.validate_usage cross-checks every entry against the source registry: the source must exist, the use must be permitted by its rights, an evidence_citation must carry attribution, and a use that implies ingestion (cite/index/train/redistribute) requires the source to actually be ingested.",
   "type": "object",
   "additionalProperties": false,
   "required": ["task_id", "uses"],

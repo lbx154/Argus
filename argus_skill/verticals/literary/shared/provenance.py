@@ -1,4 +1,4 @@
-"""Shared literary PROVENANCE contract — the per-mission source-usage log and the
+"""Shared literary-vertical PROVENANCE contract — the per-mission source-usage log and the
 rules that make it honest.
 
 :mod:`.source_registry` is the catalog (what may be used, and how). This module
@@ -60,7 +60,8 @@ def validate_usage(usage: dict[str, Any], registry: dict[str, Any]) -> None:
     """Structural + provenance validation of a usage log against ``registry``.
 
     ``registry`` is expected to be already valid (see
-    :func:`argus_skill.literary.source_registry.validate_registry`). Raises
+    :func:`argus_skill.verticals.literary.shared.source_registry.validate_registry`).
+    Raises
     :class:`ProvenanceError` on the first indefensible entry.
     """
     try:

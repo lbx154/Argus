@@ -110,7 +110,6 @@ def select_model(
     seed: int = 0,
 ) -> SelectionResult:
     """Autonomously select a model over ``dev_mask`` rows via nested walk-forward."""
-    import pandas as pd
 
     space = space or default_model_space()
     profile = profile_task(X, y, dev_mask, seed=seed)

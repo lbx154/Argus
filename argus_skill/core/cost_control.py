@@ -20,6 +20,7 @@ from typing import Any, Iterator
 
 from .event_catalog import EventType, new_event
 from .knobs import resolve_budget_caps, resolve_knob
+from .paths import session_states_root
 from .usage import UsageLedger, UsageRecord
 
 try:  # pragma: no cover - production daemons are POSIX
@@ -227,7 +228,7 @@ def _known_cost(records: list[UsageRecord]) -> float:
 
 
 def _global_records(root: Path, day_start: float) -> list[UsageRecord]:
-    projects = root / "projects"
+    projects = session_states_root(root)
     try:
         project_roots = [path for path in projects.iterdir() if path.is_dir()]
     except OSError:
@@ -372,7 +373,7 @@ def reserve_call_budget(
     project_records = _project_records(project, day_start) if project else []
     global_records = _global_records(root, day_start)
     if project is not None:
-        projects_root = (root / "projects").resolve()
+        projects_root = session_states_root(root).resolve()
         try:
             inside_global = project.resolve().parent == projects_root
         except OSError:

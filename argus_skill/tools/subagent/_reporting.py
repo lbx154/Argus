@@ -308,10 +308,10 @@ def _queue_to_inbox(report: str, task_id: str = "subagent") -> None:
     """Queue a message to the project inbox; fall back to a file on failure."""
     try:
         from ...apps._inbox import queue_inbox_message  # noqa: PLC0415
-        from ...core.paths import global_root  # noqa: PLC0415
+        from ...core.paths import session_state_root  # noqa: PLC0415
         from ...core.project import project_fingerprint  # noqa: PLC0415
         ident = project_fingerprint()
-        life_dir = global_root() / "projects" / ident.fingerprint
+        life_dir = session_state_root(ident.fingerprint)
         queue_inbox_message(life_dir, report, source="subagent")
     except Exception:
         alert_path = REGISTRY_DIR / f"{task_id}_ALERT.md"

@@ -1,6 +1,7 @@
 """prose runtime capstone: registered + all four shared contracts + the
 structure-check gate enforce at RUN TIME via STAGE_CHECKS (subprocess).
 """
+
 from __future__ import annotations
 
 import json
@@ -16,9 +17,12 @@ from argus_skill.verticals.prose.stages import STAGE_CHECKS
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _DRAFT = "灶台还在那里。\n\n光从窗格里斜下来，落在她的手背上。\n\n后来老屋拆了。"
 _STATE = {
-    "narrative_center": "祖母的厨房", "observation_subject": "灶台与光",
-    "factual_anchors": ["1998年"], "memory_boundary": "气味是回忆，年份是事实",
-    "paragraph_movement": "从物到人到时间", "ending_strategy": "以动作收束",
+    "narrative_center": "祖母的厨房",
+    "observation_subject": "灶台与光",
+    "factual_anchors": ["1998年"],
+    "memory_boundary": "气味是回忆，年份是事实",
+    "paragraph_movement": "从物到人到时间",
+    "ending_strategy": "以动作收束",
     "spec": {"language": "zh", "min_paragraphs": 3},
 }
 
@@ -42,8 +46,9 @@ def _run(cmd: str, cwd: Path) -> subprocess.CompletedProcess:
 def _write(base: Path, rel: str, obj) -> None:
     p = base / rel
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(obj, ensure_ascii=False) if not isinstance(obj, str) else obj,
-                 encoding="utf-8")
+    p.write_text(
+        json.dumps(obj, ensure_ascii=False) if not isinstance(obj, str) else obj, encoding="utf-8"
+    )
 
 
 def test_vertical_is_registered():
@@ -67,24 +72,42 @@ def test_runtime_structure_gate_passes_complete_fails_incomplete(tmp_path):
     _write(tmp_path, "prose/prose_state.json", _STATE)
     assert _run(cmd, tmp_path).returncode == 0
     # drop a required prose_state field -> the stage FAILS
-    bad = dict(_STATE); del bad["memory_boundary"]
+    bad = dict(_STATE)
+    del bad["memory_boundary"]
     _write(tmp_path, "prose/prose_state.json", bad)
     assert _run(cmd, tmp_path).returncode != 0
     # a banned word declared in spec -> fail
-    banned = dict(_STATE); banned["spec"] = {"language": "zh", "banned_words": ["光"]}
+    banned = dict(_STATE)
+    banned["spec"] = {"language": "zh", "banned_words": ["光"]}
     _write(tmp_path, "prose/prose_state.json", banned)
     assert _run(cmd, tmp_path).returncode != 0
 
 
 def test_runtime_intake_gate(tmp_path):
     cmd = _cmd("intake-validate")
-    _write(tmp_path, "prose/task_envelope.json",
-           {"task_id": "pr1", "mode": "from_scratch", "language": "zh",
-            "form": "抒情散文", "intent": "写一篇散文"})
+    _write(
+        tmp_path,
+        "prose/task_envelope.json",
+        {
+            "task_id": "pr1",
+            "mode": "from_scratch",
+            "language": "zh",
+            "form": "抒情散文",
+            "intent": "写一篇散文",
+        },
+    )
     assert _run(cmd, tmp_path).returncode == 0
-    _write(tmp_path, "prose/task_envelope.json",
-           {"task_id": "pr1", "mode": "from_scratch", "language": "zh",
-            "form": "short_story", "intent": "x"})
+    _write(
+        tmp_path,
+        "prose/task_envelope.json",
+        {
+            "task_id": "pr1",
+            "mode": "from_scratch",
+            "language": "zh",
+            "form": "short_story",
+            "intent": "x",
+        },
+    )
     assert _run(cmd, tmp_path).returncode != 0
 
 
@@ -92,17 +115,45 @@ def test_runtime_registry_review_usage_manifest(tmp_path):
     assert _run(_cmd("source-registry"), tmp_path).returncode == 0
 
     rv = _cmd("review-validate")
-    _write(tmp_path, "prose/review.json", {"verdict": "revise", "findings": [
-        {"id": "f1", "type": "fact_memory", "severity": "major", "blocking": False,
-         "location": "p2", "evidence": "blurs fact and memory", "suggested_action": "separate"}]})
+    _write(
+        tmp_path,
+        "prose/review.json",
+        {
+            "verdict": "revise",
+            "findings": [
+                {
+                    "id": "f1",
+                    "type": "fact_memory",
+                    "severity": "major",
+                    "blocking": False,
+                    "location": "p2",
+                    "evidence": "blurs fact and memory",
+                    "suggested_action": "separate",
+                }
+            ],
+        },
+    )
     assert _run(rv, tmp_path).returncode == 0
 
     cu = _cmd("check-usage")
     _write(tmp_path, "prose/source_usage.json", {"task_id": "pr1", "uses": []})
     assert _run(cu, tmp_path).returncode == 0
-    _write(tmp_path, "prose/source_usage.json", {"task_id": "pr1", "uses": [
-        {"use_id": "u1", "source_id": "ghost", "use": "query_only",
-         "stage": "draft", "consumed_by": "draft"}]})
+    _write(
+        tmp_path,
+        "prose/source_usage.json",
+        {
+            "task_id": "pr1",
+            "uses": [
+                {
+                    "use_id": "u1",
+                    "source_id": "ghost",
+                    "use": "query_only",
+                    "stage": "draft",
+                    "consumed_by": "draft",
+                }
+            ],
+        },
+    )
     assert _run(cu, tmp_path).returncode != 0
 
     mv = _cmd("manifest-validate")

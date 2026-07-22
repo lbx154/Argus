@@ -155,7 +155,7 @@ def migrate_legacy_session_workdir(
 
 def _meta_path(global_root: Path | None, sid: str) -> Path:
     root = global_root if global_root is not None else core_paths.global_root()
-    return Path(root) / "projects" / sid / SESSION_META_FILE
+    return core_paths.session_state_root(sid, root=root) / SESSION_META_FILE
 
 
 def normalize_session_name(value: str, *, limit: int = 80) -> str:
@@ -278,7 +278,7 @@ def touch_session(
 
 def project_exists(global_root: Path | None, sid: str) -> bool:
     root = global_root if global_root is not None else core_paths.global_root()
-    return (Path(root) / "projects" / sid).is_dir()
+    return core_paths.session_state_root(sid, root=root).is_dir()
 
 
 def _legacy_last_active(project_dir: Path) -> float:
@@ -330,7 +330,7 @@ def list_sessions(
     daemon — so the resume picker shows real/running work, not 70 empty shells.
     """
     root = global_root if global_root is not None else core_paths.global_root()
-    projects = Path(root) / "projects"
+    projects = core_paths.session_states_root(root)
     if not projects.exists():
         return []
     out: list[SessionMeta] = []
@@ -406,7 +406,7 @@ def live_daemon_sessions(global_root: Path | None = None) -> list[SessionMeta]:
     from .daemon_lock import is_pid_running, read_daemon_pid
 
     root = global_root if global_root is not None else core_paths.global_root()
-    projects = Path(root) / "projects"
+    projects = core_paths.session_states_root(root)
     out: list[SessionMeta] = []
     for meta in list_sessions(global_root):
         try:

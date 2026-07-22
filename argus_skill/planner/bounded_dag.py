@@ -33,42 +33,9 @@ class BoundedDagPlan:
 
 
 def _prompt(objective: str) -> str:
-    return (
-        "You are the bounded-task Planner. Decompose the Manager handoff into a "
-        "small executable backlog DAG; do not solve the task and do not create files.\n\n"
-        "Rules:\n"
-        "- Every node gets one fresh Engineer session. The Engineer decides from "
-        "the completed work and verification whether an independent Reviewer is "
-        "useful; framework-required gates may still force review. Minimize total "
-        "cost: default to ONE cohesive node for one code/deliverable change, and "
-        "use multiple nodes only for genuinely independent artifacts or hard "
-        "dependencies.\n"
-        "- Each node must fit one fresh Engineer session and, when the Engineer "
-        "requests it or the framework requires it, one Reviewer plus at most a "
-        "small Reviewer-requested repair budget.\n"
-        "- Fold prerequisite reading/audit, implementation, its tests, concise "
-        "documentation, and final verification into the SAME node whenever one "
-        "Engineer can do them coherently.\n"
-        "- Never create standalone inspect/audit/planning or final-test/verification "
-        "nodes when an implementation node can perform those checks itself.\n"
-        "- Each downstream node must own a distinct durable deliverable that an "
-        "upstream node is unlikely to satisfy incidentally; avoid overlapping or "
-        "repeat-verification objectives.\n"
-        "- Every objective must name exact files it reads/writes and one decisive "
-        "acceptance command or check. A dependent node explicitly reads upstream "
-        "artifacts.\n"
-        "- Nodes execute directly. Do not assign planning/spec/brief creation unless "
-        "that document is itself the requested deliverable. Do not initialize Git, "
-        "create worktrees/branches, commit, spawn subagents, or invoke meta-workflow "
-        "playbooks.\n"
-        "- Use unique key values and same-batch prerequisite keys in deps. The graph "
-        "must be acyclic.\n"
-        "- Preserve the operator's acceptance requirements across the DAG; do not add "
-        "unrelated research or ceremony.\n"
-        "- Return JSON only matching the supplied schema.\n\n"
-        "Manager execution handoff:\n"
-        + objective.strip()
-    )
+    from ..roles.prompts.planner import build_bounded_dag_prompt
+
+    return build_bounded_dag_prompt(objective)
 
 
 def _extract(result: Any) -> str:

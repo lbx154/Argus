@@ -216,11 +216,12 @@ def unified_query(
 
 
 def _resolve_default_skills_dir() -> Path | None:
+    from ..core.paths import resolve_runtime_path, shared_skills_root
+
     env = os.environ.get("ARGUS_SKILL_SKILLS_DIR")
     if env:
-        return Path(env)
-    home = Path(os.environ.get("ARGUS_SKILL_HOME") or (Path.home() / ".argus-skill"))
-    candidate = home / "skills"
+        return resolve_runtime_path(env, context="ARGUS_SKILL_SKILLS_DIR")
+    candidate = shared_skills_root()
     return candidate if candidate.exists() else None
 
 

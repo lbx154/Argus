@@ -34,9 +34,9 @@ class _MaintenanceMixin:
     ) -> Any:
         """Decide whether observed daemon evidence warrants one framework repair."""
         from ..core.models import RunnerOptions
+        from ..roles.prompts.manager import build_maintenance_prompt
         from .self_maintenance import (
             MaintenanceDecision,
-            build_maintenance_prompt,
             parse_maintenance_decision,
         )
         from .stage_decider import extract_answer
