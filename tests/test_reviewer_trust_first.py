@@ -86,7 +86,7 @@ def test_reviewer_separates_integrity_from_scientific_value(monkeypatch):
     assert "integrity is a hard constraint" in p
     assert "not scientific value by itself" in p
     assert "An agent-designed weak proxy is not evidence" in p
-    assert "`scientific_decision` is the project-value verdict" in p
+    assert "otherwise return `replan_requested`" in p
 
 
 def test_reviewer_reasons_in_prose_structured_only_at_handoff(monkeypatch):

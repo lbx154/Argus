@@ -10,7 +10,7 @@ standards in ``_cockpit_v5/PHYSICS_INNOVATION_TIERING_WITH_WEB_SOURCES.md``:
 * B — solid PhD / strong specialist (Comms Physics) — the DEFAULT target.
 * C — ordinary PhD / general specialist (Scientific Reports; "technically sound
       only, novelty not assessed").
-* D — no-go / negative / null result (Registered-Report logic) — a SUCCESS terminal.
+* D — negative / null result retained as evidence for replanning.
 
 Pure data + helpers, env-driven, no hardcoded run behaviour. No Argus core here.
 """
@@ -20,7 +20,6 @@ import os
 from dataclasses import dataclass, field
 
 ENV_START_TIER = "ARGUS_SKILL_PHYSICS_START_TIER"
-ENV_NOGO_TERMINAL = "ARGUS_SKILL_PHYSICS_NOGO_TERMINAL"
 
 #: Highest -> lowest. Downgrade walks left->right; D is terminal.
 TIER_ORDER: tuple[str, ...] = ("S", "A", "B", "C", "D")
@@ -111,7 +110,7 @@ TIERS: dict[str, TierSpec] = {
         source_anchor="Scientific Reports guide to referees; PRB specialist scope",
     ),
     "D": TierSpec(
-        tier="D", name="No-go / negative / null result (Registered-Report logic) — SUCCESS TERMINAL",
+        tier="D", name="Negative / null result retained for replanning",
         claim_types=("bounded, honest negative result: 'under this model/regime, with these "
                      "preregistered diagnostics, correspondence is not restored / no method beats "
                      "baseline', with the failure characterized",),
@@ -121,7 +120,7 @@ TIERS: dict[str, TierSpec] = {
         numerical_requirements=("the falsifying comparisons with controls, scaling, and convergence — "
                                 "enough to show the negative is real, not under-resourcing",),
         reviewer_gate="question-importance + method-soundness + honesty/boundedness (NOT 'did you find a positive effect')",
-        manuscript_gate="bounded failure-regime / no-go manuscript; claims ledger of what was ruled out; strong limitations",
+        manuscript_gate="bounded negative-result report; claims ledger of what was ruled out; strong limitations",
         downgrade_from_when="terminal — nothing below D",
         stop_chasing_higher_when="immediately — at D you STOP producing mechanisms and WRITE the paper",
         operator_auth_required=False,
@@ -141,16 +140,6 @@ def _norm_tier(t: object) -> str:
 def resolve_start_tier() -> str:
     """The tier the run starts at (env ``ARGUS_SKILL_PHYSICS_START_TIER``; default B)."""
     return _norm_tier(os.environ.get(ENV_START_TIER)) or DEFAULT_START_TIER
-
-
-def nogo_terminal_enabled() -> bool:
-    """Whether Tier-D no-go is an autonomous success terminal (default True)."""
-    raw = (os.environ.get(ENV_NOGO_TERMINAL) or "").strip().lower()
-    if raw in _FALSE:
-        return False
-    if raw in _TRUE:
-        return True
-    return True
 
 
 def tier_spec(tier: object) -> TierSpec | None:
@@ -194,7 +183,7 @@ def tier_rubric_banner(tier: object) -> str:
 
 
 __all__ = [
-    "ENV_START_TIER", "ENV_NOGO_TERMINAL", "TIER_ORDER", "TIERS", "TierSpec",
-    "DEFAULT_START_TIER", "resolve_start_tier", "nogo_terminal_enabled", "tier_spec",
+    "ENV_START_TIER", "TIER_ORDER", "TIERS", "TierSpec",
+    "DEFAULT_START_TIER", "resolve_start_tier", "tier_spec",
     "tier_index", "next_lower_tier", "is_terminal_tier", "tier_rubric_banner",
 ]

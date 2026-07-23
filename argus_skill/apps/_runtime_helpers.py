@@ -173,26 +173,18 @@ class LifeStderrSink:
 
 def _should_run_stage_transition(
     status: object,
-    planner_report: dict | None = None,
     *,
-    harness_control: dict | None = None,
     mission_scope: str = "",
     require_independent_review: bool = False,
     review_source: str = "",
 ) -> bool:
     normalized = str(status or "")
-    _ = planner_report
-    stage_reconciliation = bool(
-        isinstance(harness_control, dict)
-        and harness_control.get("stage_reconciliation_required") is True
-    )
-    if normalized == "replan_requested" and not stage_reconciliation:
+    if normalized == "replan_requested":
         return False
     if normalized.startswith("paused_"):
         return False
     return bool(
-        stage_reconciliation
-        or require_independent_review
+        require_independent_review
         or str(mission_scope or "").strip().lower() == "final_submission"
         or str(review_source or "").strip().lower() == "engineer_self_review"
     )
@@ -225,18 +217,8 @@ class _ExecuteState:
         self.new_tid: str | None = None
         self.auth_fail: Any = None
         self.rounds_list: list = []
-        self.planner_report: dict = {}
-        self.harness_control: dict = {}
-        self.checklist_feedback: dict = {}
-        self.step_back: dict | None = None
         self.operator_question: str = ""
-        self.research_result: dict = {}
         self.final_review_status: str = ""
-        self.failure_source: str = ""
-        self.failure_layer: str = ""
-        self.validator_id: str = ""
-        self.repair_paths: list[str] = []
-        self.scientific_decision: str = ""
         self.review_source: str = ""
         self.final_submission_certified: bool = False
         self.completion_evidence: str = ""

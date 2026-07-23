@@ -25,26 +25,6 @@ from ._mission_execution_helpers import _MissionRunState
 log = logging.getLogger(__name__)
 
 
-def _final_submission_research_value_issue(
-    project_root: object,
-    research_result: object,
-) -> str:
-    """Return why a new final certificate misses its persisted research target."""
-    from ...core.research_contract import (
-        research_completion_issue,
-        resolve_research_target_level,
-    )
-
-    target_level = resolve_research_target_level(project_root)
-    if target_level is None:
-        return ""
-    return research_completion_issue(
-        research_result,
-        research_target_level=target_level,
-        scope=PLANNER_SCOPE_FINAL_SUBMISSION,
-    )
-
-
 class MissionExecutionSettlementMixin:
     """Repair settlement, stage guard, final status, and journal emission."""
 
@@ -75,14 +55,10 @@ class MissionExecutionSettlementMixin:
             reviewer_status = str(
                 getattr(outcome, "final_review_status", "") or ""
             ).strip().lower()
-            failure_source = str(
-                getattr(outcome, "failure_source", "") or ""
-            ).strip().lower()
             reviewer_accepted = bool(
                 state.success
                 and state.status == "done"
                 and reviewer_status == "done"
-                and not failure_source
             )
             try:
                 repair_settlement = state.repair_store.close_repair_capability(
@@ -92,8 +68,7 @@ class MissionExecutionSettlementMixin:
                     accepted=reviewer_accepted,
                     reason=(
                         str(getattr(outcome, "stop_reason", "") or "")
-                        or f"Reviewer status={reviewer_status or 'missing'}; "
-                        f"failure_source={failure_source or 'none'}"
+                        or f"Reviewer status={reviewer_status or 'missing'}"
                     ),
                 )
             except (OSError, TypeError, ValueError) as exc:
@@ -374,15 +349,6 @@ class MissionExecutionSettlementMixin:
                 getattr(outcome, "final_review_status", "") or ""
             ),
             stage_transition=stage_transition,
-            scientific_decision=str(
-                getattr(outcome, "scientific_decision", "") or ""
-            ),
-            failure_source=str(
-                getattr(outcome, "failure_source", "") or ""
-            ),
-            failure_layer=str(
-                getattr(outcome, "failure_layer", "") or ""
-            ),
             stop_kind=state.stop_kind,
             resumable=resumable,
         )
@@ -494,44 +460,10 @@ class MissionExecutionSettlementMixin:
             if state.intentional_abort
             else "mission_failed"
         )
-        research_result = (
-            dict(getattr(outcome, "research_result", {}))
-            if isinstance(getattr(outcome, "research_result", {}), dict)
-            else {}
-        )
         final_submission_certified = bool(
             kind == "mission_complete"
             and state.item_scope == PLANNER_SCOPE_FINAL_SUBMISSION
             and getattr(outcome, "final_submission_certified", False)
-        )
-        if (
-            final_submission_certified
-            and _final_submission_research_value_issue(
-                self._artifact_root(),
-                research_result,
-            )
-        ):
-            final_submission_certified = False
-        from ...core.models import canonical_planner_report
-
-        planner_report = canonical_planner_report(
-            getattr(outcome, "planner_report", {})
-        )
-        harness_control = (
-            dict(getattr(outcome, "harness_control", {}) or {})
-            if isinstance(getattr(outcome, "harness_control", {}), dict)
-            else {}
-        )
-        checklist_feedback = (
-            getattr(outcome, "checklist_feedback", {})
-            if isinstance(getattr(outcome, "checklist_feedback", {}), dict)
-            else {}
-        )
-        from ...core.claim_synthesis import build_claim_synthesis
-
-        claim_synthesis = build_claim_synthesis(
-            research_result=research_result,
-            scientific_decision=getattr(outcome, "scientific_decision", None),
         )
         final_submission_signature = (
             self._final_submission_signature()
@@ -540,7 +472,7 @@ class MissionExecutionSettlementMixin:
         )
 
         self._update_no_progress_streak(
-            kind=kind, report=getattr(outcome, "planner_report", {})
+            kind=kind, report={}
         )
 
         cost_sink = state.cost_sink
@@ -621,11 +553,6 @@ class MissionExecutionSettlementMixin:
             "matched_skill": str(getattr(outcome, "matched_skill_name", "") or ""),
             "skill_distilled": bool(getattr(outcome, "skill_distilled", False)),
             "had_follow_up": bool(getattr(outcome, "had_follow_up", False)),
-            "research_result": research_result or None,
-            "claim_synthesis": claim_synthesis,
-            "planner_report": planner_report,
-            "harness_control": harness_control,
-            "checklist_feedback": checklist_feedback,
             "context_packet": (
                 str(state.context_packet_path.parent / "latest.json")
                 if state.context_packet_path is not None
@@ -664,10 +591,7 @@ class MissionExecutionSettlementMixin:
             "pricing_status": state.usage_summary.pricing_status,
             "iteration": None,
             "auth_failure": state.auth_failure,
-            "planner_report": planner_report,
-            "harness_control": harness_control,
             "review_reason": str(getattr(outcome, "reason", "") or ""),
-            "claim_synthesis": claim_synthesis,
             "expected_plan_id": item.plan_id,
             "expected_plan_version": item.plan_version,
             "context_packet": (

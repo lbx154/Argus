@@ -43,10 +43,6 @@ class ReviewerConfig:
 
 
 SCHEMA_PATH = str(Path(__file__).with_name("reviewer_schema.json"))
-RESEARCH_SCHEMA_PATH = str(Path(__file__).with_name("reviewer_research_schema.json"))
-LEGACY_RESEARCH_SCHEMA_PATH = str(
-    Path(__file__).with_name("reviewer_legacy_research_schema.json")
-)
 
 
 def _compact_schema_for_backend(
@@ -179,22 +175,6 @@ class Reviewer:
         prior_static_fingerprint: str = "",
     ) -> ReviewDecision:
         schema_path = self.schema_path
-        research_target_level = None
-        research_target_required = False
-        structured_result_required = False
-        try:
-            from ..core.research_contract import resolve_research_target_contract
-            from ..skills.harness_overlay import resolve_project_root
-
-            root = resolve_project_root(config.working_dir)
-            target_contract = resolve_research_target_contract(root)
-            research_target_level = target_contract.selected_level
-            research_target_required = target_contract.required
-            structured_result_required = research_target_required
-            if structured_result_required and schema_path == SCHEMA_PATH:
-                schema_path = RESEARCH_SCHEMA_PATH
-        except Exception:  # noqa: BLE001 — default schema remains safe
-            pass
         # Defense-in-depth (root-cause guard for the 2026-06-25 incident): if the
         # reviewer output-schema file is unavailable, codex aborts with exit 1
         # ("Failed to read output schema file ...") and the round renders NO
@@ -226,7 +206,6 @@ class Reviewer:
                     "daemon on code whose schema path matches disk; do not treat "
                     "this as evidence about the engineer's work."
                 ),
-                failure_cause="environmental",
                 backend_unavailable=True,
                 backend_stop_kind="backend_unavailable",
             )
@@ -309,7 +288,6 @@ class Reviewer:
                 status="blocked",
                 reason=msg,
                 next_action="Resolve the reviewer runner failure before retrying.",
-                failure_cause="environmental",
                 backend_unavailable=True,
                 backend_stop_kind="backend_unavailable",
             )
@@ -344,7 +322,6 @@ class Reviewer:
                     "Reviewer backend ended before a complete verdict — do NOT "
                     "treat partial output as evidence about the engineer's work."
                 ),
-                failure_cause="environmental",
                 backend_unavailable=True,
                 input_tokens=rev_in,
                 cached_input_tokens=rev_cached,
@@ -362,7 +339,6 @@ class Reviewer:
                 status="continue",
                 reason=f"Reviewer returned empty output. exit={result.exit_code}",
                 next_action="Continue implementation and provide concrete completed work.",
-                progress_class="none",
                 input_tokens=rev_in,
                 cached_input_tokens=rev_cached,
                 output_tokens=rev_out,
@@ -371,16 +347,12 @@ class Reviewer:
                 thread_id=rev_tid,
                 static_fingerprint=new_fp,
             )
-        parsed = _find_decision_in_messages(
-            result.agent_messages,
-            allow_research_pause=structured_result_required,
-        )
+        parsed = _find_decision_in_messages(result.agent_messages)
         if parsed is None:
             return ReviewDecision(
                 status="continue",
                 reason="Reviewer output was not valid JSON.",
                 next_action="Continue implementation and include clear completion evidence.",
-                progress_class="none",
                 input_tokens=rev_in,
                 cached_input_tokens=rev_cached,
                 output_tokens=rev_out,
@@ -403,23 +375,6 @@ class Reviewer:
         # Reviewer call is always fresh.
         parsed.thread_id = rev_tid
         parsed.static_fingerprint = new_fp
-        if (
-            research_target_required
-            and research_target_level is None
-            and parsed.status == "done"
-            and str(scope or "").strip().lower() != "bounded"
-        ):
-            parsed.status = "research_incomplete"
-            parsed.achievement = None
-            parsed.reason = (
-                "Research completion gate held: the target-capable vertical has "
-                "no persisted research_target_level. "
-                + parsed.reason
-            )[:5000]
-            parsed.next_action = (
-                "Restore the Manager-owned research target contract before "
-                "claiming project completion."
-            )
         # The L2 reviewer's verdict is authoritative — the harness must not
         # second-guess its scientific judgment from structured result labels or
         # keyword heuristics on the engineer's summary.

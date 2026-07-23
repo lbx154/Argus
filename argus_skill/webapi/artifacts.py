@@ -91,30 +91,8 @@ def latest_evidence_files(
     *,
     global_root: Path | str | None = None,
 ) -> list[dict[str, str]]:
-    life_dir = project_life_dir(sid, global_root=global_root)
-    if life_dir is None:
-        return []
-    events = _read_jsonl_tail_history(
-        life_dir / "events.jsonl",
-        1,
-        predicate=lambda row: str(row.get("type") or "")
-        == EventType.LIFE_MISSION_COMPLETED,
-        raw_predicate=lambda raw: b"life.mission.completed" in raw,
-        raw_markers=(b"life.mission.completed",),
-    )
-    latest = events[-1] if events else {}
-    report = latest.get("planner_report") if isinstance(latest, dict) else {}
-    evidence = report.get("evidence_files") if isinstance(report, dict) else None
-    if not isinstance(evidence, list) or not evidence:
-        return []
-    return [
-        {
-            "path": str(item["path"]).strip(),
-            "why": str(item.get("why") or "").strip(),
-        }
-        for item in evidence
-        if isinstance(item, dict) and str(item.get("path") or "").strip()
-    ]
+    _ = sid, global_root
+    return []
 
 
 def manager_live_view_files(

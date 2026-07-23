@@ -43,15 +43,17 @@ def _write_manager_handoff_identity(
     *,
     objective: str,
     vertical: str,
+    domain: str,
     continuous_generation: int,
     intent_id: str,
 ) -> bool:
     path = _manager_handoff_identity_path(runtime_root)
     tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
     payload = {
-        "version": 1,
+        "version": 2,
         "objective_sha256": _objective_sha256(objective),
         "vertical": str(vertical).strip(),
+        "domain": str(domain).strip(),
         "continuous_generation": max(0, int(continuous_generation)),
         "intent_id": str(intent_id),
         "recorded_at": time.time(),
@@ -80,7 +82,7 @@ def _read_manager_handoff_identity(runtime_root: Path) -> dict[str, Any] | None:
         )
     except (FileNotFoundError, OSError, json.JSONDecodeError, TypeError):
         return None
-    if not isinstance(payload, dict) or payload.get("version") != 1:
+    if not isinstance(payload, dict) or payload.get("version") not in {1, 2}:
         return None
     return payload
 
@@ -90,6 +92,7 @@ def _legacy_manager_handoff_identity(
     *,
     objective: str,
     vertical: str,
+    domain: str,
 ) -> dict[str, Any] | None:
     """Recover one pre-sidecar Manager handoff from the immutable event tape."""
     handles: list[tuple[float, Any]] = []
@@ -142,10 +145,13 @@ def _legacy_manager_handoff_identity(
                     continue
                 if str(event.get("vertical") or "").strip() != vertical.strip():
                     continue
+                if str(event.get("domain") or "").strip() != domain.strip():
+                    continue
                 return {
-                    "version": 1,
+                    "version": 2,
                     "objective_sha256": _objective_sha256(objective),
                     "vertical": vertical,
+                    "domain": domain,
                     "continuous_generation": max(
                         0,
                         int(event.get("continuous_generation") or 0),
@@ -164,6 +170,7 @@ def _manager_handoff_identity_matches(
     *,
     objective: str,
     vertical: str,
+    domain: str,
     generation: int,
 ) -> bool:
     if identity is None:
@@ -171,6 +178,7 @@ def _manager_handoff_identity_matches(
     return (
         identity.get("objective_sha256") == _objective_sha256(objective)
         and str(identity.get("vertical") or "") == vertical
+        and str(identity.get("domain") or "") == domain
         and int(identity.get("continuous_generation") or 0) <= generation
     )
 
@@ -180,6 +188,8 @@ def _daemon_objective_requires_stage_reset(
     project_root: Path,
     prior_vertical: str,
     next_vertical: str,
+    prior_domain: str = "",
+    next_domain: str = "",
     prior_handoff: dict[str, Any] | None,
     expected_objective: str,
     source_objective: str,
@@ -218,6 +228,7 @@ def _daemon_objective_requires_stage_reset(
                 and next_vertical
                 and prior_vertical != next_vertical
             )
+            or prior_domain != next_domain
             or (
                 objective_changed
                 and objective_update_requires_stage_reset(
@@ -241,28 +252,32 @@ def _resume_matches_manager_handoff(
         return False
     if getattr(cfg, "continuous", False):
         return False
-    from ..skills.vertical_select import _persisted_vertical
+    from ..skills.vertical_select import _persisted_domain, _persisted_vertical
 
     vertical = _persisted_vertical(cfg.project_workdir or runtime_root)
     if not vertical:
         return False
+    domain = _persisted_domain(cfg.project_workdir or runtime_root) or ""
     identity = _read_manager_handoff_identity(runtime_root)
     if not _manager_handoff_identity_matches(
         identity,
         objective=objective,
         vertical=vertical,
+        domain=domain,
         generation=state.generation,
     ):
         identity = _legacy_manager_handoff_identity(
             runtime_root,
             objective=objective,
             vertical=vertical,
+            domain=domain,
         )
         if identity is not None:
             _write_manager_handoff_identity(
                 runtime_root,
                 objective=objective,
                 vertical=vertical,
+                domain=domain,
                 continuous_generation=int(
                     identity.get("continuous_generation") or 0
                 ),
@@ -272,6 +287,7 @@ def _resume_matches_manager_handoff(
         identity,
         objective=objective,
         vertical=vertical,
+        domain=domain,
         generation=state.generation,
     )
 

@@ -128,20 +128,10 @@ def _done_review() -> str:
 
 def _scope_change_review() -> str:
     return json.dumps({
-        "status": "continue",
+        "status": "replan_requested",
         "reason": "The baseline exposed a defect outside this mission's non-goals.",
         "next_action": "Authorize a scoped correctness-repair mission before rerunning the baseline.",
-        "round_summary_markdown": "# Review Summary\n\n- A separate repair mission is required.\n",
-        "completion_summary_markdown": "",
-        "planner_report": {
-            "forward_progress": True,
-            "headline": "The baseline found a reproducible platform defect.",
-            "blocker": "Repair is outside the current mission contract.",
-            "recommended_next": "Insert a scoped correctness-repair mission.",
-            "plan_signal": "continue",
-            "plan_signal_reason": "",
-            "evidence_files": [],
-        },
+        "operator_question": None,
     })
 
 
@@ -264,11 +254,7 @@ def test_scope_changing_reviewer_guidance_escalates_without_second_engineer_roun
     assert outcome.round_count == 1
     assert not any(label == "engineer-r2" for label, _prompt, _opts in backend.history)
     review = outcome.rounds[-1].review
-    assert review.status == "continue"
-    assert review.planner_report["plan_signal"] == "continue"
-    assert review.harness_control["stage_reconciliation_required"] is True
-    assert review.harness_control["mission_scope_change_required"] is True
-    assert any(event.get("type") == "round.review.scope_change_escalated" for event in events)
+    assert review.status == "replan_requested"
 
 
 def test_direct_work_escalates_engineer_effort_only_after_review(tmp_path: Path) -> None:

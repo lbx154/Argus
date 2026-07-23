@@ -637,6 +637,40 @@ def _resolve_project_root_for_store(project_root):
     return project_root
 
 
+def _domain_floor_items(
+    project_root,
+    stage: str,
+) -> tuple[ChecklistItem, ...]:
+    """Return mandatory checklist additions from the active built-in domain."""
+    from ..domains import domain_checklist_items, load_domain
+    from .vertical_select import resolve_domain_if_decided
+
+    domain = resolve_domain_if_decided(
+        _resolve_project_root_for_store(project_root)
+    )
+    if not domain:
+        return ()
+    return tuple(domain_checklist_items(load_domain(domain)).get(stage, ()))
+
+
+def _append_domain_floor(
+    items: tuple[ChecklistItem, ...],
+    project_root,
+    stage: str,
+) -> tuple[ChecklistItem, ...]:
+    """Append domain items without allowing an id to shadow workflow items."""
+    additions = _domain_floor_items(project_root, stage)
+    if not additions:
+        return items
+    seen = {item.id for item in items}
+    duplicates = [item.id for item in additions if item.id in seen]
+    if duplicates:
+        raise ValueError(
+            f"domain checklist duplicates workflow item ids: {', '.join(duplicates)}"
+        )
+    return (*items, *additions)
+
+
 def _store_or_seed_items(project_root, vert_items, stage):
     """Base checklist items for ``stage`` BEFORE the additive overlay.
 
@@ -655,10 +689,14 @@ def _store_or_seed_items(project_root, vert_items, stage):
             _resolve_project_root_for_store(project_root), stage
         )
         if override is not None:
-            return tuple(override)
+            return _append_domain_floor(tuple(override), project_root, stage)
     except Exception:  # noqa: BLE001 — store read must never break prompt building
         pass
-    return tuple(vert_items.get(stage, ()))
+    return _append_domain_floor(
+        tuple(vert_items.get(stage, ())),
+        project_root,
+        stage,
+    )
 
 
 def resolve_stage_checklist_contract(
@@ -690,6 +728,9 @@ def resolve_stage_checklist_contract(
     else:
         items = ()
         state = ChecklistLoadState.NOT_LOADED
+    items = _append_domain_floor(items, project_root, stage_norm)
+    if items:
+        state = ChecklistLoadState.LOADED
     if optional and not items:
         state = ChecklistLoadState.NOT_APPLICABLE
     return StageChecklistContract(

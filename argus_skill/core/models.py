@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Literal
 
 from .event_catalog import EventType
-from .research_direction import normalize_research_direction
 from .stop_kinds import StopKind
 
 ResearchPauseStatus = Literal[
@@ -180,251 +179,42 @@ class RunnerResult:
         return "\n".join(self.agent_messages)
 
 
-def canonical_planner_report(value: object) -> dict[str, Any]:
-    """Return the one-to-one Reviewer→Planner signal shape."""
-    if not isinstance(value, dict):
-        return {}
-    if not any(
-        key in value
-        for key in ("forward_progress", "plan_signal", "evidence_files")
-    ):
-        return {}
-    out: dict[str, Any] = {}
-    if isinstance(value.get("forward_progress"), bool):
-        out["forward_progress"] = value["forward_progress"]
-    signal = str(value.get("plan_signal") or "").strip().lower()
-    out["plan_signal"] = signal if signal in {"continue", "reconsider"} else "continue"
-    evidence = value.get("evidence_files")
-    out["evidence_files"] = list(evidence) if isinstance(evidence, list) else []
-    return out
-
-
 @dataclass
 class ReviewDecision:
-    """Reviewer verdict on one engineer round. Vendored from ArgusBot."""
+    """Reviewer verdict on one Engineer round."""
+
     status: ReviewStatus
     reason: str
     next_action: str
-    # ONE plain-language question, in the operator's own language, asked when a
-    # ``blocked`` verdict needs an OPERATOR decision (route/budget/which-task)
-    # the agent cannot make alone. The cockpit surfaces this verbatim and the
-    # operator's free-text reply continues the same objective — so a block is a
-    # human question, not a JSON gate packet. Empty on done/continue or when the
-    # block is purely engineer-repairable. Distinct from ``next_action`` (the
-    # engineer-facing instruction).
     operator_question: str = ""
-    # Legacy replay fields. New Reviewer schemas use ``reason`` / ``next_action``
-    # and CHECKPOINT.md instead of duplicate summaries.
-    round_summary_markdown: str = ""
-    completion_summary_markdown: str = ""
-    failure_cause: str = ""
-    # Acceptance-failure provenance, authored only by Reviewer structured JSON.
-    # ``failure_cause`` above remains the skill-learning diagnosis; this field
-    # controls whether a restricted repair can even be considered.
-    failure_source: str = ""
-    failure_source_evidence: list[dict[str, str]] = field(default_factory=list)
-    validator_id: str = ""
-    repair_paths: list[str] = field(default_factory=list)
-    scientific_decision: str = ""
-    # Orthogonal failure layer. Infrastructure/program/evaluator/packaging
-    # failures must repair their own layer and never become scientific evidence.
-    failure_layer: str = ""
-    # Compact reviewer-authored decision-progress classification. The harness
-    # counts it but never infers it from filenames, keywords, or tool activity.
-    progress_class: str = ""
-    # Structured reviewer-authored control request, parsed ONLY from the JSON
-    # ``control`` object in the final verdict. Empty strings mean "no control
-    # request". The runner currently honors ``wait_for_subagent`` only after a
-    # real reviewed round and never infers it from prose.
-    control_action: str = ""
-    control_task_id: str = ""
-    # Legacy Engineer self-review projection; no longer emitted in new events.
-    verification_summary: str = ""
-    # Internal provenance for the verdict.  ``reviewer`` is an independent L2
-    # decision; ``engineer_self_review`` is a bounded waiver that the Manager
-    # may still evaluate against the current stage checklist.  This field is
-    # not authored by the Reviewer model.
     review_source: str = "reviewer"
-    # Optional project-level research achievement independently certified by
-    # this reviewer. The loop emits the sole authoritative
-    # ``research.achievement.certified`` event only for a ``done`` verdict with
-    # this structured payload. Ordinary task completion leaves it ``None``.
-    achievement: dict[str, Any] | None = None
-    # Reviewer completion contract (replaces the old hardcoded paper-validator
-    # gate). For ``final_submission`` missions the reviewer must set
-    # ``scope == "final_submission"`` and populate ``checklist`` with one
-    # entry ``{"item", "satisfied", "evidence"}`` per full-pipeline
-    # checklist item. A ``done`` verdict only certifies project completion
-    # when every item is satisfied with concrete evidence. Empty for
-    # ordinary bounded missions.
-    scope: str = ""
-    checklist: list[dict[str, Any]] = field(default_factory=list)
-    # Structured research assessment used only when the Manager persisted a
-    # research_target_level. Ordinary missions leave this ``None``.
-    research_result: dict[str, Any] | None = None
-    # Raw machine-readable certification authored by the independent Reviewer.
-    # This is a persistence channel only: the harness may parse it to route the
-    # round, but must not infer or synthesize scientific claims from it.
-    certification_payload: dict[str, Any] | None = None
-    # Planner-only structured signals authored by the reviewer. Verdict prose
-    # stays in ``reason`` / ``next_action``. Shape:
-    # ``{"forward_progress": bool, "plan_signal": "continue"|"reconsider",
-    # "evidence_files": [{"path", "why"}]}``. The
-    # ``evidence_files`` point the planner at the concrete artifacts (source
-    # script, data provenance, metric series, NO_GO docs) to OPEN and read
-    # before routing the next mission. Fail-soft: empty dict when the reviewer
-    # omitted it or the round errored before a verdict.
-    planner_report: dict[str, Any] = field(default_factory=dict)
-    # Legacy structured checkpoint field retained for event/parser compatibility.
-    # The live runtime now uses a directly edited CHECKPOINT.md file instead.
-    # Historical shape:
-    # ``{"goal", "done": [...], "tried_and_failed": [...], "open_blocker",
-    # "next_step"}``. Fail-soft: empty dict when the reviewer omitted it or the
-    # round errored before a verdict (runner then keeps the prior checkpoint).
-    checkpoint: dict[str, Any] = field(default_factory=dict)
-    # Legacy replay field. Current Reviewer schemas do not expose skill_ops;
-    # executable Reviewers edit the injected project skill path directly.
-    skill_ops: list[dict[str, Any]] = field(default_factory=list)
-    # Legacy replay field. Current Reviewer schemas do not expose wiki_ops;
-    # executable Reviewers edit injected project wiki paths directly.
-    wiki_ops: list[dict[str, Any]] = field(default_factory=list)
-    # Reviewer → Planner checklist feedback (ADVISORY; the reviewer is
-    # feedback-only and NEVER writes the checklist store). When the reviewer
-    # judges the per-stage checklist itself wrong / incomplete / over-strict for
-    # this task, it emits this so the Planner (the checklist OWNER) fixes it next
-    # cycle via ``checklist_ops``. Shape: ``{"stage": str, "summary": str,
-    # "items": [{"id": str, "problem": str, "suggested_fix": str}]}``. Empty/None
-    # when the reviewer has no complaint about the checklist itself.
-    checklist_feedback: dict[str, Any] | None = None
-    # Harness-owned arbitration metadata. Never authored by the Reviewer model
-    # and never merged back into reviewer reason/next_action/planner_report.
-    harness_control: dict[str, Any] = field(default_factory=dict)
-    # Legacy structured reflection retained for old event replay. New Reviewers
-    # write measured surprises and alternative directions once in CHECKPOINT.md.
-    step_back: dict[str, Any] | None = None
-    # Prompt observability side-channel populated by Reviewer.evaluate. Each
-    # block records chars/bytes/estimated_tokens so token regressions can be
-    # attributed to concrete prompt components rather than one opaque total.
     prompt_block_stats: dict[str, dict[str, int]] = field(default_factory=dict)
-    # Side-channel: token usage of the reviewer subprocess that produced
-    # this decision. Populated by ``Reviewer.evaluate`` and consumed by
-    # telemetry/cost reporting. Not part of the reviewer's semantic output.
     input_tokens: int = 0
     cached_input_tokens: int = 0
     output_tokens: int = 0
-    # Additional hidden reasoning tokens billed at the output rate; real usage not
-    # shown in visible completion text. 额外的隐藏 reasoning token 按输出单价计费，真实计费但不显示在可见回复文本里。
     reasoning_output_tokens: int = 0
-    # Copilot's native cost unit for the reviewer subprocess (this round's
-    # DELTA; 0.0 for codex/claude). Consumed by cost-tracking sinks alongside
-    # the token side-channels above.
-    # Copilot 下 reviewer 子进程的原生成本单位（本轮增量；codex/claude 为 0.0）。
     premium_requests: float = 0.0
-    # F7 side-channel (like input_tokens above — NOT semantic output, deliberately
-    # absent from ``to_event_payload``): the codex thread_id the reviewer ran on,
-    # and the sha256 of the STATIC preamble it sent. The supervised loop reads
-    # these to resume the reviewer's OWN thread across rounds (re-sending only the
-    # per-round delta), and to force a full re-send when the static rubric changes
-    # mid-mission (stage/objective/vertical drift) — the fingerprint guard.
     thread_id: str | None = None
     static_fingerprint: str = ""
-    # True ONLY when the reviewer rendered NO verdict because its BACKEND was
-    # unavailable — the codex subprocess died, the output-schema file was
-    # missing, or the runner raised. This is an INFRASTRUCTURE failure, never a
-    # model judgment. The supervised loop routes a ``backend_unavailable`` review
-    # through the same transient-backoff + escalate-to-error path as an engineer
-    # backend failure, instead of the silent ``continue`` that once ran the sole
-    # completion gate BLIND for ~1.5h (2026-06-25, a stale import-time schema
-    # path made every reviewer round exit 1). Distinct from a genuine
-    # ``status="blocked"`` verdict (e.g. "blocked on GPU quota") which is a
-    # real model judgment and is NOT a backend failure.
     backend_unavailable: bool = False
-    # Raw transport outcome for backend-unavailable decisions. Hidden from the
-    # reviewer schema/event payload; the supervised loop uses it to distinguish
-    # an intentional operator/daemon interrupt from a genuine backend outage.
     backend_fatal_error: str = ""
     backend_exit_code: int | None = None
     backend_stop_kind: StopKind | None = None
-    # Reviewer-authored observation-only routing judgment. It records whether
-    # another Engineer round should proceed before L4 Planner judgment, but no
-    # runtime component consumes it for routing. Appended to preserve every
-    # existing positional ReviewDecision constructor argument.
-    routing_decision: str = ""
-    routing_reason: str = ""
-    routing_handoff: str = ""
 
     @property
     def final_submission_certified(self) -> bool:
-        """True when this verdict certifies whole-project final-submission
-        readiness: a ``done`` verdict scoped to ``final_submission`` whose
-        checklist is non-empty and every item is satisfied with concrete
-        evidence. Fail-closed: any missing/empty field means not certified.
-        """
-        if self.status != "done" or self.scope != "final_submission":
-            return False
-        if normalize_research_direction(self.scientific_decision) in {
-            "redirect",
-            "stop",
-            "uncertain",
-        }:
-            return False
-        if not self.checklist:
-            return False
-        for item in self.checklist:
-            if not isinstance(item, dict):
-                return False
-            if not bool(item.get("satisfied")):
-                return False
-            if not str(item.get("evidence", "")).strip():
-                return False
-        return True
+        """A final-submission caller may treat a ``done`` verdict as certified."""
+        return self.status == "done"
 
     def to_event_payload(self, **extras: Any) -> dict[str, Any]:
-        """Build the full ``round.review.completed`` event dict.
-
-        Emit the canonical structured verdict once. Natural-language state lives
-        in CHECKPOINT.md; legacy summary/checkpoint fields remain readable on old
-        events but are not copied into new ones.
-
-        Token counts are read off ``self``, so the synthesized verdicts
-        for daemon-stop / backend-failure paths (zero tokens) and the
-        genuine LLM verdict (real tokens) flow through the same payload
-        builder.
-
-        ``extras`` are merged in last so callers can attach call-site-
-        specific fields (``round_max``, ``session_id``, ``review_skipped``,
-        ``text``, ``type``) without losing them to a key collision.
-        """
+        """Build the compact ``round.review.completed`` event."""
         payload: dict[str, Any] = {
             "type": EventType.ROUND_REVIEW_COMPLETED,
             "status": self.status,
             "reason": self.reason,
             "next_action": self.next_action,
             "operator_question": self.operator_question or "",
-            "failure_cause": self.failure_cause or "",
-            "failure_source": self.failure_source or "",
-            "failure_source_evidence": list(self.failure_source_evidence or []),
-            "validator_id": self.validator_id or "",
-            "repair_paths": list(self.repair_paths or []),
-            "scientific_decision": normalize_research_direction(
-                self.scientific_decision
-            ),
-            "failure_layer": self.failure_layer or "",
-            "progress_class": self.progress_class or "",
-            "control_action": self.control_action or "",
-            "control_task_id": self.control_task_id or "",
             "review_source": self.review_source or "reviewer",
-            "achievement": (
-                dict(self.achievement) if isinstance(self.achievement, dict) else None
-            ),
-            "scope": self.scope or "",
-            "routing_decision": self.routing_decision or "",
-            "routing_reason": self.routing_reason or "",
-            "routing_handoff": self.routing_handoff or "",
-            "checklist": list(self.checklist or []),
-            "planner_report": canonical_planner_report(self.planner_report),
-            "checklist_feedback": dict(self.checklist_feedback or {}),
-            "harness_control": dict(self.harness_control or {}),
             "prompt_block_stats": {
                 str(name): dict(stats)
                 for name, stats in (self.prompt_block_stats or {}).items()
@@ -441,10 +231,6 @@ class ReviewDecision:
             "stop_kind": self.backend_stop_kind,
             "usage_scope": "delta",
         }
-        if isinstance(self.research_result, dict):
-            payload["research_result"] = dict(self.research_result)
-        if isinstance(self.certification_payload, dict) and self.certification_payload:
-            payload["certification_payload"] = dict(self.certification_payload)
         payload.update(extras)
         return payload
 

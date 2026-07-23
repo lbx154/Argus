@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import logging
 import time  # noqa: F401 - historical test seam for round timing
-import uuid
 from pathlib import Path
 from typing import Callable
 
@@ -42,10 +41,6 @@ from .background_subagents import (
     emit_subagent_cost_events,
 )
 from .checkpoint import ensure_shared_checkpoint
-from .self_review import (
-    EngineerCompletionDecision,
-    EngineerSkillMaintenanceOutcome,
-)
 
 log = logging.getLogger(__name__)
 # Config dataclasses are re-exported here for historical/test imports.
@@ -68,11 +63,8 @@ from .round_settlement import RoundSettlementMixin
 # direct ``from argus_skill.engineer.runner import _apply_round_secret_guard``).
 from .round_signals import (
     _apply_round_secret_guard,  # noqa: F401
-    _next_decision_stall_streak,  # noqa: F401
     _normalize_dynamic_plan_mode,  # noqa: F401
     _pause_decision_clock,  # noqa: F401
-    _plan_signal_event,  # noqa: F401
-    _promote_scope_change_to_replan,  # noqa: F401
     _review_event_payload,  # noqa: F401
     _run_background_wait,  # noqa: F401
     _run_external_work_wait,  # noqa: F401
@@ -138,10 +130,6 @@ class SupervisedEngineer(
         review_completed_hook: Callable[[RoundRecord], None] | None = None,
         continue_adaptor: Callable[[list[RoundRecord]], str] | None = None,
         reviewer_skill_block: str | None = None,
-        engineer_skill_maintenance: Callable[
-            [EngineerCompletionDecision, str | None, str],
-            EngineerSkillMaintenanceOutcome,
-        ] | None = None,
     ) -> tuple[LoopStatus, list[RoundRecord], str, str, str | None]:
         """Run the supervised loop.
 
@@ -155,16 +143,12 @@ class SupervisedEngineer(
 
         This orchestrates the round loop's phase mixins in order — prompt
         assembly, engineer-turn execution, non-review stop shortcircuits,
-        agent-driven background/external waits, progress/self-review
+        agent-driven background/external waits, progress
         bookkeeping, Reviewer invocation/retry, and round settlement — and
         interprets each phase's ``RoundControl`` verdict: ``return`` ends the
         mission with a terminal result, ``continue_loop`` immediately starts
         the next round, and falling through (``proceed``) lets the round
-        continue to the next phase. Completion authority is explicit rather
-        than inferred: an allowed `review=skip` control produces an Engineer
-        self-review verdict, while `review=required` and mandatory-review tasks
-        invoke the independent Reviewer. Every phase only forwards or records
-        the selected verdict source; it never overrides that source.
+        continue to the next phase. The independent Reviewer owns completion.
         """
         if on_event is not None:
             raw_on_event = on_event
@@ -183,23 +167,18 @@ class SupervisedEngineer(
         # one turn per provider session. The checkpoint file is the baton.
         _ = seed_thread_id
         checkpoint_path = ensure_shared_checkpoint(supervised_config.checkpoint_path)
-        control_scope = str(
-            supervised_config.session_id or uuid.uuid4().hex
-        )
-
         for round_index in range(1, supervised_config.max_rounds + 1):
             if on_event:
                 try:
                     emit_subagent_cost_events(workdir, on_event)
                 except Exception:  # noqa: BLE001
                     log.debug("subagent cost scan ignored an error", exc_info=True)
-            engineer_prompt, control_path = self._assemble_round_prompt(
+            engineer_prompt = self._assemble_round_prompt(
                 round_index=round_index,
                 supervised_config=supervised_config,
                 engineer_prompt_builder=engineer_prompt_builder,
                 reviewer_next_action=state.reviewer_next_action,
                 checkpoint_path=checkpoint_path,
-                control_scope=control_scope,
                 workdir=workdir,
                 on_event=on_event,
             )
@@ -210,7 +189,6 @@ class SupervisedEngineer(
                 workdir=workdir,
                 supervised_config=supervised_config,
                 checkpoint_path=checkpoint_path,
-                control_path=control_path,
                 on_event=on_event,
                 state=state,
             )
@@ -231,7 +209,6 @@ class SupervisedEngineer(
                 round_index=round_index,
                 supervised_config=supervised_config,
                 raw_engineer_message=outcome.raw_engineer_message,
-                completion_decision=outcome.completion_decision,
                 workdir=workdir,
                 state=state,
                 on_event=on_event,
@@ -246,7 +223,6 @@ class SupervisedEngineer(
                 supervised_config=supervised_config,
                 outcome=outcome,
                 state=state,
-                engineer_skill_maintenance=engineer_skill_maintenance,
                 review_completed_hook=review_completed_hook,
                 on_event=on_event,
             )

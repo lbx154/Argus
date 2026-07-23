@@ -220,7 +220,7 @@ Who decides whether a finished run is usable is split deliberately:
   to save GPU is also fine.
 - **The LLM (supervisor + reviewer) owns every JUDGEMENT call** — learning
   health, clipping/truncation severity, reward-collapse vs noise, KL/entropy
-  trends, and the **terminal go/no-go on whether a completed run produced
+  trends, and the terminal judgment on whether a completed run produced
   usable evidence**. These are trend judgements, not threshold checks.
 
 Therefore, when you author a training/eval script:
@@ -229,14 +229,14 @@ Therefore, when you author a training/eval script:
   health summary (e.g. `health_gate.json` with the raw numbers). Diagnostics are
   good.
 - **DO NOT** convert a metric-threshold breach into a TERMINAL verdict that flips
-  a finished run to `status.json state="failed"` / writes a `*_NO_GO.md` and
+  a finished run to `status.json state="failed"` and
   forces a relaunch. A single noisy tail step (e.g. `clipped_ratio=0.5` at one
   step, a brief reward dip) is **not** a failed run. Hard-coding
   `max(tail_clipped_ratio) > 0.25 -> failed` is exactly the brittle gate that
   makes the harness thrash on micro-smokes. If you want to flag such a signal,
   emit it as an **advisory** field — never as the run's terminal state.
 - The supervisor writes a `Final health verdict: usable | unusable |
-  inconclusive` in its handoff; the reviewer treats any mechanical `*_NO_GO.md`
+  inconclusive` in its handoff; the reviewer treats any mechanical failure marker
   as advisory and judges from the trend. Your script's job is to surface clean
   signals so those LLM judgements are well-grounded — not to pre-empt them.
 

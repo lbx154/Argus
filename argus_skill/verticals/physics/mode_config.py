@@ -1,9 +1,9 @@
 """Physics vertical run-mode configuration (env-driven, no hardcoded literals).
 
-Controls whether a mission is allowed to *succeed* as a downgraded paper type
-(diagnostic benchmark / reproduction) or must reach an original research article
-(or an honest ``ORIGINAL_RESEARCH_NO_GO``). Read by the Paper-Type gate, the
-Novelty-Seeking Loop gate, and the terminal manuscript contract.
+Controls whether a mission is allowed to succeed as a downgraded paper type
+(diagnostic benchmark / reproduction) or must reach an original research article.
+Read by the Paper-Type gate, the Novelty-Seeking Loop gate, and the terminal
+manuscript contract.
 
 Env vars (all optional; defaults preserve the pre-V5 behaviour):
 
@@ -13,8 +13,7 @@ Env vars (all optional; defaults preserve the pre-V5 behaviour):
 
 ``original-research-required`` mode is: TARGET == original_research_article AND
 ALLOW_DOWNGRADE is false. In that mode a downgraded paper type is only an
-*intermediate* result — a successful terminal requires either an original-research
-paper type or a completed ≤2-round pivot ending in ``ORIGINAL_RESEARCH_NO_GO.md``.
+intermediate result.
 """
 from __future__ import annotations
 
@@ -52,7 +51,7 @@ def allow_downgrade_as_success() -> bool:
 
 
 def is_original_research_required() -> bool:
-    """True when the mission must reach original research or an honest NO_GO."""
+    """True when the mission must reach original research."""
     return target_paper_type() in {"original_research_article", "original"} and not allow_downgrade_as_success()
 
 

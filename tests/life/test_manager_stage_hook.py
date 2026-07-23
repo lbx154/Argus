@@ -220,26 +220,11 @@ def _review(
     forward_progress: bool | None = True,
     scope: str = "",
 ) -> ReviewDecision:
-    report = {"headline": "done"}
-    if forward_progress is not None:
-        report["forward_progress"] = forward_progress
+    _ = checklist, forward_progress, scope
     return ReviewDecision(
         status=status,  # type: ignore[arg-type]
         reason="checklist satisfied",
         next_action="advance",
-        checklist=(
-            checklist
-            if checklist is not None
-            else [
-                {
-                    "item": "research.first_score_plan",
-                    "satisfied": True,
-                    "evidence": "X",
-                }
-            ]
-        ),
-        scope=scope,
-        planner_report=report,
     )
 
 
@@ -311,10 +296,6 @@ def _stage(root: Path) -> str:
 
 def test_replan_control_outcome_does_not_run_manager_stage_transition() -> None:
     assert _runtime._should_run_stage_transition("replan_requested") is False
-    assert _runtime._should_run_stage_transition(
-        "replan_requested",
-        harness_control={"stage_reconciliation_required": True},
-    ) is True
     assert _runtime._should_run_stage_transition("paused_budget") is False
     assert _runtime._should_run_stage_transition("done") is False
     assert _runtime._should_run_stage_transition(
@@ -462,7 +443,6 @@ def test_hook_advances_stage_and_emits_event(tmp_path: Path) -> None:
     ))
     sink = _Sink()
     review = _review()
-    review.failure_layer = "evaluator"
 
     decision = runner._decide_stage_transition(
         rounds_list=[_Round(review)], workdir=root, sink=sink
@@ -485,7 +465,7 @@ def test_hook_advances_stage_and_emits_event(tmp_path: Path) -> None:
             encoding="utf-8"
         )
     )
-    assert control_snapshot["terminal_evidence"][0]["failure_layer"] == "evaluator"
+    assert control_snapshot["terminal_evidence"][0]["status"] == "done"
     # The retired self-reported confidence must not leak into the event payload.
     assert "confidence" not in decision
 
@@ -873,11 +853,10 @@ def test_hook_retries_on_empty_output_then_advances(tmp_path: Path, monkeypatch)
     assert _stage(root) == "plan"
 
 
-def test_hook_persistent_empty_done_satisfied_advances(
+def test_hook_persistent_empty_manager_output_holds(
     tmp_path: Path, monkeypatch
 ) -> None:
-    # If every Manager turn is empty after a certified reviewer verdict, the
-    # Manager-owned fallback advances to the immediate next stage.
+    # Empty Manager output is not a stage judgment.
     monkeypatch.setattr("argus_skill.manager._stage_ops.time.sleep", lambda *_a, **_k: None)
     root = _project(tmp_path, current="research")
     backend = _EmptyThenRunner({}, empties=99)
@@ -894,12 +873,11 @@ def test_hook_persistent_empty_done_satisfied_advances(
         rounds_list=[_Round(review)], workdir=root, sink=sink
     )
     assert backend.calls == 3
-    assert decision["action"] == "advance"
-    assert decision["target_stage"] == "plan"
-    assert decision["diagnostic"] == "empty_output_certified_advance"
-    assert _stage(root) == "plan"
+    assert decision["action"] == "hold"
+    assert decision["diagnostic"] == "empty_output_no_manager_judgment"
+    assert _stage(root) == "research"
     event = next(e for e in sink.events if e.get("type") == "life.manager.stage_decision")
-    assert event["diagnostic"] == "empty_output_certified_advance"
+    assert event["diagnostic"] == "empty_output_no_manager_judgment"
 
 
 def test_hook_persistent_empty_done_satisfied_completes_final_stage(
@@ -924,20 +902,23 @@ def test_hook_persistent_empty_done_satisfied_completes_final_stage(
     ])
 
     decision = runner._decide_stage_transition(
-        rounds_list=[_Round(review)], workdir=root, sink=sink
+        rounds_list=[_Round(review)],
+        workdir=root,
+        sink=sink,
+        mission_scope="final_submission",
     )
 
     assert backend.calls == 3
     assert decision["action"] == "complete"
     assert decision["target_stage"] == "submission"
-    assert decision["diagnostic"] == "empty_output_no_next_stage"
+    assert decision["diagnostic"] == "empty_output_no_manager_judgment"
     state = json.loads(
         (root / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
     )
     assert state["stages"]["submission"]["status"] == "done"
     event = next(e for e in sink.events if e.get("type") == "life.manager.stage_decision")
     assert event["action"] == "complete"
-    assert event["diagnostic"] == "empty_output_no_next_stage"
+    assert event["diagnostic"] == "empty_output_no_manager_judgment"
 
 
 def test_hook_does_not_complete_bounded_final_stage_without_required_checklist(
@@ -958,7 +939,7 @@ def test_hook_does_not_complete_bounded_final_stage_without_required_checklist(
     assert decision["target_stage"] == "submission"
 
 
-def test_hook_persistent_empty_unsatisfied_checklist_holds(
+def test_hook_persistent_empty_holds_without_parsing_checklist(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setattr("argus_skill.manager._stage_ops.time.sleep", lambda *_a, **_k: None)
@@ -975,10 +956,10 @@ def test_hook_persistent_empty_unsatisfied_checklist_holds(
         rounds_list=[_Round(review)], workdir=root, sink=sink
     )
     assert decision["action"] == "hold"
-    assert decision["diagnostic"] == "empty_output_unsatisfied_checklist"
+    assert decision["diagnostic"] == "empty_output_no_manager_judgment"
     assert _stage(root) == "research"
     event = next(e for e in sink.events if e.get("type") == "life.manager.stage_decision")
-    assert event["diagnostic"] == "empty_output_unsatisfied_checklist"
+    assert event["diagnostic"] == "empty_output_no_manager_judgment"
 
 
 def test_hook_no_review_holds_and_does_not_write(tmp_path: Path) -> None:
@@ -1457,7 +1438,7 @@ def test_execute_path_disables_self_review_when_independent_review_required(
             require_independent_review=True,
         )
 
-    assert captured.get("engineer_self_review_enabled") is False
+    assert "engineer_self_review_enabled" not in captured
 
 
 def test_execute_path_disables_self_review_for_research_vertical(
@@ -1486,7 +1467,7 @@ def test_execute_path_disables_self_review_for_research_vertical(
     with pytest.raises(_ConfigKwargsCaptured):
         runner.execute(objective="run the bounded premise probe", sink=_Sink())
 
-    assert captured.get("engineer_self_review_enabled") is False
+    assert "engineer_self_review_enabled" not in captured
 def test_execute_direct_stage_closure_forwards_reviewer_to_manager(
     tmp_path: Path,
 ) -> None:

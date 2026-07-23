@@ -59,7 +59,7 @@ log = logging.getLogger(__name__)
 #:   nanogpt_speedrun — Task 2: minimize wall-time to val_loss<=3.28 (8xH100)
 #:   kernelbench      — Task 3: maximize SOL score (B200 kernels)
 VERTICALS: tuple[str, ...] = (
-    "software", "digital_circuit", "digital_circuit_benchmark", "research", "math", "physics", "materials", "chemistry", "quant", "speedrun",
+    "software", "digital_circuit", "digital_circuit_benchmark", "research", "math", "physics", "materials", "quant", "speedrun",
     "kernel_engineering", "nanochat", "nanogpt_speedrun", "kernelbench",
     "learning", "ale_last_exam", "fiction_writing", "classical_poetry",
     "modern_poetry", "prose", "literary_editor",
@@ -86,18 +86,12 @@ VERTICAL_PURPOSES: dict[str, str] = {
     "metric-optimization vertical",
     "physics": "physics tasks on a real physical system; dynamically choose theoretical "
     "derivation, numerical simulation, data analysis, literature synthesis, or experiment "
-    "design (or an honest no-go) as appropriate, reporting bounded provenance-tracked "
+    "design (or an honest negative result) as appropriate, reporting bounded provenance-tracked "
     "evidence; not a paper pipeline or a metric-optimization vertical",
     "materials": "materials science and materials processing research across atomistic, "
     "microstructure, continuum, CAD/CAE, and experimental scales; dynamically choose "
     "literature/data analysis, DFT/MD/MLIP, constitutive modeling, FEM/process simulation, "
     "or experiment design, with independent physical validation and provenance",
-    "chemistry": "chemistry research across molecular properties and activity, reactions "
-    "and synthesis, cheminformatics, quantum chemistry, computational screening, "
-    "closed-loop optimization, and authorized instrument-backed experiments; preserve "
-    "whether the tested control is online agent, periodically revised, or frozen policy, "
-    "with independent evidence review; not generic paper writing, pure physics, "
-    "materials-only work (use materials), or a fixed single-metric speedrun",
     "quant": "finance factor-research REPORT — mine/evaluate equity factors "
     "(IC/ICIR, backtest, Sharpe) into a reviewer-certified factor report; not a metric loop",
     "speedrun": "generic single-metric optimize loop on a script/benchmark under a "
@@ -251,6 +245,26 @@ def _state_path(project_root: object) -> Path:
     return Path(str(project_root)).joinpath(*_STATE_RELPATH)
 
 
+def _load_state_payload(project_root: object) -> dict:
+    """Read Manager-owned pipeline state once with fail-visible corruption."""
+    path = _state_path(project_root)
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {}
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise VerticalResolutionError(
+            f"PIPELINE_STATE.json at {path} is not valid JSON: {exc}"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise VerticalResolutionError(
+            f"PIPELINE_STATE.json at {path} is not a JSON object"
+        )
+    return payload
+
+
 def _persisted_vertical(project_root: object) -> str | None:
     """Return the persisted ``vertical`` from PIPELINE_STATE.json, or ``None``.
 
@@ -260,40 +274,36 @@ def _persisted_vertical(project_root: object) -> str | None:
     Manager-owned state and RAISES ``VerticalResolutionError`` — we do not
     silently treat corruption as "fresh" and fall through to research.
     """
-    try:
-        raw = _state_path(project_root).read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return None
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise VerticalResolutionError(
-            f"PIPELINE_STATE.json at {_state_path(project_root)} is not valid JSON: {exc}"
-        ) from exc
-    if not isinstance(payload, dict):
-        raise VerticalResolutionError(
-            f"PIPELINE_STATE.json at {_state_path(project_root)} is not a JSON object"
-        )
+    payload = _load_state_payload(project_root)
     return _known_vertical(payload.get("vertical"), project_root)
+
+
+def _persisted_domain(project_root: object) -> str | None:
+    """Return the optional built-in domain composed with ``research``."""
+    payload = _load_state_payload(project_root)
+    raw = str(payload.get("domain") or "").strip()
+    if not raw:
+        return None
+    vertical = _known_vertical(payload.get("vertical"), project_root)
+    if vertical != "research":
+        raise VerticalResolutionError(
+            f"PIPELINE_STATE.json at {_state_path(project_root)} sets domain={raw!r} "
+            f"for non-research vertical={vertical!r}"
+        )
+    from ..domains import UnknownDomainError, require_domain
+
+    try:
+        return require_domain(raw)
+    except UnknownDomainError as exc:
+        raise VerticalResolutionError(
+            f"PIPELINE_STATE.json at {_state_path(project_root)} names unknown "
+            f"domain {raw!r}"
+        ) from exc
 
 
 def resolve_workflow_mode(project_root: object = ".") -> str:
     """Return the Manager-persisted orchestration mode."""
-    try:
-        raw = _state_path(project_root).read_text(encoding="utf-8")
-    except FileNotFoundError:
-        payload: dict = {}
-    else:
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise VerticalResolutionError(
-                f"PIPELINE_STATE.json at {_state_path(project_root)} is not valid JSON: {exc}"
-            ) from exc
-        if not isinstance(payload, dict):
-            raise VerticalResolutionError(
-                f"PIPELINE_STATE.json at {_state_path(project_root)} is not a JSON object"
-            )
+    payload = _load_state_payload(project_root)
     mode = _normalize_workflow_mode(payload.get("workflow_mode"))
     if mode:
         return mode
@@ -343,6 +353,16 @@ def _is_project_data_domain(value: str | None, project_root: object) -> bool:
 def resolve_vertical_if_decided(project_root: object = ".") -> str | None:
     """Return the Manager-decided vertical, or ``None`` without a fallback."""
     return _persisted_vertical(project_root)
+
+
+def resolve_domain_if_decided(project_root: object = ".") -> str | None:
+    """Return the Manager-decided research domain, or ``None``."""
+    return _persisted_domain(project_root)
+
+
+def resolve_skill_scope(project_root: object = ".") -> str:
+    """Return the shared-Skill namespace for the active workflow/domain context."""
+    return _persisted_domain(project_root) or _persisted_vertical(project_root) or ""
 
 
 def resolve_checklist_vertical(project_root: object = ".") -> str | None:
@@ -400,6 +420,7 @@ def persist_vertical(
     project_root: object,
     vertical: str,
     *,
+    domain: str | None = None,
     research_target_level: str | None = None,
     workflow_mode: str | None = None,
     target_venue: str | None = None,
@@ -445,6 +466,16 @@ def persist_vertical(
             )
 
     payload["vertical"] = vert
+    if domain is not None:
+        from ..domains import require_domain
+
+        if vert != "research":
+            raise ValueError(
+                f"domain overlays require vertical='research', found {vert!r}"
+            )
+        payload["domain"] = require_domain(domain)
+    else:
+        payload.pop("domain", None)
     if target_venue is not None:
         venue = " ".join(str(target_venue).strip().split())[:100]
         if venue:

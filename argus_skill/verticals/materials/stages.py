@@ -19,8 +19,8 @@ RESEARCH_TARGET_LEVELS = ("exploratory", "publishable", "doctoral")
 REQUIRE_INDEPENDENT_REVIEW = True
 
 # Materials missions finish through the ordinary Reviewer-certified final stage.
-# A report may be a research result, process-design package, reproduction, or
-# bounded no-go; it is not automatically a paper-submission or metric campaign.
+# A report may be a research result, process-design package, or reproduction; it
+# is not automatically a paper-submission or metric campaign.
 completion_gate = "none"
 
 _PIPELINE_CHECK = (
@@ -106,7 +106,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "Success is checkable and matches the request: explanation, calibrated model, "
                 "property prediction, validated process design, reproduced result, new finding, "
-                "or an honest bounded no-go."
+                "or an honest bounded negative result."
             ),
             evidence_hint="a task-specific observable, comparator, tolerance, or decision criterion",
         ),

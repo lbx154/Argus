@@ -1931,6 +1931,33 @@ def test_terminal_workspace_without_prior_handoff_reopens_for_new_daemon_intent(
     ) is True
 
 
+def test_manager_handoff_identity_distinguishes_domain() -> None:
+    identity = {
+        "version": 2,
+        "objective_sha256": life_worker_mod._objective_sha256(
+            "write a chemistry paper"
+        ),
+        "vertical": "research",
+        "domain": "chemistry",
+        "continuous_generation": 3,
+    }
+
+    assert life_worker_mod._manager_handoff_identity_matches(
+        identity,
+        objective="write a chemistry paper",
+        vertical="research",
+        domain="chemistry",
+        generation=3,
+    )
+    assert not life_worker_mod._manager_handoff_identity_matches(
+        identity,
+        objective="write a chemistry paper",
+        vertical="research",
+        domain="",
+        generation=3,
+    )
+
+
 def test_life_worker_keeps_continuous_enabled_on_terminal_idle(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

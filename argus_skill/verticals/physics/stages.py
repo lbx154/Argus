@@ -10,7 +10,7 @@ reviewer checklists, and leaves heavy checker/solver/literature machinery out.
 Stage semantics:
 
 * ``scope``   — pin down the original physics task: system, domain, observables,
-  task type, success criterion, and a feasible route (or an honest no-go).
+  task type, success criterion, and a feasible route.
 * ``model``   — pin down the model and evidence plan: variables, units,
   equations/data sources, assumptions, approximation range, BC/IC, and the
   validation target.
@@ -108,7 +108,7 @@ _PAPER_TYPE_ADVISORY_CHECK = (
 
 # ``review`` also runs the Novelty-Seeking Loop gate in ADVISORY mode. It only
 # ENFORCES in original-research-required mode (mode_config): >=10 scored candidate
-# directions, top 2-3 selected + verified, or a justified ORIGINAL_RESEARCH_NO_GO.md.
+# directions with the top 2-3 selected and verified.
 _NOVELTY_SEEKING_ADVISORY_CHECK = (
     "Novelty-seeking loop (advisory; enforced in original-research-required mode)",
     "{python} -m argus_skill.verticals.physics.gates.novelty_seeking check --project-root . --advisory",
@@ -136,24 +136,13 @@ _DOWNGRADE_ADVISORY_CHECK = (
     "{python} -m argus_skill.verticals.physics.gates.downgrade check --project-root . --advisory",
 )
 
-# ``execute`` + ``review`` run the No-go Terminal gate (ADVISORY): once a bounded
-# negative result is fully evidenced and gate-passing, it AUTONOMOUSLY authorizes a
-# bounded failure-regime / no-go manuscript (manuscript_completion_authorized=true,
-# NO_GO scope) and directs the manuscript build — the missing bridge from s-cbac6ede.
-# If genuinely operator-gated (a stretch tier), it emits ONE operator prompt and idles;
-# it never dispatches infinite hygiene closure.
-_NOGO_TERMINAL_ADVISORY_CHECK = (
-    "No-go terminal gate (advisory; autonomously authorizes a bounded no-go manuscript once evidenced)",
-    "{python} -m argus_skill.verticals.physics.gates.nogo_terminal check --project-root . --advisory",
-)
-
 STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     stage: [_PIPELINE_CHECK] for stage in STAGE_ORDER
 }
 STAGE_CHECKS["scope"] = [_PIPELINE_CHECK, _LITERATURE_ADVISORY_CHECK]
 STAGE_CHECKS["model"] = [_PIPELINE_CHECK, _THEORY_ADVISORY_CHECK]
-STAGE_CHECKS["execute"] = [_PIPELINE_CHECK, _NUMERICAL_ADVISORY_CHECK, _DOWNGRADE_ADVISORY_CHECK, _NOGO_TERMINAL_ADVISORY_CHECK]
-STAGE_CHECKS["review"] = [_PIPELINE_CHECK, _NOVELTY_ADVISORY_CHECK, _PAPER_TYPE_ADVISORY_CHECK, _NOVELTY_SEEKING_ADVISORY_CHECK, _MANUSCRIPT_PACKAGE_ADVISORY_CHECK, _DOWNGRADE_ADVISORY_CHECK, _NOGO_TERMINAL_ADVISORY_CHECK]
+STAGE_CHECKS["execute"] = [_PIPELINE_CHECK, _NUMERICAL_ADVISORY_CHECK, _DOWNGRADE_ADVISORY_CHECK]
+STAGE_CHECKS["review"] = [_PIPELINE_CHECK, _NOVELTY_ADVISORY_CHECK, _PAPER_TYPE_ADVISORY_CHECK, _NOVELTY_SEEKING_ADVISORY_CHECK, _MANUSCRIPT_PACKAGE_ADVISORY_CHECK, _DOWNGRADE_ADVISORY_CHECK]
 STAGE_CHECKS["manuscript"] = [_PIPELINE_CHECK, _MANUSCRIPT_CHECK]
 
 REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
@@ -162,7 +151,7 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "Check that the original physics task is stated faithfully: the physical "
         "system, domain, and observables are explicit; the task type and success "
         "criterion are explicit; and a feasible route (theory, simulation, data "
-        "analysis, literature synthesis, experiment design, or an honest no-go) "
+        "analysis, literature synthesis, experiment design, or a bounded negative result) "
         "is chosen from the real structure of the problem.",
         [],
     ),
@@ -181,7 +170,7 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "literature claims must carry provenance; finite simulation or toy data "
         "must not be overclaimed as a universal conclusion; and a missing critical "
         "condition (data, apparatus, full-text literature) must yield an honest "
-        "NO_GO or a clearly bounded surrogate, not a pretended completion.",
+        "explicit blocker or a clearly bounded surrogate, not a pretended completion.",
         [],
     ),
     "review": (
@@ -191,7 +180,7 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         "toy-overclaim; check units/dimensions and boundary/initial conditions "
         "where they apply; require an explicit numerical/data/literature evidence "
         "boundary; never accept metadata-only as full text; and require each final "
-        "claim to be labeled supported, partial, no-go, inconclusive, or unknown.",
+        "claim to be labeled supported, partial, inconclusive, or unknown.",
         [],
     ),
     "manuscript": (
@@ -225,7 +214,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "A feasible route is chosen from the physical structure of the task: "
                 "theoretical derivation, numerical simulation, data analysis, "
-                "literature synthesis, experiment design, or an honest no-go — not a "
+                "literature synthesis, experiment design, or a bounded negative result — not a "
                 "forced fixed pipeline."
             ),
             evidence_hint="a task-specific route with reasons for included and skipped methods",
@@ -286,13 +275,13 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             evidence_hint="the tested range plus the precise limit of what it supports",
         ),
         ChecklistItem(
-            id="execute.honest-nogo",
+            id="execute.honest-boundary",
             statement=(
                 "When a critical condition is missing (data, apparatus, or full-text "
-                "literature), the work returns an honest NO_GO or a clearly bounded "
+                "literature), the work returns an explicit blocker or a clearly bounded "
                 "surrogate instead of pretending to be complete."
             ),
-            evidence_hint="an explicit NO_GO / bounded-surrogate note naming the missing condition",
+            evidence_hint="an explicit blocker / bounded-surrogate note naming the missing condition",
         ),
     ),
     "review": (
@@ -331,7 +320,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="review.claim-status",
             statement=(
-                "Every final claim is labeled supported, partial, no-go, inconclusive, "
+                "Every final claim is labeled supported, partial, inconclusive, "
                 "or unknown, with the remaining gaps stated."
             ),
             evidence_hint="claim-by-claim status labels and stated remaining gaps",
@@ -373,7 +362,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "CLAIMS.csv binds every headline claim to an equation/figure/table/"
                 "script/dataset/citation with a claim_type, evidence, a "
-                "supported/partial/no-go/inconclusive/unknown status, and a boundary. "
+                "supported/partial/inconclusive/unknown status, and a boundary. "
                 "Its header MUST be exactly these 8 columns, in order (no synonyms; "
                 "'claim' and 'evidence' are rejected and must be renamed): "
                 "claim_id,claim_text,claim_type,evidence_type,evidence_pointer,status,boundary,reviewer_notes."
@@ -486,12 +475,12 @@ _STAGE_ENTRY_CONTRACTS: dict[str, str] = {
         "- REQUIRED ARTIFACTS: NUMERICAL_STUDY_PLAN.csv + reproducible scripts/ + generated data/ with provenance.\n"
         "- MIN STANDARD: convergence/finite-size/scan checks proportional to each claim; each result has an evidence_file.\n"
         "- CLAIM CONSTRAINT: 'robust'/'protected' needs an executed robustness study; 'universal'/'phase diagram' needs an executed scan — else downgrade.\n"
-        "- FORBIDDEN: presenting finite/toy numerics as a universal or infinite-system proof; missing-condition work that pretends to finish (use an honest NO_GO).\n"
+        "- FORBIDDEN: presenting finite/toy numerics as a universal or infinite-system proof; missing-condition work that pretends to finish.\n"
     ),
     "review": (
         "## STAGE-ENTRY CONTRACT — review\n"
         "- REQUIRED ARTIFACTS: NOVELTY_CLAIM_TABLE.csv (closest prior work, already-known vs what-is-new, significance, calibrated wording) + PAPER_TYPE_CLASSIFIER.json.\n"
-        "- MIN STANDARD: every final claim labeled supported/partial/no-go/inconclusive/unknown with its boundary.\n"
+        "- MIN STANDARD: every final claim labeled supported/partial/inconclusive/unknown with its boundary.\n"
         "- CLAIM CONSTRAINT: paper type must be consistent with the upstream gates; original-article ONLY if Literature AND Novelty gates pass.\n"
         "- FORBIDDEN: original framing without genuine, prior-work-separated novelty.\n"
     ),
@@ -511,16 +500,15 @@ def stage_entry_contract(stage: str) -> str:
 
 
 def _mode_banner(project_root: object = None) -> str:
-    """Tiered run-mode notice: the ACTIVE innovation tier + downgrade / no-go policy.
+    """Tiered run-mode notice for the active innovation tier.
 
     Replaces the old single Nature/Science original-research notice. The reviewer must
     evaluate against the ACTIVE tier (from TIER_STATE.json / START_TIER), downgrade is a
-    change of claim TYPE (not a rigor cut), and a Tier-D bounded no-go / negative result
-    is a first-class success terminal. Original-research-required mode (if the operator
-    opted in) is still honoured as a stretch."""
+    change of claim TYPE (not a rigor cut). Original-research-required mode (if the
+    operator opted in) is still honoured as a stretch."""
     try:
         from .downgrade import read_current_tier
-        from .tiers import nogo_terminal_enabled, tier_rubric_banner
+        from .tiers import tier_rubric_banner
 
         tier = read_current_tier(project_root)
         block = "\n" + tier_rubric_banner(tier)
@@ -532,16 +520,7 @@ def _mode_banner(project_root: object = None) -> str:
             "claim TYPE, never a cut in rigor); the reviewer ratifies and then judges against the new "
             "tier only. "
         )
-        if nogo_terminal_enabled():
-            block += (
-                "A Tier-D bounded no-go / negative / failure-regime result is a SUCCESS TERMINAL: once "
-                "the no-go evidence is sufficient, the No-go Terminal gate autonomously authorizes a "
-                "bounded no-go manuscript (manuscript_completion_authorized=true) and advances "
-                "execute->review->manuscript — do NOT keep requiring a positive diagnostic, and do NOT "
-                "run generic hygiene closure.\n"
-            )
-        else:
-            block += "\n"
+        block += "\n"
         # Original-research stretch notice (only when the operator opted in).
         try:
             from .mode_config import is_original_research_required
@@ -551,7 +530,7 @@ def _mode_banner(project_root: object = None) -> str:
                     "## STRETCH — ORIGINAL RESEARCH REQUESTED\n"
                     "The operator set an original-research stretch target. Run the Novelty-Seeking Loop "
                     "(<=2 pivots); if insufficient, DOWNGRADE per the tier ladder to a bounded contribution "
-                    "or an honest Tier-D no-go — do not livelock at the stretch tier.\n"
+                    "or preserve the Tier-D negative evidence and replan — do not livelock at the stretch tier.\n"
                 )
         except Exception:  # noqa: BLE001
             pass
@@ -694,7 +673,7 @@ def role_banner(role: str, project_root: object = None) -> str:
             "Drive physics-specific route selection from the actual physical "
             "structure of the task: decide whether it needs theoretical derivation, "
             "numerical simulation, data analysis, literature synthesis, experiment "
-            "design, or an honest no-go. There is no fixed paper pipeline here; do "
+            "design, or a bounded negative result. There is no fixed paper pipeline here; do "
             "not force a fixed sequence of stages onto the problem. Before execute, "
             "require that the physical system, its domain, the observables, the "
             "assumptions, and the success criteria are explicit. Reuse "
@@ -706,13 +685,13 @@ def role_banner(role: str, project_root: object = None) -> str:
         return common + (
             "Dynamically choose the path that fits this task — derivation, "
             "simulation, data analysis, literature synthesis, experiment design, or "
-            "an honest no-go — instead of mechanically running a fixed workflow. "
+            "a bounded negative result — instead of mechanically running a fixed workflow. "
             "Make the variables, equations, units, assumptions, and boundary/initial "
             "conditions explicit, and state the evidence limits of every result. In "
             "the relevant tasks report residual, convergence, uncertainty, and "
             "provenance. Do not treat a toy demo, metadata, or a workflow artifact "
             "as physical success; when a key condition (data, apparatus, or "
-            "full-text literature) is missing, return an honest NO_GO or a clearly "
+            "full-text literature) is missing, return an explicit blocker or a clearly "
             "bounded surrogate rather than pretending to finish."
         ) + repair
     if role_norm == "reviewer":
@@ -725,7 +704,7 @@ def role_banner(role: str, project_root: object = None) -> str:
             "unsupported novelty, and fake success. Distinguish full-text, excerpt, "
             "code/data, metadata-only, and unavailable evidence, and never treat "
             "metadata-only as full text. Require every final claim to be labeled "
-            "supported, partial, no-go, inconclusive, or unknown."
+            "supported, partial, inconclusive, or unknown."
         ) + repair
     return common + repair
 

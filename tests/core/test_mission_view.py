@@ -257,8 +257,6 @@ def test_structured_events_build_reviewer_certified_achievement(tmp_path: Path) 
         for row in view["role_work"]
     )
     assert not any(row["kind"] == "reasoning" for row in view["role_work"])
-    assert view["decision_context"]["planner_report"]["plan_signal"] == "continue"
-    assert view["decision_context"]["checklist_feedback"]["run.evidence"]["status"] == "pass"
     assert view["learned_skills"][0]["mission_id"] == "task-1"
     assert "# Fused epilogue" in view["learned_skills"][0]["content"]
     persisted = load_mission_view(tmp_path)

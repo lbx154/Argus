@@ -68,8 +68,6 @@ class _DoneReviewerWithTokens:
             status="done",
             reason="ok",
             next_action="",
-            round_summary_markdown="",
-            completion_summary_markdown="",
             input_tokens=self._in,
             output_tokens=self._out,
             reasoning_output_tokens=self._reasoning_out,
@@ -206,7 +204,6 @@ def test_reviewer_empty_backend_failure_is_environmental_block() -> None:
 
     assert decision.status == "blocked"
     assert decision.backend_unavailable is True
-    assert decision.failure_cause == "environmental"
     assert "response.failed" in decision.reason
     assert decision.input_tokens == 42
     assert decision.output_tokens == 7
@@ -299,4 +296,3 @@ def test_reviewer_runner_exception_returns_blocked_decision() -> None:
 
     assert decision.status == "blocked"
     assert "RuntimeError: reviewer subprocess disappeared" in decision.reason
-    assert decision.failure_cause == "environmental"

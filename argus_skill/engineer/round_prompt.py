@@ -2,8 +2,8 @@
 
 Owns building the per-round engineer prompt (static task/skill contract on
 round 1 or when compact continuation prompts are disabled; otherwise a
-compact Reviewer-delta prompt), attaching the shared CHECKPOINT.md /
-engineer-control instructions and the background-subagent / external-work
+compact Reviewer-delta prompt), attaching the shared CHECKPOINT.md and the
+background-subagent / external-work
 advisories, and emitting the ``round.start`` event. This is purely prompt
 text assembly — it makes no completion or control-flow decisions.
 """
@@ -17,11 +17,6 @@ from ..roles.prompts.engineer import assemble_round_prompt
 from .background_subagents import render_background_subagents_advisory
 from .checkpoint import shared_checkpoint_instructions
 from .external_work import render_external_work_advisory
-from .self_review import (
-    engineer_control_instructions,
-    engineer_control_path,
-    prepare_engineer_control,
-)
 
 if TYPE_CHECKING:
     from .runner import SupervisedConfig
@@ -38,10 +33,9 @@ class RoundPromptMixin:
         engineer_prompt_builder: Callable[[str | None, bool], str],
         reviewer_next_action: str | None,
         checkpoint_path: Path | None,
-        control_scope: str,
         workdir: Path,
         on_event: Callable[[dict], None] | None,
-    ) -> tuple[str, Path]:
+    ) -> str:
         # Cross-round role context comes from CHECKPOINT.md, not duplicated
         # free-form reviewer prose in the next Engineer prompt.
         include_static = (
@@ -52,23 +46,9 @@ class RoundPromptMixin:
             reviewer_next_action,
             include_static,
         )
-        control_path = engineer_control_path(
-            workdir=workdir,
-            checkpoint_path=checkpoint_path,
-            round_index=round_index,
-            control_scope=control_scope,
-        )
-        prepare_engineer_control(control_path)
         checkpoint_block = shared_checkpoint_instructions(
             checkpoint_path,
             role="engineer",
-        )
-        control_block = engineer_control_instructions(
-            control_path,
-            allow_self_review=supervised_config.allow_engineer_self_review,
-            allow_skill_maintenance=(
-                supervised_config.allow_engineer_skill_maintenance
-            ),
         )
         background_advisory = (
             render_background_subagents_advisory(workdir)
@@ -79,7 +59,6 @@ class RoundPromptMixin:
         engineer_prompt = assemble_round_prompt(
             engineer_prompt,
             checkpoint_block=checkpoint_block,
-            control_block=control_block,
             background_advisory=background_advisory,
             external_work_advisory=external_work_advisory,
         )
@@ -95,4 +74,4 @@ class RoundPromptMixin:
                     "prompt_estimated_tokens": (len(engineer_prompt) + 3) // 4,
                     "text": f"engineer round {round_index} (fresh session)",
             })
-        return engineer_prompt, control_path
+        return engineer_prompt

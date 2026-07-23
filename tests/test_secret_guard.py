@@ -525,8 +525,6 @@ def test_review_event_payload_redacts_reviewer_echoes(monkeypatch) -> None:
         status="continue",
         reason="api_key=live-secret-value-123",
         next_action="repair the artifact",
-        round_summary_markdown="credential was exposed",
-        completion_summary_markdown="",
     )
 
     payload = _review_event_payload(

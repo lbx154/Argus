@@ -582,16 +582,6 @@ class _StageDecisionMixin:
                         "and requests a stage-authority decision. "
                         f"Planner advisory: {planner_reason}"
                     ),
-                    planner_report={
-                        "forward_progress": False,
-                        "blocker": planner_reason,
-                        "recommended_next": (
-                            "HOLD if this is a genuine live external wait. ROLL "
-                            "BACK only if current_stage prevents prerequisite "
-                            "work that belongs to an earlier stage."
-                        ),
-                    },
-                    checklist=[],
                 )
             else:
                 review = SimpleNamespace(
@@ -601,15 +591,6 @@ class _StageDecisionMixin:
                         "open-ended campaign objective remains unresolved. "
                         f"Planner advisory: {planner_reason}"
                     ),
-                    planner_report={
-                        "forward_progress": False,
-                        "blocker": planner_reason,
-                        "recommended_next": (
-                            "Manager decides whether to roll back for another "
-                            "evidence-led cycle or hold."
-                        ),
-                    },
-                    checklist=[],
                 )
 
         # --- Phase 5: Build the LLM caller ---

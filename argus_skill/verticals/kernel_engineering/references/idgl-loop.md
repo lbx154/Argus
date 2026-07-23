@@ -16,7 +16,7 @@ Experiment ledger:
 
 - Before consuming GPU time, record one mechanism-level claim and reject an
   equivalent claim already present in the attempt ledger.
-- Publish every executed result, including no-go and crash outcomes, with its
+- Publish every executed result, including negative and crash outcomes, with its
   source/config snapshot and environment identity.
 - Feed the next round a compact result plus reusable insight; keep raw logs out
   of the prompt and available as evidence on disk.
@@ -27,7 +27,7 @@ Experiment ledger:
   plus dirty-diff hash, and dispatch/trace evidence; matching commit labels on a
   dirty worktree are not sufficient provenance.
 - Before editing, run the Amdahl/leverage gate against wall-clock end-to-end
-  time, not only summed CUDA time. A faster low-share subkernel is a no-go when
+  time, not only summed CUDA time. A faster low-share subkernel is a failed candidate when
   its plausible total effect cannot clear the measurement noise floor.
 
 Efficiency rules:

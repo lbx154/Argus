@@ -56,12 +56,17 @@ LAYER_GLOBAL = "global"
 _SHARED_VERTICALS_DIR = "_shared_verticals"
 
 
-def shared_vertical_skills_dir(global_dir: Path, vertical: str) -> Path | None:
-    """Return the shared runtime Skill directory for one vertical."""
-    slug = _slugify(vertical)
+def shared_skill_scope_dir(global_dir: Path, scope: str) -> Path | None:
+    """Return the shared runtime Skill directory for one workflow/domain scope."""
+    slug = _slugify(scope)
     if not slug:
         return None
     return Path(global_dir) / _SHARED_VERTICALS_DIR / slug
+
+
+def shared_vertical_skills_dir(global_dir: Path, vertical: str) -> Path | None:
+    """Compatibility name for callers that still use a vertical-only scope."""
+    return shared_skill_scope_dir(global_dir, vertical)
 
 
 class LayeredSkillStore:

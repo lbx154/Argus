@@ -138,6 +138,7 @@ class _VerticalDecisionMixin:
                 "cannot decide the vertical: the Manager has no backend/runner"
             )
         from ..core.models import RunnerOptions
+        from ..domains import BUILTIN_DOMAINS, DOMAIN_PURPOSES
         from ..roles.prompts.manager import (
             build_fast_vertical_decision_prompt,
             build_vertical_decision_prompt,
@@ -181,6 +182,7 @@ class _VerticalDecisionMixin:
                 fast_prompt = build_fast_vertical_decision_prompt(
                     task,
                     verticals_with_purpose=vertical_select.VERTICAL_PURPOSES,
+                    domains_with_purpose=DOMAIN_PURPOSES,
                     existing_data_domains=existing,
                     research_target_verticals=research_target_verticals,
                 )
@@ -225,6 +227,7 @@ class _VerticalDecisionMixin:
                 fast_route = parse_fast_vertical_decision(
                     extract_answer(fast_result),
                     known_verticals=list(vertical_select.VERTICALS),
+                    known_domains=list(BUILTIN_DOMAINS),
                     existing_data_domains=existing,
                     research_target_verticals=research_target_verticals,
                 )
@@ -236,6 +239,7 @@ class _VerticalDecisionMixin:
                     return VerticalDecision(
                         choice="existing",
                         vertical=fast_route.vertical,
+                        domain=fast_route.domain,
                         workflow_mode=fast_route.workflow_mode,
                         execution_task=task.strip(),
                         research_target_level=fast_route.research_target_level,
@@ -258,6 +262,7 @@ class _VerticalDecisionMixin:
             prompt = build_vertical_decision_prompt(
                 task,
                 verticals_with_purpose=vertical_select.VERTICAL_PURPOSES,
+                domains_with_purpose=DOMAIN_PURPOSES,
                 existing_data_domains=existing,
                 research_target_verticals=research_target_verticals,
             )
@@ -303,6 +308,7 @@ class _VerticalDecisionMixin:
         decision = parse_vertical_decision(
             answer,
             known_verticals=list(vertical_select.VERTICALS),
+            known_domains=list(BUILTIN_DOMAINS),
             existing_data_domains=existing,
             research_target_verticals=research_target_verticals,
             default_execution_task=task.strip(),
@@ -437,6 +443,7 @@ class _VerticalDecisionMixin:
         *,
         objective: str,
         vertical: str,
+        domain: str = "",
     ) -> None:
         """Refresh only the Manager-owned block of an existing AGENTS.md."""
         try:
@@ -448,6 +455,7 @@ class _VerticalDecisionMixin:
                 self.project_root,
                 objective=objective,
                 vertical=vertical,
+                domain=domain,
             )
         except Exception:  # noqa: BLE001 — Manager commit remains authoritative
             log.exception("manager: failed to refresh AGENTS.md runtime contract")
@@ -470,6 +478,7 @@ class _VerticalDecisionMixin:
                 division = Division(
                     task=task, vertical=proposal.name, kind="custom",
                     stages=list(proposal.stages),
+                    domain="",
                     workflow_mode=decision.workflow_mode,
                     execution_task=decision.execution_task,
                     proposed_domain=proposal, pending_confirmation=True,
@@ -493,6 +502,7 @@ class _VerticalDecisionMixin:
             self._refresh_agents_runtime_contract(
                 objective=division.execution_task or task,
                 vertical=division.vertical,
+                domain=division.domain,
             )
             self._apply_vertical_decision_rendering(decision)
             return division
@@ -503,6 +513,7 @@ class _VerticalDecisionMixin:
             persist_vertical(
                 self.project_root,
                 vertical,
+                domain=decision.domain or None,
                 research_target_level=decision.research_target_level or None,
                 workflow_mode=decision.workflow_mode,
                 target_venue=decision.target_venue or None,
@@ -516,6 +527,7 @@ class _VerticalDecisionMixin:
         division = Division(
             task=task,
             vertical=vertical,
+            domain=decision.domain,
             kind=self._kind_for(vertical),
             stages=stages,
             workflow_mode=decision.workflow_mode,
@@ -524,6 +536,7 @@ class _VerticalDecisionMixin:
         self._refresh_agents_runtime_contract(
             objective=division.execution_task or task,
             vertical=division.vertical,
+            domain=division.domain,
         )
         self._apply_vertical_decision_rendering(decision)
         return division

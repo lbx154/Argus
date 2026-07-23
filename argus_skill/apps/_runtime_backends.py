@@ -36,30 +36,9 @@ class _Outcome:
     # token, missing API key, etc.). The supervisor uses this to stop
     # early instead of looping over failing missions.
     auth_failure: bool = False
-    # Reviewer completion contract (replaces the retired EMNLP validator
-    # gate). Set True only when the mission scope was ``final_submission``
-    # AND the final reviewer verdict certified the whole project complete
-    # (status=done, scope=final_submission, every checklist item satisfied
-    # with evidence). The supervisor uses this — never raw ``success`` — to
-    # decide whole-project completion.
+    # Set only when a final-submission mission receives Reviewer ``done``.
     final_submission_certified: bool = False
-    # Legacy field retained for source compatibility; new events reference the
-    # Reviewer reason/checklist instead of a duplicate completion summary.
     completion_evidence: str = ""
-    # Reviewer-authored planner-only signals.
-    planner_report: dict = field(default_factory=dict)
-    # Harness-owned arbitration metadata, kept separate from reviewer fields.
-    harness_control: dict = field(default_factory=dict)
-    # Final reviewer's generic research assessment, journaled so Planner/Life
-    # cannot declare a targeted research project done without the same evidence.
-    research_result: dict = field(default_factory=dict)
-    # Reviewer → Planner checklist feedback from the final round (advisory; the
-    # reviewer never edits the checklist). Surfaced in the reviewer→planner
-    # journal block so the project Planner can act on it (via checklist_ops) next
-    # cycle. Empty dict when the reviewer raised no checklist complaint.
-    checklist_feedback: dict = field(default_factory=dict)
-    # Legacy replay field; new Reviewers write these observations in CHECKPOINT.
-    step_back: dict | None = None
     # The Manager's stage-transition verdict for this mission completion (the
     # Manager is the sole post-bootstrap writer of current_stage). Shape:
     # ``{"action": advance|hold|rollback, "target_stage", "reason",
@@ -75,11 +54,6 @@ class _Outcome:
     # cockpit process happened to be tailing events.jsonl at that instant.
     operator_question: str = ""
     final_review_status: str = ""
-    failure_source: str = ""
-    failure_layer: str = ""
-    validator_id: str = ""
-    repair_paths: list[str] = field(default_factory=list)
-    scientific_decision: str = ""
 
 
 # ---------------------------------------------------------------------------

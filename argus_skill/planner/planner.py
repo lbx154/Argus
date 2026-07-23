@@ -583,12 +583,8 @@ def parse_planner_text(text: str) -> PlannerVerdict:
             error="unparseable planner output",
         )
     data, blob = found
-    checklist_ops = _parse_checklist_ops(data)
     project_done = _parse_json_bool(data.get("project_done", True), True)
     reason = str(data.get("reason", ""))
-    waiting = _parse_json_bool(data.get("waiting", False), False)
-    waiting_reason = str(data.get("waiting_reason", "")).strip() or reason
-    waiting_contract = _parse_waiting_contract(data)
     tasks_raw = data.get("new_tasks") or []
     new_tasks: list[TaskSpec] = []
     raw_task_count = len(tasks_raw) if isinstance(tasks_raw, list) else 0
@@ -598,56 +594,20 @@ def parse_planner_text(text: str) -> PlannerVerdict:
                 continue
             title = str(entry.get("title", "")).strip()
             objective = str(entry.get("objective", "")).strip()
-            impact_score = _parse_impact_score(entry.get("impact_score"))
-            impact_area = str(entry.get("impact_area", "")).strip()
-            evidence = str(entry.get("evidence", "")).strip()
-            acceptance_check = str(
-                entry.get("acceptance_check") or evidence
-            ).strip()
-            non_goals = [
-                str(item).strip()
-                for item in (entry.get("non_goals") or [])
-                if str(item).strip()
-            ]
-            context_refs = _parse_context_refs(entry.get("context_refs"))
-            scope = _parse_task_scope(entry.get("scope"))
-            stage_closing = _parse_json_bool(
-                entry.get("stage_closing", False),
-                False,
-            )
-            # Optional DAG fields; back-compat: a flat task simply omits them.
             key = str(entry.get("key") or "").strip()
             deps = [
                 str(d).strip()
                 for d in (entry.get("deps") or [])
                 if str(d).strip()
             ]
-            authorization_id = str(entry.get("authorization_id") or "").strip()
-            authorization_action = str(
-                entry.get("authorization_action") or ""
-            ).strip().lower()
-            if (
-                not title
-                or not objective
-                or not evidence
-            ):
+            if not title or not objective:
                 continue
             new_tasks.append(
                 TaskSpec(
                     title=title,
                     objective=objective,
-                    impact_score=impact_score,
-                    impact_area=impact_area,
-                    evidence=evidence,
-                    acceptance_check=acceptance_check,
-                    non_goals=non_goals,
-                    context_refs=context_refs,
-                    scope=scope,
-                    stage_closing=stage_closing,
                     key=key,
                     deps=deps,
-                    authorization_id=authorization_id,
-                    authorization_action=authorization_action,
                 )
             )
     if project_done and tasks_raw:
@@ -658,37 +618,10 @@ def parse_planner_text(text: str) -> PlannerVerdict:
             raw_text=blob,
             error="planner claimed project_done=true with tasks",
         )
-    # Explicit, intentional idle: the project is correctly waiting on a live
-    # external job and the planner found no genuinely new high-impact work.
-    # Honored ONLY when not also claiming done and no concrete tasks
-    # were accepted — real tasks always win over waiting. This is NOT an error
-    # (it bypasses the "no concrete tasks" retry/churn path below).
-    if waiting and not project_done and not new_tasks:
-        if not waiting_reason:
-            waiting_reason = "awaiting a live external job; no new high-impact work"
-        if waiting_contract is None:
-            return PlannerVerdict(
-                project_done=False,
-                reason="planner waiting verdict omitted a valid waiting contract",
-                new_tasks=[],
-                raw_text=blob,
-                error="waiting verdict requires waiting_contract",
-                checklist_ops=checklist_ops,
-            )
-        return PlannerVerdict(
-            project_done=False,
-            reason=waiting_reason,
-            new_tasks=[],
-            raw_text=blob,
-            waiting=True,
-            waiting_reason=waiting_reason,
-            waiting_contract=waiting_contract,
-            checklist_ops=checklist_ops,
-        )
     if not project_done and not new_tasks:
         # Inconsistent: not done but no tasks → retry later, don't mark done.
         if raw_task_count:
-            reason = "planner proposed only malformed or unevidenced tasks"
+            reason = "planner proposed only malformed tasks"
             error = "planner produced no usable tasks"
         else:
             error = "planner said not done but produced no concrete tasks"
@@ -700,12 +633,10 @@ def parse_planner_text(text: str) -> PlannerVerdict:
             new_tasks=[],
             raw_text=blob,
             error=error,
-            checklist_ops=checklist_ops,
         )
     return PlannerVerdict(
         project_done=project_done,
         reason=reason,
         new_tasks=new_tasks,
         raw_text=blob,
-        checklist_ops=checklist_ops,
     )

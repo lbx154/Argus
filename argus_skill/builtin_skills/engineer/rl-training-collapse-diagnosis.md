@@ -1,6 +1,6 @@
 ---
 name: rl-training-collapse-diagnosis
-description: "The authority on RL / preference post-training (PPO/GRPO/RLVR/DPO-style reasoning RL) run HEALTH and the hyperparameters that govern it: rollout reward variance, KL/clip, num_generations, max_completion_length / rollout length, learning rate, steps/horizon, truncation & answer-parse rates. Use it THREE times: (1) BEFORE launching an RL run, to set those knobs to non-degenerate values so the run is learnable; (2) WHILE watching live training logs (progress.jsonl / trainer stdout), to judge continue vs raise-concern; (3) WHEN a method underperforms / no-go, to attribute the cause — `misconfigured_run` (re-run, don't kill the idea) vs `method_failure` vs `infeasible_under_budget` — BEFORE retiring the idea. NOT for plain SFT/supervised-loss debugging, and NOT for offline benchmark/eval scoring unrelated to training-run health."
+description: "The authority on RL / preference post-training (PPO/GRPO/RLVR/DPO-style reasoning RL) run HEALTH and the hyperparameters that govern it: rollout reward variance, KL/clip, num_generations, max_completion_length / rollout length, learning rate, steps/horizon, truncation & answer-parse rates. Use it THREE times: (1) BEFORE launching an RL run, to set those knobs to non-degenerate values so the run is learnable; (2) WHILE watching live training logs (progress.jsonl / trainer stdout), to judge continue vs raise-concern; (3) WHEN a method underperforms, to attribute the cause — `misconfigured_run` (re-run, don't kill the idea) vs `method_failure` vs `infeasible_under_budget` — BEFORE retiring the idea. NOT for plain SFT/supervised-loss debugging, and NOT for offline benchmark/eval scoring unrelated to training-run health."
 category: rl-posttraining-run-diagnosis
 version: "1.1"
 created_at: "2026-06-02T00:00:00+00:00"
@@ -38,7 +38,7 @@ pattern-match a single noisy log line.
   budget and then masquerades as a dead idea.
 - **While the run is live (monitoring-time):** map the streaming  `progress.jsonl` / trainer stdout onto the signatures and decide continue vs
   raise-concern.
-- **When judging an underperformance / no-go (verdict-time):** before retiring
+- **When judging an underperformance (verdict-time):** before retiring
   or pivoting away from the METHOD, confirm the executed run was fair using the
   same signatures; classify `misconfigured_run` / `method_failure` /
   `infeasible_under_budget`. A `misconfigured_run` is re-run with the named

@@ -5,11 +5,7 @@
   "required": [
     "project_done",
     "reason",
-    "waiting",
-    "waiting_reason",
-    "waiting_contract",
-    "new_tasks",
-    "checklist_ops"
+    "new_tasks"
   ],
   "properties": {
     "project_done": {
@@ -19,222 +15,35 @@
       "type": "string",
       "minLength": 1
     },
-    "waiting": {
-      "type": "boolean"
-    },
-    "waiting_reason": {
-      "type": "string"
-    },
-    "waiting_contract": {
-      "type": ["object", "null"],
-      "additionalProperties": false,
-      "description": "Required when waiting=true. Planner-authored durable identity and recheck policy for the external blocker. Use null when waiting=false. Keep blocker_fingerprint and recheck_token byte-identical while the observed condition is unchanged; change recheck_token only after concrete current evidence changes.",
-      "required": [
-        "blocker_fingerprint",
-        "recheck_condition",
-        "recheck_token",
-        "stage_reconciliation_required",
-        "operator_action_required",
-        "allow_verification_probe",
-        "recheck_after_seconds",
-        "wait_mode",
-        "wake_on",
-        "watched_paths",
-        "expires_at"
-      ],
-      "properties": {
-        "blocker_fingerprint": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 200,
-          "description": "Stable Planner-authored identifier for this blocker, independent of prose wording."
-        },
-        "recheck_condition": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 1600,
-          "description": "Concrete external observation that would justify rechecking."
-        },
-        "recheck_token": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 200,
-          "description": "Stable token for the currently observed blocker state. Reuse it until concrete evidence changes."
-        },
-        "stage_reconciliation_required": {
-          "type": "boolean",
-          "description": "Set true only when current_stage itself prevents the prerequisite work that must happen next. This asks the Manager, the sole stage authority, to decide HOLD versus ROLLBACK; it does not authorize Planner to edit stage state."
-        },
-        "operator_action_required": {
-          "type": "boolean",
-          "description": "Set true when only fresh operator input can change the blocker, including credentials, scope choices, or authorization for an additional mission/thesis. Manager cannot create or expand operator authorization."
-        },
-        "allow_verification_probe": {
-          "type": "boolean",
-          "description": "Whether one verification probe is justified for this exact fingerprint/token pair."
-        },
-        "recheck_after_seconds": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 604800,
-          "description": "Minimum time after first observing this fingerprint/token before its one allowed probe."
-        },
-        "wait_mode": {
-          "type": "string",
-          "enum": ["poll", "event"],
-          "description": "Use event only when a listed durable wake source can change; legacy/general waits use poll."
-        },
-        "wake_on": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "enum": [
-              "authorization",
-              "subagent_terminal",
-              "artifact_revision",
-              "manager_stage"
-            ]
-          }
-        },
-        "watched_paths": {
-          "type": "array",
-          "maxItems": 16,
-          "items": {"type": "string", "minLength": 1, "maxLength": 500},
-          "description": "Project-relative files or directories whose revision can wake artifact_revision waits."
-        },
-        "expires_at": {
-          "type": "number",
-          "minimum": 0,
-          "description": "Unix timestamp that wakes the wait; 0 means no expiry."
-        }
-      }
-    },
     "new_tasks": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "title",
-          "impact_score",
-          "impact_area",
-          "evidence",
-          "acceptance_check",
-          "non_goals",
-          "context_refs",
-          "scope",
-          "stage_closing",
-          "objective",
           "key",
           "deps",
-          "authorization_id",
-          "authorization_action"
+          "title",
+          "objective"
         ],
         "properties": {
           "key": {
-            "type": ["string", "null"],
-            "description": "OPTIONAL local reference name for this task, unique within this new_tasks batch (e.g. 'run-s0', 'analysis'). Other tasks in the same batch reference it via their deps. Use null for flat (non-DAG) tasks."
+            "type": "string"
           },
           "deps": {
-            "type": ["array", "null"],
+            "type": "array",
             "items": {
               "type": "string"
-            },
-            "description": "OPTIONAL local keys (from sibling tasks' key fields, same batch only) that must complete before this task runs. Use null or [] for parallel or independent tasks."
-          },
-          "authorization_id": {
-            "type": ["string", "null"],
-            "maxLength": 200,
-            "description": "Manager-issued non-secret authorization id from the current authorization block, or null. Never invent an id."
-          },
-          "authorization_action": {
-            "type": ["string", "null"],
-            "enum": ["validator_repair", null],
-            "description": "The single authorized action this task consumes, or null."
+            }
           },
           "title": {
             "type": "string",
             "minLength": 1
           },
-          "impact_score": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 5
-          },
-          "impact_area": {
-            "type": "string",
-            "enum": [
-              "correctness",
-              "security",
-              "operator_ux",
-              "performance",
-              "reliability",
-              "integration",
-              "requirement_gap",
-              "discovery"
-            ]
-          },
-          "evidence": {
-            "type": "string",
-            "minLength": 1
-          },
-          "acceptance_check": {
-            "type": "string",
-            "minLength": 1,
-            "description": "One decisive command, observation, or artifact check that completes this mission."
-          },
-          "non_goals": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "Work explicitly outside this mission so one fresh session does not absorb adjacent stages."
-          },
-          "context_refs": {
-            "type": "array",
-            "description": "Exact artifacts the Engineer should open instead of rediscovering the whole project.",
-            "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["kind", "ref", "why", "content_hash"],
-              "properties": {
-                "kind": {"type": "string"},
-                "ref": {"type": "string", "minLength": 1},
-                "why": {"type": "string"},
-                "content_hash": {"type": "string"}
-              }
-            }
-          },
-          "scope": {
-            "type": "string",
-            "enum": [
-              "bounded",
-              "final_submission"
-            ]
-          },
-          "stage_closing": {
-            "type": "boolean",
-            "description": "Set true only when this mission is intended to satisfy the complete current-stage checklist and hand a per-item independent Reviewer certification to the Manager. The harness disables Engineer self-review for this task."
-          },
           "objective": {
             "type": "string",
             "minLength": 1
           }
-        }
-      }
-    },
-    "checklist_ops": {
-      "type": ["array", "null"],
-      "description": "OPTIONAL — you OWN the per-stage checklist. It is seeded from the framework reference; emit ops to tailor it to THIS task (add a missing item, modify an over/under-strict one, remove an irrelevant one, or seed a stage from the reference before editing). Stage-keyed only. The Reviewer cannot edit the checklist — it reports `checklist_feedback`; consume that and act here. Use null or [] when the current checklist is already right.",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["op", "stage", "id", "statement", "evidence_hint"],
-        "properties": {
-          "op": { "type": "string", "enum": ["seed", "add", "modify", "remove"] },
-          "stage": { "type": "string", "description": "the stage this item belongs to (e.g. 'research', 'simulate')" },
-          "id": { "type": "string", "description": "stable item id, e.g. 'simulate.seeds'; may be empty only for op=seed" },
-          "statement": { "type": ["string", "null"], "maxLength": 1600, "description": "the checklist item text (required for add); null when not setting it" },
-          "evidence_hint": { "type": ["string", "null"], "maxLength": 1600, "description": "where the reviewer looks for evidence; null when not setting it" }
         }
       }
     }

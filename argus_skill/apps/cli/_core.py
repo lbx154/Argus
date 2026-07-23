@@ -951,12 +951,13 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
     from ...skills.builtins import (
         DEFAULT_PROJECT_BUILTIN_SKILLS_DIR,
         builtin_skill_source_path,
-        remove_unmodified_inactive_vertical_skill_seeds,
+        remove_unmodified_inactive_context_skill_seeds,
         seed_builtin_skills,
-        seed_builtin_skills_for_vertical,
+        seed_builtin_skills_for_context,
     )
     from ...skills.vertical_select import (
         VerticalResolutionError,
+        resolve_domain_if_decided,
         resolve_vertical_if_decided,
     )
 
@@ -971,16 +972,21 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
     # Before Manager has decided, only cross-vertical builtins are safe to seed.
     try:
         vertical = resolve_vertical_if_decided(target.parent)
+        domain = resolve_domain_if_decided(target.parent)
     except VerticalResolutionError as exc:
         sys.stderr.write(f"argus-skill: cannot resolve target vertical: {exc}\n")
         return 2
-    removed = remove_unmodified_inactive_vertical_skill_seeds(
+    removed = remove_unmodified_inactive_context_skill_seeds(
         target,
         vertical,
+        active_domain=domain,
     )
     if vertical is not None:
-        result = seed_builtin_skills_for_vertical(
-            target, vertical, overwrite=bool(args.apply)
+        result = seed_builtin_skills_for_context(
+            target,
+            vertical,
+            domain=domain,
+            overwrite=bool(args.apply),
         )
     else:
         result = seed_builtin_skills(target, overwrite=bool(args.apply))
@@ -996,12 +1002,13 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
     print(f"argus-skill: exported built-in skills to {target}")
     print(f"  source : {source}")
     print(f"  vertical: {vertical or 'none (common skills only)'}")
+    print(f"  domain : {domain or 'none'}")
     print(
         f"  files  : {written} {action}, {skipped} preserved, "
         f"{len(result)} total"
     )
     if removed:
-        print(f"  pruned : {len(removed)} inactive unmodified vertical seed(s)")
+        print(f"  pruned : {len(removed)} inactive unmodified context seed(s)")
     if skipped and not args.apply:
         print("  hint   : pass --apply to replace existing copied built-in skill files")
     return 0
@@ -1573,6 +1580,19 @@ def _cmd_status(args: argparse.Namespace) -> int:
     # Both are projections of observable state — surfacing facts the
     # agent already acts on; the harness makes no decision here.
     research_workdir = _resolve_research_workdir(bundle)
+    try:
+        from ...skills.vertical_select import (
+            resolve_domain_if_decided,
+            resolve_vertical_if_decided,
+        )
+
+        active_vertical = resolve_vertical_if_decided(research_workdir)
+        active_domain = resolve_domain_if_decided(research_workdir)
+        if active_vertical:
+            domain_suffix = f" · domain={active_domain}" if active_domain else ""
+            print(f"  pipeline : vertical={active_vertical}{domain_suffix}")
+    except Exception:  # noqa: BLE001 - status projection remains best effort
+        pass
     lifecycle_lines = _render_lifecycle_status_lines(
         research_workdir,
         state_root=Path(bundle.project.root),

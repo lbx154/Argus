@@ -25,7 +25,7 @@ BEFORE the seed constants. It returns:
 
 Write path: :func:`apply_checklist_ops` is the ONLY mutator, invoked by the
 Planner after its verdict is finalized. The Reviewer never writes here — it only
-emits ``checklist_feedback`` for the Planner to act on next cycle.
+reports checklist problems in its ordinary verdict reason.
 
 Fail-open everywhere: a missing/corrupt store reads as empty; a write error
 leaves the store untouched and the planning cycle continues. ``ChecklistItem``

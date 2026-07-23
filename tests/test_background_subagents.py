@@ -238,8 +238,7 @@ def test_advisory_lists_watched_and_offers_wait(tmp_path: Path) -> None:
     assert "Background subagents in flight" in text
     assert "Self-watched and healthy" in text
     assert "train-1" in text
-    assert '"wait_for": "subagent"' in text
-    assert "WAIT_FOR_SUBAGENT:" not in text
+    assert "WAIT_FOR_SUBAGENT: <task_id>" in text
     assert "Needs your attention" not in text
 
 

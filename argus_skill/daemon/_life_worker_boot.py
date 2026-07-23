@@ -373,11 +373,17 @@ class LifeWorkerBootMixin:
                 from ..manager.front_door import (
                     require_manager_execution_task,
                 )
-                from ..skills.vertical_select import _persisted_vertical
+                from ..skills.vertical_select import (
+                    _persisted_domain,
+                    _persisted_vertical,
+                )
 
                 decision = mgr.decide_vertical(source_objective)
                 execution_task = require_manager_execution_task(decision)
                 prior_vertical = _persisted_vertical(
+                    rf_state.cfg.project_workdir or rf_state.runtime_root
+                )
+                prior_domain = _persisted_domain(
                     rf_state.cfg.project_workdir or rf_state.runtime_root
                 )
                 prior_handoff = _read_manager_handoff_identity(rf_state.runtime_root)
@@ -386,13 +392,17 @@ class LifeWorkerBootMixin:
                         rf_state.runtime_root,
                         objective=expected_state.objective,
                         vertical=prior_vertical,
+                        domain=prior_domain or "",
                     )
                 prior_vertical_name = str(prior_vertical or "").strip()
                 next_vertical_name = str(getattr(decision, "vertical", "") or "").strip()
+                next_domain_name = str(getattr(decision, "domain", "") or "").strip()
                 replacement_intent = _daemon_objective_requires_stage_reset(
                     project_root=rf_state.cfg.project_workdir or rf_state.runtime_root,
                     prior_vertical=prior_vertical_name,
                     next_vertical=next_vertical_name,
+                    prior_domain=str(prior_domain or ""),
+                    next_domain=next_domain_name,
                     prior_handoff=prior_handoff,
                     expected_objective=expected_state.objective,
                     source_objective=source_objective,
@@ -451,6 +461,7 @@ class LifeWorkerBootMixin:
                         "objective": source_objective,
                         "execution_task": execution_task,
                         "vertical": getattr(division, "vertical", ""),
+                        "domain": getattr(division, "domain", ""),
                         "kind": getattr(division, "kind", ""),
                         "stages": list(getattr(division, "stages", []) or []),
                         "text": "manager completed daemon objective handoff",
@@ -476,6 +487,7 @@ class LifeWorkerBootMixin:
                         rf_state.runtime_root,
                         objective=execution_task,
                         vertical=str(getattr(division, "vertical", "") or ""),
+                        domain=str(getattr(division, "domain", "") or ""),
                         continuous_generation=expected_state.generation + 1,
                         intent_id=intent_id,
                     )

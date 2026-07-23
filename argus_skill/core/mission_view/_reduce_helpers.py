@@ -164,22 +164,6 @@ def _role_work(
     ]
 
 
-def _capture_decision_context(
-    view: dict[str, Any],
-    event: Mapping[str, Any],
-) -> None:
-    context = view.setdefault("decision_context", {})
-    for key in (
-        "planner_report",
-        "research_result",
-        "checklist_feedback",
-        "step_back",
-    ):
-        value = event.get(key)
-        if isinstance(value, Mapping):
-            context[key] = dict(value)
-
-
 def _visible_role_work_progress(
     event: Mapping[str, Any],
     *,

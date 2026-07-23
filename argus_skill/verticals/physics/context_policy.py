@@ -94,7 +94,7 @@ def build_context_digest(project_root: object) -> str:
         "## Decision-bearing summaries",
         _summarize_json(root, "ROUTE_CLOSURE_STATUS.json",
                         ("route_status", "manuscript_completion_authorized",
-                         "diagnostic_method_win_supported", "original_research_no_go_manuscript_supported")),
+                         "diagnostic_method_win_supported")),
         _summarize_json(root, "research/TIER_STATE.json", ("current_tier", "start_tier")),
         _summarize_json(root, "research/NEXT_ROLE_DIRECTIVE.json",
                         ("responsible_role", "required_action", "expected_next_stage")),

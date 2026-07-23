@@ -496,10 +496,10 @@ def render_background_subagents_advisory(
             "independent work that does NOT depend on its result — prepare "
             "downstream steps, repair tooling/evaluators, or scaffold artifacts. "
             "If the ONLY remaining work is to wait for one of these to reach its "
-            "next checkpoint or finish, do not spin another full round: set the "
-            "internal Engineer control file to"
+            "next checkpoint or finish, do not spin another full round. End your "
+            "response with"
         )
-        lines.append('    "wait_for": "subagent", "wait_id": "<task_id>"')
+        lines.append("    WAIT_FOR_SUBAGENT: <task_id>")
         lines.append(
             "and the loop will pause on that subagent's "
             "supervisor cadence (no wasted round) and resume you at its next "

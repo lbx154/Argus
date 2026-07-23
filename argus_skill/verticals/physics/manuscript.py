@@ -1008,10 +1008,8 @@ def _check_figures_not_at_end(tex: str, fail) -> None:
 def _verify_original_research_mode(project_root: object) -> list[str]:
     """In original-research-required mode, refuse a downgrade terminal.
 
-    A diagnostic benchmark / reproduction paper_type may be an INTERMEDIATE result
-    but NOT a success terminal: completion requires either an original-research type
-    or a justified ``ORIGINAL_RESEARCH_NO_GO.md`` (after the Novelty-Seeking Loop /
-    <=2 pivots). Empty when not in that mode. Prefixed ``"[paper] "``.
+    A diagnostic benchmark / reproduction paper_type may be an intermediate result
+    but not a success terminal. Empty when not in that mode. Prefixed ``"[paper] "``.
     """
     try:
         from .mode_config import is_downgrade_type, is_original_research_required
@@ -1020,9 +1018,6 @@ def _verify_original_research_mode(project_root: object) -> list[str]:
     if not is_original_research_required():
         return []
     root = Path(str(project_root or "."))
-    if (root / "ORIGINAL_RESEARCH_NO_GO.md").is_file() or \
-       (root / "research" / "ORIGINAL_RESEARCH_NO_GO.md").is_file():
-        return []
     classifier = root / "PAPER_TYPE_CLASSIFIER.json"
     if not classifier.is_file():
         classifier = root / "research" / "PAPER_TYPE_CLASSIFIER.json"
@@ -1035,9 +1030,8 @@ def _verify_original_research_mode(project_root: object) -> list[str]:
         return [
             "[paper] original-research-required mode: paper_type "
             f"'{paper_type}' is a downgrade type and cannot be the success terminal. "
-            "Run the Novelty-Seeking Loop and pivot to an original result, or emit "
-            "ORIGINAL_RESEARCH_NO_GO.md (after <=2 pivots) explaining why sufficient "
-            "novelty was not found. Do NOT complete as a diagnostic benchmark."
+            "Run the Novelty-Seeking Loop and pursue an original result. "
+            "Do not complete as a diagnostic benchmark."
         ]
     return []
 
@@ -1085,7 +1079,7 @@ def manuscript_review_items() -> str:
         "sources marked NEEDS_VERIFICATION (only in REVIEW.md or the Supplement), never "
         "fabricated into the reference list. "
         "(4) a CLAIMS.csv ledger binding every headline claim to equation/figure/table/"
-        "script/dataset/citation with a supported|partial|no-go|inconclusive|unknown "
+        "script/dataset/citation with a supported|partial|inconclusive|unknown "
         "status and a boundary; CLAIMS.csv MUST use exactly this 8-column header (no "
         "synonyms; 'claim' and 'evidence' are rejected and must be renamed): "
         "claim_id,claim_text,claim_type,evidence_type,evidence_pointer,status,boundary,reviewer_notes. "

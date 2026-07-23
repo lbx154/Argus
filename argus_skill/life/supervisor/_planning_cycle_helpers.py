@@ -15,50 +15,22 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...core.research_direction import normalize_research_direction
 from ..memory import BacklogItem
 
 
 def _revision_context_refs(revision_request: dict[str, Any]) -> list[dict[str, str]]:
-    report = revision_request.get("planner_report")
-    report = report if isinstance(report, dict) else {}
-    raw_refs = report.get("evidence_files")
-    if not isinstance(raw_refs, list):
-        return []
-    refs: list[dict[str, str]] = []
-    for raw in raw_refs[:8]:
-        if not isinstance(raw, dict):
-            continue
-        path = str(raw.get("path") or "").strip()
-        if not path:
-            continue
-        refs.append({
-            "kind": "artifact",
-            "ref": path[:400],
-            "why": str(raw.get("why") or "").strip()[:600],
-            "content_hash": str(raw.get("content_hash") or "").strip()[:128],
-        })
-    return refs
+    _ = revision_request
+    return []
 
 
 def _revision_reason(revision_request: dict[str, Any]) -> str:
-    report = revision_request.get("planner_report")
-    report = report if isinstance(report, dict) else {}
-    return str(
-        revision_request.get("review_reason")
-        or revision_request.get("reason")
-        or revision_request.get("stop_reason")
-        or report.get("plan_signal_reason")
-        or "Reviewer requested reconsideration of the current plan."
-    ).strip()
+    return str(revision_request.get("review_reason") or "").strip()
 
 
 def _render_revision_request(
     revision_request: dict[str, Any],
     active_items: list[BacklogItem],
 ) -> str:
-    report = revision_request.get("planner_report")
-    report = report if isinstance(report, dict) else {}
     lines = [
         "DYNAMIC PLAN REVISION REQUEST (Reviewer-authored, L4 decides):",
         "- reason: " + (
@@ -92,9 +64,8 @@ def _research_project_done_issue(
     project_root: object,
     journal_entries: list[Any],
 ) -> str:
-    """Require a current-target Reviewer completion before Planner success."""
+    """Require a current-target final Reviewer ``done`` before Planner success."""
     from ...core.research_contract import (
-        adapt_legacy_research_result_payload,
         resolve_research_target_contract,
         resolve_research_target_set_at,
     )
@@ -119,97 +90,14 @@ def _research_project_done_issue(
         extra = getattr(entry, "extra", None)
         if not isinstance(extra, dict):
             continue
-        outcome = extra.get("outcome")
-        if not isinstance(outcome, dict):
-            outcome = {}
-        scientific_decision = normalize_research_direction(
-            extra.get("scientific_decision")
-            or outcome.get("scientific_decision")
-            or ""
-        )
-        if scientific_decision in {"redirect", "stop", "uncertain"}:
-            return f"latest_scientific_decision_{scientific_decision}"
-        if scientific_decision == "continue":
-            break
+        if (
+            str(extra.get("scope") or "").strip().lower() == "final_submission"
+            and extra.get("final_submission_certified") is True
+        ):
+            return ""
     if target_level is None:
         return ""
-    from ...core.research_contract import research_completion_issue
-
-    latest_issue = ""
-    for entry in reversed(journal_entries):
-        if str(getattr(entry, "kind", "") or "") != "mission_complete":
-            continue
-        try:
-            entry_ts = float(getattr(entry, "ts", 0.0) or 0.0)
-        except (TypeError, ValueError):
-            continue
-        if entry_ts < target_set_at:
-            break
-        extra = getattr(entry, "extra", None)
-        if (
-            isinstance(extra, dict)
-            and str(extra.get("scope") or "").strip().lower() == "bounded"
-        ):
-            continue
-        result = adapt_legacy_research_result_payload(extra)
-        if result is None:
-            continue
-        issue = research_completion_issue(
-            result,
-            research_target_level=target_level,
-            scope=str(extra.get("scope") or ""),
-        )
-        if not issue:
-            return ""
-        if not latest_issue:
-            latest_issue = issue
-    if latest_issue:
-        return f"research_target_not_met:{latest_issue}"
     return f"missing_{target_level}_reviewer_certification"
-
-
-def _staged_goal_completion_issue(project_root: object) -> str:
-    """Require the ordinary Reviewer/Manager final-stage certificate."""
-    from ...skills.stage_machine import current_stage
-    from ...skills.vertical_select import (
-        resolve_vertical,
-        vertical_has_current_completion_certificate,
-    )
-    from ...verticals._base import (
-        load_vertical,
-        vertical_checklist_stage_order,
-        vertical_completion_contract_version,
-        vertical_completion_gate,
-    )
-
-    try:
-        vertical = resolve_vertical(project_root)
-        module = load_vertical(vertical, project_root=project_root)
-        if vertical_completion_gate(module) != "none":
-            return ""
-        stages = vertical_checklist_stage_order(module)
-        if not stages or vertical_has_current_completion_certificate(
-            project_root,
-            vertical,
-        ):
-            return ""
-        contract_version = vertical_completion_contract_version(module)
-        contract_suffix = ""
-        if contract_version > 0:
-            from ...skills.stage_machine import completion_contract_fingerprint
-
-            contract_sha256 = completion_contract_fingerprint(
-                project_root,
-                stages[-1],
-                version=contract_version,
-            )
-            contract_suffix = f", contract=v{contract_version}:{contract_sha256}"
-        return (
-            f"{vertical} final-stage Goal Gate is not Reviewer-certified "
-            f"(current_stage={current_stage(project_root)}{contract_suffix})"
-        )
-    except Exception:  # noqa: BLE001 — unresolved completion never means done
-        return "staged Goal Gate could not be resolved"
 
 
 class _PlanCycleState:
@@ -254,7 +142,6 @@ __all__ = [
     "_PlanCycleState",
     "_render_revision_request",
     "_research_project_done_issue",
-    "_staged_goal_completion_issue",
     "_revision_context_refs",
     "_revision_reason",
 ]

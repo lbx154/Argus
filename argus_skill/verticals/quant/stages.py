@@ -54,8 +54,7 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         ("Factor hypotheses present", "test -s research/FACTOR_HYPOTHESES.json"),
         (
             "Hypothesis priors recorded",
-            "test -s research/HYPOTHESIS_PRIORS.json "
-            "|| test -s research/GO_NO_GO.json",
+            "test -s research/HYPOTHESIS_PRIORS.json",
         ),
         ("Prior/known factors identified",
          "test -f research/PRIOR_FACTORS.tsv || test -s research/PRIOR_FACTORS.tsv"),
@@ -127,7 +126,6 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
         [
             "research/FACTOR_HYPOTHESES.json",
             "research/HYPOTHESIS_PRIORS.json",
-            "research/GO_NO_GO.json",
             "research/PRIOR_FACTORS.tsv",
         ],
     ),
@@ -262,7 +260,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "each hypothesis are fixed before testing, so a later result cannot "
                 "retro-justify a factor that had no prior thesis."
             ),
-            evidence_hint="research/HYPOTHESIS_PRIORS.json (legacy GO_NO_GO.json is readable)",
+            evidence_hint="research/HYPOTHESIS_PRIORS.json",
         ),
         ChecklistItem(
             id="research.prior_art",
@@ -535,7 +533,6 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
 # never weaken them. Ported from the original domain's PROTECTED_ITEM_IDS.
 PROTECTED_ITEM_IDS: frozenset[str] = frozenset(
     {
-        "research.go_no_go",
         "plan.data_pit_provenance",
         "plan.cost_model_predeclared",
         "benchmark.no_lookahead",
@@ -569,7 +566,7 @@ def role_banner(_role: str = "engineer") -> str:
         "factors were selected and WHY (economic mechanism + evidence), NOT a pile\n"
         "of backtests and NOT a single numeric metric. A high backtest number\n"
         "never overrides an integrity failure. Non-negotiable integrity floor:\n"
-        "state the economic mechanism and a GO/NO-GO BEFORE testing; fix the\n"
+        "state the economic mechanism and rejection conditions BEFORE testing; fix the\n"
         "eval protocol and costs in advance; keep data point-in-time and the\n"
         "universe survivorship-bias-free with no look-ahead; log EVERY trial\n"
         "(including failures) to the search ledger via the BacktestExecutor;\n"

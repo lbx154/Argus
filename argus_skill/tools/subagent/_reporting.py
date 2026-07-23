@@ -125,7 +125,7 @@ def _supervisor_summarize_report(task_id: str, event: str, task_data: dict[str, 
         "   flag. If you stopped for a quality issue (truncation/clipping, reward\n"
         "   collapse, degenerate outputs), the next step must address that root cause\n"
         "   with a named change — do not default to rerunning unchanged and\n"
-        "   do not stop at 'mark it no-go'. If the run is healthy/complete, say how\n"
+        "   do not stop at 'mark it failed'. If the run is healthy/complete, say how\n"
         "   to use it.\n"
         "5. Final health verdict (YOU are the authority on run health): end with a\n"
         "   line `Final health verdict: usable | unusable | inconclusive` plus a\n"
@@ -135,7 +135,7 @@ def _supervisor_summarize_report(task_id: str, event: str, task_data: dict[str, 
         "   reward dip) is ADVISORY ONLY — it does NOT override your judgement. If\n"
         "   the trend is actually healthy and the run produced usable signal,\n"
         "   call it `usable` and tell the engineer NOT to discard it or relaunch an\n"
-        "   equivalent smoke just because the mechanical gate said no-go.\n"
+        "   equivalent smoke just because a mechanical gate rejected it.\n"
         "Keep it under 320 words. Be direct and actionable."
     )
 
@@ -184,7 +184,7 @@ def _reply_back_block(task_id: str, event: str) -> str:
     )
     return (
         "\n\n**Reply to the supervisor (required)**: do NOT just agree and mark the "
-        "run no-go. Actually diagnose the root cause and decide a concrete fix — "
+        "run failure. Actually diagnose the root cause and decide a concrete fix — "
         "name the specific hyperparameter(s) or code/reward/prompt change you will "
         "make next, or push back with reasoning if you think the run was fine. Send "
         "that back so the discussion is two-way and converges on a real fix; do not "

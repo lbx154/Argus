@@ -18,7 +18,6 @@ from .round_state import RoundControl, RoundLoopState, control_continue_loop, co
 
 if TYPE_CHECKING:
     from .runner import SupervisedConfig
-    from .self_review import EngineerCompletionDecision
 
 
 class RoundWaitsMixin:
@@ -30,31 +29,12 @@ class RoundWaitsMixin:
         round_index: int,
         supervised_config: "SupervisedConfig",
         raw_engineer_message: str,
-        completion_decision: "EngineerCompletionDecision | None",
         workdir: Path,
         state: RoundLoopState,
         on_event: Callable[[dict], None] | None,
     ) -> RoundControl:
-        structured_wait = bool(
-            completion_decision is not None
-            and completion_decision.wait_control_present
-        )
-        wait_kind = (
-            completion_decision.wait_for if completion_decision is not None else "none"
-        )
-        wait_id = (
-            completion_decision.wait_id if completion_decision is not None else ""
-        )
         if supervised_config.background_subagent_advisory:
-            wait_task_id = (
-                wait_id
-                if wait_kind == "subagent"
-                else (
-                    parse_wait_sentinel(raw_engineer_message)
-                    if not structured_wait
-                    else None
-                )
-            )
+            wait_task_id = parse_wait_sentinel(raw_engineer_message)
             if wait_task_id and find_waitable_subagent(workdir, wait_task_id) is not None:
                 # Call through the ``runner`` module attribute (not a static
                 # imported name) so tests that monkeypatch
@@ -77,15 +57,7 @@ class RoundWaitsMixin:
                 # the pre-wait streak and re-assess fresh next round.
                 return control_continue_loop()
 
-        external_work_id = (
-            wait_id
-            if wait_kind == "external_work"
-            else (
-                parse_external_wait_sentinel(raw_engineer_message)
-                if not structured_wait
-                else None
-            )
-        )
+        external_work_id = parse_external_wait_sentinel(raw_engineer_message)
         external_work = (
             inspect_external_work(workdir, external_work_id) if external_work_id else None
         )

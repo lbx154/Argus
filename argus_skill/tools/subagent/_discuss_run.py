@@ -93,7 +93,7 @@ def _supervisor_discuss_with_usage(
         "contrast, or warn that their lr is still too high). 'Resolved' means you\n"
         "and the engineer have converged on a CONCRETE fix (a named parameter/code\n"
         "change), not merely that you both agree the run was bad — do not accept a\n"
-        "bare 'mark it no-go' with no forward fix as resolution. The run stays\n"
+        "bare 'stop here' with no forward fix as resolution. The run stays\n"
         "stopped either way; relaunching is the engineer's call.\n\n"
         "Respond with EXACTLY one JSON object:\n"
         '{"resolved": true or false,\n'
@@ -171,14 +171,14 @@ def _run_discussion(
             f"I blocked this run BEFORE launch on a config preflight — it is "
             f"mechanically unlearnable as configured. {concern} Reply with the "
             "specific parameter change you'll make to fix it (or a reasoned "
-            "pushback) — don't just agree it's no-go. Nothing launches until we "
+            "pushback) — don't just agree to stop. Nothing launches until we "
             "agree on a concrete fix here."
         ).strip()
     else:
         opening = (
             f"I stopped this run. {concern} Reply with your root-cause diagnosis and the "
             "specific parameter/code change you'll make to fix it (or a reasoned pushback) "
-            "— don't just agree it's no-go. Nothing resumes until we agree on a concrete "
+            "— don't just agree to stop. Nothing resumes until we agree on a concrete "
             "fix here."
         ).strip()
     _append_discussion(task_id, "supervisor", opening)

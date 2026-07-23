@@ -277,34 +277,6 @@ def test_validator_repair_cannot_mutate_frozen_scientific_evidence(tmp_path) -> 
     assert "frozen evidence changed" in store.authorization_events()[-1]["guard_errors"]
 
 
-def test_validator_repair_requires_clean_reviewer_failure_source(tmp_path) -> None:
-    memory, workdir, store, _evidence, validator, item = _authorized_repair(tmp_path)
-    runner = _RepairRunner(
-        validator,
-        "def test_contract(): assert True\n",
-        failure_source="provenance_binding_defect",
-    )
-    supervisor = LifeSupervisor(
-        memory=memory,
-        runner=runner,
-        sink=_Sink(),
-        config=LifeSupervisorConfig(
-            continuous=True,
-            continuous_objective="repair terminal gate",
-            project_worktree=workdir,
-            artifact_root=workdir,
-        ),
-    )
-
-    result = supervisor.tick()
-
-    assert result is not None and result["success"] is False
-    assert result["status"] == "error"
-    stored = next(row for row in memory.backlog.all() if row.id == item.id)
-    assert stored.status == "failed"
-    assert store.authorization_events()[-1]["status"] == "rejected"
-
-
 def test_supervisor_recovers_closed_repair_without_rerunning_acceptance(
     tmp_path,
 ) -> None:

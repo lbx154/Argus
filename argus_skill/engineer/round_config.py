@@ -222,16 +222,5 @@ class SupervisedConfig:
     background_subagent_advisory: bool = field(
         default_factory=lambda: _env_bool(_BG_SUBAGENT_ADVISORY_ENV, True)
     )
-    # The Engineer may explicitly waive independent review after decisive
-    # self-verification. Missing/malformed waivers fail closed to Reviewer.
-    allow_engineer_self_review: bool = False
-    # When a self-approved Engineer requests reusable skill maintenance, resume
-    # that exact provider thread for one bounded create/update continuation.
-    allow_engineer_skill_maintenance: bool = False
-    # Optional sequential-learning contract. The Engineer still authors the
-    # skill in its resumed session; the harness only ensures the requested
-    # create/update continuation is not accidentally omitted.
-    required_skill_action: str = ""
-    required_skill_name: str = ""
     # Retained only for source compatibility with older callers.
     review_deferral_limit: int = 0

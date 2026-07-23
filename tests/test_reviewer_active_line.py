@@ -1,7 +1,7 @@
-"""Direct checkpoint editing plus legacy checkpoint parsing compatibility."""
+"""Direct checkpoint editing and minimal verdict parsing."""
 from __future__ import annotations
 
-from argus_skill.reviewer import Reviewer, _parse_checkpoint, parse_decision_text
+from argus_skill.reviewer import Reviewer, parse_decision_text
 
 
 def _prompt(checkpoint_path: str = "/tmp/project/CHECKPOINT.md") -> str:
@@ -37,20 +37,6 @@ def test_checkpoint_state_is_not_copied_into_the_prompt():
     assert "tried_and_failed" not in p
 
 
-def test_legacy_checkpoint_parser_remains_backward_compatible():
-    parsed = {"checkpoint": {
-        "goal": "g",
-        "active_line": {"desc": "co-tuned residual reshape",
-                        "branch_or_path": "active/a286",
-                        "rounds_active": 3, "note": "next: scale gate"},
-        "next_step": "continue active line from active/a286",
-    }}
-    raw = _parse_checkpoint(parsed)
-    assert raw["active_line"]["desc"] == "co-tuned residual reshape"
-    assert raw["active_line"]["branch_or_path"] == "active/a286"
-    assert raw["active_line"]["rounds_active"] == 3
-
-
 def test_reviewer_output_without_confidence_parses_into_verdict():
     # The reviewer no longer self-reports a confidence. A structured output that
     # omits ``confidence`` entirely must still parse into a full verdict — the
@@ -58,8 +44,7 @@ def test_reviewer_output_without_confidence_parses_into_verdict():
     raw = (
         '{"status": "done", "reason": "objective met with verified evidence", '
         '"next_action": "No further action needed.", '
-        '"round_summary_markdown": "# Review\\n\\n- all checks passed\\n", '
-        '"completion_summary_markdown": "Mission complete."}'
+        '"operator_question": null}'
     )
     decision = parse_decision_text(raw)
     assert decision is not None

@@ -188,23 +188,18 @@ def test_operator_abort_is_terminal_but_not_failed(tmp_path) -> None:
     assert completed["failure_reason"] == ""
 
 
-def test_completed_no_go_keeps_stage_and_science_independent() -> None:
+def test_completed_review_and_stage_are_independent() -> None:
     outcome = mission_outcome_dimensions(
         status="done",
         success=True,
         review_status="done",
         stage_transition={"action": "hold"},
-        scientific_decision="no_go",
-        failure_source="scientific_evidence_failure",
     )
 
     assert outcome == {
         "execution_status": "completed",
         "review_status": "done",
         "stage_certification": "not_certified",
-        "scientific_decision": "stop",
-        "failure_source": "scientific_evidence_failure",
-        "failure_layer": "",
         "interruption_kind": "none",
         "resumable": False,
     }

@@ -275,7 +275,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "may support or refute that exact candidate. A correct but slower/noisy "
                 "candidate uses the remaining Reviewer-controlled Try budget (normally "
                 "three rounds) for materially distinct engineering. The stage passes only for a retained "
-                "candidate; an exhausted direction replans instead of advancing a no-go "
+                "candidate; an exhausted direction replans instead of advancing a failed "
                 "through validate/report."
             ),
             evidence_hint=(

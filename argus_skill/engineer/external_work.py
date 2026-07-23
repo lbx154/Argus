@@ -353,8 +353,8 @@ def render_external_work_advisory(
         lines.append(f"- `{status.work_id}`: {status.state.value}{suffix}")
     if any(status.waitable for status in statuses):
         lines.extend([
-            "If all remaining work depends on one RUNNING_HEALTHY item, set the internal Engineer control file to",
-            '    "wait_for": "external_work", "wait_id": "<work_id>"',
+            "If all remaining work depends on one RUNNING_HEALTHY item, end your response with",
+            "    WAIT_FOR_EXTERNAL_WORK: <work_id>",
             "Argus will pause progress clocks for one declared cadence. File growth alone never counts as progress.",
         ])
     return "\n".join(lines)

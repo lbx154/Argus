@@ -14,7 +14,6 @@ import time
 from pathlib import Path
 from typing import Any, Mapping
 
-from ..core.models import canonical_planner_report
 
 CONTEXT_PACKET_VERSION = 2
 HANDOFF_DIRNAME = "handoffs"
@@ -149,7 +148,6 @@ def record_engineer_handoff(
     round_index: int,
     engineer_summary: str,
     checkpoint_path: Path | None,
-    control_path: Path | None = None,
     thread_id: str = "",
 ) -> Path | None:
     if not mission_context_path:
@@ -166,7 +164,6 @@ def record_engineer_handoff(
         "producer_role": "engineer",
         "session_id": str(thread_id or ""),
         "checkpoint": _file_reference(checkpoint_path),
-        "control": _file_reference(control_path),
         "created_at": time.time(),
     }
     path = root / f"round-{max(1, int(round_index)):04d}-engineer.json"
@@ -194,42 +191,14 @@ def record_reviewed_handoff(
     mission_path = Path(mission_context_path)
     root = mission_path.parent
     _ = engineer_summary
-    planner_report = canonical_planner_report(
-        getattr(review, "planner_report", None)
-    )
     review_payload: dict[str, Any] = {
         "status": str(getattr(review, "status", "") or ""),
         "reason": str(getattr(review, "reason", "") or "")[:4000],
         "next_action": str(getattr(review, "next_action", "") or "")[:4000],
-        "progress_class": str(getattr(review, "progress_class", "") or ""),
-        "failure_cause": str(getattr(review, "failure_cause", "") or ""),
-        "failure_layer": str(getattr(review, "failure_layer", "") or ""),
-        "planner_report": planner_report,
-        "harness_control": dict(
-            getattr(review, "harness_control", {}) or {}
-        ),
+        "operator_question": str(
+            getattr(review, "operator_question", "") or ""
+        )[:1000],
     }
-    checklist = getattr(review, "checklist", None)
-    if isinstance(checklist, list) and checklist:
-        review_payload["checklist"] = list(checklist)
-    certification_payload = getattr(review, "certification_payload", None)
-    if isinstance(certification_payload, dict) and certification_payload:
-        review_payload["certification_payload"] = dict(certification_payload)
-        framework_review = certification_payload.get("review")
-        if isinstance(framework_review, dict):
-            for key in (
-                "correctness_status",
-                "summary",
-                "blocking_issues",
-            ):
-                if key in framework_review:
-                    review_payload[key] = framework_review[key]
-            framework_scope = str(framework_review.get("scope") or "").strip()
-            if framework_scope:
-                review_payload["scope"] = framework_scope
-            framework_checklist = framework_review.get("checklist")
-            if isinstance(framework_checklist, list):
-                review_payload["checklist"] = list(framework_checklist)
     payload = {
         "schema_version": CONTEXT_PACKET_VERSION,
         "kind": "round_reviewed_handoff",

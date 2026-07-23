@@ -405,8 +405,6 @@ def test_root_task_id_scopes_manager_stage_call(tmp_path):
         status="continue",
         reason="more evidence needed",
         next_action="continue",
-        checklist=[],
-        planner_report={"headline": "continue", "forward_progress": True},
     )
     manager = Manager(
         project_root=tmp_path,

@@ -417,34 +417,16 @@ def render_reviewer_prompt(
         and not _requires_engineering_audit
     ):
         optimize_banner = ""
-    research_result_instruction = ""
+    research_target_instruction = ""
     _research_target_level = resolve_research_target_level(_proot)
     if _research_target_level is not None:
-        _bounded_research_contract = (
-            "Bounded `done` certifies only this item, not the project target. "
-            "Emit an honest `research_result`; novelty/significance may remain "
-            "unverified unless this objective requires them. Do not use "
-            "`research_incomplete` merely because later project work remains.\n"
-            if (scope or "").strip().lower().replace("-", "_") == "bounded"
-            else ""
-        )
-        research_result_instruction = (
-            "`research_result` is required. Judge its correctness, novelty, "
-            "significance, fidelity, evidence, and limitations independently. "
-            f"Project target: `{_research_target_level}`. "
-            f"{_bounded_research_contract}"
-            "For non-bounded `publishable`/`doctoral` completion require verified "
-            "correctness, verified-new novelty, matching significance, and an "
-            "original terminal result. Known/literature/finite/local-verification "
-            "or generic failure reports are evidence, not success. A novel "
-            "negative/boundary result qualifies only as a standalone venue-level "
-            "thesis; label it `counterexample`/`partial_result`, not "
-            "`structured_failure_report`. Polish never lowers this bar. "
-            "Otherwise end the cycle with `research_incomplete`, "
-            "`paused_no_breakthrough`, or `exhausted_current_methods`. "
-            "For `exploratory`, an independently verified honest failure may finish "
-            "a bounded item, but project completion still requires a decision-relevant "
-            "terminal finding and `scientific_decision=continue`.\n\n"
+        research_target_instruction = (
+            f"Project target: `{_research_target_level}`. Judge correctness, novelty, "
+            "significance, fidelity, evidence, and limitations directly. Explain the "
+            "judgment in `reason`; do not encode it in extra fields. For project-level "
+            "`publishable` or `doctoral` completion, require a verified original result "
+            "at the requested significance. If the current direction cannot meet that "
+            "bar, return `replan_requested`.\n\n"
         )
     # Live search-altitude facts (NO verdict) so the reviewer can SEE the
     # floor history when judging forward_progress — i.e. distinguish "this
@@ -539,20 +521,9 @@ def render_reviewer_prompt(
         f"Current stage: `{stage}`. Earlier stages: {earlier_stages}.\n"
         "If earlier-stage evidence is broken and this mission cannot repair it "
         "within its own scope, return `replan_requested` (never `continue`) and "
-        "name the earliest broken stage in `reason`. Set "
-        "`planner_report.plan_signal` to `reconsider` and point "
-        "`evidence_files` at the defect; the Manager owns rollback. "
+        "name the earliest broken stage and concrete evidence in `reason`; the "
+        "Manager owns rollback. "
         "Never edit `research/PIPELINE_STATE.json`."
-    )
-    # Checklist-feedback channel. The PLANNER owns the per-stage checklist
-    # (it authors/edits it via checklist_ops). The reviewer is FEEDBACK-ONLY:
-    # if the checklist ITSELF is wrong for this task, it reports rather than
-    # working around or silently honoring a broken item.
-    checklist_feedback_block = (
-        "## Checklist ownership\n"
-        "Judge this round against the checklist as written. If the checklist "
-        "itself is wrong, report concise `checklist_feedback`; the Planner owns "
-        "edits. Never write `research/CHECKLISTS.json`."
     )
     operator_text = (
         "\n".join(f"- {line}" for line in operator_messages)
@@ -598,13 +569,8 @@ def render_reviewer_prompt(
             "NOT by itself the engineer's forward progress. If the engineer only "
             "re-polled a healthy self-watched subagent this round, steer "
             "`next_action` to advance independent work that does not depend on "
-            "it — or, if nothing else can proceed, emit "
-            "`control = {\"action\": \"wait_for_subagent\", \"task_id\": "
-            "\"<task_id>\"}` in the FINAL JSON handoff. Do NOT encode this wait "
-            "in prose (`reason` or `next_action`); the "
-            "harness ignores prose for control flow. When you use `control`, keep "
-            "`status = continue` and write `next_action` for what the engineer "
-            "should do AFTER the wait resumes, not another poll instruction.\n"
+            "it. If nothing else can proceed, return `continue` and state what "
+            "evidence the next round should wait for.\n"
         )
     # ``prior_checkpoint`` is accepted only for source compatibility with
     # older callers. The live handoff is the ordinary Markdown file that the
@@ -665,7 +631,7 @@ def render_reviewer_prompt(
     # Byte-stable static policy; every fresh Reviewer receives it in full.
     static = (
         optimize_banner
-        + research_result_instruction
+        + research_target_instruction
         + EFFECTIVE_TASK_CONTRACT
         + "\n\n## Reviewer role\n"
         "Judge the objective against real evidence and its checklist. Bounded "
@@ -689,75 +655,29 @@ def render_reviewer_prompt(
         + final_submission_block
         + rollback_block
         + "\n\n"
-        + checklist_feedback_block
-        + "\n\n"
         + venv_skill_block
         + "\n\n## Final handoff fields\n"
-        "Fill the attached schema. `reason` is the only verdict rationale; "
-        "`next_action` is the only Engineer instruction and is empty for `done`.\n"
-        "- `planner_report`: honest `forward_progress`, `plan_signal`, and file "
-        "pointers only. Use `reconsider` only when new evidence invalidates the "
-        "remaining plan.\n"
-        "- `routing_decision` is shadow-only and never changes control flow. Fill "
-        "the three routing fields only for `continue`; leave them empty otherwise. "
-        "It is independent of status and `plan_signal`, and is most informative "
-        "when both stay `continue`: use `keep_mission` if another Engineer round "
-        "fits this acceptance-bearing mission, or `return_to_planner` if L4 must "
-        "judge boundary, priority, dependencies, or method first. Explain in "
-        "`routing_reason`; give a concrete `routing_handoff` only for return. Never "
-        "decide from token, cost, or round-count thresholds.\n"
+        "Return only `status`, `reason`, `next_action`, and `operator_question`. "
+        "`reason` is the only verdict rationale; `next_action` is the only Engineer "
+        "instruction and is empty for `done`.\n"
         "- Put measured surprises, open questions, and alternative directions "
-        "in CHECKPOINT.md once, not in a second structured reflection.\n"
+        "in CHECKPOINT.md once, not in extra JSON fields.\n"
         "- Every valid measured result must identify the strongest supported "
-        "finding in `reason` and `research_result` when applicable. Preserve clean negative, null, "
+        "finding in `reason`. Preserve clean negative, null, "
         "boundary, and diagnostic evidence, but integrity is a hard constraint, "
         "not scientific value by itself. Do not automatically turn an honest result "
         "into a paper or project completion. First audit implementation adequacy, "
         "construct fidelity, and plausible repairs. An agent-designed weak proxy is "
         "not evidence about the claimed online agent or system. "
         "Recommend publication work only when the result supports a standalone, "
-        "venue-relevant thesis beyond 'we tried and it failed'; otherwise set "
-        "`scientific_decision` to redirect/stop and request a replacement plan. "
+        "venue-relevant thesis beyond 'we tried and it failed'; otherwise return "
+        "`replan_requested`. "
         "There is no fixed retry count: judge further engineering by the diagnosed "
         "cause, expected information gain, and remaining resources.\n"
-        "- `scientific_decision` is the project-value verdict, not the sign of one "
-        "metric. Use `continue` only when the evidence meets the operator's value target or "
-        "supports a standalone decision-relevant finding. A bounded experiment may "
-        "finish with `redirect`/`stop`, but a stage-closing or final-submission verdict "
-        "must return `replan_requested` with `planner_report.plan_signal=reconsider` "
-        "instead of `done` until a valuable direction is independently certified.\n"
-        "- When the objective/acceptance check explicitly requires the consumed "
-        "framework handoff's top-level `review` object to carry bounded "
-        "correctness/checklist verdicts, put that Reviewer-authored object in "
-        "`certification_payload.review`; do not leave the verdict only in "
-        "CHECKPOINT prose, `reason`, or sidecar files.\n"
-        "- `failure_cause` classifies non-done outcomes. Reusable skill/wiki "
-        "learning must already have been edited directly during this Reviewer "
-        "turn, except Wiki pages, which must use the schema's structured "
-        "`wiki_ops`. Never directly edit `.autors/**/wiki/pages/**`, and never "
-        "encode other memory edits in the final JSON.\n"
-        "- `failure_source` is independent acceptance provenance. Use null "
-        "without a diagnosed acceptance failure; otherwise choose exactly one "
-        "structured kind and cite concrete artifact observations. A "
-        "`validator_defect` requires a stable validator_id plus exact project-"
-        "relative repair_paths limited to validator/test/provenance files. "
-        "Never list raw scientific evidence, preregistration, thresholds, or "
-        "success criteria as repair_paths. Classification does "
-        "not authorize repair. Never label missing/failed scientific evidence "
-        "as a validator defect. Set `scientific_decision` independently to "
-        "continue, redirect, stop, uncertain, or null.\n"
-        "- `failure_layer` is orthogonal and must be one of `platform`, "
-        "`orchestration`, `evaluator`, `evidence_packaging`, `scientific`, "
-        "`operator`, or `unknown`. Platform/program/evaluator/packaging failures "
-        "must request repair and must not be used as evidence against the idea.\n"
-        "- `operator_question` is only for an operator-only blocker. "
-        "`checklist_feedback` is only when the checklist itself is wrong.\n\n"
+        "- `operator_question` is only for an operator-only blocker.\n\n"
         "Decision rules:\n"
-        "- Set `progress_class`. Do not add a separate explanation: `decision`, "
-        "`evidence`, `setup_only`, `artifact_sync_only`, or `none`.\n"
-        "- `done` positively certifies the requested terminal outcome; an error-free "
-        "process or honest partial result is insufficient unless it is the bounded "
-        "objective. Enforce material operator constraints.\n"
+        "- `done` requires concrete evidence and exact adherence to material "
+        "operator constraints. A generic acknowledgment is never enough.\n"
         "- Default to `continue` whenever the agent's claims are not backed by "
         "shown/checkable evidence; once sufficient evidence is present, do not "
         "burn another round re-running it.\n"
@@ -768,22 +688,16 @@ def render_reviewer_prompt(
         "mission objective, acceptance check, non-goals, stage, and resource "
         "contract. If the next work needs a new/separate/scoped mission, a "
         "replacement plan, or any change to those boundaries, return "
-        "`replan_requested` instead; set `planner_report.plan_signal` to "
-        "`reconsider` and cite the relevant files. Reviewer reports the "
+        "`replan_requested` instead and cite the relevant files. Reviewer reports the "
         "defect but never authorizes scope expansion.\n"
         "- `blocked` is only for credentials, inaccessible resources, or a "
         "decision/specification only the operator can provide.\n"
-        "- When a supervised background task is healthy and nothing else is "
-        "actionable, use structured `control = {\"action\": "
-        "\"wait_for_subagent\", \"task_id\": \"<id>\"}` with action "
-        "`wait_for_subagent`; never encode the "
-        "wait only in prose.\n"
         "- New measured evidence or a measured failed mechanism can be forward "
         "progress; setup, bookkeeping, repeated re-scoring, and near-identical "
         "unproductive tweaks are not. A smoke run proves wiring, not final "
         "evidence. Do not declare a method dead from a misconfigured run.\n"
-        "- Final-submission `done` requires every full-pipeline checklist item; "
-        "bounded scope uses only its objective and relevant stage items.\n\n"
+        "- Final-submission `done` means you independently judge the whole project "
+        "ready; bounded scope uses only its objective and relevant stage evidence.\n\n"
         + objective_block
         + "Operator messages:\n"
         f"{operator_text}\n\n"
@@ -824,7 +738,7 @@ def render_reviewer_prompt(
             "direct_memory": direct_memory_edit_block,
             "wiki_curator": wiki_curator_skill_block,
             "paper_review": paper_review_skill_block,
-            "research_result": research_result_instruction,
+            "research_target": research_target_instruction,
             "final_submission": final_submission_block,
             "objective_context": objective_context,
             "checkpoint": checkpoint_block,

@@ -200,15 +200,7 @@ def _write_run_source(
     if getattr(review, "backend_unavailable", False):
         return 0
 
-    report = getattr(review, "planner_report", None) or {}
-    if not isinstance(report, dict):
-        report = {}
-    evidence_files = report.get("evidence_files") or []
-    artifacts = {
-        str(item.get("path") or "").strip(): str(item.get("why") or "").strip()
-        for item in evidence_files
-        if isinstance(item, dict) and str(item.get("path") or "").strip()
-    }
+    artifacts: dict[str, str] = {}
     if checkpoint_path is not None:
         artifacts[str(checkpoint_path)] = "canonical durable state"
     if context_packet_path is not None:
@@ -216,8 +208,7 @@ def _write_run_source(
         artifacts[str(context_path.parent / "latest.json")] = (
             "canonical machine handoff"
         )
-    forward_progress = report.get("forward_progress") is True
-    outcome = "success" if success else "partial" if forward_progress else "failure"
+    outcome = "success" if success else "failure"
     body_parts = [f"Reviewer verdict: {getattr(review, 'status', '')}"]
     if checkpoint_path is not None:
         body_parts.append(f"Durable state: {checkpoint_path}")
@@ -241,11 +232,11 @@ def _write_run_source(
         artifacts=artifacts,
         outcome=outcome,
         failure_signature=(
-            str(getattr(review, "failure_cause", "") or "").strip()[:1000]
+            str(getattr(review, "reason", "") or "").strip()[:1000]
             if not success
             else ""
         ),
-        suspected_cause=str(getattr(review, "failure_layer", "") or "").strip()[:1000],
+        suspected_cause="",
         next_action=str(getattr(review, "next_action", "") or "").strip()[:2000],
         body="\n\n".join(body_parts),
         closed_at=datetime.now(timezone.utc).isoformat(),

@@ -172,7 +172,7 @@ ladder and its stop conditions.
    Supply baseline/path evidence, end-to-end and target-kernel durations, the
    noise-bounded required total speedup, and a justified plausible kernel bound.
    Use `--help` and `references/experiment-budget-ladder.md` for the exact shape.
-   If the verdict rejects the target, preserve a no-go attempt and choose a
+   If the verdict rejects the target, preserve the failed attempt and choose a
    higher-leverage boundary. Do not edit the kernel merely because one generated
    subkernel has an interesting counter.
 9. **Run hypothesis-driven attempts.** Each `attempts/<id>/` must preserve source
@@ -202,7 +202,7 @@ ladder and its stop conditions.
    candidate commit plus dirty-diff hash, and dispatch/trace evidence that the
    benchmark shapes actually entered the changed code path.
    A candidate can be performance-refuted without refuting the broader direction.
-   Preserve the candidate no-go, then change the mechanism before endlessly
+   Preserve the failed candidate, then change the mechanism before endlessly
    sweeping knobs. A compile or runtime
    error must be classified:
    - environment/toolchain mismatch;

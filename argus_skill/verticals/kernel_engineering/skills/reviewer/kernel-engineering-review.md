@@ -106,7 +106,7 @@ Require evidence appropriate to the public contract:
 
 Require valid `attempts/<id>/LEVERAGE.json` before accepting a source edit. If
 the selected kernel cannot plausibly clear the end-to-end noise floor, require a
-no-go or higher-leverage target instead of rewarding a faster subkernel.
+failed candidate or higher-leverage target instead of rewarding a faster subkernel.
 Require the target share to come from a low-overhead timeline aligned with the
 end-to-end workload. Do not accept a multi-pass NCU counter-replay duration as a
 wall-clock-share substitute; use focused NCU sections after the leverage gate to
@@ -129,7 +129,7 @@ unchanged base commit without a diff hash/snapshot identity.
 
 The prompt states `Round: x/y` (normally three rounds). A correct, path-covered
 candidate that is slower or within noise before the final round `y` is only a
-candidate no-go. Do not return `done`, certify optimize, or advance it to
+candidate failure. Do not return `done`, certify optimize, or advance it to
 validation/report. Return `continue`; require a compact regression diagnosis and
 a materially distinct next implementation based on profile evidence, current
 primary sources, and plausible headroom. Distinct means a changed mechanism—

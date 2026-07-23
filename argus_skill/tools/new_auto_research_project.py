@@ -184,7 +184,12 @@ def render_agents_md(
     return body
 
 
-def render_agents_runtime_contract(*, objective: str, vertical: str = "") -> str:
+def render_agents_runtime_contract(
+    *,
+    objective: str,
+    vertical: str = "",
+    domain: str = "",
+) -> str:
     """Render the small AGENTS block that Argus may refresh while running.
 
     Everything outside the markers is operator/Engineer-owned and must remain
@@ -192,6 +197,7 @@ def render_agents_runtime_contract(*, objective: str, vertical: str = "") -> str
     """
     objective_text = escape(" ".join(str(objective or "").split()), quote=False)
     vertical_text = escape(str(vertical or "").strip() or "unresolved", quote=False)
+    domain_text = escape(str(domain or "").strip() or "none", quote=False)
     if not objective_text:
         objective_text = (
             "No Manager objective is active; wait for the Manager instead of "
@@ -204,6 +210,7 @@ def render_agents_runtime_contract(*, objective: str, vertical: str = "") -> str
         "or vertical snapshots elsewhere in this file. Content outside this block "
         "is not managed by the runtime.\n\n"
         f"- Active vertical: `{vertical_text}`\n"
+        f"- Active domain overlay: `{domain_text}`\n"
         f"- Current Manager objective: {objective_text}\n"
         f"{RUNTIME_CONTRACT_END}"
     )
@@ -214,6 +221,7 @@ def refresh_agents_runtime_contract(
     *,
     objective: str,
     vertical: str = "",
+    domain: str = "",
 ) -> bool:
     """Insert or replace only the Argus-managed runtime block in AGENTS.md.
 
@@ -229,6 +237,7 @@ def refresh_agents_runtime_contract(
     block = render_agents_runtime_contract(
         objective=objective,
         vertical=vertical,
+        domain=domain,
     )
     start_count = current.count(RUNTIME_CONTRACT_START)
     end_count = current.count(RUNTIME_CONTRACT_END)

@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from ..event_catalog import EventType, canonical_event_type
-from ._reduce_helpers import _capture_decision_context
 from ._reduce_manager import reduce_manager_event, reduce_planner_event
 from ._reduce_mission import reduce_mission_lifecycle_event, reduce_round_event
 from ._reduce_research import reduce_achievement_event, reduce_research_event
@@ -131,7 +130,6 @@ def reduce_mission_view_event(view: dict[str, Any], event: Mapping[str, Any]) ->
     ts = float(event.get("ts") or time.time())
     view["last_event_ts"] = max(float(view.get("last_event_ts") or 0.0), ts)
     mission = view.setdefault("mission", {})
-    _capture_decision_context(view, event)
 
     handler = _EVENT_HANDLERS.get(event_type)
     if handler is not None:

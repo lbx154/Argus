@@ -313,47 +313,7 @@ class SkillSelectionMixin:
         state.distill_result = None
 
     def _maybe_distill_on_miss(self, mission: MissionContext, state: SkillSelectionState) -> None:
-        if state.skill is None and not self.config.engineer_skill_maintenance_enabled:
-            try:
-                from .scientist import SkillScientist
-
-                self._emit(
-                    {
-                        "type": EventType.SKILL_SCIENTIST_STARTED,
-                        "text": "no high-fit skill; asking Scientist to distill a reusable skill",
-                    }
-                )
-                scientist = SkillScientist(
-                    self.engineer_runner,
-                    model=self.config.engineer_model,
-                    reasoning_effort=self.config.engineer_reasoning_effort,
-                    role_banner=mission.scientist_create_banner,
-                )
-                raw_skill = scientist.distill(mission.skill_task)
-                state.distill_result = scientist.last_result
-                if raw_skill:
-                    distilled = self.skill_router.create_from_scientist(
-                        raw_skill,
-                        task=mission.skill_task,
-                        on_event=self._emit,
-                    )
-                    if distilled is not None:
-                        state.primary_skills = [distilled]
-                        state.skill = distilled
-                        state.skill_name = distilled.name
-                        state.skill_distilled = True
-                        self._emit(
-                            {
-                                "type": EventType.SKILL_SCIENTIST_CREATED,
-                                "skill_id": distilled.skill_id,
-                                "name": distilled.name,
-                                "version": distilled.version,
-                                "path": str(distilled.path or ""),
-                                "text": f"Scientist created active skill {distilled.name}",
-                            }
-                        )
-            except Exception:  # noqa: BLE001
-                log.debug("Scientist skill generation skipped", exc_info=True)
+        _ = mission, state
 
     def _maybe_nearest_transfer(self, mission: MissionContext, state: SkillSelectionState) -> None:
         if state.skill is None and self.config.nearest_transfer_enabled:
@@ -566,8 +526,6 @@ class SkillSelectionMixin:
         )
 
     def _adapt_after_rejections(self, mission, state, rounds: list) -> str:
-        if self.config.engineer_skill_maintenance_enabled:
-            return ""
         persistent_adaptation = state.adaptation_file is not None
         if persistent_adaptation:
             if not rounds or state.adaptation_disabled:
@@ -580,7 +538,6 @@ class SkillSelectionMixin:
             qualifies = (
                 latest.review.status == "continue"
                 and not latest.review.backend_unavailable
-                and latest.review.failure_cause in _ADAPTATION_FAILURE_CAUSES
                 and not bool(latest.fatal_error)
             )
             if qualifies:

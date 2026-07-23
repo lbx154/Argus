@@ -93,10 +93,9 @@ def compute_triggers(project_root: object, *, cost_fraction: float | None = None
     # same-family diagnostic falsification streak ~ failed_round2_candidates in closure status.
     closure = _read_json(root / "ROUTE_CLOSURE_STATUS.json") or {}
     same_diagnostic = len(closure.get("failed_round2_candidates") or [])
-    # closure / no-go artifact already exists.
+    # A route-closure artifact already exists.
     closure_artifact = bool(
-        (root / "ORIGINAL_RESEARCH_NO_GO.md").is_file()
-        or (root / "ROUTE_CLOSURE_STATUS.json").is_file()
+        (root / "ROUTE_CLOSURE_STATUS.json").is_file()
         or (_research_dir(root) / "ROUTE_CLOSURE_HANDOFF.md").is_file()
     )
     # hygiene-closure loop: an operator-wait / closure handoff exists but stage is still execute.
@@ -261,11 +260,11 @@ def _next_role_directive(decision: dict, spec) -> dict:
     if to_tier == "D":
         return {
             "responsible_role": "Engineer",
-            "required_action": "Assemble the systematic no-go evidence table; do NOT invent a new mechanism",
+            "required_action": "Assemble the systematic negative-evidence table; do not invent a new mechanism",
             "expected_next_stage": "review",
-            "acceptance_test": "no-go evidence table + reproduced baseline + held-out results present and gate-passing",
+            "acceptance_test": "negative-evidence table + reproduced baseline + held-out results present",
             "do_not_do": ["propose a new diagnostic", "run another novelty pivot", "generic hygiene closure"],
-            "reviewer_adjudication": "Ratify this downgrade or object with evidence; then evaluate against the Tier-D bar only.",
+            "reviewer_adjudication": "Judge what the evidence changes and request replanning unless it supports a valuable standalone result.",
         }
     return {
         "responsible_role": "Engineer",

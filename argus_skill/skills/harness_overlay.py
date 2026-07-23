@@ -64,7 +64,6 @@ MAX_RULE_LEN = 1200
 # these (annotate with a stricter project note) but may never weaken, delete, or
 # supersede them.
 PROTECTED_ITEM_IDS = frozenset({
-    "research.go_no_go",
     "benchmark.evaluator_authentic",
     "run.score_variance",
     "run.method_diagnosis_recall",
@@ -363,7 +362,7 @@ def add_checklist_item(
     _ = (project_root, item, known_stages, known_item_ids)
     raise OverlayValidationError(
         "checklist ownership belongs to the Planner; use reviewer "
-        "checklist_feedback or Planner checklist_ops"
+        "Planner checklist_ops"
     )
 
 

@@ -151,45 +151,6 @@ def clear_feedback(project_root: object, gate_id: str) -> None:
 # --------------------------------------------------------------------------- #
 # The six special-case builders.                                              #
 # --------------------------------------------------------------------------- #
-def feedback_manuscript_completion_unauthorized(*, at_stretch_tier: bool, tier: str) -> dict:
-    """SC1: manuscript_completion_authorized=false. At Tier D the gate auto-authorizes;
-    at a stretch tier it is Operator-gated — either way, NEVER dispatch generic hygiene."""
-    if at_stretch_tier:
-        return build_feedback(
-            gate_id="manuscript_completion",
-            gate_name="Manuscript completion authorization",
-            failed_stage="review", responsible_role="Operator", blocking_level="operator_required",
-            exact_blocker=f"manuscript_completion_authorized=false at stretch tier {tier}",
-            evidence_checked=["ROUTE_CLOSURE_STATUS.json", "all upstream gate results"],
-            missing_field="manuscript_completion_authorized",
-            required_action="Operator authorizes advancing the current closure to a manuscript, or lowers the target tier",
-            next_role_directive={"responsible_role": "Operator", "action": "authorize manuscript advancement or downgrade target"},
-            acceptance_test="manuscript_completion_authorized=true AND stage advances toward manuscript",
-            max_retry=0,
-            if_operator_required_then_prompt=(
-                "The route is a gate-passing closure at a stretch tier. Advance it to a manuscript at "
-                "the tier the evidence supports, or downgrade the target? [advance | downgrade | keep closed]"),
-            do_not_do=["dispatch Engineer for generic hygiene closure", "run another novelty pivot"],
-            expected_next_stage="review",
-        )
-    return build_feedback(
-        gate_id="manuscript_completion",
-        gate_name="Manuscript completion authorization",
-        failed_stage="review", responsible_role="ManuscriptBuilder", blocking_level="advisory",
-        exact_blocker="Tier-D no-go closure is gate-passing but the manuscript is not yet authorized",
-        evidence_checked=["ROUTE_CLOSURE_STATUS.json", "ORIGINAL_RESEARCH_NO_GO.md", "upstream gates 0-failure"],
-        missing_field="manuscript_completion_authorized",
-        required_action="The Tier-D gate auto-authorizes; write the bounded no-go manuscript from the existing evidence",
-        next_role_directive={"responsible_role": "ManuscriptBuilder", "action": "author the no-go manuscript", "expected_next_stage": "manuscript"},
-        acceptance_test="manuscript_completion_authorized=true AND execute->review->manuscript proceeds AND manuscript_package gate 0 failures",
-        max_retry=0, downgrade_trigger="already at Tier D terminal",
-        do_not_do=["dispatch Engineer for generic hygiene closure", "run another novelty pivot", "fabricate a positive diagnostic"],
-        suggested_files_to_edit_or_create=["MANUSCRIPT.md", "MANUSCRIPT.tex", "CLAIMS.csv"],
-        suggested_commands=["python -m argus_skill.verticals.physics.manuscript check --layer all"],
-        expected_next_stage="manuscript",
-    )
-
-
 def feedback_diagnostic_win_false(*, tier: str, pivots_used: int, pivot_cap: int) -> dict:
     """SC2: diagnostic method win=false. Pivot if pivots remain at S/A; else downgrade."""
     exhausted = pivots_used >= pivot_cap
@@ -290,6 +251,6 @@ def feedback_provider_fence(*, sub_case: str) -> dict:
 __all__ = [
     "FEEDBACK_FIELDS", "ROLES", "BLOCKING_LEVELS", "build_feedback", "validate_feedback",
     "write_feedback", "render_feedback_block", "render_active_feedback", "clear_feedback",
-    "feedback_manuscript_completion_unauthorized", "feedback_diagnostic_win_false",
+    "feedback_diagnostic_win_false",
     "feedback_hygiene_closure_loop", "feedback_loop_detected", "feedback_provider_fence",
 ]

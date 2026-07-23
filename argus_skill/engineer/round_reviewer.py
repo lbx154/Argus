@@ -203,7 +203,6 @@ class RoundReviewerMixin:
                     status="blocked",
                     reason=msg,
                     next_action="Resolve the reviewer runner failure before retrying.",
-                    failure_cause="environmental",
                     backend_unavailable=True,
                     backend_stop_kind="backend_unavailable",
                 )
@@ -239,7 +238,6 @@ class RoundReviewerMixin:
                         "Retry this Reviewer turn and express the same judgment "
                         "through schema-valid wiki_ops."
                     ),
-                    failure_cause="environmental",
                     backend_unavailable=True,
                     backend_stop_kind="transient_error",
                     backend_fatal_error=violation,

@@ -247,7 +247,6 @@ def backend_failure_review_decision(
             f"error={error_text}"
         ),
         next_action=retry_text,
-        failure_cause="environmental",
     )
 
 
@@ -274,7 +273,6 @@ def external_pause_review_decision(
             f"(stop_kind={stop_kind}); reviewer skipped. error={error_text}"
         ),
         next_action=next_action,
-        failure_cause="environmental",
         backend_unavailable=True,
         backend_fatal_error=error_text,
         backend_exit_code=exit_code,
@@ -297,7 +295,6 @@ def model_configuration_review_decision(
             "The configured model is unavailable. Choose a valid model in "
             "/config, then tell me to retry this task."
         ),
-        failure_cause="environmental",
         backend_unavailable=True,
         backend_stop_kind="permanent_error",
     )
@@ -319,7 +316,6 @@ def daemon_stop_review_decision(
             "Restart the daemon when ready; the continuous planner will choose "
             "the next concrete task from the persisted project state."
         ),
-        failure_cause="operator_interrupt",
     )
 
 
@@ -341,7 +337,6 @@ def operator_abort_review_decision(
             "ready backlog item. Re-add this objective later if it still "
             "needs doing."
         ),
-        failure_cause="operator_interrupt",
     )
 
 

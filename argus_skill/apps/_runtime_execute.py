@@ -18,7 +18,6 @@ from pathlib import Path
 
 from ..core.knobs import resolve_role_reasoning_effort
 from ..core.ports import EventSink
-from ..core.research_direction import normalize_research_direction
 from ..engineer.runner import should_clear_thread_id_after_outcome
 from ._env import env_flag as _env_flag
 from ._runtime_backends import _Outcome
@@ -233,10 +232,6 @@ class SkillLoopExecuteMixin:
             "sandbox_mode": "workspace-write" if maintenance_mission else None,
             "isolate_workdir": maintenance_mission,
             "skip_git_repo_check": True,
-            "engineer_self_review_enabled": (
-                _env_flag("ARGUS_SKILL_ENGINEER_SELF_REVIEW", default=True)
-                and not effective_require_independent_review
-            ),
             # Filled from the resolved vertical below.  Fail-safe default: an
             # undecided task is bounded/non-paper.
             "paper_mission": False,
@@ -360,18 +355,18 @@ class SkillLoopExecuteMixin:
         if project_state_dir:
             from ..skills.layered import (
                 LayeredSkillStore,
-                shared_vertical_skills_dir,
+                shared_skill_scope_dir,
             )
-            from ..skills.vertical_select import _persisted_vertical
+            from ..skills.vertical_select import resolve_skill_scope
 
-            active_vertical = _persisted_vertical(workdir) or ""
+            active_skill_scope = resolve_skill_scope(workdir)
 
             skill_store = LayeredSkillStore(
                 project_dir=Path(project_state_dir) / "skills",
                 global_dir=global_skills_dir,
-                vertical_dir=shared_vertical_skills_dir(
+                vertical_dir=shared_skill_scope_dir(
                     global_skills_dir,
-                    active_vertical,
+                    active_skill_scope,
                 ),
                 runner=engineer_backend,
                 matcher_model=config.resolved_matcher_model(),
@@ -562,20 +557,8 @@ class SkillLoopExecuteMixin:
         # absent rounds / review / non-final scope ⇒ not certified.
         final_submission_certified = False
         completion_evidence = ""
-        # Pull the reviewer's structured planner briefing off the final round
-        # so the supervisor can journal it for the project planner verbatim.
-        planner_report: dict = {}
-        harness_control: dict = {}
-        checklist_feedback: dict = {}
-        step_back: dict | None = None
         operator_question = ""
-        research_result: dict = {}
         final_review_status = ""
-        failure_source = ""
-        failure_layer = ""
-        validator_id = ""
-        repair_paths: list[str] = []
-        scientific_decision = ""
         review_source = ""
         rounds_list = getattr(outcome, "rounds", None) or []
         if rounds_list:
@@ -584,36 +567,10 @@ class SkillLoopExecuteMixin:
                 final_review_status = (
                     str(getattr(_final_review, "status", "") or "").strip().lower()
                 )
-                failure_source = (
-                    str(getattr(_final_review, "failure_source", "") or "").strip().lower()
-                )
-                failure_layer = (
-                    str(getattr(_final_review, "failure_layer", "") or "").strip().lower()
-                )
-                validator_id = str(getattr(_final_review, "validator_id", "") or "").strip()
-                repair_paths = list(getattr(_final_review, "repair_paths", []) or [])
-                scientific_decision = normalize_research_direction(
-                    getattr(_final_review, "scientific_decision", "")
-                )
                 review_source = str(getattr(_final_review, "review_source", "") or "").strip()
-                report = getattr(_final_review, "planner_report", None)
-                if isinstance(report, dict):
-                    planner_report = report
-                _harness_control = getattr(_final_review, "harness_control", None)
-                if isinstance(_harness_control, dict):
-                    harness_control = dict(_harness_control)
-                _cfb = getattr(_final_review, "checklist_feedback", None)
-                if isinstance(_cfb, dict) and _cfb:
-                    checklist_feedback = _cfb
-                _sb = getattr(_final_review, "step_back", None)
-                if isinstance(_sb, dict) and _sb:
-                    step_back = _sb
                 operator_question = str(
                     getattr(_final_review, "operator_question", "") or ""
                 ).strip()
-                _research_result = getattr(_final_review, "research_result", None)
-                if isinstance(_research_result, dict):
-                    research_result = dict(_research_result)
         if ex_state.mission_scope == "final_submission":
             final_review = None
             if rounds_list:
@@ -626,18 +583,8 @@ class SkillLoopExecuteMixin:
         ex_state.new_tid = new_tid
         ex_state.auth_fail = auth_fail
         ex_state.rounds_list = rounds_list
-        ex_state.planner_report = planner_report
-        ex_state.harness_control = harness_control
-        ex_state.checklist_feedback = checklist_feedback
-        ex_state.step_back = step_back
         ex_state.operator_question = operator_question
-        ex_state.research_result = research_result
         ex_state.final_review_status = final_review_status
-        ex_state.failure_source = failure_source
-        ex_state.failure_layer = failure_layer
-        ex_state.validator_id = validator_id
-        ex_state.repair_paths = repair_paths
-        ex_state.scientific_decision = scientific_decision
         ex_state.review_source = review_source
         ex_state.final_submission_certified = final_submission_certified
         ex_state.completion_evidence = completion_evidence
@@ -671,8 +618,6 @@ class SkillLoopExecuteMixin:
         # stage writer before any planner-wait reconciliation.
         if not maintenance_mission and _should_run_stage_transition(
             effective_status,
-            ex_state.planner_report,
-            harness_control=ex_state.harness_control,
             mission_scope=ex_state.mission_scope,
             require_independent_review=ex_state.effective_require_independent_review,
             review_source=ex_state.review_source,
@@ -718,17 +663,7 @@ class SkillLoopExecuteMixin:
             auth_failure=ex_state.auth_fail,
             final_submission_certified=ex_state.final_submission_certified,
             completion_evidence=ex_state.completion_evidence,
-            planner_report=ex_state.planner_report,
-            harness_control=ex_state.harness_control,
-            checklist_feedback=ex_state.checklist_feedback,
-            step_back=ex_state.step_back,
             stage_transition=ex_state.stage_transition,
             operator_question=ex_state.operator_question,
-            research_result=ex_state.research_result,
             final_review_status=ex_state.final_review_status,
-            failure_source=ex_state.failure_source,
-            failure_layer=ex_state.failure_layer,
-            validator_id=ex_state.validator_id,
-            repair_paths=ex_state.repair_paths,
-            scientific_decision=ex_state.scientific_decision,
         )

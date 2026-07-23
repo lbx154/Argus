@@ -321,10 +321,10 @@ class _RunnerConstructionMixin:
             from ..loop import SkillLoopConfig
             from ..skills.layered import (
                 LayeredSkillStore,
-                shared_vertical_skills_dir,
+                shared_skill_scope_dir,
             )
             from ..skills.store import SkillStore
-            from ..skills.vertical_select import _persisted_vertical
+            from ..skills.vertical_select import resolve_skill_scope
 
             # A default config is enough for the matcher: ``resolved_matcher_model``
             # already applies the ``ARGUS_SKILL_MATCHER_MODEL`` env override, and
@@ -335,13 +335,13 @@ class _RunnerConstructionMixin:
             project_state_dir = str(getattr(args, "project_state_dir", "") or "").strip()
             if project_state_dir:
                 workdir = Path(args.workdir).expanduser() if args.workdir else Path.cwd()
-                active_vertical = _persisted_vertical(workdir) or ""
+                active_skill_scope = resolve_skill_scope(workdir)
                 return LayeredSkillStore(
                     project_dir=Path(project_state_dir) / "skills",
                     global_dir=global_dir,
-                    vertical_dir=shared_vertical_skills_dir(
+                    vertical_dir=shared_skill_scope_dir(
                         global_dir,
-                        active_vertical,
+                        active_skill_scope,
                     ),
                     runner=self.manager_backend or self._backend,
                     matcher_model=cfg.resolved_matcher_model(),

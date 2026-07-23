@@ -118,11 +118,14 @@ def test_nsl_complete_pool_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert nsl.verify_novelty_seeking(tmp_path) == []
 
 
-def test_nsl_no_go_is_acceptable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_negative_note_does_not_bypass_novelty_work(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("ARGUS_SKILL_PHYSICS_TARGET_PAPER_TYPE", "original_research_article")
     monkeypatch.setenv("ARGUS_SKILL_PHYSICS_ALLOW_DOWNGRADE", "false")
-    (tmp_path / "ORIGINAL_RESEARCH_NO_GO.md").write_text("no sufficient novelty after 2 pivots\n")
-    assert nsl.verify_novelty_seeking(tmp_path) == []
+    (tmp_path / "NEGATIVE_RESULT.md").write_text("no sufficient novelty after 2 pivots\n")
+    assert nsl.verify_novelty_seeking(tmp_path)
 
 
 # ---- 5. original-research mode blocks a downgrade terminal ------------------ #
@@ -140,9 +143,6 @@ def test_paper_type_pt006_blocks_downgrade_in_original_mode(tmp_path: Path, monk
     _classifier(tmp_path, "diagnostic benchmark")
     codes = [f["failure_id"] for f in pt.verify_paper_type(tmp_path)]
     assert "PT-006" in codes
-    # a justified NO_GO removes PT-006
-    (tmp_path / "ORIGINAL_RESEARCH_NO_GO.md").write_text("justified\n")
-    assert "PT-006" not in [f["failure_id"] for f in pt.verify_paper_type(tmp_path)]
 
 
 def test_manuscript_hardgate_rejects_downgrade_terminal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -151,8 +151,6 @@ def test_manuscript_hardgate_rejects_downgrade_terminal(tmp_path: Path, monkeypa
     _classifier(tmp_path, "diagnostic benchmark")
     fails = manuscript.verify_all_deliverables(tmp_path)
     assert any("original-research-required mode" in f for f in fails)
-    (tmp_path / "ORIGINAL_RESEARCH_NO_GO.md").write_text("justified\n")
-    assert not any("original-research-required mode" in f for f in manuscript.verify_all_deliverables(tmp_path))
 
 
 def test_auto_mode_allows_diagnostic_benchmark(tmp_path: Path) -> None:

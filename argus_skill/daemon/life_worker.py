@@ -427,47 +427,55 @@ class LifeWorker(LifeWorkerBootMixin, LifeWorkerRunMixin):
                     objective=rendered_objective,
                 )
             agents_path.write_text(agents_md, encoding="utf-8")
+        from ..skills.vertical_select import _persisted_domain
+
+        domain = _persisted_domain(project_root)
         refresh_agents_runtime_contract(
             project_root,
             objective=manager_objective,
             vertical=vertical or "",
+            domain=domain or "",
         )
 
         if not (project_root / ".venv").exists():
             init_project_venv(project_root)
 
         # Seed the project workspace's read-only builtin-skill copy
-        # (``argus_builtin_skills/``) — vertical-aware, so a non-research mission
-        # gets the active vertical's OWN domain skills (real bodies overwrite any
-        # builtin pointer stub) alongside the cross-vertical skills. This is the
+        # (``argus_builtin_skills/``) — context-aware, so the project gets its
+        # workflow and optional domain Skills (real bodies overwrite any pointer
+        # stub) alongside cross-workflow Skills. This is the
         # tree the reviewer agent reads when ``stage_check`` prints
         # ``Load skill: argus_builtin_skills/<role>/<name>.md``. Seeding is
-        # is additive for common skills and refreshes the active vertical's
+        # additive for common skills and refreshes the active context's
         # version-controlled read-only source, so newly shipped vertical skills
         # reach existing projects without replacing unrelated local files.
         from ..skills.builtins import (
             DEFAULT_PROJECT_BUILTIN_SKILLS_DIR,
-            remove_unmodified_inactive_vertical_skill_seeds,
+            remove_unmodified_inactive_context_skill_seeds,
             seed_builtin_skills,
-            seed_builtin_skills_for_vertical,
-            seed_vertical_skills,
+            seed_builtin_skills_for_context,
+            seed_context_skills,
         )
-
         skills_target = project_root / DEFAULT_PROJECT_BUILTIN_SKILLS_DIR
         try:
-            remove_unmodified_inactive_vertical_skill_seeds(
+            remove_unmodified_inactive_context_skill_seeds(
                 skills_target,
                 vertical,
+                active_domain=domain,
             )
             if vertical:
-                seed_builtin_skills_for_vertical(skills_target, vertical)
+                seed_builtin_skills_for_context(
+                    skills_target,
+                    vertical,
+                    domain=domain,
+                )
             else:
                 seed_builtin_skills(skills_target)
         except Exception:  # noqa: BLE001 — best-effort, never break bootstrap
             log.exception("daemon: failed to seed builtin skills during bootstrap")
         if vertical and self.config.project_fingerprint:
             try:
-                from ..skills.layered import shared_vertical_skills_dir
+                from ..skills.layered import shared_skill_scope_dir
 
                 default_shared_root = (
                     core_paths.shared_skills_root()
@@ -479,16 +487,18 @@ class LifeWorker(LifeWorkerBootMixin, LifeWorkerRunMixin):
                     str(default_shared_root),
                 ))
                 project_skills = Path(self.config.life_dir) / "skills"
-                remove_unmodified_inactive_vertical_skill_seeds(
+                remove_unmodified_inactive_context_skill_seeds(
                     project_skills,
                     None,
                 )
-                vertical_shared = shared_vertical_skills_dir(shared_root, vertical)
+                skill_scope = domain or vertical
+                vertical_shared = shared_skill_scope_dir(shared_root, skill_scope)
                 if vertical_shared is None:
-                    raise ValueError(f"invalid vertical Skill namespace: {vertical!r}")
-                seed_vertical_skills(
+                    raise ValueError(f"invalid Skill namespace: {skill_scope!r}")
+                seed_context_skills(
                     vertical_shared,
                     vertical,
+                    domain=domain,
                     overwrite=False,
                     overwrite_unidentified=True,
                 )
