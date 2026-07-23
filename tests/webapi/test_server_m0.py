@@ -286,7 +286,7 @@ def test_project_index_and_routes_span_machine_session_roots(
     )
     assert aborted.status_code == 200
     assert aborted.json()["item_id"] == running.id
-    assert (machine_life / "mission_abort_request.json").exists()
+    assert (machine_life / "running_item_abort.json").exists()
 
 
 def test_primary_duplicate_owns_listing_and_routes(tmp_path: Path) -> None:

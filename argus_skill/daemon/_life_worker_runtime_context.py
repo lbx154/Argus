@@ -62,8 +62,9 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
     ns.project_state_dir = str(cfg.life_dir)
     # This is the ONE runner construction that actually drives real mission
     # rounds 7×24, so it is the only one that should ever consume a pending
-    # mission-abort request (see ``apps/_runtime.py:_SkillLoopRunner._stop_reason``
-    # and ``tools.mission_control``) — the front-door quick-reply runner never
+    # running-item abort request (see
+    # ``apps/_runtime.py:_SkillLoopRunner._stop_reason``) — the front-door
+    # quick-reply runner never
     # sets this, so the Manager's own SELF-turn can never abort itself.
     ns.enable_mission_abort_signal = True
     ns.max_rounds = int(os.environ.get("ARGUS_SKILL_MAX_ROUNDS", "500"))

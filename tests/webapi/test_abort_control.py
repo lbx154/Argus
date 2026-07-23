@@ -23,7 +23,7 @@ def test_abort_endpoint_helper_targets_running_item(tmp_path) -> None:
         "item_id": item.id,
         "message": f"Stop requested for running task {item.id}.",
     }
-    assert (life / "mission_abort_request.json").exists()
+    assert (life / "running_item_abort.json").exists()
 
 
 def test_abort_endpoint_helper_is_idle_safe(tmp_path) -> None:
@@ -37,14 +37,14 @@ def test_abort_endpoint_helper_is_idle_safe(tmp_path) -> None:
         "item_id": None,
         "message": "No running task to abort. Pending tasks were left unchanged.",
     }
-    assert not (life / "mission_abort_request.json").exists()
+    assert not (life / "running_item_abort.json").exists()
 
 
 def test_abort_endpoint_helper_surfaces_persistence_failure(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from argus_skill.tools import mission_control
+    import argus_skill.life.memory as memory
 
     life = tmp_path / "projects" / "s-fail"
     life.mkdir(parents=True)
@@ -52,7 +52,7 @@ def test_abort_endpoint_helper_surfaces_persistence_failure(
     item = backlog.add(BacklogItem.new(title="task", objective="work"))
     backlog.mark_running(item.id)
     monkeypatch.setattr(
-        mission_control.os,
+        memory.os,
         "replace",
         lambda *_args: (_ for _ in ()).throw(OSError("read-only filesystem")),
     )

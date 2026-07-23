@@ -4,8 +4,7 @@ backlog item should stop right now — without tearing down the daemon
 process itself (contrast with ``fatal_error_looks_like_daemon_stop_request``,
 which is a full daemon-shutdown interrupt).
 
-The signal travels as a small file in the shared ``life_dir`` (see
-``argus_skill.tools.mission_control``); the running round's
+The signal travels as a small file in the shared ``life_dir``; the running round's
 ``external_interrupt_reason_provider`` watchdog consumes it and the engineer
 subprocess is terminated with ``fatal_error="External interrupt: operator
 abort requested: <reason>"``. This must be classified as its OWN category —

@@ -1889,6 +1889,122 @@ class LifeMemory:
 
 
 # ---------------------------------------------------------------------------
+# Running-item abort mailbox
+# ---------------------------------------------------------------------------
+
+_RUNNING_ITEM_ABORT_FILENAME = "running_item_abort.json"
+
+
+def _running_item_abort_path(life_dir: Path | str) -> Path:
+    return Path(life_dir) / _RUNNING_ITEM_ABORT_FILENAME
+
+
+def _write_running_item_abort(
+    life_dir: Path,
+    *,
+    item_id: str,
+    reason: str,
+    requested_by: str,
+) -> bool:
+    path = _running_item_abort_path(life_dir)
+    temporary = path.with_name(
+        f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+    )
+    payload = {
+        "target_item_id": item_id,
+        "reason": str(reason or "").strip() or "operator requested abort",
+        "requested_by": requested_by,
+        "requested_at": time.time(),
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+    except OSError:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return False
+    return True
+
+
+def request_running_item_abort(
+    life_dir: Path | str,
+    *,
+    reason: str,
+    requested_by: str = "manager",
+) -> tuple[bool, str | None]:
+    """Persist an abort request for the backlog item running right now."""
+    root = Path(life_dir)
+    running = [
+        item for item in LifeMemory.open(root).backlog.all()
+        if item.status == "running"
+    ]
+    if not running:
+        return False, None
+    running.sort(key=lambda item: (item.started_ts or item.ts, item.id))
+    item_id = running[-1].id
+    return (
+        _write_running_item_abort(
+            root,
+            item_id=item_id,
+            reason=reason,
+            requested_by=requested_by,
+        ),
+        item_id,
+    )
+
+
+def consume_running_item_abort(life_dir: Path | str | None) -> str | None:
+    """Consume a valid abort request while its exact target remains running."""
+    if not life_dir:
+        return None
+    path = _running_item_abort_path(life_dir)
+    claimed = path.with_name(
+        f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.claimed"
+    )
+    try:
+        os.replace(path, claimed)
+    except OSError:
+        return None
+    try:
+        raw = claimed.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    finally:
+        try:
+            claimed.unlink()
+        except OSError:
+            pass
+    try:
+        payload = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    item_id = str(payload.get("target_item_id") or "").strip()
+    if not item_id:
+        return None
+    try:
+        target = next(
+            (
+                item for item in LifeMemory.open(Path(life_dir)).backlog.all()
+                if item.id == item_id
+            ),
+            None,
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    if target is None or target.status != "running":
+        return None
+    return str(payload.get("reason") or "").strip() or "operator requested abort"
+
+
+# ---------------------------------------------------------------------------
 # GlobalMemory + ProjectMemory (Phase 2 split)
 # ---------------------------------------------------------------------------
 #

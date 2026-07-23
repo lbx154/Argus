@@ -288,9 +288,9 @@ def abort_project_mission(
     life_dir = project_life_dir(sid, global_root=global_root)
     if life_dir is None:
         return None
-    from ..tools.mission_control import request_current_mission_abort
+    from ..life.memory import request_running_item_abort
 
-    requested, item_id = request_current_mission_abort(
+    requested, item_id = request_running_item_abort(
         life_dir,
         reason=reason or "operator requested immediate stop",
         requested_by=requested_by,

@@ -113,8 +113,8 @@ class _RunnerConstructionMixin:
         # or by the test/legacy ``_invoke_supervisor`` path. This is what
         # lets the Manager (running in the operator-facing API process)
         # ask the daemon to abort whatever mission it is currently executing:
-        # the request is a small file in the shared life_dir (see
-        # ``tools.mission_control``), and only the runner that is actually
+        # the request is a small mailbox file in the shared life_dir, and only
+        # the runner that is actually
         # driving a real mission round should ever consume it. Gating
         # explicitly (rather than piggybacking on ``stop_event is not None``)
         # keeps this correct even if a future change wires a Ctrl-C
@@ -130,9 +130,9 @@ class _RunnerConstructionMixin:
             if stop_event is not None and stop_event.is_set():
                 return "daemon stop requested"
             if self._enable_mission_abort_signal:
-                from ..tools.mission_control import pop_pending_mission_abort
+                from ..life.memory import consume_running_item_abort
 
-                abort_reason = pop_pending_mission_abort(
+                abort_reason = consume_running_item_abort(
                     getattr(self, "_manager_session_root", None)
                 )
                 if abort_reason:
