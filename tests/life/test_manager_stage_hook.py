@@ -318,12 +318,6 @@ def test_direct_stage_closing_review_still_runs_manager_stage_transition() -> No
         require_independent_review=True,
         review_source="reviewer",
     ) is True
-    assert _runtime._should_run_stage_transition(
-        "done",
-        require_independent_review=False,
-        review_source="reviewer",
-        mission_scope="bounded",
-    ) is False
 
 
 def test_kernel_direct_scope_certification_advances_before_planner_wait(
@@ -370,13 +364,13 @@ def test_kernel_direct_scope_certification_advances_before_planner_wait(
     assert _stage(tmp_path) == "environment"
 
 
-def test_ordinary_reviewed_intermediate_task_skips_manager_stage_call() -> None:
+def test_reviewer_verdict_runs_manager_stage_transition() -> None:
     assert _runtime._should_run_stage_transition(
         "done",
         review_source="reviewer",
         require_independent_review=False,
         mission_scope="bounded",
-    ) is False
+    ) is True
 
 
 def test_open_ended_terminal_planner_error_triggers_manager_rollback(

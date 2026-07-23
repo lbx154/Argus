@@ -186,7 +186,8 @@ def _should_run_stage_transition(
     return bool(
         require_independent_review
         or str(mission_scope or "").strip().lower() == "final_submission"
-        or str(review_source or "").strip().lower() == "engineer_self_review"
+        or str(review_source or "").strip().lower()
+        in {"engineer_self_review", "reviewer"}
     )
 
 
