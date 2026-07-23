@@ -539,15 +539,29 @@ class EventJournal:
             }.get(etype)
         if kind is None:
             return None
+        if etype == EventType.LIFE_PLANNER_ERROR:
+            # Planner-error reasons can contain the discarded verdict body. That
+            # body is untrusted and may belong to a stale provider response, so
+            # keep it in the immutable event log but never feed it back through
+            # memory context or JournalEntry.extra.
+            summary = str(row.get("error") or "planner error")
+            extra = {
+                key: value
+                for key, value in row.items()
+                if key not in {"prompt", "reason", "summary", "text"}
+            }
+        else:
+            summary = row.get("summary") or row.get("reason") or row.get("text") or ""
+            extra = row
         return JournalEntry.from_jsonable({
             "id": str(row.get("id") or row.get("item_id") or uuid.uuid4().hex[:12]),
             "ts": row.get("ts", time.time()),
             "kind": kind,
             "title": row.get("title") or row.get("objective") or etype,
-            "summary": row.get("summary") or row.get("reason") or row.get("text") or "",
+            "summary": summary,
             "tags": row.get("tags") or [etype],
             "cost_usd": row.get("cost_usd", 0.0),
-            "extra": row,
+            "extra": extra,
         })
 
     def _rows(self) -> list[dict[str, Any]]:

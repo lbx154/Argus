@@ -431,6 +431,33 @@ def test_render_prelude_marks_non_authoritative(tmp_path: Path) -> None:
     assert "argus-skill" in block.lower() or "voice" in block.lower()
 
 
+def test_render_prelude_never_reinjects_planner_error_verdict_body(
+    tmp_path: Path,
+) -> None:
+    mem = LifeMemory.open(tmp_path)
+    mem.init()
+    foreign_reason = (
+        "Inspected another project's private objective, paths, and reviewer handoff."
+    )
+    with (tmp_path / "events.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({
+            "type": "life.planner.error",
+            "ts": time.time(),
+            "error": "discarded stale planner verdict outbox after semantic state change",
+            "reason": foreign_reason,
+        }) + "\n")
+
+    entry = mem.recent_journal(max_entries=1)[0]
+    rendered = mem.render_prelude(max_journal_entries=1)
+
+    assert entry.summary == (
+        "discarded stale planner verdict outbox after semantic state change"
+    )
+    assert "reason" not in entry.extra
+    assert foreign_reason not in rendered
+    assert "discarded stale planner verdict" in rendered
+
+
 def test_render_prelude_empty_when_nothing_relevant_and_no_identity(
     tmp_path: Path,
 ) -> None:
