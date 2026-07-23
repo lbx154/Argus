@@ -210,10 +210,6 @@ Engineer 和 Reviewer 不再继承上一轮 raw transcript。每个角色每轮�
 
 - Reviewer 的 `planner_report.plan_signal` 只有 `continue|reconsider`；
   Reviewer 只报告“当前剩余计划是否已被新证据推翻”，L4 仍是唯一计划作者。
-- Reviewer 另写 `routing_decision=keep_mission|return_to_planner`、
-  `routing_reason` 和 `routing_handoff` 作为 shadow-only 观测。它只进入
-  `round.review.completed`，不进入 Planner context、不改变当前 round/status，
-  也不按 token、费用或轮数阈值触发路由；仅 `continue` verdict 填值，其他状态留空。
 - `ARGUS_SKILL_DYNAMIC_PLAN_MODE=off|shadow|active`，默认 `off`。
   `shadow` 只写 `life.plan.signal`；`active` 需要连续
   `ARGUS_SKILL_DYNAMIC_PLAN_CONFIRM_ROUNDS` 次 reviewed `reconsider`

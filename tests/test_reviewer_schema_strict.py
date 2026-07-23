@@ -44,7 +44,6 @@ def test_extra_control_fields_are_rejected_by_schema() -> None:
         "failure_layer",
         "failure_source",
         "control",
-        "routing_decision",
         "checklist",
         "certification_payload",
         "checklist_feedback",

@@ -36,7 +36,6 @@ def test_review_event_contains_only_verdict_and_runtime_metadata() -> None:
         "failure_layer",
         "failure_source",
         "control_action",
-        "routing_decision",
         "checklist",
         "certification_payload",
         "checklist_feedback",

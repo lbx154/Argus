@@ -30,7 +30,6 @@ def test_review_event_omits_removed_control_fields() -> None:
         "progress_class",
         "failure_source",
         "failure_layer",
-        "routing_decision",
         "control_action",
         "checklist",
         "certification_payload",

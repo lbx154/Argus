@@ -229,9 +229,6 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "reason": string;
   "next_action"?: string;
   "scope"?: string;
-  "routing_decision"?: "keep_mission" | "return_to_planner" | "";
-  "routing_reason"?: string;
-  "routing_handoff"?: string;
   "checklist"?: Array<Record<string, unknown>>;
   "research_result"?: Record<string, unknown> | null;
   "stop_kind"?: "budget_exhausted" | "provider_cooldown" | "provider_fence" | "daemon_shutdown" | "operator_pause" | "operator_abort" | "backend_unavailable" | "transient_error" | "permanent_error" | null;
