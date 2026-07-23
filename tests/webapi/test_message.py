@@ -1036,10 +1036,13 @@ def test_pending_answer_routes_through_manager_and_continues_blocked_task(
     original = next(item for item in items if item.id == blocked.id)
     continuation = next(item for item in items if item.id == payload["item"]["id"])
     assert original.pending_question == ""
+    assert continuation.objective.startswith(
+        "Authoritative Manager operator-answer decision:\n"
+        "Include the appendix after the references."
+    )
     assert "Operator response" in continuation.objective
     assert "include it after the references" in continuation.objective
-    assert "Manager interpretation and continuation decision" in continuation.objective
-    assert "Include the appendix after the references" in continuation.objective
+    assert "Inherited blocked mission objective" in continuation.objective
     assert continuation.iterate is False
     assert continuation.tags == [
         "paper", "operator-reply", "manager-approved",
@@ -1057,6 +1060,49 @@ def test_pending_answer_routes_through_manager_and_continues_blocked_task(
     )
     assert duplicate.status_code == 409
     assert len(LifeMemory.open(life).backlog.all()) == 2
+
+
+def test_pending_answer_supersedes_conflicting_inherited_objective(
+    tmp_path: Path,
+) -> None:
+    life = _make_project(tmp_path)
+    mem = LifeMemory.open(life)
+    blocked = BacklogItem.new(
+        title="Render the paper figure",
+        objective="Generate the core figure with image-2.",
+        acceptance_check="The figure must come from image-2.",
+        non_goals=["Do not use an editable deterministic renderer."],
+    )
+    blocked.pending_question = "Which renderer should the team use?"
+    mem.backlog.add(blocked)
+
+    _, continuation = mem.backlog.continue_with_operator_reply(
+        blocked.id,
+        "Use the installed editable renderer instead.",
+        manager_decision=(
+            "Use the installed editable renderer. This supersedes the inherited "
+            "image-2 requirement."
+        ),
+    )
+
+    assert continuation is not None
+    assert continuation.objective.startswith(
+        "Authoritative Manager operator-answer decision:\n"
+        "Use the installed editable renderer."
+    )
+    assert continuation.objective.index(
+        "This supersedes the inherited image-2 requirement."
+    ) < continuation.objective.index("Generate the core figure with image-2.")
+    assert (
+        "This decision supersedes every conflicting requirement"
+        in continuation.objective
+    )
+    assert continuation.acceptance_check.startswith(
+        "The Manager operator-answer decision in this continuation is authoritative."
+    )
+    assert continuation.non_goals[0].startswith(
+        "Subject to the authoritative Manager operator-answer decision"
+    )
 
 
 def test_concurrent_pending_answers_create_one_continuation(

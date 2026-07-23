@@ -1329,9 +1329,22 @@ class Backlog:
                 return blocked, None
             answer = answer.strip()
             decision = manager_decision.strip()
-            guidance = f"Operator response:\n{answer}"
             if decision:
-                guidance += f"\n\nManager interpretation and continuation decision:\n{decision}"
+                objective = (
+                    "Authoritative Manager operator-answer decision:\n"
+                    f"{decision}\n\n"
+                    "This decision supersedes every conflicting requirement in the "
+                    "inherited blocked mission objective below.\n\n"
+                    "Inherited blocked mission objective (retain only non-conflicting "
+                    "context):\n"
+                    f"{blocked.objective.strip()}\n\n"
+                    f"Operator response:\n{answer}"
+                )
+            else:
+                objective = (
+                    f"{blocked.objective.strip()}\n\n"
+                    f"Operator response:\n{answer}"
+                )
             acceptance_check = blocked.acceptance_check
             non_goals = list(blocked.non_goals)
             if decision:
@@ -1352,10 +1365,7 @@ class Backlog:
                 ]
             continuation = BacklogItem.new(
                 title=blocked.title,
-                objective=(
-                    f"{blocked.objective.strip()}\n\n"
-                    f"{guidance}"
-                ),
+                objective=objective,
                 priority=blocked.priority,
                 tags=[*blocked.tags, "operator-reply", "manager-approved"],
                 notes=f"Continues blocked item {blocked.id}.",
