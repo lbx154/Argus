@@ -121,7 +121,11 @@ class PlanningCycleVerdictMixin:
                 reconciliation = self._reconcile_open_ended_terminal_stage_action(
                     verdict
                 )
-            if reconciliation == "rollback":
+                if not reconciliation:
+                    reconciliation = self._reconcile_reviewed_stage_empty_plan(
+                        verdict
+                    )
+            if reconciliation in {"advance", "rollback"}:
                 return PLAN_RETRY
             if reconciliation == "hold":
                 return self._pc_complete_terminal_empty_plan(state)
