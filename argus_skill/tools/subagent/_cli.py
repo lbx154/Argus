@@ -8,47 +8,89 @@ import sys
 import time
 from pathlib import Path
 
-from . import _core
 from . import _cpu_admission
-from ._core import (
-    DISCUSSION_POLL_INTERVAL,
-    SUPERVISOR_MODEL,
+from ._direct_run import _run_direct
+from ._discuss_run import DISCUSSION_POLL_INTERVAL
+from ._discussion_log import (
     _append_discussion,
+    _engineer_turn_count,
+    _mirror_discussion_md,
+)
+from ._registry import (
+    DISCUSSION_STALE_AFTER_S,
+    SUPERVISOR_MODEL,
     _append_experiment_history,
     _effective_run_dir,
-    _engineer_turn_count,
     _format_metric_line,
+    _is_pid_alive,
+    _lane_of,
     _list_tasks,
-    _mirror_discussion_md,
     _open_discussion_blockers,
     _progress_summary,
     _read_task,
     _registry_path,
     _run_dir_from_command,
-    _run_direct,
-    _run_supervised,
     _write_task,
     reconcile_terminal_task,
 )
+from ._supervised_run import _run_supervised
+
+_ACTIVE_STATES = frozenset({"starting", "preflight", "running", "discussing"})
+
+
+def _detach_child_stdio() -> None:
+    """Release caller-owned pipes before the background worker does any work."""
+    while True:
+        null_fd = os.open(os.devnull, os.O_RDWR)
+        if null_fd > 2:
+            break
+    try:
+        for fd in (0, 1, 2):
+            os.dup2(null_fd, fd)
+    finally:
+        os.close(null_fd)
+
+
+def _busy_owner_pid(task: dict) -> int:
+    """Return a live owner PID while a task record is not safe to reuse."""
+    live_pids: list[int] = []
+    for key in ("worker_pid", "pid", "submitter_pid"):
+        try:
+            pid = int(task.get(key) or 0)
+        except (TypeError, ValueError):
+            continue
+        if pid > 0 and _is_pid_alive(pid):
+            live_pids.append(pid)
+    if not live_pids:
+        return 0
+    if str(task.get("state") or "") in _ACTIVE_STATES:
+        return live_pids[0]
+    completed_at = task.get("completed_at")
+    age = (
+        time.time() - float(completed_at)
+        if isinstance(completed_at, (int, float))
+        else 0.0
+    )
+    return live_pids[0] if age < DISCUSSION_STALE_AFTER_S else 0
 
 
 def cmd_submit(args: argparse.Namespace) -> int:
     """Submit a task. Returns immediately."""
     task_id = args.task_id
     existing = _read_task(task_id)
-    if existing and existing.get("state") in {"starting", "preflight", "running"}:
-        pid = existing.get("pid") or existing.get("worker_pid") or 0
-        if _core._is_pid_alive(pid):
-            print(json.dumps({
-                "error": (
-                    f"task '{task_id}' is already {existing.get('state')} "
-                    f"(pid {pid})"
-                ),
-            }))
-            return 1
+    busy_pid = _busy_owner_pid(existing) if existing else 0
+    if existing and busy_pid:
+        print(json.dumps({
+            "error": (
+                f"task '{task_id}' is already {existing.get('state')} "
+                f"(pid {busy_pid})"
+            ),
+        }))
+        return 1
 
     cwd = args.cwd or os.getcwd()
     mode = getattr(args, "mode", "direct") or "direct"
+    run_id = f"{task_id}-{time.time_ns()}"
 
     # Resolve the run directory: prefer an explicit --run-dir, else recover it
     # from the command itself (commands already carry --run-dir). Store it as an
@@ -66,7 +108,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
     # `reply` command is never blocked. A stale/dead supervisor does not wedge
     # this (liveness = live pid + fresh heartbeat). Break-glass: --override-discussion.
     override = getattr(args, "override_discussion", None)
-    blockers = _open_discussion_blockers(_core._lane_of(getattr(args, "task_id", None)))
+    blockers = _open_discussion_blockers(_lane_of(getattr(args, "task_id", None)))
     if blockers and not override:
         b = blockers[0]
         rd = b.get("run_dir")
@@ -125,34 +167,30 @@ def cmd_submit(args: argparse.Namespace) -> int:
     try:
         with _cpu_admission.cpu_admission_lock(Path.cwd()):
             existing = _read_task(task_id)
-            if existing and existing.get("state") in {"starting", "preflight", "running"}:
-                existing_pid = (
-                    existing.get("pid")
-                    or existing.get("worker_pid")
-                    or existing.get("submitter_pid")
-                    or 0
-                )
-                if _core._is_pid_alive(int(existing_pid or 0)):
-                    print(json.dumps({
-                        "error": (
-                            f"task '{task_id}' is already {existing.get('state')} "
-                            f"(pid {existing_pid})"
-                        ),
-                    }))
-                    return 1
+            existing_pid = _busy_owner_pid(existing) if existing else 0
+            if existing and existing_pid:
+                print(json.dumps({
+                    "error": (
+                        f"task '{task_id}' is already {existing.get('state')} "
+                        f"(pid {existing_pid})"
+                    ),
+                }))
+                return 1
             selected_cpu_ids = _cpu_admission.select_cpu_ids(
                 cpu_count=getattr(args, "cpu_count", 0),
                 cpu_ids=getattr(args, "cpu_ids", None),
                 tasks=_list_tasks(),
-                is_pid_alive=_core._is_pid_alive,
+                is_pid_alive=_is_pid_alive,
             )
             initial_task = {
                 "state": "starting",
                 "task_id": task_id,
+                "run_id": run_id,
                 "description": args.description,
                 "command": args.command,
                 "mode": mode,
                 "run_dir": run_dir,
+                "cwd": str(Path(cwd).resolve()),
                 "submitted_at": time.time(),
                 "submitter_pid": os.getpid(),
             }
@@ -184,6 +222,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
         # clobber that with a stale snapshot — it only merges in the worker pid.
         rec = _read_task(task_id) or {
             "state": "running", "task_id": task_id,
+            "run_id": run_id,
             "description": args.description, "command": args.command,
             "mode": mode, "run_dir": run_dir, "submitted_at": time.time(),
         }
@@ -193,6 +232,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
         print(json.dumps({
             "state": "submitted",
             "task_id": task_id,
+            "run_id": run_id,
             "pid": pid,
             "mode": mode,
             "run_dir": run_dir,
@@ -205,9 +245,17 @@ def cmd_submit(args: argparse.Namespace) -> int:
     # Child: detach and run
     os.setsid()
     try:
-        os.close(0)
-    except OSError:
-        pass
+        _detach_child_stdio()
+    except OSError as exc:
+        task = _read_task(task_id) or initial_task
+        task.update({
+            "state": "error",
+            "error": f"stdio detach failed: {exc}",
+            "completed_at": time.time(),
+            "worker_pid": os.getpid(),
+        })
+        _write_task(task_id, task)
+        os._exit(1)
     try:
         _cpu_admission.apply_current_process_affinity(selected_cpu_ids)
     except (OSError, RuntimeError) as exc:
@@ -272,7 +320,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     # Enrich with a live-process flag and run-directory progress so a single
     # poll tells the engineer whether the job is alive and advancing, without
     # it having to hand-inspect progress.jsonl/status.json itself.
-    task["live"] = bool(pid and _core._is_pid_alive(pid))
+    task["live"] = bool(pid and _is_pid_alive(pid))
     progress = _progress_summary(_effective_run_dir(task))
     if progress:
         task["progress"] = progress
@@ -406,7 +454,7 @@ def cmd_reply(args: argparse.Namespace) -> int:
     # A live supervisor = worker process alive, supervised, in a live state, and
     # a fresh heartbeat (guards against PID reuse on a stale record).
     supervisor_alive = bool(
-        worker_pid and _core._is_pid_alive(worker_pid)
+        worker_pid and _is_pid_alive(worker_pid)
         and task.get("mode") == "supervised"
         and task.get("state") in ("running", "discussing")
         and (hb_age is None or hb_age < DISCUSSION_POLL_INTERVAL * 6)

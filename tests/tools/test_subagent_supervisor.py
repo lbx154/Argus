@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import time
 import types
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 
+from argus_skill.core.codex_usage import sum_token_counts
+from argus_skill.core.models import RunnerResult
 from argus_skill.tools import subagent as _sub
 from argus_skill.tools.subagent import (
     SUPERVISOR_INTERVAL_CAP,
@@ -36,36 +40,61 @@ from argus_skill.tools.subagent import (
     cmd_reply,
 )
 
+_ORIGINAL_RUN_BACKEND_TURN = _sub._llm._run_backend_turn
+
 
 @pytest.fixture(autouse=True)
 def _guard_live_codex_boundaries(monkeypatch: pytest.MonkeyPatch) -> None:
     """Deterministic unit tests must opt into local Codex fakes explicitly."""
 
-    def blocked_find_codex() -> str:
+    def blocked_turn(*args: object, **kwargs: object) -> RunnerResult:
         raise AssertionError(
-            "Unexpected live Codex executable lookup in a unit test; "
+            "Unexpected live subagent backend turn in a unit test; "
             "use _install_fake_codex(...) for intentional model-boundary coverage."
         )
 
-    def blocked_run(*args: object, **kwargs: object) -> object:
-        raise AssertionError(
-            "Unexpected live subagent subprocess.run boundary in a unit test; "
-            "use _install_fake_codex(...) for intentional subprocess coverage."
-        )
-
-    monkeypatch.setattr(_sub._core, "_find_codex", blocked_find_codex)
-    monkeypatch.setattr(_sub._direct_run, "_find_codex", blocked_find_codex)
-    monkeypatch.setattr(_sub._core.subprocess, "run", blocked_run)
+    monkeypatch.setattr(_sub._llm, "_run_backend_turn", blocked_turn)
 
 
 def _install_fake_codex(monkeypatch: pytest.MonkeyPatch, fake_run: Callable[..., object]) -> None:
-    monkeypatch.setattr(_sub._core, "_find_codex", lambda: "codex")
-    monkeypatch.setattr(_sub._direct_run, "_find_codex", lambda: "codex")
-    monkeypatch.setattr(_sub._core.subprocess, "run", fake_run)
+    def fake_turn(
+        prompt: str,
+        model: str,
+        cwd: str,
+        thread_id: str | None,
+        timeout: int,
+        run_label: str,
+        mission_id: str | None = None,
+    ) -> RunnerResult:
+        cmd = ["codex", "exec"]
+        if thread_id:
+            cmd += ["resume", thread_id]
+        cmd += ["--json", "-m", model, "-"]
+        raw = fake_run(
+            cmd,
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=cwd,
+        )
+        stdout = str(getattr(raw, "stdout", "") or "")
+        usage = sum_token_counts(_sub._registry._parse_codex_jsonl_events(stdout))
+        return RunnerResult(
+            exit_code=int(getattr(raw, "returncode", 0) or 0),
+            agent_messages=_sub._codex_agent_messages(stdout),
+            thread_id=_sub._codex_thread_id(stdout) or thread_id,
+            input_tokens=usage[0],
+            cached_input_tokens=usage[1],
+            output_tokens=usage[2],
+            reasoning_output_tokens=usage[3],
+            usage_model=model,
+        )
+
+    monkeypatch.setattr(_sub._llm, "_run_backend_turn", fake_turn)
 
 
 def _skip_supervisor_summary(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_sub._core, "_supervisor_summarize_report", lambda *args, **kwargs: "")
     monkeypatch.setattr(_sub._reporting, "_supervisor_summarize_report", lambda *args, **kwargs: "")
 
 
@@ -179,10 +208,8 @@ def test_clean_concern_treats_nothing_phrases_as_empty() -> None:
 
 
 def test_live_codex_boundary_guard_blocks_unfaked_calls() -> None:
-    with pytest.raises(AssertionError, match="live Codex executable lookup"):
-        _sub._core._find_codex()
-    with pytest.raises(AssertionError, match="live subagent subprocess.run boundary"):
-        _sub._core.subprocess.run(["codex", "exec"])
+    with pytest.raises(AssertionError, match="live subagent backend turn"):
+        _sub._llm._run_backend_turn("", "", ".", None, 1, "test")
 
 
 def test_supervisor_check_concern_now_means_stop_in_prompt(monkeypatch, tmp_path) -> None:
@@ -283,6 +310,28 @@ def test_build_report_surfaces_concern_for_stopped_task(monkeypatch) -> None:
     assert "discussion" in report.lower()
 
 
+def test_direct_report_never_calls_llm(monkeypatch) -> None:
+    monkeypatch.setattr(
+        _sub._reporting,
+        "_supervisor_summarize_report",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("direct mode called the model")
+        ),
+    )
+    report = _build_report(
+        "direct-1",
+        "COMPLETED",
+        {
+            "description": "plain background command",
+            "command": "echo ok",
+            "mode": "direct",
+            "elapsed_seconds": 1,
+            "exit_code": 0,
+        },
+    )
+    assert "plain background command" in report
+
+
 def test_supervisor_authors_report_grounded_in_diagnosis(monkeypatch) -> None:
     # The summary + next step must be authored from the supervisor's own
     # diagnosis, not a signal-blind summarizer that only sees stdout.
@@ -294,7 +343,7 @@ def test_supervisor_authors_report_grounded_in_diagnosis(monkeypatch) -> None:
         stdout = ""
 
     def fake_run(cmd, **kwargs):
-        captured["prompt"] = cmd[-1]
+        captured["prompt"] = kwargs.get("input", "")
         r = _Result()
         r.stdout = _codex_jsonl(
             "I stopped B2 because completions were truncated, not formatted. "
@@ -327,6 +376,109 @@ def test_supervisor_authors_report_grounded_in_diagnosis(monkeypatch) -> None:
     assert "rerunning unchanged" in prompt.lower()
     # The authored report is returned.
     assert "max_completion_length" in out
+
+
+def test_supervisor_report_usage_is_added_to_task_record(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    task = {
+        "task_id": "train-report",
+        "run_id": "train-report-run-1",
+        "mode": "supervised",
+        "cwd": str(tmp_path),
+        "supervisor_usage_model": "gpt-5.5",
+        "supervisor_input_tokens": 10,
+        "supervisor_cached_input_tokens": 2,
+        "supervisor_output_tokens": 3,
+        "supervisor_reasoning_output_tokens": 1,
+    }
+    _write_task("train-report", dict(task))
+
+    monkeypatch.setattr(
+        _sub._llm,
+        "_run_backend_turn",
+        lambda *args, **kwargs: RunnerResult(
+            exit_code=0,
+            agent_messages=["terminal report"],
+            thread_id="REPORT",
+            input_tokens=7,
+            cached_input_tokens=1,
+            output_tokens=5,
+            reasoning_output_tokens=2,
+        ),
+    )
+
+    assert (
+        _sub._supervisor_summarize_report("train-report", "COMPLETED", task)
+        == "terminal report"
+    )
+    saved = json.loads(
+        (tmp_path / ".argus_subagents" / "train-report.json").read_text()
+    )
+    assert saved["supervisor_input_tokens"] == 17
+    assert saved["supervisor_cached_input_tokens"] == 3
+    assert saved["supervisor_output_tokens"] == 8
+    assert saved["supervisor_reasoning_output_tokens"] == 3
+
+
+def test_supervisor_report_uses_persisted_submit_cwd(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    project = tmp_path / "project"
+    project.mkdir()
+    task = {
+        "task_id": "train-cwd",
+        "run_id": "train-cwd-run-1",
+        "mode": "supervised",
+    }
+    _write_task("train-cwd", {**task, "cwd": str(project)})
+    seen: dict[str, str] = {}
+
+    def fake_turn(prompt, model, cwd, thread_id, timeout, run_label, mission_id=None):
+        seen["cwd"] = cwd
+        return RunnerResult(exit_code=0, agent_messages=["terminal report"])
+
+    monkeypatch.setattr(_sub._llm, "_run_backend_turn", fake_turn)
+
+    _sub._supervisor_summarize_report("train-cwd", "COMPLETED", task)
+
+    assert seen["cwd"] == str(project)
+
+
+def test_late_report_does_not_overwrite_reused_task_id(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    old_task = {
+        "task_id": "reused",
+        "run_id": "old-run",
+        "mode": "supervised",
+        "cwd": str(tmp_path),
+        "supervisor_input_tokens": 10,
+    }
+    _write_task("reused", dict(old_task))
+
+    def fake_turn(prompt, model, cwd, thread_id, timeout, run_label, mission_id=None):
+        _write_task(
+            "reused",
+            {
+                "task_id": "reused",
+                "run_id": "new-run",
+                "state": "running",
+                "mode": "supervised",
+                "supervisor_input_tokens": 1,
+            },
+        )
+        return RunnerResult(
+            exit_code=0,
+            agent_messages=["old terminal report"],
+            input_tokens=7,
+        )
+
+    monkeypatch.setattr(_sub._llm, "_run_backend_turn", fake_turn)
+
+    _sub._supervisor_summarize_report("reused", "COMPLETED", old_task)
+
+    saved = json.loads((tmp_path / ".argus_subagents" / "reused.json").read_text())
+    assert saved["run_id"] == "new-run"
+    assert saved["state"] == "running"
+    assert saved["supervisor_input_tokens"] == 1
 
 
 def test_verdict_survives_trailing_non_json_chatter() -> None:
@@ -620,6 +772,7 @@ def test_run_discussion_processes_preexisting_engineer_turn(monkeypatch, tmp_pat
     )
     monkeypatch.setattr("argus_skill.tools.subagent._discuss_run.DISCUSSION_POLL_INTERVAL", 0)
     from argus_skill.tools.subagent import _run_discussion
+    _write_task(tid, {"state": "discussing", "task_id": tid})
     _run_discussion(tid, {"concern": "x", "command": "python t.py"}, "gpt-5.5", str(tmp_path))
 
     # The pre-existing engineer turn got exactly one supervisor answer.
@@ -632,57 +785,89 @@ def test_run_discussion_processes_preexisting_engineer_turn(monkeypatch, tmp_pat
 # Redesign: persistent thread, forced-discussion gate, experiment memory
 # ---------------------------------------------------------------------------
 
-def test_run_codex_resumes_thread_and_streams_prompt(monkeypatch, tmp_path) -> None:
-    # A persistent supervisor turn must `exec resume <thread_id>` and stream the
-    # prompt via stdin (never positionally), and surface the thread id back.
+def test_run_codex_resumes_thread_through_backend(monkeypatch, tmp_path) -> None:
     calls: dict[str, object] = {}
 
-    class _Result:
-        returncode = 0
-        stdout = ""
-
-    def fake_run(cmd, **kwargs):
-        calls["cmd"] = cmd
-        calls["input"] = kwargs.get("input")
-        r = _Result()
-        r.stdout = (
-            json.dumps({"type": "thread.started", "thread_id": "TID-123"}) + "\n"
-            + _codex_jsonl('{"decision": "continue"}')
+    def fake_turn(prompt, model, cwd, thread_id, timeout, run_label, mission_id=None):
+        calls.update(
+            prompt=prompt,
+            model=model,
+            cwd=cwd,
+            thread_id=thread_id,
+            timeout=timeout,
+            run_label=run_label,
         )
-        return r
+        return RunnerResult(
+            exit_code=0,
+            agent_messages=['{"decision": "continue"}'],
+            thread_id="TID-123",
+        )
 
-    _install_fake_codex(monkeypatch, fake_run)
+    monkeypatch.setattr(_sub._llm, "_run_backend_turn", fake_turn)
     msgs, tid = _sub._run_codex("PROMPT-BODY", "gpt-5.5", str(tmp_path), thread_id="TID-123")
     assert tid == "TID-123"
-    assert calls["input"] == "PROMPT-BODY"
-    assert "resume" in calls["cmd"]
-    assert "TID-123" in calls["cmd"]
-    assert calls["cmd"][-1] == "-"  # prompt streamed via stdin
-    assert "PROMPT-BODY" not in calls["cmd"]
+    assert msgs == ['{"decision": "continue"}']
+    assert calls["prompt"] == "PROMPT-BODY"
+    assert calls["thread_id"] == "TID-123"
+    assert calls["run_label"] == "subagent"
 
 
 def test_run_codex_retries_fresh_when_resume_empty(monkeypatch, tmp_path) -> None:
     # A resume that yields no agent message (expired session) retries once fresh.
-    seq = []
+    seq: list[str | None] = []
 
-    class _Result:
-        returncode = 1
-        stdout = ""
+    def fake_turn(prompt, model, cwd, thread_id, timeout, run_label, mission_id=None):
+        seq.append(thread_id)
+        if thread_id:
+            return RunnerResult(exit_code=1, thread_id=thread_id)
+        return RunnerResult(
+            exit_code=0,
+            agent_messages=['{"decision": "continue"}'],
+            thread_id="FRESH",
+        )
 
-    def fake_run(cmd, **kwargs):
-        seq.append("resume" in cmd)
-        r = _Result()
-        if "resume" in cmd:
-            r.stdout = ""  # session gone, nothing back
-        else:
-            r.returncode = 0
-            r.stdout = _codex_jsonl('{"decision": "continue"}')
-        return r
-
-    _install_fake_codex(monkeypatch, fake_run)
+    monkeypatch.setattr(_sub._llm, "_run_backend_turn", fake_turn)
     msgs, tid = _sub._run_codex("P", "gpt-5.5", str(tmp_path), thread_id="DEAD")
-    assert seq == [True, False]  # resumed, then retried fresh
-    assert msgs  # got a message from the fresh run
+    assert seq == ["DEAD", None]
+    assert msgs
+    assert tid == "FRESH"
+
+
+def test_backend_turn_uses_accounted_agent_backend(monkeypatch, tmp_path) -> None:
+    calls: dict[str, object] = {}
+
+    class _Backend:
+        def set_usage_context(self, **kwargs) -> None:
+            calls["usage_context"] = kwargs
+
+        def run_exec(self, **kwargs) -> RunnerResult:
+            calls["run_exec"] = kwargs
+            return RunnerResult(exit_code=0, agent_messages=["ok"], thread_id="T")
+
+    monkeypatch.setattr(_sub._llm, "_codex_backend", lambda: _Backend())
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
+
+    result = _ORIGINAL_RUN_BACKEND_TURN(
+        "inspect metrics",
+        "gpt-5.5",
+        str(tmp_path),
+        "OLD",
+        30,
+        "subagent:train-1:health",
+        "train-1-run-42",
+    )
+
+    assert result.last_agent_message == "ok"
+    usage_context = calls["usage_context"]
+    assert isinstance(usage_context, dict)
+    assert usage_context["mission_id"] == "train-1-run-42"
+    assert Path(usage_context["project_root"]).parent == tmp_path / "argus-home" / "projects"
+    run_call = calls["run_exec"]
+    assert isinstance(run_call, dict)
+    assert run_call["resume_thread_id"] == "OLD"
+    assert run_call["run_label"] == "subagent:train-1:health"
+    assert run_call["options"].reasoning_effort == "low"
+    assert run_call["options"].working_dir == str(tmp_path)
 
 
 def test_run_supervised_persists_supervisor_usage_totals(monkeypatch, tmp_path) -> None:
@@ -698,11 +883,11 @@ def test_run_supervised_persists_supervisor_usage_totals(monkeypatch, tmp_path) 
         def wait(self, timeout=None):
             self._wait_calls += 1
             if self._wait_calls == 1:
-                raise _sub._core.subprocess.TimeoutExpired("cmd", timeout)
+                raise subprocess.TimeoutExpired("cmd", timeout)
             return 0
 
     proc = _Proc()
-    monkeypatch.setattr(_sub._core.subprocess, "Popen", lambda *a, **k: proc)
+    monkeypatch.setattr(_sub._registry.subprocess, "Popen", lambda *a, **k: proc)
     monkeypatch.setattr(_sub._registry, "_child_env", lambda: {})
     monkeypatch.setattr(_sub._supervised_run, "_tail_file", lambda *a, **k: "")
     monkeypatch.setattr(_sub._supervised_run, "_alert_engineer", lambda *a, **k: "report")
@@ -770,6 +955,71 @@ def test_cmd_submit_blocks_on_open_discussion(monkeypatch, tmp_path, capsys) -> 
     assert rc == 1
     assert out["blocking_task"] == "blk"
     assert "truncation" in out["supervisor_concern"]
+
+
+def test_cmd_submit_rejects_same_id_while_discussion_worker_lives(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _write_task(
+        "same",
+        {
+            "state": "discussing",
+            "task_id": "same",
+            "run_id": "same-old-run",
+            "pid": 999999,
+            "worker_pid": __import__("os").getpid(),
+            "last_heartbeat": time.time(),
+        },
+    )
+    monkeypatch.setattr(
+        _sub._cli.os,
+        "fork",
+        lambda: (_ for _ in ()).throw(AssertionError("forked")),
+    )
+
+    rc = _sub.cmd_submit(
+        _submit_args(
+            task_id="same",
+            override_discussion="launch a replacement anyway",
+        )
+    )
+
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert "already discussing" in out["error"]
+
+
+def test_cmd_submit_rejects_terminal_record_while_report_worker_lives(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _write_task(
+        "reporting",
+        {
+            "state": "done",
+            "task_id": "reporting",
+            "run_id": "reporting-old-run",
+            "pid": 999999,
+            "worker_pid": __import__("os").getpid(),
+            "completed_at": time.time(),
+        },
+    )
+    monkeypatch.setattr(
+        _sub._cli.os,
+        "fork",
+        lambda: (_ for _ in ()).throw(AssertionError("forked")),
+    )
+
+    rc = _sub.cmd_submit(_submit_args(task_id="reporting"))
+
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert "already done" in out["error"]
 
 
 def test_cmd_submit_override_records_and_proceeds(monkeypatch, tmp_path, capsys) -> None:
@@ -962,8 +1212,8 @@ def test_reply_back_block_demands_concrete_fix_not_bare_agreement() -> None:
     assert "subagent reply" in block
     assert "--task-id train-x" in block
     assert "discussion" in block.lower()
-    # New: the engineer must diagnose + name a concrete change, not just agree no-go.
-    assert "no-go" in block.lower()
+    # The engineer must diagnose + name a concrete change, not just agree on failure.
+    assert "failure" in block.lower()
     assert "root cause" in block.lower()
     assert "hyperparameter" in block.lower()
 
@@ -1134,6 +1384,7 @@ def test_preflight_discussion_opening_signals_pre_launch_block(monkeypatch, tmp_
         "command": "python train.py --num-generations 1",
     }
     _append_discussion(tid, "engineer", "Why blocked? I'll fix it.")
+    _write_task(tid, {"state": "discussing", "task_id": tid})
     _run_discussion(tid, td, "gpt-5.5", str(tmp_path))
     rendered = _render_discussion(tid)
     assert "BEFORE launch" in rendered
@@ -1154,10 +1405,47 @@ def test_nonpreflight_discussion_opening_uses_stopped_wording(monkeypatch, tmp_p
     monkeypatch.setattr("argus_skill.tools.subagent._discuss_run.DISCUSSION_POLL_INTERVAL", 0)
     from argus_skill.tools.subagent import _run_discussion
     _append_discussion(tid, "engineer", "ack, fixing")
+    _write_task(tid, {"state": "discussing", "task_id": tid})
     _run_discussion(tid, {"concern": "x", "command": "python t.py"}, "gpt-5.5", str(tmp_path))
     rendered = _render_discussion(tid)
     assert "I stopped this run" in rendered
     assert "BEFORE launch" not in rendered
+
+
+def test_superseded_discussion_cannot_overwrite_reused_task_id(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _write_task(
+        "reused-discussion",
+        {
+            "task_id": "reused-discussion",
+            "run_id": "new-run",
+            "state": "running",
+        },
+    )
+    monkeypatch.setattr(
+        "argus_skill.tools.subagent._discuss_run.DISCUSSION_POLL_INTERVAL",
+        0,
+    )
+
+    _sub._run_discussion(
+        "reused-discussion",
+        {
+            "task_id": "reused-discussion",
+            "run_id": "old-run",
+            "concern": "old concern",
+        },
+        "gpt-5.5",
+        str(tmp_path),
+    )
+
+    saved = json.loads(
+        (tmp_path / ".argus_subagents" / "reused-discussion.json").read_text()
+    )
+    assert saved["run_id"] == "new-run"
+    assert saved["state"] == "running"
 
 
 def test_preflight_strict_bool_reject_fails_soft(monkeypatch, tmp_path) -> None:

@@ -35,7 +35,6 @@ from ._direct_run import (
     _looks_like_rl_training,
     _parse_launch_flags,
     _rl_collapse_guidance,
-    _run_codex,
     _run_contract_preflight,
     _run_direct,
     _strip_skill_frontmatter,
@@ -59,6 +58,7 @@ from ._discussion_log import (
     _render_discussion,
     _reset_discussion,
 )
+from ._llm import _run_codex
 from ._normalize import (
     _EMPTY_CONCERN_PREFIXES,
     _EMPTY_CONCERNS,

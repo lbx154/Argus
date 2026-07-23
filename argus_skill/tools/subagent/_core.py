@@ -10,10 +10,9 @@ It has been decomposed into cohesive sub-modules:
     _supervised_run.py -- supervised monitoring loop with health-adaptive backoff
     _discuss_run.py    -- stop-and-discuss parking loop
 
-Every name that was previously importable from this module (and from the
-package-level argus_skill.tools.subagent namespace) is still importable
-from both locations unchanged.  _cli.py imports "from . import _core" and
-"from ._core import ..."; both keep working via this shim.
+Every name that was previously importable from this module remains available
+for compatibility. Production code imports the owning modules directly so this
+shim is no longer on the runtime path.
 """
 # ruff: noqa: F401, I001  -- re-export shim; imports are intentional and grouped by responsibility
 from __future__ import annotations
@@ -31,7 +30,6 @@ from ._registry import (
     SUPERVISOR_MODEL,
     SUPERVISOR_THREAD_MAX_CHECKS,
     _QUIET_LOGS_ENV,
-    _SUPERVISOR_USAGE_BASELINE_FIELD,
     _ZERO_USAGE_TUPLE,
     _add_usage_totals,
     _append_experiment_history,
@@ -54,7 +52,6 @@ from ._registry import (
     _read_task,
     _registry_path,
     _run_dir_from_command,
-    _usage_delta_for_thread,
     _write_task,
     reconcile_terminal_task,
 )
@@ -91,13 +88,12 @@ from ._direct_run import (
     _looks_like_rl_training,
     _parse_launch_flags,
     _rl_collapse_guidance,
-    _run_codex,
-    _run_codex_with_usage,
     _run_contract_preflight,
     _run_direct,
     _strip_skill_frontmatter,
     _terminate_proc,
 )
+from ._llm import _run_codex, _run_codex_with_usage
 
 # Supervised monitoring loop
 from ._supervised_run import (

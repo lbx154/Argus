@@ -37,9 +37,6 @@ from ..core.secret_guard import (
     redact_secrets_record,
 )
 from ..reviewer import Reviewer, ReviewerConfig
-from .background_subagents import (
-    emit_subagent_cost_events,
-)
 from .checkpoint import ensure_shared_checkpoint
 
 log = logging.getLogger(__name__)
@@ -85,7 +82,6 @@ from .round_stop_signals import (
     should_clear_thread_id_after_outcome,
 )
 from .round_waits import RoundWaitsMixin
-
 
 
 class SupervisedEngineer(
@@ -168,11 +164,6 @@ class SupervisedEngineer(
         _ = seed_thread_id
         checkpoint_path = ensure_shared_checkpoint(supervised_config.checkpoint_path)
         for round_index in range(1, supervised_config.max_rounds + 1):
-            if on_event:
-                try:
-                    emit_subagent_cost_events(workdir, on_event)
-                except Exception:  # noqa: BLE001
-                    log.debug("subagent cost scan ignored an error", exc_info=True)
             engineer_prompt = self._assemble_round_prompt(
                 round_index=round_index,
                 supervised_config=supervised_config,

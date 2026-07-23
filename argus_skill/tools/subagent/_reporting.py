@@ -5,23 +5,25 @@ inbox queuing, and the EARLY-STOPPED reply-back instruction block.
 """
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 from typing import Any
 
 from ._discussion_log import (
     _discussion_path,
 )
+from ._llm import _run_codex_with_usage
 from ._registry import (
     REGISTRY_DIR,
     SUPERVISOR_MODEL,
+    _add_usage_totals,
+    _apply_supervisor_usage_fields,
     _effective_run_dir,
     _progress_summary,
+    _read_task,
     _registry_path,
+    _write_task_if_run_id,
 )
 from ._text import (
-    _codex_last_agent_message,
-    _find_codex,
     _tail_file,
 )
 
@@ -39,7 +41,6 @@ def _supervisor_summarize_report(task_id: str, event: str, task_data: dict[str, 
     from the reason instead of defaulting to a mechanical "remove the STOP file
     and rerun".
     """
-    codex = _find_codex()
     stdout_tail = task_data.get("stdout_tail", "")[-2000:]
     stderr_tail = task_data.get("stderr_tail", "")[-1000:]
     elapsed = task_data.get("elapsed_seconds", 0)
@@ -139,19 +140,47 @@ def _supervisor_summarize_report(task_id: str, event: str, task_data: dict[str, 
         "Keep it under 320 words. Be direct and actionable."
     )
 
-    try:
-        from ...core.sandbox import codex_sandbox_args, codex_sandbox_env  # noqa: PLC0415
-        result = subprocess.run(
-            [codex, "exec", "--json", "-m", SUPERVISOR_MODEL,
-             "--skip-git-repo-check", "--ephemeral",
-             *codex_sandbox_args(working_dir=run_dir), prompt],
-            capture_output=True, text=True, timeout=90,
-            env=codex_sandbox_env(),
+    persisted_before = _read_task(task_id)
+    expected_run_id = str(task_data.get("run_id") or "")
+    if (
+        expected_run_id
+        and persisted_before is not None
+        and str(persisted_before.get("run_id") or "") != expected_run_id
+    ):
+        return ""
+    model = str(task_data.get("supervisor_usage_model") or SUPERVISOR_MODEL)
+    cwd = str(
+        task_data.get("cwd")
+        or (persisted_before or {}).get("cwd")
+        or Path.cwd()
+    )
+    messages, _thread_id, usage = _run_codex_with_usage(
+        prompt,
+        model,
+        cwd,
+        timeout=90,
+        run_label=f"subagent:{task_id}:report",
+        mission_id=expected_run_id or None,
+    )
+    totals = _add_usage_totals(
+        (
+            int(task_data.get("supervisor_input_tokens") or 0),
+            int(task_data.get("supervisor_cached_input_tokens") or 0),
+            int(task_data.get("supervisor_output_tokens") or 0),
+            int(task_data.get("supervisor_reasoning_output_tokens") or 0),
+        ),
+        usage,
+    )
+    _apply_supervisor_usage_fields(task_data, model=model, totals=totals)
+    persisted = _read_task(task_id)
+    if persisted is not None:
+        _apply_supervisor_usage_fields(persisted, model=model, totals=totals)
+        _write_task_if_run_id(
+            task_id,
+            persisted,
+            expected_run_id=expected_run_id,
         )
-        return _codex_last_agent_message(result.stdout)
-    except Exception:
-        pass
-    return ""
+    return messages[-1] if messages else ""
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +235,16 @@ def _build_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:
     reply_block = _reply_back_block(task_id, event)
     # The supervisor — which watched the run and made the call — writes the
     # summary and the next step, grounded in its own diagnosis.
-    llm_report = _supervisor_summarize_report(task_id, event, task_data)
+    llm_report = ""
+    report_error = ""
+    if task_data.get("mode") == "supervised":
+        try:
+            llm_report = _supervisor_summarize_report(task_id, event, task_data)
+        except Exception as exc:
+            report_error = (
+                f"{type(exc).__name__}: model-authored report unavailable; "
+                "using deterministic evidence summary"
+            )
     if llm_report and len(llm_report) > 50:
         return (
             f"## Subagent Report: {task_id} [{event}]\n\n"
@@ -215,6 +253,8 @@ def _build_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:
 
     # Fallback: template-based report
     lines = [f"## Subagent Report: {task_id}", f"**Event**: {event}", ""]
+    if report_error:
+        lines.extend([f"**Supervisor report error**: {report_error}", ""])
 
     if concern:
         lines.append(f"**Supervisor concern**: {concern}")

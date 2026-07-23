@@ -11,13 +11,6 @@ import subprocess
 from pathlib import Path
 
 from argus_skill.engineer import background_subagents as bs
-from argus_skill.life.supervisor._cost import _CostTrackingSink
-
-
-class _Down:
-    def handle_event(self, e: dict) -> None: ...
-    def handle_stream_line(self, s: str, line: str) -> None: ...
-    def close(self) -> None: ...
 
 
 def _write_record(reg: Path, task_id: str, **fields) -> Path:
@@ -143,91 +136,6 @@ def test_unreadable_record_is_skipped(tmp_path: Path) -> None:
     _write_record(reg, "t1")
     subs = bs.scan_inflight_subagents(tmp_path)
     assert [s.task_id for s in subs] == ["t1"]
-
-
-def test_emit_subagent_cost_events_reports_supervisor_usage_and_persists_baseline(
-    tmp_path: Path,
-) -> None:
-    reg = tmp_path / ".argus_subagents"
-    path = _write_record(
-        reg,
-        "t1",
-        supervisor_usage_model="gpt-5.5",
-        supervisor_input_tokens=120,
-        supervisor_cached_input_tokens=15,
-        supervisor_output_tokens=30,
-        supervisor_reasoning_output_tokens=6,
-    )
-
-    events: list[dict[str, object]] = []
-    bs.emit_subagent_cost_events(tmp_path, events.append)
-
-    assert events == [{
-        "type": "codex.util.completed",
-        "agent_layer": "subagent",
-        "model": "gpt-5.5",
-        "run_label": "t1",
-        "session_id": "t1",
-        "input_tokens": 120,
-        "cached_input_tokens": 15,
-        "output_tokens": 30,
-        "reasoning_output_tokens": 6,
-        "premium_requests": 0.0,
-        "usage_scope": "delta",
-    }]
-    saved = json.loads(path.read_text(encoding="utf-8"))
-    assert saved["supervisor_cost_folded_totals"] == {
-        "input_tokens": 120,
-        "cached_input_tokens": 15,
-        "output_tokens": 30,
-        "reasoning_output_tokens": 6,
-    }
-
-
-def test_emit_subagent_cost_events_guards_against_cross_mission_double_count(
-    tmp_path: Path,
-) -> None:
-    reg = tmp_path / ".argus_subagents"
-    path = _write_record(
-        reg,
-        "train-1",
-        supervisor_usage_model="gpt-5.5",
-        supervisor_input_tokens=100,
-        supervisor_cached_input_tokens=10,
-        supervisor_output_tokens=20,
-        supervisor_reasoning_output_tokens=4,
-    )
-
-    first = _CostTrackingSink(_Down(), engineer_model="gpt-5.5", reviewer_model="gpt-5.5")
-    bs.emit_subagent_cost_events(tmp_path, first.handle_event)
-    assert (
-        first.util_input_tokens,
-        first.util_cached_input_tokens,
-        first.util_output_tokens,
-        first.util_reasoning_output_tokens,
-    ) == (100, 10, 20, 4)
-
-    record = json.loads(path.read_text(encoding="utf-8"))
-    record["supervisor_input_tokens"] = 160
-    record["supervisor_cached_input_tokens"] = 25
-    record["supervisor_output_tokens"] = 45
-    record["supervisor_reasoning_output_tokens"] = 9
-    path.write_text(json.dumps(record), encoding="utf-8")
-
-    second = _CostTrackingSink(_Down(), engineer_model="gpt-5.5", reviewer_model="gpt-5.5")
-    bs.emit_subagent_cost_events(tmp_path, second.handle_event)
-    assert (
-        second.util_input_tokens,
-        second.util_cached_input_tokens,
-        second.util_output_tokens,
-        second.util_reasoning_output_tokens,
-    ) == (60, 15, 25, 5)
-    assert (
-        first.util_input_tokens + second.util_input_tokens,
-        first.util_cached_input_tokens + second.util_cached_input_tokens,
-        first.util_output_tokens + second.util_output_tokens,
-        first.util_reasoning_output_tokens + second.util_reasoning_output_tokens,
-    ) == (160, 25, 45, 9)
 
 
 # ---- advisory rendering ---------------------------------------------------

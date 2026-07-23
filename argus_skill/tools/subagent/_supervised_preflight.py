@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import json
 
-from ._direct_run import _parse_launch_flags, _rl_collapse_guidance, _run_codex_with_usage
+from ._direct_run import _parse_launch_flags, _rl_collapse_guidance
+from ._llm import _run_codex_with_usage
 from ._normalize import _clean_concern
-from ._registry import _ZERO_USAGE_TUPLE, SUPERVISOR_INTERVAL_CAP
+from ._registry import _ZERO_USAGE_TUPLE, SUPERVISOR_INTERVAL_CAP, _read_task
 from ._text import _strip_code_fence
 
 # ---------------------------------------------------------------------------
@@ -99,6 +100,8 @@ def _supervisor_preflight_with_usage(
             cwd,
             None,
             timeout=120,
+            run_label=f"subagent:{task_id}:preflight",
+            mission_id=str((_read_task(task_id) or {}).get("run_id") or "") or None,
         )
         for message in reversed(messages):
             try:

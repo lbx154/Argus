@@ -25,12 +25,12 @@ from ._direct_run import (
     _is_full_scale_rl,
     _looks_like_rl_training,
     _rl_collapse_guidance,
-    _run_codex_with_usage,
     _run_contract_preflight,
     _terminate_proc,
 )
 from ._discuss_run import _run_discussion
 from ._discussion_log import _discussion_path, _reset_discussion
+from ._llm import _run_codex_with_usage
 from ._normalize import _clean_concern, _norm_decision, _norm_health
 from ._registry import (
     _ZERO_USAGE_TUPLE,
@@ -43,7 +43,6 @@ from ._registry import (
     _launch_durable_command,
     _persist_experiment_record,
     _read_task,
-    _usage_delta_for_thread,
     _write_task,
 )
 from ._reporting import _alert_engineer
@@ -188,6 +187,8 @@ def _supervisor_check_with_usage(
             cwd,
             thread_id,
             timeout=120,
+            run_label=f"subagent:{task_id}:health",
+            mission_id=str((_read_task(task_id) or {}).get("run_id") or "") or None,
         )
         # codex emits JSONL; pull the assistant messages and accept the most
         # recent one that parses into a verdict (tolerates trailing chatter
@@ -266,7 +267,6 @@ def _supervised_do_one_check(
     supervisor_log: Path,
     supervisor_thread_id: str | None,
     supervisor_usage_totals: tuple[int, int, int, int],
-    supervisor_thread_usage_totals: dict[str, tuple[int, int, int, int]],
 ) -> tuple[
     int,  # check_number (may have incremented for confirm re-check)
     str,  # decision
@@ -295,11 +295,7 @@ def _supervised_do_one_check(
     )
     supervisor_usage_totals = _add_usage_totals(
         supervisor_usage_totals,
-        _usage_delta_for_thread(
-            thread_id=supervisor_thread_id,
-            raw_totals=raw_usage,
-            baselines=supervisor_thread_usage_totals,
-        ),
+        raw_usage,
     )
     # Rotate the persistent supervisor thread every N checks so a multi-hour
     # run never overflows the codex context window; the next check seeds a
@@ -341,11 +337,7 @@ def _supervised_do_one_check(
         )
         supervisor_usage_totals = _add_usage_totals(
             supervisor_usage_totals,
-            _usage_delta_for_thread(
-                thread_id=supervisor_thread_id,
-                raw_totals=confirm_usage,
-                baselines=supervisor_thread_usage_totals,
-            ),
+            confirm_usage,
         )
         with supervisor_log.open("a") as sl:
             sl.write(json.dumps({
@@ -402,7 +394,6 @@ def _supervised_handle_early_stop(
     start_time: float,
     supervisor_thread_id: str | None,
     supervisor_usage_totals: tuple[int, int, int, int],
-    supervisor_thread_usage_totals: dict[str, tuple[int, int, int, int]],
     stdout_path: Path,
     stderr_path: Path,
     supervisor_log: Path,
@@ -467,7 +458,6 @@ def _supervised_handle_early_stop(
         resolved_run_dir,
         supervisor_thread_id,
         supervisor_usage_totals,
-        supervisor_thread_usage_totals,
     )
     final_td = _read_task(task_id) or td
     _persist_experiment_record(
@@ -500,10 +490,12 @@ def _run_supervised(
     _reset_discussion(task_id)
 
     start_time = time.time()
-    run_id = f"{task_id}-{int(start_time)}"
+    run_id = str(
+        (_read_task(task_id) or {}).get("run_id")
+        or f"{task_id}-{time.time_ns()}"
+    )
     supervisor_thread_id: str | None = None
     supervisor_usage_totals = _ZERO_USAGE_TUPLE
-    supervisor_thread_usage_totals: dict[str, tuple[int, int, int, int]] = {}
     # Resolve run_dir once relative to the task cwd so the supervisor reads the
     # right progress/status and writes STOP where RunWriter watches.
     resolved_run_dir: str | None = None
@@ -584,7 +576,6 @@ def _run_supervised(
                     None,
                     None,
                     supervisor_usage_totals,
-                    supervisor_thread_usage_totals,
                 )
                 final_td = _read_task(task_id) or td
                 _persist_experiment_record(
@@ -594,6 +585,7 @@ def _run_supervised(
         with stdout_path.open("w") as out, stderr_path.open("w") as err:
             proc = _launch_durable_command(
                 task_id=task_id,
+                run_id=run_id,
                 command=command,
                 stdout=out,
                 stderr=err,
@@ -608,7 +600,9 @@ def _run_supervised(
                 "run_dir": resolved_run_dir,
                 "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
                 "supervisor_log": str(supervisor_log),
-                "exit_status_path": str(_exit_status_path(task_id).resolve()),
+                "exit_status_path": str(
+                    _exit_status_path(task_id, run_id).resolve()
+                ),
             }, model=model, totals=supervisor_usage_totals)
             _write_task(task_id, running_task)
 
@@ -636,7 +630,8 @@ def _run_supervised(
                     td = {
                         "state": "timeout", "task_id": task_id, "run_id": run_id,
                         "description": description, "command": command,
-                        "pid": proc.pid, "timeout_seconds": timeout,
+                        "pid": proc.pid, "worker_pid": os.getpid(),
+                        "timeout_seconds": timeout,
                         "elapsed_seconds": round(elapsed, 1),
                         "completed_at": time.time(), "mode": "supervised",
                         "run_dir": resolved_run_dir,
@@ -674,7 +669,6 @@ def _run_supervised(
                     supervisor_log=supervisor_log,
                     supervisor_thread_id=supervisor_thread_id,
                     supervisor_usage_totals=supervisor_usage_totals,
-                    supervisor_thread_usage_totals=supervisor_thread_usage_totals,
                 )
 
                 if stop_now:
@@ -694,7 +688,6 @@ def _run_supervised(
                         start_time=start_time,
                         supervisor_thread_id=supervisor_thread_id,
                         supervisor_usage_totals=supervisor_usage_totals,
-                        supervisor_thread_usage_totals=supervisor_thread_usage_totals,
                         stdout_path=stdout_path,
                         stderr_path=stderr_path,
                         supervisor_log=supervisor_log,
@@ -715,7 +708,7 @@ def _run_supervised(
                 "task_id": task_id, "run_id": run_id, "description": description,
                 "command": command, "exit_code": proc.returncode,
                 "elapsed_seconds": elapsed, "completed_at": time.time(),
-                "pid": proc.pid, "mode": "supervised",
+                "pid": proc.pid, "worker_pid": os.getpid(), "mode": "supervised",
                 "supervisor_checks": check_number,
                 "concern": concern,
                 "last_supervisor_health": health,
@@ -738,6 +731,7 @@ def _run_supervised(
             "error": f"{type(exc).__name__}: {exc}",
             "elapsed_seconds": round(time.time() - start_time, 1),
             "completed_at": time.time(), "mode": "supervised",
+            "worker_pid": os.getpid(),
             "run_dir": resolved_run_dir,
         }
         _apply_supervisor_usage_fields(td, model=model, totals=supervisor_usage_totals)
