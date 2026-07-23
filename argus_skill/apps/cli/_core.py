@@ -269,7 +269,6 @@ def main(argv: list[str] | None = None) -> int:
         + bool(getattr(args, "gc", False))
         + bool(args.watch)
         + bool(args.follow)
-        + bool(getattr(args, "dashboard", False))
         + bool(getattr(args, "web", False))
         + bool(args.notify)
         + bool(args.init_identity)
@@ -338,9 +337,6 @@ def main(argv: list[str] | None = None) -> int:
         return _run_with_path_resolution_errors(lambda: _cmd_watch(args))
     if args.follow:
         return _run_with_path_resolution_errors(lambda: _cmd_follow(args))
-    if getattr(args, "dashboard", False):
-        from ...tools.dashboard import serve
-        return serve(port=int(getattr(args, "dashboard_port", 8787) or 8787))
     if getattr(args, "web", False):
         entry_error = _lifetime_entry_error(args)
         if entry_error:

@@ -20,7 +20,6 @@ from argus_skill.core.usage import (
 )
 from argus_skill.life.supervisor import global_daily_spend
 from argus_skill.life.supervisor._cost import _CostTrackingSink
-from argus_skill.tools import dashboard
 from argus_skill.webapi.server import _settled_spend
 
 
@@ -762,7 +761,7 @@ def test_legacy_codex_migration_uses_recorded_call_deltas_not_raw_cumulative(
     assert summary.output_tokens == 30
 
 
-def test_call_mission_project_dashboard_and_daily_aggregates_match(
+def test_call_mission_project_and_daily_aggregates_match(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "home"
@@ -799,16 +798,10 @@ def test_call_mission_project_dashboard_and_daily_aggregates_match(
     )
     mission_sum = sink.total_usd()
     project_sum = _settled_spend(None, project).known_cost_usd
-    _, dashboard_sum, dashboard_status = dashboard._missions_cost(
-        [{"type": "life.mission.completed"}],
-        project,
-    )
     daily_sum = global_daily_spend(global_root=root)
 
     assert mission_sum == pytest.approx(call_sum)
     assert project_sum == pytest.approx(call_sum)
-    assert dashboard_sum == pytest.approx(call_sum)
-    assert dashboard_status == "priced"
     assert daily_sum == pytest.approx(call_sum)
 
 
