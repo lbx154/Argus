@@ -18,7 +18,7 @@ from argus_skill.core.secret_guard import (
     redact_secrets_text_with_count,
     scrub_recent_text_artifacts,
 )
-from argus_skill.engineer.background_subagents import parse_wait_sentinel
+from argus_skill.engineer.external_work import parse_external_wait_request
 from argus_skill.engineer.runner import (
     _apply_round_secret_guard,
     _review_event_payload,
@@ -469,11 +469,11 @@ def test_round_guard_keeps_engineer_control_sentinels_pristine(
         round_max=10,
         on_event=None,
     )
-    wait_message = "WAIT_FOR_SUBAGENT: task-123"
+    wait_message = '{"wait_for": "subagent", "wait_id": "task-123"}'
     continue_message = "work completed\nCONTINUE_WORK: rebuild the hash chain"
 
     assert reviewer_note
-    assert parse_wait_sentinel(wait_message) == "task-123"
+    assert parse_external_wait_request(wait_message) == ("subagent", "task-123")
     assert (
         parse_continue_work_request(continue_message)
         == "rebuild the hash chain"

@@ -476,7 +476,7 @@ def _format_daemon_mode_cell(theme, mem: _SplitMemory) -> str:  # noqa: ANN001
     """
     try:
         from ..daemon.life_worker import read_daemon_status
-        from .cli import _format_short_duration
+        from .cli._core import _format_short_duration
 
         status = read_daemon_status(mem.project.root)
     except Exception:  # noqa: BLE001

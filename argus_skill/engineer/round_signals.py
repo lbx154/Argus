@@ -13,7 +13,6 @@ from ..core.secret_guard import (
     redact_secrets_record,
     scrub_recent_text_artifacts,
 )
-from .background_subagents import wait_for_subagent_cadence
 from .external_work import wait_for_external_work_cadence
 
 
@@ -92,39 +91,6 @@ def _pause_decision_clock(last_progress_at: float, waited_seconds: float) -> flo
     return float(last_progress_at) + max(0.0, float(waited_seconds or 0.0))
 
 
-def _run_background_wait(
-    *,
-    workdir: Path,
-    task_id: str,
-    round_index: int,
-    round_max: int,
-    on_event: Callable[[dict], None] | None,
-) -> tuple[str, float]:
-    if on_event:
-        on_event({
-            "type": "round.background_wait.started",
-            "round_index": round_index,
-            "round_max": round_max,
-            "task_id": task_id,
-            "text": f"yielding to supervised subagent cadence: {task_id}",
-        })
-    try:
-        wait_reason, waited_s = wait_for_subagent_cadence(workdir, task_id)
-    except Exception as exc:  # noqa: BLE001
-        wait_reason, waited_s = f"error:{type(exc).__name__}", 0.0
-    if on_event:
-        on_event({
-            "type": "round.background_wait.completed",
-            "round_index": round_index,
-            "round_max": round_max,
-            "task_id": task_id,
-            "text": (
-                f"resumed after {waited_s:.0f}s ({wait_reason}) waiting on {task_id}"
-            ),
-        })
-    return wait_reason, waited_s
-
-
 def _run_external_work_wait(
     *,
     workdir: Path,
@@ -164,6 +130,5 @@ __all__ = [
     "_normalize_dynamic_plan_mode",
     "_pause_decision_clock",
     "_review_event_payload",
-    "_run_background_wait",
     "_run_external_work_wait",
 ]

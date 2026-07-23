@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from argus_skill.apps import cli as cli_mod
-from argus_skill.apps.cli import _check_logout_survival, _cmd_status
+from argus_skill.apps.cli._core import _check_logout_survival, _cmd_status
 from argus_skill.life import BacklogItem, MemoryBundle
 
 

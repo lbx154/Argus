@@ -34,7 +34,6 @@ from ._cost import (
 from ._helpers import (
     _entry_task_signature,
     _is_recent_no_progress_failure,
-    _legacy_final_submission_marker,
     _normalize_planner_text,
     _operator_only_blocker_paths_for_project,
     _operator_only_external_blocker_wait_reason_for_project,
@@ -48,7 +47,6 @@ __all__ = [
     "_normalize_planner_text",
     "_sanitize_planner_task_text",
     "_planner_task_signature",
-    "_legacy_final_submission_marker",
     "_entry_task_signature",
     "_is_recent_no_progress_failure",
     "_MemoryView",

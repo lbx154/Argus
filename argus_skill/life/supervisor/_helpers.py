@@ -178,24 +178,6 @@ def _planner_task_signature(
     )
 
 
-def _legacy_final_submission_marker(text: str) -> bool:
-    """Legacy backlog migration: recognize the ``final_submission`` scope from
-    objective prose.
-
-    New backlog items always carry the structured ``scope:final_submission``
-    tag (see ``_planner_task_tags``). This prose recognizer exists ONLY so a
-    daemon that resumes a backlog persisted by an older build — whose items may
-    have the marker only in their objective text — still exempts a ``done``
-    final-submission task from planner dedupe. It is a one-shot format bridge,
-    not a runtime relevance/completion judgment.
-    """
-    normalized = _normalize_planner_text(text)
-    return (
-        "scope: final_submission" in normalized
-        or "planner_scope: final_submission" in normalized
-    )
-
-
 def _entry_task_signature(entry: JournalEntry) -> tuple[str, str] | None:
     extra = getattr(entry, "extra", {}) or {}
     signature = extra.get("planner_task_signature")

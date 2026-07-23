@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.apps.cli import (
+from argus_skill.apps.cli._core import (
     _read_current_stage,
     _render_gate_snapshot_lines,
     _render_lifecycle_status_lines,
@@ -280,7 +280,7 @@ def test_status_subprocess_shows_gate_snapshot_when_stage_known(
     # the research project at `<bundle.project.root>/code/` after we
     # discover the bundle path. Skip subprocess routing complexity here
     # and just verify the helper directly via a Namespace bundle.
-    from argus_skill.apps.cli import _render_gate_snapshot_lines
+    from argus_skill.apps.cli._core import _render_gate_snapshot_lines
 
     lines = _render_gate_snapshot_lines(code, "draft")
     text = "\n".join(lines)

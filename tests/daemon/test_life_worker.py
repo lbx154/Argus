@@ -738,7 +738,7 @@ def test_life_worker_separates_boundary_stop_from_mission_interrupt(
 
 
 def test_format_short_duration() -> None:
-    from argus_skill.apps.cli import _format_short_duration
+    from argus_skill.apps.cli._core import _format_short_duration
     assert _format_short_duration(0) == "0s"
     assert _format_short_duration(45) == "45s"
     assert _format_short_duration(125) == "2m 5s"
