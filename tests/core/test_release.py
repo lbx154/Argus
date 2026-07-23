@@ -37,6 +37,25 @@ def test_release_generated_frontend_contract_is_current() -> None:
     assert result.returncode == 0, result.stderr or result.stdout
 
 
+def test_release_manifest_cannot_be_refreshed_without_frontend_build() -> None:
+    root = Path(__file__).parents[2]
+    manifest_path = root / "argus_skill" / "release_manifest.json"
+    generated_path = root / "frontend" / "core" / "src" / "release.generated.ts"
+    before = (manifest_path.read_bytes(), generated_path.read_bytes())
+
+    result = subprocess.run(
+        [sys.executable, "scripts/generate_release_manifest.py"],
+        cwd=root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "run scripts/build_release.py" in result.stderr
+    assert (manifest_path.read_bytes(), generated_path.read_bytes()) == before
+
+
 def test_checked_in_frontend_artifacts_match_current_release() -> None:
     root = Path(__file__).parents[2]
     result = subprocess.run(
