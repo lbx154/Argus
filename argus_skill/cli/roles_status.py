@@ -462,21 +462,7 @@ def role_activity(life_dir: Path | str, *, now: float | None = None,
     return out
 
 
-# ── rendering (theme is duck-typed: any object with red/green/…/bold/dim) ──
-
-_ROLE_TITLE = {
-    "manager": "Manager", "planner": "Planner",
-    "engineer": "Engineer", "reviewer": "Reviewer", "curator": "Curator",
-}
-
-# Fixed role → hue. The SAME role always gets the SAME colour everywhere it is
-# named — startup banner, ``/roles`` panel, the live spinner, and the scrolling
-# event feed — so an operator builds a one-glance colour→role association
-# instead of re-reading text every time (this is the "colour = identity" half
-# of a colour=identity / weight=activity split; see ``role_paint``). Chosen to
-# avoid the two hues this codebase already uses for other meanings (bold_green
-# = "active now" dot, plain yellow = warnings) by pairing intensity with role
-# instead of overloading a single hue for two concepts.
+# Fixed role colours used by the active event-follow surface.
 ROLE_COLOR: dict[str, str] = {
     "manager": "cyan",
     "planner": "magenta",
@@ -516,4 +502,3 @@ def role_paint(theme: Any, role: str, text: str, *, bold: bool = True) -> str:
     table = ROLE_COLOR_BOLD if bold else ROLE_COLOR
     method = table.get((role or "").strip().lower())
     return _paint(theme, method, text) if method else text
-

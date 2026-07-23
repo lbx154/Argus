@@ -40,7 +40,7 @@ class RoundWaitsMixin:
         source_matches = (
             external_work is not None
             and (
-                wait_kind == "external_work"
+                (wait_kind == "external_work" and external_work.source != "subagent")
                 or (
                     wait_kind == "subagent"
                     and supervised_config.background_subagent_advisory
@@ -49,8 +49,7 @@ class RoundWaitsMixin:
             )
         )
         if source_matches and external_work is not None and external_work.waitable:
-            # See the background-wait call above: route through the
-            # ``runner`` module attribute so monkeypatching
+            # Route through the ``runner`` module attribute so monkeypatching
             # ``runner._run_external_work_wait`` keeps taking effect.
             from . import runner as _runner_module
 

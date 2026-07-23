@@ -16,10 +16,6 @@ from typing import Any, Callable
 
 EXTERNAL_WORK_REGISTRY = ".argus_external_work"
 EXTERNAL_WORK_PROTOCOL_VERSION = 1
-_TERMINAL_STATES = frozenset({
-    "complete", "completed", "done", "error", "failed", "timeout",
-    "crashed", "cancelled", "canceled", "stopped", "early_stopped",
-})
 _SUBAGENT_INFLIGHT_STATES = frozenset({
     "running", "starting", "preflight", "discussing",
 })
