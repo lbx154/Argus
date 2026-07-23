@@ -59,7 +59,7 @@ log = logging.getLogger(__name__)
 #:   nanogpt_speedrun — Task 2: minimize wall-time to val_loss<=3.28 (8xH100)
 #:   kernelbench      — Task 3: maximize SOL score (B200 kernels)
 VERTICALS: tuple[str, ...] = (
-    "software", "digital_circuit", "digital_circuit_benchmark", "research", "math", "physics", "materials", "quant", "speedrun",
+    "software", "digital_circuit", "digital_circuit_benchmark", "research", "math", "physics", "materials", "chemistry", "quant", "speedrun",
     "kernel_engineering", "nanochat", "nanogpt_speedrun", "kernelbench",
     "learning", "ale_last_exam", "fiction_writing", "classical_poetry",
     "modern_poetry", "prose", "literary_editor",
@@ -92,6 +92,12 @@ VERTICAL_PURPOSES: dict[str, str] = {
     "microstructure, continuum, CAD/CAE, and experimental scales; dynamically choose "
     "literature/data analysis, DFT/MD/MLIP, constitutive modeling, FEM/process simulation, "
     "or experiment design, with independent physical validation and provenance",
+    "chemistry": "chemistry research across molecular properties and activity, reactions "
+    "and synthesis, cheminformatics, quantum chemistry, computational screening, "
+    "closed-loop optimization, and authorized instrument-backed experiments; preserve "
+    "whether the tested control is online agent, periodically revised, or frozen policy, "
+    "with independent evidence review; not generic paper writing, pure physics, "
+    "materials-only work (use materials), or a fixed single-metric speedrun",
     "quant": "finance factor-research REPORT — mine/evaluate equity factors "
     "(IC/ICIR, backtest, Sharpe) into a reviewer-certified factor report; not a metric loop",
     "speedrun": "generic single-metric optimize loop on a script/benchmark under a "

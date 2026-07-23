@@ -44,7 +44,7 @@ argus-skill (CLI)                         apps/cli/_parser.py + apps/cli/_core.p
 | Reviewer | `reviewer/_core.py`, `reviewer/reviewer_schema.json` | independent `done` / `continue` / `blocked` verdict when required by the vertical/task or requested by Engineer |
 | Planner | `planner/planner.py` | L4 continuous planner: next tasks |
 | Core (dumb pipe) | `core/models.py`, `core/ports.py`, `core/paths.py`, `core/pricing.py`, `core/daemon_lock.py`, `core/bootstrap.py` | budget, persistence, structured I/O, paths, locks |
-| Verticals | `verticals/_base.py` + `verticals/{nanochat,nanogpt_speedrun,kernelbench,speedrun,quant,research,learning,ale_last_exam}/` | per-task shape via a plugin contract (`role_banner`, `completion_gate`, `search_altitude`); `ale_last_exam` is the single-stage hidden-reference artifact-delivery shape |
+| Verticals | `verticals/_base.py` + `verticals/{research,math,physics,materials,chemistry,quant,speedrun,nanochat,nanogpt_speedrun,kernelbench,learning,ale_last_exam,...}/` | per-task shape via a plugin contract (`role_banner`, `completion_gate`, `search_altitude`); `chemistry` is the independently reviewed computational/experimental chemistry shape and `ale_last_exam` is the single-stage hidden-reference artifact-delivery shape |
 | Daemon | `daemon/life_worker.py` | detached 7×24 worker around `LifeSupervisor`; SIGTERM/drain, pid lock |
 | Backend | `agent_cli/agent_cli_runner.py`, `adapters/agent_cli_backend.py`, `adapters/memory_backend.py` | the CLI runner (codex/claude/copilot/opencode) + a deterministic memory backend for tests |
 
