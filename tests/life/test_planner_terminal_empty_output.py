@@ -12,7 +12,7 @@ from argus_skill.life.context_packet import (
     create_mission_context,
     record_reviewed_handoff,
 )
-from argus_skill.life.memory import BacklogItem, LifeMemory
+from argus_skill.life.memory import BacklogItem, LifeMemory, MemoryBundle
 from argus_skill.life.supervisor._config import LifeSupervisorConfig
 from argus_skill.life.supervisor._constants import (
     PLAN_ERROR,
@@ -140,11 +140,21 @@ def _make_supervisor(
     monkeypatch,
     *,
     terminal_stage_done: bool,
+    split_memory: bool = False,
 ) -> tuple[LifeSupervisor, _EmptyPlannerThenManagerRunner, _RecordingSink]:
     project = tmp_path / "project"
     project.mkdir()
     _write_software_state(project, done=terminal_stage_done)
-    memory = LifeMemory.open(tmp_path / "life")
+    if split_memory:
+        memory = MemoryBundle.for_cwd(
+            project,
+            global_root=tmp_path / "global",
+            fingerprint="s-empty-plan",
+        )
+        memory.global_mem.init()
+        memory.project.init()
+    else:
+        memory = LifeMemory.open(tmp_path / "life")
     sink = _RecordingSink()
     backend = _EmptyPlannerThenManagerRunner()
     supervisor = LifeSupervisor(
@@ -241,6 +251,7 @@ def test_nonterminal_empty_plan_replays_unassessed_current_stage_review(
         tmp_path,
         monkeypatch,
         terminal_stage_done=False,
+        split_memory=True,
     )
     backend.manager_action = "advance"
     backend.manager_target_stage = "solve"
@@ -255,7 +266,7 @@ def test_nonterminal_empty_plan_replays_unassessed_current_stage_review(
         )
     )
     mission_path = create_mission_context(
-        life_dir=supervisor.memory.root,
+        life_dir=supervisor.memory.project_root,
         mission_id=item.id,
         stage="scope",
         objective=item.objective,
@@ -283,6 +294,7 @@ def test_nonterminal_empty_plan_replays_unassessed_current_stage_review(
             "resumable": False,
         },
     )
+    assert not (supervisor.memory.root / "handoffs").exists()
 
     assert supervisor._plan_next_work() == PLAN_RETRY
 

@@ -187,6 +187,11 @@ class PlanningCycleMixin(
             key=lambda item: (float(item.finished_ts or 0), float(item.ts or 0)),
             reverse=True,
         )
+        handoff_base = Path(
+            getattr(self.memory, "project_root", None)
+            or getattr(self.memory, "root", None)
+            or self._artifact_root()
+        )
         for item in items:
             outcome = item.outcome if isinstance(item.outcome, dict) else {}
             if (
@@ -195,7 +200,7 @@ class PlanningCycleMixin(
                 != "not_assessed"
             ):
                 continue
-            handoff_root = Path(self.memory.root) / "handoffs" / item.id
+            handoff_root = handoff_base / "handoffs" / item.id
             try:
                 mission = json.loads(
                     (handoff_root / "mission.json").read_text(encoding="utf-8")
