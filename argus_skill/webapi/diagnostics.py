@@ -1,4 +1,4 @@
-"""Self-diagnosis for argus-skill — the ``/doctor`` command.
+"""Backend diagnostics for the Web/TUI ``/doctor`` panel.
 
 Answers the one question a stuck user actually has: *why is nothing
 executing my backlog, and what do I type to fix it?* This is the gap a real

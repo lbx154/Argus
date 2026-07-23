@@ -1,4 +1,4 @@
-"""Tests for the ``/doctor`` self-diagnosis core (argus_skill.tools.doctor).
+"""Tests for the Web/TUI ``/doctor`` diagnostics backend.
 
 The diagnostics are fully fail-soft and network-free by default: every check
 either returns a :class:`Check` or is converted into a failed Check, and the
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 
-from argus_skill.tools.doctor import Check, render_report, run_diagnostics
+from argus_skill.webapi.diagnostics import Check, render_report, run_diagnostics
 
 # ---------------------------------------------------------------------------
 # render_report formatting
@@ -158,7 +158,7 @@ def test_backend_preflight_checks_configured_backend_not_always_codex(monkeypatc
     of ``ARGUS_SKILL_RUNNER_BACKEND``, so an operator running entirely on
     copilot/claude (no ``codex`` npm package installed, by design) got a
     false "codex binary not found" warning on every banner / /doctor run."""
-    from argus_skill.tools.doctor import _check_backend_preflight
+    from argus_skill.webapi.diagnostics import _check_backend_preflight
 
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BIN", raising=False)
@@ -173,7 +173,7 @@ def test_backend_preflight_checks_configured_backend_not_always_codex(monkeypatc
 
 
 def test_backend_preflight_missing_binary_names_the_configured_backend(monkeypatch):
-    from argus_skill.tools.doctor import _check_backend_preflight
+    from argus_skill.webapi.diagnostics import _check_backend_preflight
 
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "claude")
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BIN", raising=False)
@@ -191,7 +191,7 @@ def test_backend_preflight_defaults_to_codex_with_original_install_hint(
 ):
     """The default (unset) backend keeps the exact original codex message so
     existing operators see no change."""
-    from argus_skill.tools.doctor import _check_backend_preflight
+    from argus_skill.webapi.diagnostics import _check_backend_preflight
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
@@ -209,7 +209,7 @@ def test_backend_preflight_uses_persisted_copilot_selection(
     tmp_path, monkeypatch
 ):
     from argus_skill.core.knob_store import write_persisted_knob
-    from argus_skill.tools.doctor import _check_backend_preflight
+    from argus_skill.webapi.diagnostics import _check_backend_preflight
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
     monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
@@ -234,7 +234,7 @@ def test_backend_preflight_uses_persisted_copilot_selection(
 def test_injected_probe_429_surfaces_switch_backend_fix(tmp_path, monkeypatch):
     # Force a configured route so the offline gate passes, then inject a probe
     # that returns a 429 — the check must recommend switching backend.
-    from argus_skill.tools import doctor as doctor_mod
+    from argus_skill.webapi import diagnostics as doctor_mod
 
     class _Route:
         usable = True
