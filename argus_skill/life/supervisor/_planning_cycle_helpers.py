@@ -45,8 +45,10 @@ def _revision_reason(revision_request: dict[str, Any]) -> str:
     report = report if isinstance(report, dict) else {}
     return str(
         revision_request.get("review_reason")
+        or revision_request.get("reason")
+        or revision_request.get("stop_reason")
         or report.get("plan_signal_reason")
-        or ""
+        or "Reviewer requested reconsideration of the current plan."
     ).strip()
 
 

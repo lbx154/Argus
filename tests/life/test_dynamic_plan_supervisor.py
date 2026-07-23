@@ -228,6 +228,30 @@ def _revision_request() -> dict:
     }
 
 
+def test_replan_without_optional_reason_still_commits_revision(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    supervisor, sink = _supervisor(
+        tmp_path,
+        planner_response=_replacement_verdict(),
+    )
+    _seed_plan(supervisor)
+    _isolate_planning(supervisor, monkeypatch)
+    request = _revision_request()
+    request["planner_report"].pop("plan_signal_reason")
+
+    assert supervisor._plan_next_work(revision_request=request) is True
+    assert any(
+        event["type"] == "life.plan.revision.committed"
+        for event in sink.events
+    )
+    assert not any(
+        event["type"] == "life.plan.revision.rejected"
+        for event in sink.events
+    )
+
+
 def _isolate_planning(supervisor: LifeSupervisor, monkeypatch) -> None:
     monkeypatch.setattr(
         supervisor, "_maybe_idle_after_unchanged_open_ended_done", lambda: None

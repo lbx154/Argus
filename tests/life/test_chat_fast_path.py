@@ -242,6 +242,27 @@ def test_self_prompt_projects_live_manager_maintenance_state(
     assert "- upstream publication: opened" in prompt
 
 
+def test_self_prompt_includes_latest_queued_operator_objective(
+    tmp_path: Path,
+) -> None:
+    memory = LifeMemory.open(tmp_path)
+    memory.backlog.add(BacklogItem.new(
+        title="implement durable checkpoints",
+        objective="Implement durable checkpoints for interrupted experiments",
+    ))
+    backend = _FakeBackend(response_message="continuing the queued task")
+    runner = _make_runner(backend)
+    runner._manager_session_root = tmp_path
+
+    runner._simple_quick_reply(
+        objective="继续",
+        sink=_RecordingSink(),
+    )
+
+    prompt = backend.calls[-1]["prompt"]
+    assert "Implement durable checkpoints for interrupted experiments" in prompt
+
+
 def test_self_grounds_in_operator_workspace_without_moving_state_root(
     tmp_path: Path,
 ) -> None:

@@ -265,13 +265,14 @@ class SelfReplyMixin:
             from ..life.memory import Backlog
 
             root = Path(session_root)
+            backlog_items = Backlog(root / "backlog.jsonl").all()
             running = [
                 item
-                for item in Backlog(root / "backlog.jsonl").all()
+                for item in backlog_items
                 if item.status == "running"
             ]
             if not running:
-                mission = self._recent_mission_history_block(root)
+                mission = self._recent_mission_history_block(root, backlog_items)
             else:
                 item = running[0]
                 activity = role_activity(root)
@@ -342,25 +343,49 @@ class SelfReplyMixin:
             lines.append(f"- publication note: {snapshot.publication_error}")
         return "\n".join(lines)
 
-    def _recent_mission_history_block(self, root: Path) -> str:
+    def _recent_mission_history_block(
+        self,
+        root: Path,
+        backlog_items: list[Any] | None = None,
+    ) -> str:
         try:
             from ..life.memory import EventJournal
 
             recent = EventJournal(root / "events.jsonl").tail(1)
-            if not recent:
+            latest_item = backlog_items[-1] if backlog_items else None
+            if not recent and latest_item is None:
                 return ""
-            entry = recent[0]
-            age_s = max(0, int(time.time() - float(entry.ts)))
             lines = [
                 "## Recent mission history",
                 "No mission is running right now under your supervision "
-                f"(life_dir={root}). The most recent recorded event there, "
-                f"{age_s}s ago:",
-                f'- {entry.kind}: "{(entry.title or "").strip()[:120]}"',
+                f"(life_dir={root}).",
             ]
-            summary = (entry.summary or "").strip()
-            if summary:
-                lines.append(f"  {summary[:300]}")
+            if latest_item is not None:
+                lines.append(
+                    "- latest backlog task: "
+                    f"[{latest_item.status}] "
+                    f'"{(latest_item.title or "").strip()[:120]}" '
+                    f"(id={latest_item.id})"
+                )
+                objective = " ".join(
+                    str(
+                        latest_item.original_objective
+                        or latest_item.objective
+                        or ""
+                    ).split()
+                )
+                if objective:
+                    lines.append(f"  operator objective: {objective[:600]}")
+            if recent:
+                entry = recent[0]
+                age_s = max(0, int(time.time() - float(entry.ts)))
+                lines.append(
+                    f'- latest recorded event ({age_s}s ago): {entry.kind}: '
+                    f'"{(entry.title or "").strip()[:120]}"'
+                )
+                summary = (entry.summary or "").strip()
+                if summary:
+                    lines.append(f"  {summary[:300]}")
             lines.extend([
                 "",
                 "This may or may not be what the operator is asking about — judge "
