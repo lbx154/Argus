@@ -20,6 +20,7 @@ from ..memory import BacklogItem
 from ._constants import (
     PLAN_ERROR,
     PLAN_RETRY,
+    PLAN_TERMINAL_IDLE,
     PLANNER_SCOPE_FINAL_SUBMISSION,
 )
 from ._planning_cycle_helpers import (
@@ -31,6 +32,33 @@ from ._planning_cycle_helpers import (
 
 class PlanningCycleCompletionMixin:
     """Waiting handling + project_done normalization + no-tasks rejection."""
+
+    def _pc_complete_terminal_empty_plan(self, state: _PlanCycleState) -> Any:
+        verdict = state.verdict
+        terminal_signature = self._open_ended_terminal_idle_signature()
+        delivered = self._emit_planner_verdict(
+            status=PlannerVerdictStatus.COMPLETED,
+            completion_kind="terminal_stage_hold",
+            resume_outcome=PLAN_TERMINAL_IDLE,
+            terminal_signature=terminal_signature,
+            cycle=self._planning_cycles,
+            project_done=False,
+            reason=verdict.reason,
+            task_count=0,
+            enqueued_tasks=0,
+            skipped_duplicate_tasks=0,
+            enqueued_titles=[],
+            skipped_duplicate_titles=[],
+            open_ended_objective=True,
+            **state.schema_repair_details,
+        )
+        if not delivered:
+            return PLAN_RETRY
+        self._enter_idle_backoff()
+        self._emit_status(
+            "planner: terminal stage certified and Manager held; idling"
+        )
+        return PLAN_TERMINAL_IDLE
 
     def _pc_handle_waiting(self, state: _PlanCycleState) -> Any | None:
         verdict = state.verdict
@@ -317,6 +345,12 @@ class PlanningCycleCompletionMixin:
                 "expected_plan_id": state.expected_plan_id,
                 "expected_plan_version": state.expected_plan_version,
             })
+        else:
+            reconciliation = self._reconcile_open_ended_terminal_stage_action(verdict)
+            if reconciliation == "rollback":
+                return PLAN_RETRY
+            if reconciliation == "hold":
+                return self._pc_complete_terminal_empty_plan(state)
         self._emit({
             "type": EventType.LIFE_PLANNER_ERROR,
             "cycle": self._planning_cycles,

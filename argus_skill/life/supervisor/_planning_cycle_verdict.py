@@ -112,8 +112,19 @@ class PlanningCycleVerdictMixin:
                     "expected_plan_id": state.expected_plan_id,
                     "expected_plan_version": state.expected_plan_version,
                 })
-            if self._reconcile_open_ended_terminal_stage(verdict):
+            reconciliation = ""
+            if (
+                revision_request is None
+                and verdict.error
+                == "planner said not done but produced no concrete tasks"
+            ):
+                reconciliation = self._reconcile_open_ended_terminal_stage_action(
+                    verdict
+                )
+            if reconciliation == "rollback":
                 return PLAN_RETRY
+            if reconciliation == "hold":
+                return self._pc_complete_terminal_empty_plan(state)
             self._emit({
                 "type": EventType.LIFE_PLANNER_ERROR,
                 "cycle": self._planning_cycles,

@@ -101,19 +101,24 @@ class PlanningCycleMixin(
         raise NotImplementedError
 
     def _reconcile_open_ended_terminal_stage(self, verdict: Any) -> bool:
+        return self._reconcile_open_ended_terminal_stage_action(verdict) == "rollback"
+
+    def _reconcile_open_ended_terminal_stage_action(self, verdict: Any) -> str:
         """Ask the Manager to reopen a completed final stage when work remains.
 
         A Planner at a certified final stage cannot legally enqueue earlier-stage
         work and cannot write ``PIPELINE_STATE.json``. When it structurally
         returns ``project_done=False`` with no tasks in an open-ended campaign,
         give its advisory verdict to the Manager, which may roll back or hold.
+        Returns ``"rollback"``, ``"hold"``, or ``""`` for no authoritative
+        terminal reconciliation.
         """
         if not getattr(self.config, "open_ended", False):
-            return False
+            return ""
         if bool(getattr(verdict, "project_done", False)):
-            return False
+            return ""
         if list(getattr(verdict, "new_tasks", []) or []):
-            return False
+            return ""
 
         root = self._artifact_root()
         from ...skills.vertical_select import (
@@ -123,7 +128,7 @@ class PlanningCycleMixin(
 
         vertical = resolve_vertical(root)
         if not vertical_has_current_completion_certificate(root, vertical):
-            return False
+            return ""
 
         from ...manager import Manager
 
@@ -141,9 +146,6 @@ class PlanningCycleMixin(
             open_ended=True,
             continuous_objective=self.config.continuous_objective,
         )
-        if decision.action != "rollback":
-            return False
-
         self._emit({
             "type": EventType.LIFE_MANAGER_STAGE_DECISION,
             "action": decision.action,
@@ -152,14 +154,20 @@ class PlanningCycleMixin(
             "current_stage": decision.current_stage,
             "source": decision.source,
             "diagnostic": decision.diagnostic,
+            "trigger": "open_ended_terminal_stage_reconciliation",
         })
+        if decision.action != "rollback":
+            if decision.action == "hold" and decision.source == "manager_llm":
+                return "hold"
+            return ""
+
         self._emit_status(
             "manager reopened open-ended campaign at "
             f"{decision.target_stage}"
         )
         self._last_open_ended_project_done_signature = ""
         self._reset_idle_backoff()
-        return True
+        return "rollback"
 
     def _reconcile_open_ended_planner_waiting(self, verdict: Any) -> str:
         """Let the Manager repair a stage/Planner mutual wait.
