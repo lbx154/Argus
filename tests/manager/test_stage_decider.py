@@ -26,6 +26,7 @@ from argus_skill.skills.stage_machine import (
     ChecklistLoadState,
     StageChecklistContract,
     advance_stage,
+    complete_final_stage,
     resolve_stage_checklist_contract,
 )
 from argus_skill.skills.vertical_select import persist_vertical
@@ -786,6 +787,88 @@ def test_open_ended_final_review_is_not_forced_complete(tmp_path: Path) -> None:
 
     assert st.action == "rollback"
     assert _read_stage(tmp_path) == "solve"
+
+
+def test_open_ended_final_review_hold_certifies_goal_checkpoint(
+    tmp_path: Path,
+) -> None:
+    persist_vertical(tmp_path, "math")
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps({
+            "current_stage": "review",
+            "vertical": "math",
+            "stages": {"review": {"status": "pending"}},
+        }),
+        encoding="utf-8",
+    )
+    contract = resolve_stage_checklist_contract("review", project_root=tmp_path)
+    review = _review(checklist=[
+        {
+            "item": item.id,
+            "satisfied": True,
+            "evidence": f"verified {item.evidence_hint}",
+        }
+        for item in contract.items
+    ])
+    mgr = Manager(project_root=tmp_path, runner=_StubRunner({
+        "action": "hold",
+        "target_stage": "review",
+        "reason": "the requested proof is complete and independently verified",
+    }))
+
+    st = mgr.decide_stage_transition(
+        review=review,
+        project_root=tmp_path,
+        open_ended=True,
+        continuous_objective="Continue until the theorem is proved.",
+    )
+
+    assert st.action == "complete"
+    from argus_skill.skills.vertical_select import (
+        vertical_has_current_completion_certificate,
+        vertical_reached_own_terminal_stage,
+    )
+
+    assert vertical_reached_own_terminal_stage(tmp_path, "math") is True
+    assert vertical_has_current_completion_certificate(tmp_path, "math") is True
+
+    from argus_skill.skills import checklist_store
+
+    checklist_store.apply_checklist_ops(tmp_path, [{
+        "op": "add",
+        "stage": "review",
+        "id": "review.new-material-requirement",
+        "statement": "A newly discovered material requirement is satisfied.",
+        "evidence_hint": "direct evidence for the new requirement",
+    }])
+    assert vertical_reached_own_terminal_stage(tmp_path, "math") is True
+    assert vertical_has_current_completion_certificate(tmp_path, "math") is False
+
+
+def test_math_completion_fails_closed_when_fingerprint_is_unavailable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    persist_vertical(tmp_path, "math")
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps({
+            "current_stage": "review",
+            "vertical": "math",
+            "stages": {"review": {"status": "pending"}},
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "argus_skill.skills.stage_machine.completion_contract_fingerprint",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("fingerprint failed")
+        ),
+    )
+
+    with pytest.raises(ValueError, match="fingerprint unavailable"):
+        complete_final_stage(tmp_path, reason="should not complete")
+
+    assert _read_stage_status(tmp_path, "review") == "pending"
 
 
 def test_open_ended_prompt_explains_terminal_checkpoint_semantics() -> None:

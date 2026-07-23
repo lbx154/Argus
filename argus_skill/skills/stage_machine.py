@@ -6,6 +6,7 @@ overrides, and prompt rendering.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from enum import Enum
@@ -35,6 +36,37 @@ class StageChecklistContract:
     state: ChecklistLoadState
     checklist_optional: bool
     items: tuple[ChecklistItem, ...]
+
+
+def completion_contract_fingerprint(
+    project_root: Path | str,
+    stage: str,
+    *,
+    version: int,
+) -> str:
+    """Hash the active final-stage checklist contract deterministically."""
+    contract = resolve_stage_checklist_contract(stage, project_root=project_root)
+    payload = {
+        "version": int(version),
+        "stage": contract.stage,
+        "state": contract.state.value,
+        "checklist_optional": contract.checklist_optional,
+        "items": [
+            {
+                "id": item.id,
+                "statement": item.statement,
+                "evidence_hint": item.evidence_hint,
+            }
+            for item in contract.items
+        ],
+    }
+    rendered = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(rendered).hexdigest()
 
 
 def _normalize_stage(stage: str | None) -> str:
@@ -114,6 +146,8 @@ def _set_stage(
     by: str,
     direction: str,
     mark_current_done: bool = False,
+    completion_contract_version: int = 0,
+    completion_contract_sha256: str = "",
     downgrade_downstream: bool = False,
     legacy_rollback_history: bool = False,
 ) -> str:
@@ -201,6 +235,9 @@ def _set_stage(
             prev_record = {}
             stages[previous] = prev_record
         prev_record["status"] = "done"
+        if completion_contract_version > 0 and completion_contract_sha256:
+            prev_record["completion_contract_version"] = completion_contract_version
+            prev_record["completion_contract_sha256"] = completion_contract_sha256
 
     if downgrade_downstream:
         for stage_name in order[t_idx + 1:]:
@@ -426,6 +463,29 @@ def complete_final_stage(
             f"complete target must be the final stage {order[-1] if order else '?'!r}; "
             f"current stage is {cur!r}"
         )
+    from ..verticals._base import (
+        load_vertical,
+        vertical_completion_contract_version,
+    )
+    from .vertical_select import resolve_vertical
+
+    try:
+        vertical = resolve_vertical(project_root)
+        completion_contract_version = vertical_completion_contract_version(
+            load_vertical(vertical, project_root=project_root)
+        )
+    except Exception as exc:  # noqa: BLE001 — completion authority fails closed
+        raise ValueError("completion contract unavailable") from exc
+    completion_contract_sha256 = ""
+    if completion_contract_version > 0:
+        try:
+            completion_contract_sha256 = completion_contract_fingerprint(
+                project_root,
+                cur,
+                version=completion_contract_version,
+            )
+        except Exception as exc:  # noqa: BLE001 — completion must fail closed
+            raise ValueError("completion contract fingerprint unavailable") from exc
     return _set_stage(
         project_root,
         target_stage=cur,
@@ -433,6 +493,8 @@ def complete_final_stage(
         by=completed_by,
         direction="complete",
         mark_current_done=True,
+        completion_contract_version=completion_contract_version,
+        completion_contract_sha256=completion_contract_sha256,
     )
 
 

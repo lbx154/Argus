@@ -19,7 +19,10 @@ from argus_skill.apps._runtime import _SkillLoopRunner
 from argus_skill.core.models import ReviewDecision
 from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus_skill.skills.stage_machine import resolve_stage_checklist_contract
+from argus_skill.skills.stage_machine import (
+    complete_final_stage,
+    resolve_stage_checklist_contract,
+)
 from argus_skill.skills.vertical_select import persist_vertical
 
 
@@ -407,9 +410,13 @@ def test_open_ended_terminal_planner_error_triggers_manager_rollback(
             "stages": {
                 "scope": {"status": "done"},
                 "solve": {"status": "done"},
-                "review": {"status": "done"},
+                "review": {"status": "pending"},
             },
         },
+    )
+    complete_final_stage(
+        tmp_path,
+        reason="reviewer certified the final math checklist",
     )
     backend = _StubRunner({
         "action": "rollback",

@@ -17,6 +17,8 @@ OPTIONAL hooks System (B) — the markdown stage checklists in
   every mission in this vertical (default ``False``).
 * ``completion_gate: str`` — ``"full_paper"`` (research) | ``"metric"``
   (speedrun) | ``"none"`` (default ``"full_paper"``).
+* ``COMPLETION_CONTRACT_VERSION: int`` — when positive, final-stage completion
+    is valid only while its persisted checklist fingerprint matches this version.
 
 A vertical that does not declare a hook gets the safe default, so the
 ``research`` vertical (which re-exports its checklist defs) stays byte-identical
@@ -212,6 +214,15 @@ def vertical_completion_gate(mod: VerticalDefinition) -> str:
     return "full_paper"
 
 
+def vertical_completion_contract_version(mod: VerticalDefinition) -> int:
+    """Return the optional versioned final-stage completion contract."""
+    raw = getattr(mod, "COMPLETION_CONTRACT_VERSION", 0)
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        return 0
+
+
 def vertical_research_target_levels(mod: VerticalDefinition) -> tuple[str, ...]:
     """Return the research target levels supported by this vertical."""
     raw = getattr(mod, "RESEARCH_TARGET_LEVELS", ())
@@ -259,6 +270,7 @@ __all__ = [
     "vertical_checklist_optional_stages",
     "vertical_role_banner",
     "vertical_requires_independent_review",
+    "vertical_completion_contract_version",
     "vertical_completion_gate",
     "vertical_research_target_levels",
     "vertical_workflow_mode",

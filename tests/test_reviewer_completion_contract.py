@@ -550,10 +550,19 @@ def test_open_ended_project_done_idles_when_state_unchanged(
         open_ended=True,
         full_paper_gate=False,
         project_worktree=project,
+        artifact_root=project,
     )
     sup._vertical_resolved = True
     sup._current_pipeline_stage = lambda: "done"  # type: ignore[method-assign]
     sup.planner_runner = object()
+    _write_pipeline_state(
+        project,
+        {
+            "vertical": "software",
+            "current_stage": "delivery",
+            "stages": {"delivery": {"status": "done"}},
+        },
+    )
 
     calls = 0
 
@@ -605,6 +614,14 @@ def test_production_topology_emits_one_terminal_verdict_and_calls_planner_once(
     sup._vertical_resolved = True
     sup._current_pipeline_stage = lambda: "done"  # type: ignore[method-assign]
     sup.planner_runner = object()
+    _write_pipeline_state(
+        project,
+        {
+            "vertical": "software",
+            "current_stage": "delivery",
+            "stages": {"delivery": {"status": "done"}},
+        },
+    )
 
     calls = 0
 
@@ -736,6 +753,14 @@ def test_failed_terminal_verdict_delivery_retries_after_supervisor_restart(
     )
     first._vertical_resolved = True
     first._current_pipeline_stage = lambda: "done"  # type: ignore[method-assign]
+    _write_pipeline_state(
+        project,
+        {
+            "vertical": "software",
+            "current_stage": "delivery",
+            "stages": {"delivery": {"status": "done"}},
+        },
+    )
 
     assert first._plan_next_work() == "planner_retry"
     assert calls == 1
@@ -780,10 +805,19 @@ def test_non_open_ended_project_done_stops_normally(
         open_ended=False,
         full_paper_gate=False,
         project_worktree=project,
+        artifact_root=project,
     )
     sup._vertical_resolved = True
     sup._current_pipeline_stage = lambda: "done"  # type: ignore[method-assign]
     sup.planner_runner = object()
+    _write_pipeline_state(
+        project,
+        {
+            "vertical": "software",
+            "current_stage": "delivery",
+            "stages": {"delivery": {"status": "done"}},
+        },
+    )
 
     def _plan_next(_planner, **_kwargs):
         return PlannerVerdict(project_done=True, reason="bounded done")
@@ -798,6 +832,134 @@ def test_non_open_ended_project_done_stops_normally(
         for event in events
     )
     assert not any(event.get("type") == "life.planner.terminal_idle" for event in events)
+
+
+def test_math_project_done_requires_reviewer_certified_final_stage(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    sup = _make_supervisor_cfg(
+        tmp_path / "life",
+        continuous=True,
+        continuous_objective="Prove the original theorem.",
+        open_ended=False,
+        full_paper_gate=False,
+        project_worktree=project,
+        artifact_root=project,
+    )
+    persist_vertical(
+        project,
+        "math",
+        research_target_level="exploratory",
+    )
+    _write_pipeline_state(
+        project,
+        {
+            "vertical": "math",
+            "research_target_level": "exploratory",
+            "research_target_set_at": 0.0,
+            "current_stage": "solve",
+            "stages": {
+                "scope": {"status": "done"},
+                "solve": {"status": "in_progress"},
+                "review": {"status": "pending"},
+            },
+        },
+    )
+    _append_event(sup, {
+        "type": "life.mission.completed",
+        "item_id": "drifted-completion-review",
+        "title": "Review intermediate proof work",
+        "success": True,
+        "status": "done",
+        "scope": "",
+        "research_result": {
+            "result_class": "complete_solution",
+            "correctness_status": "verified",
+            "novelty_status": "not_applicable",
+            "significance_status": "exploratory",
+            "statement_fidelity_status": "verified",
+            "evidence": ["all attempted intermediate steps checked"],
+            "limitations": ["the original theorem remains unresolved"],
+        },
+    })
+    sup.planner_runner = object()
+    monkeypatch.setattr(
+        "argus_skill.planner.Planner.plan_next",
+        lambda *_args, **_kwargs: PlannerVerdict(
+            project_done=True,
+            reason="the attempted proof contains no detected errors",
+        ),
+    )
+
+    assert sup._plan_next_work() is True
+    pending = sup.memory.backlog.pending()
+    assert len(pending) == 1
+    assert "stage_closing" in pending[0].tags
+    assert "Goal Gate" in pending[0].objective
+    assert "absence of detected errors" in pending[0].objective
+    assert "current_stage=solve" in pending[0].objective
+
+
+def test_legacy_math_done_marker_does_not_bypass_new_goal_gate(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    persist_vertical(project, "math")
+    _write_pipeline_state(
+        project,
+        {
+            "vertical": "math",
+            "current_stage": "review",
+            "stages": {"review": {"status": "done"}},
+        },
+    )
+    from argus_skill.life.supervisor._planning_cycle_helpers import (
+        _staged_goal_completion_issue,
+    )
+    from argus_skill.skills.vertical_select import (
+        vertical_has_current_completion_certificate,
+        vertical_reached_own_terminal_stage,
+    )
+
+    assert vertical_reached_own_terminal_stage(project, "math") is True
+    assert vertical_has_current_completion_certificate(project, "math") is False
+    assert "Goal Gate is not Reviewer-certified" in _staged_goal_completion_issue(
+        project
+    )
+
+
+def test_metric_project_done_does_not_require_staged_goal_gate(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    sup = _make_supervisor_cfg(
+        tmp_path / "life",
+        continuous=True,
+        continuous_objective="Maximize the frozen metric.",
+        open_ended=False,
+        full_paper_gate=False,
+        project_worktree=project,
+        artifact_root=project,
+    )
+    persist_vertical(project, "nanochat")
+    sup._vertical_resolved = True
+    sup.planner_runner = object()
+    monkeypatch.setattr(
+        "argus_skill.planner.Planner.plan_next",
+        lambda *_args, **_kwargs: PlannerVerdict(
+            project_done=True,
+            reason="metric campaign reached its terminal decision",
+        ),
+    )
+
+    assert sup._plan_next_work() is False
+    assert sup.memory.backlog.pending() == []
 
 
 def test_bounded_non_paper_terminal_stage_stops_without_planner(

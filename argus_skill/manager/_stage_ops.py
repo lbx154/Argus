@@ -289,25 +289,26 @@ class _StageDecisionMixin:
                 stage_order=order,
                 checklist_contract=checklist_contract,
             )
-            if not open_ended:
-                from ..core.research_contract import resolve_research_target_level
-                from ..skills.vertical_select import resolve_vertical
+            from ..core.research_contract import resolve_research_target_level
+            from ..skills.vertical_select import resolve_vertical
 
-                _completion_vertical = resolve_vertical(root)
-                _research_target_level = resolve_research_target_level(root)
-                final_decision = final_stage_completion_decision(
-                    review,
-                    current_stage=cur,
-                    stage_order=order,
-                    vertical=_completion_vertical,
-                    mission_scope=mission_scope,
-                    research_target_level=_research_target_level,
-                    checklist_contract=checklist_contract,
-                    trigger_diagnostic=decision.diagnostic,
-                    trigger_reason=decision.reason,
-                )
-                if final_decision is not None:
-                    decision = final_decision
+            _completion_vertical = resolve_vertical(root)
+            _research_target_level = resolve_research_target_level(root)
+            final_decision = final_stage_completion_decision(
+                review,
+                current_stage=cur,
+                stage_order=order,
+                vertical=_completion_vertical,
+                mission_scope=mission_scope,
+                research_target_level=_research_target_level,
+                checklist_contract=checklist_contract,
+                trigger_diagnostic=decision.diagnostic,
+                trigger_reason=decision.reason,
+            )
+            if final_decision is not None and (
+                not open_ended or decision.action == "hold"
+            ):
+                decision = final_decision
             decision = enforce_scientific_stage_guard(
                 decision,
                 review,
@@ -363,25 +364,26 @@ class _StageDecisionMixin:
 
         decision = parse_stage_decision(raw, current_stage=cur, stage_order=order)
 
-        if not open_ended:
-            from ..core.research_contract import resolve_research_target_level
-            from ..skills.vertical_select import resolve_vertical
+        from ..core.research_contract import resolve_research_target_level
+        from ..skills.vertical_select import resolve_vertical
 
-            _completion_vertical = resolve_vertical(root)
-            _research_target_level = resolve_research_target_level(root)
-            final_decision = final_stage_completion_decision(
-                review,
-                current_stage=cur,
-                stage_order=order,
-                vertical=_completion_vertical,
-                mission_scope=mission_scope,
-                research_target_level=_research_target_level,
-                checklist_contract=checklist_contract,
-                trigger_diagnostic=decision.diagnostic,
-                trigger_reason=decision.reason,
-            )
-            if final_decision is not None:
-                decision = final_decision
+        _completion_vertical = resolve_vertical(root)
+        _research_target_level = resolve_research_target_level(root)
+        final_decision = final_stage_completion_decision(
+            review,
+            current_stage=cur,
+            stage_order=order,
+            vertical=_completion_vertical,
+            mission_scope=mission_scope,
+            research_target_level=_research_target_level,
+            checklist_contract=checklist_contract,
+            trigger_diagnostic=decision.diagnostic,
+            trigger_reason=decision.reason,
+        )
+        if final_decision is not None and (
+            not open_ended or decision.action == "hold"
+        ):
+            decision = final_decision
 
         decision = enforce_scientific_stage_guard(
             decision,

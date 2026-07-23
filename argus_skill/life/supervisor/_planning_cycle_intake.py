@@ -212,7 +212,7 @@ class PlanningCycleIntakeMixin:
         artifact_root = self._artifact_root()
         from ...skills.vertical_select import (
             resolve_vertical,
-            vertical_reached_own_terminal_stage,
+            vertical_has_current_completion_certificate,
         )
 
         vertical = resolve_vertical(artifact_root)
@@ -221,7 +221,7 @@ class PlanningCycleIntakeMixin:
             and
             not getattr(self.config, "open_ended", False)
             and not self._effective_full_paper_gate(artifact_root)
-            and vertical_reached_own_terminal_stage(artifact_root, vertical)
+            and vertical_has_current_completion_certificate(artifact_root, vertical)
             and not _research_project_done_issue(
                 artifact_root,
                 self.memory.journal.all(),

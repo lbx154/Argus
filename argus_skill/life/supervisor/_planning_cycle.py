@@ -118,11 +118,11 @@ class PlanningCycleMixin(
         root = self._artifact_root()
         from ...skills.vertical_select import (
             resolve_vertical,
-            vertical_reached_own_terminal_stage,
+            vertical_has_current_completion_certificate,
         )
 
         vertical = resolve_vertical(root)
-        if not vertical_reached_own_terminal_stage(root, vertical):
+        if not vertical_has_current_completion_certificate(root, vertical):
             return False
 
         from ...manager import Manager

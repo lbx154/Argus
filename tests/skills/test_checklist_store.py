@@ -179,7 +179,7 @@ def test_clinical_benchmark_override_keeps_domain_neutral_antifraud_floor(tmp_pa
 
 # ── New behavior: seed-plus-override semantics ───────────────────────────────
 
-def test_removing_math_custom_leaves_three_seeds_active(tmp_path):
+def test_removing_math_custom_leaves_four_seeds_active(tmp_path):
     """Removing a custom item from a Math stage must NOT clear the vertical seeds."""
     persist_vertical(tmp_path, "math")
 
@@ -198,14 +198,15 @@ def test_removing_math_custom_leaves_three_seeds_active(tmp_path):
 
     ids = {i.id for i in cs.store_items_for_stage(tmp_path, "review")}
     assert {
+        "review.goal-achieved",
         "review.statement-fidelity",
         "review.argument-correct",
         "review.outcome-honest",
     } == ids, f"Got {ids!r}"
 
 
-def test_math_custom_coexists_with_all_three_seeds(tmp_path):
-    """A Math custom review item coexists with all three built-in review seeds."""
+def test_math_custom_coexists_with_all_four_seeds(tmp_path):
+    """A Math custom review item coexists with all four built-in review seeds."""
     persist_vertical(tmp_path, "math")
 
     cs.apply_checklist_ops(tmp_path, [
@@ -221,6 +222,7 @@ def test_math_custom_coexists_with_all_three_seeds(tmp_path):
     ids = {i.id for i in cs.store_items_for_stage(tmp_path, "review")}
     assert "review.current-certificate-replay" in ids
     for seed_id in (
+        "review.goal-achieved",
         "review.statement-fidelity",
         "review.argument-correct",
         "review.outcome-honest",
@@ -239,11 +241,57 @@ def test_remove_seed_id_records_tombstone_not_row_removal(tmp_path):
 
     ids = {i.id for i in cs.store_items_for_stage(tmp_path, "review")}
     assert "review.argument-correct" not in ids        # hidden by tombstone
+    assert "review.goal-achieved" in ids              # protected seed active
     assert "review.statement-fidelity" in ids        # other seeds active
     assert "review.outcome-honest" in ids
 
     raw = json.loads((tmp_path / "research" / "CHECKLISTS.json").read_text())
     assert "review.argument-correct" in raw.get("disabled", {}).get("review", [])
+
+
+def test_math_goal_gate_is_protected_from_ops_and_direct_tombstone(tmp_path):
+    persist_vertical(tmp_path, "math")
+
+    result = cs.apply_checklist_ops(tmp_path, [
+        {"op": "remove", "stage": "review", "id": "review.goal-achieved"}
+    ])
+
+    assert result["applied"] == 0
+    assert result["skipped"] == 1
+    path = tmp_path / "research" / "CHECKLISTS.json"
+    path.write_text(
+        json.dumps({
+            "revision": 1,
+            "vertical": "math",
+            "stages": {"review": []},
+            "disabled": {"review": ["review.goal-achieved"]},
+        }),
+        encoding="utf-8",
+    )
+    ids = {item.id for item in cs.store_items_for_stage(tmp_path, "review")}
+    assert "review.goal-achieved" in ids
+
+
+def test_checklist_ops_fail_closed_when_protection_cannot_resolve(
+    tmp_path,
+    monkeypatch,
+):
+    persist_vertical(tmp_path, "math")
+    monkeypatch.setattr(
+        "argus_skill.verticals._base.load_vertical",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("vertical import failed")
+        ),
+    )
+
+    result = cs.apply_checklist_ops(tmp_path, [{
+        "op": "remove",
+        "stage": "review",
+        "id": "review.goal-achieved",
+    }])
+
+    assert result == {"applied": 0, "skipped": 1, "revision": 0}
+    assert not (tmp_path / "research" / "CHECKLISTS.json").exists()
 
 
 def test_add_removes_tombstone(tmp_path):
@@ -312,6 +360,7 @@ def test_seed_op_does_not_duplicate_seeds(tmp_path):
     cs.apply_checklist_ops(tmp_path, [{"op": "seed", "stage": "review", "id": ""}])
     ids = [i.id for i in cs.store_items_for_stage(tmp_path, "review")]
     for seed_id in (
+        "review.goal-achieved",
         "review.statement-fidelity",
         "review.argument-correct",
         "review.outcome-honest",

@@ -557,6 +557,58 @@ def vertical_reached_own_terminal_stage(project_root: object, vertical: str) -> 
     return str(record.get("status") or "").strip().lower() == "done"
 
 
+def vertical_has_current_completion_certificate(
+    project_root: object,
+    vertical: str,
+) -> bool:
+    """Whether terminal ``done`` matches the vertical's current contract.
+
+    Legacy terminal detection remains available for new-intent reset. Completion
+    decisions use this stricter predicate so a versioned checklist change forces
+    one fresh Reviewer/Manager certification.
+    """
+    if not vertical_reached_own_terminal_stage(project_root, vertical):
+        return False
+    try:
+        from ..verticals._base import (
+            load_vertical,
+            vertical_checklist_stage_order,
+            vertical_completion_contract_version,
+        )
+
+        module = load_vertical(vertical, project_root=project_root)
+        order = vertical_checklist_stage_order(module)
+        completion_contract_version = vertical_completion_contract_version(module)
+    except Exception:  # noqa: BLE001 — strict completion fails closed
+        return False
+    if completion_contract_version <= 0:
+        return True
+    last_stage = _normalize_stage(order[-1])
+    try:
+        from .stage_machine import completion_contract_fingerprint
+
+        payload = json.loads(_state_path(project_root).read_text(encoding="utf-8"))
+        stages = payload.get("stages") if isinstance(payload, dict) else None
+        record = stages.get(last_stage) if isinstance(stages, dict) else None
+        if not isinstance(record, dict):
+            return False
+        expected = completion_contract_fingerprint(
+            project_root,
+            last_stage,
+            version=completion_contract_version,
+        )
+    except Exception:  # noqa: BLE001 — versioned completion fails closed
+        return False
+    try:
+        persisted_version = int(record.get("completion_contract_version") or 0)
+    except (TypeError, ValueError):
+        return False
+    return bool(
+        persisted_version == completion_contract_version
+        and str(record.get("completion_contract_sha256") or "") == expected
+    )
+
+
 def reset_stage_for_new_intent(
     project_root: object,
     *,
@@ -678,6 +730,7 @@ __all__ = [
     "resolve_workflow_mode",
     "resolve_evidence_mode",
     "persist_vertical",
+    "vertical_has_current_completion_certificate",
     "vertical_reached_own_terminal_stage",
     "reset_stage_for_new_intent",
 ]

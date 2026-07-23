@@ -22,7 +22,11 @@ from ._constants import (
     PLAN_RETRY,
     PLANNER_SCOPE_FINAL_SUBMISSION,
 )
-from ._planning_cycle_helpers import _PlanCycleState, _research_project_done_issue
+from ._planning_cycle_helpers import (
+    _PlanCycleState,
+    _research_project_done_issue,
+    _staged_goal_completion_issue,
+)
 
 
 class PlanningCycleCompletionMixin:
@@ -126,6 +130,7 @@ class PlanningCycleCompletionMixin:
         revision_request = state.revision_request
         expected_plan_id = state.expected_plan_id
         expected_plan_version = state.expected_plan_version
+        planner_declared_done = bool(verdict.project_done)
 
         # The planner's tasks are trusted. Deterministic gate-repair is only
         # used as a fallback when the planner itself fails (verdict.error above).
@@ -183,6 +188,60 @@ class PlanningCycleCompletionMixin:
                         "does not satisfy the persisted research target."
                     ),
                     new_tasks=[],
+                )
+
+        staged_goal_candidate = bool(
+            verdict.project_done
+            or (
+                not planner_declared_done
+                and not verdict.waiting
+                and not verdict.new_tasks
+            )
+        )
+        if staged_goal_candidate and revision_request is None:
+            goal_gate_issue = _staged_goal_completion_issue(self._artifact_root())
+            if goal_gate_issue:
+                from ...planner import TaskSpec
+
+                verdict = replace(
+                    verdict,
+                    project_done=False,
+                    reason=(
+                        f"Staged project completion held: {goal_gate_issue}. "
+                        "Planner project_done cannot replace the Goal Gate."
+                    ),
+                    new_tasks=[
+                        TaskSpec(
+                            title="Complete and certify the current Goal Gate",
+                            objective=(
+                                "Goal Gate mission for the active staged project. "
+                                f"Current unmet gate: {goal_gate_issue}. "
+                                "Re-read the original operator objective, current-stage "
+                                "checklist, and actual artifacts. Complete any missing "
+                                "current-stage work, then obtain an independent Reviewer "
+                                "judgment. `done` requires positive evidence that the "
+                                "requested outcome for this stage exists; a clean process, "
+                                "honest partial result, or absence of detected errors is not "
+                                "completion. At the final stage, verify that the original "
+                                "Goal Gate itself is achieved. The Manager alone records "
+                                "stage advance or completion."
+                            ),
+                            impact_score=5,
+                            impact_area="requirement_gap",
+                            evidence=goal_gate_issue,
+                            acceptance_check=(
+                                "The independent Reviewer satisfies every current-stage "
+                                "checklist item with concrete evidence and the Manager "
+                                "records advance or final completion."
+                            ),
+                            non_goals=[
+                                "Treat an error-free process or honest partial progress as "
+                                "project completion."
+                            ],
+                            scope="bounded",
+                            stage_closing=True,
+                        )
+                    ],
                 )
 
         if revision_request is not None and verdict.project_done:

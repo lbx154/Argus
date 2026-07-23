@@ -168,6 +168,50 @@ def _research_project_done_issue(
     return f"missing_{target_level}_reviewer_certification"
 
 
+def _staged_goal_completion_issue(project_root: object) -> str:
+    """Require the ordinary Reviewer/Manager final-stage certificate."""
+    from ...skills.stage_machine import current_stage
+    from ...skills.vertical_select import (
+        resolve_vertical,
+        vertical_has_current_completion_certificate,
+    )
+    from ...verticals._base import (
+        load_vertical,
+        vertical_checklist_stage_order,
+        vertical_completion_contract_version,
+        vertical_completion_gate,
+    )
+
+    try:
+        vertical = resolve_vertical(project_root)
+        module = load_vertical(vertical, project_root=project_root)
+        if vertical_completion_gate(module) != "none":
+            return ""
+        stages = vertical_checklist_stage_order(module)
+        if not stages or vertical_has_current_completion_certificate(
+            project_root,
+            vertical,
+        ):
+            return ""
+        contract_version = vertical_completion_contract_version(module)
+        contract_suffix = ""
+        if contract_version > 0:
+            from ...skills.stage_machine import completion_contract_fingerprint
+
+            contract_sha256 = completion_contract_fingerprint(
+                project_root,
+                stages[-1],
+                version=contract_version,
+            )
+            contract_suffix = f", contract=v{contract_version}:{contract_sha256}"
+        return (
+            f"{vertical} final-stage Goal Gate is not Reviewer-certified "
+            f"(current_stage={current_stage(project_root)}{contract_suffix})"
+        )
+    except Exception:  # noqa: BLE001 — unresolved completion never means done
+        return "staged Goal Gate could not be resolved"
+
+
 class _PlanCycleState:
     """Mutable scratch state threaded through one ``_plan_next_work`` call."""
 
@@ -210,6 +254,7 @@ __all__ = [
     "_PlanCycleState",
     "_render_revision_request",
     "_research_project_done_issue",
+    "_staged_goal_completion_issue",
     "_revision_context_refs",
     "_revision_reason",
 ]
