@@ -14,6 +14,9 @@ here so existing ``from argus_skill.reviewer import ...`` callers keep working.
 from __future__ import annotations
 
 from ._core import (
+    LEGACY_RESEARCH_SCHEMA_PATH,
+    RESEARCH_SCHEMA_PATH,
+    REVIEWER_SCHEMA_PATHS,
     SCHEMA_PATH,
     Reviewer,
     ReviewerConfig,
@@ -28,6 +31,9 @@ __all__ = [
     "Reviewer",
     "ReviewerConfig",
     "SCHEMA_PATH",
+    "RESEARCH_SCHEMA_PATH",
+    "LEGACY_RESEARCH_SCHEMA_PATH",
+    "REVIEWER_SCHEMA_PATHS",
     "parse_decision_text",
     "_find_decision_in_messages",
     "_load_wiki_curator_skill_if_present",

@@ -43,6 +43,15 @@ class ReviewerConfig:
 
 
 SCHEMA_PATH = str(Path(__file__).with_name("reviewer_schema.json"))
+RESEARCH_SCHEMA_PATH = str(Path(__file__).with_name("reviewer_research_schema.json"))
+LEGACY_RESEARCH_SCHEMA_PATH = str(
+    Path(__file__).with_name("reviewer_legacy_research_schema.json")
+)
+REVIEWER_SCHEMA_PATHS = (
+    SCHEMA_PATH,
+    RESEARCH_SCHEMA_PATH,
+    LEGACY_RESEARCH_SCHEMA_PATH,
+)
 
 
 def _compact_schema_for_backend(
