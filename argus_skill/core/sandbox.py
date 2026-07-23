@@ -208,6 +208,18 @@ def isolated_workdir_command(
     bwrap = shutil.which("bwrap")
     if not bwrap:
         raise RuntimeError("worktree isolation requires bubblewrap")
+    if not command:
+        raise RuntimeError("worktree isolation requires a command")
+    executable = Path(command[0]).expanduser()
+    if not executable.is_absolute():
+        resolved_executable = shutil.which(command[0])
+        if not resolved_executable:
+            raise RuntimeError(
+                f"worktree isolation cannot resolve executable: {command[0]}"
+            )
+        executable = Path(resolved_executable)
+        command = [str(executable), *command[1:]]
+    executable = executable.resolve()
     root = os.path.realpath(os.fspath(working_dir))
     if not os.path.isdir(root):
         raise RuntimeError("isolated workdir does not exist")
@@ -294,6 +306,10 @@ def isolated_workdir_command(
     worktree = Path(root)
     bind_dir(worktree, worktree, writable=True)
     bind_dir(Path(sys.prefix), Path(sys.prefix), writable=False)
+    # Hidden roots such as /home are replaced with tmpfs above. Re-expose only
+    # the selected backend executable so configured per-user CLI installs remain
+    # runnable without revealing the rest of their home directory.
+    bind_file(executable, executable)
     bind_dir(
         Path.home() / ".cache" / "copilot",
         Path.home() / ".cache" / "copilot",

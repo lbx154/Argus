@@ -255,7 +255,11 @@ def test_isolated_workdir_wraps_any_backend_and_hides_vcs_credentials(
     (home / ".copilot" / "session-state").mkdir(parents=True)
     workdir.mkdir()
     monkeypatch.setattr(sandbox.Path, "home", classmethod(lambda cls: home))
-    monkeypatch.setattr(sandbox.shutil, "which", lambda name: "/usr/bin/bwrap")
+    monkeypatch.setattr(
+        sandbox.shutil,
+        "which",
+        lambda name: f"/usr/bin/{name}",
+    )
 
     command = sandbox.isolated_workdir_command(
         ["copilot", "--version"],
@@ -280,7 +284,39 @@ def test_isolated_workdir_wraps_any_backend_and_hides_vcs_credentials(
     assert ["--bind", str(private_state), str(home / ".copilot" / "session-state")] == command[
         command.index(str(private_state)) - 1 : command.index(str(private_state)) + 2
     ]
-    assert command[-2:] == ["copilot", "--version"]
+    assert command[-2:] == ["/usr/bin/copilot", "--version"]
+
+
+def test_isolated_workdir_rebinds_runner_hidden_under_home(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    home = tmp_path / "home"
+    workdir = home / "maintenance-worktree"
+    runner = home / ".local" / "bin" / "copilot"
+    workdir.mkdir(parents=True)
+    runner.parent.mkdir(parents=True)
+    runner.write_bytes(b"runner")
+    runner.chmod(0o755)
+    monkeypatch.setattr(sandbox.Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr(
+        sandbox.shutil,
+        "which",
+        lambda name: "/usr/bin/bwrap" if name == "bwrap" else None,
+    )
+
+    command = sandbox.isolated_workdir_command(
+        [str(runner), "--version"],
+        working_dir=workdir,
+    )
+
+    runner_index = command.index(str(runner))
+    assert command[runner_index - 1 : runner_index + 2] == [
+        "--ro-bind",
+        str(runner),
+        str(runner),
+    ]
+    assert command[-2:] == [str(runner), "--version"]
 
 
 def test_isolated_workdir_fails_closed_without_bubblewrap(
