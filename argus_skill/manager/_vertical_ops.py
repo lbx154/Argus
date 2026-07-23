@@ -438,28 +438,6 @@ class _VerticalDecisionMixin:
                 force_stage_reset=force_stage_reset,
             )
 
-    def _refresh_agents_runtime_contract(
-        self,
-        *,
-        objective: str,
-        vertical: str,
-        domain: str = "",
-    ) -> None:
-        """Refresh only the Manager-owned block of an existing AGENTS.md."""
-        try:
-            from ..tools.new_auto_research_project import (
-                refresh_agents_runtime_contract,
-            )
-
-            refresh_agents_runtime_contract(
-                self.project_root,
-                objective=objective,
-                vertical=vertical,
-                domain=domain,
-            )
-        except Exception:  # noqa: BLE001 — Manager commit remains authoritative
-            log.exception("manager: failed to refresh AGENTS.md runtime contract")
-
     def _commit_vertical_decision_locked(
         self,
         task: str,
@@ -499,11 +477,6 @@ class _VerticalDecisionMixin:
                     new_vertical=division.vertical,
                     force_replacement=True,
                 )
-            self._refresh_agents_runtime_contract(
-                objective=division.execution_task or task,
-                vertical=division.vertical,
-                domain=division.domain,
-            )
             self._apply_vertical_decision_rendering(decision)
             return division
         vertical = decision.vertical
@@ -532,11 +505,6 @@ class _VerticalDecisionMixin:
             stages=stages,
             workflow_mode=decision.workflow_mode,
             execution_task=decision.execution_task,
-        )
-        self._refresh_agents_runtime_contract(
-            objective=division.execution_task or task,
-            vertical=division.vertical,
-            domain=division.domain,
         )
         self._apply_vertical_decision_rendering(decision)
         return division

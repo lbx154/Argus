@@ -31,10 +31,19 @@ __all__ = [
     "ProjectIdentity",
     "project_fingerprint",
     "normalize_git_remote",
+    "resolve_project_root",
 ]
 
 
 _FINGERPRINT_LEN = 12
+
+
+def resolve_project_root(explicit: str | Path | None = None) -> Path:
+    """Resolve the active execution root without creating it."""
+    if explicit is not None:
+        return Path(explicit)
+    configured = os.environ.get("ARGUS_SKILL_PROJECT_ROOT")
+    return Path(configured) if configured else Path.cwd()
 
 
 @dataclass(frozen=True)

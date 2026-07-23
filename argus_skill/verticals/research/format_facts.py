@@ -1,14 +1,14 @@
-"""Structured paper-format fact extractor.
+"""Layout-aware paper-format fact extractor for the research vertical.
 
 Given a paper PDF (an exemplar or this paper's own ``main.pdf``), compute
 a small set of objective, comparable structure metrics:
 
 * ``total_pages``
 * ``section_count``  + per-section page-start
-* ``figure_count``, ``table_count`` (counted from in-text references like
-  ``Figure 3`` / ``Table 2`` — best-effort regex; misses purely
-  side-anchored floats but captures the discussion shape, which is what
-  reviewers actually grade)
+* ``figure_count``, ``table_count`` from real PDF layout blocks when possible,
+  with in-text references as a fallback
+* two-column and blank-page diagnostics
+* page content coverage and extraction reliability
 * ``citation_count`` (in-text cite occurrences from extracted text)
 * ``citations_per_page`` (density)
 * ``abstract_chars``
@@ -17,31 +17,31 @@ a small set of objective, comparable structure metrics:
 * ``references_page`` (first page where bibliography begins) and
   ``references_pages`` (count of body pages dedicated to references)
 
-The contract is deliberately narrow: facts a reviewer can eyeball on a
-PDF and an automated diff can compare. We do NOT try to extract figure
-images or render LaTeX — those are out of scope.
+The extractor reports observations; it does not decide whether a paper is good
+or force it to imitate an exemplar. Reviewer judgment owns that decision.
 
 Used by:
 
-* ``argus_skill.tools.format_facts`` CLI (run on any PDF)
+* ``argus_skill.verticals.research.format_facts`` CLI (run on any PDF)
 * ``argus_skill.verticals.research.exemplar_grounding`` enforces that each exemplar
   has ``format_facts`` and the paper's own facts are within reasonable
   tolerances of the primary exemplar's.
 
 CLI:
-    python -m argus_skill.tools.format_facts <pdf> [--json]
+    python -m argus_skill.verticals.research.format_facts <pdf> [--json]
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-# Re-use pdf_chat's extraction so we don't fork the pdftotext/pypdf logic.
-from .pdf_chat import _extract
+# Re-use pdf_chat as the fallback so missing layout dependencies stay explicit.
+from ...tools.pdf_chat import _extract
 
 # Review-mode ACL PDFs often include line numbers and two-column spillover
 # on the same extracted line, so section headings may appear either at the
@@ -84,6 +84,8 @@ _CONCLUSION_TITLES = ("conclusion", "conclusions", "discussion and conclusion")
 @dataclass
 class FormatFacts:
     source: str
+    extraction_method: str = "text_fallback"
+    layout_reliable: bool = False
     total_pages: int = 0
     section_titles: list[str] = field(default_factory=list)
     section_count: int = 0
@@ -100,6 +102,12 @@ class FormatFacts:
     references_page: int | None = None
     references_pages: int = 0
     body_pages_before_references: int = 0
+    image_count: int = 0
+    detected_table_count: int = 0
+    two_column_pages: int = 0
+    blank_pages: int = 0
+    content_coverage_mean: float = 0.0
+    warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -187,10 +195,168 @@ def _count_unique_indexed(matches) -> tuple[int, int]:
     return len(nums), max(nums)
 
 
+@dataclass
+class _LayoutObservations:
+    text: str
+    total_pages: int
+    image_count: int
+    table_count: int
+    two_column_pages: int
+    blank_pages: int
+    content_coverage_mean: float
+    reliable: bool
+    warnings: list[str] = field(default_factory=list)
+
+
+def _looks_two_column(
+    blocks: list[tuple[float, float, float, float, str]],
+    page_width: float,
+    page_height: float,
+) -> bool:
+    """Detect two substantial, vertically overlapping text columns."""
+    useful = [
+        block
+        for block in blocks
+        if len(block[4].strip()) >= 40
+        and (block[2] - block[0]) <= page_width * 0.72
+    ]
+    left = [block for block in useful if block[2] <= page_width * 0.60]
+    right = [block for block in useful if block[0] >= page_width * 0.40]
+    if not left or not right:
+        return False
+    left_top, left_bottom = min(b[1] for b in left), max(b[3] for b in left)
+    right_top, right_bottom = min(b[1] for b in right), max(b[3] for b in right)
+    overlap = max(0.0, min(left_bottom, right_bottom) - max(left_top, right_top))
+    return overlap >= page_height * 0.20
+
+
+def _layout_observations(pdf_path: Path) -> _LayoutObservations | None:
+    """Read real page geometry with PyMuPDF; return ``None`` when unavailable."""
+    try:
+        import fitz  # type: ignore[import-not-found]
+    except ImportError:
+        return None
+
+    warnings: list[str] = []
+    page_texts: list[str] = []
+    image_hashes: set[str] = set()
+    detected_tables = 0
+    two_column_pages = 0
+    blank_pages = 0
+    coverages: list[float] = []
+    try:
+        document = fitz.open(pdf_path)
+    except Exception as exc:  # noqa: BLE001
+        return _LayoutObservations(
+            text="",
+            total_pages=0,
+            image_count=0,
+            table_count=0,
+            two_column_pages=0,
+            blank_pages=0,
+            content_coverage_mean=0.0,
+            reliable=False,
+            warnings=[f"layout extraction failed: {type(exc).__name__}: {exc}"],
+        )
+
+    try:
+        for page in document:
+            page_dict = page.get_text("dict", sort=True)
+            page_text = page.get_text("text", sort=True)
+            page_texts.append(page_text)
+            page_area = max(float(page.rect.width * page.rect.height), 1.0)
+            text_blocks: list[tuple[float, float, float, float, str]] = []
+            occupied_area = 0.0
+            page_images = 0
+            for block in page_dict.get("blocks", []):
+                bbox = block.get("bbox") or ()
+                if len(bbox) != 4:
+                    continue
+                x0, y0, x1, y1 = (float(value) for value in bbox)
+                area = max(0.0, x1 - x0) * max(0.0, y1 - y0)
+                occupied_area += area
+                if block.get("type") == 1:
+                    if area >= page_area * 0.01:
+                        image = block.get("image")
+                        digest_source = (
+                            bytes(image)
+                            if isinstance(image, (bytes, bytearray))
+                            else repr((round(x1 - x0), round(y1 - y0))).encode()
+                        )
+                        image_hashes.add(hashlib.sha256(digest_source).hexdigest())
+                        page_images += 1
+                    continue
+                lines = block.get("lines") or []
+                text = "".join(
+                    str(span.get("text") or "")
+                    for line in lines
+                    for span in (line.get("spans") or [])
+                )
+                if text.strip():
+                    text_blocks.append((x0, y0, x1, y1, text))
+            if _looks_two_column(
+                text_blocks,
+                float(page.rect.width),
+                float(page.rect.height),
+            ):
+                two_column_pages += 1
+            if len(page_text.strip()) < 40 and page_images == 0:
+                blank_pages += 1
+            coverages.append(min(1.0, occupied_area / page_area))
+            try:
+                detected_tables += len(page.find_tables().tables)
+            except Exception:  # noqa: BLE001
+                warnings.append(
+                    f"table detection unavailable on page {page.number + 1}"
+                )
+    finally:
+        document.close()
+
+    nonempty_pages = sum(bool(text.strip()) for text in page_texts)
+    reliable = bool(page_texts) and nonempty_pages >= max(1, len(page_texts) // 2)
+    if not reliable:
+        warnings.append("layout text extraction was sparse; verify the PDF visually")
+    return _LayoutObservations(
+        text="\x0c".join(page_texts),
+        total_pages=len(page_texts),
+        image_count=len(image_hashes),
+        table_count=detected_tables,
+        two_column_pages=two_column_pages,
+        blank_pages=blank_pages,
+        content_coverage_mean=(
+            round(sum(coverages) / len(coverages), 3) if coverages else 0.0
+        ),
+        reliable=reliable,
+        warnings=list(dict.fromkeys(warnings)),
+    )
+
+
 def extract_format_facts(pdf_path: Path) -> FormatFacts:
     """Compute structured format facts for ``pdf_path``."""
-    text, page_count = _extract(pdf_path)
-    facts = FormatFacts(source=str(pdf_path), total_pages=page_count)
+    layout = _layout_observations(pdf_path)
+    if layout is not None and layout.reliable:
+        text, page_count = layout.text, layout.total_pages
+        facts = FormatFacts(
+            source=str(pdf_path),
+            extraction_method="pymupdf_layout",
+            layout_reliable=True,
+            total_pages=page_count,
+            image_count=layout.image_count,
+            detected_table_count=layout.table_count,
+            two_column_pages=layout.two_column_pages,
+            blank_pages=layout.blank_pages,
+            content_coverage_mean=layout.content_coverage_mean,
+            warnings=layout.warnings,
+        )
+    else:
+        text, page_count = _extract(pdf_path)
+        facts = FormatFacts(source=str(pdf_path), total_pages=page_count)
+        if layout is None:
+            facts.warnings.append(
+                "PyMuPDF unavailable; layout facts use text-only fallback"
+            )
+        else:
+            facts.warnings.extend(layout.warnings)
 
     spans = _section_spans(text)
     facts.section_titles = [t for t, _, _ in spans]
@@ -199,12 +365,14 @@ def extract_format_facts(pdf_path: Path) -> FormatFacts:
     )
 
     # Figures / tables (in-text references)
-    facts.figure_count, facts.figure_max_index = _count_unique_indexed(
+    referenced_figures, facts.figure_max_index = _count_unique_indexed(
         _RE_FIGURE_REF.finditer(text)
     )
-    facts.table_count, facts.table_max_index = _count_unique_indexed(
+    referenced_tables, facts.table_max_index = _count_unique_indexed(
         _RE_TABLE_REF.finditer(text)
     )
+    facts.figure_count = max(facts.image_count, referenced_figures)
+    facts.table_count = max(facts.detected_table_count, referenced_tables)
 
     # Citations
     cite_count = (
@@ -243,10 +411,8 @@ def extract_format_facts(pdf_path: Path) -> FormatFacts:
 # ---------------------------------------------------------------------------
 
 
-# Tolerance contract for conformance check. Generous on purpose — the
-# floor is "you wrote a paper that looks like a paper in the same venue",
-# not "you matched a specific exemplar's dimensions to the page". A
-# missing key on either side counts as a "skip", not a failure.
+# Advisory comparison windows. They highlight large structural differences for
+# Reviewer inspection; they never decide paper quality.
 DEFAULT_TOLERANCES: dict[str, dict] = {
     # numeric_field: {abs: <int>, rel: <float 0..1>}
     "total_pages":               {"abs": 2, "rel": 0.40},
@@ -275,9 +441,7 @@ def diff_against_exemplar(
 ) -> list[DiffFinding]:
     """Compare two FormatFacts dicts on the dimensions in ``tolerances``.
 
-    Returns one DiffFinding per checked field. Fields missing on either
-    side are skipped (not a violation — we don't penalise an exemplar
-    that wasn't run through this extractor in the same version).
+    Returns one observation per checked field. Missing fields are skipped.
     """
     tol = tolerances or DEFAULT_TOLERANCES
     findings: list[DiffFinding] = []
@@ -336,6 +500,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(data, indent=2, ensure_ascii=False))
     else:
         print(f"Format facts for {facts.source}")
+        print(f"  extraction:         {facts.extraction_method}")
+        print(f"  layout reliable:    {facts.layout_reliable}")
         print(f"  total pages:        {facts.total_pages}")
         print(f"  sections:           {facts.section_count}  ({facts.section_titles})")
         print(f"  figures (refs):     {facts.figure_count} (max idx {facts.figure_max_index})")
@@ -348,6 +514,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  references at page: {facts.references_page}")
         print(f"  references pages:   {facts.references_pages}")
         print(f"  body pages:         {facts.body_pages_before_references}")
+        print(f"  detected images:    {facts.image_count}")
+        print(f"  detected tables:    {facts.detected_table_count}")
+        print(f"  two-column pages:   {facts.two_column_pages}")
+        print(f"  blank pages:        {facts.blank_pages}")
+        print(f"  content coverage:   {facts.content_coverage_mean}")
+        for warning in facts.warnings:
+            print(f"  warning:            {warning}")
     return 0
 
 

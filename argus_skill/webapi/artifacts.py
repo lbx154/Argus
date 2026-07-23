@@ -7,7 +7,6 @@ import subprocess
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from ..core.event_catalog import EventType
 from ..core.mission_view import load_mission_view
 from ..core.session import read_session_meta, resolve_session_workdir
 from ..life.memory import _read_jsonl_tail_history

@@ -50,7 +50,7 @@ The full suite is a certification gate, not a localization tool. After a red
 gate, require the next round to run the first failing node/shape/configuration
 with synchronous error reporting or sanitizer evidence. If the same failure
 signature returns again without a new code/config diagnostic, set
-`planner_report.plan_signal="reconsider"` and ask L4 for a scoped repair task.
+`status="replan_requested"` and use `next_action` to ask L4 for a scoped repair task.
 Do not certify repeated prose, refreshed timestamps, or another unchanged full
 suite as forward progress.
 
@@ -141,7 +141,7 @@ retained winner or is genuinely exhausted. Exhaustion requires concrete evidence
 the tested implementations, regression attribution, remaining plausible
 mechanisms, and why none can reasonably clear the end-to-end noise/MDE. If
 exhausted, return `replan_requested` with
-`planner_report.plan_signal="reconsider"` so Planner selects a new mechanism;
+`next_action` asking Planner to select a new mechanism;
 do not mark a failed candidate `done` merely to send it through validate/report.
 
 ## Upstream readiness

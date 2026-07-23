@@ -1,4 +1,4 @@
-"""Tests for argus_skill.tools.format_facts (structured PDF format
+"""Tests for the research vertical's layout-aware PDF format extractor.
 extractor used by the exemplar_grounding gate)."""
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.tools.format_facts import (
+from argus_skill.verticals.research.format_facts import (
     DEFAULT_TOLERANCES,
     diff_against_exemplar,
     extract_format_facts,
@@ -54,6 +54,7 @@ def toy_pdf(tmp_path: Path) -> Path:
 def test_extract_total_pages(toy_pdf: Path) -> None:
     facts = extract_format_facts(toy_pdf)
     assert facts.total_pages == 7
+    assert facts.extraction_method in {"pymupdf_layout", "text_fallback"}
 
 
 def test_extract_sections(toy_pdf: Path) -> None:
@@ -96,6 +97,14 @@ def test_extract_references_page(toy_pdf: Path) -> None:
     # References is on page 7 of the 7-page toy
     assert facts.references_page == 7
     assert facts.body_pages_before_references == 6
+
+
+def test_layout_observations_are_reported(toy_pdf: Path) -> None:
+    facts = extract_format_facts(toy_pdf)
+    if facts.layout_reliable:
+        assert facts.extraction_method == "pymupdf_layout"
+        assert facts.blank_pages == 0
+        assert 0.0 < facts.content_coverage_mean <= 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +158,7 @@ def test_diff_tolerances_default_set_is_complete() -> None:
 
 def test_cli_json_emits_facts(toy_pdf: Path) -> None:
     proc = subprocess.run(
-        [sys.executable, "-m", "argus_skill.tools.format_facts",
+        [sys.executable, "-m", "argus_skill.verticals.research.format_facts",
          str(toy_pdf), "--json"],
         capture_output=True, text=True, timeout=60,
     )
@@ -162,7 +171,7 @@ def test_cli_json_emits_facts(toy_pdf: Path) -> None:
 def test_cli_write_creates_sidecar(toy_pdf: Path, tmp_path: Path) -> None:
     sidecar = tmp_path / "facts.json"
     proc = subprocess.run(
-        [sys.executable, "-m", "argus_skill.tools.format_facts",
+        [sys.executable, "-m", "argus_skill.verticals.research.format_facts",
          str(toy_pdf), "--write", str(sidecar)],
         capture_output=True, text=True, timeout=60,
     )
@@ -174,7 +183,7 @@ def test_cli_write_creates_sidecar(toy_pdf: Path, tmp_path: Path) -> None:
 
 def test_cli_missing_pdf_errors() -> None:
     proc = subprocess.run(
-        [sys.executable, "-m", "argus_skill.tools.format_facts",
+        [sys.executable, "-m", "argus_skill.verticals.research.format_facts",
          "/tmp/__nope__.pdf"],
         capture_output=True, text=True, timeout=30,
     )

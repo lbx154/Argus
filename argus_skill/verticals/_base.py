@@ -1,11 +1,7 @@
-"""Shared vertical contract — loader + optional-hook accessors.
+"""Shared vertical loader and optional-hook accessors.
 
-Main's vertical packages (``argus_skill.verticals.<name>.stages``) ship a
-3-name contract: ``STAGE_ORDER``, ``STAGE_CHECKS``, ``REVIEWER_CHECKLISTS``
-(consumed by the System-(A) shell-check runner in
-``argus_skill.tools.stage_check``). This module extends that contract with the
-OPTIONAL hooks System (B) — the markdown stage checklists in
-``argus_skill.skills.stage_machine`` — needs to become vertical-aware:
+Vertical packages own their stage order, Reviewer checklists, and the optional
+hooks used by ``argus_skill.skills.stage_machine``:
 
 * ``CHECKLIST_STAGE_ORDER: tuple[str, ...]`` — the stage order System (B)
   iterates (default: research's ``CANONICAL_STAGE_ORDER``).
@@ -20,7 +16,7 @@ OPTIONAL hooks System (B) — the markdown stage checklists in
 * ``COMPLETION_CONTRACT_VERSION: int`` — when positive, final-stage completion
     is valid only while its persisted checklist fingerprint matches this version.
 
-A vertical that does not declare a hook gets the safe default, so the
+A vertical that does not declare an optional hook gets the safe default, so the
 ``research`` vertical (which re-exports its checklist defs) stays byte-identical
 to today and a partially-specified new vertical never crashes prompt building.
 

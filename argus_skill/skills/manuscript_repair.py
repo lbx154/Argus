@@ -1,9 +1,7 @@
 """Persisted manuscript-stage repair context.
 
-When a vertical's terminal deterministic verifier fails (see the Manager's hard
-gate in ``argus_skill/manager/_core.py`` and ``run_stage_shell_checks`` in
-``argus_skill/tools/stage_check.py``), the Manager records the EXACT failure list
-here so that:
+When a vertical's deterministic manuscript verifier fails, its repair workflow
+records the exact failure list here so that:
 
 * the next manuscript-stage agent round receives the failures verbatim (the
   physics ``role_banner`` embeds :func:`render_repair_block` when this file

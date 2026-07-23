@@ -57,26 +57,6 @@ def default_life_dir() -> Path:
     return global_root() / "life"
 
 
-# ---------------------------------------------------------------------------
-# Atomic JSONL helpers
-# ---------------------------------------------------------------------------
-
-def _atomic_append_jsonl(path: Path, row: dict[str, Any]) -> None:
-    """Append a single JSON-serializable dict as one line.
-
-    Uses ``open(..., 'a')`` which on POSIX is atomic for writes <
-    ``PIPE_BUF`` (4 KiB on Linux). Mission summaries live well under
-    that. We add a trailing ``\\n`` and never embed raw newlines in
-    values (json.dumps handles escaping).
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    line = json.dumps(row, ensure_ascii=False, sort_keys=True)
-    if "\n" in line:  # paranoia — json.dumps shouldn't emit raw newlines
-        line = line.replace("\n", " ")
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(line + "\n")
-
-
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -1107,8 +1087,7 @@ class Backlog:
     ) -> tuple[str, ...]:
         """Atomically retire pending work owned by a superseded objective.
 
-        Project bootstrap work is objective-independent and is preserved. A
-        running mission is also left untouched; Manager pipeline-yield ensures
+        Running missions are left untouched; Manager pipeline-yield ensures
         replacement commits happen at a mission boundary in normal operation.
         """
         reason = str(reason).strip()
@@ -1120,9 +1099,7 @@ class Backlog:
             items = self._load()
             now = time.time()
             for item in items:
-                if item.status != "pending" or "bootstrap" in {
-                    str(tag).strip().lower() for tag in item.tags
-                }:
+                if item.status != "pending":
                     continue
                 item.status = "superseded"
                 item.finished_ts = now

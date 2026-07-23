@@ -34,7 +34,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ...skills.stage_machine import ChecklistItem
-from .manuscript import PAPER_AUDIT_HEADING, manuscript_review_items
+from .manuscript import PAPER_AUDIT_HEADING
 
 STAGE_ORDER = ("scope", "model", "execute", "review", "manuscript")
 CHECKLIST_STAGE_ORDER = STAGE_ORDER
@@ -44,151 +44,47 @@ WORKFLOW_MODE = "proportional"
 # They are neither paper-submission missions nor metric-optimization campaigns.
 completion_gate = "none"
 
-# The terminal ``manuscript`` stage is HARD-gated on its deterministic
-# STAGE_CHECKS: the Manager may not mark it done / reach project_done while
-# ``manuscript check --layer all`` (verify_all_deliverables) reports a failure,
-# even if the reviewer certifies completion. Opt-in flag read by the Manager
-# (argus_skill/manager/_core.py); verticals that omit it keep the old behaviour.
-enforce_terminal_stage_check = True
-
-_PIPELINE_CHECK = (
-    "Pipeline state present",
-    "test -f research/PIPELINE_STATE.json",
-)
-
 # ``manuscript`` is the mandatory terminal stage: a completed physics mission's
 # deliverable is a standard research-paper package, not a scope/model/execute/
-# review log. The shell check runs the always-fail-closed manuscript verifier in
-# ``manuscript.py`` (no optional mode, no marker file, no env var). ``{python}``
-# is substituted with the checker's interpreter by ``argus_skill.tools.stage_check``.
-_MANUSCRIPT_CHECK = (
-    "Research-paper delivery contract satisfied (terminal manuscript stage)",
-    "{python} -m argus_skill.verticals.physics.manuscript check --project-root .",
-)
+# review log, judged by the L2 Reviewer against the CHECKLIST_ITEMS below and
+# the always-fail-closed manuscript verifier in ``manuscript.py`` (no optional
+# mode, no marker file, no env var) that the agent is instructed to run itself.
 
 # ``scope`` runs the Literature Positioning gate in ADVISORY mode: it verifies the
 # agent's PRIOR_WORK_MATRIX.csv artifact, writes a machine-readable failure list +
 # repair context (research/LITERATURE_GATE_*), but ALWAYS exits 0 so it never
 # blocks scope->model. Its failures are fed into the next scope/model prompt (via
-# ``role_banner``) and its RESULT feeds the review/claims discipline. It is NOT a
-# hard gate this round; only the terminal manuscript stage hard-blocks completion.
-_LITERATURE_ADVISORY_CHECK = (
-    "Literature positioning (advisory; produces prior-work matrix + repair context)",
-    "{python} -m argus_skill.verticals.physics.gates.literature check --project-root . --advisory",
-)
-
+# ``role_banner``) and its RESULT feeds the review/claims discipline.
+#
 # ``model`` runs the Theory Capability gate in ADVISORY mode (never blocks
 # model->execute): it verifies DOMAIN_CLASSIFICATION.json + THEORY_OPPORTUNITY_AUDIT.csv
 # and feeds failures into the next-round repair context.
-_THEORY_ADVISORY_CHECK = (
-    "Theory capability audit (advisory; produces theory-opportunity audit + repair context)",
-    "{python} -m argus_skill.verticals.physics.gates.theory check --project-root . --advisory",
-)
-
+#
 # ``execute`` runs the Numerical Capability gate in ADVISORY mode (never blocks
 # execute->review): it verifies NUMERICAL_STUDY_PLAN.csv and cross-checks CLAIMS.csv
 # (robustness / phase-diagram claims need matching numerical evidence).
-_NUMERICAL_ADVISORY_CHECK = (
-    "Numerical study plan (advisory; produces numerical study plan + repair context)",
-    "{python} -m argus_skill.verticals.physics.gates.numerical check --project-root . --advisory",
-)
-
+#
 # ``review`` runs the Novelty gate and the Paper-Type classifier in ADVISORY mode
 # (never blocks review->manuscript). The Paper-Type gate CONSUMES the literature /
 # novelty / numerical gate results: a paper cannot be an original research article
-# candidate unless those gates support it.
-_NOVELTY_ADVISORY_CHECK = (
-    "Novelty audit (advisory; produces novelty claim table + repair context)",
-    "{python} -m argus_skill.verticals.physics.gates.novelty check --project-root . --advisory",
-)
-_PAPER_TYPE_ADVISORY_CHECK = (
-    "Paper-type classification (advisory; consumes literature/novelty/numerical gate results)",
-    "{python} -m argus_skill.verticals.physics.gates.paper_type check --project-root . --advisory",
-)
-
-# ``review`` also runs the Novelty-Seeking Loop gate in ADVISORY mode. It only
-# ENFORCES in original-research-required mode (mode_config): >=10 scored candidate
-# directions with the top 2-3 selected and verified.
-_NOVELTY_SEEKING_ADVISORY_CHECK = (
-    "Novelty-seeking loop (advisory; enforced in original-research-required mode)",
-    "{python} -m argus_skill.verticals.physics.gates.novelty_seeking check --project-root . --advisory",
-)
-
-# ``review`` also runs the Manuscript-Package contract gate in ADVISORY mode. Once a
-# paper package exists it surfaces the SAME deterministic contract as the terminal
-# ``manuscript`` HARD gate (verify_all_deliverables), writing the exact failure list +
-# repair context so ``role_banner`` injects an executable repair loop into the next
-# round. It NEVER hard-blocks review->manuscript and NEVER weakens the terminal
-# contract; it closes the gap where a review-stage paper package could stall the
-# mission (no_progress) because the deterministic failures never reached the agent.
-_MANUSCRIPT_PACKAGE_ADVISORY_CHECK = (
-    "Manuscript-package contract (advisory at review; surfaces terminal checker failures + repair loop once a paper package exists)",
-    "{python} -m argus_skill.verticals.physics.gates.manuscript_package check --project-root . --advisory",
-)
-
+# candidate unless those gates support it. ``review`` also runs the Novelty-Seeking
+# Loop gate in ADVISORY mode (only ENFORCES in original-research-required mode:
+# >=10 scored candidate directions with the top 2-3 selected and verified) and the
+# Manuscript-Package contract gate in ADVISORY mode, which surfaces the SAME
+# deterministic contract as the terminal ``manuscript`` checker once a paper
+# package exists, so ``role_banner`` injects an executable repair loop into the
+# next round.
+#
 # ``execute`` + ``review`` run the Auto-Downgrade gate (ADVISORY): when the run has
 # exhausted the allowed effort at the current innovation tier (model<->execute churn,
 # pivot cap, repeated reviewer rejections / blockers, a closure artifact exists, or a
 # hygiene closure-loop), it proposes+applies a one-rung tier downgrade (S->A->B->C->D)
 # and surfaces a reviewer-ratification directive. Never blocks a stage.
-_DOWNGRADE_ADVISORY_CHECK = (
-    "Auto-downgrade tier gate (advisory; proposes S->A->B->C->D when a tier is exhausted)",
-    "{python} -m argus_skill.verticals.physics.gates.downgrade check --project-root . --advisory",
-)
-
-STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
-    stage: [_PIPELINE_CHECK] for stage in STAGE_ORDER
-}
-STAGE_CHECKS["scope"] = [_PIPELINE_CHECK, _LITERATURE_ADVISORY_CHECK]
-STAGE_CHECKS["model"] = [_PIPELINE_CHECK, _THEORY_ADVISORY_CHECK]
-STAGE_CHECKS["execute"] = [_PIPELINE_CHECK, _NUMERICAL_ADVISORY_CHECK, _DOWNGRADE_ADVISORY_CHECK]
-STAGE_CHECKS["review"] = [_PIPELINE_CHECK, _NOVELTY_ADVISORY_CHECK, _PAPER_TYPE_ADVISORY_CHECK, _NOVELTY_SEEKING_ADVISORY_CHECK, _MANUSCRIPT_PACKAGE_ADVISORY_CHECK, _DOWNGRADE_ADVISORY_CHECK]
-STAGE_CHECKS["manuscript"] = [_PIPELINE_CHECK, _MANUSCRIPT_CHECK]
-
-REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
-    "scope": (
-        "reviewer/argus-reviewer-role.md",
-        "Check that the original physics task is stated faithfully: the physical "
-        "system, domain, and observables are explicit; the task type and success "
-        "criterion are explicit; and a feasible route (theory, simulation, data "
-        "analysis, literature synthesis, experiment design, or a bounded negative result) "
-        "is chosen from the real structure of the problem.",
-        [],
-    ),
-    "model": (
-        "reviewer/argus-reviewer-role.md",
-        "Check the model and evidence preparation: variables, parameters, units, "
-        "equations, model or data sources, assumptions, approximation validity "
-        "range, and boundary/initial conditions are explicit, and the observables "
-        "and validation target (analytic limit, baseline, residual, convergence, "
-        "uncertainty, or evidence boundary) are declared.",
-        [],
-    ),
-    "execute": (
-        "reviewer/argus-reviewer-role.md",
-        "Check the physics evidence actually produced. Numerical, data, and "
-        "literature claims must carry provenance; finite simulation or toy data "
-        "must not be overclaimed as a universal conclusion; and a missing critical "
-        "condition (data, apparatus, full-text literature) must yield an honest "
-        "explicit blocker or a clearly bounded surrogate, not a pretended completion.",
-        [],
-    ),
-    "review": (
-        "reviewer/argus-reviewer-role.md",
-        "Independently audit physical-system fidelity and claim boundaries. Reject "
-        "physical-system drift, agent-workflow / meta-paper drift, and "
-        "toy-overclaim; check units/dimensions and boundary/initial conditions "
-        "where they apply; require an explicit numerical/data/literature evidence "
-        "boundary; never accept metadata-only as full text; and require each final "
-        "claim to be labeled supported, partial, inconclusive, or unknown.",
-        [],
-    ),
-    "manuscript": (
-        "reviewer/argus-reviewer-role.md",
-        manuscript_review_items(),
-        [],
-    ),
-}
+#
+# All of the above gates are invoked directly by the agent (per the prose
+# instructions in ``role_banner`` below) and by ``skills.research_gates``
+# (``render_active_repair_blocks`` scans on-disk ``*_GATE_STATE.json``); none of
+# them is wired through a shell-command registry.
 
 CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
     "scope": (
@@ -712,12 +608,9 @@ def role_banner(role: str, project_root: object = None) -> str:
 __all__ = [
     "CHECKLIST_ITEMS",
     "CHECKLIST_STAGE_ORDER",
-    "REVIEWER_CHECKLISTS",
-    "STAGE_CHECKS",
     "STAGE_ORDER",
     "WORKFLOW_MODE",
     "completion_gate",
-    "enforce_terminal_stage_check",
     "role_banner",
     "stage_entry_contract",
 ]

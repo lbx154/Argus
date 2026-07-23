@@ -145,9 +145,9 @@ If an input is not listed here, treat it as unavailable until documented.
    may load it at runtime.
 2. Before model-backed work, run the secret-free status check:
    `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill --model-api-status`.
-3. Put reusable project wrappers under `code/`; do not scatter raw API calls.
-   Use the seeded helpers and the Argus route loaders rather than hard-coded
-   keys, base URLs, or model names.
+3. Put reusable project wrappers under `code/` only when the task needs them;
+   nothing is pre-seeded. Use Argus route loaders rather than hard-coded keys,
+   base URLs, or model names.
 
 ## Role model
 - Planner: picks the next highest-leverage optimization for the target metric and

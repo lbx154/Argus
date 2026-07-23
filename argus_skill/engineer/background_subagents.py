@@ -560,58 +560,6 @@ def find_waitable_subagent(
     return None
 
 
-def inspect_wait_target(
-    workdir: Path | str,
-    task_id: str,
-    *,
-    now: float | None = None,
-) -> tuple[str, str]:
-    """Classify a wait target from the contained registry only.
-
-    Returns ``(reason_code, reason_text)`` with one of:
-      * ``waitable`` — current healthy self-watched in-flight job;
-      * ``needs_attention`` — known in-flight job that is not self-watched;
-      * ``terminal_task`` — known registry record whose state is terminal;
-      * ``registry_unreadable`` — contained registry entry matched by filename but
-        could not be parsed;
-      * ``missing_task_id`` / ``unknown_task`` / ``not_waitable``.
-
-    The lookup NEVER constructs a file path from model-controlled ``task_id``.
-    It enumerates contained ``.argus_subagents/*.json`` records and matches by
-    record ``task_id`` (or, for unreadable entries, exact filename stem).
-    """
-    target = (task_id or "").strip()
-    if not target:
-        return ("missing_task_id", "control.task_id was blank")
-    if find_waitable_subagent(workdir, target, now=now) is not None:
-        return ("waitable", f"task `{target}` is already waitable")
-    for sub in scan_inflight_subagents(workdir, now=now):
-        if sub.task_id != target:
-            continue
-        reason = sub.attention_reason or "task is not self-watched"
-        return ("needs_attention", reason)
-    for path in _registry_files(workdir):
-        record = _read_registry_record(path)
-        if record is None:
-            if path.stem == target:
-                return (
-                    "registry_unreadable",
-                    f"task `{target}` registry record is unreadable",
-                )
-            continue
-        record_task_id = str(record.get("task_id") or "").strip() or path.stem
-        if record_task_id != target and path.stem != target:
-            continue
-        state = str(record.get("state") or "").strip().lower()
-        if state and state not in _INFLIGHT_STATES:
-            return ("terminal_task", f"task `{target}` is terminal (state={state})")
-        return (
-            "not_waitable",
-            f"task `{target}` is not a currently healthy self-watched supervised subagent",
-        )
-    return ("unknown_task", f"unknown task `{target}` — no registry record found")
-
-
 def cadence_seconds(sub: InflightSubagent) -> float:
     """The wait budget for one cadence yield: the supervisor interval, clamped."""
     return min(_CADENCE_CAP_S, max(_CADENCE_FLOOR_S, sub.monitor_interval))

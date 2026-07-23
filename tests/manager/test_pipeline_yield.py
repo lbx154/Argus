@@ -41,9 +41,9 @@ def test_continuous_handoff_requests_boundary_yield(tmp_path, monkeypatch) -> No
     write_continuous_config(life_dir, enabled=True, objective="old objective")
     backlog = Backlog(life_dir / "backlog.jsonl")
     old_item = backlog.add(BacklogItem.new(title="old work", objective="old"))
-    bootstrap = backlog.add(
+    legacy_bootstrap = backlog.add(
         BacklogItem.new(
-            title="bootstrap empty project root",
+            title="legacy project setup",
             objective="seed",
             tags=["bootstrap", "project"],
         )
@@ -112,7 +112,7 @@ def test_continuous_handoff_requests_boundary_yield(tmp_path, monkeypatch) -> No
     assert not (life_dir / ".manager_pipeline_yield.json").exists()
     rows = {item.id: item for item in backlog.all()}
     assert rows[old_item.id].status == "superseded"
-    assert rows[bootstrap.id].status == "pending"
+    assert rows[legacy_bootstrap.id].status == "superseded"
 
 
 def test_continuous_handoff_additive_authority_preserves_stage_and_backlog(

@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react';
-import type { GitDiffView, MissionMetricView, MissionView } from '../../../core/src/types';
+import type { GitDiffView, MissionView } from '../../../core/src/types';
 import {
   displayObjective,
   formatMissionElapsed,
-  metricDisplay,
-  missionMetricImprovement,
 } from '../../../core/src/missionView';
 import { outcomeDimensionSummary } from '../../../core/src/missionOutcome';
 import { formatBytes } from '../lib/format';
@@ -12,24 +10,6 @@ import { theme } from '../lib/theme';
 import { MarkdownContent } from './MarkdownContent';
 
 const ROLE_ORDER = ['manager', 'planner', 'engineer', 'reviewer'];
-
-function metricSeries(view: MissionView): MissionMetricView[] {
-  const name = view.primary_metric?.name;
-  if (!name) return [];
-  const metrics = view.metrics
-    .filter((metric) => metric.name === name)
-    .sort((left, right) => Number(left.reported_at ?? 0) - Number(right.reported_at ?? 0));
-  const baseline = metrics[0]?.baseline;
-  if (baseline == null) return metrics;
-  return [{
-    ...metrics[0],
-    id: `${metrics[0].id}-baseline`,
-    value: baseline,
-    baseline,
-    verification_status: 'accepted',
-    reported_at: Number(metrics[0].reported_at ?? 0) - 1,
-  }, ...metrics];
-}
 
 function orderedDag(view: MissionView) {
   const pending = [...view.dag];
@@ -66,54 +46,16 @@ export function compactMissionDag(view: MissionView, limit = 16) {
   };
 }
 
-function MetricChart({ view }: { view: MissionView }) {
-  const metrics = metricSeries(view);
-  if (!metrics.length) {
-    return <div className="flex h-36 items-center justify-center text-xs text-ink-faint">Waiting for reported metrics</div>;
-  }
-  const values = metrics.map((metric) => metric.value);
-  const low = Math.min(...values);
-  const high = Math.max(...values);
-  const span = Math.max(1e-9, high - low);
-  const points = metrics.map((metric, index) => {
-    const x = metrics.length === 1 ? 50 : 4 + (index / (metrics.length - 1)) * 92;
-    const y = 32 - ((metric.value - low) / span) * 26;
-    return `${x},${y}`;
-  }).join(' ');
-  return (
-    <div className="min-h-36">
-      <svg viewBox="0 0 100 38" role="img" aria-label={`${view.primary_metric?.name} metric history`} className="h-28 w-full overflow-visible">
-        <path d="M4 32H96" stroke="rgb(var(--line))" strokeWidth="0.6" />
-        <polyline points={points} fill="none" stroke="#78b892" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
-        {metrics.map((metric, index) => {
-          const [x, y] = points.split(' ')[index].split(',');
-          const accepted = metric.verification_status === 'accepted';
-          return <circle key={metric.id} cx={x} cy={y} r={accepted ? 2 : 1.4} fill={accepted ? '#78b892' : '#d1ad68'} />;
-        })}
-      </svg>
-      <div className="flex items-center justify-between font-mono text-[10px] text-ink-faint">
-        <span>{metrics[0].value}{metrics[0].unit}</span>
-        <span>{metrics.length} report{metrics.length === 1 ? '' : 's'}</span>
-        <span>{metrics[metrics.length - 1].value}{metrics[metrics.length - 1].unit}</span>
-      </div>
-    </div>
-  );
-}
-
 function Achievement({ view }: { view: MissionView }) {
   const achievement = view.achievement;
   if (!achievement) return null;
   return (
     <section className="border-b border-ok/35 bg-ok/5 px-5 py-4 animate-appear">
       <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ok">Argus achievement</div>
-      <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-2 text-xs sm:grid-cols-4">
-        <div><div className="text-ink-faint">Baseline</div><div className="mt-0.5 font-mono text-ink">{achievement.baseline ?? '—'}{achievement.unit}</div></div>
-        <div><div className="text-ink-faint">Best</div><div className="mt-0.5 font-mono text-ok">{achievement.best ?? '—'}{achievement.unit}</div></div>
-        <div><div className="text-ink-faint">Gain</div><div className="mt-0.5 font-mono text-ok">{achievement.gain == null ? '—' : `${achievement.gain >= 0 ? '+' : ''}${achievement.gain.toFixed(2)}`}{achievement.unit}</div></div>
-        <div><div className="text-ink-faint">Elapsed</div><div className="mt-0.5 font-mono text-ink">{formatMissionElapsed(achievement.elapsed_seconds ?? 0)}</div></div>
-      </div>
+      <div className="mt-2 text-sm font-semibold text-ink">{achievement.title}</div>
+      {achievement.summary ? <div className="mt-1 text-xs text-ink-dim">{achievement.summary}</div> : null}
+      <div className="mt-2 text-xs"><span className="text-ink-faint">Elapsed </span><span className="font-mono text-ink">{formatMissionElapsed(achievement.elapsed_seconds ?? 0)}</span></div>
       <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-ink-dim">
-        <span>{achievement.experiments_run ?? 0} experiments</span>
         <span>{achievement.rejected_attempts ?? 0} rejected attempts</span>
         <span>{achievement.skills_learned ?? 0} skills learned</span>
         <span>{achievement.artifacts ?? 0} artifacts</span>
@@ -131,8 +73,6 @@ export function MissionControl({
   onOpenArtifact?: (path: string) => void;
   gitDiff?: GitDiffView;
 }) {
-  const metric = view.primary_metric;
-  const improvement = missionMetricImprovement(metric);
   const roleMap = new Map(view.roles.map((role) => [role.role, role]));
   const activeNode = view.dag.find((node) => ['running', 'in_progress', 'claimed'].includes(node.status));
   const dagView = compactMissionDag(view);
@@ -155,7 +95,6 @@ export function MissionControl({
     .filter((item) => !selectedTaskId || !item.item_id || item.item_id === selectedTaskId)
     .slice(-40)
     .reverse();
-  const decisionEntries = Object.entries(view.decision_context || {});
   return (
     <section className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-panel scroll-thin" aria-label="Mission control">
       <header className="border-b border-line/60 px-5 py-5">
@@ -174,11 +113,10 @@ export function MissionControl({
             <div className="mt-2 text-ink-dim"><MarkdownContent>{objective}</MarkdownContent></div>
           </details>
         ) : null}
-        <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 text-xs sm:grid-cols-4">
+        <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 text-xs sm:grid-cols-3">
           <div><div className="text-ink-faint">Stage</div><div className="mt-0.5 font-medium capitalize text-blue-sky">{view.stage.label || view.stage.id || '—'}</div></div>
           <div><div className="text-ink-faint">Campaign</div><div className="mt-0.5 font-mono text-ink">{formatMissionElapsed(view.mission.campaign_elapsed_seconds)}</div></div>
           <div><div className="text-ink-faint">Round</div><div className="mt-0.5 font-mono text-ink">{view.round.current || '—'}{view.round.max ? ` / ${view.round.max}` : ''}</div></div>
-          <div><div className="text-ink-faint">Best</div><div className={`mt-0.5 font-mono ${metric?.verification_status === 'accepted' ? 'text-ok' : 'text-warn'}`}>{metricDisplay(metric)}{improvement == null ? '' : ` · ${improvement >= 0 ? '↑' : '↓'}${Math.abs(improvement).toFixed(2)}${metric?.unit || ''}`}</div></div>
         </div>
         {outcome.length ? (
           <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-ink-dim">
@@ -250,16 +188,6 @@ export function MissionControl({
             </div>
           ) : null}
         </div>
-        {decisionEntries.length && ['manager', 'planner', 'reviewer'].includes(selectedRole) ? (
-          <details className="mt-3 rounded border border-line/60 bg-bg/25 px-3 py-2">
-            <summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-faint hover:text-ink">
-              Structured decision handoff
-            </summary>
-            <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap font-mono text-[10px] leading-5 text-ink-dim scroll-thin">
-              {JSON.stringify(view.decision_context, null, 2)}
-            </pre>
-          </details>
-        ) : null}
       </section>
 
       <div className="grid min-h-[320px] border-b border-line/60 lg:grid-cols-[minmax(0,1.15fr)_minmax(260px,0.85fr)]">
@@ -318,10 +246,9 @@ export function MissionControl({
         </section>
 
         <section className="min-w-0 px-5 py-4">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">Metric history</div>
-          <div className="mt-2"><MetricChart view={view} /></div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">Capabilities</div>
           {view.learned_skills.length ? (
-            <div className="mt-4 border-t border-line/50 pt-3">
+            <div className="mt-3">
               <div className="text-[10px] uppercase tracking-[0.12em] text-ok">Capabilities unlocked</div>
               <div className="mt-2 space-y-2">
                 {view.learned_skills.filter((skill) => skill.status === 'active').slice(-8).map((skill) => (

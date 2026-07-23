@@ -100,7 +100,7 @@ produces a result no main-conference reviewer will believe.
    model hub / trending / a recent open-LLM leaderboard at decision time —
    exactly as you verify framework recency.
 2. **Size the model to the hardware, not to convenience.** Read your real GPU
-   budget first (`.venv/bin/python code/gpu_env.py` prints total VRAM). On a
+   budget first with `nvidia-smi` or a project-owned probe. On a
    multi-H200 box (hundreds of GB of aggregate VRAM) a **7B–14B** backbone
    trains comfortably with LoRA/QLoRA, and an 8–9B model trains comfortably
    even with full fine-tuning + FSDP/DeepSpeed-ZeRO. **The headline result must
@@ -136,7 +136,7 @@ The headline run must actually *use* the machine.
    the headline run must drive all N — one distributed job across them
    (torchrun / accelerate / DeepSpeed / FSDP, or vLLM `--tensor-parallel-size N`
    for inference) **or** several conditions fanned out one-per-GPU in parallel
-   via `code/run_experiments.py`. A headline run pinned to a single GPU while
+   through a project-owned coordinator. A headline run pinned to a single GPU while
    others are free is a blocker.
 2. **Fill the memory.** Target **high VRAM utilization on each card** (aim for
    ≳70% of each GPU's memory in steady state). Reach it by scaling, in order:
@@ -192,12 +192,12 @@ The headline run must actually *use* the machine.
      bug requires it — eager mode disables graph capture and slows generation).
    - **Feed all tasks at once** and let vLLM batch them; never loop one prompt at
      a time with a fresh engine. Submit the whole prompt set and stream results.
-   These are defaults to set deliberately per run; if a seeded helper
+   These are defaults to set deliberately per run; if a project helper
    (`code/run_condition.py` or similar) hard-codes a low
    `gpu_memory_utilization` / `max_num_seqs`, raise the defaults or pass larger
    values rather than inheriting the trickle.
 5. **Verify, don't assume.** While the run is live, check actual utilization
-   (`nvidia-smi` or `.venv/bin/python code/gpu_env.py`) at least once and record
+   (`nvidia-smi` or an equivalent project-owned probe) at least once and record
    **peak VRAM per GPU, observed GPU util%, and throughput (step time or
    samples/sec)** in the run's `manifest.json`/report. "I launched a distributed
    command" is not evidence; measured utilization is. A run that trained at a
@@ -309,23 +309,10 @@ These resources are allocated to you. Use them.
   every few seconds. Inspect the run directory directly only if `live` is true
   but `progress` has stopped advancing.
 - Do NOT block — submit and continue other work.
-- `code/` is already on `PYTHONPATH` in your shell: `import gpu_env`,
-  `import experiment_io`, `import benchmark_loaders` work directly. Do NOT
-  prefix commands with `PYTHONPATH=$PWD/code` — it is redundant.
-
-**Reusable project scaffolds** (seeded in `code/`, standalone, run with `.venv/bin/python`):
-- `code/gpu_env.py` — call `gpu_env.configure_caches()` before any model load to pin
-  HF/Torch caches to `./models/`; `gpu_env.visible_devices()` / `suggest_nproc()` tell
-  you how many GPUs you may use. Run `.venv/bin/python code/gpu_env.py` for a one-screen
-  GPU + cache readiness report.
-- `code/experiment_io.py` — `experiment_io.RunWriter(...)` writes the full run-directory
-  contract for you (`manifest.json`, `status.json`, `progress.jsonl`, `results.jsonl`
-  rows with `method`/`task_id`/`score`, `STOP` handling, exit 130 on cancel). Wrap your
-  framework calls with it instead of re-implementing run bookkeeping;
-  `experiment_io.validate_run(<dir>)` self-audits a run before you claim it complete.
-- `code/run_experiments.py` — launch a whole method×benchmark matrix as NON-BLOCKING
-  sub-agent jobs from `experiments/MATRIX.json`, then `status` to poll. This is how you
-  fan out and stay unblocked.
+No project helper code is pre-seeded. Inspect the repository first, then create only
+the smallest helpers the actual experiment needs. GPU discovery, run bookkeeping,
+and condition fan-out belong to the project implementation and must be tested there;
+do not assume fixed filenames or APIs supplied by the harness.
 
 **Multi-GPU utilization** (this box has multiple GPUs — use them):
 - One large job that needs all GPUs → declare one condition with `"gpus": "0,1,2,3"` in

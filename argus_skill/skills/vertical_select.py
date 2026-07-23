@@ -146,7 +146,7 @@ _STATE_RELPATH = ("research", "PIPELINE_STATE.json")
 class VerticalResolutionError(RuntimeError):
     """Raised by ``resolve_vertical`` when no vertical can be resolved.
 
-    The Manager DECIDES and PERSISTS the vertical at mission bootstrap; once it
+    The Manager DECIDES and PERSISTS the vertical on the initial task; once it
     has, ``research/PIPELINE_STATE.json`` names it and this never fires. If it
     DOES fire, a read happened before the decision was persisted, or the state
     is corrupt — a real invariant violation, surfaced loudly instead of silently
@@ -401,8 +401,8 @@ def _vertical_first_stage(vertical: str, project_root: object = None) -> str | N
 
     Late import to avoid a module-load cycle (``_base`` ↔ ``stage_machine``).
     ``project_root`` is threaded so a project-local DATA domain resolves to its
-    own first stage. Fail-open: any error yields ``None`` so persistence never
-    breaks bootstrap.
+    own first stage. Fail-open: any error yields ``None`` so persistence remains
+    available.
     """
     try:
         from ..verticals._base import (
@@ -437,7 +437,7 @@ def persist_vertical(
     STAGE AUTHORITY — the harness must NOT control ``current_stage``; only the
     reviewer agent moves it (advance via its verdict, or roll back via
     ``stage_machine.rollback_stage``). So this function SEEDS the vertical's
-    first stage only when no stage exists yet (bootstrap of a fresh state
+    first stage only when no stage exists yet (initialization of a fresh state
     file); it NEVER overwrites or resets an existing stage. A stale stage left
     by a vertical change is real progress — clobbering it to the first stage is
     an unauthorized rollback that destroys evidence. It is left for the

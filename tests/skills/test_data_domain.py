@@ -16,8 +16,6 @@ def test_write_then_load_roundtrip(tmp_path):
     assert domain.CHECKLIST_STAGE_ORDER == ("scope", "simulate", "measure", "report")
     assert domain.completion_gate == "none"           # fresh domain never demands the paper gate
     assert domain.role_banner("reviewer") == ""
-    assert set(domain.STAGE_CHECKS) == set(domain.STAGE_ORDER)
-    assert domain.REVIEWER_CHECKLISTS == {}
     assert domain.CHECKLIST_ITEMS == {}               # Planner authors items at runtime
 
 

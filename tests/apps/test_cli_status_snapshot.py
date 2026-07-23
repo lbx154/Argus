@@ -262,8 +262,7 @@ def test_status_subprocess_shows_gate_snapshot_when_stage_known(
     repo = tmp_path / "repo"
     repo.mkdir()
     # Seed PIPELINE_STATE.json so the stage is known. Also place under
-    # repo / "code" so the resolver picks it up (mimicking the
-    # new_auto_research_project layout).
+    # repo / "code" so the resolver picks up the legacy nested layout.
     code = repo / "code"
     (code / "research").mkdir(parents=True)
     (code / "research" / "PIPELINE_STATE.json").write_text(

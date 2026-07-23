@@ -144,8 +144,8 @@ test('mission cockpit keeps mission, team, and timeline readable at 60 columns',
   view.roles.find((role) => role.role === 'planner')!.status = 'active';
   view.roles.find((role) => role.role === 'planner')!.label = 'Comparing 3 branches';
   view.timeline = [{
-    id: 'e1', ts: 1, type: 'research.metric.reported', role: 'engineer',
-    title: 'Metric reported', detail: '61.8% SOL', tone: 'metric',
+    id: 'e1', ts: 1, type: 'round.review.completed', role: 'reviewer',
+    title: 'Evidence accepted', detail: 'Official scorer passed', tone: 'success',
   }];
   const output = await renderNode(React.createElement(MissionCockpit, { view, width: 60 }), 60);
   assert.match(output, /MISSION/);

@@ -40,15 +40,12 @@ At submission stage only, additionally:
 
   * Each exemplar entry contains a ``format_facts`` object (or
     ``format_facts_path`` pointing at one) — produced by
-    ``argus_skill.tools.format_facts``.
+    ``argus_skill.verticals.research.format_facts``.
   * ``paper/PAPER_FORMAT_FACTS.json`` exists (the paper's own facts,
     same shape).
-  * For draft+ stages: the paper's format facts are within tolerance of
-    the primary exemplar's on ``total_pages`` / ``section_count`` /
-    ``figure_count`` / ``table_count`` / ``citations_per_page`` /
-    ``body_pages_before_references``. Tolerances are intentionally
-    generous (see ``argus_skill.tools.format_facts.DEFAULT_TOLERANCES``);
-    the goal is "ballpark same venue", not byte-identical.
+  * For draft+ stages: the paper's format facts are compared with the primary
+    exemplar and surfaced to the Reviewer. Differences are observations, not a
+    mechanical style verdict.
 
 This is structural / anti-fab. We do NOT score whether the exemplars
 are "the right" exemplars or whether the style profile is "deep
@@ -64,11 +61,6 @@ import argparse
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-
-from ...tools.format_facts import (
-    DEFAULT_TOLERANCES,
-    diff_against_exemplar,
-)
 
 MIN_EXEMPLARS = 2
 MIN_STYLE_PROFILE_CHARS = 2000
@@ -487,11 +479,8 @@ def validate_exemplar_grounding(
                     ))
 
     # ------------------------------------------------------------------
-    # Format-facts conformance: each exemplar must have format_facts,
-    # and the paper's own format facts must be in the same ballpark as
-    # the primary exemplar's. This is what catches "PDF compiled clean
-    # but doesn't look like a same-venue paper" — the gap text-only
-    # exemplar grounding kept missing.
+    # Format facts give the Reviewer inspectable layout observations. They never
+    # decide quality or require the paper to mimic one exemplar.
     # ------------------------------------------------------------------
     primary_facts: dict | None = None
     for entry in exemplars:
@@ -503,7 +492,8 @@ def validate_exemplar_grounding(
                 detail=(
                     f"exemplar {slug!r} has no format_facts (inline) and "
                     "no format_facts_path; run "
-                    "`python -m argus_skill.tools.format_facts <local_pdf> "
+                    "`python -m argus_skill.verticals.research.format_facts "
+                    "<local_pdf> "
                     "--write paper/style_ref/exemplars/<slug>/format_facts.json` "
                     "and reference it from EXEMPLAR.json"
                 ),
@@ -518,7 +508,8 @@ def validate_exemplar_grounding(
             code="missing_paper_format_facts",
             detail=(
                 f"{PAPER_FORMAT_FACTS_PATH} not found — run "
-                "`python -m argus_skill.tools.format_facts paper/main.pdf "
+                "`python -m argus_skill.verticals.research.format_facts "
+                "paper/main.pdf "
                 f"--write {PAPER_FORMAT_FACTS_PATH}` after every PDF rebuild"
             ),
         ))
@@ -536,6 +527,8 @@ def validate_exemplar_grounding(
             paper_facts = None
 
         if paper_facts is not None and primary_facts is not None:
+            from .format_facts import DEFAULT_TOLERANCES, diff_against_exemplar
+
             findings = diff_against_exemplar(
                 paper_facts, primary_facts, DEFAULT_TOLERANCES,
             )
@@ -550,25 +543,6 @@ def validate_exemplar_grounding(
                 }
                 for f in findings
             ]
-            offenders = [f for f in findings if not f.within_tolerance]
-            if offenders:
-                spans = "; ".join(
-                    f"{f.field}: paper={f.paper_value} vs "
-                    f"exemplar={f.exemplar_value} (Δrel={f.delta_rel})"
-                    for f in offenders
-                )
-                report.issues.append(GroundingIssue(
-                    code="format_facts_diverge_from_primary_exemplar",
-                    detail=(
-                        f"{len(offenders)} format field(s) outside tolerance "
-                        f"of primary exemplar {report.primary_exemplar!r}: "
-                        f"{spans}. Tolerances are intentionally loose; "
-                        "exceeding them means the paper does not look like a "
-                        "same-venue paper. Fix by adjusting section lengths, "
-                        "figure/table count, or citation density to mirror "
-                        "the exemplar."
-                    ),
-                ))
 
     return report
 
@@ -603,7 +577,7 @@ def _normalize_facts(raw: dict) -> dict:
 
     Accepts three shapes:
 
-    1. **Flat** (what ``argus_skill.tools.format_facts`` emits): ``raw``
+    1. **Flat** (what ``argus_skill.verticals.research.format_facts`` emits): ``raw``
        already has ``total_pages``/``figure_count``/etc at the top level.
     2. **Tool-wrapped**: ``raw['tool_output']`` carries the flat dict.
        Agent skills wrap the raw tool output when they want to attach

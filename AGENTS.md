@@ -31,10 +31,6 @@ Manager 和 Planner 必须把其余负结果用于诊断与重规划，不能把
 不得用 harness overlay 增删 checklist。`research/CHECKLISTS.json` 必须带 vertical，和当前
 项目 vertical 不一致时完全忽略。
 
-**Stage-check integrity:** `STAGE_CHECKS` 的 shell 只做结构存在性检查。禁止内嵌
-`grep/awk/sed/jq/cat/head/tail` 或 `python -c` 从内容关键词推断成功、分数或正确性；
-这类证据必须交给可单测的结构化 Python validator 解析 CSV/JSON/JSONL。
-
 **Math judgment:** Reviewer 直接判断问题、实际数学结果与论证，不按过程文件验收。只有
 在声明 novelty 或目标确实依赖 novelty 时才做相称的一手来源检查；不强制独立审计节点、
 命名审计文件或“未触发”记录。正确的 bounded 结果可以完成，同时把 novelty 诚实标为未知。
@@ -465,21 +461,31 @@ Mermaid/Graphviz、Draw.io、PPT Master 和 image-2。paper-facing figure 可选
 完成 gate 或 Reviewer blocker。Reviewer 只看实际图片是否清晰、正确、协调且够好看；
 轻微审美问题直接通过，不得反复返工。Harness 不用关键词替 agent 选工具或评价图片。
 
-图像工具在 `argus_skill/tools/image_tool.py`。
+图像能力分两层：通用能力在 `argus_skill/tools/image_api.py`（模型路由加载、
+HTTP/重试/脱敏/每日上限、生成、inspect、通用 vision review，不 import 科研
+vertical）；论文图工作流在 `argus_skill/verticals/research/figure_tool.py`
+（PAPER_FIGURE_PROMPT_TEMPLATE、paper-prompt 规划、context freeze、candidate
+cache、metadata/provenance 同步），可以 import `tools.image_api` 里的通用
+helper。
 
 常用命令：
 
 ```bash
-python -m argus_skill.tools.image_tool paper-prompt --out paper/figures/overview.prompt.txt --force
-python -m argus_skill.tools.image_tool generate --prompt-file paper/figures/overview.prompt.txt --out paper/figures/overview.png
-python -m argus_skill.tools.image_tool inspect --image paper/figures/overview.png
-python -m argus_skill.tools.image_tool review --image paper/figures/overview.png --prompt-file paper/figures/overview.prompt.txt
-python -m argus_skill.tools.image_tool sync-paper-metadata --project-root . --image paper/figures/overview.png --figure-id overview
+python -m argus_skill.verticals.research.figure_tool paper-prompt --out paper/figures/overview.prompt.txt --force
+python -m argus_skill.tools.image_api generate --prompt-file paper/figures/overview.prompt.txt --out paper/figures/overview.png
+python -m argus_skill.tools.image_api inspect --image paper/figures/overview.png
+python -m argus_skill.verticals.research.figure_tool review --image paper/figures/overview.png --prompt-file paper/figures/overview.prompt.txt
+python -m argus_skill.verticals.research.figure_tool sync-paper-metadata --project-root . --image paper/figures/overview.png --figure-id overview
 ```
 
-image-2 只是 capability 可用且 router 认为合适时的一条路线；实际使用时必须保留
-prompt、sidecar、inspect、review、provenance、accepted-raster hash 和
-`IMAGE2_FIGURES.json`，并自动同步统一 manifest。没有 image API 时不得伪造
+image-2 只是 capability 可用且 router 认为合适时的一条路线（可选，非强制）；
+实际使用时必须保留 prompt、sidecar、inspect、review、provenance、
+accepted-raster hash 和 `IMAGE2_FIGURES.json` 之间的一致性，并自动同步统一
+manifest —— 这些是反造假底线,不能删。`paper-prompt` 生成的 prompt 是推荐的
+canonical prompt，但不是强制 marker gate：`sync-paper-metadata` 只要求真实
+raster/prompt/review 的 hash 链一致，不再要求 prompt 文本里必须出现内置模板
+的 marker 字符串，也不再有"必须先攒够 6 个 reviewed candidate 才算 reusable"
+的硬性下限。没有 image API 时不得伪造
 image-2 metadata，也不得仅因此阻塞整篇论文；应由 agent 选择语义等价、可审计的
 确定性路线。任何本地 SVG/HTML/PPT 输出都必须以真实 renderer 名义登记，不能冒充
 image-2。
@@ -574,7 +580,7 @@ pytest tests/skills/test_stage_checklists.py tests/skills/test_verticals.py
 pytest tests/skills/test_paper_layout_review_snapshots.py tests/skills/test_paper_layout_review_venue.py
 pytest tests/skills/test_academic_language_review_venue.py
 pytest tests/test_paper_infrastructure_review.py
-pytest tests/tools/test_image_tool.py
+pytest tests/tools/test_image_api.py tests/skills/test_figure_tool.py
 ```
 
 > 2026-07-07 核实：以上文件名已按当前 `tests/` 树校正（原来列的
@@ -602,7 +608,8 @@ pytest
 7. Vertical 质量标准改对应 `verticals/*/stages.py` 的 checklist；通用状态转移和 checklist 渲染改 `skills/stage_machine.py`。
 8. EMNLP 项目何时算完成 / 还差认证时改派什么，改 `life/supervisor/_core.py` 的 `_plan_next_work` 与 `_journal_has_full_emnlp_gate_success`。
 9. Agent 读到 paper 任务后的操作手册改 `argus_skill/builtin_skills/*.md`。
-10. 生成 evidence/review JSON 的工具改 `skills/*_review.py` 或 `tools/image_tool.py`，不要只改 validator 放宽。
+10. 生成 evidence/review JSON 的工具改 `skills/*_review.py`、`tools/image_api.py`
+    或 `verticals/research/figure_tool.py`，不要只改 validator 放宽。
 
 ## 常见坑
 

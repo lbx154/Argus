@@ -467,7 +467,7 @@ def test_panel_lines_never_reach_terminal_edge(tmp_path):
     from argus_skill.cli.roles_status import RoleActivity
     configs = resolve_all_roles(env={})
     long_cmd = (
-        "python -m argus_skill.tools.stage_check --project-root /a/very/long/path "
+        "python research/run_benchmark.py --project-root /a/very/long/path "
         + "跑基准测试" * 8
     )
     acts = {

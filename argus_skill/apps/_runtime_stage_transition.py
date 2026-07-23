@@ -1,5 +1,5 @@
 """Stage-transition mixin: ``StageTransitionMixin`` — hands each round's
-reviewer verdict to the Manager (the sole post-bootstrap writer of the
+reviewer verdict to the Manager (the sole writer of the
 pipeline stage) and returns its advance/hold/rollback decision.
 
 Split out of ``_runtime.py`` so that module stays under the maintainability
@@ -32,7 +32,7 @@ class StageTransitionMixin:
         continuous_objective: str = "",
     ) -> dict:
         """Hand this round's reviewer verdict to the Manager — the SOLE
-        post-bootstrap writer of the pipeline stage — and let it judge
+        writer of the pipeline stage — and let it judge
         advance / hold / rollback and write ``PIPELINE_STATE.json``.
 
         Reviewer/planner only advise; the engineer no longer edits stage state.

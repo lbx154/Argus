@@ -3,7 +3,6 @@ import test from 'node:test';
 
 import {
   emptyMissionView,
-  missionMetricGain,
   projectMissionView,
   reduceMissionViewEvent,
 } from '../../core/src/missionView.js';
@@ -33,21 +32,8 @@ function snapshot(): Snapshot {
   };
 }
 
-test('shared projector applies structured metric and reviewer verification', () => {
+test('shared projector applies reviewer verification without inventing research facts', () => {
   const events: EventMsg[] = [
-    {
-      type: 'research.metric.reported',
-      ts: 11,
-      metric_id: 'm1',
-      name: 'sol_percent',
-      baseline: 49.4,
-      value: 61.8,
-      unit: '%',
-      direction: 'maximize',
-      evidence: 'result.json',
-      round_index: 7,
-      primary: true,
-    },
     {
       type: 'round.review.completed',
       ts: 12,
@@ -57,9 +43,7 @@ test('shared projector applies structured metric and reviewer verification', () 
     },
   ];
   const view = projectMissionView(snapshot(), events);
-  assert.equal(view.primary_metric?.value, 61.8);
-  assert.equal(view.primary_metric?.verification_status, 'accepted');
-  assert.ok(Math.abs((missionMetricGain(view.primary_metric) ?? 0) - 12.4) < 1e-9);
+  assert.equal(view.review.status, 'done');
   assert.equal(view.active_role, 'engineer');
   assert.equal(view.achievement, null);
 });
@@ -68,22 +52,10 @@ test('shared projector applies structured metric and reviewer verification', () 
 test('achievement requires an explicit reviewer certification event', () => {
   const events: EventMsg[] = [
     {
-      type: 'research.metric.reported',
-      ts: 11,
-      metric_id: 'm1',
-      name: 'sol_percent',
-      baseline: 49.4,
-      value: 61.8,
-      unit: '%',
-      direction: 'maximize',
-      evidence: 'result.json',
-      primary: true,
-    },
-    {
       type: 'round.review.completed',
       ts: 12,
       status: 'done',
-      reason: 'verified metric',
+      reason: 'verified evidence',
     },
     {
       type: 'life.mission.completed',
@@ -103,14 +75,13 @@ test('achievement requires an explicit reviewer certification event', () => {
     achievement_id: 'achievement-1',
     title: 'Kernel speedup certified',
     goal: 'Optimize kernel',
-    metric_id: 'm1',
     summary: 'Reviewer accepted the measured gain.',
+    evidence: ['result.json'],
     reviewer_certified: true,
   });
   assert.equal(certified.achievement?.reviewer_certified, true);
-  assert.equal(certified.achievement?.baseline, 49.4);
-  assert.equal(certified.achievement?.best, 61.8);
-  assert.ok(Math.abs((certified.achievement?.gain ?? 0) - 12.4) < 1e-9);
+  assert.equal(certified.achievement?.title, 'Kernel speedup certified');
+  assert.deepEqual(certified.achievement?.evidence, ['result.json']);
 });
 
 
@@ -119,12 +90,11 @@ test('snapshot refreshes certified achievement counters from current state', () 
   current.mission_view = emptyMissionView();
   current.mission_view.mission.started_at = Date.now() / 1000 - 3_600;
   current.mission_view.mission.status = 'working';
-  current.mission_view.experiments = [{ id: 'e1', name: 'run', status: 'completed' }];
   current.mission_view.learned_skills = [{ id: 's1', name: 'skill', status: 'active' }];
   current.mission_view.review.rejected_attempts = 4;
   current.mission_view.achievement = {
-    id: 'a1', title: 'certified', goal: '', summary: '', metric_id: '',
-    reviewer_certified: true, elapsed_seconds: 0, experiments_run: 0,
+    id: 'a1', title: 'certified', goal: '', summary: '',
+    reviewer_certified: true, elapsed_seconds: 0,
     rejected_attempts: 0, skills_learned: 0, artifacts: 0, certified_at: 1,
   };
   const view = projectMissionView(current, [], [
@@ -132,14 +102,13 @@ test('snapshot refreshes certified achievement counters from current state', () 
     { path: 'pending.md', name: 'pending.md', kind: 'markdown', mime: 'text/markdown', exists: false, size: 0, mtime: null, why: '', source: 'manager_live', group_title: 'Live' },
   ]);
   assert.ok((view.achievement?.elapsed_seconds ?? 0) >= 3_599);
-  assert.equal(view.achievement?.experiments_run, 1);
   assert.equal(view.achievement?.rejected_attempts, 4);
   assert.equal(view.achievement?.skills_learned, 1);
   assert.equal(view.achievement?.artifacts, 1);
 });
 
 
-test('natural-language progress never invents a metric or review verdict', () => {
+test('natural-language progress never invents a review verdict', () => {
   const view = projectMissionView(snapshot(), [{
     type: 'engineer.progress',
     ts: 20,
@@ -147,7 +116,6 @@ test('natural-language progress never invents a metric or review verdict', () =>
     agent_layer: 'engineer',
     text: 'Reviewer rejected; score is 999%',
   }]);
-  assert.equal(view.primary_metric, null);
   assert.equal(view.review.status, '');
 });
 
@@ -164,7 +132,7 @@ test('mission projector keeps research_incomplete distinct from failure', () => 
   assert.equal(view.timeline.at(-1)?.detail, 'research_incomplete');
 });
 
-test('mission projector keeps completion, stage certification, and stop direction independent', () => {
+test('mission projector keeps completion and stage certification independent', () => {
   const view = reduceMissionViewEvent(emptyMissionView(), {
     type: 'life.mission.completed',
     ts: 21,
@@ -175,30 +143,12 @@ test('mission projector keeps completion, stage certification, and stop directio
       execution_status: 'completed',
       review_status: 'done',
       stage_certification: 'not_certified',
-      scientific_decision: 'no_go',
-      failure_source: 'scientific_evidence_failure',
-      failure_layer: 'evaluator',
       interruption_kind: 'none',
       resumable: false,
     },
   });
   assert.equal(view.mission.status, 'complete');
   assert.equal(view.outcome.stage_certification, 'not_certified');
-  assert.equal(view.outcome.scientific_decision, 'stop');
-  assert.equal(view.outcome.failure_layer, 'evaluator');
-});
-
-test('persisted mission view normalizes legacy research direction', () => {
-  const current = snapshot();
-  current.mission_view = emptyMissionView();
-  current.mission_view.outcome = {
-    execution_status: 'completed',
-    scientific_decision: 'no_go',
-  };
-
-  const view = projectMissionView(current);
-
-  assert.equal(view.outcome.scientific_decision, 'stop');
 });
 
 test('mission projector forces life.mission.failed to failed even with malformed completion fields', () => {

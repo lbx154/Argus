@@ -146,10 +146,11 @@ def iter_vertical_skill_texts(vertical: str) -> Iterable[tuple[str, str]]:
     """Yield ``(relative_filename, markdown)`` for a vertical's own skills.
 
     Relative names are rooted at the vertical's ``skills/`` dir (e.g.
-    ``reviewer/quant-factor-report-review.md``) so they match the skill paths a
-    vertical's ``REVIEWER_CHECKLISTS`` names verbatim and overlay the same
-    ``<role>/<name>.md`` layout as the bundled builtins. Fail-open: an unknown
-    vertical or one with no ``skills/`` dir yields nothing.
+    ``reviewer/quant-factor-report-review.md``) so they match the
+    ``<role>/<name>.md`` layout the vertical's checklist prose and
+    ``role_banner`` reference verbatim, and overlay the same layout as the
+    bundled builtins. Fail-open: an unknown vertical or one with no
+    ``skills/`` dir yields nothing.
     """
     emitted: set[str] = set()
     for source_vertical in (*_VERTICAL_SKILL_INHERITANCE.get(vertical, ()), vertical):

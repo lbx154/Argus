@@ -601,7 +601,7 @@ class SkillLoopExecuteMixin:
         """Hand this round's structured completion verdict to the Manager's
         stage authority when this round is eligible to move the pipeline stage.
 
-        STAGE AUTHORITY: the Manager is the SOLE post-bootstrap writer of the
+        STAGE AUTHORITY: the Manager is the SOLE writer of the
         pipeline stage. After this round's Engineer-self-review or independent
         Reviewer verdict, the Manager makes
         its OWN judgment (advance / hold / rollback) and writes

@@ -1,11 +1,6 @@
 import type { ArtifactInfo, JournalEntry } from '../api';
 import { money } from '../lib/format';
 
-interface EvidenceFile {
-  path?: string;
-  why?: string;
-}
-
 /** The latest reviewed outcome, promoted out of the journal when work completes. */
 export function ResultSummary({
   entries,
@@ -24,13 +19,9 @@ export function ResultSummary({
   if (!latest) return null;
 
   const extra = latest.extra ?? {};
-  const report = (extra.planner_report ?? {}) as Record<string, unknown>;
-  const headline = String(report.headline ?? extra.completion_summary ?? latest.summary ?? latest.title).trim();
-  const evidence = Array.isArray(report.evidence_files)
-    ? (report.evidence_files as EvidenceFile[]).filter((item) => item?.path).slice(0, 4)
-    : [];
+  const headline = String(latest.summary ?? latest.title).trim();
   const reviewedArtifacts = artifacts?.filter((item) => item.source !== 'manager_live');
-  const files: Array<EvidenceFile & Partial<ArtifactInfo>> = reviewedArtifacts ?? evidence;
+  const files: ArtifactInfo[] = reviewedArtifacts ?? [];
   const certified = extra.final_submission_certified === true;
   const pricingStatus = String(extra.pricing_status ?? '');
   const rawCost = Object.prototype.hasOwnProperty.call(extra, 'cost_usd')

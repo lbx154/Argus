@@ -88,7 +88,7 @@ def test_consume_tolerates_non_dict_json(tmp_path: Path) -> None:
 
 
 def test_repeated_requests_overwrite_not_accumulate(tmp_path: Path) -> None:
-    item = _running_item(tmp_path)
+    _running_item(tmp_path)
     request_running_item_abort(tmp_path, reason="first")
     request_running_item_abort(tmp_path, reason="second")
     # Only the latest request should be pending.

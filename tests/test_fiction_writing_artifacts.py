@@ -4,7 +4,7 @@ STAGE_CHECKS enforce it at run time.
 The first half proves the reference producer (:func:`build_fiction_manifest`)
 emits a chain that validates under fiction's kind vocabulary with correct
 provenance and supersede bookkeeping. The second half runs the actual revise
-STAGE_CHECKS commands as subprocesses (exactly as argus_skill.tools.stage_check
+STAGE_CHECKS commands as subprocesses
 does) — proving the contract is CONSUMED by the runtime gate, not only by unit
 tests. If the wiring in stages.py is removed, the `_checks_with` lookups return
 [] and these tests fail.

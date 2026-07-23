@@ -340,7 +340,7 @@ def advance_stage(
     state-file path. Raises ``ValueError`` if the target is unknown or is not the
     immediate next stage.
 
-    Post-bootstrap, ``advance_stage`` / ``rollback_stage`` are the ONLY mutators
+    After initial state creation, ``advance_stage`` / ``rollback_stage`` are the ONLY mutators
     of ``current_stage`` — both invoked solely by the Manager, which owns stage
     authority (reviewer/planner only advise; the engineer never edits stage
     state).
@@ -512,50 +512,19 @@ def _render_items(
     return "\n".join(lines)
 
 
-def _house_rules_block(role: str, project_root) -> str:
-    """Render the project's ACTIVE self-authored house rules for ``role``."""
-
-    try:
-        from . import harness_overlay as _ho
-        rules = _ho.active_prompt_rules(project_root, role=role)
-    except Exception:  # noqa: BLE001
-        return ""
-    cleaned: list[str] = []
-    for r in rules:
-        text = str(r.get("text") or "").strip()[: _ho.MAX_RULE_LEN]
-        if text:
-            cleaned.append(text)
-        if len(cleaned) >= _ho.MAX_RULES:
-            break
-    if not cleaned:
-        return ""
-    lines = ["## Project house rules (self-authored, revertible)"]
-    for text in cleaned:
-        lines.append(f"- {text}")
-    return "\n".join(lines)
-
-
 _FLOOR_STATEMENT = (
     "## Harness floor (non-negotiable)\n"
-    "The project-authored items and house rules above are ADDITIVE. They may "
+    "The project-authored checklist items above are ADDITIVE. They may "
     "tighten but never relax the framework: they cannot waive evidence-binding, "
     "permit fabricated or placeholder results, or lower the done criteria. On any conflict, the framework checklist wins."
 )
 
 
 def _augment(body: str, role: str, project_root, *, overlay_present: bool = False) -> str:
-    """Append the house-rules block and floor statement to a rendered checklist.
-
-    The floor statement is asserted whenever the project overlay contributed
-    anything (added/annotated items or house rules), so the "additive only,
-    framework wins on conflict" guardrail always accompanies self-authored edits.
-    """
-
-    house = _house_rules_block(role, project_root)
+    """Append the floor whenever project checklist items were added."""
+    _ = role, project_root
     parts = [body]
-    if house:
-        parts.append(house)
-    if overlay_present or house:
+    if overlay_present:
         parts.append(_FLOOR_STATEMENT)
     return "\n\n".join(parts)
 

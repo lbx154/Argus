@@ -171,7 +171,7 @@ export interface LifeMissionCompletedEvent extends EventMsg {
   "scope"?: string;
   "status": string;
   "outcome_class"?: "completed" | "incomplete" | "stalled" | "blocked" | "failed" | "ended";
-  "outcome"?: { "execution_status": string; "review_status": string; "stage_certification": string; "scientific_decision": string; "failure_source": string; "failure_layer": string; "interruption_kind": string; "resumable": boolean; };
+  "outcome"?: { "execution_status": string; "review_status": string; "stage_certification": string; "interruption_kind": string; "resumable": boolean; };
   "success"?: boolean;
   "rounds"?: number;
   "elapsed_seconds"?: number;
@@ -228,15 +228,19 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "status": "done" | "continue" | "blocked" | "replan_requested" | "error" | "research_incomplete" | "paused_no_breakthrough" | "exhausted_current_methods";
   "reason": string;
   "next_action"?: string;
-  "scope"?: string;
-  "checklist"?: Array<Record<string, unknown>>;
-  "research_result"?: Record<string, unknown> | null;
+  "operator_question"?: string;
+  "review_source"?: string;
+  "text"?: string;
+  "review_skipped"?: boolean;
+  "prompt_block_stats"?: Record<string, unknown>;
+  "input_tokens"?: number;
+  "cached_input_tokens"?: number;
+  "output_tokens"?: number;
+  "reasoning_output_tokens"?: number;
+  "premium_requests"?: number;
+  "backend_unavailable"?: boolean;
+  "usage_scope"?: "delta";
   "stop_kind"?: "budget_exhausted" | "provider_cooldown" | "provider_fence" | "daemon_shutdown" | "operator_pause" | "operator_abort" | "backend_unavailable" | "transient_error" | "permanent_error" | null;
-  "progress_class"?: "decision" | "evidence" | "setup_only" | "artifact_sync_only" | "none" | "";
-  "planner_report"?: Record<string, unknown>;
-  "harness_control"?: Record<string, unknown>;
-  "checkpoint"?: Record<string, unknown>;
-  "achievement"?: Record<string, unknown> | null;
 }
 
 export interface RoundSecretRedactedEvent extends EventMsg {
@@ -745,94 +749,12 @@ export interface WikiEvolutionCompletedEvent extends EventMsg {
   "text"?: string;
 }
 
-export interface ResearchHypothesisProposedEvent extends EventMsg {
-  type: "research.hypothesis.proposed";
-  payload_schema_version?: 1;
-  "hypothesis_id": string;
-  "title": string;
-  "statement": string;
-  "branch_id"?: string;
-  "parent_branch_id"?: string | null;
-  "evidence"?: Array<string>;
-  "item_id"?: string;
-  "round_index"?: number;
-}
-
-export interface ResearchExperimentStartedEvent extends EventMsg {
-  type: "research.experiment.started";
-  payload_schema_version?: 1;
-  "experiment_id": string;
-  "title": string;
-  "hypothesis_id"?: string;
-  "branch_id"?: string;
-  "item_id"?: string;
-  "round_index"?: number;
-  "summary"?: string;
-}
-
-export interface ResearchExperimentCompletedEvent extends EventMsg {
-  type: "research.experiment.completed";
-  payload_schema_version?: 1;
-  "experiment_id": string;
-  "status": "completed" | "failed" | "cancelled";
-  "hypothesis_id"?: string;
-  "branch_id"?: string;
-  "item_id"?: string;
-  "round_index"?: number;
-  "summary"?: string;
-  "duration_seconds"?: number;
-  "evidence"?: Array<string>;
-}
-
-export interface ResearchMetricReportedEvent extends EventMsg {
-  type: "research.metric.reported";
-  payload_schema_version?: 1;
-  "metric_id": string;
-  "name": string;
-  "baseline"?: number | null;
-  "value": number;
-  "unit"?: string;
-  "direction": "maximize" | "minimize" | "target";
-  "evidence": string;
-  "experiment_id"?: string;
-  "hypothesis_id"?: string;
-  "branch_id"?: string;
-  "item_id"?: string;
-  "round_index"?: number;
-  "primary"?: boolean;
-}
-
-export interface ResearchMetricVerifiedEvent extends EventMsg {
-  type: "research.metric.verified";
-  payload_schema_version?: 1;
-  "metric_id": string;
-  "status": "accepted" | "rejected";
-  "reviewer_reason": string;
-  "evidence"?: string;
-  "round_index"?: number;
-}
-
-export interface ResearchArtifactRegisteredEvent extends EventMsg {
-  type: "research.artifact.registered";
-  payload_schema_version?: 1;
-  "artifact_id": string;
-  "path": string;
-  "kind": "text" | "image" | "pdf" | "data" | "code" | "binary";
-  "title"?: string;
-  "why"?: string;
-  "experiment_id"?: string;
-  "branch_id"?: string;
-  "item_id"?: string;
-  "round_index"?: number;
-}
-
 export interface ResearchAchievementCertifiedEvent extends EventMsg {
   type: "research.achievement.certified";
   payload_schema_version?: 1;
   "achievement_id": string;
   "title": string;
   "goal": string;
-  "metric_id"?: string;
   "summary"?: string;
   "evidence"?: Array<string>;
   "reviewer_certified": true;
@@ -935,12 +857,6 @@ export interface EventPayloadByType {
   "wiki.promotion.demoted": WikiPromotionDemotedEvent;
   "wiki.retired.compressed": WikiRetiredCompressedEvent;
   "wiki.evolution.completed": WikiEvolutionCompletedEvent;
-  "research.hypothesis.proposed": ResearchHypothesisProposedEvent;
-  "research.experiment.started": ResearchExperimentStartedEvent;
-  "research.experiment.completed": ResearchExperimentCompletedEvent;
-  "research.metric.reported": ResearchMetricReportedEvent;
-  "research.metric.verified": ResearchMetricVerifiedEvent;
-  "research.artifact.registered": ResearchArtifactRegisteredEvent;
   "research.achievement.certified": ResearchAchievementCertifiedEvent;
   "daemon.command.submitted": DaemonCommandSubmittedEvent;
   "daemon.command.completed": DaemonCommandCompletedEvent;

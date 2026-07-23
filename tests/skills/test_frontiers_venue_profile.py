@@ -11,7 +11,6 @@ from argus_skill.skills.venue_profiles import (
     get_venue_profile,
     resolve_venue_profile,
 )
-from argus_skill.tools.stage_check import _reviewer_checklist_for
 from argus_skill.verticals.research.academic_language_review import _review_prompt
 from argus_skill.verticals.research.paper_layout_review import (
     _deterministic_assessment,
@@ -99,14 +98,9 @@ def test_frontiers_project_uses_native_reviewer_rules(tmp_path: Path) -> None:
     _write_state(tmp_path, "Frontiers in Sleep")
     profile = resolve_venue_profile(tmp_path)
     assert profile is FRONTIERS_SLEEP_PROFILE
-    skill, instructions, _files = _reviewer_checklist_for("review", profile)
-    assert skill == "reviewer/academic-paper-peer-review-benchmark.md"
-    assert "Frontiers in Sleep" in instructions
-    assert "NO fixed page limit" in instructions
-    assert "single spacing" in instructions
-    assert "AI disclosure" in instructions
-    assert "alt text" in instructions
-    assert "EMNLP" not in instructions
+    assert profile.review_skill_path == (
+        "reviewer/academic-paper-peer-review-benchmark.md"
+    )
 
     submission = format_stage_checklist(
         "submission", role="reviewer", project_root=tmp_path

@@ -201,9 +201,6 @@
             "execution_status",
             "review_status",
             "stage_certification",
-            "scientific_decision",
-            "failure_source",
-            "failure_layer",
             "interruption_kind",
             "resumable"
           ],
@@ -211,9 +208,6 @@
             "execution_status": {"type": "string"},
             "review_status": {"type": "string"},
             "stage_certification": {"type": "string"},
-            "scientific_decision": {"type": "string"},
-            "failure_source": {"type": "string"},
-            "failure_layer": {"type": "string"},
             "interruption_kind": {"type": "string"},
             "resumable": {"type": "boolean"}
           }
@@ -319,9 +313,18 @@
         },
         "reason": {"type": "string"},
         "next_action": {"type": "string"},
-        "scope": {"type": "string"},
-        "checklist": {"type": "array", "items": {"type": "object"}},
-        "research_result": {"type": ["object", "null"]},
+        "operator_question": {"type": "string"},
+        "review_source": {"type": "string"},
+        "text": {"type": "string"},
+        "review_skipped": {"type": "boolean"},
+        "prompt_block_stats": {"type": "object"},
+        "input_tokens": {"type": "integer", "minimum": 0},
+        "cached_input_tokens": {"type": "integer", "minimum": 0},
+        "output_tokens": {"type": "integer", "minimum": 0},
+        "reasoning_output_tokens": {"type": "integer", "minimum": 0},
+        "premium_requests": {"type": "number", "minimum": 0},
+        "backend_unavailable": {"type": "boolean"},
+        "usage_scope": {"type": "string", "enum": ["delta"]},
         "stop_kind": {
           "type": ["string", "null"],
           "enum": [
@@ -336,22 +339,7 @@
             "permanent_error",
             null
           ]
-        },
-        "progress_class": {
-          "type": "string",
-          "enum": [
-            "decision",
-            "evidence",
-            "setup_only",
-            "artifact_sync_only",
-            "none",
-            ""
-          ]
-        },
-        "planner_report": {"type": "object"},
-        "harness_control": {"type": "object"},
-        "checkpoint": {"type": "object"},
-        "achievement": {"type": ["object", "null"]}
+        }
       }
     },
     "round.secret_redacted": {
@@ -937,93 +925,6 @@
         "text": {"type": "string"}
       }
     },
-    "research.hypothesis.proposed": {
-      "version": 1,
-      "required": ["hypothesis_id", "title", "statement"],
-      "properties": {
-        "hypothesis_id": {"type": "string", "minLength": 1},
-        "title": {"type": "string", "minLength": 1},
-        "statement": {"type": "string", "minLength": 1},
-        "branch_id": {"type": "string"},
-        "parent_branch_id": {"type": ["string", "null"]},
-        "evidence": {"type": "array", "items": {"type": "string"}},
-        "item_id": {"type": "string"},
-        "round_index": {"type": "integer", "minimum": 0}
-      }
-    },
-    "research.experiment.started": {
-      "version": 1,
-      "required": ["experiment_id", "title"],
-      "properties": {
-        "experiment_id": {"type": "string", "minLength": 1},
-        "title": {"type": "string", "minLength": 1},
-        "hypothesis_id": {"type": "string"},
-        "branch_id": {"type": "string"},
-        "item_id": {"type": "string"},
-        "round_index": {"type": "integer", "minimum": 0},
-        "summary": {"type": "string"}
-      }
-    },
-    "research.experiment.completed": {
-      "version": 1,
-      "required": ["experiment_id", "status"],
-      "properties": {
-        "experiment_id": {"type": "string", "minLength": 1},
-        "status": {"type": "string", "enum": ["completed", "failed", "cancelled"]},
-        "hypothesis_id": {"type": "string"},
-        "branch_id": {"type": "string"},
-        "item_id": {"type": "string"},
-        "round_index": {"type": "integer", "minimum": 0},
-        "summary": {"type": "string"},
-        "duration_seconds": {"type": "number", "minimum": 0},
-        "evidence": {"type": "array", "items": {"type": "string"}}
-      }
-    },
-    "research.metric.reported": {
-      "version": 1,
-      "required": ["metric_id", "name", "value", "direction", "evidence"],
-      "properties": {
-        "metric_id": {"type": "string", "minLength": 1},
-        "name": {"type": "string", "minLength": 1},
-        "baseline": {"type": ["number", "null"]},
-        "value": {"type": "number"},
-        "unit": {"type": "string"},
-        "direction": {"type": "string", "enum": ["maximize", "minimize", "target"]},
-        "evidence": {"type": "string", "minLength": 1},
-        "experiment_id": {"type": "string"},
-        "hypothesis_id": {"type": "string"},
-        "branch_id": {"type": "string"},
-        "item_id": {"type": "string"},
-        "round_index": {"type": "integer", "minimum": 0},
-        "primary": {"type": "boolean"}
-      }
-    },
-    "research.metric.verified": {
-      "version": 1,
-      "required": ["metric_id", "status", "reviewer_reason"],
-      "properties": {
-        "metric_id": {"type": "string", "minLength": 1},
-        "status": {"type": "string", "enum": ["accepted", "rejected"]},
-        "reviewer_reason": {"type": "string"},
-        "evidence": {"type": "string"},
-        "round_index": {"type": "integer", "minimum": 0}
-      }
-    },
-    "research.artifact.registered": {
-      "version": 1,
-      "required": ["artifact_id", "path", "kind"],
-      "properties": {
-        "artifact_id": {"type": "string", "minLength": 1},
-        "path": {"type": "string", "minLength": 1},
-        "kind": {"type": "string", "enum": ["text", "image", "pdf", "data", "code", "binary"]},
-        "title": {"type": "string"},
-        "why": {"type": "string"},
-        "experiment_id": {"type": "string"},
-        "branch_id": {"type": "string"},
-        "item_id": {"type": "string"},
-        "round_index": {"type": "integer", "minimum": 0}
-      }
-    },
     "research.achievement.certified": {
       "version": 1,
       "required": ["achievement_id", "title", "goal", "reviewer_certified"],
@@ -1031,7 +932,6 @@
         "achievement_id": {"type": "string", "minLength": 1},
         "title": {"type": "string", "minLength": 1},
         "goal": {"type": "string"},
-        "metric_id": {"type": "string"},
         "summary": {"type": "string"},
         "evidence": {"type": "array", "items": {"type": "string"}},
         "reviewer_certified": {"type": "boolean", "const": true}

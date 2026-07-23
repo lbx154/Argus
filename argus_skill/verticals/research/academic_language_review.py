@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from argus_skill.tools.image_tool import (
+from argus_skill.tools.image_api import (
     ApiError,
     ImageToolError,
     _json_request,

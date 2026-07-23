@@ -447,8 +447,4 @@ def build_parser() -> argparse.ArgumentParser:
         help="Provenance string for the ingested_by manifest field",
     )
 
-    from ...tools.research_report import add_report_parser
-
-    add_report_parser(subparsers)
-
     return parser

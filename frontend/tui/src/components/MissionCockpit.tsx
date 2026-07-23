@@ -4,8 +4,6 @@ import { Box, Text } from 'ink';
 import {
   displayObjective,
   formatMissionElapsed,
-  metricDisplay,
-  missionMetricImprovement,
 } from '../../../core/src/missionView.js';
 import { outcomeDimensionSummary } from '../../../core/src/missionOutcome.js';
 import type { MissionTimelineItem, MissionView } from '../../../core/src/types.js';
@@ -25,7 +23,7 @@ function compact(text: string, width: number): string {
 
 function timelineColor(item: MissionTimelineItem): string | undefined {
   if (item.tone === 'error') return theme.error;
-  if (item.tone === 'success' || item.tone === 'metric' || item.tone === 'skill') return theme.success;
+  if (item.tone === 'success' || item.tone === 'skill') return theme.success;
   if (item.tone === 'info') return theme.info;
   return undefined;
 }
@@ -72,8 +70,6 @@ export function MissionCockpit({
   const mission = displayObjective(
     view.mission.objective || view.mission.title || 'Waiting for a mission',
   );
-  const metric = view.primary_metric;
-  const improvement = missionMetricImprovement(metric);
   const timeline = view.timeline.slice(-Math.max(3, width < 80 ? 4 : 6));
   const roleByName = new Map(view.roles.map((role) => [role.role, role]));
   const recentRoles = view.timeline
@@ -98,10 +94,6 @@ export function MissionCockpit({
           <Text color={theme.info}>{compact(stage, 20)}</Text>
           <Text dimColor>{` · ROUND ${round} · ELAPSED `}</Text>
           <Text>{formatMissionElapsed(view.mission.elapsed_seconds)}</Text>
-          <Text dimColor> · BEST </Text>
-          <Text color={metric?.verification_status === 'accepted' ? theme.success : theme.warning}>
-            {metricDisplay(metric)}
-          </Text>
         </Text>
         <Text wrap="truncate-end">
           <Text dimColor>MODEL SPEND </Text>
@@ -174,12 +166,6 @@ export function MissionCockpit({
       <Box gap={width >= 76 ? 4 : 2}>
         <Text dimColor>ROUND </Text>
         <Text>{round}</Text>
-        <Text dimColor> BEST </Text>
-        <Text color={metric?.verification_status === 'accepted' ? theme.success : theme.warning}>
-          {metricDisplay(metric)}
-          {improvement != null ? `  ${improvement >= 0 ? '↑' : '↓'}${Math.abs(improvement).toFixed(1)}${metric?.unit || ''}` : ''}
-          {metric && metric.verification_status !== 'accepted' ? ' · reported' : ''}
-        </Text>
       </Box>
       <Box>
         <Text dimColor>MODEL SPEND </Text>
@@ -239,7 +225,7 @@ export function MissionCockpit({
         {timeline.length ? timeline.map((item) => (
           <Box key={item.id}>
             <Text dimColor>{`${new Date(item.ts * 1000).toISOString().slice(11, 16)} `}</Text>
-            <Text color={timelineColor(item)}>{item.tone === 'error' ? '!' : item.tone === 'success' || item.tone === 'metric' || item.tone === 'skill' ? '✓' : '·'} </Text>
+            <Text color={timelineColor(item)}>{item.tone === 'error' ? '!' : item.tone === 'success' || item.tone === 'skill' ? '✓' : '·'} </Text>
             <Text color={timelineColor(item)}>{compact(item.title + (item.detail ? ` · ${item.detail}` : ''), Math.max(18, width - 10))}</Text>
           </Box>
         )) : <Text dimColor>  Waiting for structured research events…</Text>}

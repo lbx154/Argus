@@ -2,7 +2,7 @@
 intake/review STAGE_CHECKS enforce provenance at run time.
 
 The runtime half runs the actual STAGE_CHECKS commands as subprocesses (exactly as
-argus_skill.tools.stage_check does): the registry gate at intake, the mandatory
+the legacy structural command table did): the registry gate at intake, the mandatory
 source-usage ledger gate at review. It proves the ledger is NOT bypassable —
 a missing ledger fails, and the review check carries no `test ! -f ... ||`
 conditional escape hatch. If the wiring in stages.py is removed or weakened back

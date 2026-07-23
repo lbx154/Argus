@@ -1245,8 +1245,8 @@ def _resolve_research_workdir(bundle: Any) -> Path:
     Resolution order (matches supervisor._project_workdir):
 
     1. ``ARGUS_SKILL_WORKDIR`` env var (operator override)
-    2. ``<bundle.project.root>/code/`` if it exists (the
-       ``new_auto_research_project`` layout seeds code under code/)
+    2. ``<bundle.project.root>/code/`` for compatibility with legacy nested
+       project layouts
     3. ``bundle.project.root`` (life dir; may not have research/ but
        at worst the gates render empty findings, never crash)
     """
@@ -1444,7 +1444,7 @@ def _render_gate_snapshot_lines(workdir: Path, stage: str | None) -> list[str]:
             baseline_condition=os.environ.get("ARGUS_SKILL_BASELINE_CONDITION") or None,
         )
     except Exception:  # noqa: BLE001
-        return [f"  gates @ {stage}: (snapshot failed; rerun stage_check)"]
+        return [f"  gates @ {stage}: (snapshot failed)"]
 
     lines = [f"  gates @ {stage}:"]
     for gate in results:

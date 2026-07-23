@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus_skill.tools.image_tool import (
+from argus_skill.verticals.research.figure_tool import (
     render_paper_figure_prompt,
     write_paper_figure_prompt,
 )

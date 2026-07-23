@@ -510,63 +510,6 @@ def test_automated_gates_cli_json_includes_kind(tmp_path: Path, capsys) -> None:
 
 
 # ---------------------------------------------------------------------------
-# stage_check end-to-end — advisory must NOT affect exit code
-# ---------------------------------------------------------------------------
-
-
-def test_stage_check_advisory_finding_does_not_fail_exit_code(tmp_path: Path) -> None:
-    (tmp_path / "research").mkdir()
-    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
-        json.dumps({"current_stage": "run", "target_venue": "EMNLP"}),
-        encoding="utf-8"
-    )
-    # Single bundle: advisory finding will note "1 family, no baseline"
-    # but advisory NEVER blocks.
-    _write_bundle(tmp_path, "p", condition="argus", reward=0.5)
-
-    proc = subprocess.run(
-        [sys.executable, "-m", "argus_skill.tools.stage_check",
-         "--project-root", str(tmp_path), "--stage", "run"],
-        text=True, capture_output=True,
-    )
-
-    # Shell checks at "run" stage will fail (no real venv etc.), so we
-    # don't assert returncode == 0. We assert that the advisory finding
-    # is rendered with the right tag and is reported as an advisory
-    # finding (reviewer rules) in the trailing summary.
-    assert "📋 mediocrity_finding (advisory)" in proc.stdout
-    assert "advisory finding(s)" in proc.stdout
-
-
-def test_stage_check_structural_break_does_fail_exit_code(tmp_path: Path) -> None:
-    (tmp_path / "research").mkdir()
-    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
-        json.dumps({"current_stage": "draft", "target_venue": "EMNLP"}),
-        encoding="utf-8"
-    )
-    _write_claims_tsv(
-        tmp_path,
-        [
-            {
-                "claim_id": "broken",
-                "status": "current_evidence",
-                "claim": "x",
-                "evidence_1": "benchmarks/evidence/missing/summary.tsv",
-            }
-        ],
-    )
-    proc = subprocess.run(
-        [sys.executable, "-m", "argus_skill.tools.stage_check",
-         "--project-root", str(tmp_path), "--stage", "draft"],
-        text=True, capture_output=True,
-    )
-
-    assert "❌ evidence_chain (structural)" in proc.stdout
-    assert "evidence_path_missing" in proc.stdout
-    assert proc.returncode != 0
-
-
-# ---------------------------------------------------------------------------
 # Top-level argus-skill CLI smoke
 # ---------------------------------------------------------------------------
 

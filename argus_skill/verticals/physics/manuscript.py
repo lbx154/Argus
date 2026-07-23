@@ -1050,10 +1050,9 @@ def collect_manuscript_verifier_failures_for_repair_context(project_root: object
 
     Identical to ``manuscript check --layer all`` (:func:`verify_all_deliverables`),
     returned as plain strings so the Manager can persist them and feed them back,
-    verbatim, into the next manuscript-stage agent round. The Manager normally
-    reuses the ``run_stage_shell_checks`` output instead of calling this directly
-    (no duplicate verifier logic); this is the in-process equivalent for tests and
-    for any caller that already holds the project root.
+    verbatim, into the next manuscript-stage agent round. This is the in-process
+    entry point used by the repair-context writer, tests, and any caller that
+    already holds the project root.
     """
     return verify_all_deliverables(project_root)
 

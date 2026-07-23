@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-import json
-import subprocess
-import sys
-
 from argus_skill.manager import Manager
 from argus_skill.manager._helpers import _OPTIMIZE_VERTICALS
 from argus_skill.skills.builtins import iter_vertical_skill_texts
@@ -174,62 +170,3 @@ def test_digital_circuit_banners_cover_benchmark_integrity_and_local_tools() -> 
 def test_digital_circuit_uses_custom_staged_kind() -> None:
     assert Manager._kind_for("digital_circuit") == "custom"
     assert "digital_circuit" not in _OPTIMIZE_VERTICALS
-
-
-def test_verification_stage_rejects_failed_log_and_accepts_explicit_pass(tmp_path) -> None:
-    (tmp_path / "research").mkdir()
-    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
-        json.dumps({"vertical": "digital_circuit", "current_stage": "verification"}),
-        encoding="utf-8",
-    )
-    (tmp_path / "tb").mkdir()
-    (tmp_path / "tb" / "dut_tb.sv").write_text("module dut_tb; endmodule\n", encoding="utf-8")
-    (tmp_path / "verification").mkdir()
-    log = tmp_path / "verification" / "simulation.log"
-    log.write_text("0 passed, 1 failed\nFAIL: expected pass after reset\n", encoding="utf-8")
-
-    command = [
-        sys.executable,
-        "-m",
-        "argus_skill.tools.stage_check",
-        "--project-root",
-        str(tmp_path),
-        "--vertical",
-        "digital_circuit",
-        "--stage",
-        "verification",
-    ]
-    failed = subprocess.run(command, check=False, capture_output=True, text=True)
-    assert failed.returncode != 0
-    assert "Verification results present" in failed.stdout
-
-    log.write_text("PASS: reset and boundary scenarios\n", encoding="utf-8")
-    passed = subprocess.run(command, check=False, capture_output=True, text=True)
-    assert passed.returncode == 0, passed.stdout + passed.stderr
-
-
-def test_verification_result_does_not_count_as_verification_source(tmp_path) -> None:
-    (tmp_path / "research").mkdir()
-    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
-        json.dumps({"vertical": "digital_circuit", "current_stage": "verification"}),
-        encoding="utf-8",
-    )
-    (tmp_path / "verification").mkdir()
-    (tmp_path / "verification" / "result.json").write_text(
-        json.dumps({"status": "pass"}),
-        encoding="utf-8",
-    )
-    command = [
-        sys.executable,
-        "-m",
-        "argus_skill.tools.stage_check",
-        "--project-root",
-        str(tmp_path),
-        "--vertical",
-        "digital_circuit",
-        "--stage",
-        "verification",
-    ]
-    result = subprocess.run(command, check=False, capture_output=True, text=True)
-    assert result.returncode != 0
-    assert "Verification source present" in result.stdout

@@ -8,10 +8,8 @@ respected) and downgrades to plain text otherwise. Tests construct
 from __future__ import annotations
 
 import os
-import re
 import shutil
 import sys
-import textwrap
 from dataclasses import dataclass
 
 # ── ANSI escape codes ──────────────────────────────────────────────────────
@@ -55,9 +53,6 @@ _FALLBACK_SGR: dict[str, str] = {
 # coding agent (warm gradients read as "playful", cool reads as "precise").
 _LOGO_GRADIENT = ["#cba6f7", "#89b4fa", "#94e2d5"]
 
-_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
-
-
 def _hex_to_rgb(h: str) -> tuple[int, int, int]:
     h = h.lstrip("#")
     return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
@@ -94,16 +89,6 @@ def supports_truecolor() -> bool:
     ):
         return True
     return False
-
-
-def visible_len(text: str) -> int:
-    """Printable column width of ``text`` with ANSI color codes stripped.
-
-    Lets callers decide whether an already-colored, multi-span line (built
-    from several ``theme.xxx()`` calls concatenated together) fits the
-    terminal width before printing it.
-    """
-    return len(_ANSI_RE.sub("", text))
 
 
 # ── Box-drawing constants (always plain Unicode, no ANSI) ─────────────────
@@ -192,44 +177,6 @@ class Theme:
         except (OSError, ValueError, AttributeError):
             return self.width
         return max(40, min(cols, 120))
-
-    # ── wrapping ──────────────────────────────────────────────────────
-
-    def wrap_after(
-        self,
-        text: str,
-        *,
-        first_indent: int,
-        hang_indent: int = 2,
-        width: int | None = None,
-    ) -> list[str]:
-        """Word-wrap ``text`` to continue after a prefix already on screen.
-
-        ``first_indent`` is how many printable columns the caller already
-        wrote on the current line (e.g. ``"  warn       → "``); the first
-        returned line omits that many columns (the caller already printed
-        them) while later lines are padded with ``hang_indent`` spaces so
-        continuations align under the message body instead of colliding
-        with the margin or splitting a word/command across the wrap.
-
-        Colors must be applied to each returned line separately (join with
-        ``"\\n"`` after coloring) — this only wraps plain text, so a single
-        ANSI span never gets cut mid-escape-sequence.
-        """
-        w = width if width is not None else self.width
-        body = " ".join(str(text).split())
-        wrapped = textwrap.wrap(
-            body,
-            width=max(20, w),
-            initial_indent=" " * first_indent,
-            subsequent_indent=" " * hang_indent,
-            break_long_words=False,
-            break_on_hyphens=False,
-        )
-        if not wrapped:
-            return [""]
-        wrapped[0] = wrapped[0][first_indent:]
-        return wrapped
 
     # ── primitives ────────────────────────────────────────────────────
 

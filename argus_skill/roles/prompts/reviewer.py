@@ -182,7 +182,6 @@ def _engineer_log_audit_block(
             "provenance, or suspected shortcut; otherwise spend the review judging "
             "the result and next research decision.\n\n"
         )
-    progress_filter = '\'"type": "engineer.progress"\''
     if call_id:
 
         def shell_quote(value: str) -> str:
@@ -193,37 +192,21 @@ def _engineer_log_audit_block(
             "argus_skill.tools.event_log_query "
             f"--log {shell_quote(path)} --call-id {shell_quote(call_id)}"
         )
-        audit_scope = (
+        query_block = (
             f"Current engineer call id: `{call_id}`. Scope every audit command "
             "to this id so prior rounds and this Reviewer's own prompt cannot "
             "pollute the evidence. The query parses top-level JSON fields and "
-            "reads rolled logs in chronological order.\n"
-        )
-        progress_recipe = f"{current_call_rows} | tail -60"
-        cheat_recipe = (
-            f"{current_call_rows} | grep -nE 'use_attach|set_pose|teleport|hardcod|"
-            "HARDCODE|TODO|FIXME|mock|monkeypatch|fake|dummy|placeholder|"
-            "return 0\\.9|assert True|--skip|xfail'"
-        )
-        evaluator_recipe = (
-            f"{current_call_rows} | grep -nE "
-            "'pytest|check_success|scorer|evaluate|benchmark|metric'"
+            "reads rolled logs in chronological order:\n"
+            f"    {current_call_rows}\n"
         )
         log_row_description = (
             "The call-scoped raw `agent.io.*` rows record the commands, tool "
             "results, and assistant messages produced by this invocation."
         )
     else:
-        audit_scope = ""
-        progress_recipe = f"grep {progress_filter} '{path}' | tail -60"
-        cheat_recipe = (
-            "grep -nE 'use_attach|set_pose|teleport|hardcod|HARDCODE|TODO|FIXME|"
-            "mock|monkeypatch|fake|dummy|placeholder|return 0\\.9|assert True|"
-            f"--skip|xfail' '{path}'"
-        )
-        evaluator_recipe = (
-            "grep -nE 'pytest|check_success|scorer|evaluate|benchmark|metric' "
-            f"'{path}'"
+        query_block = (
+            "No exact call id is available. Do not scan the whole project history "
+            "unless a concrete concern cannot be resolved from current artifacts.\n"
         )
         log_row_description = (
             "Each `engineer.progress` event's `text` field is what the engineer "
@@ -234,10 +217,9 @@ def _engineer_log_audit_block(
         when_clause = (
             "MEASURED-BENCHMARK mode is active, so this is a RED-FLAG-ONLY check: "
             "you already TRUST the frozen scorer's pasted RESULT line and must NOT "
-            "burn the round re-deriving an honest number. Grep the log ONLY when "
+            "burn the round re-deriving an honest number. Inspect the log ONLY when "
             "the engineer pasted NO RESULT line, the number is implausible / "
-            "self-contradictory, or the score jumped suspiciously — then confirm "
-            "the scorer was actually invoked and not bypassed/hardcoded. Otherwise "
+            "self-contradictory, or the score jumped suspiciously. Otherwise "
             "skip this section.\n"
         )
     else:
@@ -254,40 +236,17 @@ def _engineer_log_audit_block(
         "This round's engineer EXECUTION LOG is on disk at:\n"
         f"  {path}\n"
         "It is the per-project event log (NOT in the git work-tree). "
-        f"{log_row_description} You have shell access; you can grep it.\n"
-        f"{audit_scope}\n"
+        f"{log_row_description}\n"
+        f"{query_block}\n"
         "Result-traceability (does the final artifact match the checklist?) tells "
         "you the OUTCOME is real. This log tells you the PROCESS was honest — the "
         "two are different, and an artifact can match the checklist while the "
-        "process that produced it was faked. Use this to catch what the summary "
-        "hides.\n\n"
+        "process may still contradict the claim.\n\n"
         f"{when_clause}\n"
-        "Grep recipes (substitute the path above):\n"
-        "- See what the engineer ran this round (newest last):\n"
-        f"    {progress_recipe}\n"
-        "- Hunt for cheats / shortcuts that mask a real failure:\n"
-        f"    {cheat_recipe}\n"
-        "- Check the claimed evaluator/scorer was actually invoked (not bypassed "
-        "or replaced by an inline constant):\n"
-        f"    {evaluator_recipe}\n\n"
-        "Red flags → even if the artifact traces to the checklist, return "
-        "`continue` (or `blocked` if it needs the operator) and NAME the process "
-        "defect in `reason` / `next_action`:\n"
-        "- (a) HARDCODED the expected value/answer instead of computing it (e.g. "
-        "writing the gold number straight into the output, an `assert True`, a "
-        "constant return where a measurement belongs).\n"
-        "- (b) SKIPPED a required step and wrote the result directly (the "
-        "checklist says 'run X then measure', but no X command appears in the "
-        "log).\n"
-        "- (c) Used a WRONG or CHEATING method — a physics/sim override "
-        "(`use_attach`, forced pose), a fabricated metric, or a bypassed/replaced "
-        "real evaluator — to make a failing task look passed.\n"
-        "- (d) Ran commands that CONTRADICT the method the checklist/summary "
-        "claims (the prose says one approach; the log shows another).\n\n"
-        "If the log is clean and the process matches the claim, say so briefly and "
-        "judge on the result as usual — do NOT manufacture a process objection "
-        "where there is none. This audit SUPPLEMENTS result-traceability; it does "
-        "not replace it, and it never changes the frozen outcome/metric/verifier.\n\n"
+        "Choose any further inspection yourself from the concrete concern and the "
+        "actual event fields; do not classify the process by a preset keyword list. "
+        "If the process matches the claim, judge the result as usual. This audit "
+        "supplements result traceability and never changes frozen measurements.\n\n"
     )
 
 
@@ -341,7 +300,7 @@ def render_reviewer_prompt(
     """Render the complete Reviewer prompt as ``(static_preamble, round_delta)``."""
     from ...core.research_contract import resolve_research_target_level
     from ...engineer.checkpoint import shared_checkpoint_instructions
-    from ...skills.harness_overlay import resolve_project_root
+    from ...core.project import resolve_project_root
     from ...skills.vertical_select import _persisted_vertical
     from ...verticals.research.stages import CANONICAL_STAGE_ORDER
     from ..task_contract import EFFECTIVE_TASK_CONTRACT

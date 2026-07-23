@@ -852,16 +852,3 @@ def format_prompt_status_line(
         base = _paint(theme, "dim", "mixed backends/models — /roles for details")
     suffix = format_prompt_activity_suffix(life_dir, theme)
     return f"{base}  {suffix}" if suffix else base
-
-
-def render_roles_snapshot(
-    life_dir: Path | str, theme: Any = None, *, width: int = 80,
-    header_right: str = "", env: Mapping[str, str] | None = None,
-    show_config: bool = False,
-) -> str:
-    """One-shot convenience: resolve configs + live activity and render."""
-    configs = resolve_all_roles(env=env)
-    activities = role_activity(life_dir)
-    return format_roles_panel(theme, configs, activities,
-                              header_right=header_right, width=width,
-                              show_config=show_config)

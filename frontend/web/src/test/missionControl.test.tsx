@@ -5,7 +5,7 @@ import { emptyMissionView, reduceMissionViewEvent } from '../../../core/src/miss
 import { compactMissionDag, MissionControl } from '../components/MissionControl';
 
 describe('MissionControl', () => {
-  it('renders real DAG, metric, capability, replay, and git state', () => {
+  it('renders real DAG, capability, replay, and git state', () => {
     const view = emptyMissionView();
     view.mission.objective = 'Optimize FlashAttention on B200';
     view.stage = { id: 'optimize', label: 'Optimize' };
@@ -16,12 +16,6 @@ describe('MissionControl', () => {
       acceptance_check: 'Official scorer passes.',
       non_goals: ['Do not change the benchmark.'],
     }];
-    view.metrics = [{
-      id: 'metric-1', name: 'sol_percent', baseline: 49.4, value: 61.8,
-      unit: '%', direction: 'maximize', evidence: 'result.json', primary: true,
-      verification_status: 'accepted', reported_at: 1,
-    }];
-    view.primary_metric = view.metrics[0];
     view.learned_skills = [{
       id: 'skill-1',
       name: 'fused epilogue',
@@ -59,9 +53,6 @@ describe('MissionControl', () => {
         round_index: 7,
       },
     ];
-    view.decision_context = {
-      planner_report: { plan_signal: 'continue', reason: 'Evidence is complete.' },
-    };
     view.storage.project_skill_dir = '/state/project/skills';
     view.storage.project_skill_count = 1;
     view.storage.wiki_paths = ['/workspace/.autors/demo/wiki'];
@@ -71,16 +62,13 @@ describe('MissionControl', () => {
     view.storage.wiki_retired_bytes_saved = 512;
     view.learned_wiki_pages = [{ id: 'page-1', title: 'Fused epilogue evidence', status: 'candidate' }];
     view.timeline = [{
-      id: 'event-1', ts: 1, type: 'research.metric.reported', role: 'engineer',
-      title: 'Metric reported', detail: '61.8%', tone: 'metric',
+      id: 'event-1', ts: 1, type: 'round.review.completed', role: 'reviewer',
+      title: 'Evidence accepted', detail: 'Official scorer passed.', tone: 'success',
     }];
     view.outcome = {
       execution_status: 'completed',
       review_status: 'done',
       stage_certification: 'not_certified',
-      scientific_decision: 'no_go',
-      failure_source: 'scientific_evidence_failure',
-      failure_layer: 'evaluator',
       interruption_kind: 'none',
       resumable: false,
     };
@@ -99,7 +87,7 @@ describe('MissionControl', () => {
     );
     expect(markup).toContain('Optimize FlashAttention on B200');
     expect(markup).toContain('Research DAG');
-    expect(markup).toContain('61.8%');
+    expect(markup).toContain('Official scorer passed');
     expect(markup).toContain('Capabilities unlocked');
     expect(markup).toContain('Role work');
     expect(markup).toContain('Profile kernel v7');
@@ -108,8 +96,6 @@ describe('MissionControl', () => {
     expect(markup).toContain('Do not change the benchmark.');
     expect(markup).toContain('evolved during · Profile kernel v7');
     expect(markup).toContain('# Fused epilogue');
-    expect(markup).toContain('Structured decision handoff');
-    expect(markup).toContain('plan_signal');
     expect(markup).toContain('Self-evolution storage');
     expect(markup).toContain('Knowledge retained');
     expect(markup).toContain('Fused epilogue evidence');
@@ -119,8 +105,6 @@ describe('MissionControl', () => {
     expect(markup).toContain('Mission replay');
     expect(markup).toContain('execution=completed');
     expect(markup).toContain('stage=not_certified');
-    expect(markup).toContain('science=stop');
-    expect(markup).toContain('layer=evaluator');
     expect(markup).toContain('Git changes · main');
   });
 

@@ -76,7 +76,7 @@ def test_learn_cmd_stages_material_and_persists_vertical(tmp_path, capsys):
     wiki_root = tmp_path / ".autors" / "learning" / "wiki"
     assert (wiki_root / "sources" / "notes" / "material.md").exists()
 
-    # material manifest the ingest stage-check looks for
+    # material manifest required by ingest
     manifest = json.loads((tmp_path / "learning" / "MATERIAL_MANIFEST.json").read_text())
     assert manifest["materials"][0]["source_id"] == "material"
 

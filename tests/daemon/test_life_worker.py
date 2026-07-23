@@ -12,7 +12,6 @@ from typing import Any
 import pytest
 
 import argus_skill.daemon.life_worker as life_worker_mod
-from argus_skill.core.bootstrap import inspect_project_bootstrap
 from argus_skill.core.session import SessionMeta, write_session_meta
 from argus_skill.daemon.life_worker import (
     ContinuousConfigState,
@@ -163,198 +162,19 @@ def test_plain_stop_signal_interrupts_active_mission(
     assert worker._mission_stop.is_set()
 
 
-def test_inspect_project_bootstrap_leaves_generic_empty_repo_to_agent(
-    tmp_path: Path,
-) -> None:
-    repo_dir = tmp_path / "empty-repo"
-    repo_dir.mkdir()
-
-    preflight = inspect_project_bootstrap(repo_dir)
-
-    assert preflight.should_bootstrap is False
-    assert preflight.missing_artifacts == (".git", "build manifest", "README*", "source files")
-    assert preflight.bootstrap_objective == ""
-    assert preflight.event_text == ""
-
-
-def test_inspect_project_bootstrap_detects_research_profile(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    repo_dir = tmp_path / "empty-repo"
-    repo_dir.mkdir()
-    monkeypatch.setenv("ARGUS_SKILL_RESEARCH_PROFILE", "emnlp2026-tierharness")
-    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE_PATH", raising=False)
-
-    preflight = inspect_project_bootstrap(repo_dir)
-
-    assert preflight.should_bootstrap is True
-    assert "research bootstrap mission" in preflight.bootstrap_objective.lower()
-    assert "research/PIPELINE_STATE.json" in preflight.bootstrap_objective
-    assert "re-check it at execution time" in preflight.bootstrap_objective
-    assert "target_venue" in preflight.bootstrap_objective
-    assert "research/RESEARCH_BRIEF.md" in preflight.bootstrap_objective
-    assert "research/GO_NO_GO.md" not in preflight.bootstrap_objective
-    assert "research bootstrap requested" in preflight.event_text
-    assert "pyproject.toml" not in preflight.bootstrap_objective
-
-
-def test_inspect_project_bootstrap_ignores_objective_keywords(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # Philosophy: the harness must NOT sniff the objective text for keywords
-    # like "emnlp" / "auto-research" to choose a research scaffold. Without a
-    # structured research profile, workspace shape belongs to the agent.
-    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE", raising=False)
-    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE_PATH", raising=False)
-    repo_dir = tmp_path / "empty-repo"
-    repo_dir.mkdir()
-
-    preflight = inspect_project_bootstrap(
-        repo_dir,
-        objective_hint="EMNLP auto-research bootstrap mission",
-    )
-
-    assert preflight.should_bootstrap is False
-    assert preflight.bootstrap_objective == ""
-    assert preflight.event_text == ""
-
-
-def test_structured_research_candidate_does_not_sniff_objective(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE", raising=False)
-    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE_PATH", raising=False)
-    repo_dir = tmp_path / "empty-repo"
-    repo_dir.mkdir()
-
-    preflight = inspect_project_bootstrap(
-        repo_dir,
-        objective_hint="写一篇赤壁赋",
-        research_requested=True,
-    )
-
-    assert preflight.should_bootstrap is True
-    assert "research bootstrap mission" in preflight.bootstrap_objective.lower()
-
-
-def test_inspect_project_bootstrap_heals_partial_research_seed(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    repo_dir = tmp_path / "empty-repo"
-    repo_dir.mkdir()
-    monkeypatch.setenv("ARGUS_SKILL_RESEARCH_PROFILE", "emnlp2026-tierharness")
-    (repo_dir / "research" / "PIPELINE_STATE.json").parent.mkdir(parents=True, exist_ok=True)
-    (repo_dir / "research" / "PIPELINE_STATE.json").write_text(
-        "{\n  \"current_stage\": \"plan\"\n}\n",
-        encoding="utf-8",
-    )
-
-    preflight = inspect_project_bootstrap(repo_dir)
-
-    assert preflight.should_bootstrap is True
-    assert "research bootstrap mission" in preflight.bootstrap_objective.lower()
-    assert "research/PIPELINE_STATE.json" not in preflight.missing_artifacts
-    assert "create only these missing" in preflight.bootstrap_objective
-    assert "re-check it at execution time" in preflight.bootstrap_objective
-    assert "target_venue" in preflight.bootstrap_objective
-    assert "research/EXPERIMENT_PLAN.md" in preflight.missing_artifacts
-    assert "`research/EXPERIMENT_PLAN.md`" in preflight.bootstrap_objective
-    assert "research bootstrap requested" in preflight.event_text
-    assert "missing research artifacts" in preflight.event_text
-
-
-def test_explicit_research_profile_repairs_code_bearing_project(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    repo_dir = tmp_path / "existing-code"
-    source = repo_dir / "src" / "package" / "__init__.py"
-    source.parent.mkdir(parents=True)
-    source.write_text("", encoding="utf-8")
-    monkeypatch.setenv("ARGUS_SKILL_RESEARCH_PROFILE", "emnlp2026-tierharness")
-
-    preflight = inspect_project_bootstrap(repo_dir)
-
-    assert preflight.should_bootstrap is True
-    assert "research bootstrap mission" in preflight.bootstrap_objective.lower()
-    assert preflight.event_text.startswith("research scaffold incomplete")
-    assert "uninitialized project root" not in preflight.event_text
-
-
-def test_memory_runner_repairs_research_after_starter_code_exists(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_memory_runner_leaves_project_structure_to_agent(tmp_path: Path) -> None:
     from argus_skill.apps._runtime_backends import _MemoryRunner
 
-    source = tmp_path / "code" / "experiment_io.py"
-    source.parent.mkdir(parents=True)
-    source.write_text("# seeded before backlog execution\n", encoding="utf-8")
-    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE", raising=False)
-    monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE_PATH", raising=False)
-    from argus_skill.skills.vertical_select import persist_vertical
+    class Sink:
+        def handle_event(self, _event: dict[str, Any]) -> None:
+            return None
 
-    persist_vertical(tmp_path, "quant")
     runner = _MemoryRunner()
     runner.workdir = tmp_path
 
-    runner._materialize_bootstrap_skeleton("research objective")
+    runner.execute(objective="research objective", sink=Sink())
 
-    assert (tmp_path / "research" / "PIPELINE_STATE.json").exists()
-    assert (tmp_path / "research" / "RESEARCH_BRIEF.md").exists()
-    assert (tmp_path / "experiments" / "BENCHMARK_PROVENANCE.md").exists()
-
-
-def test_inspect_project_bootstrap_treats_research_seed_as_initialized(
-    tmp_path: Path,
-) -> None:
-    repo_dir = tmp_path / "empty-repo"
-    repo_dir.mkdir()
-    for rel_path in (
-        "research/PIPELINE_STATE.json",
-        "research/RESEARCH_BRIEF.md",
-        "research/EXPERIMENT_PLAN.md",
-        "research/CLAIMS_TO_TEST.md",
-        "experiments/BENCHMARK_PROVENANCE.md",
-    ):
-        path = repo_dir / rel_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("seed\n", encoding="utf-8")
-
-    preflight = inspect_project_bootstrap(repo_dir)
-
-    assert preflight.should_bootstrap is False
-    assert preflight.bootstrap_objective == ""
-    assert preflight.event_text == ""
-
-
-def test_inspect_project_bootstrap_leaves_complete_research_seed_alone(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    repo_dir = tmp_path / "empty-repo"
-    repo_dir.mkdir()
-    monkeypatch.setenv("ARGUS_SKILL_RESEARCH_PROFILE", "emnlp2026-tierharness")
-    for rel_path in (
-        "research/PIPELINE_STATE.json",
-        "research/RESEARCH_BRIEF.md",
-        "research/EXPERIMENT_PLAN.md",
-        "research/CLAIMS_TO_TEST.md",
-        "experiments/BENCHMARK_PROVENANCE.md",
-    ):
-        path = repo_dir / rel_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("seed\n", encoding="utf-8")
-
-    preflight = inspect_project_bootstrap(repo_dir)
-
-    assert preflight.should_bootstrap is False
-    assert preflight.bootstrap_objective == ""
-    assert preflight.event_text == ""
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_read_daemon_status_detects_stale_pid(tmp_path: Path) -> None:
@@ -1805,14 +1625,9 @@ def test_resume_with_explicit_new_objective_runs_manager_handoff(
         resume_continuous=True,
     ))
     worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
-    refresh_after_divide: list[list[str]] = []
-    worker._refresh_existing_project_contract = (  # type: ignore[method-assign]
-        lambda _memory: refresh_after_divide.append(list(calls))
-    )
 
     assert worker.run_forever() == 0
     assert calls == ["new raw objective"]
-    assert refresh_after_divide == [["new raw objective"]]
     assert commit_kwargs[0]["force_stage_reset"] is True
     assert seen["objective"] == "new manager-clean objective"
     assert read_continuous_state(tmp_path).objective == "new manager-clean objective"

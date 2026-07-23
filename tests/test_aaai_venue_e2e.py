@@ -2,7 +2,7 @@
 
 Proves the seam composes: a project seeded with venue=aaai resolves to the AAAI
 profile, and the layout gate, structural-minimums gate, stage checklist floor,
-and stage_check reviewer checklist all switch to AAAI rules — while the same
+and venue reviewer skill selection all switch to AAAI rules — while the same
 inputs keep EMNLP behavior for an EMNLP project.
 """
 from __future__ import annotations
@@ -14,7 +14,6 @@ import pytest
 
 from argus_skill.skills.stage_machine import format_stage_checklist
 from argus_skill.skills.venue_profiles import get_venue_profile, resolve_venue_profile
-from argus_skill.tools.stage_check import _reviewer_checklist_for
 from argus_skill.verticals.research.paper_layout_review import _deterministic_assessment
 from argus_skill.verticals.research.paper_structural_minimums import (
     validate_paper_structural_minimums,
@@ -83,14 +82,14 @@ def test_aaai_project_checklist_and_reviewer_are_aaai(tmp_path: Path) -> None:
     assert "Anonymous submission" in sub
     assert "Anonymous EMNLP Submission" not in sub
     # Reviewer checklist points at the AAAI reviewer skill.
-    skill, _instr, _files = _reviewer_checklist_for("review", resolve_venue_profile(root))
-    assert skill == "reviewer/aaai-academic-language-review.md"
+    profile = resolve_venue_profile(root)
+    assert profile.review_skill_path == "reviewer/aaai-academic-language-review.md"
 
 
 def test_emnlp_project_is_unchanged(tmp_path: Path) -> None:
     root = _seed_project(tmp_path, "emnlp")
-    assert resolve_venue_profile(root).key == "EMNLP"
+    profile = resolve_venue_profile(root)
+    assert profile.key == "EMNLP"
     sub = format_stage_checklist("submission", role="reviewer", project_root=root)
     assert "Anonymous EMNLP Submission" in sub
-    skill, _i, _f = _reviewer_checklist_for("review", resolve_venue_profile(root))
-    assert skill == "reviewer/emnlp-academic-language-review.md"
+    assert profile.review_skill_path == "reviewer/emnlp-academic-language-review.md"

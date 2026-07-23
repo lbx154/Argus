@@ -12,7 +12,6 @@ from typing import Any, Mapping
 
 from ...life.mission_outcome import mission_outcome_class, mission_outcome_dimensions
 from ..event_catalog import EventType
-from ..research_direction import normalize_research_direction
 from ._reduce_helpers import (
     _PROGRESS_LABELS,
     _integer,
@@ -68,7 +67,6 @@ def reduce_mission_lifecycle_event(
     mission: dict[str, Any],
 ) -> None:
     if event_type == EventType.LIFE_MISSION_STARTED:
-        view["decision_context"] = {}
         if not mission.get("campaign_started_at"):
             mission["campaign_started_at"] = ts
         mission.update({
@@ -113,14 +111,7 @@ def reduce_mission_lifecycle_event(
         })
         raw_outcome = event.get("outcome")
         if isinstance(raw_outcome, dict):
-            normalized_outcome = dict(raw_outcome)
-            if "scientific_decision" in normalized_outcome:
-                normalized_outcome["scientific_decision"] = (
-                    normalize_research_direction(
-                        normalized_outcome.get("scientific_decision")
-                    )
-                )
-            view["outcome"] = normalized_outcome
+            view["outcome"] = dict(raw_outcome)
         else:
             view["outcome"] = mission_outcome_dimensions(
                 status=_text(event, "status"),

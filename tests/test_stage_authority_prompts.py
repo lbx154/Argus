@@ -3,7 +3,7 @@
 These lock the prompt surgery (Step 4 of the stage-authority change) that removed
 every instruction telling the engineer / reviewer / planner to write pipeline
 stage state or call ``rollback_stage`` directly. The Manager is the sole
-post-bootstrap writer of ``current_stage``; the others only advise.
+writer of ``current_stage`` after initial state creation; the others only advise.
 """
 from __future__ import annotations
 

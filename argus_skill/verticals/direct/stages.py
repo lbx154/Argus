@@ -6,8 +6,6 @@ STAGE_ORDER = ["delivery"]
 CHECKLIST_STAGE_ORDER = tuple(STAGE_ORDER)
 CHECKLIST_OPTIONAL_STAGES = ("delivery",)
 CHECKLIST_ITEMS: dict[str, tuple[object, ...]] = {"delivery": ()}
-STAGE_CHECKS = {"delivery": []}
-REVIEWER_CHECKLISTS = {"delivery": []}
 completion_gate = "none"
 WORKFLOW_MODE = "direct"
 

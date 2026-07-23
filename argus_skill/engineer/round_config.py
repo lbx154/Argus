@@ -49,17 +49,6 @@ def _env_int(name: str, default: int, *, minimum: int = 0) -> int:
     return max(minimum, value)
 
 
-def _env_float(name: str, default: float, *, minimum: float = 0.0) -> float:
-    raw = os.environ.get(name)
-    if raw is None or raw.strip() == "":
-        return default
-    try:
-        value = float(raw)
-    except ValueError:
-        return default
-    return max(minimum, value)
-
-
 def _env_bool(name: str, default: bool) -> bool:
     raw = os.environ.get(name)
     if raw is None or raw.strip() == "":

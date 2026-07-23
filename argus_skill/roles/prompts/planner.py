@@ -184,7 +184,7 @@ def build_continuous_prompt(
     """Build the continuous Planner prompt from the unified role catalog."""
     from ...core.research_contract import resolve_research_target_level
     from ...skills.ground_truth import ground_truth_mandate
-    from ...skills.harness_overlay import resolve_project_root
+    from ...core.project import resolve_project_root
     from ...skills.vertical_select import resolve_evidence_mode
     from ...verticals.research.stages import CANONICAL_STAGE_ORDER
     from .registry import resolve_role_prompt

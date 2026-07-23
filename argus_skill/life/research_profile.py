@@ -172,11 +172,12 @@ def _capability_context(env: Mapping[str, str]) -> str:
             )
         )
     tool_block = (
-        "- image_tool_generate: `python -m argus_skill.tools.image_tool generate "
+        "- image_tool_generate: `python -m argus_skill.tools.image_api generate "
         "--prompt-file figures/<name>.prompt.txt --out figures/<name>.png --force`\n"
-        "- image_tool_inspect: `python -m argus_skill.tools.image_tool inspect "
+        "- image_tool_inspect: `python -m argus_skill.tools.image_api inspect "
         "--image figures/<name>.png`\n"
-        "- image_tool_review: `python -m argus_skill.tools.image_tool review "
+        "- image_tool_review (paper figures): `python -m "
+        "argus_skill.verticals.research.figure_tool review "
         "--image figures/<name>.png --out figures/<name>.review.json`\n"
     )
     return (

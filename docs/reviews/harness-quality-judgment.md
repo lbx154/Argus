@@ -6,22 +6,15 @@ must NOT encode keyword/regex/hardcoded judgments about science or "what is a
 good paper". Quality is the agent's call against an explicit checklist. *The
 harness is never smarter than the agents.*
 
-## T1 — harness no longer sniffs the objective text for keywords
+## T1 — project structure belongs to the agent
 
-- `core/bootstrap.py::_should_bootstrap_research` previously returned True when
-  the objective prose contained any of `auto-research / emnlp / acl / research
-  bootstrap / ...`. Now it is driven SOLELY by the structured research profile
-  (`load_research_profile()`): `return profile is not None`.
-  `inspect_project_bootstrap(objective_hint=...)` still accepts the arg for
-  caller compatibility but ignores it.
-- `apps/_life_repl.py` `_MemoryRunner` (test backend) used
-  `_looks_like_bootstrap_objective` / `_looks_like_research_bootstrap_objective`
-  keyword matchers to pick which skeleton to materialize. Both deleted;
-  materialization now keys off the structured `inspect_project_bootstrap`
-  preflight + `load_research_profile()`.
-- Test `tests/daemon/test_life_worker.py` rewritten: a research-sounding
-  `objective_hint` with NO profile now yields the GENERIC bootstrap (asserts the
-  harness ignores keywords); the profile-driven path is covered separately.
+- Harness-owned project bootstrap was removed entirely. The daemon no longer
+  scans an empty root, creates a synthetic setup mission, writes research
+  artifacts, injects `AGENTS.md`, creates `.venv`, or copies helper code.
+- The memory backend no longer materializes a deterministic research skeleton.
+- Manager vertical selection persists only framework state; repository layout,
+  dependencies, helper code, and research artifacts are created by the agent as
+  part of the real mission.
 
 ## T2 — review skills stop emitting authoritative quality verdicts
 

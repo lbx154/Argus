@@ -1,7 +1,7 @@
 """Dynamic (researched) venue support: a non-built-in target venue gets a
-project-local VENUE_PROFILE.json, loaded by resolve_venue_profile and graded by
-build_reviewer_checklists — without EMNLP/ACL leakage, and without disturbing the
-built-in EMNLP/AAAI venues."""
+project-local VENUE_PROFILE.json, loaded by resolve_venue_profile and graded via
+the stage-checklist venue rendering — without EMNLP/ACL leakage, and without
+disturbing the built-in EMNLP/AAAI venues."""
 from __future__ import annotations
 
 import json
@@ -10,7 +10,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.apps._runtime_backends import _MemoryRunner
 from argus_skill.core.models import RunnerResult
 from argus_skill.loop import SkillLoop, SkillLoopConfig
 from argus_skill.skills.venue_profiles import (
@@ -27,11 +26,6 @@ from argus_skill.skills.venue_profiles import (
 from argus_skill.skills.venue_research import (
     needs_venue_research,
     research_venue_profile,
-)
-from argus_skill.verticals.research.stages import (
-    REVIEWER_CHECKLISTS_EMNLP,
-    build_reviewer_checklists,
-    reviewer_checklists_for,
 )
 
 
@@ -119,31 +113,6 @@ def test_unknown_venue_without_profile_fails_closed(tmp_path):
     root = _project(tmp_path, "NeurIPS")  # no VENUE_PROFILE.json
     with pytest.raises(KeyError, match="matched no known profile"):
         resolve_venue_profile(root)
-
-
-# ---- dynamic reviewer checklists ------------------------------------------
-
-def test_build_reviewer_checklists_is_venue_native_no_leak():
-    cl = build_reviewer_checklists(_neurips())
-    sub = cl["submission"][1]
-    rev = cl["review"][1]
-    assert "NeurIPS reviewer" in sub and "NeurIPS format" in sub
-    assert "≤9 pages" in sub and "≤9 pages" in rev
-    assert "EMNLP" not in sub and "ACL" not in sub
-    # neutral stages are shared verbatim with the built-in dict
-    assert cl["research"] is REVIEWER_CHECKLISTS_EMNLP["research"]
-
-
-def test_reviewer_checklists_for_dispatch():
-    # built-in -> native (unchanged)
-    assert reviewer_checklists_for(EMNLP_PROFILE)["submission"] == (
-        REVIEWER_CHECKLISTS_EMNLP["submission"]
-    )
-    # dynamic VenueProfile -> built from profile
-    assert "NeurIPS reviewer" in reviewer_checklists_for(_neurips())["submission"][1]
-    # bare unknown string (no profile) -> raises (no silent EMNLP fallback)
-    with pytest.raises(KeyError):
-        reviewer_checklists_for("NEURIPS")
 
 
 # ---- research hook (mock runner, no network) ------------------------------
@@ -280,22 +249,6 @@ def test_changed_dynamic_target_requires_a_matching_profile(tmp_path):
     assert needs_venue_research(root) is True
     with pytest.raises(KeyError):
         resolve_venue_profile(root)
-
-
-def test_memory_bootstrap_does_not_seed_implicit_emnlp(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("ARGUS_SKILL_VENUE", raising=False)
-    runner = _MemoryRunner()
-    runner.workdir = tmp_path
-
-    runner._materialize_research_bootstrap_seed("bootstrap a research project")
-
-    state = json.loads(
-        (tmp_path / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
-    )
-    assert "target_venue" not in state
 
 
 def test_skill_loop_researches_venue_before_matcher_exclusion(

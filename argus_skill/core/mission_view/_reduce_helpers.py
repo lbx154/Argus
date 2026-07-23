@@ -105,7 +105,7 @@ def _timeline(
         "detail": detail[:500],
         "tone": tone,
     }
-    for key in ("item_id", "branch_id", "hypothesis_id", "experiment_id", "metric_id"):
+    for key in ("item_id", "branch_id"):
         value = _text(event, key, 160)
         if value:
             row[key] = value

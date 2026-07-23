@@ -74,6 +74,11 @@ quant = [
 visual-web = [
   "playwright>=1.50,<2",
 ]
+# Layout-aware paper PDF inspection. Without this extra, research format facts
+# retain a text-only fallback and report that the layout observation is limited.
+paper = [
+  "pymupdf>=1.26,<2",
+]
 # `argus-skill[signing]` — the Ed25519 result-provenance feature
 # (argus_skill/team/result_provenance.py) is off by default (inert unless
 # ARGUS_EVAL_SIGNING_KEY / ARGUS_TEAMMATE_RESULT_VERIFY_KEY is set) and
@@ -93,6 +98,7 @@ binary = [
   "cryptography>=41",
   "jsonschema>=4",
   "pypdf>=5",
+  "pymupdf>=1.26,<2",
   "python-multipart>=0.0.20",
   "itsdangerous>=2",
 ]
@@ -243,7 +249,6 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = [
   "argus_skill.builtin_skills.engineer.figure_spec_scripts.*",
-  "argus_skill.tools.project_templates.code.*",
   "tests.*",
 ]
 ignore_errors = true

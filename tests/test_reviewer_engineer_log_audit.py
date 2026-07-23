@@ -107,7 +107,7 @@ def test_audit_recipes_scope_searches_to_current_engineer_call(monkeypatch) -> N
     assert "\n    grep -nE 'pytest" not in p
 
 
-def test_missing_call_id_keeps_legacy_unscoped_recipes(monkeypatch) -> None:
+def test_missing_call_id_does_not_invite_unscoped_keyword_scan(monkeypatch) -> None:
     p = _build(
         _LOG_PATH,
         monkeypatch=monkeypatch,
@@ -116,8 +116,9 @@ def test_missing_call_id_keeps_legacy_unscoped_recipes(monkeypatch) -> None:
     )
 
     assert "Current engineer call id:" not in p
-    assert "grep -nE 'use_attach" in p
-    assert "grep -nE 'pytest" in p
+    assert "Do not scan the whole project history" in p
+    assert "grep -nE 'use_attach" not in p
+    assert "grep -nE 'pytest" not in p
 
 
 def test_proportional_research_uses_compact_on_demand_audit(monkeypatch) -> None:
@@ -200,7 +201,8 @@ def test_engineer_error_uses_full_process_audit(monkeypatch) -> None:
         main_error="worker exited unexpectedly",
     )
     assert "Engineer execution-log audit" in p
-    assert "grep recipes" in p.lower()
+    assert "preset keyword list" in p
+    assert "grep recipes" not in p.lower()
 
 
 # --------------------------------------------------------------------------- #

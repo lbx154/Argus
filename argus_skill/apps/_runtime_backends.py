@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -40,7 +39,7 @@ class _Outcome:
     final_submission_certified: bool = False
     completion_evidence: str = ""
     # The Manager's stage-transition verdict for this mission completion (the
-    # Manager is the sole post-bootstrap writer of current_stage). Shape:
+    # Manager is the sole writer of current_stage). Shape:
     # ``{"action": advance|hold|rollback, "target_stage", "reason",
     # "current_stage", "source"}``. Empty dict when the decision
     # was skipped (error) or never ran. Journaled by the supervisor; the stage
@@ -81,177 +80,6 @@ class _MemoryRunner:
     def __init__(self) -> None:
         self.workdir: Path | None = None
 
-    @staticmethod
-    def _write_text(path: Path, text: str) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
-
-    def _materialize_research_bootstrap_seed(self, objective: str) -> None:
-        workdir = self.workdir
-        if workdir is None:
-            return
-        root = Path(workdir).expanduser()
-        root.mkdir(parents=True, exist_ok=True)
-
-        git_dir = root / ".git"
-        if not git_dir.exists():
-            try:
-                subprocess.run(
-                    ["git", "init"],
-                    cwd=root,
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                )
-            except OSError:
-                pass
-        if not git_dir.exists():
-            git_dir.mkdir(parents=True, exist_ok=True)
-
-        title = root.name.replace("-", " ").strip() or "project"
-        state_path = root / "research" / "PIPELINE_STATE.json"
-        brief_path = root / "research" / "RESEARCH_BRIEF.md"
-        plan_path = root / "research" / "EXPERIMENT_PLAN.md"
-        claims_path = root / "research" / "CLAIMS_TO_TEST.md"
-        benchmark_path = root / "experiments" / "BENCHMARK_PROVENANCE.md"
-
-        if not state_path.exists():
-            # Do NOT hardcode a venue. Preserve an explicit env/local profile when
-            # present; otherwise leave target_venue absent so the research loop
-            # performs live selection among currently-open CCF-A venues.
-            from ..skills.venue_profiles import resolve_venue_profile
-
-            try:
-                target_venue = resolve_venue_profile(root).key
-            except KeyError:
-                target_venue = None
-            state = {
-                "current_stage": "plan",
-                "mission_type": "research-bootstrap",
-                "project": title,
-                "objective": objective,
-                "stages": {
-                    "research": {
-                        "status": "done",
-                        "artifact": "research/RESEARCH_BRIEF.md",
-                    },
-                    "plan": {
-                        "status": "ready",
-                        "artifact": "research/EXPERIMENT_PLAN.md",
-                    },
-                    "benchmark": {
-                        "status": "ready",
-                        "artifact": "experiments/BENCHMARK_PROVENANCE.md",
-                    },
-                    "run": {"status": "missing"},
-                    "analysis": {"status": "missing"},
-                    "draft": {"status": "missing"},
-                    "review": {"status": "missing"},
-                    "submission": {"status": "missing"},
-                },
-            }
-            if target_venue:
-                state["target_venue"] = target_venue
-            self._write_text(
-                state_path,
-                json.dumps(state, indent=2, sort_keys=True) + "\n",
-            )
-        if not brief_path.exists():
-            self._write_text(
-                brief_path,
-                "\n".join(
-                    [
-                        "# Research Brief",
-                        "",
-                        f"- Project: `{root.name}`",
-                        "- Bootstrap mode: research seed",
-                        f"- Objective: {objective}",
-                        "",
-                        "This repository was initialized as a research bootstrap mission.",
-                        "The next steps are to confirm the benchmark, formalize the claims,",
-                        "and move the pipeline ledger from seed state into an executable plan.",
-                        "",
-                    ]
-                ),
-            )
-        if not plan_path.exists():
-            self._write_text(
-                plan_path,
-                "\n".join(
-                    [
-                        "# Experiment Plan",
-                        "",
-                        "## Goal",
-                        "- Turn the bootstrap objective into a testable research plan.",
-                        "",
-                        "## Immediate steps",
-                        "1. Choose or confirm the benchmark source and access rules.",
-                        "2. Rewrite the objective into falsifiable claims.",
-                        "3. Define the evaluation protocol, metrics, and acceptance criteria.",
-                        "4. Collect the artifacts needed to advance the pipeline ledger.",
-                        "",
-                        "## Risks",
-                        "- The benchmark may be underspecified.",
-                        "- Claims may be too broad for the available evidence.",
-                        "",
-                    ]
-                ),
-            )
-        if not claims_path.exists():
-            self._write_text(
-                claims_path,
-                "\n".join(
-                    [
-                        "# Claims To Test",
-                        "",
-                        "- The system can support a concrete research workflow for the configured venue.",
-                        "- The chosen benchmark and protocol can be documented without fabrication.",
-                        "- The pipeline can produce reproducible research artifacts from an empty repo.",
-                        "",
-                        "Each claim should eventually be paired with a raw artifact path.",
-                        "",
-                    ]
-                ),
-            )
-        if not benchmark_path.exists():
-            self._write_text(
-                benchmark_path,
-                "\n".join(
-                    [
-                        "# Benchmark Provenance",
-                        "",
-                        "- Status: seed placeholder",
-                        f"- Project: `{root.name}`",
-                        "- Benchmark source: to be selected",
-                        "- Access notes: to be confirmed",
-                        "- Filtering or sampling rules: to be defined",
-                        "",
-                    ]
-                ),
-            )
-
-    def _materialize_bootstrap_skeleton(self, objective: str) -> None:
-        workdir = self.workdir
-        if workdir is None:
-            return
-        # Only an explicitly configured research profile may trigger a
-        # deterministic scaffold. Other domains own their workspace shape.
-        from ..core.bootstrap import (
-            inspect_project_bootstrap,
-            structured_research_bootstrap_requested,
-        )
-
-        root = Path(workdir).expanduser()
-        research_requested = structured_research_bootstrap_requested(root)
-        preflight = inspect_project_bootstrap(
-            root,
-            research_requested=research_requested,
-        )
-        if not preflight.should_bootstrap:
-            return
-        if research_requested:
-            self._materialize_research_bootstrap_seed(objective)
-
     def execute(
         self,
         *,
@@ -264,7 +92,6 @@ class _MemoryRunner:
         scope: str = "",  # noqa: ARG002 — protocol parity
         preplanned: bool = False,  # noqa: ARG002 — protocol parity
     ) -> _Outcome:
-        self._materialize_bootstrap_skeleton(objective)
         ack = f"(memory backend) acknowledged objective: {objective[:80]}"
         sink.handle_event({
             "type": "loop.started",

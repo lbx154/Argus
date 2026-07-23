@@ -41,6 +41,17 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+_SHARED_PROTECTED_ITEM_IDS = frozenset({
+    "benchmark.evaluator_authentic",
+    "run.score_variance",
+    "run.method_diagnosis_recall",
+    "analysis.claims",
+    "review.placeholders",
+    "submission.assurance",
+    "submission.anonymous",
+    "submission.upstream",
+})
+
 log = logging.getLogger(__name__)
 
 #: ``<project_root>/research/CHECKLISTS.json``.
@@ -246,7 +257,6 @@ def _protected_floor_ids(project_root: object) -> frozenset[str] | None:
     """
     try:
         from ..verticals._base import load_vertical, vertical_completion_gate
-        from .harness_overlay import PROTECTED_ITEM_IDS
         from .vertical_select import resolve_vertical
 
         module = load_vertical(
@@ -259,7 +269,7 @@ def _protected_floor_ids(project_root: object) -> frozenset[str] | None:
             if str(item_id).strip()
         )
         if vertical_completion_gate(module) == "full_paper":
-            return vertical_ids | PROTECTED_ITEM_IDS
+            return vertical_ids | _SHARED_PROTECTED_ITEM_IDS
         return vertical_ids
     except Exception:  # noqa: BLE001 — unknown protection refuses writes
         return None
@@ -272,8 +282,8 @@ def _with_protected_floor(project_root: object, stage: str, items: list[Any]) ->
     (replacing any weakened override copy in place) and append any protected
     floor item the override dropped. The write
     guard in :func:`apply_checklist_ops` only covers the Planner-ops path; this
-    read-side re-injection (mirroring ``harness_overlay``'s re-validate-on-read) is
-    what makes the floor un-removable against ANY writer — including a direct edit
+    read-side     re-injection is what makes the floor un-removable against any writer,
+    including a direct edit
     of ``research/CHECKLISTS.json`` by the unsandboxed engineer subprocess. No-op
     when the vertical declares no protected ids or seed resolution fails.
     """

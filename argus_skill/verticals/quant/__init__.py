@@ -9,9 +9,9 @@ paper) rather than a numeric speedrun metric.
 This package ships two layers:
 
 * the **declarative vertical contract** in :mod:`.stages`
-  (``STAGE_ORDER`` / ``STAGE_CHECKS`` / ``REVIEWER_CHECKLISTS`` + checklist
-  items, ``role_banner``, ``completion_gate``) — the only thing the harness
-  loads via ``argus_skill.verticals._base.load_vertical("quant")``; and
+  (``STAGE_ORDER`` + checklist items, ``role_banner``, ``completion_gate``) —
+  the only thing the harness loads via
+  ``argus_skill.verticals._base.load_vertical("quant")``; and
 * the **execution-side discipline helpers** the engineer's factor-mining loop
   uses — :mod:`.search_ledger` (hash-chained trial log), :mod:`.backtest` /
   :mod:`.executor` (the ``BacktestExecutor`` contract), :mod:`.factors`,
@@ -34,8 +34,6 @@ from __future__ import annotations
 from .stages import (
     CHECKLIST_ITEMS,
     CHECKLIST_STAGE_ORDER,
-    REVIEWER_CHECKLISTS,
-    STAGE_CHECKS,
     STAGE_ORDER,
     completion_gate,
     role_banner,
@@ -43,8 +41,6 @@ from .stages import (
 
 __all__ = [
     "STAGE_ORDER",
-    "STAGE_CHECKS",
-    "REVIEWER_CHECKLISTS",
     "CHECKLIST_STAGE_ORDER",
     "CHECKLIST_ITEMS",
     "completion_gate",

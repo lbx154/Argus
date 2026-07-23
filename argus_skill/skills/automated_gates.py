@@ -4,17 +4,19 @@ The harness runs two kinds of per-round checks:
 
 * **Structural** gates (kind=``structural``) — anti-fraud / provenance
   enforcement. Failure means the artifacts themselves are broken
-  (missing files, dangling claims, forged citations). These DO block
-  the round via stage_check exit code; the reviewer cannot overrule
-  them, and shouldn't want to. Today: ``evidence_chain`` (F4).
+  (missing files, dangling claims, forged citations); the reviewer
+  cannot overrule them, and shouldn't want to. Today: ``evidence_chain``
+  (F4).
 
 * **Advisory** findings (kind=``advisory``) — surface facts to the
   reviewer's prompt without making a verdict. The harness never blocks
   a round on an advisory finding; the reviewer reads the numbers and
   rules. Today: ``mediocrity_finding`` (formerly F3).
 
-The distinction is enforced by ``GateResult.kind`` + ``stage_check.py``:
-only structural failures count into the exit code.
+The distinction is carried by ``GateResult.kind``: only structural
+failures are ever meant to be treated as blocking; today the router is
+surfaced through the ``--status`` gate snapshot and the Planner/Reviewer
+prompts, not through a separate machine exit-code enforcer.
 
 Why this matters: the earlier F3 (``c6b11d3``) hard-coded research-quality
 thresholds (``min_delta=0.02``, ``min_families>=3``) and counted them into
@@ -189,7 +191,7 @@ class GateResult:
 
     @property
     def is_blocking(self) -> bool:
-        """True iff a stage-check caller should count this into exit code."""
+        """Return whether this structural result blocks its caller."""
         return self.kind == "structural" and not self.passed
 
     def to_text_block(self) -> str:
