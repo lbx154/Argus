@@ -439,28 +439,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to .autors/<project>/wiki/",
     )
 
-    query_parser = subparsers.add_parser(
-        "query",
-        help="Unified trajectory + skills + wiki search (Obelisk-style)",
-    )
-    query_parser.add_argument(
-        "text",
-        nargs="+",
-        help="search text (whitespace-joined)",
-    )
-    query_parser.add_argument(
-        "--top-k", type=int, default=5,
-        help="max hits per layer (default 5)",
-    )
-    query_parser.add_argument(
-        "--json", action="store_true",
-        help="emit JSON instead of human-readable text",
-    )
-    query_parser.add_argument(
-        "--no-index", action="store_true",
-        help="skip incremental re-index (faster; may miss recent rows)",
-    )
-
     learn_parser = subparsers.add_parser(
         "learn",
         help="Ingest learning material so a learning mission can update Argus's "

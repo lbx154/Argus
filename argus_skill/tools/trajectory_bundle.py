@@ -20,6 +20,7 @@ codex rollout 会话——最细粒度数据）收进一个 bundle 目录 + ``ma
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import time
 from dataclasses import asdict, dataclass, field
@@ -99,9 +100,12 @@ def find_codex_sessions_by_thread_ids(
     if not ids:
         return []
     try:
-        from .trajectory_index import default_codex_root
-
-        root = Path(codex_root) if codex_root is not None else default_codex_root()
+        root = (
+            Path(codex_root)
+            if codex_root is not None
+            else Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex"))
+            / "sessions"
+        )
         if not root.exists():
             return []
         found: set[str] = set()
