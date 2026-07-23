@@ -53,7 +53,13 @@ def _research_result(
     }
 
 
-def _final_stage_decision(result: dict, target: str, *, scope: str = ""):
+def _final_stage_decision(
+    result: dict,
+    target: str,
+    *,
+    scope: str = "",
+    scientific_decision: str = "",
+):
     review = SimpleNamespace(
         status="done",
         planner_report={"forward_progress": True},
@@ -66,6 +72,7 @@ def _final_stage_decision(result: dict, target: str, *, scope: str = ""):
         ],
         research_result=result,
         scope=scope,
+        scientific_decision=scientific_decision,
     )
     return final_stage_completion_decision(
         review,
@@ -303,7 +310,7 @@ def test_doctoral_non_breakthrough_results_are_not_success(result: dict) -> None
         result,
         research_target_level="doctoral",
     )
-    assert _final_stage_decision(result, "doctoral") is not None
+    assert _final_stage_decision(result, "doctoral") is None
 
 
 def test_doctoral_verified_new_publishable_or_doctoral_result_succeeds() -> None:
@@ -320,14 +327,33 @@ def test_doctoral_verified_new_publishable_or_doctoral_result_succeeds() -> None
         assert _final_stage_decision(result, "doctoral") is not None
 
 
-def test_exploratory_honest_failure_report_can_end_normally() -> None:
+def test_exploratory_honesty_alone_cannot_end_research() -> None:
     result = _research_result("structured_failure_report")
 
     assert research_completion_issue(
         result,
         research_target_level="exploratory",
+    ) == "result_class_not_exploratory_terminal:structured_failure_report"
+    assert _final_stage_decision(result, "exploratory") is None
+    assert _final_stage_decision(
+        result,
+        "exploratory",
+        scientific_decision="go",
+    ) is None
+
+
+def test_exploratory_decision_relevant_counterexample_can_end_research() -> None:
+    result = _research_result("counterexample")
+
+    assert research_completion_issue(
+        result,
+        research_target_level="exploratory",
     ) == ""
-    assert _final_stage_decision(result, "exploratory") is not None
+    assert _final_stage_decision(
+        result,
+        "exploratory",
+        scientific_decision="go",
+    ) is not None
 
 
 @pytest.mark.parametrize(
@@ -376,9 +402,9 @@ def test_legacy_math_result_gets_conservative_significance() -> None:
     assert migrated["significance_status"] == "exploratory"
 
 
-def test_math_stage_completion_trusts_reviewer_target_judgment() -> None:
+def test_math_stage_completion_enforces_persisted_target() -> None:
     finite = _research_result("finite_verification")
-    assert _final_stage_decision(finite, "doctoral") is not None
+    assert _final_stage_decision(finite, "doctoral") is None
 
 
 def test_research_target_persists_and_non_target_vertical_clears_it(tmp_path) -> None:

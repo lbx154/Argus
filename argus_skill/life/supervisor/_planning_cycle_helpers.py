@@ -100,9 +100,39 @@ def _research_project_done_issue(
     target_level = target_contract.selected_level
     if target_contract.required and target_level is None:
         return "missing_research_target_level"
+    target_set_at = resolve_research_target_set_at(project_root) or 0.0
+    for entry in reversed(journal_entries):
+        if str(getattr(entry, "kind", "") or "") not in {
+            "mission_complete",
+            "mission_replan_requested",
+        }:
+            continue
+        try:
+            entry_ts = float(getattr(entry, "ts", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if entry_ts < target_set_at:
+            break
+        extra = getattr(entry, "extra", None)
+        if not isinstance(extra, dict):
+            continue
+        outcome = extra.get("outcome")
+        if not isinstance(outcome, dict):
+            outcome = {}
+        scientific_decision = str(
+            extra.get("scientific_decision")
+            or outcome.get("scientific_decision")
+            or ""
+        ).strip().lower()
+        if scientific_decision in {"pivot", "no_go", "undecided"}:
+            return f"latest_scientific_decision_{scientific_decision}"
+        if scientific_decision == "go":
+            break
     if target_level is None:
         return ""
-    target_set_at = resolve_research_target_set_at(project_root) or 0.0
+    from ...core.research_contract import research_completion_issue
+
+    latest_issue = ""
     for entry in reversed(journal_entries):
         if str(getattr(entry, "kind", "") or "") != "mission_complete":
             continue
@@ -118,11 +148,20 @@ def _research_project_done_issue(
             and str(extra.get("scope") or "").strip().lower() == "bounded"
         ):
             continue
-        # ``mission_complete`` already means the independent Reviewer returned
-        # done. Keep the structured result for Planner memory, but do not let the
-        # harness reinterpret scientific labels into a second verdict.
-        if adapt_legacy_research_result_payload(extra) is not None:
+        result = adapt_legacy_research_result_payload(extra)
+        if result is None:
+            continue
+        issue = research_completion_issue(
+            result,
+            research_target_level=target_level,
+            scope=str(extra.get("scope") or ""),
+        )
+        if not issue:
             return ""
+        if not latest_issue:
+            latest_issue = issue
+    if latest_issue:
+        return f"research_target_not_met:{latest_issue}"
     return f"missing_{target_level}_reviewer_certification"
 
 

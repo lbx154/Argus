@@ -506,8 +506,8 @@ def build_research_target_prompt(
         "requested research success bar from the task below. Judge what outcome "
         "the operator requires, not the problem's apparent difficulty.\n\n"
         "- exploratory: a bounded investigation, known result, finite computation, "
-        "domain-specific local verification, or honest negative report may satisfy "
-        "the task.\n"
+        "domain-specific local verification, or decision-relevant negative finding "
+        "may satisfy the task. Honest reporting alone is not scientific value.\n"
         "- publishable: success requires a correctness-verified, novelty-verified "
         "original result with publishable significance.\n"
         "- doctoral: success explicitly requires doctoral/thesis-level original "
@@ -902,6 +902,9 @@ def build_stage_decision_prompt(
     )
     status = str(getattr(review, "status", "") or "")
     reason = str(getattr(review, "reason", "") or "")
+    scientific_decision = str(
+        getattr(review, "scientific_decision", "") or ""
+    ).strip()
     review_source = str(
         getattr(review, "review_source", "reviewer") or "reviewer"
     ).strip()
@@ -1017,6 +1020,7 @@ def build_stage_decision_prompt(
         "## Latest completion evidence\n"
         f"source: {review_source}\n"
         f"status: {status}\n"
+        f"scientific_decision: {scientific_decision or '(not provided)'}\n"
         f"reason: {reason}\n"
         f"{_planner_report_lines(review)}\n\n"
         "### Harness arbitration\n"
@@ -1031,6 +1035,18 @@ def build_stage_decision_prompt(
         f"{open_ended_block}"
         f"{rendering_block.strip()}\n\n"
         "## Your decision\n"
+        "- Integrity, reproducibility, and honest reporting are hard constraints, "
+        "not the research objective. Advance toward scientific value: a capable "
+        "method/system, a genuinely informative finding, or another outcome that "
+        "meets the operator's value target.\n"
+        "- A completed run with `scientific_decision=pivot|no_go` is evidence that "
+        "the current direction should change, not evidence that the research project "
+        "is complete. HOLD for a replacement plan, or ROLL BACK when the framing, "
+        "method, or claimed-system representation belongs to an earlier stage. A "
+        "negative result may advance only when the Reviewer judges the negative "
+        "finding itself decision-relevant and sets `scientific_decision=go`.\n"
+        "- Reject construct drift: an honest evaluation of a weak proxy does not "
+        "establish the value or capability of the claimed system.\n"
         "- ADVANCE only when the current stage's checklist is genuinely satisfied "
         "with concrete evidence. For Reviewer evidence, use its checklist. For an "
         "accepted Engineer self-review, make your own judgment from the verification "

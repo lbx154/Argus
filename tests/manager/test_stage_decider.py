@@ -66,6 +66,7 @@ def _review(
     checklist: list[dict] | None = None,
     forward_progress: bool | None = True,
     scope: str = "",
+    scientific_decision: str = "",
 ):
     """A minimal ReviewDecision-shaped object the decider reads."""
     from argus_skill.core.models import ReviewDecision
@@ -89,6 +90,7 @@ def _review(
             ]
         ),
         scope=scope,
+        scientific_decision=scientific_decision,
         planner_report=report,
     )
 
@@ -168,6 +170,48 @@ def test_prompt_routes_scope_change_through_manager_hold_or_rollback() -> None:
     assert "Reviewer advice is not authorization" in prompt
     assert "HOLD the current stage" in prompt
     assert "mission_scope_change_required: True" in prompt
+
+
+def test_prompt_makes_value_not_integrity_the_stage_objective() -> None:
+    prompt = build_stage_decision_prompt(
+        current_stage="run",
+        next_stage="analysis",
+        earlier_stages=("research", "plan"),
+        checklist_md="- [x] honest benchmark report",
+        review=_review(scientific_decision="no_go"),
+    )
+
+    assert "scientific_decision: no_go" in prompt
+    assert "honest reporting are hard constraints" in prompt
+    assert "HOLD for a replacement plan" in prompt
+    assert "weak proxy" in prompt
+
+
+def test_empty_manager_output_cannot_advance_reviewer_no_go() -> None:
+    decision = fallback_empty_stage_decision(
+        _review(scientific_decision="no_go"),
+        current_stage="run",
+        stage_order=("research", "run", "analysis"),
+    )
+
+    assert decision.action == "hold"
+    assert decision.diagnostic == "empty_output_scientific_no_go"
+
+
+def test_final_stage_no_go_cannot_complete() -> None:
+    decision = final_stage_completion_decision(
+        _review(
+            scientific_decision="no_go",
+            checklist=[
+                {"item": "review.required", "satisfied": True, "evidence": "checked"}
+            ],
+        ),
+        current_stage="review",
+        stage_order=("scope", "review"),
+        checklist_contract=_checklist_contract(ChecklistLoadState.LOADED),
+    )
+
+    assert decision is None
 
 
 def _read_stage_status(root: Path, stage: str) -> str:
@@ -306,6 +350,22 @@ def test_decide_advance_writes_state(tmp_path: Path) -> None:
     # The self-reported confidence field is gone from the verdict dataclass.
     import dataclasses
     assert "confidence" not in [f.name for f in dataclasses.fields(StageTransition)]
+
+
+def test_decide_advance_rejected_after_reviewer_no_go(tmp_path: Path) -> None:
+    root = _project(tmp_path, current="research")
+    mgr = Manager(project_root=root, runner=_StubRunner(
+        {"action": "advance", "target_stage": "plan", "reason": "honest result"}
+    ))
+
+    transition = mgr.decide_stage_transition(
+        review=_review(scientific_decision="no_go"),
+        project_root=root,
+    )
+
+    assert transition.action == "hold"
+    assert transition.diagnostic == "scientific_no_go_advance_rejected"
+    assert _read_stage(root) == "research"
 
 
 @pytest.mark.parametrize("target", ["`plan`", "plan stage"])

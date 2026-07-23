@@ -25,6 +25,26 @@ from ._mission_execution_helpers import _MissionRunState
 log = logging.getLogger(__name__)
 
 
+def _final_submission_research_value_issue(
+    project_root: object,
+    research_result: object,
+) -> str:
+    """Return why a new final certificate misses its persisted research target."""
+    from ...core.research_contract import (
+        research_completion_issue,
+        resolve_research_target_level,
+    )
+
+    target_level = resolve_research_target_level(project_root)
+    if target_level is None:
+        return ""
+    return research_completion_issue(
+        research_result,
+        research_target_level=target_level,
+        scope=PLANNER_SCOPE_FINAL_SUBMISSION,
+    )
+
+
 class MissionExecutionSettlementMixin:
     """Repair settlement, stage guard, final status, and journal emission."""
 
@@ -474,11 +494,24 @@ class MissionExecutionSettlementMixin:
             if state.intentional_abort
             else "mission_failed"
         )
+        research_result = (
+            dict(getattr(outcome, "research_result", {}))
+            if isinstance(getattr(outcome, "research_result", {}), dict)
+            else {}
+        )
         final_submission_certified = bool(
             kind == "mission_complete"
             and state.item_scope == PLANNER_SCOPE_FINAL_SUBMISSION
             and getattr(outcome, "final_submission_certified", False)
         )
+        if (
+            final_submission_certified
+            and _final_submission_research_value_issue(
+                self._artifact_root(),
+                research_result,
+            )
+        ):
+            final_submission_certified = False
         from ...core.models import canonical_planner_report
 
         planner_report = canonical_planner_report(
@@ -492,11 +525,6 @@ class MissionExecutionSettlementMixin:
         checklist_feedback = (
             getattr(outcome, "checklist_feedback", {})
             if isinstance(getattr(outcome, "checklist_feedback", {}), dict)
-            else {}
-        )
-        research_result = (
-            dict(getattr(outcome, "research_result", {}))
-            if isinstance(getattr(outcome, "research_result", {}), dict)
             else {}
         )
         from ...core.claim_synthesis import build_claim_synthesis

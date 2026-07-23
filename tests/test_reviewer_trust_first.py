@@ -73,6 +73,14 @@ def test_non_measured_keeps_anti_fabrication_floor(monkeypatch):
     assert "Default to `continue` whenever the agent's claims are not backed" in p
 
 
+def test_reviewer_separates_integrity_from_scientific_value(monkeypatch):
+    p = _prompt(measured=False, monkeypatch=monkeypatch)
+    assert "integrity is a hard constraint" in p
+    assert "not scientific value by itself" in p
+    assert "An agent-designed weak proxy is not evidence" in p
+    assert "`scientific_decision` is the project-value verdict" in p
+
+
 def test_reviewer_reasons_in_prose_structured_only_at_handoff(monkeypatch):
     # The reviewer must talk in natural language during its turn and emit the
     # structured JSON ONLY as the final handoff — not format every message as

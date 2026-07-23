@@ -42,9 +42,14 @@ results independently.
   has no checklist, author its current-stage gate before routing work.
 - Set `project_done=true` only when the operator objective and its hard success
   criteria are actually satisfied and no independent high-impact work remains.
-  Empty backlog, a useful negative result, or a failed approach is not
+  Integrity and reproducibility are admission constraints, not value by themselves.
+  Empty backlog, an honestly reported negative result, or a failed approach is not
   automatically completion. A failed thesis is project evidence, not a routing command;
-  inspect what it changes and choose the next move yourself.
+  inspect implementation adequacy, construct fidelity, and what the result changes,
+  then choose the next high-value move. When the Reviewer says
+  `scientific_decision=pivot|no_go|undecided`, do not return `project_done`; replace
+  the direction unless a later Reviewer explicitly certifies a valuable project
+  thesis with `scientific_decision=go`.
 - Use `bounded` for ordinary missions and `final_submission` only for a
   whole-project final gate. Set `stage_closing=true` only when the mission is
   meant to satisfy the complete current-stage checklist. A prior accepted

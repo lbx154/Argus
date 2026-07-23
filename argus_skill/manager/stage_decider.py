@@ -208,6 +208,13 @@ def fallback_empty_stage_decision(
     status = str(getattr(review, "status", "") or "").strip().lower()
     if status != "done":
         return hold("empty_output_review_not_done")
+    scientific_decision = str(
+        getattr(review, "scientific_decision", "") or ""
+    ).strip().lower()
+    if scientific_decision in {"pivot", "no_go"}:
+        return hold(f"empty_output_scientific_{scientific_decision}")
+    if scientific_decision == "undecided" and cur_idx >= len(order) - 1:
+        return hold("empty_output_scientific_undecided")
 
     report = getattr(review, "planner_report", None)
     if not isinstance(report, dict) or report.get("forward_progress") is not True:
@@ -262,6 +269,11 @@ def _review_certifies_completion(
     items = getattr(review, "checklist", None)
     review_scope = str(getattr(review, "scope", "") or "").strip().lower()
     scope = (mission_scope or "").strip().lower().replace("-", "_")
+    scientific_decision = str(
+        getattr(review, "scientific_decision", "") or ""
+    ).strip().lower()
+    if scientific_decision in {"pivot", "no_go", "undecided"}:
+        return f"scientific_decision_{scientific_decision}"
     checklist_required = (
         scope == "final_submission"
         or review_scope.replace("-", "_") == "final_submission"
@@ -305,10 +317,16 @@ def _review_certifies_completion(
         missing_item_ids = required_item_ids - reviewed_item_ids
         if missing_item_ids:
             return "missing_required_checklist_items"
-    # ``research_target_level`` is presented to the Reviewer, which owns the
-    # scientific completion judgment. The Manager checks the reviewed checklist
-    # shape here but does not reinterpret result-class labels.
-    _ = research_target_level
+    if research_target_level:
+        from ..core.research_contract import research_completion_issue
+
+        issue = research_completion_issue(
+            getattr(review, "research_result", None),
+            research_target_level=research_target_level,
+            scope=scope or review_scope.replace("-", "_"),
+        )
+        if issue:
+            return issue
     return ""
 
 
@@ -343,8 +361,35 @@ def final_stage_completion_decision(
     return StageDecision("complete", cur, reason, diagnostic)
 
 
+def enforce_scientific_stage_guard(
+    decision: StageDecision,
+    review: Any,
+    *,
+    current_stage: str,
+) -> StageDecision:
+    """Prevent stage progress that contradicts the Reviewer's value verdict."""
+    scientific_decision = str(
+        getattr(review, "scientific_decision", "") or ""
+    ).strip().lower()
+    if (
+        scientific_decision in {"pivot", "no_go"}
+        and decision.action in {"advance", "complete"}
+    ):
+        return StageDecision(
+            "hold",
+            str(current_stage or "").strip().lower(),
+            (
+                f"reviewer scientific_decision={scientific_decision} requires "
+                "replacement planning or rollback before stage progress"
+            ),
+            f"scientific_{scientific_decision}_advance_rejected",
+        )
+    return decision
+
+
 __all__ = [
     "StageDecision",
+    "enforce_scientific_stage_guard",
     "extract_answer",
     "fallback_empty_stage_decision",
     "final_stage_completion_decision",

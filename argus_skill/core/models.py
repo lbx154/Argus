@@ -361,6 +361,8 @@ class ReviewDecision:
         """
         if self.status != "done" or self.scope != "final_submission":
             return False
+        if self.scientific_decision in {"pivot", "no_go", "undecided"}:
+            return False
         if not self.checklist:
             return False
         for item in self.checklist:

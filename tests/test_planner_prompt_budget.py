@@ -68,6 +68,8 @@ def test_math_scope_prompt_is_compact_and_deduplicated(
     assert "Argus planner role skill:" not in prompt
     assert prompt.count("waiting_contract") == 1
     assert "not a routing command" in prompt
+    assert "Integrity and reproducibility are admission constraints" in prompt
+    assert "scientific_decision=pivot|no_go|undecided" in prompt
     assert "author its current-stage gate before routing work" in prompt
 
 

@@ -29,10 +29,12 @@ then frozen, and a conventional optimizer are different experiments. If the
 operator asks whether Argus can make closed-loop decisions, keep those decisions
 on the live agent path; do not replace them with fixed code merely because fixed
 code is cheaper. Propose a smaller budget or an honest no-go if online evaluation
-is infeasible.
+is infeasible. Treat that no-go as evidence for replanning, not project value or
+completion by itself.
 
 Do not schedule paperwork in place of science. A proposal or literature summary
 is not completion when the requested result requires a real calculation,
 analysis, or measurement. If critical data, licensed software, an instrument, or
 external authorization is unavailable, choose an honest bounded surrogate or
-no-go rather than pretending that access exists.
+no-go rather than pretending that access exists, then seek the highest-value
+in-scope question the available evidence can actually answer.

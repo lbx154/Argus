@@ -97,6 +97,8 @@ def test_chemistry_roles_load_concise_domain_context() -> None:
     assert "policy designed once by an agent" in reviewer
     assert "asked to evaluate online Argus control" in reviewer
     assert "same-user subprocess" in reviewer
+    assert "honesty alone cannot complete the research objective" in reviewer
+    assert "no-go as evidence for replanning" in planner
     assert "without solving the current instance" in scientist_create
     assert "concrete failure exposes a real gap" in scientist_adapt
 
@@ -149,6 +151,7 @@ def test_chemistry_checklists_judge_results_not_process_files() -> None:
     assert "same-user subprocess is not an adversarially sealed evaluator" in rendered
     assert "online-agent objective is not silently replaced" in rendered
     assert "a frozen policy does not satisfy it" in rendered
+    assert "Honesty is required but is not scientific value by itself" in rendered
 
 
 def test_chemistry_stage_checks_are_structural_only() -> None:

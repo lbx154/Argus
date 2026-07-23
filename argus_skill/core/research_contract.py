@@ -52,8 +52,6 @@ _EXPLORATORY_TERMINAL_CLASSES = frozenset({
     "known_result",
     "finite_verification",
     "counterexample",
-    "structured_failure_report",
-    "honest_final_report",
     "complete_solution",
     "verified_new_result",
     "new_theorem",
@@ -256,10 +254,7 @@ def research_completion_issue(
     if target == "exploratory":
         if result_class not in _EXPLORATORY_TERMINAL_CLASSES:
             return f"result_class_not_exploratory_terminal:{result_class}"
-        if novelty == "unverified" and result_class not in {
-            "structured_failure_report",
-            "honest_final_report",
-        }:
+        if novelty == "unverified":
             return "novelty_not_verified"
         return ""
     if result_class not in _BREAKTHROUGH_CLASSES:

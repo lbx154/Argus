@@ -19,6 +19,9 @@ from argus_skill.life.supervisor import (
     global_daily_spend,
 )
 from argus_skill.life.supervisor._constants import PLANNER_DEDUP_STATUSES
+from argus_skill.life.supervisor._mission_execution_settlement import (
+    _final_submission_research_value_issue,
+)
 from argus_skill.life.supervisor._planning_cycle import _research_project_done_issue
 from argus_skill.skills.vertical_select import persist_vertical
 
@@ -219,7 +222,10 @@ def test_doctoral_planner_done_requires_current_reviewer_certification(
     )
     assert _research_project_done_issue(
         tmp_path, [reviewer_completed_negative]
-    ) == ""
+    ) == (
+        "research_target_not_met:"
+        "result_class_below_doctoral:honest_final_report"
+    )
     assert _research_project_done_issue(
         tmp_path, [failed_mission, breakthrough]
     ) == ""
@@ -231,6 +237,45 @@ def test_research_project_done_fails_closed_without_success_bar(tmp_path) -> Non
     assert _research_project_done_issue(tmp_path, []) == (
         "missing_research_target_level"
     )
+
+
+def test_planner_done_rejected_after_reviewer_no_go_without_target(tmp_path) -> None:
+    no_go = SimpleNamespace(
+        kind="mission_replan_requested",
+        ts=1,
+        extra={
+            "scope": "bounded",
+            "outcome": {"scientific_decision": "no_go"},
+        },
+    )
+
+    assert _research_project_done_issue(tmp_path, [no_go]) == (
+        "latest_scientific_decision_no_go"
+    )
+
+    later_go = SimpleNamespace(
+        kind="mission_complete",
+        ts=2,
+        extra={"outcome": {"scientific_decision": "go"}},
+    )
+    assert _research_project_done_issue(tmp_path, [no_go, later_go]) == ""
+
+
+def test_final_certificate_requires_research_value_not_honesty(tmp_path) -> None:
+    persist_vertical(
+        tmp_path,
+        "math",
+        research_target_level="exploratory",
+    )
+
+    assert _final_submission_research_value_issue(
+        tmp_path,
+        _certified_research_result("honest_final_report"),
+    ) == "result_class_not_exploratory_terminal:honest_final_report"
+    assert _final_submission_research_value_issue(
+        tmp_path,
+        _certified_research_result("counterexample"),
+    ) == ""
 
 
 def test_persisted_research_campaign_restores_target_via_manager(

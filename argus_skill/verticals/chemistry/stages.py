@@ -200,8 +200,12 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "The conclusion says what was observed, computed, predicted, reproduced, "
                 "improved, falsified, or left unresolved. Novelty is asserted only with "
-                "an appropriate primary-source check, and a bounded negative result may "
-                "complete without being repackaged as success."
+                "an appropriate primary-source check. Honesty is required but is not "
+                "scientific value by itself: a bounded negative result may complete its "
+                "execution item, while review-stage completion requires a standalone "
+                "decision-relevant finding or another valuable direction. Otherwise the "
+                "Reviewer returns `pivot`/`no_go` for replanning rather than repackaging "
+                "failure as project success."
             ),
             evidence_hint="the final claim, its support, limitations, and sources if novelty matters",
         ),
