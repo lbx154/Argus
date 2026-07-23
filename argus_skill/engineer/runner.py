@@ -86,7 +86,6 @@ from .round_stop_signals import (
 from .round_waits import RoundWaitsMixin
 
 
-
 class SupervisedEngineer(
     RoundPromptMixin,
     RoundExecutionMixin,

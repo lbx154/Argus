@@ -14,7 +14,6 @@ import pytest
 from argus_skill.cli.roles_status import (
     ROLES,
     is_reasoning_model,
-    resolve_all_roles,
     resolve_role_config,
     role_activity,
 )
