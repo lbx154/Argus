@@ -204,6 +204,13 @@ class RunExecMixin:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            # Pin UTF-8 explicitly: without this, text mode uses the OS locale
+            # encoding, which is cp1252 on Windows and raises UnicodeEncodeError
+            # when the prompt or streamed model output contains non-Latin-1
+            # characters (e.g. "\u2192", CJK, emoji). errors="replace" keeps the
+            # reader from crashing on malformed bytes mid-stream.
+            encoding="utf-8",
+            errors="replace",
             bufsize=1,
             cwd=options.working_dir or None,
             env=self._child_env(options),
