@@ -250,13 +250,13 @@ def test_planner_done_rejected_after_reviewer_no_go_without_target(tmp_path) -> 
     )
 
     assert _research_project_done_issue(tmp_path, [no_go]) == (
-        "latest_scientific_decision_no_go"
+        "latest_scientific_decision_stop"
     )
 
     later_go = SimpleNamespace(
         kind="mission_complete",
         ts=2,
-        extra={"outcome": {"scientific_decision": "go"}},
+        extra={"outcome": {"scientific_decision": "continue"}},
     )
     assert _research_project_done_issue(tmp_path, [no_go, later_go]) == ""
 

@@ -93,7 +93,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "The route fits the chemistry tools, data, compute, permissions, and time that "
                 "are actually available. Physical actions stay inside an externally "
                 "authorized capability boundary with facility or instrument interlocks; "
-                "missing access leads to a bounded surrogate or no-go."
+                "missing access leads to a bounded surrogate or stop recommendation."
             ),
             evidence_hint=(
                 "a real capability probe, source or endpoint check, and any applicable "
@@ -155,7 +155,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             ),
             evidence_hint=(
                 "the trajectory of proposals, decision provenance, and returned chemical "
-                "observations, including failed calls or an honest bounded no-go"
+                "observations, including failed calls or an honest bounded stop"
             ),
         ),
     ),
@@ -204,7 +204,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "scientific value by itself: a bounded negative result may complete its "
                 "execution item, while review-stage completion requires a standalone "
                 "decision-relevant finding or another valuable direction. Otherwise the "
-                "Reviewer returns `pivot`/`no_go` for replanning rather than repackaging "
+                "Reviewer returns `redirect`/`stop` for replanning rather than repackaging "
                 "failure as project success."
             ),
             evidence_hint="the final claim, its support, limitations, and sources if novelty matters",

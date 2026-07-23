@@ -3,6 +3,7 @@ import { eventKey, isReasoning, isStructuredAgentPayload } from './events.js';
 import {
   missionOutcomeDimensions,
   missionOutcomePresentation,
+  normalizedResearchDirection,
 } from './missionOutcome.js';
 import type {
   ArtifactInfo,
@@ -662,7 +663,13 @@ function mergeSnapshot(view: MissionView, snapshot: Snapshot, artifacts: Artifac
     .filter((item) => item.outcome?.execution_status)
     .sort((left, right) => Number(left.finished_ts ?? 0) - Number(right.finished_ts ?? 0))
     .at(-1)?.outcome;
-  if (!active && latestOutcome) view.outcome = { ...latestOutcome };
+  if (!active && latestOutcome) {
+    view.outcome = missionOutcomeDimensions({
+      outcome: latestOutcome,
+      status: 'done',
+      success: true,
+    });
+  }
   artifacts.forEach((artifact) => {
     upsert(view.artifacts, 'path', artifact.path, {
       id: artifact.path,
@@ -712,6 +719,11 @@ export function projectMissionView(
   view.role_work ??= [];
   view.decision_context ??= {};
   view.outcome ??= {};
+  if (view.outcome.scientific_decision) {
+    view.outcome.scientific_decision = normalizedResearchDirection(
+      view.outcome.scientific_decision,
+    );
+  }
   const seedTs = view.last_event_ts;
   events
     .filter((event) => event.ts == null || Number(event.ts) > seedTs)

@@ -47,7 +47,7 @@ agent cannot bypass; otherwise limit the claim to cooperative protocol complianc
 Physical actuation is permitted only through an already authorized capability
 whose facility or instrument layer enforces safety limits and interlocks. Never
 work around that layer. Without such access, restrict the result to computation,
-analysis, planning, or an honest no-go.
+analysis, planning, or an honest recommendation to stop.
 
 Use project-native chemistry files and the existing `CHECKPOINT.md`. Do not
 create process-only manifests, ledgers, audit packets, or status files merely to

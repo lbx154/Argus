@@ -48,9 +48,9 @@ not certify a physical result that was only planned or simulated.
 
 Return `done` only when the evidence supports the requested bar. State plainly
 what was observed, computed, predicted, reproduced, improved, falsified, or left
-unresolved. A bounded negative result or no-go can complete that experiment, but
+unresolved. A bounded negative result or stop recommendation can complete that experiment, but
 honesty alone cannot complete the research objective. If it lacks standalone
-decision value, set `scientific_decision` to `pivot` or `no_go` and return the
-project for replanning; use `go` only for a valuable supported thesis. Check
+decision value, set `scientific_decision` to `redirect` or `stop` and return the
+project for replanning; use `continue` only for a valuable supported thesis. Check
 primary sources when novelty is claimed or required; otherwise leave novelty
 unknown rather than demanding another process artifact.

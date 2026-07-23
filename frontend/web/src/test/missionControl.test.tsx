@@ -119,7 +119,7 @@ describe('MissionControl', () => {
     expect(markup).toContain('Mission replay');
     expect(markup).toContain('execution=completed');
     expect(markup).toContain('stage=not_certified');
-    expect(markup).toContain('science=no_go');
+    expect(markup).toContain('science=stop');
     expect(markup).toContain('layer=evaluator');
     expect(markup).toContain('Git changes · main');
   });

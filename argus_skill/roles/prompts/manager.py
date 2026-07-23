@@ -7,6 +7,8 @@ import shlex
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
+from ...core.research_direction import normalize_research_direction
+
 from .types import ChecklistMode, RoleName, RolePromptRequest
 
 FRONT_DOOR = "front_door"
@@ -902,9 +904,9 @@ def build_stage_decision_prompt(
     )
     status = str(getattr(review, "status", "") or "")
     reason = str(getattr(review, "reason", "") or "")
-    scientific_decision = str(
-        getattr(review, "scientific_decision", "") or ""
-    ).strip()
+    scientific_decision = normalize_research_direction(
+        getattr(review, "scientific_decision", "")
+    )
     review_source = str(
         getattr(review, "review_source", "reviewer") or "reviewer"
     ).strip()
@@ -1039,12 +1041,13 @@ def build_stage_decision_prompt(
         "not the research objective. Advance toward scientific value: a capable "
         "method/system, a genuinely informative finding, or another outcome that "
         "meets the operator's value target.\n"
-        "- A completed run with `scientific_decision=pivot|no_go` is evidence that "
+        "- A completed run with `scientific_decision=redirect|stop` is evidence that "
         "the current direction should change, not evidence that the research project "
         "is complete. HOLD for a replacement plan, or ROLL BACK when the framing, "
         "method, or claimed-system representation belongs to an earlier stage. A "
         "negative result may advance only when the Reviewer judges the negative "
-        "finding itself decision-relevant and sets `scientific_decision=go`.\n"
+        "finding itself decision-relevant and sets "
+        "`scientific_decision=continue`.\n"
         "- Reject construct drift: an honest evaluation of a weak proxy does not "
         "establish the value or capability of the claimed system.\n"
         "- ADVANCE only when the current stage's checklist is genuinely satisfied "

@@ -76,7 +76,7 @@ def test_life_mission_completed_renders_canonical_outcome_dimensions() -> None:
             "execution_status": "completed",
             "review_status": "done",
             "stage_certification": "not_certified",
-            "scientific_decision": "no_go",
+            "scientific_decision": "stop",
             "failure_source": "",
             "interruption_kind": "none",
             "resumable": False,
@@ -88,7 +88,7 @@ def test_life_mission_completed_renders_canonical_outcome_dimensions() -> None:
     assert "execution=completed" in rendered
     assert "review=done" in rendered
     assert "stage=not_certified" in rendered
-    assert "science=no_go" in rendered
+    assert "science=stop" in rendered
 
 
 # ── status.report ─────────────────────────────────────────────────────────

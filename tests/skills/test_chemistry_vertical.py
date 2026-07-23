@@ -98,7 +98,7 @@ def test_chemistry_roles_load_concise_domain_context() -> None:
     assert "asked to evaluate online Argus control" in reviewer
     assert "same-user subprocess" in reviewer
     assert "honesty alone cannot complete the research objective" in reviewer
-    assert "no-go as evidence for replanning" in planner
+    assert "result as evidence for replanning" in planner
     assert "without solving the current instance" in scientist_create
     assert "concrete failure exposes a real gap" in scientist_adapt
 

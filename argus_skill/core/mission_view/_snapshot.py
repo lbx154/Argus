@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 from typing import Any, Mapping
 
+from ..research_direction import normalize_research_direction
 from ._dispatch import _refresh_primary_metric, reduce_mission_view_event
 from ._reduce_helpers import _number, _upsert
 from ._view_state import (
@@ -286,6 +287,11 @@ def snapshot_mission_view(root: Path | str, **kwargs: Any) -> dict[str, Any]:
         view = _read_unlocked(path)
         if not view.get("bootstrapped"):
             view = _bootstrap_view(path)
+        outcome = view.get("outcome")
+        if isinstance(outcome, dict) and "scientific_decision" in outcome:
+            outcome["scientific_decision"] = normalize_research_direction(
+                outcome.get("scientific_decision")
+            )
         view = merge_mission_view_snapshot(view, **kwargs)
         _write_unlocked(path, view)
         response = json.loads(json.dumps(view))

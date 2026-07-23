@@ -18,6 +18,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Sequence
 
+from ..core.research_direction import normalize_research_direction
 from ..roles.prompts.manager import build_stage_decision_prompt
 
 
@@ -208,13 +209,13 @@ def fallback_empty_stage_decision(
     status = str(getattr(review, "status", "") or "").strip().lower()
     if status != "done":
         return hold("empty_output_review_not_done")
-    scientific_decision = str(
-        getattr(review, "scientific_decision", "") or ""
-    ).strip().lower()
-    if scientific_decision in {"pivot", "no_go"}:
+    scientific_decision = normalize_research_direction(
+        getattr(review, "scientific_decision", "")
+    )
+    if scientific_decision in {"redirect", "stop"}:
         return hold(f"empty_output_scientific_{scientific_decision}")
-    if scientific_decision == "undecided" and cur_idx >= len(order) - 1:
-        return hold("empty_output_scientific_undecided")
+    if scientific_decision == "uncertain" and cur_idx >= len(order) - 1:
+        return hold("empty_output_scientific_uncertain")
 
     report = getattr(review, "planner_report", None)
     if not isinstance(report, dict) or report.get("forward_progress") is not True:
@@ -269,10 +270,10 @@ def _review_certifies_completion(
     items = getattr(review, "checklist", None)
     review_scope = str(getattr(review, "scope", "") or "").strip().lower()
     scope = (mission_scope or "").strip().lower().replace("-", "_")
-    scientific_decision = str(
-        getattr(review, "scientific_decision", "") or ""
-    ).strip().lower()
-    if scientific_decision in {"pivot", "no_go", "undecided"}:
+    scientific_decision = normalize_research_direction(
+        getattr(review, "scientific_decision", "")
+    )
+    if scientific_decision in {"redirect", "stop", "uncertain"}:
         return f"scientific_decision_{scientific_decision}"
     checklist_required = (
         scope == "final_submission"
@@ -368,11 +369,11 @@ def enforce_scientific_stage_guard(
     current_stage: str,
 ) -> StageDecision:
     """Prevent stage progress that contradicts the Reviewer's value verdict."""
-    scientific_decision = str(
-        getattr(review, "scientific_decision", "") or ""
-    ).strip().lower()
+    scientific_decision = normalize_research_direction(
+        getattr(review, "scientific_decision", "")
+    )
     if (
-        scientific_decision in {"pivot", "no_go"}
+        scientific_decision in {"redirect", "stop"}
         and decision.action in {"advance", "complete"}
     ):
         return StageDecision(

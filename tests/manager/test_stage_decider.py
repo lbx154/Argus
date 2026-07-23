@@ -178,30 +178,30 @@ def test_prompt_makes_value_not_integrity_the_stage_objective() -> None:
         next_stage="analysis",
         earlier_stages=("research", "plan"),
         checklist_md="- [x] honest benchmark report",
-        review=_review(scientific_decision="no_go"),
+        review=_review(scientific_decision="stop"),
     )
 
-    assert "scientific_decision: no_go" in prompt
+    assert "scientific_decision: stop" in prompt
     assert "honest reporting are hard constraints" in prompt
     assert "HOLD for a replacement plan" in prompt
     assert "weak proxy" in prompt
 
 
-def test_empty_manager_output_cannot_advance_reviewer_no_go() -> None:
+def test_empty_manager_output_cannot_advance_reviewer_stop() -> None:
     decision = fallback_empty_stage_decision(
-        _review(scientific_decision="no_go"),
+        _review(scientific_decision="stop"),
         current_stage="run",
         stage_order=("research", "run", "analysis"),
     )
 
     assert decision.action == "hold"
-    assert decision.diagnostic == "empty_output_scientific_no_go"
+    assert decision.diagnostic == "empty_output_scientific_stop"
 
 
 def test_final_stage_no_go_cannot_complete() -> None:
     decision = final_stage_completion_decision(
         _review(
-            scientific_decision="no_go",
+            scientific_decision="stop",
             checklist=[
                 {"item": "review.required", "satisfied": True, "evidence": "checked"}
             ],
@@ -352,19 +352,19 @@ def test_decide_advance_writes_state(tmp_path: Path) -> None:
     assert "confidence" not in [f.name for f in dataclasses.fields(StageTransition)]
 
 
-def test_decide_advance_rejected_after_reviewer_no_go(tmp_path: Path) -> None:
+def test_decide_advance_rejected_after_reviewer_stop(tmp_path: Path) -> None:
     root = _project(tmp_path, current="research")
     mgr = Manager(project_root=root, runner=_StubRunner(
         {"action": "advance", "target_stage": "plan", "reason": "honest result"}
     ))
 
     transition = mgr.decide_stage_transition(
-        review=_review(scientific_decision="no_go"),
+        review=_review(scientific_decision="stop"),
         project_root=root,
     )
 
     assert transition.action == "hold"
-    assert transition.diagnostic == "scientific_no_go_advance_rejected"
+    assert transition.diagnostic == "scientific_stop_advance_rejected"
     assert _read_stage(root) == "research"
 
 

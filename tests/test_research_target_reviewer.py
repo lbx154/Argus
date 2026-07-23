@@ -40,7 +40,7 @@ def _schema_verdict(result: dict) -> dict:
         "achievement": None,
         "failure_cause": None,
         "failure_source": None,
-        "scientific_decision": "undecided",
+        "scientific_decision": "uncertain",
         "failure_layer": None,
         "progress_class": "decision",
         "control": None,

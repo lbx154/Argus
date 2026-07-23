@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -275,6 +276,31 @@ def test_load_discards_legacy_derived_certification(tmp_path: Path) -> None:
     assert load_mission_view(tmp_path)["achievement"] is None
 
 
+def test_snapshot_normalizes_legacy_research_direction(tmp_path: Path) -> None:
+    (tmp_path / "mission-view.json").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "bootstrapped": True,
+            "outcome": {
+                "execution_status": "completed",
+                "scientific_decision": "no_go",
+            },
+        }),
+        encoding="utf-8",
+    )
+
+    view = snapshot_mission_view(
+        tmp_path,
+        session={},
+        daemon={},
+        roles=[],
+        backlog=[],
+    )
+
+    assert view["outcome"]["scientific_decision"] == "stop"
+    assert load_mission_view(tmp_path)["outcome"]["scientific_decision"] == "stop"
+
+
 def test_snapshot_discovers_project_skill_and_attributes_mission(
     tmp_path: Path,
 ) -> None:
@@ -474,7 +500,7 @@ def test_completed_mission_preserves_stage_and_scientific_outcome(tmp_path: Path
 
     assert view["mission"]["status"] == "complete"
     assert view["outcome"]["stage_certification"] == "not_certified"
-    assert view["outcome"]["scientific_decision"] == "no_go"
+    assert view["outcome"]["scientific_decision"] == "stop"
     assert load_mission_view(tmp_path)["outcome"] == view["outcome"]
 def test_reviewer_handoff_leaves_only_reviewer_active(tmp_path: Path) -> None:
     emit(

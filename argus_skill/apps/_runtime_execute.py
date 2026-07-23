@@ -18,6 +18,7 @@ from pathlib import Path
 
 from ..core.knobs import resolve_role_reasoning_effort
 from ..core.ports import EventSink
+from ..core.research_direction import normalize_research_direction
 from ..engineer.runner import should_clear_thread_id_after_outcome
 from ._env import env_flag as _env_flag
 from ._runtime_backends import _Outcome
@@ -591,8 +592,8 @@ class SkillLoopExecuteMixin:
                 )
                 validator_id = str(getattr(_final_review, "validator_id", "") or "").strip()
                 repair_paths = list(getattr(_final_review, "repair_paths", []) or [])
-                scientific_decision = (
-                    str(getattr(_final_review, "scientific_decision", "") or "").strip().lower()
+                scientific_decision = normalize_research_direction(
+                    getattr(_final_review, "scientific_decision", "")
                 )
                 review_source = str(getattr(_final_review, "review_source", "") or "").strip()
                 report = getattr(_final_review, "planner_report", None)

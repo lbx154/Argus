@@ -202,7 +202,7 @@ def test_completed_no_go_keeps_stage_and_science_independent() -> None:
         "execution_status": "completed",
         "review_status": "done",
         "stage_certification": "not_certified",
-        "scientific_decision": "no_go",
+        "scientific_decision": "stop",
         "failure_source": "scientific_evidence_failure",
         "failure_layer": "",
         "interruption_kind": "none",

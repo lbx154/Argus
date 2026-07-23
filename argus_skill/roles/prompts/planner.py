@@ -47,9 +47,9 @@ results independently.
   automatically completion. A failed thesis is project evidence, not a routing command;
   inspect implementation adequacy, construct fidelity, and what the result changes,
   then choose the next high-value move. When the Reviewer says
-  `scientific_decision=pivot|no_go|undecided`, do not return `project_done`; replace
+  `scientific_decision=redirect|stop|uncertain`, do not return `project_done`; replace
   the direction unless a later Reviewer explicitly certifies a valuable project
-  thesis with `scientific_decision=go`.
+  thesis with `scientific_decision=continue`.
 - Use `bounded` for ordinary missions and `final_submission` only for a
   whole-project final gate. Set `stage_closing=true` only when the mission is
   meant to satisfy the complete current-stage checklist. A prior accepted

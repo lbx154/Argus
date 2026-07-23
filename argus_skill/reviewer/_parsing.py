@@ -12,6 +12,7 @@ from typing import Any, cast
 
 from ..core.models import ReviewDecision, ReviewStatus
 from ..core.research_contract import adapt_legacy_research_result_payload
+from ..core.research_direction import normalize_research_direction
 from .failure_taxonomy import normalize_failure_layer
 
 _BASE_REVIEW_STATUSES = {"done", "continue", "blocked", "replan_requested"}
@@ -474,9 +475,6 @@ _VALID_FAILURE_SOURCES = frozenset({
     "infrastructure_failure",
     "scientific_evidence_failure",
 })
-_VALID_SCIENTIFIC_DECISIONS = frozenset({"go", "pivot", "no_go", "undecided"})
-
-
 def _parse_failure_source(
     parsed: dict[str, Any],
 ) -> tuple[str, list[dict[str, str]], str, list[str]]:
@@ -523,8 +521,7 @@ def _parse_failure_source(
 
 
 def _parse_scientific_decision(parsed: dict[str, Any]) -> str:
-    value = str(parsed.get("scientific_decision") or "").strip().lower()
-    return value if value in _VALID_SCIENTIFIC_DECISIONS else ""
+    return normalize_research_direction(parsed.get("scientific_decision"))
 
 
 def _parse_failure_cause(parsed: dict) -> str:

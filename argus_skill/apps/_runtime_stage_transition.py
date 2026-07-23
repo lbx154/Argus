@@ -13,6 +13,7 @@ import logging
 from pathlib import Path
 
 from ..core.ports import EventSink
+from ..core.research_direction import normalize_research_direction
 
 log = logging.getLogger(__name__)
 
@@ -103,8 +104,8 @@ class StageTransitionMixin:
                                 False,
                             )
                         ),
-                        "scientific_decision": str(
-                            getattr(final_review, "scientific_decision", "") or ""
+                        "scientific_decision": normalize_research_direction(
+                            getattr(final_review, "scientific_decision", "")
                         ),
                         "failure_source": str(getattr(final_review, "failure_source", "") or ""),
                         "failure_layer": str(getattr(final_review, "failure_layer", "") or ""),

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ...core.research_direction import normalize_research_direction
 from ..memory import BacklogItem
 
 
@@ -121,14 +122,14 @@ def _research_project_done_issue(
         outcome = extra.get("outcome")
         if not isinstance(outcome, dict):
             outcome = {}
-        scientific_decision = str(
+        scientific_decision = normalize_research_direction(
             extra.get("scientific_decision")
             or outcome.get("scientific_decision")
             or ""
-        ).strip().lower()
-        if scientific_decision in {"pivot", "no_go", "undecided"}:
+        )
+        if scientific_decision in {"redirect", "stop", "uncertain"}:
             return f"latest_scientific_decision_{scientific_decision}"
-        if scientific_decision == "go":
+        if scientific_decision == "continue":
             break
     if target_level is None:
         return ""

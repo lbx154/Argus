@@ -164,7 +164,7 @@ test('mission projector keeps research_incomplete distinct from failure', () => 
   assert.equal(view.timeline.at(-1)?.detail, 'research_incomplete');
 });
 
-test('mission projector keeps completion, stage certification, and no-go independent', () => {
+test('mission projector keeps completion, stage certification, and stop direction independent', () => {
   const view = reduceMissionViewEvent(emptyMissionView(), {
     type: 'life.mission.completed',
     ts: 21,
@@ -184,8 +184,21 @@ test('mission projector keeps completion, stage certification, and no-go indepen
   });
   assert.equal(view.mission.status, 'complete');
   assert.equal(view.outcome.stage_certification, 'not_certified');
-  assert.equal(view.outcome.scientific_decision, 'no_go');
+  assert.equal(view.outcome.scientific_decision, 'stop');
   assert.equal(view.outcome.failure_layer, 'evaluator');
+});
+
+test('persisted mission view normalizes legacy research direction', () => {
+  const current = snapshot();
+  current.mission_view = emptyMissionView();
+  current.mission_view.outcome = {
+    execution_status: 'completed',
+    scientific_decision: 'no_go',
+  };
+
+  const view = projectMissionView(current);
+
+  assert.equal(view.outcome.scientific_decision, 'stop');
 });
 
 test('mission projector forces life.mission.failed to failed even with malformed completion fields', () => {

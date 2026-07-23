@@ -98,9 +98,9 @@ def test_not_certified_when_status_continue() -> None:
     assert d.final_submission_certified is False
 
 
-def test_not_certified_when_scientific_direction_is_no_go() -> None:
+def test_not_certified_when_scientific_direction_stops() -> None:
     d = _decision(
-        scientific_decision="no_go",
+        scientific_decision="stop",
         scope="final_submission",
         checklist=[{"item": "a", "satisfied": True, "evidence": "e"}],
     )

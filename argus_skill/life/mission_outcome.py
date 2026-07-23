@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..core.research_direction import normalize_research_direction
+
 _COMPLETED_STATUSES = frozenset({"done", "success", "completed"})
 _INCOMPLETE_STATUSES = frozenset({
     "research_incomplete",
@@ -19,7 +21,6 @@ _REVIEW_STATUSES = frozenset({
     "paused_no_breakthrough",
     "exhausted_current_methods",
 })
-_SCIENTIFIC_DECISIONS = frozenset({"go", "pivot", "no_go", "undecided"})
 _FAILURE_SOURCES = frozenset({
     "validator_defect",
     "provenance_binding_defect",
@@ -91,9 +92,10 @@ def mission_outcome_dimensions(
         "rollback": "revoked",
     }.get(stage_action, "not_assessed")
 
-    normalized_science = str(scientific_decision or "").strip().lower()
-    if normalized_science not in _SCIENTIFIC_DECISIONS:
-        normalized_science = "undecided"
+    normalized_science = normalize_research_direction(
+        scientific_decision,
+        default="uncertain",
+    )
     normalized_failure = str(failure_source or "").strip().lower()
     if normalized_failure not in _FAILURE_SOURCES:
         normalized_failure = ""
@@ -122,7 +124,7 @@ def outcome_dimension_summary(outcome: object) -> list[str]:
         return []
     review = str(outcome.get("review_status") or "").strip().lower()
     stage = str(outcome.get("stage_certification") or "").strip().lower()
-    science = str(outcome.get("scientific_decision") or "").strip().lower()
+    science = normalize_research_direction(outcome.get("scientific_decision"))
     failure = str(outcome.get("failure_source") or "").strip().lower()
     failure_layer = str(outcome.get("failure_layer") or "").strip().lower()
     interruption = str(outcome.get("interruption_kind") or "").strip().lower()
@@ -131,7 +133,7 @@ def outcome_dimension_summary(outcome: object) -> list[str]:
         parts.append(f"review={review}")
     if stage and stage != "not_assessed":
         parts.append(f"stage={stage}")
-    if science and science != "undecided":
+    if science and science != "uncertain":
         parts.append(f"science={science}")
     if failure:
         parts.append(f"failure={failure}")

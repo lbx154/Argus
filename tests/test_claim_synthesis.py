@@ -33,7 +33,7 @@ def test_verified_boundary_needs_explicit_publication_judgment() -> None:
     packet = build_claim_synthesis(
         research_result=_result("partial_result"),
         planner_report={"headline": "The mechanism helps only on long contexts."},
-        scientific_decision="go",
+        scientific_decision="continue",
     )
     assert packet is not None
     assert packet["route"] == "supported_boundary"

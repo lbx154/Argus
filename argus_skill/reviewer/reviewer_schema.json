@@ -122,7 +122,7 @@
       "required": ["kind", "validator_id", "repair_paths", "evidence"]
     },
     "scientific_decision": {
-      "enum": ["go", "pivot", "no_go", "undecided", null]
+      "enum": ["continue", "redirect", "stop", "uncertain", null]
     },
     "failure_layer": {
       "enum": [

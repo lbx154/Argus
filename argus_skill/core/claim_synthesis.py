@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .research_contract import normalize_research_result
+from .research_direction import normalize_research_direction
 
 _POSITIVE = frozenset({
     "verified_new_result",
@@ -59,7 +60,7 @@ def build_claim_synthesis(
     _ = planner_report, step_back
     result_class = result["result_class"]
     explicitly_publishable = (
-        str(scientific_decision or "").strip().lower() == "go"
+        normalize_research_direction(scientific_decision) == "continue"
         and result["significance_status"] in {"publishable", "doctoral"}
         and result_class not in _INTERNAL_REPORT
     )

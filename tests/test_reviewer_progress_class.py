@@ -133,7 +133,7 @@ def test_parse_failure_source_requires_structured_evidence() -> None:
             "observation": "historical hash was compared with the current file",
         }],
     }
-    payload["scientific_decision"] = "no_go"
+    payload["scientific_decision"] = "stop"
 
     decision = parse_decision_text(json.dumps(payload))
 
@@ -142,10 +142,10 @@ def test_parse_failure_source_requires_structured_evidence() -> None:
     assert decision.validator_id == "terminal-contract"
     assert decision.repair_paths == ["tests/test_terminal_contract.py"]
     assert decision.failure_source_evidence[0]["artifact"].startswith("tests/")
-    assert decision.scientific_decision == "no_go"
+    assert decision.scientific_decision == "stop"
     event = decision.to_event_payload()
     assert event["failure_source"] == "validator_defect"
-    assert event["scientific_decision"] == "no_go"
+    assert event["scientific_decision"] == "stop"
 
 
 def test_validator_defect_without_evidence_fails_closed() -> None:

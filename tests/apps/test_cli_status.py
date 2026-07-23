@@ -115,7 +115,7 @@ def test_status_projects_latest_persisted_mission_outcome(
             "execution_status": "completed",
             "review_status": "done",
             "stage_certification": "not_certified",
-            "scientific_decision": "no_go",
+            "scientific_decision": "stop",
             "failure_source": "",
             "interruption_kind": "none",
             "resumable": False,
@@ -148,7 +148,7 @@ def test_status_projects_latest_persisted_mission_outcome(
     assert rc == 0
     assert (
         "outcome  : execution=completed · review=done · "
-        "stage=not_certified · science=no_go"
+        "stage=not_certified · science=stop"
     ) in out
 
 

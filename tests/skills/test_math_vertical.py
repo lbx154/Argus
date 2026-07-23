@@ -338,7 +338,7 @@ def test_exploratory_honesty_alone_cannot_end_research() -> None:
     assert _final_stage_decision(
         result,
         "exploratory",
-        scientific_decision="go",
+        scientific_decision="continue",
     ) is None
 
 
@@ -352,7 +352,7 @@ def test_exploratory_decision_relevant_counterexample_can_end_research() -> None
     assert _final_stage_decision(
         result,
         "exploratory",
-        scientific_decision="go",
+        scientific_decision="continue",
     ) is not None
 
 

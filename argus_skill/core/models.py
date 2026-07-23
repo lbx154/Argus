@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Literal
 
 from .event_catalog import EventType
+from .research_direction import normalize_research_direction
 from .stop_kinds import StopKind
 
 ResearchPauseStatus = Literal[
@@ -361,7 +362,11 @@ class ReviewDecision:
         """
         if self.status != "done" or self.scope != "final_submission":
             return False
-        if self.scientific_decision in {"pivot", "no_go", "undecided"}:
+        if normalize_research_direction(self.scientific_decision) in {
+            "redirect",
+            "stop",
+            "uncertain",
+        }:
             return False
         if not self.checklist:
             return False
@@ -401,7 +406,9 @@ class ReviewDecision:
             "failure_source_evidence": list(self.failure_source_evidence or []),
             "validator_id": self.validator_id or "",
             "repair_paths": list(self.repair_paths or []),
-            "scientific_decision": self.scientific_decision or "",
+            "scientific_decision": normalize_research_direction(
+                self.scientific_decision
+            ),
             "failure_layer": self.failure_layer or "",
             "progress_class": self.progress_class or "",
             "control_action": self.control_action or "",

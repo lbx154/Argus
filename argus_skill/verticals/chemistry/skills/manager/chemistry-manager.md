@@ -18,6 +18,6 @@ data, a predictive oracle, simulation, computation, or physical measurement.
 Preserve the capability under test: if the operator asks to evaluate online agent
 decisions, do not downgrade the work to a policy frozen before outcomes. If only a
 frozen policy is feasible, label it as a different bounded experiment or an honest
-no-go. That no-go may close the bounded experiment, not the research objective;
+stop recommendation. That result may close the bounded experiment, not the research objective;
 route the next scientifically valuable direction. Physical actuation is available only through capabilities and safety
 interlocks already granted outside the agent.
