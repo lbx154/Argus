@@ -5,10 +5,15 @@ implement the same protocol version with different code. Argus therefore builds
 one deterministic release identity from shipped backend, frontend, contract,
 and built-in skill source.
 
-`scripts/generate_release_manifest.py` writes:
+The release build's internal manifest preparation step writes:
 
 - `argus_skill/release_manifest.json`
 - `frontend/core/src/release.generated.ts`
+
+Direct write-mode invocation of `scripts/generate_release_manifest.py` is
+rejected because it would update those files without rebuilding the shipped
+Web/TUI bundles. Use `scripts/build_release.py`; `--check` remains available
+for read-only validation.
 
 The release id is `<package-version>+<source-digest-prefix>`. WebAPI and daemon
 runtime identity include the manifest digest, a digest recomputed from the loaded
