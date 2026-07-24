@@ -1,36 +1,23 @@
-"""Planner agent — emits the next batch of backlog items each planning cycle.
+"""Planner agent — directly edits and verifies the active project.
 
-Per planning cycle, the planner inspects the project (read files, run
-`pytest -q`, etc.), then returns a :class:`PlannerVerdict` containing
-either ``project_done=True`` (with ``new_tasks=[]``) or a list of
-:class:`TaskSpec` describing the next missions for the engineer + reviewer
-pair to work through.
-
-This module used to also house a "critic" sub-agent that judged whether
-a `done` mission was worth one more polishing round; that layer has been
-removed entirely — the L2 reviewer subsumed its responsibility.
+The model-facing contract intentionally avoids JSON.  The Planner works in the
+project directory, implements the requested change itself, and ends with a
+small ``KEY=VALUE`` completion footer.  The host maps that footer back into the
+existing :class:`PlannerVerdict` object used by the supervisor.
 """
+
 from __future__ import annotations
 
-import hashlib
-import json
-import logging
-import os
-import time
-from dataclasses import dataclass, field, replace
-from pathlib import Path
+import re
+from dataclasses import dataclass, field
 from typing import Any
-
-log = logging.getLogger(__name__)
 
 from ..core.models import RunnerOptions
 from ..core.ports import RunnerBackend
 from ..core.run_gateway import run_exec as gateway_run_exec
 
-_DEFAULT_PLANNER_TIMEOUT_SECONDS = 300
 TASK_SCOPE_BOUNDED = "bounded"
 TASK_SCOPE_FINAL_SUBMISSION = "final_submission"
-PLANNER_SCHEMA_PATH = str(Path(__file__).with_name("planner_schema.json"))
 
 
 @dataclass
@@ -121,59 +108,10 @@ class PlannerVerdict:
     # for a cycle that did not touch the checklist (back-compat default).
     checklist_ops: list[dict] = field(default_factory=list)
     waiting_contract: WaitingContract | None = None
-    schema_repair_attempted: bool = False
-    schema_repair_succeeded: bool = False
-    schema_repair_original_sha256: str = ""
-    schema_repair_error: str = ""
-
-    def schema_repair_event_payload(self) -> dict[str, Any]:
-        if not self.schema_repair_attempted:
-            return {}
-        return {
-            "schema_repair_attempted": True,
-            "schema_repair_succeeded": self.schema_repair_succeeded,
-            "schema_repair_original_sha256": self.schema_repair_original_sha256,
-            "schema_repair_error": self.schema_repair_error,
-        }
-
-
-def _planner_timeout_seconds(env_name: str) -> int:
-    raw = os.environ.get(env_name, "").strip()
-    if not raw:
-        return _DEFAULT_PLANNER_TIMEOUT_SECONDS
-    try:
-        return max(0, int(raw))
-    except ValueError:
-        return _DEFAULT_PLANNER_TIMEOUT_SECONDS
-
-
-def _planner_wall_clock_interrupt_provider():
-    limit_seconds = _planner_timeout_seconds("ARGUS_SKILL_PLANNER_MAX_SECONDS")
-    if limit_seconds <= 0:
-        return None
-    deadline = time.monotonic() + float(limit_seconds)
-
-    def _interrupt_reason() -> str | None:
-        if time.monotonic() < deadline:
-            return None
-        return (
-            "planner wall-clock timeout: exceeded "
-            f"{limit_seconds}s; queue engineer work instead of continuing "
-            "planner inspection"
-        )
-
-    return _interrupt_reason
 
 
 class Planner:
-    """Project-level planner.
-
-    Per planning cycle: inspect project state and emit the next batch of
-    backlog items (or declare project done).
-
-    The historical Critic iteration layer was removed; the supervisor now
-    relies on the L2 reviewer for verdicts and the planner for scheduling.
-    """
+    """Project-level direct executor with a lightweight completion footer."""
 
     def __init__(self, runner: RunnerBackend, *, skill_store: Any | None = None) -> None:
         self.runner = runner
@@ -185,6 +123,7 @@ class Planner:
         # as read-only references — it is not a no-op.
         self.skill_store = skill_store
         from ..skills.missions import PlannerMission
+
         self.mission = PlannerMission(skill_store)
 
     # ------------------------------------------------------------------
@@ -200,12 +139,7 @@ class Planner:
         runtime_change_summary: str = "",
         config: PlannerConfig | None = None,
     ) -> PlannerVerdict:
-        """Inspect the project and generate the next batch of tasks.
-
-        Called when the backlog is empty and continuous mode is active.
-        The runner has shell access, so the planner can inspect code,
-        run tests, read docs, etc. before deciding what to work on next.
-        """
+        """Implement the active objective directly in the project worktree."""
         cfg = config or PlannerConfig()
         prompt = self._build_planner_prompt(
             continuous_objective=continuous_objective,
@@ -218,18 +152,16 @@ class Planner:
         planner_options = RunnerOptions(
             model=cfg.model,
             reasoning_effort=cfg.reasoning_effort or "xhigh",
-            output_schema_path=PLANNER_SCHEMA_PATH,
             working_dir=cfg.working_dir,
             dangerous_yolo=cfg.dangerous_yolo,
             full_auto=cfg.full_auto,
             skip_git_repo_check=cfg.skip_git_repo_check,
             extra_args=list(cfg.extra_args) if cfg.extra_args else None,
-            external_interrupt_reason_provider=(
-                _planner_wall_clock_interrupt_provider()
-            ),
-            watchdog_hard_idle_seconds=_planner_timeout_seconds(
-                "ARGUS_SKILL_PLANNER_HARD_IDLE_SECONDS"
-            ),
+            # Planner execution is intentionally unbounded.  Operator/daemon
+            # interrupts supplied by the backend still work, but this call does
+            # not add a Planner-specific wall-clock or hard-idle deadline.
+            external_interrupt_reason_provider=None,
+            watchdog_hard_idle_seconds=0,
         )
         try:
             result = gateway_run_exec(
@@ -249,7 +181,9 @@ class Planner:
                 error=exc_text,
             )
         text = "\n".join(getattr(result, "agent_messages", None) or [])
-        if not text and int(getattr(result, "exit_code", 0) or 0) != 0:
+        if int(getattr(result, "exit_code", 0) or 0) != 0 or bool(
+            getattr(result, "fatal_error", None)
+        ):
             stderr_tail = "\n".join(
                 str(line) for line in (getattr(result, "stderr_lines", None) or [])[-20:]
             )
@@ -259,57 +193,10 @@ class Planner:
                 project_done=False,
                 reason="planner backend failed before producing output; will retry later",
                 new_tasks=[],
-                raw_text=details,
+                raw_text=text or details,
                 error=f"planner backend exit {getattr(result, 'exit_code', 'unknown')}",
             )
-        parsed = parse_planner_text(text)
-        if (
-            parsed.error == "unparseable planner output"
-            and text.strip()
-            and str(getattr(result, "thread_id", "") or "").strip()
-        ):
-            original_sha256 = hashlib.sha256(text.encode("utf-8")).hexdigest()
-            from ..roles.prompts.planner import build_schema_repair_prompt
-
-            repair_prompt = build_schema_repair_prompt(original_sha256)
-            repair_error = ""
-            repair_succeeded = False
-            try:
-                repair_result = gateway_run_exec(
-                    self.runner,
-                    prompt=repair_prompt,
-                    resume_thread_id=str(result.thread_id),
-                    options=replace(
-                        planner_options,
-                        dangerous_yolo=False,
-                        full_auto=False,
-                        sandbox_mode="read-only",
-                        external_interrupt_reason_provider=(
-                            _planner_wall_clock_interrupt_provider()
-                        ),
-                    ),
-                    run_label=f"planner.cycle{planning_cycle}.schema-repair",
-                )
-                repair_text = "\n".join(
-                    getattr(repair_result, "agent_messages", None) or []
-                )
-                repaired = parse_planner_text(repair_text)
-                if repaired.error:
-                    repair_error = repaired.error
-                else:
-                    parsed = repaired
-                    text = repair_text
-                    repair_succeeded = True
-            except Exception as exc:  # noqa: BLE001 - original error remains retryable
-                repair_error = f"{type(exc).__name__}: {exc}"
-            parsed = replace(
-                parsed,
-                schema_repair_attempted=True,
-                schema_repair_succeeded=repair_succeeded,
-                schema_repair_original_sha256=original_sha256,
-                schema_repair_error=repair_error,
-            )
-        return parsed
+        return parse_planner_text(text)
 
     @staticmethod
     def _build_planner_prompt(
@@ -332,85 +219,111 @@ class Planner:
             open_ended=open_ended,
         )
 
-# ---------------------------------------------------------------------------
-# Parser
-# ---------------------------------------------------------------------------
 
-def _iter_json_objects(text: str):
-    """Yield balanced top-level JSON object substrings from ``text``."""
-    start: int | None = None
-    depth = 0
-    in_string = False
-    escaped = False
-    for idx, ch in enumerate(text):
-        if start is None:
-            if ch == "{":
-                start = idx
-                depth = 1
-                in_string = False
-                escaped = False
+_KEY_VALUE_KEYS = (
+    "PROJECT_DONE",
+    "STATUS",
+    "REASON",
+    "SUMMARY",
+    "WAITING",
+    "WAITING_REASON",
+    "BLOCKER_FINGERPRINT",
+    "RECHECK_CONDITION",
+    "RECHECK_TOKEN",
+    "ALLOW_VERIFICATION_PROBE",
+    "RECHECK_AFTER_SECONDS",
+    "STAGE_RECONCILIATION_REQUIRED",
+    "OPERATOR_ACTION_REQUIRED",
+    "WAIT_MODE",
+    "WAKE_ON",
+    "WATCHED_PATHS",
+    "EXPIRES_AT",
+    "TASK_KEY",
+    "TASK_DEPS",
+    "TASK_TITLE",
+    "TASK_OBJECTIVE",
+    "TASK_IMPACT_SCORE",
+    "TASK_IMPACT_AREA",
+    "TASK_EVIDENCE",
+    "TASK_ACCEPTANCE_CHECK",
+    "TASK_NON_GOALS",
+    "TASK_SCOPE",
+    "TASK_STAGE_CLOSING",
+    "TASK_AUTHORIZATION_ID",
+    "TASK_AUTHORIZATION_ACTION",
+)
+_KEY_VALUE_LINE = re.compile(
+    r"^(?:[-*]\s*)?(?:ARGUS_)?(?P<key>" + "|".join(_KEY_VALUE_KEYS) + r")\s*[:=]\s*(?P<value>.*)$",
+    re.IGNORECASE,
+)
+
+
+def _planner_key_values(text: str) -> tuple[dict[str, str], list[dict[str, str]]]:
+    """Parse global fields and optional repeated ``TASK_*`` key-value blocks."""
+    values: dict[str, str] = {}
+    tasks: list[dict[str, str]] = []
+    current_task: dict[str, str] | None = None
+    for raw_line in text.splitlines():
+        line = raw_line.strip().strip("`").strip()
+        match = _KEY_VALUE_LINE.match(line)
+        if match is None:
             continue
-        if in_string:
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == '"':
-                in_string = False
-            continue
-        if ch == '"':
-            in_string = True
-        elif ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                yield text[start:idx + 1]
-                start = None
+        key = match.group("key").upper()
+        value = match.group("value").strip()
+        if key == "TASK_KEY":
+            if current_task is not None:
+                tasks.append(current_task)
+            current_task = {key: value}
+        elif key.startswith("TASK_"):
+            if current_task is None:
+                current_task = {}
+            current_task[key] = value
+        else:
+            values[key] = value
+    if current_task is not None:
+        tasks.append(current_task)
+    return values, tasks
 
 
-def _load_json_object_with_schema(
-    text: str,
-    *,
-    required_keys: tuple[str, ...],
-) -> tuple[dict, str] | None:
-    latest: tuple[dict, str] | None = None
-    for blob in _iter_json_objects(text):
-        try:
-            data = json.loads(blob)
-        except (TypeError, ValueError):
-            continue
-        if not isinstance(data, dict):
-            continue
-        if all(key in data for key in required_keys):
-            latest = (data, blob)
-    return latest
+def _key_value_bool(raw: str, default: bool = False) -> bool:
+    normalized = str(raw or "").strip().casefold()
+    if normalized in {"true", "yes", "1", "done", "complete", "completed"}:
+        return True
+    if normalized in {"false", "no", "0", "retry", "blocked", "incomplete"}:
+        return False
+    return default
 
 
-def _parse_json_bool(value: object, default: bool) -> bool:
-    """Coerce JSON-ish boolean payloads from model output.
-
-    The parser is intentionally tolerant of quoted booleans because LLM
-    output often serializes them as strings.
-    """
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized == "true":
-            return True
-        if normalized == "false":
-            return False
-    if value is None:
+def _key_value_int(raw: str, default: int = 0) -> int:
+    try:
+        return int(str(raw or "").strip())
+    except ValueError:
         return default
-    return bool(value)
+
+
+def _key_value_float(raw: str, default: float = 0.0) -> float:
+    try:
+        return float(str(raw or "").strip())
+    except ValueError:
+        return default
+
+
+def _parse_completion_bool(values: dict[str, str]) -> bool | None:
+    raw = values.get("PROJECT_DONE", "").strip().casefold()
+    if raw in {"true", "yes", "1", "done", "complete", "completed"}:
+        return True
+    if raw in {"false", "no", "0", "retry", "blocked", "incomplete"}:
+        return False
+    status = values.get("STATUS", "").strip().casefold()
+    if status in {"done", "complete", "completed", "success"}:
+        return True
+    if status in {"retry", "blocked", "incomplete", "failed", "error"}:
+        return False
+    return None
 
 
 def parse_planner_text(text: str) -> PlannerVerdict:
-    """Parse a planner JSON verdict out of an agent message.
-
-    Malformed or inconsistent output returns a retryable error verdict.
-    """
+    """Parse the Planner's plain ``KEY=VALUE`` completion footer."""
     if not text:
         return PlannerVerdict(
             project_done=False,
@@ -418,72 +331,118 @@ def parse_planner_text(text: str) -> PlannerVerdict:
             raw_text=text,
             error="empty planner output",
         )
-    found = _load_json_object_with_schema(
-        text,
-        required_keys=("project_done", "reason", "new_tasks"),
-    )
-    if found is None:
+    values, task_rows = _planner_key_values(text)
+    project_done = _parse_completion_bool(values)
+    reason = values.get("REASON") or values.get("SUMMARY") or ""
+    if project_done is None:
         return PlannerVerdict(
             project_done=False,
-            reason="planner returned unparseable output; will retry later",
+            reason=(reason or "planner omitted the PROJECT_DONE key-value completion marker"),
             raw_text=text,
-            error="unparseable planner output",
+            error="planner missing key-value completion marker",
         )
-    data, blob = found
-    project_done = _parse_json_bool(data.get("project_done", True), True)
-    reason = str(data.get("reason", ""))
-    tasks_raw = data.get("new_tasks") or []
-    new_tasks: list[TaskSpec] = []
-    raw_task_count = len(tasks_raw) if isinstance(tasks_raw, list) else 0
-    if isinstance(tasks_raw, list):
-        for entry in tasks_raw:
-            if not isinstance(entry, dict):
-                continue
-            title = str(entry.get("title", "")).strip()
-            objective = str(entry.get("objective", "")).strip()
-            key = str(entry.get("key") or "").strip()
-            deps = [
-                str(d).strip()
-                for d in (entry.get("deps") or [])
-                if str(d).strip()
-            ]
-            if not title or not objective:
-                continue
-            new_tasks.append(
-                TaskSpec(
-                    title=title,
-                    objective=objective,
-                    key=key,
-                    deps=deps,
-                )
+    waiting = _key_value_bool(values.get("WAITING", ""))
+    waiting_contract = None
+    if waiting:
+        fingerprint = values.get("BLOCKER_FINGERPRINT", "").strip()
+        condition = values.get("RECHECK_CONDITION", "").strip()
+        token = values.get("RECHECK_TOKEN", "").strip()
+        if fingerprint and condition and token:
+            waiting_contract = WaitingContract(
+                blocker_fingerprint=fingerprint,
+                recheck_condition=condition,
+                recheck_token=token,
+                allow_verification_probe=_key_value_bool(
+                    values.get("ALLOW_VERIFICATION_PROBE", "")
+                ),
+                recheck_after_seconds=max(
+                    0,
+                    _key_value_int(values.get("RECHECK_AFTER_SECONDS", "")),
+                ),
+                stage_reconciliation_required=_key_value_bool(
+                    values.get("STAGE_RECONCILIATION_REQUIRED", "")
+                ),
+                operator_action_required=_key_value_bool(
+                    values.get("OPERATOR_ACTION_REQUIRED", "")
+                ),
+                wait_mode=values.get("WAIT_MODE", "poll") or "poll",
+                wake_on=tuple(
+                    item.strip() for item in values.get("WAKE_ON", "").split(",") if item.strip()
+                ),
+                watched_paths=tuple(
+                    item.strip()
+                    for item in values.get("WATCHED_PATHS", "").split(",")
+                    if item.strip()
+                ),
+                expires_at=max(
+                    0.0,
+                    _key_value_float(values.get("EXPIRES_AT", "")),
+                ),
             )
-    if project_done and tasks_raw:
+
+    new_tasks: list[TaskSpec] = []
+    for row in task_rows:
+        title = row.get("TASK_TITLE", "").strip()
+        objective = row.get("TASK_OBJECTIVE", "").strip()
+        if not title or not objective:
+            continue
+        new_tasks.append(
+            TaskSpec(
+                title=title,
+                objective=objective,
+                impact_score=max(0, _key_value_int(row.get("TASK_IMPACT_SCORE", ""))),
+                impact_area=row.get("TASK_IMPACT_AREA", "").strip(),
+                evidence=row.get("TASK_EVIDENCE", "").strip(),
+                acceptance_check=row.get("TASK_ACCEPTANCE_CHECK", "").strip(),
+                non_goals=[
+                    item.strip()
+                    for item in row.get("TASK_NON_GOALS", "").split("|")
+                    if item.strip()
+                ],
+                scope=row.get("TASK_SCOPE", "").strip() or TASK_SCOPE_BOUNDED,
+                stage_closing=_key_value_bool(row.get("TASK_STAGE_CLOSING", "")),
+                key=row.get("TASK_KEY", "").strip(),
+                deps=[item.strip() for item in row.get("TASK_DEPS", "").split(",") if item.strip()],
+                authorization_id=row.get("TASK_AUTHORIZATION_ID", "").strip(),
+                authorization_action=row.get("TASK_AUTHORIZATION_ACTION", "").strip(),
+            )
+        )
+
+    if project_done and new_tasks:
         return PlannerVerdict(
             project_done=False,
-            reason="planner said project_done=true but returned tasks",
+            reason="planner reported completion together with remaining tasks",
+            raw_text=text,
+            error="planner completion marker conflicts with task blocks",
+        )
+    if waiting:
+        return PlannerVerdict(
+            project_done=False,
+            reason=reason or values.get("WAITING_REASON", "") or "planner waiting",
             new_tasks=[],
-            raw_text=blob,
-            error="planner claimed project_done=true with tasks",
+            raw_text=text,
+            waiting=True,
+            waiting_reason=values.get("WAITING_REASON", "") or reason,
+            waiting_contract=waiting_contract,
         )
     if not project_done and not new_tasks:
-        # Inconsistent: not done but no tasks → retry later, don't mark done.
-        if raw_task_count:
-            reason = "planner proposed only malformed tasks"
-            error = "planner produced no usable tasks"
-        else:
-            error = "planner said not done but produced no concrete tasks"
-        if not reason:
-            reason = "planner said not done but produced no concrete tasks"
         return PlannerVerdict(
             project_done=False,
-            reason=reason,
+            reason=reason or "planner reported direct execution incomplete",
             new_tasks=[],
-            raw_text=blob,
-            error=error,
+            raw_text=text,
+            error="planner said not done but produced no concrete tasks",
+        )
+    if not project_done:
+        return PlannerVerdict(
+            project_done=False,
+            reason=reason or "planner reported follow-up key-value tasks",
+            new_tasks=new_tasks,
+            raw_text=text,
         )
     return PlannerVerdict(
-        project_done=project_done,
-        reason=reason,
-        new_tasks=new_tasks,
-        raw_text=blob,
+        project_done=True,
+        reason=reason or "planner completed direct project execution",
+        new_tasks=[],
+        raw_text=text,
     )

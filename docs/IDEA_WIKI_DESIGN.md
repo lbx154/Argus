@@ -328,9 +328,9 @@ the planner reads, does not crawl.
 ```
 
 Without the fact/judgment split, the wiki rots. Without reviewer-only
-promotion, status drifts. Without keeping the planner read-only, we
-reintroduce the harness-decides-relevance pattern that Argus has explicitly
-rejected.
+promotion, status drifts. The Planner may directly edit project files, but
+wiki promotion remains reviewer-controlled so relevance is not silently
+decided by the harness.
 
 ---
 
@@ -343,7 +343,7 @@ onto something Argus already ships:
 
 | Humanize concept | Argus equivalent |
 |---|---|
-| plan generation from a draft | `planner/planner.py` + `planner_schema.json` |
+| direct planning/execution | `planner/planner.py` + plain key-value completion footer |
 | AC-style acceptance criteria | `skills/stage_machine.py` + reviewer verdicts |
 | upper/lower scope bounds | stage checklist `done` / `continue` / `blocked` |
 | goal tracking across rounds | `life/memory.py` EventJournal + Backlog |

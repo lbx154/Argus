@@ -10,7 +10,6 @@ from .types import ChecklistMode, RoleName, RolePromptRequest
 CONTINUOUS = "continuous"
 BOUNDED_DAG = "bounded_dag"
 PLAN_PREVIEW = "plan_preview"
-SCHEMA_REPAIR = "schema_repair"
 PARALLEL_DRAFT = "parallel_draft"
 
 OPERATIONS = frozenset(
@@ -18,45 +17,39 @@ OPERATIONS = frozenset(
         CONTINUOUS,
         BOUNDED_DAG,
         PLAN_PREVIEW,
-        SCHEMA_REPAIR,
         PARALLEL_DRAFT,
     }
 )
 
 
 _PLANNER_CORE_CONTRACT = """
-## Planner operating contract
-You are the L4 Planner. Inspect current reality, choose the next high-impact
-mission, and delegate sustained execution to the Engineer; the Reviewer judges
-results independently.
+## Planner direct-execution contract
+You are the L4 Planner and direct project executor. Inspect current reality,
+implement the operator's requested outcome in the active worktree yourself,
+and verify it with project-native checks. Do not stop after describing a plan
+and do not delegate the implementation to another role.
 
-- Use project tools at full capacity before deciding: read relevant state,
-  source, tests, artifacts, Reviewer briefings, and CHECKPOINT.md; run bounded
-  probes and edit project files, including code, when that is the fastest way
-  to resolve a planning uncertainty. Planning is your continuous responsibility,
-  but keep Planner-side work bounded and route long
-  implementation, builds, or experiments as Engineer missions.
+- Use project tools at full capacity: read relevant state, source, tests,
+  artifacts, Reviewer briefings, and CHECKPOINT.md; edit project files,
+  including application/library code; run the necessary builds and tests; and
+  continue until the requested outcome is implemented or genuinely blocked.
 - Work the active vertical's current stage. The Manager alone changes
   `current_stage`; Planner and Engineer never edit it.
-- Set `project_done=true` only when the operator objective and its hard success
+- Report `PROJECT_DONE=true` only when the operator objective and its hard success
   criteria are actually satisfied and no independent high-impact work remains.
   Integrity and reproducibility are admission constraints, not value by themselves.
   Empty backlog, an honestly reported negative result, or a failed approach is not
   automatically completion. A failed thesis is project evidence, not a routing command;
   inspect implementation adequacy, construct fidelity, and what the result changes,
-  then choose the next high-value move. When the Reviewer returns
-  `replan_requested`, do not return `project_done`; replace the direction unless
+  then execute the next high-value move. When the Reviewer returns
+  `replan_requested`, do not report completion; repair or replace the direction unless
   a later Reviewer explicitly certifies a valuable project thesis with `done`.
-- Make each task actionable and short-horizon. Put the complete outcome,
-  boundaries, relevant paths, and decisive check directly in `objective`.
-- Prefer a small dependency DAG when real artifact boundaries exist. Stop at an
-  unresolved decision frontier instead of speculatively scheduling downstream
-  execution; use unique `key` values and same-batch `deps`.
 - Credentials, licensed access, irreversible external actions, and scope
   expansion require fresh operator authority; reversible project-local work does not.
-- Finish inspection before returning a substantive final verdict; never emit an
-  inspecting placeholder or empty undecided result. Return JSON matching the
-  provided schema, with no prose or Markdown fence.
+- Natural-language progress and a final summary are allowed. End the final response
+  with two plain key-value lines, not JSON or a Markdown fence:
+  `PROJECT_DONE=true|false`
+  `REASON=<concise implementation and verification summary or blocker>`
 """
 
 
@@ -77,10 +70,7 @@ def _wiki_has_planner_content(
     for source_kind in ("notes", "papers", "repos"):
         if any((wiki_root / "sources" / source_kind).glob("*")):
             return True
-    if (
-        not journal_has_terminal_history
-        and any((wiki_root / "sources" / "runs").glob("*.md"))
-    ):
+    if not journal_has_terminal_history and any((wiki_root / "sources" / "runs").glob("*.md")):
         return True
     query_pack = wiki_root / "query_pack.md"
     try:
@@ -122,17 +112,6 @@ def preview_request(project_root: Path | str) -> RolePromptRequest:
     )
 
 
-def build_schema_repair_prompt(original_sha256: str) -> str:
-    return (
-        "Your previous Planner response could not be parsed as the required "
-        "JSON object. Re-emit the exact same decision once, conforming to "
-        "the provided output schema. Do not inspect files, call tools, add "
-        "or remove tasks, change waiting state, or revise any scientific or "
-        "planning judgment. Return only the repaired structured response. "
-        f"Original response SHA-256: {original_sha256}"
-    )
-
-
 def build_bounded_dag_prompt(objective: str) -> str:
     return (
         "You are the bounded-task Planner. Decompose the Manager handoff into a "
@@ -166,9 +145,11 @@ def build_bounded_dag_prompt(objective: str) -> str:
         "must be acyclic.\n"
         "- Preserve the operator's acceptance requirements across the DAG; do not add "
         "unrelated research or ceremony.\n"
-        "- Return JSON only matching the supplied schema.\n\n"
-        "Manager execution handoff:\n"
-        + objective.strip()
+        "- Return plain key-value text, not JSON. Start with `PLAN_REASON=...`, "
+        "then emit one task block per node using `TASK_KEY=...`, "
+        "`TASK_DEPS=comma,separated,keys` (empty when none), `TASK_TITLE=...`, "
+        "and `TASK_OBJECTIVE=...`.\n\n"
+        "Manager execution handoff:\n" + objective.strip()
     )
 
 
@@ -182,9 +163,9 @@ def build_continuous_prompt(
     open_ended: bool = False,
 ) -> str:
     """Build the continuous Planner prompt from the unified role catalog."""
+    from ...core.project import resolve_project_root
     from ...core.research_contract import resolve_research_target_level
     from ...skills.ground_truth import ground_truth_mandate
-    from ...core.project import resolve_project_root
     from ...skills.vertical_select import resolve_evidence_mode
     from ...verticals.research.stages import CANONICAL_STAGE_ORDER
     from .registry import resolve_role_prompt
@@ -194,11 +175,7 @@ def build_continuous_prompt(
     prompt_context = resolve_role_prompt(continuous_request(_proot))
     stage = prompt_context.stage
     stage_checklist = prompt_context.stage_checklist
-    stage_idx = (
-        CANONICAL_STAGE_ORDER.index(stage)
-        if stage in CANONICAL_STAGE_ORDER
-        else 0
-    )
+    stage_idx = CANONICAL_STAGE_ORDER.index(stage) if stage in CANONICAL_STAGE_ORDER else 0
     earlier_stages = ", ".join(CANONICAL_STAGE_ORDER[:stage_idx]) or "(none)"
 
     # Vertical-native prompt framing: resolve the active vertical and let it
@@ -218,7 +195,7 @@ def build_continuous_prompt(
             "## Manager-owned research target\n"
             f"Preserve `research_target_level={_research_target_level}` from "
             "`research/PIPELINE_STATE.json`. At `publishable` or `doctoral`, "
-            "`project_done` requires Reviewer-certified correctness, verified "
+            "`PROJECT_DONE=true` requires Reviewer-certified correctness, verified "
             "novelty, and an original result at that significance level. Known "
             "results, finite checks, or honest negative reports remain useful "
             "progress but are not completion. At `exploratory`, an independently "
@@ -230,12 +207,12 @@ def build_continuous_prompt(
         standing_research_block = (
             "## Standing research objective\n"
             "A failed hypothesis, negative experiment, or rejected direction is "
-            "project memory, not a scheduling command and not completion of the "
+            "project memory, not a forced next action and not completion of the "
             "standing research goal. Read the stored result and decide for yourself "
             "what it changes: it may call for a revised explanation, a different "
             "mechanism, a stronger benchmark, a new framing, or no immediate action. "
-            "The host never maps a failure label to a next task. Set "
-            "`project_done=true` only after the persisted research target itself is "
+            "The host never maps a failure label to a next action. Report "
+            "`PROJECT_DONE=true` only after the persisted research target itself is "
             "met and independently reviewed. Do not turn internal stop decisions, "
             "checklist language, or workflow ceremony into the paper's story unless "
             "they are scientifically essential.\n\n"
@@ -269,7 +246,7 @@ def build_continuous_prompt(
         f"Downstream stages (LOCKED until the Manager advances the stage): "
         f"{_gate_downstream}.\n"
         "Advance stages STRICTLY IN ORDER. Until the checklist above is "
-        "satisfied, downstream work is FORBIDDEN; queue only current-stage work. "
+        "satisfied, downstream work is FORBIDDEN; perform only current-stage work. "
         "Manager owns stage transitions; Planner and Engineer never edit "
         "`research/PIPELINE_STATE.json`. If the stage itself blocks a necessary "
         "prerequisite, explain that in `reason` instead of silently working ahead. A paper "
@@ -296,7 +273,7 @@ def build_continuous_prompt(
         analysis_caveat = (
             "- You are at `analysis`: the `evidence_chain` gate is already "
             "STRUCTURAL here, so any claim/evidence artifact a drafting "
-            "mission touches must stay internally consistent or remain "
+            "pass touches must stay internally consistent or remain "
             "explicitly placeholder-only — do not introduce unsupported "
             "quantified claims.\n"
             if stage == "analysis"
@@ -309,13 +286,13 @@ def build_continuous_prompt(
             f"`current_stage` is `{stage}`. If a long-running experiment is "
             "already launched and progressing on its own in the background, "
             "rounds spent ONLY waiting on it are wasted budget. You MAY and "
-            "SHOULD queue ONE bounded paper-DRAFTING mission in parallel that "
+            "SHOULD directly perform ONE bounded paper-DRAFTING pass that "
             "writes/extends `paper/main.tex` (and section files): "
             "Introduction, Related Work, Background, Problem Definition, "
             "Method/Approach narrative, Experimental-Setup description, and "
             "Results-section SCAFFOLDING. There is no results-dependency "
             "restriction on WHICH sections may be drafted.\n\n"
-            "Hard rules for a parallel drafting mission:\n"
+            "Hard rules for a parallel drafting pass:\n"
             "1. It does NOT advance the pipeline. Do NOT edit "
             "`research/PIPELINE_STATE.json`; do NOT mark `run`, `analysis`, "
             "`draft`, `review`, or `submission` ready/done. Leave "
@@ -327,31 +304,22 @@ def build_continuous_prompt(
             "token or clearly-conditional scaffold text. Never invent numbers "
             "or imply a completed outcome. The draft/review/submission "
             "evidence + anti-fabrication gates still enforce this later.\n"
-            "3. Maintain a placeholder ledger: have the mission keep "
+            "3. Maintain a placeholder ledger in "
             "`paper/RESULT_PLACEHOLDERS.md` listing each placeholder, its "
             "owning source artifact, and the backfill condition, so a later "
-            "analysis/draft mission can find and fill every TBD.\n"
+            "later analysis/draft work can find and fill every TBD.\n"
             "4. Ground style proportionally: inspect one or two relevant venue "
             "papers when that would improve the draft, but do not create exemplar-"
             "conformance schemas or copy another paper's section sequence. The "
             "project's thesis and evidence determine the structure.\n"
-            "5. Do NOT let drafting starve experiment monitoring: the mission "
+            "5. Do NOT let drafting starve experiment monitoring: this pass "
             "(or the next cycle) must still do one lightweight run-health "
             "check on the live run each cycle.\n"
             f"{analysis_caveat}"
-            "6. REVIEWER FRAMING — phrase the mission `objective` so the L2 "
-            "reviewer judges it ONLY by the requested draft artifacts and "
-            "placeholder integrity, NOT by run/analysis-stage advancement. "
-            "State plainly in the objective: 'Bounded overlap paper-drafting "
-            "mission while current_stage stays `" + stage + "`; the "
-            "run/analysis-stage checklist and gates are BACKGROUND context "
-            "only and must not be treated as acceptance for this mission "
-            "unless the background run has catastrophically failed; judge "
-            "completion by the paper sections written and by placeholder "
-            "integrity (no fabricated numbers).'\n\n"
-            "Draft-stage checklist (for shaping the drafting mission scope; "
-            "do NOT mark its items done while current_stage is `" + stage
-            + "`):\n"
+            "6. Judge this direct drafting pass by the paper sections written "
+            "and placeholder integrity, not by run/analysis-stage advancement.\n\n"
+            "Draft-stage checklist (for shaping the drafting scope; "
+            "do NOT mark its items done while current_stage is `" + stage + "`):\n"
             f"{draft_checklist}\n"
         )
 
@@ -359,7 +327,7 @@ def build_continuous_prompt(
         "## Upstream defect detection and rollback\n"
         f"Current stage according to `research/PIPELINE_STATE.json`: `{stage}`.\n"
         f"Earlier stages: {earlier_stages}.\n\n"
-        "While inspecting the project to decide the next mission you may "
+        "While executing the project objective you may "
         "discover that an *upstream* (earlier-stage) artifact is missing, "
         "stale, or unreliable. Examples:\n"
         "- you're at `run` but `research/INFRA_CHOICE.md` does not exist,\n"
@@ -368,7 +336,7 @@ def build_continuous_prompt(
         "  scores (the benchmark evaluator is a stub);\n"
         "- you're at `draft` but `research/RESEARCH_BRIEF.md` was never\n"
         "  filled in with a real thesis.\n\n"
-        "When that happens, do NOT queue a forward-progress task that\n"
+        "When that happens, do NOT perform forward-progress work that\n"
         "pretends the gap doesn't exist, and do NOT edit the pipeline state\n"
         "machine yourself — stage transitions (including rollback) are the\n"
         "Manager's authority. Instead:\n\n"
@@ -383,10 +351,10 @@ def build_continuous_prompt(
         "3. **REPORT the defect for the Manager.** Name the earliest broken\n"
         "   stage and the missing artifact in your verdict `reason` (and in\n"
         "   any structured blocker field) so the Manager can roll the stage\n"
-        "   back. Do NOT queue a mission that calls `rollback_stage` and do\n"
+        "   back. Do NOT call `rollback_stage` and do\n"
         "   NOT write `research/PIPELINE_STATE.json`; the Manager performs the\n"
         "   transition.\n"
-        "4. **Do not queue forward-progress work that depends on the broken\n"
+        "4. **Do not perform forward-progress work that depends on the broken\n"
         "   stage.** A reported rollback supersedes everything else this\n"
         "   cycle; wait for the Manager to move the stage, then work the\n"
         "   earlier stage's checklist with concrete investigation (read\n"
@@ -419,13 +387,9 @@ def build_continuous_prompt(
     # yet, and we do not want to nag). Pure read; planner never writes.
     # ------------------------------------------------------------------
     wiki_block = ""
-    journal_has_terminal_history = bool(
-        journal_tail.strip() and journal_tail.strip() != "(empty)"
-    )
+    journal_has_terminal_history = bool(journal_tail.strip() and journal_tail.strip() != "(empty)")
     autors_root = _proot / ".autors"
-    wiki_candidates = (
-        sorted(autors_root.glob("*/wiki")) if autors_root.exists() else []
-    )
+    wiki_candidates = sorted(autors_root.glob("*/wiki")) if autors_root.exists() else []
     wiki_candidates = [
         w
         for w in wiki_candidates
@@ -475,9 +439,7 @@ def build_continuous_prompt(
                         except Exception:  # noqa: BLE001 - one bad card is isolated
                             continue
                     run_cards.sort(key=lambda row: (row[0], row[1]))
-                    latest_by_mission = {
-                        row[2].mission_id: row for row in run_cards
-                    }
+                    latest_by_mission = {row[2].mission_id: row for row in run_cards}
                     run_cards = sorted(
                         latest_by_mission.values(),
                         key=lambda row: (row[0], row[1]),
@@ -494,8 +456,8 @@ def build_continuous_prompt(
                             parts.append(f"  {excerpt}\n")
                     parts.append("\n")
         parts.append(
-            "If backlog is empty, you MAY use the stale watchlist or open "
-            "contradictions to seed an `idea-creator` mission. Read-only: "
+            "You MAY use the stale watchlist or open contradictions to inform "
+            "the next direct project change. Read-only: "
             "do not write to the wiki yourself; the reviewer's "
             "`wiki-curator` skill handles all writes.\n"
         )
@@ -520,9 +482,8 @@ def build_continuous_prompt(
                     f"The wiki's collector cooldown of {collect_cooldown_hours:.0f}h "
                     f"has elapsed since the last collect "
                     f"(last_collected_at={state.last_collected_at}). "
-                    "If the active backlog has space, consider enqueueing one "
-                    "`wiki_collect` mission with the `wiki-collector` engineer "
-                    "skill. It is a small, train-free background mission that "
+                    "When relevant, directly run one small train-free wiki "
+                    "collection pass using the `wiki-collector` guidance; it "
                     "derives 5-10 queries from project state and ingests new "
                     "arxiv / github hits into sources/*. The reviewer's "
                     "wiki-curator handles promotion on the same mission's "
@@ -532,15 +493,15 @@ def build_continuous_prompt(
 
     host_policy_block = (
         "## Dynamic host policy\n"
-        "- Planner owns task sizing and impact priority. The host does not reject "
-        "tasks based on score, batch size, artifact count, context count, prose "
+        "- Planner owns direct implementation choices and impact priority. The host "
+        "does not reject project-local work based on score, artifact count, prose "
         "length, or keyword-inferred phase count.\n"
         "- A reversible project-local archive/quarantine with provenance is "
-        "ordinary Engineer work, not an external operator dependency. If both "
-        "archive and delete/overwrite would unblock progress, queue the safe "
+        "ordinary Planner work, not an external operator dependency. If both "
+        "archive and delete/overwrite would unblock progress, perform the safe "
         "archive; require operator approval only for the destructive option.\n"
-        "- The final output must match the provided planner schema and be JSON "
-        "only, with no prose or Markdown fence.\n\n"
+        "- The final response may contain prose but must end with the two plain "
+        "key-value completion lines from the direct-execution contract.\n\n"
     )
 
     objective_contract_block = (
@@ -548,10 +509,10 @@ def build_continuous_prompt(
         "The operator's hard success criteria and explicit non-qualifying "
         "outcomes are acceptance constraints, not an optimization hint. The "
         "current-stage gate controls ordering but never lowers those criteria. "
-        "Do not enqueue a mission whose acceptance can be satisfied entirely "
+        "Do not perform work whose acceptance can be satisfied entirely "
         "by an outcome the operator says does not count. Supporting searches, "
         "probes, computation, and literature work may be internal steps inside "
-        "a qualifying mission; they are not a successful mission outcome by "
+        "a qualifying implementation; they are not a successful outcome by "
         "themselves.\n\n"
     )
     planner_hygiene_block = (
@@ -564,7 +525,7 @@ def build_continuous_prompt(
         planner_hygiene_block += (
             " For paper infrastructure, trust the fresh model-backed "
             "`paper/PAPER_INFRASTRUCTURE_REVIEW.json`; if missing or stale, "
-            "route its generator rather than running an ad hoc keyword scan."
+            "run its generator rather than using an ad hoc keyword scan."
         )
 
     # Compile from structured state only: vertical/stage, target contract,
@@ -588,21 +549,15 @@ def build_continuous_prompt(
         parallel_drafting_block,
         wiki_block,
         search_altitude_block,
-        "## Original operator request (immutable anchor)\n"
-        + continuous_objective.strip(),
+        "## Original operator request (immutable anchor)\n" + continuous_objective.strip(),
         "## Journal of completed work (most recent last)\n"
-        + (
-            journal_tail.strip()
-            or "(no completed work yet — this is the first cycle)"
-        ),
+        + (journal_tail.strip() or "(no completed work yet — this is the first cycle)"),
         "## Current reality (authoritative over the journal above)\n"
-        + (
-            runtime_change_summary.strip()
-            or "(no additional runtime context)"
-        ),
+        + (runtime_change_summary.strip() or "(no additional runtime context)"),
         planner_hygiene_block,
         cycle_line,
-        "Inspect the project now and return the JSON verdict.",
+        "Inspect the project now, implement and verify the requested outcome, then "
+        "finish with the key-value completion footer.",
     )
 
 
@@ -612,10 +567,8 @@ __all__ = [
     "OPERATIONS",
     "PARALLEL_DRAFT",
     "PLAN_PREVIEW",
-    "SCHEMA_REPAIR",
     "build_bounded_dag_prompt",
     "build_continuous_prompt",
-    "build_schema_repair_prompt",
     "continuous_request",
     "preview_request",
 ]

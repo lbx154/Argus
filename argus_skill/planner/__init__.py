@@ -1,9 +1,9 @@
 """Planner sub-agent.
 
-Per planning cycle, :class:`Planner.plan_next` inspects the project state
-and emits the next batch of backlog items (or declares the project done).
-The historical "critic" iteration loop was removed; the L2 reviewer
-verdict + the planner together drive the daemon now.
+The continuous Planner directly edits and verifies the active project, then
+reports completion through a small key-value footer mapped to
+:class:`PlannerVerdict`.  The bounded handoff helper may still emit key-value
+task blocks for Manager-authored DAGs.
 """
 
 from .planner import (

@@ -43,9 +43,8 @@ class PlanningContextMixin:
 
     def _planner_task_tags(self, task: Any) -> list[str]:
         scope = self._normalize_planner_scope(getattr(task, "scope", ""))
-        if (
-            scope == PLANNER_SCOPE_FINAL_SUBMISSION
-            and not self._effective_full_paper_gate(self._artifact_root())
+        if scope == PLANNER_SCOPE_FINAL_SUBMISSION and not self._effective_full_paper_gate(
+            self._artifact_root()
         ):
             # ``final_submission`` is a paper-only transport scope. A Planner
             # may still choose it for another vertical's terminal review task,
@@ -76,10 +75,7 @@ class PlanningContextMixin:
                 Path(self.memory.root),
                 project_root=self._project_workdir(),
             )
-            rows = [
-                store.public_authorization(row)
-                for row in store.current_authorizations()
-            ]
+            rows = [store.public_authorization(row) for row in store.current_authorizations()]
         except (OSError, TypeError, ValueError):
             log.warning("failed to load current Manager authorizations", exc_info=True)
             return ""
@@ -92,19 +88,12 @@ class PlanningContextMixin:
             "and authorization_action on that task; never invent or reuse an id.",
         ]
         for row in rows:
-            lines.append(
-                "- "
-                + json.dumps(row, ensure_ascii=False, sort_keys=True)
-            )
+            lines.append("- " + json.dumps(row, ensure_ascii=False, sort_keys=True))
         return "\n".join(lines)
 
     def _validated_task_authorization(self, task: Any) -> tuple[str, str]:
-        authorization_id = str(
-            getattr(task, "authorization_id", "") or ""
-        ).strip()
-        action = str(
-            getattr(task, "authorization_action", "") or ""
-        ).strip().lower()
+        authorization_id = str(getattr(task, "authorization_id", "") or "").strip()
+        action = str(getattr(task, "authorization_action", "") or "").strip().lower()
         if not authorization_id and not action:
             return "", ""
         if not authorization_id or not action:
@@ -118,8 +107,7 @@ class PlanningContextMixin:
             project_root=self._project_workdir(),
         )
         rows = {
-            str(row.get("authorization_id") or ""): row
-            for row in store.current_authorizations()
+            str(row.get("authorization_id") or ""): row for row in store.current_authorizations()
         }
         row = rows.get(authorization_id)
         if row is None:
@@ -153,14 +141,10 @@ class PlanningContextMixin:
 
     def _render_backlog_item_metadata(self, item: BacklogItem) -> str:
         scope = self._planner_scope_from_item(item)
-        context_refs = [
-            ref for ref in getattr(item, "context_refs", []) if isinstance(ref, dict)
-        ]
+        context_refs = [ref for ref in getattr(item, "context_refs", []) if isinstance(ref, dict)]
         acceptance_check = str(getattr(item, "acceptance_check", "") or "").strip()
         non_goals = [
-            str(value).strip()
-            for value in getattr(item, "non_goals", [])
-            if str(value).strip()
+            str(value).strip() for value in getattr(item, "non_goals", []) if str(value).strip()
         ]
         if (
             not scope
@@ -213,19 +197,14 @@ class PlanningContextMixin:
                 )
         if context_refs:
             lines.append("")
-            lines.append(
-                "### Context references — Open only as needed; contents are not preloaded"
-            )
+            lines.append("### Context references — Open only as needed; contents are not preloaded")
             for ref in context_refs:
                 kind = str(ref.get("kind") or "artifact")
                 target = str(ref.get("ref") or "").strip()
                 if not target:
                     continue
                 why = str(ref.get("why") or "").strip()
-                content_hash = str(ref.get("content_hash") or "").strip()
                 suffix = f" — {why}" if why else ""
-                if content_hash:
-                    suffix += f" (content_hash: {content_hash})"
                 lines.append(f"- [{kind}] {target}{suffix}")
         return "\n".join(lines)
 
@@ -252,17 +231,10 @@ class PlanningContextMixin:
             if getattr(entry, "kind", "") != "mission_complete":
                 continue
             extra = getattr(entry, "extra", {}) or {}
-            if isinstance(extra, dict) and bool(
-                extra.get("final_submission_certified")
-            ):
-                certified_signature = str(
-                    extra.get("final_submission_signature") or ""
-                )
+            if isinstance(extra, dict) and bool(extra.get("final_submission_certified")):
+                certified_signature = str(extra.get("final_submission_signature") or "")
                 if certified_signature:
-                    if (
-                        bool(current_signature)
-                        and certified_signature == current_signature
-                    ):
+                    if bool(current_signature) and certified_signature == current_signature:
                         return True
                     continue
                 from ..terminal_state import project_unchanged_since
@@ -367,14 +339,10 @@ class PlanningContextMixin:
         reason string. Empty string when nothing matches or when local action
         is still required.
         """
-        return _operator_only_external_blocker_wait_reason_for_project(
-            self._project_workdir()
-        )
+        return _operator_only_external_blocker_wait_reason_for_project(self._project_workdir())
 
     @staticmethod
-    def _operator_external_blocker_short_circuit_decision(
-        *, project_root: Path
-    ) -> Any | None:
+    def _operator_external_blocker_short_circuit_decision(*, project_root: Path) -> Any | None:
         """Return a waiting verdict before planner runs when operator-only
         external artifacts are still absent.
         """
@@ -385,14 +353,10 @@ class PlanningContextMixin:
 
         return PlannerVerdict(
             project_done=False,
-            reason=(
-                f"{reason}; skipping planner cycle to avoid impossible "
-                "repair-task loop"
-            ),
+            reason=(f"{reason}; skipping planner cycle to avoid impossible repair-task loop"),
             waiting=True,
             waiting_reason=(
-                f"{reason}; skipping planner cycle to avoid impossible "
-                "repair-task loop"
+                f"{reason}; skipping planner cycle to avoid impossible repair-task loop"
             ),
             new_tasks=[],
             input_tokens=0,
@@ -466,9 +430,16 @@ class PlanningContextMixin:
             if data is None:
                 return {}
             keep = (
-                "intent_id", "source", "execution_task", "vertical", "kind",
+                "intent_id",
+                "source",
+                "execution_task",
+                "vertical",
+                "kind",
                 "continuous_generation",
-                "stages", "reason", "text", "error",
+                "stages",
+                "reason",
+                "text",
+                "error",
             )
             return {k: data.get(k) for k in keep if k in data}
         except Exception:  # noqa: BLE001
@@ -528,34 +499,26 @@ class PlanningContextMixin:
     def _record_planner_waiting(self, verdict: Any) -> str:
         contract = getattr(verdict, "waiting_contract", None)
         contract_state = (
-            self._persist_planner_waiting_contract(contract)
-            if contract is not None
-            else None
+            self._persist_planner_waiting_contract(contract) if contract is not None else None
         )
         # A declared external wait is active campaign work, not terminal
         # inactivity. Keep exponential polling without arming daemon idle-exit.
         sleep_s = self._enter_pause_backoff()
         reason = verdict.waiting_reason or verdict.reason or "awaiting external dependency"
-        repair_payload = (
-            verdict.schema_repair_event_payload()
-            if hasattr(verdict, "schema_repair_event_payload")
-            else {}
+        self._emit(
+            {
+                "type": EventType.LIFE_PLANNER_WAITING,
+                "cycle": self._planning_cycles,
+                "reason": reason,
+                "consecutive_idle_cycles": self._consecutive_idle_planner_cycles,
+                "suggested_sleep_s": sleep_s,
+                "waiting_contract": self._waiting_contract_event_payload(
+                    contract_state,
+                    contract,
+                ),
+                "waiting_contract_persisted": (contract is None or contract_state is not None),
+            }
         )
-        self._emit({
-            "type": EventType.LIFE_PLANNER_WAITING,
-            "cycle": self._planning_cycles,
-            "reason": reason,
-            "consecutive_idle_cycles": self._consecutive_idle_planner_cycles,
-            "suggested_sleep_s": sleep_s,
-            "waiting_contract": self._waiting_contract_event_payload(
-                contract_state,
-                contract,
-            ),
-            "waiting_contract_persisted": (
-                contract is None or contract_state is not None
-            ),
-            **repair_payload,
-        })
         self._emit_status(f"awaiting external dependency: {reason}")
         return PLAN_AWAITING
 
@@ -601,9 +564,7 @@ class PlanningContextMixin:
             project_root=self._project_workdir(),
         )
         identity = control.campaign_identity(
-            objective=str(
-                getattr(self.config, "continuous_objective", "") or ""
-            )
+            objective=str(getattr(self.config, "continuous_objective", "") or "")
         )
         control.clear_wait_if_current(
             identity=identity,
@@ -697,8 +658,7 @@ class PlanningContextMixin:
             and str(previous.get("stage") or "") == stage
             and str(previous.get("reason") or "") == reason
             and str(previous.get("diagnostic") or "") == diagnostic
-            and str(previous.get("evidence_signature") or "")
-            == evidence_signature
+            and str(previous.get("evidence_signature") or "") == evidence_signature
         )
         attempts = int(previous.get("attempts") or 0) + 1 if same_feedback else 1
         created_at = (
@@ -706,18 +666,20 @@ class PlanningContextMixin:
             if same_feedback and previous is not None
             else time.time()
         )
-        return self._write_manager_planner_feedback({
-            "version": 1,
-            "active": True,
-            "objective_fingerprint": self._planner_waiting_objective_fingerprint(),
-            "stage": stage,
-            "reason": reason,
-            "diagnostic": diagnostic,
-            "evidence_signature": evidence_signature,
-            "attempts": attempts,
-            "created_at": created_at,
-            "updated_at": time.time(),
-        })
+        return self._write_manager_planner_feedback(
+            {
+                "version": 1,
+                "active": True,
+                "objective_fingerprint": self._planner_waiting_objective_fingerprint(),
+                "stage": stage,
+                "reason": reason,
+                "diagnostic": diagnostic,
+                "evidence_signature": evidence_signature,
+                "attempts": attempts,
+                "created_at": created_at,
+                "updated_at": time.time(),
+            }
+        )
 
     def _clear_manager_planner_feedback(self) -> None:
         state = self._load_manager_planner_feedback()
@@ -791,14 +753,16 @@ class PlanningContextMixin:
                 payload["superseded_by_runtime_revision"] = runtime_revision
                 payload["updated_at"] = time.time()
                 self._write_planner_waiting_contract_state(payload)
-                self._emit({
-                    "type": EventType.LIFE_PLANNER_WAITING_WOKEN,
-                    "blocker_fingerprint": payload.get("blocker_fingerprint"),
-                    "recheck_token": payload.get("recheck_token"),
-                    "wake_reason": "runtime_revision_changed",
-                    "authored_runtime_revision": authored_revision,
-                    "current_runtime_revision": runtime_revision,
-                })
+                self._emit(
+                    {
+                        "type": EventType.LIFE_PLANNER_WAITING_WOKEN,
+                        "blocker_fingerprint": payload.get("blocker_fingerprint"),
+                        "recheck_token": payload.get("recheck_token"),
+                        "wake_reason": "runtime_revision_changed",
+                        "authored_runtime_revision": authored_revision,
+                        "current_runtime_revision": runtime_revision,
+                    }
+                )
             return None
         if not str(payload.get("blocker_fingerprint") or "").strip():
             return None
@@ -891,8 +855,7 @@ class PlanningContextMixin:
             )
         if "artifact_revision" in wake_sources:
             revision["artifacts"] = [
-                self._waiting_revision_file(project_root / relative)
-                for relative in watched_paths
+                self._waiting_revision_file(project_root / relative) for relative in watched_paths
             ]
         if "subagent_terminal" in wake_sources:
             terminal_rows: list[dict[str, str]] = []
@@ -904,30 +867,33 @@ class PlanningContextMixin:
                     continue
                 if not isinstance(payload, dict):
                     continue
-                state = str(
-                    payload.get("status") or payload.get("state") or ""
-                ).strip().lower()
+                state = str(payload.get("status") or payload.get("state") or "").strip().lower()
                 if state not in {
-                    "completed", "complete", "done", "failed", "error",
-                    "cancelled", "canceled", "stopped", "early_stop",
+                    "completed",
+                    "complete",
+                    "done",
+                    "failed",
+                    "error",
+                    "cancelled",
+                    "canceled",
+                    "stopped",
+                    "early_stop",
                 }:
                     continue
-                terminal_rows.append({
-                    "task_id": str(payload.get("task_id") or path.stem),
-                    "state": state,
-                    "decision": str(payload.get("decision") or ""),
-                })
+                terminal_rows.append(
+                    {
+                        "task_id": str(payload.get("task_id") or path.stem),
+                        "state": state,
+                        "decision": str(payload.get("decision") or ""),
+                    }
+                )
             revision["subagent_terminal"] = terminal_rows
         blob = json.dumps(revision, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
     def _planner_event_wait_outcome(self) -> str:
         state = self._load_planner_waiting_contract_state()
-        if (
-            state is None
-            or not bool(state.get("active"))
-            or state.get("wait_mode") != "event"
-        ):
+        if state is None or not bool(state.get("active")) or state.get("wait_mode") != "event":
             return ""
         if isinstance(state.get("manager_resolution"), dict):
             return ""
@@ -948,14 +914,16 @@ class PlanningContextMixin:
             state["wake_reason"] = wake_reason
             state["updated_at"] = time.time()
             self._write_planner_waiting_contract_state(state)
-            self._emit({
-                "type": EventType.LIFE_PLANNER_WAITING_WOKEN,
-                "blocker_fingerprint": state.get("blocker_fingerprint"),
-                "recheck_token": state.get("recheck_token"),
-                "wake_reason": wake_reason,
-                "observed_revision": observed_revision,
-                "current_revision": current_revision,
-            })
+            self._emit(
+                {
+                    "type": EventType.LIFE_PLANNER_WAITING_WOKEN,
+                    "blocker_fingerprint": state.get("blocker_fingerprint"),
+                    "recheck_token": state.get("recheck_token"),
+                    "wake_reason": wake_reason,
+                    "observed_revision": observed_revision,
+                    "current_revision": current_revision,
+                }
+            )
             self._reset_idle_backoff()
             return ""
         if not observed_revision:
@@ -973,22 +941,14 @@ class PlanningContextMixin:
             blocker_fingerprint=str(state.get("blocker_fingerprint") or ""),
             recheck_condition=str(state.get("recheck_condition") or ""),
             recheck_token=str(state.get("recheck_token") or ""),
-            allow_verification_probe=bool(
-                state.get("allow_verification_probe", False)
-            ),
+            allow_verification_probe=bool(state.get("allow_verification_probe", False)),
             recheck_after_seconds=int(state.get("recheck_after_seconds") or 0),
-            stage_reconciliation_required=bool(
-                state.get("stage_reconciliation_required", False)
-            ),
+            stage_reconciliation_required=bool(state.get("stage_reconciliation_required", False)),
             wait_mode="event",
             wake_on=tuple(str(value) for value in state.get("wake_on") or []),
-            watched_paths=tuple(
-                str(value) for value in state.get("watched_paths") or []
-            ),
+            watched_paths=tuple(str(value) for value in state.get("watched_paths") or []),
             expires_at=expires_at,
-            operator_action_required=bool(
-                state.get("operator_action_required", False)
-            ),
+            operator_action_required=bool(state.get("operator_action_required", False)),
         )
         verdict = PlannerVerdict(
             project_done=False,
@@ -1001,16 +961,18 @@ class PlanningContextMixin:
             return PLAN_RETRY
 
         sleep_s = self._enter_idle_backoff()
-        self._emit({
-            "type": EventType.LIFE_PLANNER_WAITING,
-            "cycle": self._planning_cycles,
-            "reason": state.get("recheck_condition") or "awaiting event",
-            "suggested_sleep_s": sleep_s,
-            "model_call_skipped": True,
-            "wait_mode": "event",
-            "observed_revision": current_revision,
-            "waiting_contract": self._waiting_contract_event_payload(state, None),
-        })
+        self._emit(
+            {
+                "type": EventType.LIFE_PLANNER_WAITING,
+                "cycle": self._planning_cycles,
+                "reason": state.get("recheck_condition") or "awaiting event",
+                "suggested_sleep_s": sleep_s,
+                "model_call_skipped": True,
+                "wait_mode": "event",
+                "observed_revision": current_revision,
+                "waiting_contract": self._waiting_contract_event_payload(state, None),
+            }
+        )
         self._emit_status("awaiting declared event; Planner call skipped")
         return PLAN_AWAITING
 
@@ -1019,9 +981,7 @@ class PlanningContextMixin:
         contract: Any,
     ) -> dict[str, Any] | None:
         blocker_fingerprint, recheck_token = self._waiting_contract_key(contract)
-        recheck_condition = str(
-            getattr(contract, "recheck_condition", "") or ""
-        ).strip()
+        recheck_condition = str(getattr(contract, "recheck_condition", "") or "").strip()
         if not blocker_fingerprint or not recheck_token or not recheck_condition:
             return None
         previous = self._load_planner_waiting_contract_state() or {}
@@ -1032,9 +992,7 @@ class PlanningContextMixin:
         now = time.time()
         wait_mode = str(getattr(contract, "wait_mode", "poll") or "poll")
         wake_on = [str(value) for value in getattr(contract, "wake_on", ())]
-        watched_paths = [
-            str(value) for value in getattr(contract, "watched_paths", ())
-        ]
+        watched_paths = [str(value) for value in getattr(contract, "watched_paths", ())]
         wait_id = hashlib.sha256(
             (
                 self._planner_waiting_objective_fingerprint()
@@ -1053,9 +1011,7 @@ class PlanningContextMixin:
                 project_root=self._project_workdir(),
             )
             identity = control.campaign_identity(
-                objective=str(
-                    getattr(self.config, "continuous_objective", "") or ""
-                )
+                objective=str(getattr(self.config, "continuous_objective", "") or "")
             )
             control_head = control.activate_wait(
                 identity=identity,
@@ -1084,12 +1040,8 @@ class PlanningContextMixin:
             "stage_reconciliation_required": bool(
                 getattr(contract, "stage_reconciliation_required", False)
             ),
-            "operator_action_required": bool(
-                getattr(contract, "operator_action_required", False)
-            ),
-            "allow_verification_probe": bool(
-                getattr(contract, "allow_verification_probe", False)
-            ),
+            "operator_action_required": bool(getattr(contract, "operator_action_required", False)),
+            "allow_verification_probe": bool(getattr(contract, "allow_verification_probe", False)),
             "recheck_after_seconds": max(
                 0,
                 min(
@@ -1111,14 +1063,10 @@ class PlanningContextMixin:
                 watched_paths=watched_paths,
             ),
             "first_observed_at": (
-                float(previous.get("first_observed_at") or now)
-                if same_condition
-                else now
+                float(previous.get("first_observed_at") or now) if same_condition else now
             ),
             "updated_at": now,
-            "last_probe_fingerprint": str(
-                previous.get("last_probe_fingerprint") or ""
-            ),
+            "last_probe_fingerprint": str(previous.get("last_probe_fingerprint") or ""),
             "last_probe_token": str(previous.get("last_probe_token") or ""),
             "last_probe_at": float(previous.get("last_probe_at") or 0.0),
             "probed_conditions": [
@@ -1133,14 +1081,11 @@ class PlanningContextMixin:
             ),
             "manager_resolution": (
                 previous.get("manager_resolution")
-                if same_condition
-                and isinstance(previous.get("manager_resolution"), dict)
+                if same_condition and isinstance(previous.get("manager_resolution"), dict)
                 else None
             ),
             "resolution_retry_count": (
-                int(previous.get("resolution_retry_count") or 0)
-                if same_condition
-                else 0
+                int(previous.get("resolution_retry_count") or 0) if same_condition else 0
             ),
             "active": True,
         }
@@ -1185,20 +1130,20 @@ class PlanningContextMixin:
         state["last_probe_at"] = probed_at
         state["updated_at"] = state["last_probe_at"]
         probed_conditions = [
-            entry
-            for entry in (state.get("probed_conditions") or [])
-            if isinstance(entry, dict)
+            entry for entry in (state.get("probed_conditions") or []) if isinstance(entry, dict)
         ]
         if not any(
             entry.get("blocker_fingerprint") == blocker_fingerprint
             and entry.get("recheck_token") == recheck_token
             for entry in probed_conditions
         ):
-            probed_conditions.append({
-                "blocker_fingerprint": blocker_fingerprint,
-                "recheck_token": recheck_token,
-                "probed_at": probed_at,
-            })
+            probed_conditions.append(
+                {
+                    "blocker_fingerprint": blocker_fingerprint,
+                    "recheck_token": recheck_token,
+                    "probed_at": probed_at,
+                }
+            )
         state["probed_conditions"] = probed_conditions
 
     def _finalize_planner_waiting_contract_probe(
@@ -1240,13 +1185,10 @@ class PlanningContextMixin:
         recheck_token = str(pending.get("recheck_token") or "")
         try:
             item_exists = any(
-                getattr(item, "id", "") == item_id
-                for item in self.memory.backlog.all()
+                getattr(item, "id", "") == item_id for item in self.memory.backlog.all()
             )
         except Exception:  # noqa: BLE001
-            log.exception(
-                "failed to reconcile pending planner verification probe"
-            )
+            log.exception("failed to reconcile pending planner verification probe")
             return None
         if item_exists:
             self._append_probed_condition(
@@ -1293,9 +1235,7 @@ class PlanningContextMixin:
             "reason": str(manager_reason or "").strip(),
             "target_stage": str(target_stage or "").strip(),
             "resolved_at": now,
-            "blocker_fingerprint": str(
-                state.get("blocker_fingerprint") or ""
-            ),
+            "blocker_fingerprint": str(state.get("blocker_fingerprint") or ""),
             "recheck_condition": str(state.get("recheck_condition") or ""),
         }
         state["resolution_retry_count"] = 0
@@ -1366,9 +1306,7 @@ class PlanningContextMixin:
             ),
             "wait_mode": getattr(contract, "wait_mode", "poll"),
             "wake_on": list(getattr(contract, "wake_on", ()) or ()),
-            "watched_paths": list(
-                getattr(contract, "watched_paths", ()) or ()
-            ),
+            "watched_paths": list(getattr(contract, "watched_paths", ()) or ()),
             "expires_at": getattr(contract, "expires_at", 0.0),
         }
         return {
@@ -1411,7 +1349,6 @@ class PlanningContextMixin:
             f"- recheck_condition: {state.get('recheck_condition') or ''}\n"
             f"- wait_mode: {state.get('wait_mode') or 'poll'}\n"
             f"- wake_on: {state.get('wake_on') or []}\n"
-            f"- observed_revision: {state.get('observed_revision') or ''}\n"
             "- stage_reconciliation_required: "
             f"{bool(state.get('stage_reconciliation_required'))}\n"
             "- operator_action_required: "
@@ -1442,9 +1379,7 @@ class PlanningContextMixin:
             contract_state = self._load_planner_waiting_contract_state()
             if contract_state is None:
                 return False
-            contract_state = self._reconcile_planner_waiting_contract_probe(
-                contract_state
-            )
+            contract_state = self._reconcile_planner_waiting_contract_probe(contract_state)
             if contract_state is None:
                 return False
             blocker_fingerprint, recheck_token = self._waiting_contract_key(contract)
@@ -1454,10 +1389,8 @@ class PlanningContextMixin:
                 or not bool(contract_state.get("allow_verification_probe"))
             ):
                 return False
-            if (
-                time.time()
-                < float(contract_state.get("first_observed_at") or 0.0)
-                + float(contract_state.get("recheck_after_seconds") or 0.0)
+            if time.time() < float(contract_state.get("first_observed_at") or 0.0) + float(
+                contract_state.get("recheck_after_seconds") or 0.0
             ):
                 return False
             if any(
@@ -1524,9 +1457,7 @@ class PlanningContextMixin:
             self.memory.backlog.add(item)
         except Exception:  # noqa: BLE001
             if contract_state_before_probe is not None:
-                self._write_planner_waiting_contract_state(
-                    contract_state_before_probe
-                )
+                self._write_planner_waiting_contract_state(contract_state_before_probe)
             log.exception("failed to enqueue verification probe; continuing")
             return False
         self._last_verification_probe_at = now
@@ -1545,16 +1476,18 @@ class PlanningContextMixin:
         # also resets it via _reset_idle_backoff()).
         self._consecutive_idle_planner_cycles = 0
         self._suggested_sleep_s = 0.0
-        self._emit({
-            "type": EventType.LIFE_PLANNER_VERIFICATION_PROBE,
-            "cycle": self._planning_cycles,
-            "reason": reason,
-            "idle_cycles": n,
-            "waiting_contract": self._waiting_contract_event_payload(
-                contract_state,
-                contract,
-            ),
-        })
+        self._emit(
+            {
+                "type": EventType.LIFE_PLANNER_VERIFICATION_PROBE,
+                "cycle": self._planning_cycles,
+                "reason": reason,
+                "idle_cycles": n,
+                "waiting_contract": self._waiting_contract_event_payload(
+                    contract_state,
+                    contract,
+                ),
+            }
+        )
         return True
 
     def _update_no_progress_streak(self, *, kind: str, report: Any) -> None:
@@ -1584,11 +1517,13 @@ class PlanningContextMixin:
         # Threshold crossed: surface to the operator, then reset so the alert
         # re-fires after another N (not on every subsequent mission).
         self._consecutive_no_progress_missions = 0
-        self._emit({
-            "type": EventType.LIFE_PLANNER_STALL_ESCALATION,
-            "consecutive_no_progress_missions": n,
-            "objective": (self.config.continuous_objective or "")[:200],
-        })
+        self._emit(
+            {
+                "type": EventType.LIFE_PLANNER_STALL_ESCALATION,
+                "consecutive_no_progress_missions": n,
+                "objective": (self.config.continuous_objective or "")[:200],
+            }
+        )
 
     def _wiki_collect_task_if_due_under_blocker(self) -> Any | None:
         project_root = self._project_workdir()
@@ -1639,19 +1574,21 @@ class PlanningContextMixin:
             iteration_max_cycles=1,
         )
         self.memory.backlog.add(item)
-        self._emit({
-            "type": EventType.LIFE_PLANNER_TASK_ADDED,
-            "cycle": self._planning_cycles,
-            "item_id": item.id,
-            "title": item.title,
-            "objective": item.objective,
-            "deps": list(item.deps),
-            "priority": item.priority,
-            "branch_id": item.id,
-            "parent_branch_id": item.deps[0] if item.deps else None,
-            "impact_score": task.impact_score,
-            "impact_area": task.impact_area,
-        })
+        self._emit(
+            {
+                "type": EventType.LIFE_PLANNER_TASK_ADDED,
+                "cycle": self._planning_cycles,
+                "item_id": item.id,
+                "title": item.title,
+                "objective": item.objective,
+                "deps": list(item.deps),
+                "priority": item.priority,
+                "branch_id": item.id,
+                "parent_branch_id": item.deps[0] if item.deps else None,
+                "impact_score": task.impact_score,
+                "impact_area": task.impact_area,
+            }
+        )
         delivered = self._emit_planner_verdict(
             status=PlannerVerdictStatus.PLANNED,
             completion_kind="tasks_scheduled",

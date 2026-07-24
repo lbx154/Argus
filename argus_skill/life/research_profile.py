@@ -1,7 +1,7 @@
 """Research-profile context for long-running life-mode projects."""
+
 from __future__ import annotations
 
-import hashlib
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,11 +28,6 @@ _SHARED_MODEL_CACHE_ROOT_ENV = "ARGUS_SKILL_SHARED_MODEL_CACHE_ROOT"
 class ResearchProfile:
     name: str
     text: str
-    sha256: str
-
-
-def _sha256(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _env_text(env: Mapping[str, str], key: str) -> str:
@@ -108,9 +103,7 @@ def ensure_research_api_environment(env: MutableMapping[str, str] | None = None)
     if engineer is not None and not _env_text(target, "OPENAI_BASE_URL") and engineer.base_url:
         target["OPENAI_BASE_URL"] = engineer.base_url
     text_models = tuple(
-        route.model
-        for route in (engineer, reviewer)
-        if route is not None and route.model
+        route.model for route in (engineer, reviewer) if route is not None and route.model
     )
     if not _env_text(target, "ARGUS_SKILL_TEXT_MODELS") and text_models:
         target["ARGUS_SKILL_TEXT_MODELS"] = ",".join(dict.fromkeys(text_models))
@@ -124,7 +117,6 @@ def ensure_research_api_environment(env: MutableMapping[str, str] | None = None)
         target["ARGUS_SKILL_IMAGE_REVIEW_MODEL"] = image_review.model
 
 
-
 def _capability_context(env: Mapping[str, str]) -> str:
     grant = load_model_api_grant(env)
     key_source = grant.key_source if grant is not None else "missing"
@@ -133,7 +125,9 @@ def _capability_context(env: Mapping[str, str]) -> str:
     image_model = grant.image_model if grant is not None else _DEFAULT_IMAGE_MODEL
     review_model = grant.image_review_model if grant is not None else "gpt-5.5"
     api_available = bool(grant and grant.usable)
-    vault_path = grant.vault_path if grant is not None and grant.vault_path else default_vault_path(env)
+    vault_path = (
+        grant.vault_path if grant is not None and grant.vault_path else default_vault_path(env)
+    )
     status = status_payload(env)
     raw_routes = status.get("routes")
     routes: dict[str, Any] = raw_routes if isinstance(raw_routes, dict) else {}
@@ -499,7 +493,7 @@ def load_research_profile(
     path_text = _read_profile_file(_env_text(source, _PROFILE_PATH_ENV))
     if path_text:
         name = _env_text(source, _PROFILE_ENV) or "custom-file"
-        return ResearchProfile(name=name, text=path_text, sha256=_sha256(path_text))
+        return ResearchProfile(name=name, text=path_text)
 
     name = _env_text(source, _PROFILE_ENV)
     if not name:
@@ -512,10 +506,10 @@ def load_research_profile(
             "- No built-in profile text is available for this name. Use "
             f"{_PROFILE_PATH_ENV} to provide project-specific instructions."
         )
-        return ResearchProfile(name=name, text=text, sha256=_sha256(text))
+        return ResearchProfile(name=name, text=text)
 
     text = builder()
-    return ResearchProfile(name=name, text=text, sha256=_sha256(text))
+    return ResearchProfile(name=name, text=text)
 
 
 def render_research_profile_context(
@@ -532,5 +526,4 @@ def render_research_profile_context(
         f"{_capability_context(source)}\n"
         "Profile metadata:\n"
         f"- profile_name: {profile.name}\n"
-        f"- profile_sha256: {profile.sha256}\n"
     )

@@ -116,9 +116,9 @@ def test_authorization_is_manager_owned_campaign_bound_and_one_shot(tmp_path: Pa
     )
     assert authorization.source_channel == "vscode"
     assert authorization.frozen_evidence[0]["sha256"] not in {"", "missing"}
-    assert store.read_snapshot()["authorization_ids"] == [
-        authorization.authorization_id
-    ]
+    public = store.public_authorization(store.get_authorization(authorization.authorization_id))
+    assert public["frozen_evidence"] == [{"path": "research/RESULT.json"}]
+    assert store.read_snapshot()["authorization_ids"] == [authorization.authorization_id]
 
     consumed = store.consume_authorization(
         authorization_id=authorization.authorization_id,
@@ -238,11 +238,13 @@ def test_validator_repair_rejects_symlink_created_after_authorization(
     evidence.write_text("frozen\n", encoding="utf-8")
     store.clear_wait_for_new_evidence(
         identity=identity,
-        terminal_evidence=[{
-            "failure_source": "validator_defect",
-            "validator_id": "new-validator",
-            "repair_paths": ["tests/new_validator.py"],
-        }],
+        terminal_evidence=[
+            {
+                "failure_source": "validator_defect",
+                "validator_id": "new-validator",
+                "repair_paths": ["tests/new_validator.py"],
+            }
+        ],
         reason="Reviewer diagnosed a missing validator",
     )
     authorization = store.issue_authorization(
@@ -281,11 +283,13 @@ def test_validator_repair_rejects_directory_created_after_authorization(
     identity = store.campaign_identity()
     store.clear_wait_for_new_evidence(
         identity=identity,
-        terminal_evidence=[{
-            "failure_source": "validator_defect",
-            "validator_id": "new-validator",
-            "repair_paths": ["tests/new_validator.py"],
-        }],
+        terminal_evidence=[
+            {
+                "failure_source": "validator_defect",
+                "validator_id": "new-validator",
+                "repair_paths": ["tests/new_validator.py"],
+            }
+        ],
         reason="Reviewer diagnosed a missing validator",
     )
     authorization = store.issue_authorization(
@@ -354,15 +358,19 @@ def _prepare_validator_repair(
     validator.write_text("def test_contract(): assert False\n", encoding="utf-8")
     store.clear_wait_for_new_evidence(
         identity=identity,
-        terminal_evidence=[{
-            "failure_source": "validator_defect",
-            "validator_id": "terminal-contract",
-            "repair_paths": ["tests/test_terminal_contract.py"],
-            "failure_source_evidence": [{
-                "artifact": "tests/test_terminal_contract.py",
-                "observation": "validator binds a stale hash",
-            }],
-        }],
+        terminal_evidence=[
+            {
+                "failure_source": "validator_defect",
+                "validator_id": "terminal-contract",
+                "repair_paths": ["tests/test_terminal_contract.py"],
+                "failure_source_evidence": [
+                    {
+                        "artifact": "tests/test_terminal_contract.py",
+                        "observation": "validator binds a stale hash",
+                    }
+                ],
+            }
+        ],
         reason="Reviewer diagnosed validator defect",
     )
     authorization = store.issue_authorization(
@@ -565,11 +573,13 @@ def test_scientific_evidence_failure_cannot_claim_validator_repair(
     identity, authorization, _evidence, _validator = _prepare_validator_repair(store)
     store.clear_wait_for_new_evidence(
         identity=identity,
-        terminal_evidence=[{
-            "failure_source": "scientific_evidence_failure",
-            "validator_id": "",
-            "repair_paths": [],
-        }],
+        terminal_evidence=[
+            {
+                "failure_source": "scientific_evidence_failure",
+                "validator_id": "",
+                "repair_paths": [],
+            }
+        ],
         reason="Reviewer found scientific evidence failure",
     )
 

@@ -40,9 +40,7 @@ class PlanningCycleVerdictMixin:
         )
 
         state.subagent_family_failures = self._recent_subagent_family_failures()
-        stuck_families_note = self._stuck_subagent_families_note(
-            state.subagent_family_failures
-        )
+        stuck_families_note = self._stuck_subagent_families_note(state.subagent_family_failures)
 
         try:
             from ...planner import Planner
@@ -59,7 +57,8 @@ class PlanningCycleVerdictMixin:
                     journal_tail=journal_tail,
                     planning_cycle=self._planning_cycles - 1,
                     runtime_change_summary="\n\n".join(
-                        part for part in (
+                        part
+                        for part in (
                             self._manager_intent_prompt_block(
                                 state.manager_intent,
                                 self.config.continuous_objective,
@@ -69,7 +68,8 @@ class PlanningCycleVerdictMixin:
                             stuck_families_note,
                             runtime_note,
                             revision_note,
-                        ) if part
+                        )
+                        if part
                     ),
                     config=self._planner_config(),
                 )
@@ -79,17 +79,21 @@ class PlanningCycleVerdictMixin:
         except Exception as exc:  # noqa: BLE001
             log.exception("life supervisor: planner raised; retrying later")
             if revision_request is not None:
-                self._emit({
-                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
-                    "reason": f"planner raised: {type(exc).__name__}: {exc}",
-                    "expected_plan_id": state.expected_plan_id,
-                    "expected_plan_version": state.expected_plan_version,
-                })
-            self._emit({
-                "type": EventType.LIFE_PLANNER_ERROR,
-                "cycle": self._planning_cycles,
-                "error": f"{type(exc).__name__}: {exc}",
-            })
+                self._emit(
+                    {
+                        "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                        "reason": f"planner raised: {type(exc).__name__}: {exc}",
+                        "expected_plan_id": state.expected_plan_id,
+                        "expected_plan_version": state.expected_plan_version,
+                    }
+                )
+            self._emit(
+                {
+                    "type": EventType.LIFE_PLANNER_ERROR,
+                    "cycle": self._planning_cycles,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
             self._enter_idle_backoff()
             return PLAN_ERROR
         return None
@@ -98,44 +102,36 @@ class PlanningCycleVerdictMixin:
         revision_request = state.revision_request
         verdict = state.verdict
 
-        state.schema_repair_details = (
-            verdict.schema_repair_event_payload()
-            if hasattr(verdict, "schema_repair_event_payload")
-            else {}
-        )
-
         if verdict.error:
             if revision_request is not None:
-                self._emit({
-                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
-                    "reason": verdict.error,
-                    "expected_plan_id": state.expected_plan_id,
-                    "expected_plan_version": state.expected_plan_version,
-                })
+                self._emit(
+                    {
+                        "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                        "reason": verdict.error,
+                        "expected_plan_id": state.expected_plan_id,
+                        "expected_plan_version": state.expected_plan_version,
+                    }
+                )
             reconciliation = ""
             if (
                 revision_request is None
-                and verdict.error
-                == "planner said not done but produced no concrete tasks"
+                and verdict.error == "planner said not done but produced no concrete tasks"
             ):
-                reconciliation = self._reconcile_open_ended_terminal_stage_action(
-                    verdict
-                )
+                reconciliation = self._reconcile_open_ended_terminal_stage_action(verdict)
                 if not reconciliation:
-                    reconciliation = self._reconcile_reviewed_stage_empty_plan(
-                        verdict
-                    )
+                    reconciliation = self._reconcile_reviewed_stage_empty_plan(verdict)
             if reconciliation in {"advance", "rollback"}:
                 return PLAN_RETRY
             if reconciliation == "hold":
                 return self._pc_complete_terminal_empty_plan(state)
-            self._emit({
-                "type": EventType.LIFE_PLANNER_ERROR,
-                "cycle": self._planning_cycles,
-                "error": verdict.error,
-                "raw_text": verdict.raw_text,
-                **state.schema_repair_details,
-            })
+            self._emit(
+                {
+                    "type": EventType.LIFE_PLANNER_ERROR,
+                    "cycle": self._planning_cycles,
+                    "error": verdict.error,
+                    "raw_text": verdict.raw_text,
+                }
+            )
             self._emit_status(f"planner error: {verdict.error}; retry later")
             # A planner error is a no-work outcome: back off before retrying so
             # a persistently-failing planner cannot spin every poll interval.
@@ -157,12 +153,14 @@ class PlanningCycleVerdictMixin:
                 ),
                 new_tasks=[overlap_task],
             )
-            self._emit({
-                "type": "life.planner.wait_overridden",
-                "cycle": self._planning_cycles,
-                "task_title": overlap_task.title,
-                "reason": verdict.reason,
-            })
+            self._emit(
+                {
+                    "type": "life.planner.wait_overridden",
+                    "cycle": self._planning_cycles,
+                    "task_title": overlap_task.title,
+                    "reason": verdict.reason,
+                }
+            )
         state.verdict = verdict
         return None
 

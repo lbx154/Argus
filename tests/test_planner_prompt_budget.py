@@ -1,4 +1,5 @@
 """Planner prompt composition and size regression guards."""
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -66,11 +67,12 @@ def test_math_scope_prompt_is_compact_and_deduplicated(
     )
     assert prompt.count(objective) == 1
     assert "Argus planner role skill:" not in prompt
-    assert prompt.count("waiting_contract") == 1
+    assert "waiting_contract" not in prompt
+    assert prompt.count("PROJECT_DONE=true|false") == 1
     assert "not a routing command" in prompt
     assert "Integrity and reproducibility are admission constraints" in prompt
-    assert "scientific_decision=redirect|stop|uncertain" in prompt
-    assert "author its current-stage gate before routing work" in prompt
+    assert "do not delegate the implementation" in prompt
+    assert "JSON matching the provided schema" not in prompt
 
 
 def test_math_scope_prompt_excludes_unrelated_modules(
@@ -79,7 +81,7 @@ def test_math_scope_prompt_excludes_unrelated_modules(
 ) -> None:
     prompt, _objective = _build_math_scope_prompt(tmp_path, monkeypatch)
 
-    assert "## Planner operating contract" in prompt
+    assert "## Planner direct-execution contract" in prompt
     assert "## Stage checklist (scope)" in prompt
     assert "## Stage gate" in prompt
     assert "## Parallel paper-drafting track" not in prompt
@@ -92,8 +94,7 @@ def test_mature_math_prompt_keeps_only_bounded_terminal_history(
     monkeypatch,
 ) -> None:
     journal = "\n".join(
-        f"- [07-22 12:0{index}] mission_complete: result-{index} — "
-        + ("evidence " * 210)
+        f"- [07-22 12:0{index}] mission_complete: result-{index} — " + ("evidence " * 210)
         for index in range(3)
     )
 
@@ -141,9 +142,7 @@ def test_planner_journal_uses_latest_three_terminal_outcomes() -> None:
         ),
     ]
     supervisor = LifeSupervisor.__new__(LifeSupervisor)
-    supervisor.memory = SimpleNamespace(
-        journal=SimpleNamespace(tail=lambda _count: entries)
-    )
+    supervisor.memory = SimpleNamespace(journal=SimpleNamespace(tail=lambda _count: entries))
 
     rendered = supervisor._render_journal_for_planner()
 

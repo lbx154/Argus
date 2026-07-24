@@ -11,6 +11,7 @@ NEW mechanism: reading ``.argus_subagents/*.json`` directly and skipping a
 new task that targets a family with an unresolved failure streak, plus
 surfacing that fact in the planner's own prompt context.
 """
+
 from __future__ import annotations
 
 import json
@@ -25,18 +26,18 @@ from argus_skill.life.supervisor._core import LifeSupervisor
 
 
 class _CapturingPlannerRunner:
-    """Fake planner backend that returns a fixed JSON verdict and records
+    """Fake planner backend that returns a fixed key-value verdict and records
     every prompt it was called with, so tests can assert on advisory text."""
 
-    def __init__(self, verdict_json: str) -> None:
-        self._verdict_json = verdict_json
+    def __init__(self, verdict_text: str) -> None:
+        self._verdict_text = verdict_text
         self.prompts: list[str] = []
 
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
         self.prompts.append(prompt)
         return RunnerResult(
             exit_code=0,
-            agent_messages=[self._verdict_json],
+            agent_messages=[self._verdict_text],
             stdout_lines=[],
             stderr_lines=[],
             thread_id=None,
@@ -60,7 +61,11 @@ class _NullRunner:
 
 
 def _make_supervisor(
-    tmp_path: Path, monkeypatch, verdict_json: str, *, project_worktree: Path,
+    tmp_path: Path,
+    monkeypatch,
+    verdict_text: str,
+    *,
+    project_worktree: Path,
 ) -> LifeSupervisor:
     memory = LifeMemory.open(tmp_path / "life")
     config = LifeSupervisorConfig(
@@ -72,7 +77,7 @@ def _make_supervisor(
         project_worktree=project_worktree,
     )
     sink = _NullSink()
-    planner_runner = _CapturingPlannerRunner(verdict_json)
+    planner_runner = _CapturingPlannerRunner(verdict_text)
     sup = LifeSupervisor(
         memory=memory,
         runner=_NullRunner(),
@@ -108,25 +113,26 @@ def _write_error_streak(project_root: Path, family: str, *, count: int = 5) -> N
         (registry / f"{task_id}.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
-def _flat_verdict_json(*tasks: tuple[str, str, str]) -> str:
-    """Build a flat (non-DAG) verdict JSON from (title, objective, evidence)."""
-    return json.dumps({
-        "project_done": False,
-        "reason": "keep pushing the pipeline forward",
-        "waiting": False,
-        "waiting_reason": "",
-        "new_tasks": [
-            {
-                "title": title,
-                "impact_score": 5,
-                "impact_area": "reliability",
-                "evidence": evidence,
-                "scope": "bounded",
-                "objective": objective,
-            }
-            for title, objective, evidence in tasks
-        ],
-    })
+def _flat_verdict_kv(*tasks: tuple[str, str, str]) -> str:
+    """Build a flat key-value verdict from (title, objective, evidence)."""
+    lines = [
+        "PROJECT_DONE=false",
+        "REASON=keep pushing the pipeline forward",
+    ]
+    for index, (title, objective, evidence) in enumerate(tasks):
+        lines.extend(
+            [
+                f"TASK_KEY=task-{index}",
+                "TASK_DEPS=",
+                f"TASK_TITLE={title}",
+                f"TASK_OBJECTIVE={objective}",
+                "TASK_IMPACT_SCORE=5",
+                "TASK_IMPACT_AREA=reliability",
+                f"TASK_EVIDENCE={evidence}",
+                "TASK_SCOPE=bounded",
+            ]
+        )
+    return "\n".join(lines)
 
 
 def test_task_targeting_a_stuck_family_is_skipped(tmp_path, monkeypatch) -> None:
@@ -134,11 +140,13 @@ def test_task_targeting_a_stuck_family_is_skipped(tmp_path, monkeypatch) -> None
     project_root.mkdir()
     _write_error_streak(project_root, "swebench-verified-full-canary")
 
-    verdict_json = _flat_verdict_json((
-        "Synchronize SWE canary handoff gate",
-        "Resubmit the swebench-verified-full-canary run and refresh the handoff packet",
-        "SWE-bench is still live at 150/500 with zero official rows",
-    ))
+    verdict_json = _flat_verdict_kv(
+        (
+            "Synchronize SWE canary handoff gate",
+            "Resubmit the swebench-verified-full-canary run and refresh the handoff packet",
+            "SWE-bench is still live at 150/500 with zero official rows",
+        )
+    )
     sup = _make_supervisor(tmp_path, monkeypatch, verdict_json, project_worktree=project_root)
 
     result = sup._plan_next_work()
@@ -164,11 +172,13 @@ def test_task_unrelated_to_any_stuck_family_still_enqueues(tmp_path, monkeypatch
     project_root.mkdir()
     _write_error_streak(project_root, "swebench-verified-full-canary")
 
-    verdict_json = _flat_verdict_json((
-        "Write the related-work section",
-        "Draft paper/main.tex related work citing the grounded literature list",
-        "literature review is complete; drafting is the next open task",
-    ))
+    verdict_json = _flat_verdict_kv(
+        (
+            "Write the related-work section",
+            "Draft paper/main.tex related work citing the grounded literature list",
+            "literature review is complete; drafting is the next open task",
+        )
+    )
     sup = _make_supervisor(tmp_path, monkeypatch, verdict_json, project_worktree=project_root)
 
     result = sup._plan_next_work()
@@ -184,11 +194,13 @@ def test_no_stuck_families_means_no_circuit_breaker_activity(tmp_path, monkeypat
     project_root = tmp_path / "project"
     project_root.mkdir()  # no .argus_subagents at all
 
-    verdict_json = _flat_verdict_json((
-        "Run the swebench canary again",
-        "Resubmit swebench-verified-full-canary",
-        "first attempt, nothing has failed yet",
-    ))
+    verdict_json = _flat_verdict_kv(
+        (
+            "Run the swebench canary again",
+            "Resubmit swebench-verified-full-canary",
+            "first attempt, nothing has failed yet",
+        )
+    )
     sup = _make_supervisor(tmp_path, monkeypatch, verdict_json, project_worktree=project_root)
 
     assert sup._plan_next_work() is True
@@ -199,13 +211,17 @@ def test_no_stuck_families_means_no_circuit_breaker_activity(tmp_path, monkeypat
 def test_streak_below_limit_does_not_trip_the_breaker(tmp_path, monkeypatch) -> None:
     project_root = tmp_path / "project"
     project_root.mkdir()
-    _write_error_streak(project_root, "swebench-verified-full-canary", count=2)  # < default limit of 3
+    _write_error_streak(
+        project_root, "swebench-verified-full-canary", count=2
+    )  # < default limit of 3
 
-    verdict_json = _flat_verdict_json((
-        "Synchronize SWE canary handoff gate",
-        "Resubmit the swebench-verified-full-canary run",
-        "SWE-bench is still live at 150/500",
-    ))
+    verdict_json = _flat_verdict_kv(
+        (
+            "Synchronize SWE canary handoff gate",
+            "Resubmit the swebench-verified-full-canary run",
+            "SWE-bench is still live at 150/500",
+        )
+    )
     sup = _make_supervisor(tmp_path, monkeypatch, verdict_json, project_worktree=project_root)
 
     assert sup._plan_next_work() is True
@@ -218,11 +234,13 @@ def test_streak_limit_zero_disables_the_breaker(tmp_path, monkeypatch) -> None:
     project_root.mkdir()
     _write_error_streak(project_root, "swebench-verified-full-canary", count=10)
 
-    verdict_json = _flat_verdict_json((
-        "Synchronize SWE canary handoff gate",
-        "Resubmit the swebench-verified-full-canary run",
-        "SWE-bench is still live at 150/500",
-    ))
+    verdict_json = _flat_verdict_kv(
+        (
+            "Synchronize SWE canary handoff gate",
+            "Resubmit the swebench-verified-full-canary run",
+            "SWE-bench is still live at 150/500",
+        )
+    )
     sup = _make_supervisor(tmp_path, monkeypatch, verdict_json, project_worktree=project_root)
     sup.config.subagent_family_failure_streak_limit = 0
 
@@ -236,11 +254,13 @@ def test_advisory_block_reaches_the_planner_prompt(tmp_path, monkeypatch) -> Non
     project_root.mkdir()
     _write_error_streak(project_root, "swebench-verified-full-canary")
 
-    verdict_json = _flat_verdict_json((
-        "Write the related-work section",
-        "Draft paper/main.tex related work",
-        "unrelated to the stuck family",
-    ))
+    verdict_json = _flat_verdict_kv(
+        (
+            "Write the related-work section",
+            "Draft paper/main.tex related work",
+            "unrelated to the stuck family",
+        )
+    )
     sup = _make_supervisor(tmp_path, monkeypatch, verdict_json, project_worktree=project_root)
 
     assert sup._plan_next_work() is True
@@ -259,11 +279,13 @@ def test_underscore_and_hyphen_family_slugs_both_match(tmp_path, monkeypatch) ->
     project_root.mkdir()
     _write_error_streak(project_root, "swebench-verified-full-canary")
 
-    verdict_json = _flat_verdict_json((
-        "Retry swebench_verified full canary",
-        "Resubmit the swebench_verified_full_canary experiment",
-        "benchmark_family: swebench_verified",
-    ))
+    verdict_json = _flat_verdict_kv(
+        (
+            "Retry swebench_verified full canary",
+            "Resubmit the swebench_verified_full_canary experiment",
+            "benchmark_family: swebench_verified",
+        )
+    )
     sup = _make_supervisor(tmp_path, monkeypatch, verdict_json, project_worktree=project_root)
 
     assert sup._plan_next_work() == PLAN_RETRY

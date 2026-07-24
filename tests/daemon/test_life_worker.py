@@ -1,4 +1,5 @@
 """Smoke tests for the 7×24 life worker."""
+
 from __future__ import annotations
 
 import json
@@ -80,9 +81,7 @@ def test_max_active_daemons_defaults_to_64(
         lambda: {},
     )
 
-    assert life_worker_mod._max_active_daemons(
-        LifeWorkerConfig(life_dir=tmp_path)
-    ) == 64
+    assert life_worker_mod._max_active_daemons(LifeWorkerConfig(life_dir=tmp_path)) == 64
 
 
 def test_max_active_daemons_preserves_env_and_persisted_overrides(
@@ -437,22 +436,12 @@ def test_stop_daemon_drain_quiesces_continuous_and_waits_for_clean_exit(
     pid = _spawn_fake_daemon(
         tmp_path,
         pre_ready=(
-            "_stop = []\n"
-            "def _h(*a):\n"
-            "    _stop.append(1)\n"
-            "signal.signal(signal.SIGTERM, _h)\n"
+            "_stop = []\ndef _h(*a):\n    _stop.append(1)\nsignal.signal(signal.SIGTERM, _h)\n"
         ),
-        post_ready=(
-            "while not _stop:\n"
-            "    time.sleep(0.05)\n"
-            "time.sleep(0.8)\n"
-            "os._exit(0)\n"
-        ),
+        post_ready=("while not _stop:\n    time.sleep(0.05)\ntime.sleep(0.8)\nos._exit(0)\n"),
     )
     try:
-        life_worker_mod.write_continuous_config(
-            tmp_path, enabled=True, objective="keep going"
-        )
+        life_worker_mod.write_continuous_config(tmp_path, enabled=True, objective="keep going")
         rc = life_worker_mod.stop_daemon(tmp_path, drain=True, drain_timeout=15.0)
         assert rc == 0
         # Drain quiesced continuous mode (no NEW mission), preserving the objective.
@@ -505,15 +494,17 @@ def test_stop_daemon_force_kills_detached_descendants(tmp_path: Path) -> None:
     child_pid = int(child_pid_path.read_text(encoding="utf-8"))
     try:
         assert life_worker_mod._process_alive(child_pid)
-        assert life_worker_mod.stop_daemon(
-            tmp_path,
-            timeout=0.1,
-            force=True,
-        ) == 0
+        assert (
+            life_worker_mod.stop_daemon(
+                tmp_path,
+                timeout=0.1,
+                force=True,
+            )
+            == 0
+        )
         deadline = time.monotonic() + 3.0
         while time.monotonic() < deadline and (
-            life_worker_mod._process_alive(pid)
-            or life_worker_mod._process_alive(child_pid)
+            life_worker_mod._process_alive(pid) or life_worker_mod._process_alive(child_pid)
         ):
             time.sleep(0.05)
         assert not life_worker_mod._process_alive(pid)
@@ -550,8 +541,10 @@ def test_life_worker_drains_successive_missions_and_stops_on_signal(
     tmp_path: Path,
 ) -> None:
     cfg = LifeWorkerConfig(
-        life_dir=tmp_path, backend="memory",
-        global_daily_cap_usd=0.0, poll_interval=0.1,
+        life_dir=tmp_path,
+        backend="memory",
+        global_daily_cap_usd=0.0,
+        poll_interval=0.1,
     )
     mem = LifeMemory.open(tmp_path)
     mem.init()
@@ -743,6 +736,7 @@ def test_life_worker_separates_boundary_stop_from_mission_interrupt(
 
 def test_format_short_duration() -> None:
     from argus_skill.apps.cli._core import _format_short_duration
+
     assert _format_short_duration(0) == "0s"
     assert _format_short_duration(45) == "45s"
     assert _format_short_duration(125) == "2m 5s"
@@ -776,11 +770,7 @@ def test_runner_namespace_uses_global_skills_root(
         )
     )
 
-    expected_path = (
-        tmp_path / expected / "skills"
-        if skills_env is None
-        else tmp_path / expected
-    )
+    expected_path = tmp_path / expected / "skills" if skills_env is None else tmp_path / expected
     assert ns.skills_dir == str(expected_path)
     assert ns.workdir == str(tmp_path / "repo")
     assert ns.global_root == str(tmp_path / "root")
@@ -816,12 +806,14 @@ def test_workspace_start_rejects_another_live_session_on_same_workdir(
         )
 
     monkeypatch.setattr(life_worker_mod, "read_daemon_status", status)
-    error = _workspace_start_error(LifeWorkerConfig(
-        life_dir=target_life,
-        global_root=root,
-        project_workdir=workdir,
-        project_fingerprint="s-target",
-    ))
+    error = _workspace_start_error(
+        LifeWorkerConfig(
+            life_dir=target_life,
+            global_root=root,
+            project_workdir=workdir,
+            project_fingerprint="s-target",
+        )
+    )
 
     assert "already owned by active session s-owner" in error
 
@@ -841,12 +833,14 @@ def test_workspace_start_rejects_stale_config_after_workdir_change(
         SessionMeta(id="s-target", cwd=str(life_dir), workdir=str(new)),
     )
 
-    error = _workspace_start_error(LifeWorkerConfig(
-        life_dir=life_dir,
-        global_root=root,
-        project_workdir=old,
-        project_fingerprint="s-target",
-    ))
+    error = _workspace_start_error(
+        LifeWorkerConfig(
+            life_dir=life_dir,
+            global_root=root,
+            project_workdir=old,
+            project_fingerprint="s-target",
+        )
+    )
 
     assert "workdir changed during daemon startup" in error
 
@@ -870,12 +864,14 @@ def test_workspace_start_rejects_legacy_daemon_workdir_drift(
         ),
     )
 
-    error = _workspace_start_error(LifeWorkerConfig(
-        life_dir=life_dir,
-        global_root=root,
-        project_workdir=life_dir,
-        project_fingerprint="legacy",
-    ))
+    error = _workspace_start_error(
+        LifeWorkerConfig(
+            life_dir=life_dir,
+            global_root=root,
+            project_workdir=life_dir,
+            project_fingerprint="legacy",
+        )
+    )
 
     assert "legacy session workdir changed" in error
     assert str(old) in error
@@ -899,12 +895,14 @@ def test_workspace_start_rejects_unavailable_legacy_daemon_workdir(
         ),
     )
 
-    error = _workspace_start_error(LifeWorkerConfig(
-        life_dir=life_dir,
-        global_root=root,
-        project_workdir=life_dir,
-        project_fingerprint="legacy",
-    ))
+    error = _workspace_start_error(
+        LifeWorkerConfig(
+            life_dir=life_dir,
+            global_root=root,
+            project_workdir=life_dir,
+            project_fingerprint="legacy",
+        )
+    )
 
     assert "previous workdir is unavailable" in error
     assert str(missing) in error
@@ -954,9 +952,12 @@ def test_active_daemon_count_resolves_default_global_root(
     monkeypatch.setattr(life_worker_mod.core_paths, "global_root", lambda: tmp_path)
     (tmp_path / "projects").mkdir()
 
-    assert life_worker_mod._active_daemon_count(
-        LifeWorkerConfig(life_dir=tmp_path / "project", global_root=None)
-    ) == 0
+    assert (
+        life_worker_mod._active_daemon_count(
+            LifeWorkerConfig(life_dir=tmp_path / "project", global_root=None)
+        )
+        == 0
+    )
 
 
 def test_handoff_lock_wait_retries_until_available(
@@ -1069,7 +1070,7 @@ def test_worker_runtime_context_includes_research_profile(
     assert "Runtime info" in context
     assert "Engineer model: gpt-5.4-mini" in context
     assert "profile_name: emnlp2026-tierharness" in context
-    assert "profile_sha256:" in context
+    assert "profile_sha256:" not in context
 
 
 def test_worker_runtime_context_omits_research_profile_for_bounded_vertical(
@@ -1077,9 +1078,7 @@ def test_worker_runtime_context_omits_research_profile_for_bounded_vertical(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_RESEARCH_PROFILE", "emnlp2026-tierharness")
-    monkeypatch.setenv(
-        "ARGUS_SKILL_SPECIAL_PROMPTS_DIR", str(tmp_path / "no_special_prompts")
-    )
+    monkeypatch.setenv("ARGUS_SKILL_SPECIAL_PROMPTS_DIR", str(tmp_path / "no_special_prompts"))
     cfg = LifeWorkerConfig(life_dir=tmp_path, backend="memory")
 
     assert _worker_runtime_context(cfg, paper_mission=False) == ""
@@ -1092,8 +1091,7 @@ def test_worker_runtime_context_empty_without_research_profile(
     monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE_PATH", raising=False)
     # Isolate operator special prompts so the host's directives don't leak in.
-    monkeypatch.setenv("ARGUS_SKILL_SPECIAL_PROMPTS_DIR",
-                       str(tmp_path / "no_special_prompts"))
+    monkeypatch.setenv("ARGUS_SKILL_SPECIAL_PROMPTS_DIR", str(tmp_path / "no_special_prompts"))
     cfg = LifeWorkerConfig(life_dir=tmp_path, backend="memory")
 
     assert _worker_runtime_context(cfg) == ""
@@ -1108,8 +1106,7 @@ def test_worker_runtime_context_surfaces_operator_special_prompts(
     monkeypatch.delenv("ARGUS_SKILL_RESEARCH_PROFILE_PATH", raising=False)
     sp = tmp_path / "special"
     sp.mkdir()
-    (sp / "10-gpu.md").write_text("Free the keep-alive before training.",
-                                  encoding="utf-8")
+    (sp / "10-gpu.md").write_text("Free the keep-alive before training.", encoding="utf-8")
     (sp / "10-gpu.md").chmod(0o644)
     monkeypatch.setenv("ARGUS_SKILL_SPECIAL_PROMPTS_DIR", str(sp))
     cfg = LifeWorkerConfig(life_dir=tmp_path, backend="memory")
@@ -1228,6 +1225,7 @@ def test_failed_self_maintenance_handoff_marks_failed_before_rollback(
 
 def test_daemon_pid_path(tmp_path: Path) -> None:
     from argus_skill.daemon.life_worker import _daemon_pid_path
+
     assert _daemon_pid_path(tmp_path).name == "daemon.pid"
 
 
@@ -1257,6 +1255,7 @@ def test_write_and_read_continuous_config(tmp_path: Path) -> None:
 
 def test_write_continuous_config_done_reason(tmp_path: Path) -> None:
     import json
+
     write_continuous_config(
         tmp_path,
         enabled=False,
@@ -1298,12 +1297,15 @@ def test_continuous_config_cas_preserves_newer_command(tmp_path: Path) -> None:
     expected = read_continuous_state(tmp_path)
     write_continuous_config(tmp_path, enabled=False, objective="newer objective")
 
-    assert compare_and_swap_continuous_config(
-        tmp_path,
-        expected=expected,
-        enabled=True,
-        objective="cleaned older objective",
-    ) is False
+    assert (
+        compare_and_swap_continuous_config(
+            tmp_path,
+            expected=expected,
+            enabled=True,
+            objective="cleaned older objective",
+        )
+        is False
+    )
     assert read_continuous_state(tmp_path) == ContinuousConfigState(
         enabled=False,
         objective="newer objective",
@@ -1317,12 +1319,15 @@ def test_continuous_config_cas_detects_same_value_command(tmp_path: Path) -> Non
     expected = read_continuous_state(tmp_path)
     write_continuous_config(tmp_path, enabled=False, objective="paused objective")
 
-    assert compare_and_swap_continuous_config(
-        tmp_path,
-        expected=expected,
-        enabled=True,
-        objective="clean objective",
-    ) is False
+    assert (
+        compare_and_swap_continuous_config(
+            tmp_path,
+            expected=expected,
+            enabled=True,
+            objective="clean objective",
+        )
+        is False
+    )
     assert read_continuous_state(tmp_path).generation > expected.generation
 
 
@@ -1373,9 +1378,7 @@ def test_life_worker_hot_reload_rejects_memory_continuous(
                 self.config.continuous = enabled
                 if objective:
                     self.config.continuous_objective = objective
-            seen["continuous"].append(
-                (self.config.continuous, self.config.continuous_objective)
-            )
+            seen["continuous"].append((self.config.continuous, self.config.continuous_objective))
             if seen["runs"] == 1:
                 write_continuous_config(
                     tmp_path,
@@ -1388,9 +1391,7 @@ def test_life_worker_hot_reload_rejects_memory_continuous(
 
     monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
 
-    worker = LifeWorker(
-        LifeWorkerConfig(life_dir=tmp_path, backend="memory", poll_interval=0.01)
-    )
+    worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory", poll_interval=0.01))
     worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
 
     rc = worker.run_forever()
@@ -1449,9 +1450,7 @@ def test_life_worker_retries_planning_after_planner_error(
                 self.config.continuous = enabled
                 if objective:
                     self.config.continuous_objective = objective
-            seen["continuous"].append(
-                (self.config.continuous, self.config.continuous_objective)
-            )
+            seen["continuous"].append((self.config.continuous, self.config.continuous_objective))
             if seen["runs"] == 1:
                 return {"stopped_by": "planner_error"}
             self.config.stop_event.set()
@@ -1497,21 +1496,28 @@ def test_resume_continuous_adopts_persisted_manager_handoff_without_backend(
 
     persist_vertical(tmp_path, "research")
     with (tmp_path / "events.jsonl").open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps({
-            "type": "life.manager.intent.completed",
-            "intent_id": "intent-original",
-            "continuous_generation": 1,
-            "execution_task": "manager-clean execution objective",
-            "vertical": "research",
-        }) + "\n")
+        fh.write(
+            json.dumps(
+                {
+                    "type": "life.manager.intent.completed",
+                    "intent_id": "intent-original",
+                    "continuous_generation": 1,
+                    "execution_task": "manager-clean execution objective",
+                    "vertical": "research",
+                }
+            )
+            + "\n"
+        )
     (tmp_path / "manager-handoff.json").write_text(
-        json.dumps({
-            "version": 1,
-            "objective_sha256": "stale",
-            "vertical": "research",
-            "continuous_generation": 0,
-            "intent_id": "intent-stale",
-        }),
+        json.dumps(
+            {
+                "version": 1,
+                "objective_sha256": "stale",
+                "vertical": "research",
+                "continuous_generation": 0,
+                "intent_id": "intent-stale",
+            }
+        ),
         encoding="utf-8",
     )
     monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "1")
@@ -1536,12 +1542,14 @@ def test_resume_continuous_adopts_persisted_manager_handoff_without_backend(
             return {"stopped_by": "backlog_empty"}
 
     monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
-    worker = LifeWorker(LifeWorkerConfig(
-        life_dir=tmp_path,
-        backend="memory",
-        poll_interval=0.01,
-        resume_continuous=True,
-    ))
+    worker = LifeWorker(
+        LifeWorkerConfig(
+            life_dir=tmp_path,
+            backend="memory",
+            poll_interval=0.01,
+            resume_continuous=True,
+        )
+    )
     worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
 
     assert worker.run_forever() == 0
@@ -1568,13 +1576,18 @@ def test_resume_with_explicit_new_objective_runs_manager_handoff(
 
     persist_vertical(tmp_path, "research")
     with (tmp_path / "events.jsonl").open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps({
-            "type": "life.manager.intent.completed",
-            "intent_id": "intent-old",
-            "continuous_generation": 1,
-            "execution_task": "old execution objective",
-            "vertical": "research",
-        }) + "\n")
+        fh.write(
+            json.dumps(
+                {
+                    "type": "life.manager.intent.completed",
+                    "intent_id": "intent-old",
+                    "continuous_generation": 1,
+                    "execution_task": "old execution objective",
+                    "vertical": "research",
+                }
+            )
+            + "\n"
+        )
     monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "1")
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
@@ -1619,15 +1632,17 @@ def test_resume_with_explicit_new_objective_runs_manager_handoff(
             return {"stopped_by": "backlog_empty"}
 
     monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
-    worker = LifeWorker(LifeWorkerConfig(
-        life_dir=tmp_path,
-        project_workdir=tmp_path,
-        backend="memory",
-        poll_interval=0.01,
-        continuous=True,
-        continuous_objective="new raw objective",
-        resume_continuous=True,
-    ))
+    worker = LifeWorker(
+        LifeWorkerConfig(
+            life_dir=tmp_path,
+            project_workdir=tmp_path,
+            backend="memory",
+            poll_interval=0.01,
+            continuous=True,
+            continuous_objective="new raw objective",
+            resume_continuous=True,
+        )
+    )
     worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
 
     assert worker.run_forever() == 0
@@ -1644,8 +1659,7 @@ def test_resume_with_additive_objective_preserves_existing_pipeline_stage(
     LifeMemory.open(tmp_path).init()
     original = "Develop a submission-quality long-context paper."
     extended = (
-        original
-        + "\n\nOperator standing research authority: continue autonomously "
+        original + "\n\nOperator standing research authority: continue autonomously "
         "and preserve all prior evidence."
     )
     write_continuous_config(
@@ -1657,13 +1671,18 @@ def test_resume_with_additive_objective_preserves_existing_pipeline_stage(
 
     persist_vertical(tmp_path, "research")
     with (tmp_path / "events.jsonl").open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps({
-            "type": "life.manager.intent.completed",
-            "intent_id": "intent-old",
-            "continuous_generation": 1,
-            "execution_task": original,
-            "vertical": "research",
-        }) + "\n")
+        fh.write(
+            json.dumps(
+                {
+                    "type": "life.manager.intent.completed",
+                    "intent_id": "intent-old",
+                    "continuous_generation": 1,
+                    "execution_task": original,
+                    "vertical": "research",
+                }
+            )
+            + "\n"
+        )
     monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "1")
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
@@ -1701,14 +1720,16 @@ def test_resume_with_additive_objective_preserves_existing_pipeline_stage(
             return {"stopped_by": "backlog_empty"}
 
     monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
-    worker = LifeWorker(LifeWorkerConfig(
-        life_dir=tmp_path,
-        backend="memory",
-        poll_interval=0.01,
-        continuous=True,
-        continuous_objective=extended,
-        resume_continuous=True,
-    ))
+    worker = LifeWorker(
+        LifeWorkerConfig(
+            life_dir=tmp_path,
+            backend="memory",
+            poll_interval=0.01,
+            continuous=True,
+            continuous_objective=extended,
+            resume_continuous=True,
+        )
+    )
     worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
 
     assert worker.run_forever() == 0
@@ -1728,34 +1749,36 @@ def test_terminal_workspace_without_prior_handoff_reopens_for_new_daemon_intent(
     state["stages"] = {"delivery": {"status": "done"}}
     state_path.write_text(json.dumps(state), encoding="utf-8")
 
-    assert life_worker_mod._daemon_objective_requires_stage_reset(
-        project_root=tmp_path,
-        prior_vertical="software",
-        next_vertical="software",
-        prior_handoff=None,
-        expected_objective="new objective",
-        source_objective="new objective",
-        execution_task="new objective",
-    ) is True
-    assert life_worker_mod._daemon_objective_requires_stage_reset(
-        project_root=tmp_path,
-        prior_vertical="software",
-        next_vertical="software",
-        prior_handoff={
-            "objective_sha256": life_worker_mod._objective_sha256("new objective")
-        },
-        expected_objective="new objective",
-        source_objective="new objective",
-        execution_task="new objective",
-    ) is True
+    assert (
+        life_worker_mod._daemon_objective_requires_stage_reset(
+            project_root=tmp_path,
+            prior_vertical="software",
+            next_vertical="software",
+            prior_handoff=None,
+            expected_objective="new objective",
+            source_objective="new objective",
+            execution_task="new objective",
+        )
+        is True
+    )
+    assert (
+        life_worker_mod._daemon_objective_requires_stage_reset(
+            project_root=tmp_path,
+            prior_vertical="software",
+            next_vertical="software",
+            prior_handoff={"objective_sha256": life_worker_mod._objective_sha256("new objective")},
+            expected_objective="new objective",
+            source_objective="new objective",
+            execution_task="new objective",
+        )
+        is True
+    )
 
 
 def test_manager_handoff_identity_distinguishes_domain() -> None:
     identity = {
         "version": 2,
-        "objective_sha256": life_worker_mod._objective_sha256(
-            "write a chemistry paper"
-        ),
+        "objective_sha256": life_worker_mod._objective_sha256("write a chemistry paper"),
         "vertical": "research",
         "domain": "chemistry",
         "continuous_generation": 3,
@@ -1821,9 +1844,7 @@ def test_life_worker_keeps_continuous_enabled_on_terminal_idle(
                 self.config.continuous = enabled
                 if objective:
                     self.config.continuous_objective = objective
-            seen["continuous"].append(
-                (self.config.continuous, self.config.continuous_objective)
-            )
+            seen["continuous"].append((self.config.continuous, self.config.continuous_objective))
             self.config.stop_event.set()
             return {"stopped_by": "planner_terminal_idle", "suggested_sleep": 30.0}
 
@@ -1896,12 +1917,14 @@ def test_daemon_manager_handoff_does_not_overwrite_newer_continuous_command(
             return {"stopped_by": "backlog_empty"}
 
     monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
-    worker = LifeWorker(LifeWorkerConfig(
-        life_dir=tmp_path,
-        backend="memory",
-        poll_interval=0.01,
-        resume_continuous=True,
-    ))
+    worker = LifeWorker(
+        LifeWorkerConfig(
+            life_dir=tmp_path,
+            backend="memory",
+            poll_interval=0.01,
+            resume_continuous=True,
+        )
+    )
     worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
 
     assert worker.run_forever() == 0
@@ -1958,12 +1981,14 @@ def test_daemon_boot_uses_state_snapshot_that_produced_objective(
             return {"stopped_by": "backlog_empty"}
 
     monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
-    worker = LifeWorker(LifeWorkerConfig(
-        life_dir=tmp_path,
-        backend="memory",
-        poll_interval=0.01,
-        resume_continuous=True,
-    ))
+    worker = LifeWorker(
+        LifeWorkerConfig(
+            life_dir=tmp_path,
+            backend="memory",
+            poll_interval=0.01,
+            resume_continuous=True,
+        )
+    )
     worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
 
     assert worker.run_forever() == 0
@@ -2020,12 +2045,14 @@ def test_daemon_suppresses_rejected_objective_when_handoff_write_fails(
             return {"stopped_by": "backlog_empty"}
 
     monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
-    worker = LifeWorker(LifeWorkerConfig(
-        life_dir=tmp_path,
-        backend="memory",
-        poll_interval=0.01,
-        resume_continuous=True,
-    ))
+    worker = LifeWorker(
+        LifeWorkerConfig(
+            life_dir=tmp_path,
+            backend="memory",
+            poll_interval=0.01,
+            resume_continuous=True,
+        )
+    )
     worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
 
     assert worker.run_forever() == 0
@@ -2046,9 +2073,7 @@ def test_daemon_manager_decision_failure_preserves_persisted_campaign(
     monkeypatch.delenv("ARGUS_SKILL_TELEGRAM_CHAT_ID", raising=False)
     monkeypatch.setattr(
         "argus_skill.manager.Manager.decide_vertical",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            RuntimeError("backend unavailable")
-        ),
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("backend unavailable")),
     )
     seen = {}
 
@@ -2065,12 +2090,14 @@ def test_daemon_manager_decision_failure_preserves_persisted_campaign(
             return {"stopped_by": "backlog_empty"}
 
     monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
-    worker = LifeWorker(LifeWorkerConfig(
-        life_dir=tmp_path,
-        backend="memory",
-        poll_interval=0.01,
-        resume_continuous=True,
-    ))
+    worker = LifeWorker(
+        LifeWorkerConfig(
+            life_dir=tmp_path,
+            backend="memory",
+            poll_interval=0.01,
+            resume_continuous=True,
+        )
+    )
     worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
 
     assert worker.run_forever() == 0
@@ -2111,12 +2138,14 @@ def test_daemon_boot_leaves_paused_objective_untouched(
             return {"stopped_by": "backlog_empty"}
 
     monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
-    worker = LifeWorker(LifeWorkerConfig(
-        life_dir=tmp_path,
-        backend="memory",
-        poll_interval=0.01,
-        resume_continuous=True,
-    ))
+    worker = LifeWorker(
+        LifeWorkerConfig(
+            life_dir=tmp_path,
+            backend="memory",
+            poll_interval=0.01,
+            resume_continuous=True,
+        )
+    )
     worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
 
     assert worker.run_forever() == 0
@@ -2167,12 +2196,14 @@ def test_project_done_does_not_disable_newer_same_value_rearm(
             return {"stopped_by": "project_done"}
 
     monkeypatch.setattr("argus_skill.daemon.life_worker.LifeSupervisor", FakeSupervisor)
-    worker = LifeWorker(LifeWorkerConfig(
-        life_dir=tmp_path,
-        backend="memory",
-        poll_interval=0.01,
-        resume_continuous=True,
-    ))
+    worker = LifeWorker(
+        LifeWorkerConfig(
+            life_dir=tmp_path,
+            backend="memory",
+            poll_interval=0.01,
+            resume_continuous=True,
+        )
+    )
     worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
 
     assert worker.run_forever() == 0
@@ -2207,12 +2238,14 @@ def test_operator_stop_freezes_adopted_generation_before_reload(
             stages=[],
         ),
     )
-    worker = LifeWorker(LifeWorkerConfig(
-        life_dir=tmp_path,
-        backend="memory",
-        poll_interval=0.01,
-        resume_continuous=True,
-    ))
+    worker = LifeWorker(
+        LifeWorkerConfig(
+            life_dir=tmp_path,
+            backend="memory",
+            poll_interval=0.01,
+            resume_continuous=True,
+        )
+    )
 
     class FakeSupervisor:
         def __init__(self, *args: object, **kwargs: object) -> None:
@@ -2241,11 +2274,14 @@ def test_continuous_mode_error_allows_memory_backend_only_in_tests(
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS", "1")
 
-    assert life_worker_mod.continuous_mode_error(
-        "memory",
-        True,
-        "keep going",
-    ) == ""
+    assert (
+        life_worker_mod.continuous_mode_error(
+            "memory",
+            True,
+            "keep going",
+        )
+        == ""
+    )
 
 
 def test_no_pid_file_means_status_dead(tmp_path: Path) -> None:
@@ -2319,6 +2355,7 @@ def test_strip_git_config_injection_noop_when_absent() -> None:
 # ---------------------------------------------------------------------------
 # Regression: _runner_namespace must propagate open_ended + continuous_objective
 # ---------------------------------------------------------------------------
+
 
 def test_runner_namespace_propagates_open_ended_and_continuous_objective(
     tmp_path: Path,

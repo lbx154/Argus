@@ -6,6 +6,7 @@ completion/failure semantics). Extracted verbatim from ``agent_cli_runner.py``
 process-group termination behaviour, just split across named helpers instead
 of one 390-line method.
 """
+
 from __future__ import annotations
 
 import os
@@ -63,6 +64,8 @@ class _StreamState:
     turn_completed: bool = False
     turn_failed: bool = False
     fatal_error: str | None = None
+    tool_activity_observed: bool = False
+    usage_model: str = ""
     watchdog_terminated: bool = False
     watchdog_reason: str | None = None
     orphan_process_group_id: int = 0
@@ -83,9 +86,7 @@ class RunExecMixin:
     ) -> AgentRunResult:
         if self.before_exec is not None:
             self.before_exec()
-        gated = self._run_exec_start_gate(
-            resume_thread_id=resume_thread_id, options=options
-        )
+        gated = self._run_exec_start_gate(resume_thread_id=resume_thread_id, options=options)
         if gated is not None:
             return gated
         # Warm-copilot fast path: Manager front-door classify + direct replies go
@@ -138,8 +139,8 @@ class RunExecMixin:
             return
         state.orphan_process_group_id = process_group_id
         cls._terminate_process(process)
-        state.orphan_process_group_cleanup_succeeded = (
-            not cls._process_group_alive(process_group_id)
+        state.orphan_process_group_cleanup_succeeded = not cls._process_group_alive(
+            process_group_id
         )
 
     def _run_exec_start_gate(
@@ -173,9 +174,7 @@ class RunExecMixin:
     def _spawn_turn_process(
         self, *, prompt: str, resume_thread_id: str | None, options
     ) -> tuple[list[str], subprocess.Popen[str] | None, AgentRunResult | None]:
-        command = self._build_command(
-            resume_thread_id=resume_thread_id, options=options
-        )
+        command = self._build_command(resume_thread_id=resume_thread_id, options=options)
         command[0] = self._resolve_executable(command[0])
         if options.isolate_workdir:
             try:
@@ -240,18 +239,24 @@ class RunExecMixin:
     ) -> _StreamState:
         state = _StreamState(
             thread_id=thread_id,
-            stdout_lines=deque(maxlen=_positive_env_int(
-                _CAPTURE_STDOUT_LINES_ENV,
-                _DEFAULT_CAPTURE_STDOUT_LINES,
-            )),
-            stderr_lines=deque(maxlen=_positive_env_int(
-                _CAPTURE_STDERR_LINES_ENV,
-                _DEFAULT_CAPTURE_STDERR_LINES,
-            )),
-            events=deque(maxlen=_positive_env_int(
-                _CAPTURE_JSON_EVENTS_ENV,
-                _DEFAULT_CAPTURE_JSON_EVENTS,
-            )),
+            stdout_lines=deque(
+                maxlen=_positive_env_int(
+                    _CAPTURE_STDOUT_LINES_ENV,
+                    _DEFAULT_CAPTURE_STDOUT_LINES,
+                )
+            ),
+            stderr_lines=deque(
+                maxlen=_positive_env_int(
+                    _CAPTURE_STDERR_LINES_ENV,
+                    _DEFAULT_CAPTURE_STDERR_LINES,
+                )
+            ),
+            events=deque(
+                maxlen=_positive_env_int(
+                    _CAPTURE_JSON_EVENTS_ENV,
+                    _DEFAULT_CAPTURE_JSON_EVENTS,
+                )
+            ),
         )
 
         line_queue: queue.Queue[tuple[str, str | None]] = queue.Queue(
@@ -373,13 +378,10 @@ class RunExecMixin:
                     time.monotonic() - last_reader_enqueue_at[0]
                     >= _POST_EXIT_PIPE_DRAIN_QUIET_SECONDS
                 )
-                if (
-                    post_exit_elapsed >= _POST_EXIT_PIPE_DRAIN_MAX_SECONDS
-                    or (
-                        post_exit_elapsed >= _POST_EXIT_PIPE_DRAIN_QUIET_SECONDS
-                        and reader_quiet
-                        and line_queue.empty()
-                    )
+                if post_exit_elapsed >= _POST_EXIT_PIPE_DRAIN_MAX_SECONDS or (
+                    post_exit_elapsed >= _POST_EXIT_PIPE_DRAIN_QUIET_SECONDS
+                    and reader_quiet
+                    and line_queue.empty()
                 ):
                     # A separately owned durable process may inherit the
                     # provider's pipes. Stop retaining new output after a
@@ -441,9 +443,7 @@ class RunExecMixin:
                         self._terminate_process(process)
                         state.watchdog_terminated = True
 
-                last_message_chars = (
-                    len(state.agent_messages[-1]) if state.agent_messages else 0
-                )
+                last_message_chars = len(state.agent_messages[-1]) if state.agent_messages else 0
                 for stage in idle_escalation.newly_due(idle_seconds):
                     if process.poll() is not None:
                         break
@@ -501,6 +501,11 @@ class RunExecMixin:
                 if event is None:
                     continue
                 state.json_event_count += 1
+                if self._event_has_tool_activity(event):
+                    state.tool_activity_observed = True
+                observed_model = self._event_usage_model(event)
+                if observed_model:
+                    state.usage_model = observed_model
                 if self._retain_json_event(event):
                     state.events.append(event)
                 _msgs_before = len(state.agent_messages)
@@ -569,6 +574,11 @@ class RunExecMixin:
             else:
                 for event in recovered_events:
                     state.json_event_count += 1
+                    if self._event_has_tool_activity(event):
+                        state.tool_activity_observed = True
+                    observed_model = self._event_usage_model(event)
+                    if observed_model:
+                        state.usage_model = observed_model
                     if self._retain_json_event(event):
                         state.events.append(event)
                     messages_before = len(state.agent_messages)
@@ -629,8 +639,8 @@ class RunExecMixin:
             turn_completed=state.turn_completed,
             turn_failed=state.turn_failed,
             fatal_error=state.fatal_error,
+            tool_activity_observed=state.tool_activity_observed,
+            usage_model=state.usage_model,
             orphan_process_group_id=state.orphan_process_group_id,
-            orphan_process_group_cleanup_succeeded=(
-                state.orphan_process_group_cleanup_succeeded
-            ),
+            orphan_process_group_cleanup_succeeded=(state.orphan_process_group_cleanup_succeeded),
         )

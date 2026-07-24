@@ -7,13 +7,11 @@ the Reviewer verdict owns control.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import time
 from pathlib import Path
 from typing import Any, Mapping
-
 
 CONTEXT_PACKET_VERSION = 2
 HANDOFF_DIRNAME = "handoffs"
@@ -34,14 +32,18 @@ def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
 
 def _file_reference(path: Path | None) -> dict[str, Any]:
     if path is None:
-        return {"path": "", "sha256": ""}
-    try:
-        raw = path.read_bytes()
-    except OSError:
-        return {"path": str(path), "sha256": ""}
+        return {"path": ""}
+    return {"path": str(path)}
+
+
+def _model_visible_context_ref(ref: Mapping[str, Any]) -> dict[str, str]:
+    """Drop host-only integrity metadata from agent-readable context packets."""
+    hidden = {"content_hash", "hash", "sha", "sha256", "digest"}
     return {
-        "path": str(path),
-        "sha256": hashlib.sha256(raw).hexdigest(),
+        str(key): str(value)
+        for key, value in ref.items()
+        if str(key).strip().casefold() not in hidden
+        and not str(key).strip().casefold().endswith("_sha256")
     }
 
 
@@ -113,13 +115,9 @@ def create_mission_context(
         "scope": str(scope or ""),
         "objective": str(objective or "").strip(),
         "acceptance_check": str(acceptance_check or "").strip(),
-        "non_goals": [
-            str(item).strip()
-            for item in (non_goals or [])
-            if str(item).strip()
-        ],
+        "non_goals": [str(item).strip() for item in (non_goals or []) if str(item).strip()],
         "context_refs": [
-            {str(key): str(value) for key, value in ref.items()}
+            _model_visible_context_ref(ref)
             for ref in (context_refs or [])
             if isinstance(ref, dict) and str(ref.get("ref") or "").strip()
         ],
@@ -195,9 +193,7 @@ def record_reviewed_handoff(
         "status": str(getattr(review, "status", "") or ""),
         "reason": str(getattr(review, "reason", "") or "")[:4000],
         "next_action": str(getattr(review, "next_action", "") or "")[:4000],
-        "operator_question": str(
-            getattr(review, "operator_question", "") or ""
-        )[:1000],
+        "operator_question": str(getattr(review, "operator_question", "") or "")[:1000],
     }
     payload = {
         "schema_version": CONTEXT_PACKET_VERSION,

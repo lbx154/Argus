@@ -15,6 +15,7 @@ the underlying ``AgentCliRunner.run_exec`` to return a synthetic
     and surfaces them as a ``RunnerResult`` with ``fatal_error`` set.
   * ``build_agent_cli_backend_from_env`` honours env vars.
 """
+
 from __future__ import annotations
 
 import json
@@ -32,6 +33,7 @@ from argus_skill.adapters.agent_cli_backend import (
     _sum_token_counts,
     build_agent_cli_backend_from_env,
 )
+from argus_skill.core.codex_usage import extract_token_usage
 from argus_skill.core.copilot_usage import CopilotCallUsage, CopilotModelUsage
 from argus_skill.core.models import RunnerOptions
 
@@ -126,13 +128,19 @@ def fake_agent_cli(monkeypatch: pytest.MonkeyPatch) -> None:
     # need to mock here.
     monkeypatch.setitem(sys.modules, "argus_skill.agent_cli", pkg)
     monkeypatch.setitem(
-        sys.modules, "argus_skill.agent_cli.agent_cli_runner", runner_mod,
+        sys.modules,
+        "argus_skill.agent_cli.agent_cli_runner",
+        runner_mod,
     )
     monkeypatch.setitem(
-        sys.modules, "argus_skill.agent_cli.runner_backend", backend_mod,
+        sys.modules,
+        "argus_skill.agent_cli.runner_backend",
+        backend_mod,
     )
     monkeypatch.setitem(
-        sys.modules, "argus_skill.agent_cli.models", models_mod,
+        sys.modules,
+        "argus_skill.agent_cli.models",
+        models_mod,
     )
 
 
@@ -202,9 +210,7 @@ def test_run_exec_translates_options_and_result(
             ],
         )
 
-    monkeypatch.setattr(
-        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
-    )
+    monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
 
     options = RunnerOptions(
         model="gpt-5.4-mini",
@@ -250,8 +256,7 @@ def test_run_exec_translates_options_and_result(
     assert result.cached_input_tokens == 25
     assert result.output_tokens == 75
     usage_rows = [
-        json.loads(line)
-        for line in (tmp_path / ".argus" / "usage.jsonl").read_text().splitlines()
+        json.loads(line) for line in (tmp_path / ".argus" / "usage.jsonl").read_text().splitlines()
     ]
     assert len(usage_rows) == 1
     assert usage_rows[0]["call_id"] == result.call_id
@@ -270,19 +275,21 @@ def test_opencode_success_persists_provider_reported_cost(
         backend._runner.__class__,
         "run_exec",
         lambda self, **kwargs: _make_cli_result(
-            json_events=[{
-                "type": "step_finish",
-                "part": {
-                    "tokens": {
-                        "input": 100,
-                        "output": 20,
-                        "reasoning": 5,
-                        "cache": {"read": 40, "write": 0},
+            json_events=[
+                {
+                    "type": "step_finish",
+                    "part": {
+                        "tokens": {
+                            "input": 100,
+                            "output": 20,
+                            "reasoning": 5,
+                            "cache": {"read": 40, "write": 0},
+                        },
+                        "cost": 0.0123,
+                        "reason": "stop",
                     },
-                    "cost": 0.0123,
-                    "reason": "stop",
-                },
-            }],
+                }
+            ],
             thread_id="opencode-cost-thread",
         ),
         raising=True,
@@ -381,9 +388,7 @@ def test_completed_run_exec_counts_after_mission_process_is_killed(
             thread_id="kill-thread",
         )
 
-    monkeypatch.setattr(
-        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
-    )
+    monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
     result = backend.run_exec(
         prompt="complete one call",
         options=RunnerOptions(model="gpt-5.6-sol"),
@@ -415,11 +420,13 @@ def test_run_exec_atomically_reserves_and_settles_call_cost(
         backend._runner.__class__,
         "run_exec",
         lambda self, **kwargs: _make_cli_result(
-            json_events=[{
-                "type": "token_count",
-                "input_tokens": 1_000,
-                "output_tokens": 100,
-            }],
+            json_events=[
+                {
+                    "type": "token_count",
+                    "input_tokens": 1_000,
+                    "output_tokens": 100,
+                }
+            ],
             thread_id="cost-thread",
         ),
         raising=True,
@@ -435,10 +442,7 @@ def test_run_exec_atomically_reserves_and_settles_call_cost(
     state = json.loads((root / "cost-control.json").read_text())
     assert state["reservations"] == []
     assert state["unresolved"] == []
-    rows = [
-        json.loads(line)
-        for line in (project / "events.jsonl").read_text().splitlines()
-    ]
+    rows = [json.loads(line) for line in (project / "events.jsonl").read_text().splitlines()]
     assert [row["type"] for row in rows] == [
         "budget.reservation.created",
         "agent.io.start",
@@ -448,10 +452,7 @@ def test_run_exec_atomically_reserves_and_settles_call_cost(
     ]
     assert rows[0]["amount_usd"] == 0.0
     assert rows[-1]["cost_usd"] == pytest.approx(0.008)
-    metrics = [
-        json.loads(line)
-        for line in (root / "metrics.jsonl").read_text().splitlines()
-    ]
+    metrics = [json.loads(line) for line in (root / "metrics.jsonl").read_text().splitlines()]
     provider_metric = next(row for row in metrics if row["name"] == "provider.call")
     assert provider_metric["labels"]["status"] == "completed"
     assert provider_metric["fields"]["call_id"] == result.call_id
@@ -474,17 +475,17 @@ def test_settled_call_cost_blocks_the_next_call_at_global_cap(
     def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
         captured["options"] = kwargs["options"]
         return _make_cli_result(
-            json_events=[{
-                "type": "token_count",
-                "input_tokens": 0,
-                "output_tokens": 1_000,
-            }],
+            json_events=[
+                {
+                    "type": "token_count",
+                    "input_tokens": 0,
+                    "output_tokens": 1_000,
+                }
+            ],
             thread_id="overrun-thread",
         )
 
-    monkeypatch.setattr(
-        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
-    )
+    monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
 
     result = backend.run_exec(
         prompt="expensive single response",
@@ -493,17 +494,11 @@ def test_settled_call_cost_blocks_the_next_call_at_global_cap(
     )
 
     assert result.cost_usd == pytest.approx(0.03)
-    rows = [
-        json.loads(line)
-        for line in (project / "events.jsonl").read_text().splitlines()
-    ]
+    rows = [json.loads(line) for line in (project / "events.jsonl").read_text().splitlines()]
     settled = next(row for row in rows if row["type"] == "budget.reservation.settled")
     assert settled["amount_usd"] == 0.0
     assert "overrun_usd" not in settled
-    metrics = [
-        json.loads(line)
-        for line in (root / "metrics.jsonl").read_text().splitlines()
-    ]
+    metrics = [json.loads(line) for line in (root / "metrics.jsonl").read_text().splitlines()]
     provider_metric = next(row for row in metrics if row["name"] == "provider.call")
     assert "reservation_usd" not in provider_metric["fields"]
     assert "overrun_usd" not in provider_metric["fields"]
@@ -534,11 +529,13 @@ def test_unpriced_call_is_observed_without_blocking_next_provider_spawn(
     def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
         calls.append(kwargs["run_label"])
         return _make_cli_result(
-            json_events=[{
-                "type": "token_count",
-                "input_tokens": 100,
-                "output_tokens": 20,
-            }],
+            json_events=[
+                {
+                    "type": "token_count",
+                    "input_tokens": 100,
+                    "output_tokens": 20,
+                }
+            ],
             thread_id="unknown-thread",
         )
 
@@ -598,9 +595,7 @@ def test_missing_copilot_resume_target_does_not_poison_cost_control(
             return _make_cli_result(
                 exit_code=1,
                 thread_id=resume,
-                fatal_error=(
-                    "Error: No session, task, or name matched 'stale-thread'."
-                ),
+                fatal_error=("Error: No session, task, or name matched 'stale-thread'."),
             )
         return _make_cli_result(thread_id="fresh-thread")
 
@@ -630,7 +625,8 @@ def test_missing_copilot_resume_target_does_not_poison_cost_control(
 
 
 def test_run_exec_writes_full_agent_io_log(
-    tmp_path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     log_path = tmp_path / "events.jsonl"
     monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_LOG", str(log_path))
@@ -661,9 +657,7 @@ def test_run_exec_writes_full_agent_io_log(
             thread_id="thread-1",
         )
 
-    monkeypatch.setattr(
-        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
-    )
+    monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
 
     backend.run_exec(
         prompt="full prompt text",
@@ -673,10 +667,7 @@ def test_run_exec_writes_full_agent_io_log(
     )
 
     rows = [json.loads(line) for line in log_path.read_text().splitlines()]
-    raw_rows = [
-        json.loads(line)
-        for line in (tmp_path / "agent_io.jsonl").read_text().splitlines()
-    ]
+    raw_rows = [json.loads(line) for line in (tmp_path / "agent_io.jsonl").read_text().splitlines()]
     assert all(row["event_schema_version"] == 1 for row in rows)
     assert all("event_validation" not in row for row in rows)
     assert [row["type"] for row in rows] == [
@@ -718,16 +709,14 @@ def test_run_exec_writes_full_agent_io_log(
     assert rows[-1]["usage"]["models"] == []
     assert rows[-1]["pricing"]["status"] == rows[-1]["pricing_status"]
     assert rows[-1]["pricing"]["cost_basis"] == rows[-1]["cost_basis"]
-    usage_rows = [
-        json.loads(line)
-        for line in (tmp_path / "usage.jsonl").read_text().splitlines()
-    ]
+    usage_rows = [json.loads(line) for line in (tmp_path / "usage.jsonl").read_text().splitlines()]
     assert len(usage_rows) == 1
     assert usage_rows[0]["call_id"] == rows[-2]["call_id"]
 
 
 def test_full_agent_io_batches_raw_stream_writes(
-    tmp_path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from argus_skill.adapters.agent_cli_backend import _io_log
 
@@ -750,10 +739,12 @@ def test_full_agent_io_batches_raw_stream_writes(
         for index in range(1_000):
             self.event_callback(
                 "stdout",
-                json.dumps({
-                    "type": "assistant.tool_call_delta",
-                    "data": {"index": index, "delta": "x" * 32},
-                }),
+                json.dumps(
+                    {
+                        "type": "assistant.tool_call_delta",
+                        "data": {"index": index, "delta": "x" * 32},
+                    }
+                ),
             )
         return _make_cli_result(
             agent_messages=["done"],
@@ -773,10 +764,7 @@ def test_full_agent_io_batches_raw_stream_writes(
         run_label="engineer-r1",
     )
 
-    rows = [
-        json.loads(line)
-        for line in (tmp_path / "agent_io.jsonl").read_text().splitlines()
-    ]
+    rows = [json.loads(line) for line in (tmp_path / "agent_io.jsonl").read_text().splitlines()]
     assert sum(batch_sizes) == 1_000
     assert len(batch_sizes) < 10
     assert sum(row["type"] == "agent.io.stream" for row in rows) == 1_000
@@ -787,7 +775,8 @@ def test_full_agent_io_batches_raw_stream_writes(
 
 
 def test_full_io_persists_prompt_once_not_as_user_message_echo(
-    tmp_path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     log_path = tmp_path / "events.jsonl"
     monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_LOG", str(log_path))
@@ -799,17 +788,21 @@ def test_full_io_persists_prompt_once_not_as_user_message_echo(
         assert self.event_callback is not None
         self.event_callback(
             "stdout",
-            json.dumps({
-                "type": "user.message",
-                "data": {"content": kwargs["prompt"]},
-            }),
+            json.dumps(
+                {
+                    "type": "user.message",
+                    "data": {"content": kwargs["prompt"]},
+                }
+            ),
         )
         self.event_callback(
             "stdout",
-            json.dumps({
-                "type": "assistant.message_delta",
-                "data": {"deltaContent": "ok"},
-            }),
+            json.dumps(
+                {
+                    "type": "assistant.message_delta",
+                    "data": {"deltaContent": "ok"},
+                }
+            ),
         )
         return _make_cli_result(
             agent_messages=["ok"],
@@ -829,10 +822,7 @@ def test_full_io_persists_prompt_once_not_as_user_message_echo(
     )
 
     rows = [json.loads(line) for line in log_path.read_text().splitlines()]
-    raw_rows = [
-        json.loads(line)
-        for line in (tmp_path / "agent_io.jsonl").read_text().splitlines()
-    ]
+    raw_rows = [json.loads(line) for line in (tmp_path / "agent_io.jsonl").read_text().splitlines()]
     start = next(row for row in rows if row["type"] == "agent.io.start")
     streams = [row for row in raw_rows if row["type"] == "agent.io.stream"]
     assert start["prompt"] == prompt
@@ -841,7 +831,8 @@ def test_full_io_persists_prompt_once_not_as_user_message_echo(
 
 
 def test_copilot_run_exec_uses_exact_session_store_tokens(
-    tmp_path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     log_path = tmp_path / "events.jsonl"
     monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_LOG", str(log_path))
@@ -854,23 +845,25 @@ def test_copilot_run_exec_uses_exact_session_store_tokens(
             thread_id="session-1",
         )
 
-    exact = CopilotCallUsage((CopilotModelUsage(
-        row_id=1,
-        session_id="session-1",
-        turn_index=0,
-        model="gpt-5.6-sol",
-        input_tokens=25_819,
-        output_tokens=8,
-        cache_read_tokens=0,
-        cache_write_tokens=0,
-        reasoning_tokens=0,
-        total_nano_aiu=16_160_500_000,
-        request_multiplier=1.0,
-        created_at="2026-07-11T09:59:25.919Z",
-    ),))
-    monkeypatch.setattr(
-        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
+    exact = CopilotCallUsage(
+        (
+            CopilotModelUsage(
+                row_id=1,
+                session_id="session-1",
+                turn_index=0,
+                model="gpt-5.6-sol",
+                input_tokens=25_819,
+                output_tokens=8,
+                cache_read_tokens=0,
+                cache_write_tokens=0,
+                reasoning_tokens=0,
+                total_nano_aiu=16_160_500_000,
+                request_multiplier=1.0,
+                created_at="2026-07-11T09:59:25.919Z",
+            ),
+        )
     )
+    monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
     monkeypatch.setattr(
         "argus_skill.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
         lambda: object(),
@@ -920,16 +913,16 @@ def test_copilot_resumed_premium_counter_without_baseline_fails_closed(
     def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
         return _make_cli_result(
             agent_messages=["OK"],
-            json_events=[{
-                "type": "result",
-                "usage": {"premiumRequests": next(raw_totals)},
-            }],
+            json_events=[
+                {
+                    "type": "result",
+                    "usage": {"premiumRequests": next(raw_totals)},
+                }
+            ],
             thread_id="resumed-session",
         )
 
-    monkeypatch.setattr(
-        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
-    )
+    monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
     monkeypatch.setattr(
         "argus_skill.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
         lambda: object(),
@@ -962,10 +955,7 @@ def test_copilot_resumed_premium_counter_without_baseline_fails_closed(
     assert second.pricing_status == "priced"
     assert second.cost_usd == pytest.approx(0.30)
 
-    rows = [
-        json.loads(line)
-        for line in (tmp_path / "usage.jsonl").read_text().splitlines()
-    ]
+    rows = [json.loads(line) for line in (tmp_path / "usage.jsonl").read_text().splitlines()]
     assert rows[0]["premium_requests"] is None
     assert rows[0]["pricing_status"] == "partial"
     assert rows[1]["premium_requests"] == pytest.approx(7.5)
@@ -982,7 +972,8 @@ def test_copilot_resumed_premium_counter_without_baseline_fails_closed(
 
 
 def test_copilot_acp_session_model_overrides_mislabeled_usage_row(
-    tmp_path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     backend = AgentCliBackend(backend="copilot")
 
@@ -996,20 +987,24 @@ def test_copilot_acp_session_model_overrides_mislabeled_usage_row(
         ),
         raising=True,
     )
-    mislabeled = CopilotCallUsage((CopilotModelUsage(
-        row_id=2,
-        session_id="session-mini",
-        turn_index=0,
-        model="gpt-5.6-sol",
-        input_tokens=100,
-        output_tokens=5,
-        cache_read_tokens=0,
-        cache_write_tokens=0,
-        reasoning_tokens=0,
-        total_nano_aiu=10,
-        request_multiplier=0.33,
-        created_at="2026-07-15T10:00:00Z",
-    ),))
+    mislabeled = CopilotCallUsage(
+        (
+            CopilotModelUsage(
+                row_id=2,
+                session_id="session-mini",
+                turn_index=0,
+                model="gpt-5.6-sol",
+                input_tokens=100,
+                output_tokens=5,
+                cache_read_tokens=0,
+                cache_write_tokens=0,
+                reasoning_tokens=0,
+                total_nano_aiu=10,
+                request_multiplier=0.33,
+                created_at="2026-07-15T10:00:00Z",
+            ),
+        )
+    )
     monkeypatch.setattr(
         "argus_skill.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
         lambda: object(),
@@ -1030,7 +1025,8 @@ def test_copilot_acp_session_model_overrides_mislabeled_usage_row(
 
 
 def test_usage_context_prefers_canonical_project_event_log(
-    tmp_path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project = tmp_path / "projects" / "p1"
     legacy_path = project / ".argus" / "events.jsonl"
@@ -1043,21 +1039,17 @@ def test_usage_context_prefers_canonical_project_event_log(
     backend = AgentCliBackend(backend="codex")
     backend.set_usage_context(project_root=project, mission_id="mission-1")
 
-    resolved = backend._agent_io_log_path(
-        RunnerOptions(working_dir=str(tmp_path / "worktree"))
-    )
+    resolved = backend._agent_io_log_path(RunnerOptions(working_dir=str(tmp_path / "worktree")))
 
     assert resolved == project / "events.jsonl"
-    migrated = [
-        json.loads(line)
-        for line in resolved.read_text(encoding="utf-8").splitlines()
-    ]
+    migrated = [json.loads(line) for line in resolved.read_text(encoding="utf-8").splitlines()]
     assert migrated == [{"type": "agent.io.start", "call_id": "old-call"}]
     assert (project / "events.migration-v2.json").exists()
 
 
 def test_default_agent_io_is_bounded_and_drops_duplicate_stream(
-    tmp_path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     log_path = tmp_path / "events.jsonl"
     monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_LOG", str(log_path))
@@ -1074,7 +1066,9 @@ def test_default_agent_io_is_bounded_and_drops_duplicate_stream(
             "stdout",
             '{"type":"assistant.tool_call_delta","data":{"delta":"noise"}}',
         )
-        self.event_callback("stdout", '{"type":"assistant.message_delta","data":{"deltaContent":"huge"}}')
+        self.event_callback(
+            "stdout", '{"type":"assistant.message_delta","data":{"deltaContent":"huge"}}'
+        )
         return _make_cli_result(
             command=["copilot", "-p", "HUGE PROMPT"],
             agent_messages=["result"],
@@ -1084,9 +1078,7 @@ def test_default_agent_io_is_bounded_and_drops_duplicate_stream(
             thread_id="compact-thread",
         )
 
-    monkeypatch.setattr(
-        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
-    )
+    monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
     backend.run_exec(
         prompt="private compaction prompt" * 100,
         options=RunnerOptions(model="gpt-5.5", working_dir=str(tmp_path)),
@@ -1116,7 +1108,8 @@ def test_default_agent_io_is_bounded_and_drops_duplicate_stream(
 
 
 def test_codex_quota_events_and_daily_denial(
-    tmp_path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     log_path = tmp_path / "events.jsonl"
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
@@ -1137,9 +1130,7 @@ def test_codex_quota_events_and_daily_denial(
         calls.append(kwargs["run_label"])
         return _make_cli_result(agent_messages=["ok"], thread_id="codex-thread")
 
-    monkeypatch.setattr(
-        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
-    )
+    monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
     first = backend.run_exec(
         prompt="first",
         options=RunnerOptions(working_dir=str(tmp_path)),
@@ -1166,10 +1157,7 @@ def test_codex_quota_events_and_daily_denial(
     ]
     assert rows[0]["daily_calls"] == 1
     assert rows[0]["daily_cap"] == 1
-    usage_rows = [
-        json.loads(line)
-        for line in (tmp_path / "usage.jsonl").read_text().splitlines()
-    ]
+    usage_rows = [json.loads(line) for line in (tmp_path / "usage.jsonl").read_text().splitlines()]
     assert len(usage_rows) == 2
     # The engineer-r1 call pins no model; codex echoes none either. It used to
     # record an empty model -> "unpriced". Since the empty-model pricing fix it
@@ -1203,9 +1191,7 @@ def test_run_exec_normalizes_recoverable_reconnect_notice(
             ),
         )
 
-    monkeypatch.setattr(
-        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
-    )
+    monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
 
     result = backend.run_exec(
         prompt="demo",
@@ -1240,9 +1226,7 @@ def test_copilot_policy_denial_with_exit_zero_sets_auth_failure(
             fatal_error="Error: Access denied by policy settings",
         )
 
-    monkeypatch.setattr(
-        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
-    )
+    monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
     result = backend.run_exec(
         prompt="x",
         options=RunnerOptions(),
@@ -1277,9 +1261,7 @@ def test_run_exec_normalizes_high_attempt_reconnect_notice(
             ),
         )
 
-    monkeypatch.setattr(
-        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
-    )
+    monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
 
     result = backend.run_exec(
         prompt="demo",
@@ -1304,9 +1286,7 @@ def test_run_exec_handles_file_not_found(monkeypatch: pytest.MonkeyPatch) -> Non
     ) -> None:
         raise FileNotFoundError("codex: not found")
 
-    monkeypatch.setattr(
-        backend._runner.__class__, "run_exec", boom, raising=True
-    )
+    monkeypatch.setattr(backend._runner.__class__, "run_exec", boom, raising=True)
 
     result = backend.run_exec(
         prompt="anything",
@@ -1334,9 +1314,7 @@ def test_run_exec_handles_generic_exception(
     ) -> None:
         raise RuntimeError("subprocess died")
 
-    monkeypatch.setattr(
-        backend._runner.__class__, "run_exec", boom, raising=True
-    )
+    monkeypatch.setattr(backend._runner.__class__, "run_exec", boom, raising=True)
 
     result = backend.run_exec(
         prompt="anything",
@@ -1358,10 +1336,20 @@ def test_token_count_extraction_handles_missing_events():
 def test_token_count_extraction_picks_latest_nonzero():
     events = [
         {"type": "agent_message", "input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0},
-        {"type": "token_count", "input_tokens": 100, "cached_input_tokens": 10, "output_tokens": 30},
+        {
+            "type": "token_count",
+            "input_tokens": 100,
+            "cached_input_tokens": 10,
+            "output_tokens": 30,
+        },
         # a later event with zero tokens shouldn't overwrite the earlier non-zero
         {"type": "agent_message", "input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0},
-        {"type": "token_count", "input_tokens": 250, "cached_input_tokens": 25, "output_tokens": 80},
+        {
+            "type": "token_count",
+            "input_tokens": 250,
+            "cached_input_tokens": 25,
+            "output_tokens": 80,
+        },
     ]
     in_tok, cached_tok, out_tok, reasoning_out_tok = _sum_token_counts(events)
     assert (in_tok, cached_tok, out_tok, reasoning_out_tok) == (250, 25, 80, 0)
@@ -1454,6 +1442,117 @@ def test_token_count_extraction_reads_reasoning_tokens_from_turn_completed_usage
     )
 
 
+def test_claude_message_usage_sums_turns_and_cache_aliases() -> None:
+    usage = extract_token_usage(
+        [
+            {
+                "type": "assistant",
+                "message": {
+                    "model": "glm-5.2",
+                    "usage": {
+                        "input_tokens": 120,
+                        "cache_read_input_tokens": 80,
+                        "cache_creation_input_tokens": 20,
+                        "output_tokens": 15,
+                    },
+                },
+            },
+            {
+                "type": "assistant",
+                "message": {
+                    "model": "glm-5.2",
+                    "usage": {
+                        "input_tokens": 60,
+                        "cache_read_input_tokens": 40,
+                        "cache_creation_input_tokens": 0,
+                        "output_tokens": 10,
+                    },
+                },
+            },
+            {
+                "type": "result",
+                "subtype": "success",
+                "num_turns": 2,
+                "total_cost_usd": 0.25,
+            },
+        ]
+    )
+
+    assert usage.source == "per_message"
+    assert usage.as_tuple() == (180, 120, 25, 0)
+    assert usage.cache_write_tokens == 20
+    assert usage.provider_cost_usd == pytest.approx(0.25)
+
+
+def test_claude_result_usage_accepts_openai_and_anthropic_aliases() -> None:
+    usage = extract_token_usage(
+        [
+            {
+                "type": "result",
+                "usage": {
+                    "prompt_tokens": 100,
+                    "cache_read_input_tokens": 70,
+                    "cache_creation_input_tokens": 5,
+                    "completion_tokens": 20,
+                    "reasoning_tokens": 3,
+                },
+            }
+        ]
+    )
+
+    assert usage.as_tuple() == (100, 70, 20, 3)
+    assert usage.cache_write_tokens == 5
+
+
+def test_claude_request_unit_placeholders_are_not_recorded_as_tokens() -> None:
+    usage = extract_token_usage(
+        [
+            {
+                "type": "assistant",
+                "message": {"usage": {"input_tokens": 1, "output_tokens": 1}},
+            },
+            {
+                "type": "assistant",
+                "message": {"usage": {"input_tokens": 1, "output_tokens": 1}},
+            },
+            {
+                "type": "result",
+                "num_turns": 2,
+                "usage": {"input_tokens": 2, "output_tokens": 2},
+                "total_cost_usd": 0.1,
+            },
+        ]
+    )
+
+    assert usage.source == "provider_request_units"
+    assert usage.observed is False
+    assert usage.as_tuple() == (0, 0, 0, 0)
+    assert usage.provider_cost_usd == pytest.approx(0.1)
+
+
+def test_claude_per_message_usage_beats_result_turn_count_placeholder() -> None:
+    usage = extract_token_usage(
+        [
+            {
+                "type": "assistant",
+                "message": {"usage": {"input_tokens": 120, "output_tokens": 15}},
+            },
+            {
+                "type": "assistant",
+                "message": {"usage": {"input_tokens": 80, "output_tokens": 10}},
+            },
+            {
+                "type": "result",
+                "num_turns": 2,
+                "usage": {"input_tokens": 2, "output_tokens": 2},
+            },
+        ]
+    )
+
+    assert usage.source == "per_message"
+    assert usage.as_tuple() == (200, 0, 25, 0)
+
+
 def test_usage_delta_for_thread_decumulates_reasoning_output_tokens() -> None:
     backend = AgentCliBackend(backend="codex")
     assert backend._usage_delta_for_thread(
@@ -1494,9 +1593,7 @@ def test_run_exec_forwards_watchdog_hooks(
         captured["options"] = options
         return _make_cli_result(agent_messages=["ok"])
 
-    monkeypatch.setattr(
-        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
-    )
+    monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
 
     interrupt_calls: list[None] = []
 
@@ -1558,9 +1655,7 @@ def test_consumed_interrupt_returns_canonical_result_without_starting_provider(
 
     assert provider_calls == 1
     assert result.exit_code == -1
-    assert result.fatal_error == (
-        "External interrupt: operator abort requested: stop now"
-    )
+    assert result.fatal_error == ("External interrupt: operator abort requested: stop now")
 
 
 def test_run_exec_applies_default_watchdog_hooks(
@@ -1587,9 +1682,7 @@ def test_run_exec_applies_default_watchdog_hooks(
         captured["options"] = options
         return _make_cli_result(agent_messages=["ok"])
 
-    monkeypatch.setattr(
-        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
-    )
+    monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
 
     backend.run_exec(
         prompt="x",
@@ -1621,9 +1714,7 @@ def test_run_exec_allows_per_call_watchdog_disable(
         captured["options"] = options
         return _make_cli_result(agent_messages=["ok"])
 
-    monkeypatch.setattr(
-        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
-    )
+    monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
     backend.run_exec(
         prompt="x",
         options=RunnerOptions(
@@ -1674,9 +1765,7 @@ def test_run_exec_composes_explicit_watchdog_with_defaults(
         captured["options"] = options
         return _make_cli_result(agent_messages=["ok"])
 
-    monkeypatch.setattr(
-        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
-    )
+    monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
 
     backend.run_exec(
         prompt="x",
@@ -1722,9 +1811,7 @@ def test_run_exec_reports_delta_for_resumed_cumulative_thread(
             json_events=[{"type": "turn.completed", "usage": usage}],
         )
 
-    monkeypatch.setattr(
-        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
-    )
+    monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
 
     first = backend.run_exec(
         prompt="first",
@@ -1784,18 +1871,14 @@ def test_run_exec_preserves_resumed_opencode_per_step_usage(
                 {
                     "type": "step_finish",
                     "part": {
-                        "tokens": {
-                            key: value for key, value in usage.items() if key != "cost"
-                        },
+                        "tokens": {key: value for key, value in usage.items() if key != "cost"},
                         "cost": usage["cost"],
                     },
                 },
             ],
         )
 
-    monkeypatch.setattr(
-        backend._runner.__class__, "run_exec", fake_run_exec, raising=True
-    )
+    monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
 
     first = backend.run_exec(
         prompt="first",

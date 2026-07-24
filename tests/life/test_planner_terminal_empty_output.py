@@ -49,16 +49,13 @@ class _EmptyPlannerThenManagerRunner:
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
         if run_label.startswith("planner.cycle"):
             self.planner_calls += 1
-            payload = {
-                "project_done": False,
-                "reason": (
-                    "the final reviewer certification is already complete and "
-                    "there is no legal follow-up work"
-                ),
-                "waiting": False,
-                "waiting_reason": "",
-                "new_tasks": [],
-            }
+            payload = "\n".join(
+                [
+                    "PROJECT_DONE=false",
+                    "REASON=the final reviewer certification is already complete and "
+                    "there is no legal follow-up work",
+                ]
+            )
         else:
             assert run_label == "manager-stage"
             self.manager_calls += 1
@@ -69,7 +66,7 @@ class _EmptyPlannerThenManagerRunner:
             }
         return RunnerResult(
             exit_code=0,
-            agent_messages=[json.dumps(payload)],
+            agent_messages=[json.dumps(payload) if isinstance(payload, dict) else payload],
             stdout_lines=[],
             stderr_lines=[],
             thread_id=None,
@@ -87,9 +84,7 @@ def _write_software_state(project: Path, *, done: bool) -> None:
             {
                 "vertical": "software",
                 "current_stage": "delivery",
-                "stages": {
-                    "delivery": {"status": "done" if done else "in_progress"}
-                },
+                "stages": {"delivery": {"status": "done" if done else "in_progress"}},
             }
         ),
         encoding="utf-8",
@@ -129,10 +124,7 @@ def _write_reviewed_math_scope_state(project: Path) -> None:
 
 def _candidate_artifact_paths(project: Path) -> list[Path]:
     research = project / "research"
-    return [
-        path for path in research.rglob("*candidate*")
-        if path.name != "scope_definition.json"
-    ]
+    return [path for path in research.rglob("*candidate*") if path.name != "scope_definition.json"]
 
 
 def _make_supervisor(
@@ -173,19 +165,13 @@ def _make_supervisor(
         planner_runner=backend,
     )
 
-    monkeypatch.setattr(
-        supervisor, "_maybe_idle_after_unchanged_open_ended_done", lambda: None
-    )
+    monkeypatch.setattr(supervisor, "_maybe_idle_after_unchanged_open_ended_done", lambda: None)
     monkeypatch.setattr(supervisor, "_resolve_vertical_once", lambda: None)
-    monkeypatch.setattr(
-        supervisor, "_wiki_collect_task_if_due_under_blocker", lambda: None
-    )
+    monkeypatch.setattr(supervisor, "_wiki_collect_task_if_due_under_blocker", lambda: None)
     monkeypatch.setattr(supervisor, "_render_journal_for_planner", lambda: "")
     monkeypatch.setattr(supervisor, "_recent_no_progress_failures", lambda: {})
     monkeypatch.setattr(supervisor, "_recent_subagent_family_failures", lambda: {})
-    monkeypatch.setattr(
-        supervisor, "_effective_full_paper_gate", lambda *_a, **_k: False
-    )
+    monkeypatch.setattr(supervisor, "_effective_full_paper_gate", lambda *_a, **_k: False)
     monkeypatch.setattr(supervisor, "_planner_runtime_with_idle_note", lambda: "")
     return supervisor, backend, sink
 
@@ -237,8 +223,7 @@ def test_nonterminal_empty_plan_still_fails_with_planner_error(
     assert supervisor.memory.backlog.pending() == []
     assert any(event.get("type") == "life.planner.error" for event in sink.events)
     assert not any(
-        event.get("type") == "life.planner.verdict"
-        and event.get("status") == "completed"
+        event.get("type") == "life.planner.verdict" and event.get("status") == "completed"
         for event in sink.events
     )
 
@@ -300,9 +285,7 @@ def test_nonterminal_empty_plan_replays_unassessed_current_stage_review(
 
     assert backend.planner_calls == 1
     assert backend.manager_calls == 1
-    state = json.loads(
-        (project / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
-    )
+    state = json.loads((project / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8"))
     assert state["current_stage"] == "solve"
     assert state["research_target_level"] == "doctoral"
     assert _candidate_artifact_paths(project) == []

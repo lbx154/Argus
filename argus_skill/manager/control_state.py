@@ -4,6 +4,7 @@ A revision snapshot is immutable. ``HEAD.json`` is replaced last and is the sole
 current-state commit point, so stale waiting contracts and authorizations cannot
 be mistaken for current control-plane state after a restart.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -27,28 +28,34 @@ CONTROL_DIRNAME = "campaign-control"
 HEAD_FILENAME = "HEAD.json"
 AUTHORIZATION_LOG = "operator-authorizations.jsonl"
 CONTROL_VERSION = 1
-_TREE_IGNORE_DIRS = frozenset({
-    ".git",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".tox",
-    ".venv",
-    "__pycache__",
-    "node_modules",
-    "venv",
-})
-_TREE_IGNORE_ROOTS = frozenset({
-    ".argus_external_work",
-    ".argus_subagents",
-})
-_ALLOWED_ACTIONS = frozenset({
-    "validator_repair",
-    "acceptance_retry",
-    "provenance_repair",
-    "artifact_refresh",
-    "resume_blocked_work",
-})
+_TREE_IGNORE_DIRS = frozenset(
+    {
+        ".git",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".tox",
+        ".venv",
+        "__pycache__",
+        "node_modules",
+        "venv",
+    }
+)
+_TREE_IGNORE_ROOTS = frozenset(
+    {
+        ".argus_external_work",
+        ".argus_subagents",
+    }
+)
+_ALLOWED_ACTIONS = frozenset(
+    {
+        "validator_repair",
+        "acceptance_retry",
+        "provenance_repair",
+        "artifact_refresh",
+        "resume_blocked_work",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -227,10 +234,7 @@ def _path_is_within(relative: str, roots: Iterable[str]) -> bool:
 def _tree_sha256(project_root: Path, *, excluded_paths: Iterable[str]) -> str:
     """Hash the project tree except explicitly writable and operational paths."""
     project_root = project_root.expanduser().resolve(strict=False)
-    excluded = tuple(
-        _validated_project_path(project_root, value)[0]
-        for value in excluded_paths
-    )
+    excluded = tuple(_validated_project_path(project_root, value)[0] for value in excluded_paths)
     digest = hashlib.sha256()
     if not project_root.exists():
         return digest.hexdigest()
@@ -310,9 +314,7 @@ class CampaignControlStore:
         campaign_epoch: int | None = None,
     ) -> CampaignIdentity:
         continuous = _read_json(self.state_root / "continuous.json") or {}
-        current_objective = str(
-            objective or continuous.get("objective") or ""
-        ).strip()
+        current_objective = str(objective or continuous.get("objective") or "").strip()
         epoch = (
             max(0, int(campaign_epoch))
             if campaign_epoch is not None
@@ -387,8 +389,11 @@ class CampaignControlStore:
         }
         if previous is not None:
             for field_name in (
-                "active_wait", "authorization_ids", "active_capability",
-                "stage_projection", "terminal_evidence",
+                "active_wait",
+                "authorization_ids",
+                "active_capability",
+                "stage_projection",
+                "terminal_evidence",
             ):
                 snapshot[field_name] = previous.get(field_name, snapshot[field_name])
         snapshot.update(updates)
@@ -431,9 +436,7 @@ class CampaignControlStore:
         recheck_token: str,
         watched_paths: Iterable[str] = (),
     ) -> ControlHead:
-        safe_watched_paths = [
-            _safe_relative_path(path) for path in watched_paths
-        ]
+        safe_watched_paths = [_safe_relative_path(path) for path in watched_paths]
         head, _ = self.commit_revision(
             identity=identity,
             updates={
@@ -517,10 +520,13 @@ class CampaignControlStore:
         expected_state_revision: int | None = None,
         expected_wait_id: str = "",
     ) -> Authorization:
-        actions = tuple(dict.fromkeys(
-            str(value or "").strip().lower() for value in allowed_actions
-            if str(value or "").strip().lower() in _ALLOWED_ACTIONS
-        ))
+        actions = tuple(
+            dict.fromkeys(
+                str(value or "").strip().lower()
+                for value in allowed_actions
+                if str(value or "").strip().lower() in _ALLOWED_ACTIONS
+            )
+        )
         if not actions:
             raise ValueError("authorization requires at least one allowed action")
         blocker = str(blocker_fingerprint or "").strip()
@@ -537,17 +543,13 @@ class CampaignControlStore:
                 raise ValueError("validator repair requires explicit writable paths")
             if max(0, min(1, int(acceptance_retries or 0))) != 1:
                 raise ValueError("validator repair requires exactly one acceptance retry")
-        safe_forbidden = tuple(dict.fromkeys(
-            _safe_relative_path(value) for value in forbidden_mutations
-        ))
+        safe_forbidden = tuple(
+            dict.fromkeys(_safe_relative_path(value) for value in forbidden_mutations)
+        )
         if any(_path_is_within(path, safe_forbidden) for path in safe_allowed):
             raise ValueError("writable path overlaps a forbidden mutation path")
-        frozen = tuple(
-            _hash_path(self.project_root, value) for value in evidence_paths
-        )
-        allowed_baseline = tuple(
-            _hash_path(self.project_root, value) for value in safe_allowed
-        )
+        frozen = tuple(_hash_path(self.project_root, value) for value in evidence_paths)
+        allowed_baseline = tuple(_hash_path(self.project_root, value) for value in safe_allowed)
         frozen_tree_sha256 = _tree_sha256(
             self.project_root,
             excluded_paths=safe_allowed,
@@ -564,16 +566,13 @@ class CampaignControlStore:
             ):
                 current = None
             if expected_state_revision is not None and (
-                current is None
-                or current.state_revision != int(expected_state_revision)
+                current is None or current.state_revision != int(expected_state_revision)
             ):
                 raise ValueError("Manager HEAD changed before authorization issuance")
             if expected_wait_id:
                 current_snapshot = self.read_snapshot(current)
                 active_wait = (
-                    current_snapshot.get("active_wait")
-                    if current_snapshot is not None
-                    else None
+                    current_snapshot.get("active_wait") if current_snapshot is not None else None
                 )
                 if (
                     not isinstance(active_wait, dict)
@@ -638,7 +637,8 @@ class CampaignControlStore:
 
     def get_authorization(self, authorization_id: str) -> dict[str, Any] | None:
         events = [
-            row for row in self.authorization_events()
+            row
+            for row in self.authorization_events()
             if row.get("authorization_id") == authorization_id
         ]
         return events[-1] if events else None
@@ -665,8 +665,11 @@ class CampaignControlStore:
                     row
                     for row in reversed(self.authorization_events())
                     if row.get("mission_id") == str(mission_id or "")
-                    and row.get("event") in {
-                        "claimed", "acceptance_started", "closed",
+                    and row.get("event")
+                    in {
+                        "claimed",
+                        "acceptance_started",
+                        "closed",
                     }
                 ),
                 None,
@@ -685,9 +688,7 @@ class CampaignControlStore:
             ):
                 return None
             capability = {
-                key: latest[key]
-                for key in RepairCapability.__dataclass_fields__
-                if key in latest
+                key: latest[key] for key in RepairCapability.__dataclass_fields__ if key in latest
             }
             if len(capability) != len(RepairCapability.__dataclass_fields__):
                 return None
@@ -710,12 +711,9 @@ class CampaignControlStore:
                 return dict(latest)
 
             if latest.get("event") == "claimed" and not active_matches:
-                if (
-                    int(latest.get("state_revision") or -1)
-                    != head.state_revision + 1
-                    or str(latest.get("authorization_id") or "")
-                    not in set(snapshot.get("authorization_ids") or [])
-                ):
+                if int(latest.get("state_revision") or -1) != head.state_revision + 1 or str(
+                    latest.get("authorization_id") or ""
+                ) not in set(snapshot.get("authorization_ids") or []):
                     return None
                 self._next_revision_unlocked(
                     identity=identity,
@@ -776,7 +774,7 @@ class CampaignControlStore:
             "validator_id": str(row.get("validator_id") or ""),
             "allowed_write_paths": list(row.get("allowed_write_paths") or []),
             "frozen_evidence": [
-                {"path": str(value.get("path") or ""), "sha256": str(value.get("sha256") or "")}
+                {"path": str(value.get("path") or "")}
                 for value in (row.get("frozen_evidence") or [])
                 if isinstance(value, dict)
             ],
@@ -824,7 +822,8 @@ class CampaignControlStore:
         expected_frozen = list(issued.get("frozen_evidence") or [])
         current_frozen = [
             _hash_path(self.project_root, row.get("path"))
-            for row in expected_frozen if isinstance(row, dict)
+            for row in expected_frozen
+            if isinstance(row, dict)
         ]
         if current_frozen != expected_frozen:
             raise ValueError("frozen evidence changed")
@@ -835,7 +834,8 @@ class CampaignControlStore:
         )
         current_allowed = [
             _hash_path(self.project_root, row.get("path"))
-            for row in expected_allowed if isinstance(row, dict)
+            for row in expected_allowed
+            if isinstance(row, dict)
         ]
         if current_allowed != expected_allowed:
             raise ValueError("authorized validator changed before capability claim")
@@ -936,7 +936,8 @@ class CampaignControlStore:
             )
             current_frozen = [
                 _hash_path(self.project_root, row.get("path"))
-                for row in expected_frozen if isinstance(row, dict)
+                for row in expected_frozen
+                if isinstance(row, dict)
             ]
             if current_frozen != expected_frozen:
                 raise ValueError("frozen evidence changed")
@@ -967,10 +968,9 @@ class CampaignControlStore:
             )
             if started_head.state_revision != updated["state_revision"]:
                 raise RuntimeError("acceptance retry revision mismatch")
-            return RepairCapability(**{
-                key: updated[key]
-                for key in RepairCapability.__dataclass_fields__
-            })
+            return RepairCapability(
+                **{key: updated[key] for key in RepairCapability.__dataclass_fields__}
+            )
 
     def close_repair_capability(
         self,
@@ -1005,7 +1005,8 @@ class CampaignControlStore:
             )
             current_frozen = [
                 _hash_path(self.project_root, row.get("path"))
-                for row in expected_frozen if isinstance(row, dict)
+                for row in expected_frozen
+                if isinstance(row, dict)
             ]
             tree_digest = _tree_sha256(
                 self.project_root,
@@ -1049,7 +1050,8 @@ class CampaignControlStore:
         normalized_action = str(action or "").strip().lower()
         with self.locked():
             events = [
-                row for row in self.authorization_events()
+                row
+                for row in self.authorization_events()
                 if row.get("authorization_id") == authorization_id
             ]
             if not events or events[-1].get("event") != "issued":
@@ -1083,7 +1085,8 @@ class CampaignControlStore:
             expected_frozen = list(issued.get("frozen_evidence") or [])
             current_frozen = [
                 _hash_path(self.project_root, row.get("path"))
-                for row in expected_frozen if isinstance(row, dict)
+                for row in expected_frozen
+                if isinstance(row, dict)
             ]
             if current_frozen != expected_frozen:
                 raise ValueError("frozen evidence changed")

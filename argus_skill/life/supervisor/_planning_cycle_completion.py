@@ -50,14 +50,11 @@ class PlanningCycleCompletionMixin:
             enqueued_titles=[],
             skipped_duplicate_titles=[],
             open_ended_objective=True,
-            **state.schema_repair_details,
         )
         if not delivered:
             return PLAN_RETRY
         self._enter_idle_backoff()
-        self._emit_status(
-            "planner: terminal stage certified and Manager held; idling"
-        )
+        self._emit_status("planner: terminal stage certified and Manager held; idling")
         return PLAN_TERMINAL_IDLE
 
     def _pc_handle_waiting(self, state: _PlanCycleState) -> Any | None:
@@ -68,73 +65,72 @@ class PlanningCycleCompletionMixin:
 
         if verdict.waiting:
             if self._load_manager_planner_feedback() is not None:
-                self._emit({
-                    "type": "life.manager.feedback.unresolved",
-                    "reason": "planner returned waiting instead of revision tasks",
-                })
-                self._emit_status(
-                    "planner ignored unresolved Manager feedback; retry later"
+                self._emit(
+                    {
+                        "type": "life.manager.feedback.unresolved",
+                        "reason": "planner returned waiting instead of revision tasks",
+                    }
                 )
+                self._emit_status("planner ignored unresolved Manager feedback; retry later")
                 self._enter_idle_backoff()
                 return PLAN_ERROR
             if revision_request is not None:
-                reconciliation_result = (
-                    self._reconcile_open_ended_planner_waiting(verdict)
-                )
+                reconciliation_result = self._reconcile_open_ended_planner_waiting(verdict)
                 if reconciliation_result == "rollback":
-                    superseding_plan_id = (
-                        f"manager-rollback-{BacklogItem.new_id()}"
-                    )
+                    superseding_plan_id = f"manager-rollback-{BacklogItem.new_id()}"
                     try:
                         result = self.memory.backlog.supersede_active_plan(
                             expected_plan_id=expected_plan_id,
                             expected_version=expected_plan_version,
-                            supersede_item_ids=[
-                                item.id for item in state.revision_active_items
-                            ],
+                            supersede_item_ids=[item.id for item in state.revision_active_items],
                             superseded_by_plan_id=superseding_plan_id,
                             reason=verdict.waiting_reason or verdict.reason,
                         )
                     except Exception as exc:  # noqa: BLE001
-                        self._emit({
-                            "type": EventType.LIFE_PLAN_REVISION_REJECTED,
-                            "reason": (
-                                "Manager rolled back stage but active plan could "
-                                f"not be retired: {type(exc).__name__}: {exc}"
-                            ),
-                            "expected_plan_id": expected_plan_id,
-                            "expected_plan_version": expected_plan_version,
-                        })
+                        self._emit(
+                            {
+                                "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                                "reason": (
+                                    "Manager rolled back stage but active plan could "
+                                    f"not be retired: {type(exc).__name__}: {exc}"
+                                ),
+                                "expected_plan_id": expected_plan_id,
+                                "expected_plan_version": expected_plan_version,
+                            }
+                        )
                         return PLAN_ERROR
                     for item_id in result.superseded_ids:
-                        self._emit({
-                            "type": EventType.LIFE_PLAN_NODE_SUPERSEDED,
-                            "item_id": item_id,
-                            "plan_id": expected_plan_id,
-                            "plan_version": expected_plan_version,
-                            "superseded_by_plan_id": superseding_plan_id,
+                        self._emit(
+                            {
+                                "type": EventType.LIFE_PLAN_NODE_SUPERSEDED,
+                                "item_id": item_id,
+                                "plan_id": expected_plan_id,
+                                "plan_version": expected_plan_version,
+                                "superseded_by_plan_id": superseding_plan_id,
+                                "reason": verdict.waiting_reason or verdict.reason,
+                            }
+                        )
+                    self._emit(
+                        {
+                            "type": "life.plan.revision.rolled_back",
+                            "old_plan_id": expected_plan_id,
+                            "old_plan_version": expected_plan_version,
+                            "superseded_item_ids": list(result.superseded_ids),
                             "reason": verdict.waiting_reason or verdict.reason,
-                        })
-                    self._emit({
-                        "type": "life.plan.revision.rolled_back",
-                        "old_plan_id": expected_plan_id,
-                        "old_plan_version": expected_plan_version,
-                        "superseded_item_ids": list(result.superseded_ids),
-                        "reason": verdict.waiting_reason or verdict.reason,
-                    })
+                        }
+                    )
                     return PLAN_RETRY
                 if reconciliation_result:
                     return PLAN_RETRY
-                self._emit({
-                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
-                    "reason": "replacement planner returned waiting",
-                    "expected_plan_id": expected_plan_id,
-                    "expected_plan_version": expected_plan_version,
-                })
-            if (
-                revision_request is None
-                and self._reconcile_open_ended_planner_waiting(verdict)
-            ):
+                self._emit(
+                    {
+                        "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                        "reason": "replacement planner returned waiting",
+                        "expected_plan_id": expected_plan_id,
+                        "expected_plan_version": expected_plan_version,
+                    }
+                )
+            if revision_request is None and self._reconcile_open_ended_planner_waiting(verdict):
                 return PLAN_RETRY
             record = self._record_planner_waiting(verdict)
             # Stall-breaker: if the planner has idled K+ cycles on the same
@@ -192,8 +188,7 @@ class PlanningCycleCompletionMixin:
                         impact_score=5,
                         impact_area="requirement_gap",
                         evidence=(
-                            "The project has not yet received an independent final paper "
-                            "review."
+                            "The project has not yet received an independent final paper review."
                         ),
                         scope=PLANNER_SCOPE_FINAL_SUBMISSION,
                         stage_closing=True,
@@ -220,11 +215,7 @@ class PlanningCycleCompletionMixin:
 
         staged_goal_candidate = bool(
             verdict.project_done
-            or (
-                not planner_declared_done
-                and not verdict.waiting
-                and not verdict.new_tasks
-            )
+            or (not planner_declared_done and not verdict.waiting and not verdict.new_tasks)
         )
         if staged_goal_candidate and revision_request is None:
             goal_gate_issue = _staged_goal_completion_issue(self._artifact_root())
@@ -273,12 +264,14 @@ class PlanningCycleCompletionMixin:
                 )
 
         if revision_request is not None and verdict.project_done:
-            self._emit({
-                "type": EventType.LIFE_PLAN_REVISION_REJECTED,
-                "reason": "replacement planner cannot declare project_done",
-                "expected_plan_id": expected_plan_id,
-                "expected_plan_version": expected_plan_version,
-            })
+            self._emit(
+                {
+                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                    "reason": "replacement planner cannot declare project_done",
+                    "expected_plan_id": expected_plan_id,
+                    "expected_plan_version": expected_plan_version,
+                }
+            )
             return PLAN_ERROR
 
         if verdict.project_done and self.config.open_ended:
@@ -298,13 +291,10 @@ class PlanningCycleCompletionMixin:
                 enqueued_titles=[],
                 skipped_duplicate_titles=[],
                 open_ended_objective=True,
-                **state.schema_repair_details,
             )
             if not delivered:
                 return PLAN_RETRY
-            self._emit_status(
-                "planner: project done — continuing later for open-ended objective"
-            )
+            self._emit_status("planner: project done — continuing later for open-ended objective")
             return PLAN_RETRY
 
         if verdict.project_done:
@@ -321,13 +311,10 @@ class PlanningCycleCompletionMixin:
                 skipped_duplicate_tasks=0,
                 enqueued_titles=[],
                 skipped_duplicate_titles=[],
-                **state.schema_repair_details,
             )
             if not delivered:
                 return PLAN_RETRY
-            self._emit_status(
-                f"planner: project done — {verdict.reason}"
-            )
+            self._emit_status(f"planner: project done — {verdict.reason}")
             return False
 
         state.verdict = verdict
@@ -339,25 +326,28 @@ class PlanningCycleCompletionMixin:
         if verdict.new_tasks:
             return None
         if revision_request is not None:
-            self._emit({
-                "type": EventType.LIFE_PLAN_REVISION_REJECTED,
-                "reason": "planner produced no replacement tasks",
-                "expected_plan_id": state.expected_plan_id,
-                "expected_plan_version": state.expected_plan_version,
-            })
+            self._emit(
+                {
+                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                    "reason": "planner produced no replacement tasks",
+                    "expected_plan_id": state.expected_plan_id,
+                    "expected_plan_version": state.expected_plan_version,
+                }
+            )
         else:
             reconciliation = self._reconcile_open_ended_terminal_stage_action(verdict)
             if reconciliation == "rollback":
                 return PLAN_RETRY
             if reconciliation == "hold":
                 return self._pc_complete_terminal_empty_plan(state)
-        self._emit({
-            "type": EventType.LIFE_PLANNER_ERROR,
-            "cycle": self._planning_cycles,
-            "error": "planner produced no tasks",
-            "raw_text": verdict.raw_text,
-            **state.schema_repair_details,
-        })
+        self._emit(
+            {
+                "type": EventType.LIFE_PLANNER_ERROR,
+                "cycle": self._planning_cycles,
+                "error": "planner produced no tasks",
+                "raw_text": verdict.raw_text,
+            }
+        )
         self._emit_status("planner error: produced no tasks; retry later")
         # No tasks, no waiting flag, not done: a degenerate no-work cycle.
         # Back off so repeated empty plans cannot spin the daemon.

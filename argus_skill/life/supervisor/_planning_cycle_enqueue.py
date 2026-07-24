@@ -72,9 +72,7 @@ class PlanningCycleEnqueueMixin:
         state.recent_failures = self._recent_no_progress_failures()
         state.new_plan_id = f"plan-{BacklogItem.new_id()}"
         state.new_plan_version = (
-            state.expected_plan_version + 1
-            if state.revision_request is not None
-            else 1
+            state.expected_plan_version + 1 if state.revision_request is not None else 1
         )
         state.revision_context_refs = (
             _revision_context_refs(state.revision_request)
@@ -118,10 +116,9 @@ class PlanningCycleEnqueueMixin:
                 scope=str(getattr(task, "scope", "") or ""),
                 stage_closing=bool(getattr(task, "stage_closing", False)),
             )
-            duplicate_item = (
-                state.active_base_signatures.get(signature[:2])
-                or state.seen_signatures.get(signature)
-            )
+            duplicate_item = state.active_base_signatures.get(
+                signature[:2]
+            ) or state.seen_signatures.get(signature)
             if (
                 duplicate_item is not None
                 and bool(getattr(task, "stage_closing", False))
@@ -138,94 +135,103 @@ class PlanningCycleEnqueueMixin:
                     if duplicate_item.status == "done"
                     else "duplicate pending/running task"
                 )
-                self._emit({
-                    "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
-                    "cycle": self._planning_cycles,
-                    "title": task.title,
-                    "objective": task.objective,
-                    "impact_score": task.impact_score,
-                    "impact_area": task.impact_area,
-                    "evidence": task.evidence,
-                    "matched_item_id": duplicate_item.id,
-                    "matched_status": duplicate_item.status,
-                    "reason": duplicate_reason,
-                })
+                self._emit(
+                    {
+                        "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
+                        "cycle": self._planning_cycles,
+                        "title": task.title,
+                        "objective": task.objective,
+                        "impact_score": task.impact_score,
+                        "impact_area": task.impact_area,
+                        "evidence": task.evidence,
+                        "matched_item_id": duplicate_item.id,
+                        "matched_status": duplicate_item.status,
+                        "reason": duplicate_reason,
+                    }
+                )
                 continue
             recent_failure = state.recent_failures.get(signature)
             if recent_failure is not None:
                 state.skipped_recent_failure_titles.append(task.title)
                 failure_extra = getattr(recent_failure, "extra", {}) or {}
                 failure_signature = _entry_task_signature(recent_failure)
-                self._emit({
-                    "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
-                    "cycle": self._planning_cycles,
-                    "title": task.title,
-                    "objective": task.objective,
-                    "impact_score": task.impact_score,
-                    "impact_area": task.impact_area,
-                    "evidence": task.evidence,
-                    "matched_item_id": failure_extra.get("item_id"),
-                    "matched_title": recent_failure.title,
-                    "matched_status": failure_extra.get("terminal_status") or failure_extra.get("status"),
-                    "matched_stop_reason": failure_extra.get("stop_reason") or failure_extra.get("failure_reason"),
-                    "matched_signature": (
-                        {
-                            "title": failure_signature[0],
-                            "objective": failure_signature[1],
-                        }
-                        if failure_signature is not None
-                        else None
-                    ),
-                    "skip_category": "recent_no_progress_failure",
-                    "reason": "recent no_progress failure",
-                })
+                self._emit(
+                    {
+                        "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
+                        "cycle": self._planning_cycles,
+                        "title": task.title,
+                        "objective": task.objective,
+                        "impact_score": task.impact_score,
+                        "impact_area": task.impact_area,
+                        "evidence": task.evidence,
+                        "matched_item_id": failure_extra.get("item_id"),
+                        "matched_title": recent_failure.title,
+                        "matched_status": failure_extra.get("terminal_status")
+                        or failure_extra.get("status"),
+                        "matched_stop_reason": failure_extra.get("stop_reason")
+                        or failure_extra.get("failure_reason"),
+                        "matched_signature": (
+                            {
+                                "title": failure_signature[0],
+                                "objective": failure_signature[1],
+                            }
+                            if failure_signature is not None
+                            else None
+                        ),
+                        "skip_category": "recent_no_progress_failure",
+                        "reason": "recent no_progress failure",
+                    }
+                )
                 continue
             family_failure = next(
                 (
-                    ff for ff in state.subagent_family_failures.values()
+                    ff
+                    for ff in state.subagent_family_failures.values()
                     if self._task_mentions_family(task, ff.family)
                 ),
                 None,
             )
             if family_failure is not None:
                 state.skipped_subagent_family_failure_titles.append(task.title)
-                self._emit({
-                    "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
-                    "cycle": self._planning_cycles,
-                    "title": task.title,
-                    "objective": task.objective,
-                    "impact_score": task.impact_score,
-                    "impact_area": task.impact_area,
-                    "evidence": task.evidence,
-                    "matched_family": family_failure.family,
-                    "matched_streak": family_failure.streak,
-                    "matched_last_task_id": family_failure.last_task_id,
-                    "matched_last_state": family_failure.last_state,
-                    "matched_last_reason": family_failure.last_reason,
-                    "skip_category": "recent_subagent_family_failure",
-                    "reason": (
-                        f"subagent family {family_failure.family!r} has failed "
-                        f"{family_failure.streak} times in a row unresolved"
-                    ),
-                })
+                self._emit(
+                    {
+                        "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
+                        "cycle": self._planning_cycles,
+                        "title": task.title,
+                        "objective": task.objective,
+                        "impact_score": task.impact_score,
+                        "impact_area": task.impact_area,
+                        "evidence": task.evidence,
+                        "matched_family": family_failure.family,
+                        "matched_streak": family_failure.streak,
+                        "matched_last_task_id": family_failure.last_task_id,
+                        "matched_last_state": family_failure.last_state,
+                        "matched_last_reason": family_failure.last_reason,
+                        "skip_category": "recent_subagent_family_failure",
+                        "reason": (
+                            f"subagent family {family_failure.family!r} has failed "
+                            f"{family_failure.streak} times in a row unresolved"
+                        ),
+                    }
+                )
                 continue
             item_id = BacklogItem.new_id()
             try:
-                authorization_id, authorization_action = (
-                    self._validated_task_authorization(task)
-                )
+                authorization_id, authorization_action = self._validated_task_authorization(task)
             except (OSError, TypeError, ValueError) as exc:
-                self._emit({
-                    "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
-                    "cycle": self._planning_cycles,
-                    "title": task.title,
-                    "objective": task.objective,
-                    "impact_score": task.impact_score,
-                    "impact_area": task.impact_area,
-                    "evidence": task.evidence,
-                    "reason": str(exc),
-                    "skip_category": "invalid_authorization",
-                })
+                self._emit(
+                    {
+                        "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
+                        "cycle": self._planning_cycles,
+                        "title": task.title,
+                        "objective": task.objective,
+                        "impact_score": task.impact_score,
+                        "impact_area": task.impact_area,
+                        "evidence": task.evidence,
+                        "reason": str(exc),
+                        "skip_category": "invalid_authorization",
+                    }
+                )
                 continue
             item = BacklogItem.new(
                 item_id=item_id,
@@ -239,12 +245,10 @@ class PlanningCycleEnqueueMixin:
                 plan_version=state.new_plan_version,
                 node_key=str(getattr(task, "key", "") or item_id),
                 context_refs=(
-                    list(getattr(task, "context_refs", []) or [])
-                    or state.revision_context_refs
+                    list(getattr(task, "context_refs", []) or []) or state.revision_context_refs
                 ),
                 acceptance_check=str(
-                    getattr(task, "acceptance_check", "")
-                    or getattr(task, "evidence", "")
+                    getattr(task, "acceptance_check", "") or getattr(task, "evidence", "")
                 ),
                 non_goals=list(getattr(task, "non_goals", []) or []),
                 authorization_id=authorization_id,
@@ -276,9 +280,7 @@ class PlanningCycleEnqueueMixin:
         for task, item in state.pending_items:
             task_deps = list(getattr(task, "deps", []) or [])
             if task_deps:
-                resolved_ids, unresolved_keys = _resolve_task_dep_ids(
-                    task_deps, state.key_map
-                )
+                resolved_ids, unresolved_keys = _resolve_task_dep_ids(task_deps, state.key_map)
                 item.deps = resolved_ids
                 if unresolved_keys:
                     log.warning(
@@ -290,39 +292,39 @@ class PlanningCycleEnqueueMixin:
                     )
         if revision_request is None and state.pending_items:
             try:
-                self.memory.backlog.add_many(
-                    [item for _task, item in state.pending_items]
-                )
+                self.memory.backlog.add_many([item for _task, item in state.pending_items])
             except Exception as exc:  # noqa: BLE001
-                self._emit({
-                    "type": EventType.LIFE_PLANNER_ERROR,
-                    "cycle": self._planning_cycles,
-                    "error": f"planner DAG commit rejected: {type(exc).__name__}: {exc}",
-                })
-                self._emit_status(
-                    "planner DAG rejected before commit; retrying after backoff"
+                self._emit(
+                    {
+                        "type": EventType.LIFE_PLANNER_ERROR,
+                        "cycle": self._planning_cycles,
+                        "error": f"planner DAG commit rejected: {type(exc).__name__}: {exc}",
+                    }
                 )
+                self._emit_status("planner DAG rejected before commit; retrying after backoff")
                 self._enter_idle_backoff()
                 return PLAN_ERROR
             for task, item in state.pending_items:
                 state.added_titles.append(item.title)
                 state.added_impact_scores.append(task.impact_score)
-                self._emit({
-                    "type": EventType.LIFE_PLANNER_TASK_ADDED,
-                    "item_id": item.id,
-                    "title": item.title,
-                    "objective": item.objective,
-                    "deps": list(item.deps),
-                    "priority": item.priority,
-                    "branch_id": item.id,
-                    "parent_branch_id": item.deps[0] if item.deps else None,
-                    "impact_score": task.impact_score,
-                    "impact_area": task.impact_area,
-                    "manager_intent": manager_intent,
-                    "plan_id": item.plan_id,
-                    "plan_version": item.plan_version,
-                    "node_key": item.node_key,
-                })
+                self._emit(
+                    {
+                        "type": EventType.LIFE_PLANNER_TASK_ADDED,
+                        "item_id": item.id,
+                        "title": item.title,
+                        "objective": item.objective,
+                        "deps": list(item.deps),
+                        "priority": item.priority,
+                        "branch_id": item.id,
+                        "parent_branch_id": item.deps[0] if item.deps else None,
+                        "impact_score": task.impact_score,
+                        "impact_area": task.impact_area,
+                        "manager_intent": manager_intent,
+                        "plan_id": item.plan_id,
+                        "plan_version": item.plan_version,
+                        "node_key": item.node_key,
+                    }
+                )
 
         if revision_request is not None and state.pending_items:
             replacement_items = [item for _task, item in state.pending_items]
@@ -332,66 +334,68 @@ class PlanningCycleEnqueueMixin:
                     expected_version=expected_plan_version,
                     new_plan_id=state.new_plan_id,
                     new_version=state.new_plan_version,
-                    supersede_item_ids=[
-                        item.id for item in state.revision_active_items
-                    ],
+                    supersede_item_ids=[item.id for item in state.revision_active_items],
                     new_items=replacement_items,
                     reason=_revision_reason(revision_request),
                 )
             except Exception as exc:  # noqa: BLE001
-                self._emit({
-                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
-                    "reason": f"{type(exc).__name__}: {exc}",
-                    "expected_plan_id": expected_plan_id,
-                    "expected_plan_version": expected_plan_version,
-                })
+                self._emit(
+                    {
+                        "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                        "reason": f"{type(exc).__name__}: {exc}",
+                        "expected_plan_id": expected_plan_id,
+                        "expected_plan_version": expected_plan_version,
+                    }
+                )
                 return PLAN_ERROR
             for item_id in revision_result.superseded_ids:
-                self._emit({
-                    "type": EventType.LIFE_PLAN_NODE_SUPERSEDED,
-                    "item_id": item_id,
-                    "plan_id": expected_plan_id,
-                    "plan_version": expected_plan_version,
-                    "superseded_by_plan_id": state.new_plan_id,
-                    "reason": _revision_reason(revision_request),
-                })
+                self._emit(
+                    {
+                        "type": EventType.LIFE_PLAN_NODE_SUPERSEDED,
+                        "item_id": item_id,
+                        "plan_id": expected_plan_id,
+                        "plan_version": expected_plan_version,
+                        "superseded_by_plan_id": state.new_plan_id,
+                        "reason": _revision_reason(revision_request),
+                    }
+                )
             for task, item in state.pending_items:
                 state.added_titles.append(item.title)
                 state.added_impact_scores.append(task.impact_score)
-                self._emit({
-                    "type": EventType.LIFE_PLANNER_TASK_ADDED,
-                    "item_id": item.id,
-                    "title": item.title,
-                    "objective": item.objective,
-                    "deps": list(item.deps),
-                    "priority": item.priority,
-                    "branch_id": item.id,
-                    "parent_branch_id": item.deps[0] if item.deps else None,
-                    "impact_score": task.impact_score,
-                    "impact_area": task.impact_area,
-                    "manager_intent": manager_intent,
-                    "plan_id": item.plan_id,
-                    "plan_version": item.plan_version,
-                    "node_key": item.node_key,
-                })
-            self._emit({
-                "type": EventType.LIFE_PLAN_REVISION_COMMITTED,
-                "old_plan_id": expected_plan_id,
-                "old_plan_version": expected_plan_version,
-                "new_plan_id": state.new_plan_id,
-                "new_plan_version": state.new_plan_version,
-                "superseded_item_ids": list(revision_result.superseded_ids),
-                "added_item_ids": list(revision_result.added_ids),
-            })
+                self._emit(
+                    {
+                        "type": EventType.LIFE_PLANNER_TASK_ADDED,
+                        "item_id": item.id,
+                        "title": item.title,
+                        "objective": item.objective,
+                        "deps": list(item.deps),
+                        "priority": item.priority,
+                        "branch_id": item.id,
+                        "parent_branch_id": item.deps[0] if item.deps else None,
+                        "impact_score": task.impact_score,
+                        "impact_area": task.impact_area,
+                        "manager_intent": manager_intent,
+                        "plan_id": item.plan_id,
+                        "plan_version": item.plan_version,
+                        "node_key": item.node_key,
+                    }
+                )
+            self._emit(
+                {
+                    "type": EventType.LIFE_PLAN_REVISION_COMMITTED,
+                    "old_plan_id": expected_plan_id,
+                    "old_plan_version": expected_plan_version,
+                    "new_plan_id": state.new_plan_id,
+                    "new_plan_version": state.new_plan_version,
+                    "superseded_item_ids": list(revision_result.superseded_ids),
+                    "added_item_ids": list(revision_result.added_ids),
+                }
+            )
 
         if revision_request is not None and not state.pending_items:
             requested_item_id = str(revision_request.get("item_id") or "")
             requested_item = next(
-                (
-                    item
-                    for item in state.revision_active_items
-                    if item.id == requested_item_id
-                ),
+                (item for item in state.revision_active_items if item.id == requested_item_id),
                 None,
             )
             attempts = int(getattr(requested_item, "replan_rejections", 0) or 0) + 1
@@ -405,20 +409,21 @@ class PlanningCycleEnqueueMixin:
                     ),
                 )
             terminal = attempts >= REPLAN_FILTER_REJECTION_LIMIT
-            self._emit({
-                "type": EventType.LIFE_PLAN_REVISION_REJECTED,
-                "reason": "all replacement tasks were filtered",
-                "expected_plan_id": expected_plan_id,
-                "expected_plan_version": expected_plan_version,
-                "attempts": attempts,
-                "terminal": terminal,
-            })
+            self._emit(
+                {
+                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                    "reason": "all replacement tasks were filtered",
+                    "expected_plan_id": expected_plan_id,
+                    "expected_plan_version": expected_plan_version,
+                    "attempts": attempts,
+                    "terminal": terminal,
+                }
+            )
             if terminal and requested_item is not None:
                 self.memory.backlog.mark_failed(
                     requested_item.id,
                     error=(
-                        "filtered replacement circuit breaker opened after "
-                        f"{attempts} attempts"
+                        f"filtered replacement circuit breaker opened after {attempts} attempts"
                     ),
                 )
                 sleep_s = self._enter_idle_backoff()
@@ -443,30 +448,22 @@ class PlanningCycleEnqueueMixin:
             enqueued_tasks=len(state.added_titles),
             skipped_duplicate_tasks=len(state.skipped_duplicate_titles),
             skipped_recent_failure_tasks=len(state.skipped_recent_failure_titles),
-            skipped_subagent_family_failure_tasks=len(
-                state.skipped_subagent_family_failure_titles
-            ),
+            skipped_subagent_family_failure_tasks=len(state.skipped_subagent_family_failure_titles),
             enqueued_titles=state.added_titles,
             enqueued_impact_scores=state.added_impact_scores,
             skipped_duplicate_titles=state.skipped_duplicate_titles,
             skipped_recent_failure_titles=state.skipped_recent_failure_titles,
-            skipped_subagent_family_failure_titles=(
-                state.skipped_subagent_family_failure_titles
-            ),
+            skipped_subagent_family_failure_titles=(state.skipped_subagent_family_failure_titles),
             stuck_subagent_families={
-                family: failure.streak
-                for family, failure in state.subagent_family_failures.items()
+                family: failure.streak for family, failure in state.subagent_family_failures.items()
             },
             manager_intent=state.manager_intent,
-            **state.schema_repair_details,
         )
         if not delivered:
             return PLAN_RETRY
         if not state.added_titles:
             self._enter_idle_backoff()
-            self._emit_status(
-                "planner: all proposed tasks were filtered; retrying after backoff"
-            )
+            self._emit_status("planner: all proposed tasks were filtered; retrying after backoff")
             return PLAN_RETRY
         self._clear_manager_planner_feedback()
         # Real new work was queued: clear the no-work backoff so the next cycle

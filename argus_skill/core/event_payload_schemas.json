@@ -409,14 +409,7 @@
         "stop_kind": {"type": ["string", "null"]},
         "completion_kind": {"type": ["string", "null"]},
         "delivery_id": {"type": "string", "minLength": 1},
-        "tasks_added": {"type": "integer", "minimum": 0},
-        "schema_repair_attempted": {"type": "boolean"},
-        "schema_repair_succeeded": {"type": "boolean"},
-        "schema_repair_original_sha256": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{64}$"
-        },
-        "schema_repair_error": {"type": "string"}
+        "tasks_added": {"type": "integer", "minimum": 0}
       }
     },
     "life.planner.error": {
@@ -424,14 +417,7 @@
       "required": ["error"],
       "properties": {
         "error": {"type": "string", "minLength": 1},
-        "reason": {"type": "string"},
-        "schema_repair_attempted": {"type": "boolean"},
-        "schema_repair_succeeded": {"type": "boolean"},
-        "schema_repair_original_sha256": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{64}$"
-        },
-        "schema_repair_error": {"type": "string"}
+        "reason": {"type": "string"}
       }
     },
     "life.planner.task_added": {

@@ -8,6 +8,7 @@ Finding 2: A corrupt/unreadable outbox emits an error but does NOT retire
 the invalid record, creating permanent no-progress where every cycle
 bypasses Planner.
 """
+
 from __future__ import annotations
 
 import json
@@ -73,10 +74,16 @@ class _NeverCalledRunner:
     def execute(self, **kwargs: Any) -> SimpleNamespace:
         self.called = True
         return SimpleNamespace(
-            success=True, status="done", stop_reason="", rounds=1,
-            matched_skill_name="", skill_distilled=True,
-            had_follow_up=False, final_message="done",
-            operator_question="", research_result=None,
+            success=True,
+            status="done",
+            stop_reason="",
+            rounds=1,
+            matched_skill_name="",
+            skill_distilled=True,
+            had_follow_up=False,
+            final_message="done",
+            operator_question="",
+            research_result=None,
         )
 
 
@@ -104,37 +111,33 @@ def test_all_filtered_planned_verdict_replays_plan_retry_not_false(
     # backlog (status="pending" ∈ PLANNER_DEDUP_STATUSES) so every task is
     # filtered as a duplicate and ``added_titles`` stays empty.
     tasks = [
-        ("run baseline experiment",
-         "run the baseline and record results in results.csv"),
-        ("run ablation study",
-         "run ablations over key hyperparams; write ablation.csv"),
-        ("analyse results",
-         "read results.csv and ablation.csv; write analysis/summary.md"),
+        ("run baseline experiment", "run the baseline and record results in results.csv"),
+        ("run ablation study", "run ablations over key hyperparams; write ablation.csv"),
+        ("analyse results", "read results.csv and ablation.csv; write analysis/summary.md"),
     ]
 
     mem = LifeMemory.open(tmp_path / "life")
     for title, objective in tasks:
         mem.backlog.add(BacklogItem.new(title=title, objective=objective))
 
-    verdict_json = json.dumps({
-        "project_done": False,
-        "reason": "continue improving the pipeline",
-        "waiting": False,
-        "waiting_reason": "",
-        "new_tasks": [
-            {
-                "title": title,
-                "objective": objective,
-                "impact_score": 5,
-                "impact_area": "reliability",
-                "evidence": "still needed",
-                "scope": "bounded",
-                "key": "",
-                "deps": [],
-            }
-            for title, objective in tasks
-        ],
-    })
+    verdict_lines = [
+        "PROJECT_DONE=false",
+        "REASON=continue improving the pipeline",
+    ]
+    for index, (title, objective) in enumerate(tasks):
+        verdict_lines.extend(
+            [
+                f"TASK_KEY=task-{index}",
+                "TASK_DEPS=",
+                f"TASK_TITLE={title}",
+                f"TASK_OBJECTIVE={objective}",
+                "TASK_IMPACT_SCORE=5",
+                "TASK_IMPACT_AREA=reliability",
+                "TASK_EVIDENCE=still needed",
+                "TASK_SCOPE=bounded",
+            ]
+        )
+    verdict_text = "\n".join(verdict_lines)
 
     class _CountingPlannerRunner:
         def __init__(self) -> None:
@@ -144,7 +147,7 @@ def test_all_filtered_planned_verdict_replays_plan_retry_not_false(
             self.call_count += 1
             return RunnerResult(
                 exit_code=0,
-                agent_messages=[verdict_json],
+                agent_messages=[verdict_text],
                 stdout_lines=[],
                 stderr_lines=[],
                 thread_id=None,
@@ -264,20 +267,19 @@ def test_corrupt_outbox_is_retired_and_planning_resumes(
     assert outcome_1 == PLAN_RETRY
 
     # Verify a structured life.planner.error diagnostic was emitted.
-    error_events = [
-        e for e in sink.events if e.get("type") == "life.planner.error"
-    ]
+    error_events = [e for e in sink.events if e.get("type") == "life.planner.error"]
     assert len(error_events) >= 1
-    assert "corrupt" in error_events[0].get("error", "").lower() or \
-           "unreadable" in error_events[0].get("error", "").lower()
+    assert (
+        "corrupt" in error_events[0].get("error", "").lower()
+        or "unreadable" in error_events[0].get("error", "").lower()
+    )
 
     # Critical: The corrupt file must be retired. A second call must NOT
     # hit the corrupt-outbox branch again — (False, None) means no pending
     # outbox, so Planner can proceed normally.
     retried_2, outcome_2 = sup._retry_pending_planner_verdict()
     assert retried_2 is False, (
-        "Corrupt outbox was NOT retired; the system will loop forever "
-        "without invoking Planner"
+        "Corrupt outbox was NOT retired; the system will loop forever without invoking Planner"
     )
     assert outcome_2 is None
 
@@ -288,9 +290,7 @@ def test_stale_outbox_diagnostic_does_not_reemit_untrusted_reason(
 ) -> None:
     mem = LifeMemory.open(tmp_path / "life")
     sink = _RecordingSink()
-    foreign_reason = (
-        "Inspected another project's private objective, paths, and reviewer handoff."
-    )
+    foreign_reason = "Inspected another project's private objective, paths, and reviewer handoff."
     write_planner_verdict_outbox(
         mem.root,
         event={
@@ -322,11 +322,7 @@ def test_stale_outbox_diagnostic_does_not_reemit_untrusted_reason(
 
     assert retried is False
     assert outcome is None
-    diagnostic = next(
-        event
-        for event in sink.events
-        if event.get("type") == "life.planner.error"
-    )
+    diagnostic = next(event for event in sink.events if event.get("type") == "life.planner.error")
     assert diagnostic["error"] == (
         "discarded stale planner verdict outbox after semantic state change"
     )

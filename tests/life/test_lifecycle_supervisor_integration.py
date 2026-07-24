@@ -12,6 +12,7 @@ The full supervisor.tick() integration is exercised via a small custom
 LifeSupervisor stub that drives the public ``_maybe_block_on_lifecycle``
 entry point with a fake memory and fake budget.
 """
+
 from __future__ import annotations
 
 import json
@@ -184,13 +185,19 @@ def test_load_history_tolerates_malformed_entries(tmp_path: Path) -> None:
             {
                 "state": "running",
                 "history": [
-                    {"at": "2026-05-01T00:00:00+00:00",
-                     "from_state": "incubating", "to_state": "running",
-                     "reason": "ok"},
+                    {
+                        "at": "2026-05-01T00:00:00+00:00",
+                        "from_state": "incubating",
+                        "to_state": "running",
+                        "reason": "ok",
+                    },
                     {"bad": "entry"},
-                    {"at": "2026-05-02T00:00:00+00:00",
-                     "from_state": "running", "to_state": "quarantined",
-                     "reason": "ok-2"},
+                    {
+                        "at": "2026-05-02T00:00:00+00:00",
+                        "from_state": "running",
+                        "to_state": "quarantined",
+                        "reason": "ok-2",
+                    },
                 ],
             }
         ),
@@ -267,9 +274,7 @@ def test_concurrent_lifecycle_appends_serialize_read_modify_write(
 
 def _cli_env(project_root: Path) -> dict[str, str]:
     env = os.environ.copy()
-    env["ARGUS_SKILL_HOME"] = str(
-        project_root.parent / f".{project_root.name}-argus-home"
-    )
+    env["ARGUS_SKILL_HOME"] = str(project_root.parent / f".{project_root.name}-argus-home")
     return env
 
 
@@ -280,9 +285,17 @@ def _cli_lifecycle_root(project_root: Path) -> Path:
 
 def test_cli_archive_writes_persisted_state(tmp_path: Path) -> None:
     proc = subprocess.run(
-        [sys.executable, "-m", "argus_skill",
-         "--lifecycle-archive", "--project-root", str(tmp_path)],
-        capture_output=True, text=True, env=_cli_env(tmp_path),
+        [
+            sys.executable,
+            "-m",
+            "argus_skill",
+            "--lifecycle-archive",
+            "--project-root",
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+        env=_cli_env(tmp_path),
     )
     assert proc.returncode == 0, proc.stderr
     assert "ARCHIVED" in proc.stdout.upper() or "archived" in proc.stdout
@@ -293,9 +306,17 @@ def test_cli_archive_writes_persisted_state(tmp_path: Path) -> None:
 
 def test_cli_resume_refuses_non_quarantined(tmp_path: Path) -> None:
     proc = subprocess.run(
-        [sys.executable, "-m", "argus_skill",
-         "--lifecycle-resume", "--project-root", str(tmp_path)],
-        capture_output=True, text=True, env=_cli_env(tmp_path),
+        [
+            sys.executable,
+            "-m",
+            "argus_skill",
+            "--lifecycle-resume",
+            "--project-root",
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+        env=_cli_env(tmp_path),
     )
     # Fresh project is incubating, not quarantined → resume refuses.
     assert proc.returncode == 1
@@ -342,23 +363,27 @@ def test_cli_resume_after_quarantine_returns_to_running(tmp_path: Path) -> None:
     lifecycle_root = _cli_lifecycle_root(tmp_path)
     write_persisted(lifecycle_root, status=qstatus, history=[])
     memory = LifeMemory.open(lifecycle_root)
-    paused_item = memory.backlog.add(
-        BacklogItem.new(title="paused", objective="resume safely")
-    )
+    paused_item = memory.backlog.add(BacklogItem.new(title="paused", objective="resume safely"))
     memory.backlog.update(paused_item.id, status="paused_budget")
 
     proc = subprocess.run(
-        [sys.executable, "-m", "argus_skill",
-         "--lifecycle-resume", "--project-root", str(tmp_path)],
-        capture_output=True, text=True, env=_cli_env(tmp_path),
+        [
+            sys.executable,
+            "-m",
+            "argus_skill",
+            "--lifecycle-resume",
+            "--project-root",
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+        env=_cli_env(tmp_path),
     )
     assert proc.returncode == 0, proc.stderr
 
     persisted = load_persisted(lifecycle_root)
     assert persisted["state"] == "running"
-    resumed = next(
-        item for item in memory.backlog.all() if item.id == paused_item.id
-    )
+    resumed = next(item for item in memory.backlog.all() if item.id == paused_item.id)
     assert resumed.status == "pending"
     assert resumed.attempt == 2
 
@@ -376,9 +401,17 @@ def test_cli_status_shows_persisted_marker(tmp_path: Path) -> None:
     write_persisted(lifecycle_root, status=qstatus, history=[])
 
     proc = subprocess.run(
-        [sys.executable, "-m", "argus_skill",
-         "--lifecycle-status", "--project-root", str(tmp_path)],
-        capture_output=True, text=True, env=_cli_env(tmp_path),
+        [
+            sys.executable,
+            "-m",
+            "argus_skill",
+            "--lifecycle-status",
+            "--project-root",
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+        env=_cli_env(tmp_path),
     )
     assert proc.returncode == 0, proc.stderr
     assert "observed_state    : incubating" in proc.stdout
@@ -388,10 +421,17 @@ def test_cli_status_shows_persisted_marker(tmp_path: Path) -> None:
 
 def test_cli_mutual_exclusion_blocks_two_lifecycle_flags(tmp_path: Path) -> None:
     proc = subprocess.run(
-        [sys.executable, "-m", "argus_skill",
-         "--lifecycle-resume", "--lifecycle-archive",
-         "--project-root", str(tmp_path)],
-        capture_output=True, text=True,
+        [
+            sys.executable,
+            "-m",
+            "argus_skill",
+            "--lifecycle-resume",
+            "--lifecycle-archive",
+            "--project-root",
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
     )
     assert proc.returncode == 2
     assert "mutually exclusive" in proc.stderr
@@ -526,8 +566,7 @@ def test_gate_repairs_existing_persisted_done_once(tmp_path: Path) -> None:
     assert history[-1].reason == "full_paper_gate_not_certified"
     assert any(h.reason == "submission_artifact_present" for h in history)
     assert any(
-        event.get("type") == "life.lifecycle.transition"
-        and event.get("to_state") == "writing"
+        event.get("type") == "life.lifecycle.transition" and event.get("to_state") == "writing"
         for event in stub.events
     )
 
@@ -587,9 +626,7 @@ def test_lifecycle_block_is_deduped_across_repeated_ticks(tmp_path: Path) -> Non
     gate_lines = [t for t in stub.emitted if "lifecycle gate" in t]
     assert len(gate_lines) == 1
 
-    block_events = [
-        e for e in stub.events if e.get("type") == "life.lifecycle.block"
-    ]
+    block_events = [e for e in stub.events if e.get("type") == "life.lifecycle.block"]
     assert len(block_events) == 1
 
 
@@ -604,28 +641,25 @@ def test_planner_waiting_records_external_dependency_status(tmp_path: Path) -> N
 
     class _PlannerRunner:
         def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
-            payload = {
-                "project_done": False,
-                "reason": "provider image route is blocked",
-                "waiting": True,
-                "waiting_reason": (
-                    "paper/figures/IMAGE2_OPERATOR_ACTION_REQUIRED.md documents "
-                    "the image generation unknown_model external capability "
-                    "blocker; all local high-impact work is exhausted"
-                ),
-                "waiting_contract": {
-                    "blocker_fingerprint": "capability:image-generation",
-                    "recheck_condition": "the configured image route becomes available",
-                    "recheck_token": "unknown-model-v1",
-                    "stage_reconciliation_required": False,
-                    "allow_verification_probe": False,
-                    "recheck_after_seconds": 0,
-                },
-                "new_tasks": [],
-            }
+            payload = "\n".join(
+                [
+                    "PROJECT_DONE=false",
+                    "REASON=provider image route is blocked",
+                    "WAITING=true",
+                    "WAITING_REASON=paper/figures/IMAGE2_OPERATOR_ACTION_REQUIRED.md "
+                    "documents the image generation unknown_model external capability "
+                    "blocker; all local high-impact work is exhausted",
+                    "BLOCKER_FINGERPRINT=capability:image-generation",
+                    "RECHECK_CONDITION=the configured image route becomes available",
+                    "RECHECK_TOKEN=unknown-model-v1",
+                    "STAGE_RECONCILIATION_REQUIRED=false",
+                    "ALLOW_VERIFICATION_PROBE=false",
+                    "RECHECK_AFTER_SECONDS=0",
+                ]
+            )
             return RunnerResult(
                 exit_code=0,
-                agent_messages=[json.dumps(payload)],
+                agent_messages=[payload],
                 stdout_lines=[],
                 stderr_lines=[],
                 thread_id=None,
@@ -668,15 +702,18 @@ def test_planner_waiting_records_external_dependency_status(tmp_path: Path) -> N
 
     # The Manager decides + persists the vertical before planning; seed research
     # so _resolve_vertical_once trusts it (no runner call) and the planner runs.
-    persist_vertical(tmp_path, "research")
+    persist_vertical(
+        tmp_path,
+        "research",
+        research_target_level="exploratory",
+    )
 
     assert LifeSupervisor._plan_next_work(sup) == "awaiting_external"
 
     assert sup._idle_since is None
     assert any(s.startswith("awaiting external dependency:") for s in statuses)
     waiting_events = [
-        e for e in emitted
-        if isinstance(e, dict) and e.get("type") == "life.planner.waiting"
+        e for e in emitted if isinstance(e, dict) and e.get("type") == "life.planner.waiting"
     ]
     assert len(waiting_events) == 1
     assert "IMAGE2_OPERATOR_ACTION_REQUIRED.md" in waiting_events[0]["reason"]

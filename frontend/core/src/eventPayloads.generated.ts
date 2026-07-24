@@ -281,10 +281,6 @@ export interface LifePlannerVerdictEvent extends EventMsg {
   "completion_kind"?: string | null;
   "delivery_id"?: string;
   "tasks_added"?: number;
-  "schema_repair_attempted"?: boolean;
-  "schema_repair_succeeded"?: boolean;
-  "schema_repair_original_sha256"?: string;
-  "schema_repair_error"?: string;
 }
 
 export interface LifePlannerErrorEvent extends EventMsg {
@@ -292,10 +288,6 @@ export interface LifePlannerErrorEvent extends EventMsg {
   payload_schema_version?: 1;
   "error": string;
   "reason"?: string;
-  "schema_repair_attempted"?: boolean;
-  "schema_repair_succeeded"?: boolean;
-  "schema_repair_original_sha256"?: string;
-  "schema_repair_error"?: string;
 }
 
 export interface LifePlannerTaskAddedEvent extends EventMsg {

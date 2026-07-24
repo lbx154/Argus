@@ -33,7 +33,8 @@ def _render_revision_request(
 ) -> str:
     lines = [
         "DYNAMIC PLAN REVISION REQUEST (Reviewer-authored, L4 decides):",
-        "- reason: " + (
+        "- reason: "
+        + (
             _revision_reason(revision_request)
             or "Reviewer requested reconsideration; inspect the referenced "
             "artifacts and current CHECKPOINT.md before deciding."
@@ -41,8 +42,7 @@ def _render_revision_request(
         "- remaining active nodes:",
     ]
     lines.extend(
-        f"  - {item.node_key or item.id}: [{item.status}] {item.title}"
-        for item in active_items
+        f"  - {item.node_key or item.id}: [{item.status}] {item.title}" for item in active_items
     )
     refs = _revision_context_refs(revision_request)
     if refs:
@@ -162,8 +162,6 @@ class _PlanCycleState:
         # Set by the planner-invocation phase.
         self.subagent_family_failures: dict[str, Any] = {}
         self.verdict: Any = None
-
-        self.schema_repair_details: dict[str, Any] = {}
 
         # Set by the dedupe/enqueue phases.
         self.existing_items: list[BacklogItem] = []

@@ -9,6 +9,8 @@ from argus_skill.life.context_packet import (
     record_engineer_handoff,
     record_reviewed_handoff,
 )
+from argus_skill.life.memory import BacklogItem
+from argus_skill.life.supervisor import LifeSupervisor
 
 
 def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> None:
@@ -20,12 +22,14 @@ def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> 
         objective="Screen one candidate on public tasks.",
         acceptance_check="research/screen.json reports a binding pass/fail",
         non_goals=["do not preregister", "do not run GPU inference"],
-        context_refs=[{
-            "kind": "artifact",
-            "ref": "research/IDEA_CANDIDATES.md",
-            "why": "candidate universe",
-            "content_hash": "abc",
-        }],
+        context_refs=[
+            {
+                "kind": "artifact",
+                "ref": "research/IDEA_CANDIDATES.md",
+                "why": "candidate universe",
+                "content_hash": "abc",
+            }
+        ],
         plan_id="plan-1",
         plan_version=1,
         node_key="screen",
@@ -45,7 +49,7 @@ def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> 
     engineer_payload = json.loads(engineer.read_text())
     assert latest["kind"] == "handoff_ref"
     assert latest["handoff"]["path"] == str(engineer)
-    assert latest["handoff"]["sha256"]
+    assert "sha256" not in latest["handoff"]
     assert latest["mission"]["path"] == str(mission)
     assert mission_payload["stage"] == "research"
     assert mission_payload["scope"] == "bounded"
@@ -56,10 +60,12 @@ def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> 
         "do not run GPU inference",
     ]
     assert mission_payload["context_refs"][0]["ref"] == "research/IDEA_CANDIDATES.md"
-    assert not {
-        "stage", "scope", "objective", "acceptance_check", "non_goals", "context_refs"
-    } & latest.keys()
-    assert engineer_payload["checkpoint"]["sha256"]
+    assert "content_hash" not in mission_payload["context_refs"][0]
+    assert (
+        not {"stage", "scope", "objective", "acceptance_check", "non_goals", "context_refs"}
+        & latest.keys()
+    )
+    assert "sha256" not in engineer_payload["checkpoint"]
     assert "control" not in engineer_payload
     assert "text" not in engineer_payload["checkpoint"]
     assert "engineer_summary" not in engineer_payload
@@ -91,3 +97,27 @@ def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> 
     }
     assert "engineer_summary" not in reviewed_payload
     assert "text" not in reviewed_payload["checkpoint"]
+
+
+def test_agent_task_context_hides_host_content_hash() -> None:
+    supervisor = LifeSupervisor.__new__(LifeSupervisor)
+    supervisor.config = SimpleNamespace(paper_mission=False)
+    item = BacklogItem.new(
+        title="Inspect artifact",
+        objective="Use the current artifact.",
+        context_refs=[
+            {
+                "kind": "artifact",
+                "ref": "research/RESULT.json",
+                "why": "current result",
+                "content_hash": "sha256:" + ("a" * 64),
+            }
+        ],
+    )
+
+    rendered = supervisor._render_backlog_item_metadata(item)
+
+    assert "research/RESULT.json" in rendered
+    assert "current result" in rendered
+    assert "content_hash" not in rendered
+    assert "sha256" not in rendered

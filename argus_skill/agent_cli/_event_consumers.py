@@ -2,6 +2,7 @@
 into ``(thread_id, turn_completed, turn_failed, fatal_error)`` updates plus
 appended assistant message text. Extracted verbatim from ``agent_cli_runner.py``.
 """
+
 from __future__ import annotations
 
 import json
@@ -11,6 +12,92 @@ from .runner_backend import BACKEND_CLAUDE, BACKEND_COPILOT, BACKEND_OPENCODE
 
 class EventConsumerMixin:
     """Dispatches one parsed JSON event to the active backend's consumer."""
+
+    @staticmethod
+    def _event_usage_model(event: dict) -> str:
+        """Best-effort model identity across Claude-compatible event shapes."""
+        candidates: list[object] = [event]
+        for key in ("message", "data", "response", "usage"):
+            value = event.get(key)
+            if isinstance(value, dict):
+                candidates.append(value)
+        for source in candidates:
+            if not isinstance(source, dict):
+                continue
+            for key in ("model", "model_id", "modelId"):
+                value = source.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        return ""
+
+    @staticmethod
+    def _event_has_tool_activity(event: dict) -> bool:
+        """Detect tool use for every streamed CLI dialect.
+
+        The regular subprocess path previously never set
+        ``tool_activity_observed`` at all; only Copilot ACP did.  Inspect both
+        event names and nested content blocks so Claude ``tool_use``, Codex
+        command/file items, Copilot tool deltas, and OpenCode tool parts count.
+        """
+
+        event_type = str(event.get("type") or "").strip().casefold()
+        if any(
+            marker in event_type
+            for marker in (
+                "tool",
+                "command_execution",
+                "file_change",
+                "web_search",
+                "mcp_",
+                "function_call",
+            )
+        ):
+            return True
+
+        tool_types = {
+            "tool",
+            "tool_use",
+            "tool_result",
+            "tool_call",
+            "function_call",
+            "command_execution",
+            "file_change",
+            "web_search",
+            "mcp_tool_call",
+            "local_shell_call",
+        }
+        stack: list[object] = [
+            event.get("message"),
+            event.get("item"),
+            event.get("part"),
+            event.get("data"),
+            event.get("content"),
+        ]
+        while stack:
+            value = stack.pop()
+            if isinstance(value, list):
+                stack.extend(value)
+                continue
+            if not isinstance(value, dict):
+                continue
+            nested_type = str(value.get("type") or "").strip().casefold()
+            if nested_type in tool_types:
+                return True
+            if any(
+                key in value
+                for key in (
+                    "tool_calls",
+                    "toolCalls",
+                    "tool_call_id",
+                    "toolCallId",
+                    "tool_name",
+                    "toolName",
+                    "function_call",
+                )
+            ):
+                return True
+            stack.extend(value.values())
+        return False
 
     def _consume_event(
         self,
@@ -221,11 +308,7 @@ class EventConsumerMixin:
             error = error if isinstance(error, dict) else {}
             data = error.get("data")
             data = data if isinstance(data, dict) else {}
-            message = (
-                data.get("message")
-                or error.get("message")
-                or event.get("message")
-            )
+            message = data.get("message") or error.get("message") or event.get("message")
             if fatal_error is None and isinstance(message, str) and message.strip():
                 fatal_error = message.strip()
             return thread_id, turn_completed, turn_failed, fatal_error
@@ -286,9 +369,15 @@ class EventConsumerMixin:
         """
         data = event.get("data") if isinstance(event.get("data"), dict) else {}
         token_fields = {
-            "input_tokens", "cached_input_tokens", "cache_write_tokens",
-            "output_tokens", "reasoning_output_tokens", "inputTokens",
-            "cachedInputTokens", "cacheWriteTokens", "outputTokens",
+            "input_tokens",
+            "cached_input_tokens",
+            "cache_write_tokens",
+            "output_tokens",
+            "reasoning_output_tokens",
+            "inputTokens",
+            "cachedInputTokens",
+            "cacheWriteTokens",
+            "outputTokens",
             "reasoningOutputTokens",
         }
         if any(field in event or field in data for field in token_fields):
