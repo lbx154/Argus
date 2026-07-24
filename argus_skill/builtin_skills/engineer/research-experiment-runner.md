@@ -84,11 +84,9 @@ human cohort, or systems measurement.
 
 0. **Build the project research platform.** The Engineer may create the
    project-local environment, data/model bindings, evaluator, runner, telemetry,
-   and teardown tooling needed by the research question. Record faithful probes
-   in `research/PLATFORM_SPEC.json` and run
-   `python -m argus_skill.tools.research_platform doctor --project-root .`.
-   Platform failures route back to Engineer repair and are not evidence about
-   the scientific idea.
+   and teardown tooling needed by the research question. Run the real entrypoint
+   on the smallest faithful case and retain its native output. Platform failures
+   route back to Engineer repair and are not evidence about the scientific idea.
 1. **Smoke the real path.** Run the smallest faithful end-to-end public-data or
    official-evaluator check that catches wiring errors.
 2. **Execute the preregistered comparison.** Keep data, metric, compute, and
@@ -102,11 +100,9 @@ human cohort, or systems measurement.
    conditions for resource claims. Do not repeat an entire deterministic cohort
    merely to estimate runtime when a declared representative resource sample is
    sufficient.
-   For expensive repeats, predeclare `min_repeats`, `max_repeats`, minimum
-   meaningful effect, and interval precision, then use
-   `python -m argus_skill.tools.experiment_efficiency` after each repeat. Stop on
-   supported effect, futility, sufficient precision, or the declared maximum;
-   retain every observation regardless of the stopping decision.
+   For expensive repeats, choose and justify a statistically valid stopping and
+   uncertainty method for the actual experiment design. Retain every observation
+   regardless of the stopping decision.
 3. **Monitor without steering toward success.** Preserve crashes, nulls,
    exclusions, and failed cases in the audit trail. Do not change thresholds or
    remove difficult examples after seeing results.

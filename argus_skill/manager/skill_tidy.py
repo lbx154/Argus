@@ -300,7 +300,7 @@ def propagate_runtime_skills_to_shared(
     on_event: Any = None,
 ) -> dict[str, int]:
     """Promote reviewed project Skills into immediately visible shared layers."""
-    from ..skills.layered import shared_vertical_skills_dir
+    from ..skills.layered import shared_skill_scope_dir
     from ..skills.store import SkillStore
 
     counts = dict(_ZERO_SHARED)
@@ -473,7 +473,7 @@ def propagate_runtime_skills_to_shared(
                 target_root = (
                     shared_root
                     if placement == "global"
-                    else shared_vertical_skills_dir(shared_root, vertical)
+                    else shared_skill_scope_dir(shared_root, vertical)
                 )
                 if target_root is None:
                     counts["errors"] += 1

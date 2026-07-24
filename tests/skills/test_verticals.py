@@ -481,9 +481,6 @@ def test_quant_vertical_loads_and_exposes_contract() -> None:
 
     mod = load_vertical("quant")
     assert tuple(mod.STAGE_ORDER) == QUANT_STAGES
-    # Same stage ids drive shell checks and reviewer checklists.
-    assert tuple(mod.STAGE_CHECKS.keys()) == QUANT_STAGES
-    assert tuple(mod.REVIEWER_CHECKLISTS.keys()) == QUANT_STAGES
     # A factor report is certified on the full-report gate (like research),
     # NOT a numeric speedrun metric.
     assert vertical_completion_gate(mod) == "full_paper"
@@ -495,19 +492,6 @@ def test_quant_is_a_report_vertical_not_optimize() -> None:
     from argus_skill.manager._helpers import _OPTIMIZE_VERTICALS
 
     assert "quant" not in _OPTIMIZE_VERTICALS
-
-
-def test_quant_reviewer_skill_paths_exist() -> None:
-    from argus_skill.verticals.quant.stages import REVIEWER_CHECKLISTS
-
-    builtin_root = Path(__file__).resolve().parents[2] / "argus_skill" / "builtin_skills"
-    missing = []
-    for stage, (skill_path, _instructions, _files) in REVIEWER_CHECKLISTS.items():
-        if not (builtin_root / skill_path).exists():
-            missing.append(f"{stage}: {skill_path}")
-    assert missing == []
-
-
 def test_quant_full_pipeline_checklist_is_finance_not_paper(tmp_path: Path) -> None:
     root = _project(tmp_path, "quant", current="run")
 

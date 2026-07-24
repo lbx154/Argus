@@ -22,7 +22,7 @@ idea to a full correctness suite or an all-section profiler run.
    decision requires it.
 6. **One source change:** preserve baseline/candidate identity and diff hash.
 7. **Targeted correctness + micro A/B:** a correct candidate that does not clear
-   noise is a candidate no-go, not immediate proof that the direction is exhausted.
+   noise is a failed candidate, not immediate proof that the direction is exhausted.
    Use the remaining reviewed Try budget for a materially distinct implementation
    informed by profiling, current primary sources, and the measured regression.
    Do not run the full suite.
@@ -45,7 +45,7 @@ distinct and whether the direction is exhausted. A slower/noisy result before
 the final available round must return `continue` with a concrete diagnosis and
 next mechanism; do not certify optimize or advance to validate/report. On the
 final available Try, retain a winner or return `replan_requested` with an evidence-backed
-headroom/exhaustion judgment. Candidate no-go evidence remains valuable, but
+headroom/exhaustion judgment. Negative evidence remains valuable, but
 validation/report are for a retained candidate, not ceremony around a failed one.
 
 The next round receives the compact experiment card and checkpoint, not raw

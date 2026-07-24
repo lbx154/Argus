@@ -43,9 +43,13 @@ class PlanningCycleMixin(
             return None
         root = self._artifact_root()
         try:
-            from ...engineer.background_subagents import scan_inflight_subagents
+            from ...engineer.external_work import scan_external_work
 
-            watched = [job for job in scan_inflight_subagents(root) if job.self_watched]
+            watched = [
+                job
+                for job in scan_external_work(root)
+                if job.source == "subagent" and job.waitable
+            ]
         except Exception:  # noqa: BLE001 - overlap is a throughput optimization
             return None
         if not watched:
@@ -63,7 +67,7 @@ class PlanningCycleMixin(
         from ...skills.stage_machine import current_stage
 
         stage = current_stage(root)
-        job_ids = ", ".join(job.task_id for job in watched[:4])
+        job_ids = ", ".join(job.work_id for job in watched[:4])
         objective = (
             f"Bounded overlap mission while current_stage remains `{stage}` and "
             f"healthy self-watched background job(s) `{job_ids}` continue. Do not "
@@ -101,29 +105,34 @@ class PlanningCycleMixin(
         raise NotImplementedError
 
     def _reconcile_open_ended_terminal_stage(self, verdict: Any) -> bool:
+        return self._reconcile_open_ended_terminal_stage_action(verdict) == "rollback"
+
+    def _reconcile_open_ended_terminal_stage_action(self, verdict: Any) -> str:
         """Ask the Manager to reopen a completed final stage when work remains.
 
         A Planner at a certified final stage cannot legally enqueue earlier-stage
         work and cannot write ``PIPELINE_STATE.json``. When it structurally
         returns ``project_done=False`` with no tasks in an open-ended campaign,
         give its advisory verdict to the Manager, which may roll back or hold.
+        Returns ``"rollback"``, ``"hold"``, or ``""`` for no authoritative
+        terminal reconciliation.
         """
         if not getattr(self.config, "open_ended", False):
-            return False
+            return ""
         if bool(getattr(verdict, "project_done", False)):
-            return False
+            return ""
         if list(getattr(verdict, "new_tasks", []) or []):
-            return False
+            return ""
 
         root = self._artifact_root()
         from ...skills.vertical_select import (
             resolve_vertical,
-            vertical_reached_own_terminal_stage,
+            vertical_has_current_completion_certificate,
         )
 
         vertical = resolve_vertical(root)
-        if not vertical_reached_own_terminal_stage(root, vertical):
-            return False
+        if not vertical_has_current_completion_certificate(root, vertical):
+            return ""
 
         from ...manager import Manager
 
@@ -141,9 +150,6 @@ class PlanningCycleMixin(
             open_ended=True,
             continuous_objective=self.config.continuous_objective,
         )
-        if decision.action != "rollback":
-            return False
-
         self._emit({
             "type": EventType.LIFE_MANAGER_STAGE_DECISION,
             "action": decision.action,
@@ -152,14 +158,151 @@ class PlanningCycleMixin(
             "current_stage": decision.current_stage,
             "source": decision.source,
             "diagnostic": decision.diagnostic,
+            "trigger": "open_ended_terminal_stage_reconciliation",
         })
+        if decision.action != "rollback":
+            if decision.action == "hold" and decision.source == "manager_llm":
+                return "hold"
+            return ""
+
         self._emit_status(
             "manager reopened open-ended campaign at "
             f"{decision.target_stage}"
         )
         self._last_open_ended_project_done_signature = ""
         self._reset_idle_backoff()
-        return True
+        return "rollback"
+
+    def _latest_unassessed_review_for_current_stage(
+        self,
+    ) -> tuple[Any, Any, str] | None:
+        """Recover a persisted Reviewer verdict skipped by an older stage hook."""
+        import json
+        from pathlib import Path
+        from types import SimpleNamespace
+
+        from ...skills.stage_machine import current_stage
+
+        stage = current_stage(self._artifact_root()).strip().lower()
+        if not stage:
+            return None
+        items = sorted(
+            self.memory.backlog.all(),
+            key=lambda item: (float(item.finished_ts or 0), float(item.ts or 0)),
+            reverse=True,
+        )
+        handoff_base = Path(
+            getattr(self.memory, "project_root", None)
+            or getattr(self.memory, "root", None)
+            or self._artifact_root()
+        )
+        for item in items:
+            outcome = item.outcome if isinstance(item.outcome, dict) else {}
+            if (
+                item.status != "done"
+                or str(outcome.get("stage_certification") or "")
+                != "not_assessed"
+            ):
+                continue
+            handoff_root = handoff_base / "handoffs" / item.id
+            try:
+                mission = json.loads(
+                    (handoff_root / "mission.json").read_text(encoding="utf-8")
+                )
+            except (OSError, TypeError, ValueError):
+                continue
+            if (
+                not isinstance(mission, dict)
+                or str(mission.get("mission_id") or "") != item.id
+                or str(mission.get("stage") or "").strip().lower() != stage
+            ):
+                continue
+            for handoff_path in sorted(
+                handoff_root.glob("round-[0-9][0-9][0-9][0-9].json"),
+                reverse=True,
+            ):
+                try:
+                    handoff = json.loads(handoff_path.read_text(encoding="utf-8"))
+                except (OSError, TypeError, ValueError):
+                    continue
+                review = handoff.get("review") if isinstance(handoff, dict) else None
+                if (
+                    handoff.get("kind") != "round_reviewed_handoff"
+                    or str(handoff.get("mission_id") or "") != item.id
+                    or handoff.get("producer_role") != "reviewer"
+                    or not isinstance(review, dict)
+                    or str(review.get("status") or "").strip().lower() != "done"
+                    or not str(review.get("reason") or "").strip()
+                ):
+                    continue
+                return (
+                    item,
+                    SimpleNamespace(
+                        status="done",
+                        reason=str(review["reason"]).strip(),
+                        next_action=str(review.get("next_action") or "").strip(),
+                        operator_question=str(
+                            review.get("operator_question") or ""
+                        ).strip(),
+                        review_source="reviewer",
+                    ),
+                    str(mission.get("scope") or ""),
+                )
+        return None
+
+    def _reconcile_reviewed_stage_empty_plan(self, verdict: Any) -> str:
+        """Replay real current-stage review evidence to the Manager after upgrade."""
+        if not getattr(self.config, "open_ended", False):
+            return ""
+        recovered = self._latest_unassessed_review_for_current_stage()
+        if recovered is None:
+            return ""
+        item, review, mission_scope = recovered
+        root = self._artifact_root()
+
+        from ...manager import Manager
+
+        decision = Manager(
+            project_root=root,
+            runner=self.planner_runner,
+            skill_store=self.skill_store,
+        ).decide_stage_transition(
+            review=review,
+            planner_verdict=verdict,
+            project_root=root,
+            on_event=getattr(self.sink, "handle_event", None),
+            open_ended=True,
+            continuous_objective=self.config.continuous_objective,
+            mission_scope=mission_scope,
+        )
+        self._emit({
+            "type": EventType.LIFE_MANAGER_STAGE_DECISION,
+            "action": decision.action,
+            "target_stage": decision.target_stage,
+            "reason": decision.reason,
+            "current_stage": decision.current_stage,
+            "source": decision.source,
+            "diagnostic": decision.diagnostic,
+            "trigger": "reviewed_stage_empty_plan_reconciliation",
+            "recovered_item_id": item.id,
+        })
+        if decision.source == "manager_llm":
+            outcome = dict(item.outcome)
+            outcome["stage_certification"] = {
+                "advance": "certified",
+                "complete": "certified",
+                "hold": "not_certified",
+                "rollback": "revoked",
+            }.get(decision.action, "not_assessed")
+            self.memory.backlog.update(item.id, outcome=outcome)
+        if decision.action not in {"advance", "rollback"}:
+            return ""
+        self._emit_status(
+            f"manager reconciled reviewed stage to {decision.target_stage}"
+        )
+        self._last_open_ended_project_done_signature = ""
+        self._reset_idle_backoff()
+        return decision.action
 
     def _reconcile_open_ended_planner_waiting(self, verdict: Any) -> str:
         """Let the Manager repair a stage/Planner mutual wait.

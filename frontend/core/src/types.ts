@@ -69,9 +69,6 @@ export interface MissionOutcomeDimensions {
   execution_status: string;
   review_status: string;
   stage_certification: string;
-  scientific_decision: string;
-  failure_source: string;
-  failure_layer: string;
   interruption_kind: string;
   resumable: boolean;
 }
@@ -230,25 +227,6 @@ export interface MissionSkillView {
   content_truncated?: boolean;
 }
 
-export interface MissionMetricView {
-  id: string;
-  name: string;
-  baseline: number | null;
-  value: number;
-  unit: string;
-  direction: 'maximize' | 'minimize' | 'target' | string;
-  evidence: string;
-  experiment_id?: string;
-  hypothesis_id?: string;
-  branch_id?: string;
-  round_index?: number | null;
-  primary?: boolean;
-  verification_status: 'reported' | 'accepted' | 'rejected' | string;
-  reviewer_reason?: string;
-  reported_at?: number;
-  verified_at?: number;
-}
-
 export interface MissionTimelineItem {
   id: string;
   ts: number;
@@ -256,12 +234,9 @@ export interface MissionTimelineItem {
   role: string;
   title: string;
   detail: string;
-  tone: 'neutral' | 'info' | 'success' | 'error' | 'metric' | 'skill' | string;
+  tone: 'neutral' | 'info' | 'success' | 'error' | 'skill' | string;
   item_id?: string;
   branch_id?: string;
-  hypothesis_id?: string;
-  experiment_id?: string;
-  metric_id?: string;
 }
 
 export interface MissionAchievement {
@@ -269,17 +244,11 @@ export interface MissionAchievement {
   title: string;
   goal: string;
   summary?: string;
-  metric_id?: string;
-  metric_name?: string;
-  baseline?: number | null;
-  best?: number | null;
-  gain?: number | null;
-  unit?: string;
-  experiments_run?: number;
   rejected_attempts?: number;
   skills_learned?: number;
   artifacts?: number;
   elapsed_seconds?: number;
+  evidence?: string[];
   reviewer_certified: boolean;
   certified_at?: number | null;
 }
@@ -297,7 +266,7 @@ export interface MissionStorageView {
 }
 
 export interface MissionView {
-  schema_version: 1;
+  schema_version: 2;
   bootstrapped?: boolean;
   mission: {
     id: string;
@@ -315,12 +284,7 @@ export interface MissionView {
   active_role: string;
   roles: MissionRoleView[];
   role_work: MissionRoleWorkItem[];
-  decision_context: Record<string, Record<string, unknown>>;
   dag: MissionDagNode[];
-  hypotheses: Array<Record<string, unknown>>;
-  experiments: Array<Record<string, unknown>>;
-  metrics: MissionMetricView[];
-  primary_metric: MissionMetricView | null;
   timeline: MissionTimelineItem[];
   artifacts: Array<Record<string, unknown>>;
   learned_skills: MissionSkillView[];

@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -19,11 +18,6 @@ from argus_skill.life.supervisor import (
     global_daily_spend,
 )
 from argus_skill.life.supervisor._constants import PLANNER_DEDUP_STATUSES
-from argus_skill.life.supervisor._mission_execution_settlement import (
-    _final_submission_research_value_issue,
-)
-from argus_skill.life.supervisor._planning_cycle import _research_project_done_issue
-from argus_skill.skills.vertical_select import persist_vertical
 
 
 class _RecordingSink:
@@ -173,171 +167,6 @@ def _certified_research_result(result_class: str) -> dict[str, Any]:
         "evidence": ["independently checked evidence"],
         "limitations": [],
     }
-
-
-def test_doctoral_planner_done_requires_current_reviewer_certification(
-    tmp_path,
-) -> None:
-    persist_vertical(
-        tmp_path,
-        "math",
-        research_target_level="doctoral",
-    )
-    state = json.loads(
-        (tmp_path / "research" / "PIPELINE_STATE.json").read_text()
-    )
-    target_set_at = state["research_target_set_at"]
-    failed_mission = SimpleNamespace(
-        kind="mission_failed",
-        ts=target_set_at + 1,
-        extra={"research_result": _certified_research_result("honest_final_report")},
-    )
-    reviewer_completed_negative = SimpleNamespace(
-        kind="mission_complete",
-        ts=target_set_at + 1,
-        extra={"research_result": _certified_research_result("honest_final_report")},
-    )
-    breakthrough = SimpleNamespace(
-        kind="mission_complete",
-        ts=target_set_at + 2,
-        extra={"research_result": _certified_research_result("verified_new_result")},
-    )
-    bounded_breakthrough = SimpleNamespace(
-        kind="mission_complete",
-        ts=target_set_at + 2,
-        extra={
-            "scope": "bounded",
-            "research_result": _certified_research_result("verified_new_result"),
-        },
-    )
-
-    assert _research_project_done_issue(tmp_path, []) == (
-        "missing_doctoral_reviewer_certification"
-    )
-    assert _research_project_done_issue(tmp_path, [failed_mission]) == (
-        "missing_doctoral_reviewer_certification"
-    )
-    assert _research_project_done_issue(tmp_path, [bounded_breakthrough]) == (
-        "missing_doctoral_reviewer_certification"
-    )
-    assert _research_project_done_issue(
-        tmp_path, [reviewer_completed_negative]
-    ) == (
-        "research_target_not_met:"
-        "result_class_below_doctoral:honest_final_report"
-    )
-    assert _research_project_done_issue(
-        tmp_path, [failed_mission, breakthrough]
-    ) == ""
-
-
-def test_research_project_done_fails_closed_without_success_bar(tmp_path) -> None:
-    persist_vertical(tmp_path, "research")
-
-    assert _research_project_done_issue(tmp_path, []) == (
-        "missing_research_target_level"
-    )
-
-
-def test_planner_done_rejected_after_reviewer_no_go_without_target(tmp_path) -> None:
-    no_go = SimpleNamespace(
-        kind="mission_replan_requested",
-        ts=1,
-        extra={
-            "scope": "bounded",
-            "outcome": {"scientific_decision": "no_go"},
-        },
-    )
-
-    assert _research_project_done_issue(tmp_path, [no_go]) == (
-        "latest_scientific_decision_no_go"
-    )
-
-    later_go = SimpleNamespace(
-        kind="mission_complete",
-        ts=2,
-        extra={"outcome": {"scientific_decision": "go"}},
-    )
-    assert _research_project_done_issue(tmp_path, [no_go, later_go]) == ""
-
-
-def test_final_certificate_requires_research_value_not_honesty(tmp_path) -> None:
-    persist_vertical(
-        tmp_path,
-        "math",
-        research_target_level="exploratory",
-    )
-
-    assert _final_submission_research_value_issue(
-        tmp_path,
-        _certified_research_result("honest_final_report"),
-    ) == "result_class_not_exploratory_terminal:honest_final_report"
-    assert _final_submission_research_value_issue(
-        tmp_path,
-        _certified_research_result("counterexample"),
-    ) == ""
-
-
-def test_persisted_research_campaign_restores_target_via_manager(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    project = tmp_path / "project"
-    persist_vertical(project, "research")
-    state_path = project / "research" / "PIPELINE_STATE.json"
-    state = json.loads(state_path.read_text(encoding="utf-8"))
-    state["current_stage"] = "analysis"
-    state_path.write_text(json.dumps(state), encoding="utf-8")
-    monkeypatch.setattr(
-        "argus_skill.manager.Manager._decide_research_target",
-        lambda self, task, **kwargs: "publishable",
-    )
-    memory = LifeMemory.open(tmp_path / "life")
-    supervisor = LifeSupervisor(
-        memory=memory,
-        runner=_ResearchBreakthroughRunner(),
-        sink=_RecordingSink(memory.root),
-        config=LifeSupervisorConfig(
-            continuous=True,
-            continuous_objective="develop a submission-quality paper",
-            project_worktree=project,
-            artifact_root=project,
-        ),
-        planner_runner=object(),
-    )
-
-    supervisor._resolve_vertical_once()
-
-    restored = json.loads(state_path.read_text(encoding="utf-8"))
-    assert restored["research_target_level"] == "publishable"
-    assert restored["current_stage"] == "analysis"
-
-
-def test_successful_research_result_is_journaled_for_planner_gate(tmp_path) -> None:
-    mem = LifeMemory.open(tmp_path / "life")
-    sink = _RecordingSink(mem.root)
-    sup = LifeSupervisor(
-        memory=mem,
-        runner=_ResearchBreakthroughRunner(),
-        sink=sink,
-        config=LifeSupervisorConfig(
-            budget=LifeBudget(max_missions=1),
-            poll_interval_seconds=0.01,
-        ),
-    )
-    mem.backlog.add(
-        BacklogItem.new(title="breakthrough", objective="prove a new theorem")
-    )
-
-    result = sup.tick()
-
-    assert result is not None and result["success"] is True
-    event = next(
-        event
-        for event in sink.events
-        if event.get("type") == "life.mission.completed"
-    )
-    assert event["research_result"]["result_class"] == "verified_new_result"
 
 
 def test_budget_pause_is_published_once_in_operator_chat(tmp_path) -> None:

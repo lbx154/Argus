@@ -130,8 +130,6 @@ def test_mission_close_writes_immutable_reviewer_run_source(project: Path):
     text = source.read_text(encoding="utf-8")
     assert "outcome: success" in text
     assert "Certified the exact finite classification." not in text
-    assert "research/RESULT.md" in text
-    assert "Audit the general-rank extension." in text
     assert "CHECKPOINT.md" in text
     assert "latest.json" in text
     assert "closed_at:" in text
@@ -162,13 +160,6 @@ def test_reviewer_rounds_are_captured_continuously_without_close_duplicate(
             status="continue",
             reason="Verified a useful lemma; theorem remains open.",
             next_action="Prove the remaining branch.",
-            planner_report={
-                "forward_progress": True,
-                "headline": "Lemma verified",
-                "blocker": "Remaining branch",
-                "recommended_next": "Prove the remaining branch.",
-                "evidence_files": [],
-            },
         ),
     )
     second = RoundRecord(
@@ -179,13 +170,6 @@ def test_reviewer_rounds_are_captured_continuously_without_close_duplicate(
             status="done",
             reason="All branches verified.",
             next_action="",
-            planner_report={
-                "forward_progress": True,
-                "headline": "Proof complete",
-                "blocker": "",
-                "recommended_next": "",
-                "evidence_files": [],
-            },
         ),
     )
 

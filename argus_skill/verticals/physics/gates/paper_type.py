@@ -132,21 +132,15 @@ def verify_paper_type(project_root: object) -> list[dict]:
                               "State why it is not a higher type, what would upgrade it, and the forbidden claims.",
                               field="why_not_higher"))
 
-    # PT-006: original-research-required mode — a downgrade type is not a legitimate
-    # SUCCESS terminal. It is allowed only as an intermediate: either upgrade to an
-    # original type (with the gates passing) or emit a justified ORIGINAL_RESEARCH_NO_GO.md
-    # after running the Novelty-Seeking Loop (<=2 pivots).
+    # PT-006: original-research-required mode — a downgrade type is not a
+    # legitimate success terminal.
     if is_original_research_required() and is_downgrade_type(g("paper_type")):
-        no_go = (root / "ORIGINAL_RESEARCH_NO_GO.md").is_file() or \
-                (root / "research" / "ORIGINAL_RESEARCH_NO_GO.md").is_file()
-        if not no_go:
-            failures.append(_fail("PT-006", "blocker",
-                                  f"original-research-required mode: paper_type '{g('paper_type')}' is a "
-                                  "downgrade type, which may only be intermediate — not a success terminal.",
-                                  "Run the Novelty-Seeking Loop and pivot to an original type, or (after <=2 "
-                                  "pivots) emit ORIGINAL_RESEARCH_NO_GO.md explaining why sufficient novelty "
-                                  "was not found. Do NOT complete as a diagnostic benchmark.",
-                                  field="paper_type", blocks=True))
+        failures.append(_fail("PT-006", "blocker",
+                              f"original-research-required mode: paper_type '{g('paper_type')}' is a "
+                              "downgrade type, which may only be intermediate — not a success terminal.",
+                              "Run the Novelty-Seeking Loop and pursue an original result. "
+                              "Do not complete as a diagnostic benchmark.",
+                              field="paper_type", blocks=True))
     return failures
 
 

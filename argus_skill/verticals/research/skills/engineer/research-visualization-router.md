@@ -165,7 +165,7 @@ completion or anti-cheat gate, and Reviewer must not reject an otherwise good
 figure merely because metadata is absent. Renderer names are intentionally
 open-ended. Legacy
 `IMAGE2_FIGURES.json` remains valid image-2-specific evidence, and
-`image_tool sync-paper-metadata` also registers the accepted raster in the
+`figure_tool sync-paper-metadata` also registers the accepted raster in the
 renderer-neutral manifest when present.
 
 ## 7. Renderer-specific honesty

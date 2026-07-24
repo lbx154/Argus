@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Any, Mapping
 
-from ._dispatch import _refresh_primary_metric, reduce_mission_view_event
+from ._dispatch import reduce_mission_view_event
 from ._reduce_helpers import _number, _upsert
 from ._view_state import (
     _PIPELINE_ROLE_NAMES,
@@ -165,7 +165,6 @@ def merge_mission_view_snapshot(
     elif mission.get("started_at") and mission.get("completed_at"):
         mission["elapsed_seconds"] = max(0.0, float(mission["completed_at"]) - float(mission["started_at"]))
     view["updated_at"] = now
-    _refresh_primary_metric(view)
     return view
 
 

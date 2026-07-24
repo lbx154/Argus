@@ -79,7 +79,21 @@ class RolePromptCatalog:
         )
 
         vertical_module = load_vertical(vertical, project_root=root)
-        role_banner = vertical_role_banner(vertical_module, banner_role)
+        vertical_banner = vertical_role_banner(vertical_module, banner_role)
+        role_banner = vertical_banner
+        domain = ""
+        domain_banner = ""
+        if root is not None:
+            from ...skills.vertical_select import resolve_domain_if_decided
+
+            domain = resolve_domain_if_decided(root) or ""
+        if domain:
+            from ...domains import domain_role_banner, load_domain
+
+            domain_banner = domain_role_banner(load_domain(domain), banner_role)
+            role_banner = "\n\n".join(
+                part for part in (role_banner.strip(), domain_banner.strip()) if part
+            )
         stage_order = tuple(vertical_checklist_stage_order(vertical_module))
         stage = str(request.stage or "").strip()
         if not stage and request.checklist_mode is not ChecklistMode.NONE:
@@ -121,8 +135,10 @@ class RolePromptCatalog:
             else ""
         )
         fragment_ids: list[str] = []
-        if role_banner.strip():
+        if vertical_banner.strip():
             fragment_ids.append(f"vertical:{vertical}:banner:{banner_role}")
+        if domain_banner.strip():
+            fragment_ids.append(f"domain:{domain}:banner:{banner_role}")
         if checklist.strip():
             checklist_kind = (
                 "full_pipeline"

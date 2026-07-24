@@ -1,6 +1,5 @@
 """Runtime closed-loop test: the fiction review/revise STAGE_CHECKS actually run
-the shared review contract at run time (subprocess, exactly as the stage-check
-runner in argus_skill.tools.stage_check does).
+the shared review contract directly in a subprocess.
 
 This is the proof the contract is CONSUMED by the runtime stage gates, not only
 by unit tests calling the adapter directly. If the wiring in stages.py is

@@ -9,7 +9,6 @@ import type {
   EventMsg,
   MissionAchievement,
   MissionDagNode,
-  MissionMetricView,
   MissionRoleWorkItem,
   MissionRoleView,
   MissionSkillView,
@@ -34,7 +33,7 @@ function copyView(view: MissionView): MissionView {
 
 export function emptyMissionView(): MissionView {
   return {
-    schema_version: 1,
+    schema_version: 2,
     bootstrapped: false,
     mission: {
       id: '',
@@ -52,12 +51,7 @@ export function emptyMissionView(): MissionView {
     active_role: '',
     roles: ROLE_NAMES.map((role) => ({ role, status: 'waiting', label: 'Waiting', updated_at: 0 })),
     role_work: [],
-    decision_context: {},
     dag: [],
-    hypotheses: [],
-    experiments: [],
-    metrics: [],
-    primary_metric: null,
     timeline: [],
     artifacts: [],
     learned_skills: [],
@@ -122,7 +116,7 @@ function addTimeline(
     detail: detail.slice(0, 500),
     tone,
   };
-  (['item_id', 'branch_id', 'hypothesis_id', 'experiment_id', 'metric_id'] as const).forEach((key) => {
+  (['item_id', 'branch_id'] as const).forEach((key) => {
     const value = S(event, key);
     if (value) row[key] = value;
   });
@@ -171,15 +165,6 @@ function addRoleWork(
   view.role_work = view.role_work.filter((candidate) => keep.has(candidate.id));
 }
 
-function captureDecisionContext(view: MissionView, event: EventMsg): void {
-  for (const key of ['planner_report', 'research_result', 'checklist_feedback', 'step_back']) {
-    const value = event[key];
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      view.decision_context[key] = value as Record<string, unknown>;
-    }
-  }
-}
-
 function missionTimelineTone(
   tone: ReturnType<typeof missionOutcomePresentation>['tone'],
 ): MissionTimelineItem['tone'] {
@@ -198,35 +183,12 @@ const PROGRESS_LABELS: Record<string, string> = {
   codex_idle: 'Waiting for model output',
 };
 
-function refreshPrimaryMetric(view: MissionView): void {
-  const metrics = view.metrics.filter((metric) => Number.isFinite(metric.value));
-  if (!metrics.length) {
-    view.primary_metric = null;
-    return;
-  }
-  let candidates = metrics.some((metric) => metric.primary)
-    ? metrics.filter((metric) => metric.primary)
-    : metrics;
-  const accepted = candidates.filter((metric) => metric.verification_status === 'accepted');
-  if (accepted.length) candidates = accepted;
-  const name = candidates[candidates.length - 1].name;
-  const same = candidates.filter((metric) => metric.name === name);
-  const direction = same[same.length - 1].direction;
-  view.primary_metric = direction === 'minimize'
-    ? same.reduce((best, metric) => metric.value < best.value ? metric : best)
-    : direction === 'target'
-    ? same[same.length - 1]
-    : same.reduce((best, metric) => metric.value > best.value ? metric : best);
-}
-
 export function reduceMissionViewEvent(view: MissionView, event: EventMsg): MissionView {
   const type = canonicalEventType(event.type);
   const ts = Number(event.ts ?? Date.now() / 1000);
   view.last_event_ts = Math.max(view.last_event_ts, ts);
-  captureDecisionContext(view, event);
 
   if (type === EVENT_TYPES.LIFE_MANAGER_INTENT_COMPLETED) {
-    view.decision_context = {};
     view.mission.id = S(event, 'item_id');
     view.mission.title = S(event, 'objective').slice(0, 240);
     view.mission.objective = S(event, 'objective');
@@ -297,7 +259,6 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
     addTimeline(view, event, 'planner', 'Planner waiting', detail);
     addRoleWork(view, event, 'planner', 'waiting', 'Planner waiting', detail, 'waiting');
   } else if (type === EVENT_TYPES.LIFE_MISSION_STARTED) {
-    view.decision_context = {};
     view.review = { status: '', reason: '', rejected_attempts: 0 };
     view.mission.campaign_started_at ??= ts;
     view.mission = {
@@ -369,94 +330,6 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
       nextAction ? `${reason}\n\nNext action: ${nextAction}` : reason,
       status,
     );
-    if (status === 'done') {
-      const round = N(event, 'round_index');
-      const candidates = view.metrics.filter((metric) =>
-        metric.verification_status === 'reported' && (round == null || metric.round_index == null || metric.round_index === round));
-      const latest = candidates[candidates.length - 1];
-      if (latest) {
-        latest.verification_status = 'accepted';
-        latest.reviewer_reason = reason;
-        latest.verified_at = ts;
-      }
-    }
-  } else if (type === EVENT_TYPES.RESEARCH_HYPOTHESIS_PROPOSED) {
-    const id = S(event, 'hypothesis_id');
-    upsert(view.hypotheses, 'id', id, {
-      id,
-      title: S(event, 'title'),
-      statement: S(event, 'statement'),
-      branch_id: S(event, 'branch_id'),
-      parent_branch_id: S(event, 'parent_branch_id') || null,
-      status: 'proposed',
-      ts,
-    });
-    addTimeline(view, event, 'engineer', 'Hypothesis proposed', S(event, 'title'), 'info');
-  } else if (type === EVENT_TYPES.RESEARCH_EXPERIMENT_STARTED) {
-    const id = S(event, 'experiment_id');
-    upsert(view.experiments, 'id', id, {
-      id,
-      title: S(event, 'title'),
-      status: 'running',
-      hypothesis_id: S(event, 'hypothesis_id'),
-      branch_id: S(event, 'branch_id'),
-      started_at: ts,
-      completed_at: null,
-      summary: S(event, 'summary'),
-    });
-    setRole(view, 'engineer', 'active', `Running ${S(event, 'title')}`, ts);
-    addTimeline(view, event, 'engineer', 'Experiment started', S(event, 'title'), 'info');
-  } else if (type === EVENT_TYPES.RESEARCH_EXPERIMENT_COMPLETED) {
-    const id = S(event, 'experiment_id');
-    upsert(view.experiments, 'id', id, {
-      id,
-      status: S(event, 'status'),
-      completed_at: ts,
-      summary: S(event, 'summary'),
-      evidence: Array.isArray(event.evidence) ? event.evidence.map(String) : [],
-    });
-    addTimeline(view, event, 'engineer', `Experiment ${S(event, 'status')}`, S(event, 'summary'), S(event, 'status') === 'completed' ? 'success' : 'error');
-  } else if (type === EVENT_TYPES.RESEARCH_METRIC_REPORTED) {
-    const metric: MissionMetricView = {
-      id: S(event, 'metric_id'),
-      name: S(event, 'name'),
-      baseline: N(event, 'baseline'),
-      value: N(event, 'value') ?? 0,
-      unit: S(event, 'unit'),
-      direction: S(event, 'direction'),
-      evidence: S(event, 'evidence'),
-      experiment_id: S(event, 'experiment_id'),
-      hypothesis_id: S(event, 'hypothesis_id'),
-      branch_id: S(event, 'branch_id'),
-      round_index: N(event, 'round_index'),
-      primary: Boolean(event.primary),
-      verification_status: 'reported',
-      reported_at: ts,
-    };
-    upsert(view.metrics as Array<MissionMetricView & Record<string, unknown>>, 'id', metric.id, metric as MissionMetricView & Record<string, unknown>);
-    addTimeline(view, event, 'engineer', 'Metric reported', `${metric.name} = ${metric.value}${metric.unit}`, 'metric');
-  } else if (type === EVENT_TYPES.RESEARCH_METRIC_VERIFIED) {
-    const metric = view.metrics.find((row) => row.id === S(event, 'metric_id'));
-    if (metric) {
-      metric.verification_status = S(event, 'status');
-      metric.reviewer_reason = S(event, 'reviewer_reason');
-      metric.verified_at = ts;
-    }
-    const accepted = S(event, 'status') === 'accepted';
-    addTimeline(view, event, 'reviewer', accepted ? 'Metric verified' : 'Metric rejected', S(event, 'reviewer_reason'), accepted ? 'success' : 'error');
-  } else if (type === EVENT_TYPES.RESEARCH_ARTIFACT_REGISTERED) {
-    const id = S(event, 'artifact_id');
-    upsert(view.artifacts, 'id', id, {
-      id,
-      path: S(event, 'path'),
-      kind: S(event, 'kind'),
-      title: S(event, 'title'),
-      why: S(event, 'why'),
-      experiment_id: S(event, 'experiment_id'),
-      branch_id: S(event, 'branch_id'),
-      registered_at: ts,
-    });
-    addTimeline(view, event, 'engineer', 'Artifact registered', S(event, 'path'), 'info');
   } else if ([EVENT_TYPES.SKILL_CREATED, EVENT_TYPES.SKILL_UPDATED].includes(type as never)) {
     const id = S(event, 'skill_id') || S(event, 'name');
     if (id) {
@@ -553,25 +426,16 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
       addTimeline(view, event, 'reviewer', promoted ? 'Knowledge promoted' : 'Knowledge demoted', `${id} → ${S(event, 'to_status')}`, promoted ? 'success' : 'neutral');
     }
   } else if (type === EVENT_TYPES.RESEARCH_ACHIEVEMENT_CERTIFIED) {
-    const metricId = S(event, 'metric_id');
-    const metric = view.metrics.find((row) => row.id === metricId);
-    const baseline = metric?.baseline;
     view.achievement = {
       id: S(event, 'achievement_id'),
       title: S(event, 'title'),
       goal: S(event, 'goal'),
       summary: S(event, 'summary'),
-      metric_id: metricId,
-      metric_name: metric?.name,
-      baseline,
-      best: metric?.value,
-      gain: metric && baseline != null ? metric.value - baseline : null,
-      unit: metric?.unit,
-      experiments_run: view.experiments.filter((row) => row.status === 'completed').length,
       rejected_attempts: view.review.rejected_attempts,
       skills_learned: view.learned_skills.filter((row) => row.status === 'active').length,
       artifacts: view.artifacts.length,
       elapsed_seconds: view.mission.elapsed_seconds,
+      evidence: Array.isArray(event.evidence) ? event.evidence.map(String) : [],
       reviewer_certified: true,
       certified_at: ts,
     };
@@ -603,7 +467,6 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
       presentation.missionStatus,
     );
   }
-  refreshPrimaryMetric(view);
   view.updated_at = Date.now() / 1000;
   return view;
 }
@@ -662,7 +525,13 @@ function mergeSnapshot(view: MissionView, snapshot: Snapshot, artifacts: Artifac
     .filter((item) => item.outcome?.execution_status)
     .sort((left, right) => Number(left.finished_ts ?? 0) - Number(right.finished_ts ?? 0))
     .at(-1)?.outcome;
-  if (!active && latestOutcome) view.outcome = { ...latestOutcome };
+  if (!active && latestOutcome) {
+    view.outcome = missionOutcomeDimensions({
+      outcome: latestOutcome,
+      status: 'done',
+      success: true,
+    });
+  }
   artifacts.forEach((artifact) => {
     upsert(view.artifacts, 'path', artifact.path, {
       id: artifact.path,
@@ -689,12 +558,10 @@ function mergeSnapshot(view: MissionView, snapshot: Snapshot, artifacts: Artifac
   }
   if (view.achievement?.reviewer_certified) {
     view.achievement.elapsed_seconds = view.mission.elapsed_seconds;
-    view.achievement.experiments_run = view.experiments.filter((row) => row.status === 'completed').length;
     view.achievement.rejected_attempts = view.review.rejected_attempts;
     view.achievement.skills_learned = view.learned_skills.filter((row) => row.status === 'active').length;
     view.achievement.artifacts = artifacts.filter((artifact) => artifact.exists).length;
   }
-  refreshPrimaryMetric(view);
 }
 
 export function projectMissionView(
@@ -710,7 +577,6 @@ export function projectMissionView(
   view.storage.wiki_retired_bytes_saved ??= 0;
   view.learned_wiki_pages ??= [];
   view.role_work ??= [];
-  view.decision_context ??= {};
   view.outcome ??= {};
   const seedTs = view.last_event_ts;
   events
@@ -719,17 +585,6 @@ export function projectMissionView(
     .forEach((event) => reduceMissionViewEvent(view, event));
   mergeSnapshot(view, snapshot, artifacts);
   return view;
-}
-
-export function missionMetricGain(metric: MissionMetricView | null): number | null {
-  if (!metric || metric.baseline == null) return null;
-  return metric.value - metric.baseline;
-}
-
-export function missionMetricImprovement(metric: MissionMetricView | null): number | null {
-  const gain = missionMetricGain(metric);
-  if (gain == null) return null;
-  return metric?.direction === 'minimize' ? -gain : gain;
 }
 
 /**
@@ -749,11 +604,6 @@ export function formatMissionElapsed(seconds: number): string {
   if (hours) return `${hours}h ${minutes}m`;
   if (minutes) return `${minutes}m`;
   return `${total}s`;
-}
-
-export function metricDisplay(metric: MissionMetricView | null): string {
-  if (!metric) return '—';
-  return `${metric.value}${metric.unit || ''}`;
 }
 
 export type { MissionAchievement };

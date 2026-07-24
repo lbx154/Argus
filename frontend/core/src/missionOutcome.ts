@@ -87,9 +87,6 @@ export function missionOutcomeDimensions(
       execution_status: normalizedString(row.execution_status) || derivedOutcomeClass(event),
       review_status: normalizedString(row.review_status) || 'not_assessed',
       stage_certification: normalizedString(row.stage_certification) || 'not_assessed',
-      scientific_decision: normalizedString(row.scientific_decision) || 'undecided',
-      failure_source: normalizedString(row.failure_source),
-      failure_layer: normalizedString(row.failure_layer),
       interruption_kind: normalizedString(row.interruption_kind) || 'none',
       resumable: row.resumable === true,
     };
@@ -98,9 +95,6 @@ export function missionOutcomeDimensions(
     execution_status: derivedOutcomeClass(event),
     review_status: 'not_assessed',
     stage_certification: 'not_assessed',
-    scientific_decision: 'undecided',
-    failure_source: '',
-    failure_layer: '',
     interruption_kind: normalizedString(event.stop_kind) || 'none',
     resumable: event.resumable === true,
   };
@@ -116,10 +110,6 @@ export function outcomeDimensionSummary(
       ? `review=${outcome.review_status}` : '',
     outcome.stage_certification && outcome.stage_certification !== 'not_assessed'
       ? `stage=${outcome.stage_certification}` : '',
-    outcome.scientific_decision && outcome.scientific_decision !== 'undecided'
-      ? `science=${outcome.scientific_decision}` : '',
-    outcome.failure_source ? `failure=${outcome.failure_source}` : '',
-    outcome.failure_layer ? `layer=${outcome.failure_layer}` : '',
     outcome.interruption_kind && outcome.interruption_kind !== 'none'
       ? `interrupt=${outcome.interruption_kind}` : '',
     outcome.resumable ? 'resumable=yes' : '',

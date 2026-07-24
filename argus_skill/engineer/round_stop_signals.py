@@ -78,7 +78,7 @@ _DAEMON_STOP_INTERRUPT_RE = re.compile(r"^external interrupt:\s*daemon stop requ
 # (running in the operator-facing API process) decided mid-mission
 # that *this one* backlog item should stop right now — the daemon process
 # itself keeps running and will move on to the next ready item. See
-# ``argus_skill.tools.mission_control`` for the writer side of this signal.
+# ``argus_skill.life.memory.request_running_item_abort`` for the writer side.
 _OPERATOR_ABORT_INTERRUPT_RE = re.compile(r"^external interrupt:\s*operator abort requested\b")
 
 
@@ -247,7 +247,6 @@ def backend_failure_review_decision(
             f"error={error_text}"
         ),
         next_action=retry_text,
-        failure_cause="environmental",
     )
 
 
@@ -274,7 +273,6 @@ def external_pause_review_decision(
             f"(stop_kind={stop_kind}); reviewer skipped. error={error_text}"
         ),
         next_action=next_action,
-        failure_cause="environmental",
         backend_unavailable=True,
         backend_fatal_error=error_text,
         backend_exit_code=exit_code,
@@ -297,7 +295,6 @@ def model_configuration_review_decision(
             "The configured model is unavailable. Choose a valid model in "
             "/config, then tell me to retry this task."
         ),
-        failure_cause="environmental",
         backend_unavailable=True,
         backend_stop_kind="permanent_error",
     )
@@ -319,7 +316,6 @@ def daemon_stop_review_decision(
             "Restart the daemon when ready; the continuous planner will choose "
             "the next concrete task from the persisted project state."
         ),
-        failure_cause="operator_interrupt",
     )
 
 
@@ -341,7 +337,6 @@ def operator_abort_review_decision(
             "ready backlog item. Re-add this objective later if it still "
             "needs doing."
         ),
-        failure_cause="operator_interrupt",
     )
 
 

@@ -99,23 +99,6 @@ class MissionSettlementMixin:
             stop_kind=stop_kind,
             recoverable=stop_kind_is_recoverable(stop_kind),
         )
-        final_review = rounds[-1].review if rounds else None
-        achievement = (
-            final_review.achievement
-            if final_review is not None and status == "done"
-            else None
-        )
-        if isinstance(achievement, dict):
-            self._emit({
-                "type": EventType.RESEARCH_ACHIEVEMENT_CERTIFIED,
-                "achievement_id": f"reviewer-{mission.run_id}",
-                "title": achievement["title"],
-                "goal": achievement["goal"],
-                "metric_id": achievement.get("metric_id", ""),
-                "summary": achievement.get("summary", ""),
-                "evidence": list(achievement.get("evidence") or []),
-                "reviewer_certified": True,
-            })
         # Step 4c: project-wiki evolution. The lifecycle module owns mechanical
         # source ingestion, scratch lift, reviewer wiki_ops, promotion and optional
         # reversible compaction so this main loop stays orchestration-only.

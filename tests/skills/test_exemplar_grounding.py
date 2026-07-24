@@ -35,7 +35,7 @@ def _seed_exemplar(root: Path, slug: str, *, with_figs: bool = True,
         ]
     # Default format_facts that pass the diff tolerance against the
     # paper's seeded facts. Real values come from
-    # argus_skill.tools.format_facts on a real PDF.
+    # argus_skill.verticals.research.format_facts on a real PDF.
     default_facts = {
         "total_pages": 8,
         "section_count": 6,
@@ -382,10 +382,8 @@ def test_exemplar_format_facts_from_sidecar_file(tmp_path: Path) -> None:
     assert report.ok, report.to_text()
 
 
-def test_format_facts_divergence_fails(tmp_path: Path) -> None:
-    """Paper's facts wildly off from primary exemplar's must fail the
-    conformance check. We simulate by making the paper claim to be 1
-    page when the exemplar is 8."""
+def test_format_facts_divergence_is_reviewer_evidence(tmp_path: Path) -> None:
+    """Large differences are surfaced without mechanically rejecting the paper."""
     _seed_passing(tmp_path)
     (tmp_path / "paper" / "PAPER_FORMAT_FACTS.json").write_text(
         json.dumps({
@@ -400,7 +398,7 @@ def test_format_facts_divergence_fails(tmp_path: Path) -> None:
     )
     report = validate_exemplar_grounding(tmp_path)
     codes = {i.code for i in report.issues}
-    assert "format_facts_diverge_from_primary_exemplar" in codes
+    assert "format_facts_diverge_from_primary_exemplar" not in codes
     assert report.format_diff_findings
     off = [f for f in report.format_diff_findings if not f["within_tolerance"]]
     assert len(off) >= 3

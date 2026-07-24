@@ -18,6 +18,8 @@ RESEARCH_TARGET_LEVELS = ("exploratory", "publishable", "doctoral")
 # Math missions end through the ordinary reviewer-certified final-stage path.
 # They are neither paper-submission missions nor metric-optimization campaigns.
 completion_gate = "none"
+COMPLETION_CONTRACT_VERSION = 1
+PROTECTED_ITEM_IDS = frozenset({"review.goal-achieved"})
 
 _PIPELINE_CHECK = (
     "Pipeline state present",
@@ -97,6 +99,21 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
     ),
     "review": (
         ChecklistItem(
+            id="review.goal-achieved",
+            statement=(
+                "The completion claim matches the effective scope: project or final-stage "
+                "completion requires the requested terminal mathematical outcome to be "
+                "achieved. An error-free attempt, correct intermediate lemma, honest partial "
+                "result, or unresolved conclusion is not final-stage completion. A bounded "
+                "subtask may itself be done, but leave this item unsatisfied unless the "
+                "original Goal Gate is achieved."
+            ),
+            evidence_hint=(
+                "a direct mapping from the requested success criterion to the theorem, "
+                "counterexample, construction, classification, or estimate actually obtained"
+            ),
+        ),
+        ChecklistItem(
             id="review.statement-fidelity",
             statement=(
                 "The natural-language problem and every formal statement are faithfully "
@@ -150,6 +167,8 @@ def role_banner(role: str) -> str:
 __all__ = [
     "CHECKLIST_ITEMS",
     "CHECKLIST_STAGE_ORDER",
+    "COMPLETION_CONTRACT_VERSION",
+    "PROTECTED_ITEM_IDS",
     "REVIEWER_CHECKLISTS",
     "RESEARCH_TARGET_LEVELS",
     "STAGE_CHECKS",

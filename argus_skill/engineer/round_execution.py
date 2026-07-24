@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Callable
 
 from ..core.event_catalog import EventType
 from ..core.models import RoundRecord
@@ -48,11 +48,6 @@ from .round_stop_signals import (
     operator_abort_review_decision,
     runner_result_is_backend_failure,
 )
-from .self_review import (
-    parse_engineer_completion_decision,
-    read_engineer_completion_decision,
-    strip_legacy_engineer_control,
-)
 
 if TYPE_CHECKING:
     from .runner import SupervisedConfig
@@ -71,7 +66,6 @@ class RoundExecutionMixin:
         workdir: Path,
         supervised_config: "SupervisedConfig",
         checkpoint_path: Path | None,
-        control_path: Path,
         on_event: Callable[[dict], None] | None,
         state: RoundLoopState,
     ) -> EngineerTurnOutcome:
@@ -104,15 +98,6 @@ class RoundExecutionMixin:
             raw_engineer_message,
             known_values=known_secret_values(),
         )
-        completion_decision = read_engineer_completion_decision(control_path)
-        if completion_decision is None:
-            completion_decision = parse_engineer_completion_decision(
-                engineer_message
-            )
-            if completion_decision is not None:
-                engineer_message = strip_legacy_engineer_control(
-                    engineer_message
-                )
         if supervised_config.context_packet_path:
             try:
                 from ..life.context_packet import record_engineer_handoff
@@ -122,7 +107,6 @@ class RoundExecutionMixin:
                     round_index=round_index,
                     engineer_summary=engineer_message,
                     checkpoint_path=checkpoint_path,
-                    control_path=control_path,
                     thread_id=str(round_thread_id or ""),
                 )
             except Exception:  # noqa: BLE001 - handoff persistence is fail-soft
@@ -209,7 +193,6 @@ class RoundExecutionMixin:
             stop_kind=stop_kind,
             raw_engineer_message=raw_engineer_message,
             engineer_message=engineer_message,
-            completion_decision=completion_decision,
             process_ownership_note=process_ownership_note,
             round_started_at=round_started_at,
         )

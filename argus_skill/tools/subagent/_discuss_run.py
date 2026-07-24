@@ -9,21 +9,20 @@ import os
 import time
 from typing import Any
 
-from ._direct_run import _run_codex_with_usage
 from ._discussion_log import (
     _append_discussion,
     _discussion_path,
     _engineer_turn_count,
     _mirror_discussion_md,
 )
+from ._llm import _run_codex_with_usage
 from ._normalize import _coerce_bool
 from ._registry import (
     _ZERO_USAGE_TUPLE,
     _add_usage_totals,
     _apply_supervisor_usage_fields,
     _read_task,
-    _usage_delta_for_thread,
-    _write_task,
+    _write_task_if_run_id,
 )
 from ._reporting import _queue_to_inbox
 from ._text import _strip_code_fence
@@ -93,7 +92,7 @@ def _supervisor_discuss_with_usage(
         "contrast, or warn that their lr is still too high). 'Resolved' means you\n"
         "and the engineer have converged on a CONCRETE fix (a named parameter/code\n"
         "change), not merely that you both agree the run was bad — do not accept a\n"
-        "bare 'mark it no-go' with no forward fix as resolution. The run stays\n"
+        "bare 'stop here' with no forward fix as resolution. The run stays\n"
         "stopped either way; relaunching is the engineer's call.\n\n"
         "Respond with EXACTLY one JSON object:\n"
         '{"resolved": true or false,\n'
@@ -107,6 +106,8 @@ def _supervisor_discuss_with_usage(
             cwd,
             thread_id,
             timeout=120,
+            run_label=f"subagent:{task_id}:discussion",
+            mission_id=str(task_data.get("run_id") or "") or None,
         )
         for message in reversed(messages):
             try:
@@ -156,7 +157,6 @@ def _run_discussion(
     run_dir: str | None = None,
     thread_id: str | None = None,
     usage_totals: tuple[int, int, int, int] = _ZERO_USAGE_TUPLE,
-    usage_thread_totals: dict[str, tuple[int, int, int, int]] | None = None,
 ) -> None:
     """Park after an early-stop and discuss with the engineer until resolved.
 
@@ -166,19 +166,20 @@ def _run_discussion(
     engages, and caps both the total wall-clock and the number of replies.
     """
     concern = task_data.get("concern", "") or task_data.get("last_supervisor_concern", "")
+    expected_run_id = str(task_data.get("run_id") or "")
     if task_data.get("preflight"):
         opening = (
             f"I blocked this run BEFORE launch on a config preflight — it is "
             f"mechanically unlearnable as configured. {concern} Reply with the "
             "specific parameter change you'll make to fix it (or a reasoned "
-            "pushback) — don't just agree it's no-go. Nothing launches until we "
+            "pushback) — don't just agree to stop. Nothing launches until we "
             "agree on a concrete fix here."
         ).strip()
     else:
         opening = (
             f"I stopped this run. {concern} Reply with your root-cause diagnosis and the "
             "specific parameter/code change you'll make to fix it (or a reasoned pushback) "
-            "— don't just agree it's no-go. Nothing resumes until we agree on a concrete "
+            "— don't just agree to stop. Nothing resumes until we agree on a concrete "
             "fix here."
         ).strip()
     _append_discussion(task_id, "supervisor", opening)
@@ -196,7 +197,14 @@ def _run_discussion(
     engaged = _engineer_turn_count(task_id) > 0
     turns = 0
     resolution = "unresolved"
-    thread_usage_totals = usage_thread_totals if usage_thread_totals is not None else {}
+    recorded_usage = (
+        int(task_data.get("supervisor_input_tokens") or 0),
+        int(task_data.get("supervisor_cached_input_tokens") or 0),
+        int(task_data.get("supervisor_output_tokens") or 0),
+        int(task_data.get("supervisor_reasoning_output_tokens") or 0),
+    )
+    if any(recorded_usage):
+        usage_totals = recorded_usage
     try:
         while time.time() < overall_deadline and turns < MAX_SUPERVISOR_TURNS:
             # Heartbeat so the engineer can tell a live supervisor from a dead one.
@@ -208,7 +216,13 @@ def _run_discussion(
                 task["supervisor_thread_id"] = thread_id
             task["last_heartbeat"] = time.time()
             _apply_supervisor_usage_fields(task, model=model, totals=usage_totals)
-            _write_task(task_id, task)
+            if not _write_task_if_run_id(
+                task_id,
+                task,
+                expected_run_id=expected_run_id,
+            ):
+                resolution = "superseded"
+                return
 
             remaining = overall_deadline - time.time()
             time.sleep(min(DISCUSSION_POLL_INTERVAL, max(1, int(remaining))))
@@ -237,11 +251,7 @@ def _run_discussion(
             )
             usage_totals = _add_usage_totals(
                 usage_totals,
-                _usage_delta_for_thread(
-                    thread_id=thread_id,
-                    raw_totals=raw_usage,
-                    baselines=thread_usage_totals,
-                ),
+                raw_usage,
             )
             if not message:
                 message = (
@@ -292,5 +302,9 @@ def _run_discussion(
             td["supervisor_thread_id"] = thread_id
         td["last_heartbeat"] = time.time()
         _apply_supervisor_usage_fields(td, model=model, totals=usage_totals)
-        _write_task(task_id, td)
+        _write_task_if_run_id(
+            task_id,
+            td,
+            expected_run_id=expected_run_id,
+        )
         _mirror_discussion_md(task_id, run_dir)

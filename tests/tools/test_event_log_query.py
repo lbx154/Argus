@@ -14,7 +14,7 @@ def _write(path: Path, rows: list[dict]) -> None:
 def test_iter_call_events_filters_top_level_call_id_in_chronological_order(
     tmp_path: Path,
 ) -> None:
-    from argus_skill.tools.event_log_query import iter_call_events
+    from argus_skill.life.event_log import iter_call_events
 
     log_path = tmp_path / "events.jsonl"
     call_id = "engineer-call"
@@ -45,7 +45,7 @@ def test_iter_call_events_filters_top_level_call_id_in_chronological_order(
 def test_iter_call_events_stops_after_generation_containing_call_start(
     tmp_path: Path,
 ) -> None:
-    from argus_skill.tools.event_log_query import iter_call_events
+    from argus_skill.life.event_log import iter_call_events
 
     log_path = tmp_path / "events.jsonl"
     call_id = "current-call"

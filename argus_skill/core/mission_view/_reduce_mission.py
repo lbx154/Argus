@@ -67,7 +67,6 @@ def reduce_mission_lifecycle_event(
     mission: dict[str, Any],
 ) -> None:
     if event_type == EventType.LIFE_MISSION_STARTED:
-        view["decision_context"] = {}
         if not mission.get("campaign_started_at"):
             mission["campaign_started_at"] = ts
         mission.update({

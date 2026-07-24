@@ -105,7 +105,7 @@ def _timeline(
         "detail": detail[:500],
         "tone": tone,
     }
-    for key in ("item_id", "branch_id", "hypothesis_id", "experiment_id", "metric_id"):
+    for key in ("item_id", "branch_id"):
         value = _text(event, key, 160)
         if value:
             row[key] = value
@@ -162,22 +162,6 @@ def _role_work(
     view["role_work"] = [
         row for row in rows if str(row.get("id") or "") in keep_ids
     ]
-
-
-def _capture_decision_context(
-    view: dict[str, Any],
-    event: Mapping[str, Any],
-) -> None:
-    context = view.setdefault("decision_context", {})
-    for key in (
-        "planner_report",
-        "research_result",
-        "checklist_feedback",
-        "step_back",
-    ):
-        value = event.get(key)
-        if isinstance(value, Mapping):
-            context[key] = dict(value)
 
 
 def _visible_role_work_progress(

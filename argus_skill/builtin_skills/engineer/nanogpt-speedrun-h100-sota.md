@@ -181,7 +181,7 @@ If the agent is running unattended:
 
 1. Do not launch parallel scorers; each scorer uses all 8 GPUs.
 2. Always collect completed runs before launching the next one.
-3. If no candidate beats the certified floor after several attempts, write a `NO_GO`/pivot note naming the mechanism class that failed and why.
+3. If no candidate beats the certified floor after several attempts, preserve the negative evidence and pivot to a different mechanism class.
 4. Generate/update an HTML report in the project root summarizing:
    - current global best,
    - active line,

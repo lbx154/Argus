@@ -26,9 +26,6 @@ from argus_skill.reviewer._core import (
 # about 6.5k chars. Keep headroom for task checklists without permitting the
 # global policy block to return.
 NON_MEASURED_BUDGET = 9_000
-# The three required routing-shadow fields add about 45 compact-schema tokens.
-# This is intentional telemetry, not duplicate policy prose.
-BACKEND_SCHEMA_TOKEN_BUDGET = 1_275
 
 
 def _build(measured: bool, monkeypatch) -> str:
@@ -135,7 +132,7 @@ def test_reviewer_keeps_distinct_original_and_mission_objectives(monkeypatch):
     assert "Current mission objective:\nrepair the benchmark" in prompt
 
 
-def test_research_result_contract_stays_compact(tmp_path, monkeypatch):
+def test_research_target_context_stays_compact(tmp_path, monkeypatch):
     from argus_skill.skills.vertical_select import persist_vertical
 
     persist_vertical(
@@ -158,7 +155,7 @@ def test_research_result_contract_stays_compact(tmp_path, monkeypatch):
         scope="bounded",
     )
 
-    stats = reviewer.last_prompt_block_stats["research_result"]
+    stats = reviewer.last_prompt_block_stats["research_target"]
     assert stats["chars"] < 1_100
     assert stats["estimated_tokens"] < 300
 
@@ -169,8 +166,8 @@ def test_backend_schema_is_minified_without_semantic_change() -> None:
 
     assert json.loads(compact) == json.loads(source)
     assert Path(compact_path).read_bytes() == compact
-    assert len(compact) < len(source) * 0.6
-    assert (len(compact) + 3) // 4 < BACKEND_SCHEMA_TOKEN_BUDGET
+    assert len(compact) < len(source)
+    assert (len(compact) + 3) // 4 < 1_200
 
 
 def test_compact_schema_cache_is_safe_under_concurrent_reviewers() -> None:

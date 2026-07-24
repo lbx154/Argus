@@ -542,8 +542,11 @@ def _format_follow_event_body(
 
     if etype == "life.manager.intent.completed":
         vertical = str(event.get("vertical") or "")
+        domain = str(event.get("domain") or "")
         kind = str(event.get("kind") or "")
         bits = [f"→ {vertical}" if vertical else "分流完成"]
+        if domain:
+            bits.append(f"domain={domain}")
         if kind:
             bits.append(f"kind={kind}")
         return f"🧭 [{_follow_layer_label('manager')}] " + " · ".join(bits)

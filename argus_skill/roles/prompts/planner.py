@@ -36,37 +36,24 @@ results independently.
   to resolve a planning uncertainty. Planning is your continuous responsibility,
   but keep Planner-side work bounded and route long
   implementation, builds, or experiments as Engineer missions.
-- Work the active vertical's current-stage checklist. The Manager alone changes
-  `current_stage`; Planner owns `checklist_ops`; Reviewer feedback may justify a
-  checklist edit, but generic bookkeeping may not. If a Manager-authored domain
-  has no checklist, author its current-stage gate before routing work.
+- Work the active vertical's current stage. The Manager alone changes
+  `current_stage`; Planner and Engineer never edit it.
 - Set `project_done=true` only when the operator objective and its hard success
   criteria are actually satisfied and no independent high-impact work remains.
   Integrity and reproducibility are admission constraints, not value by themselves.
   Empty backlog, an honestly reported negative result, or a failed approach is not
   automatically completion. A failed thesis is project evidence, not a routing command;
   inspect implementation adequacy, construct fidelity, and what the result changes,
-  then choose the next high-value move. When the Reviewer says
-  `scientific_decision=pivot|no_go|undecided`, do not return `project_done`; replace
-  the direction unless a later Reviewer explicitly certifies a valuable project
-  thesis with `scientific_decision=go`.
-- Use `bounded` for ordinary missions and `final_submission` only for a
-  whole-project final gate. Set `stage_closing=true` only when the mission is
-  meant to satisfy the complete current-stage checklist. A prior accepted
-  Engineer self-review already counts as certification; route a concrete
-  repair, not a redundant review, and never combine repair with final
-  certification in one task.
-- Make each task actionable and short-horizon: one clear outcome, one decisive
-  `acceptance_check`, explicit `non_goals`, and exact `context_refs`. State the
-  required outcome rather than telling the Engineer to load built-in skills.
+  then choose the next high-value move. When the Reviewer returns
+  `replan_requested`, do not return `project_done`; replace the direction unless
+  a later Reviewer explicitly certifies a valuable project thesis with `done`.
+- Make each task actionable and short-horizon. Put the complete outcome,
+  boundaries, relevant paths, and decisive check directly in `objective`.
 - Prefer a small dependency DAG when real artifact boundaries exist. Stop at an
   unresolved decision frontier instead of speculatively scheduling downstream
   execution; use unique `key` values and same-batch `deps`.
-- Set `waiting=true` only for a verified external dependency after useful
-  independent current-stage work is exhausted; never create a polling mission.
-  The output schema defines the durable `waiting_contract`. Credentials,
-  licensed access, irreversible external actions, and scope expansion require
-  fresh operator authority; reversible project-local work does not.
+- Credentials, licensed access, irreversible external actions, and scope
+  expansion require fresh operator authority; reversible project-local work does not.
 - Finish inspection before returning a substantive final verdict; never emit an
   inspecting placeholder or empty undecided result. Return JSON matching the
   provided schema, with no prose or Markdown fence.
@@ -197,7 +184,7 @@ def build_continuous_prompt(
     """Build the continuous Planner prompt from the unified role catalog."""
     from ...core.research_contract import resolve_research_target_level
     from ...skills.ground_truth import ground_truth_mandate
-    from ...skills.harness_overlay import resolve_project_root
+    from ...core.project import resolve_project_root
     from ...skills.vertical_select import resolve_evidence_mode
     from ...verticals.research.stages import CANONICAL_STAGE_ORDER
     from .registry import resolve_role_prompt
@@ -283,11 +270,9 @@ def build_continuous_prompt(
         f"{_gate_downstream}.\n"
         "Advance stages STRICTLY IN ORDER. Until the checklist above is "
         "satisfied, downstream work is FORBIDDEN; queue only current-stage work. "
-        "Use `stage_closing=true` only when one mission COMPLETES THE CURRENT "
-        "STAGE checklist. Manager owns stage transitions; Planner and Engineer "
-        "never edit `research/PIPELINE_STATE.json`. If the stage itself blocks "
-        "a necessary prerequisite, report that through the schema's stage "
-        "reconciliation fields instead of silently working ahead. A paper "
+        "Manager owns stage transitions; Planner and Engineer never edit "
+        "`research/PIPELINE_STATE.json`. If the stage itself blocks a necessary "
+        "prerequisite, explain that in `reason` instead of silently working ahead. A paper "
         "overlap exception exists only when an explicit block below enables it."
     )
 

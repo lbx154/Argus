@@ -43,8 +43,9 @@ argus-skill (CLI)                         apps/cli/_parser.py + apps/cli/_core.p
 | Engineer | `engineer/runner.py` | `SupervisedEngineer` round-loop control flow; may explicitly self-verify allowed low-risk bounded work |
 | Reviewer | `reviewer/_core.py`, `reviewer/reviewer_schema.json` | independent `done` / `continue` / `blocked` verdict when required by the vertical/task or requested by Engineer |
 | Planner | `planner/planner.py` | L4 continuous planner: next tasks |
-| Core (dumb pipe) | `core/models.py`, `core/ports.py`, `core/paths.py`, `core/pricing.py`, `core/daemon_lock.py`, `core/bootstrap.py` | budget, persistence, structured I/O, paths, locks |
-| Verticals | `verticals/_base.py` + `verticals/{research,math,physics,materials,chemistry,quant,speedrun,nanochat,nanogpt_speedrun,kernelbench,learning,ale_last_exam,...}/` | per-task shape via a plugin contract (`role_banner`, `completion_gate`, `search_altitude`); `chemistry` is the independently reviewed computational/experimental chemistry shape and `ale_last_exam` is the single-stage hidden-reference artifact-delivery shape |
+| Core (dumb pipe) | `core/models.py`, `core/ports.py`, `core/paths.py`, `core/pricing.py`, `core/daemon_lock.py` | budget, persistence, structured I/O, paths, locks |
+| Verticals | `verticals/_base.py` + `verticals/{research,math,physics,materials,quant,speedrun,nanochat,nanogpt_speedrun,kernelbench,learning,ale_last_exam,...}/` | workflow/deliverable shape via a plugin contract (`stage order`, `role_banner`, `completion_gate`, `search_altitude`); `research` owns the full paper lifecycle and `ale_last_exam` is the single-stage hidden-reference artifact-delivery shape |
+| Domains | `domains/_base.py` + `domains/{chemistry,...}/` | optional specialization composed with `research`; a domain may add role context, mandatory checklist floors, and matchable Skills, but never replace research stages or completion |
 | Daemon | `daemon/life_worker.py` | detached 7×24 worker around `LifeSupervisor`; SIGTERM/drain, pid lock |
 | Backend | `agent_cli/agent_cli_runner.py`, `adapters/agent_cli_backend.py`, `adapters/memory_backend.py` | the CLI runner (codex/claude/copilot/opencode) + a deterministic memory backend for tests |
 

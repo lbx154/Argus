@@ -180,6 +180,8 @@ class VerticalDecision:
 
     choice: str
     vertical: str
+    # Optional built-in domain overlay. Only the research workflow accepts one.
+    domain: str = ""
     # Orthogonal execution topology chosen by Manager; never encoded as a vertical.
     workflow_mode: str = "staged"
     proposal: DomainProposal | None = None
@@ -215,6 +217,7 @@ class FastVerticalRoute:
 
     needs_grounding: bool
     vertical: str = ""
+    domain: str = ""
     workflow_mode: str = "staged"
     confidence: float = 0.0
     rationale: str = ""
@@ -226,6 +229,7 @@ def parse_fast_vertical_decision(
     raw_text: str,
     *,
     known_verticals: Sequence[str] = (),
+    known_domains: Sequence[str] = (),
     existing_data_domains: Sequence[str] = (),
     research_target_verticals: Sequence[str] = (),
 ) -> FastVerticalRoute | None:
@@ -256,6 +260,15 @@ def parse_fast_vertical_decision(
     known |= {str(v).strip().lower() for v in existing_data_domains}
     if not name or name not in known:
         return None
+    domain = _sluggify_name(obj.get("domain"))
+    allowed_domains = {
+        str(value or "").strip().lower() for value in known_domains
+    }
+    if name == "research":
+        if domain and domain not in allowed_domains:
+            return None
+    elif domain:
+        return None
     workflow_mode = str(obj.get("workflow_mode") or "").strip().lower()
     if not workflow_mode:
         workflow_mode = "direct" if legacy_direct else "staged"
@@ -282,6 +295,7 @@ def parse_fast_vertical_decision(
     return FastVerticalRoute(
         needs_grounding=False,
         vertical=name,
+        domain=domain,
         workflow_mode=workflow_mode,
         confidence=confidence,
         rationale=rationale,
@@ -312,6 +326,7 @@ def parse_vertical_decision(
     raw_text: str,
     *,
     known_verticals: Sequence[str] = (),
+    known_domains: Sequence[str] = (),
     existing_data_domains: Sequence[str] = (),
     research_target_verticals: Sequence[str] = (),
     default_execution_task: str = "",
@@ -349,9 +364,18 @@ def parse_vertical_decision(
         return None
     if choice == "existing":
         name = "software" if legacy_direct else raw_vertical_name
+        domain = _sluggify_name(obj.get("domain"))
         target_level = str(obj.get("research_target_level") or "").strip().lower()
         known = {str(v).strip().lower() for v in known_verticals}
         known |= {str(v).strip().lower() for v in existing_data_domains}
+        allowed_domains = {
+            str(value or "").strip().lower() for value in known_domains
+        }
+        if name == "research":
+            if domain and domain not in allowed_domains:
+                return None
+        elif domain:
+            return None
         targeted = {
             str(value or "").strip().lower()
             for value in research_target_verticals
@@ -373,6 +397,7 @@ def parse_vertical_decision(
             return VerticalDecision(
                 choice="existing",
                 vertical=name,
+                domain=domain,
                 workflow_mode=workflow_mode,
                 proposal=None,
                 live_view=parsed_live_view,
@@ -393,6 +418,7 @@ def parse_vertical_decision(
         return VerticalDecision(
             choice="new",
             vertical=proposal.name,
+            domain="",
             workflow_mode=workflow_mode,
             proposal=proposal,
             live_view=parsed_live_view,

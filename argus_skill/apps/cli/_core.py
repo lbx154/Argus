@@ -269,7 +269,6 @@ def main(argv: list[str] | None = None) -> int:
         + bool(getattr(args, "gc", False))
         + bool(args.watch)
         + bool(args.follow)
-        + bool(getattr(args, "dashboard", False))
         + bool(getattr(args, "web", False))
         + bool(args.notify)
         + bool(args.init_identity)
@@ -310,8 +309,6 @@ def main(argv: list[str] | None = None) -> int:
         return _run_with_path_resolution_errors(lambda: _cmd_wiki_ingest(args))
     if args.command == "wiki" and args.wiki_cmd == "migrate":
         return _run_with_path_resolution_errors(lambda: _cmd_wiki_migrate(args))
-    if args.command == "query":
-        return _run_with_path_resolution_errors(lambda: _cmd_query(args))
     if args.command == "learn":
         return _run_with_path_resolution_errors(lambda: _cmd_learn(args))
     if args.daemon:
@@ -340,9 +337,6 @@ def main(argv: list[str] | None = None) -> int:
         return _run_with_path_resolution_errors(lambda: _cmd_watch(args))
     if args.follow:
         return _run_with_path_resolution_errors(lambda: _cmd_follow(args))
-    if getattr(args, "dashboard", False):
-        from ...tools.dashboard import serve
-        return serve(port=int(getattr(args, "dashboard_port", 8787) or 8787))
     if getattr(args, "web", False):
         entry_error = _lifetime_entry_error(args)
         if entry_error:
@@ -885,25 +879,6 @@ def _cmd_wiki_migrate(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_query(args: argparse.Namespace) -> int:
-    """``argus-skill query <text>`` — unified trajectory + skills + wiki search."""
-    import json as _json
-
-    from ...tools.query_unified import render_text, unified_query
-
-    q = " ".join(args.text)
-    result = unified_query(
-        q,
-        top_k=int(getattr(args, "top_k", 5) or 5),
-        auto_index=not bool(getattr(args, "no_index", False)),
-    )
-    if getattr(args, "json", False):
-        print(_json.dumps(result, indent=2, ensure_ascii=False))
-    else:
-        print(render_text(result))
-    return 0
-
-
 def _model_api_env(args: argparse.Namespace) -> dict[str, str]:
     env = os.environ.copy()
     env["ARGUS_SKILL_CAPABILITY_VAULT"] = str(
@@ -972,12 +947,13 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
     from ...skills.builtins import (
         DEFAULT_PROJECT_BUILTIN_SKILLS_DIR,
         builtin_skill_source_path,
-        remove_unmodified_inactive_vertical_skill_seeds,
+        remove_unmodified_inactive_context_skill_seeds,
         seed_builtin_skills,
-        seed_builtin_skills_for_vertical,
+        seed_builtin_skills_for_context,
     )
     from ...skills.vertical_select import (
         VerticalResolutionError,
+        resolve_domain_if_decided,
         resolve_vertical_if_decided,
     )
 
@@ -992,16 +968,21 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
     # Before Manager has decided, only cross-vertical builtins are safe to seed.
     try:
         vertical = resolve_vertical_if_decided(target.parent)
+        domain = resolve_domain_if_decided(target.parent)
     except VerticalResolutionError as exc:
         sys.stderr.write(f"argus-skill: cannot resolve target vertical: {exc}\n")
         return 2
-    removed = remove_unmodified_inactive_vertical_skill_seeds(
+    removed = remove_unmodified_inactive_context_skill_seeds(
         target,
         vertical,
+        active_domain=domain,
     )
     if vertical is not None:
-        result = seed_builtin_skills_for_vertical(
-            target, vertical, overwrite=bool(args.apply)
+        result = seed_builtin_skills_for_context(
+            target,
+            vertical,
+            domain=domain,
+            overwrite=bool(args.apply),
         )
     else:
         result = seed_builtin_skills(target, overwrite=bool(args.apply))
@@ -1017,12 +998,13 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
     print(f"argus-skill: exported built-in skills to {target}")
     print(f"  source : {source}")
     print(f"  vertical: {vertical or 'none (common skills only)'}")
+    print(f"  domain : {domain or 'none'}")
     print(
         f"  files  : {written} {action}, {skipped} preserved, "
         f"{len(result)} total"
     )
     if removed:
-        print(f"  pruned : {len(removed)} inactive unmodified vertical seed(s)")
+        print(f"  pruned : {len(removed)} inactive unmodified context seed(s)")
     if skipped and not args.apply:
         print("  hint   : pass --apply to replace existing copied built-in skill files")
     return 0
@@ -1263,8 +1245,8 @@ def _resolve_research_workdir(bundle: Any) -> Path:
     Resolution order (matches supervisor._project_workdir):
 
     1. ``ARGUS_SKILL_WORKDIR`` env var (operator override)
-    2. ``<bundle.project.root>/code/`` if it exists (the
-       ``new_auto_research_project`` layout seeds code under code/)
+    2. ``<bundle.project.root>/code/`` for compatibility with legacy nested
+       project layouts
     3. ``bundle.project.root`` (life dir; may not have research/ but
        at worst the gates render empty findings, never crash)
     """
@@ -1462,7 +1444,7 @@ def _render_gate_snapshot_lines(workdir: Path, stage: str | None) -> list[str]:
             baseline_condition=os.environ.get("ARGUS_SKILL_BASELINE_CONDITION") or None,
         )
     except Exception:  # noqa: BLE001
-        return [f"  gates @ {stage}: (snapshot failed; rerun stage_check)"]
+        return [f"  gates @ {stage}: (snapshot failed)"]
 
     lines = [f"  gates @ {stage}:"]
     for gate in results:
@@ -1594,6 +1576,19 @@ def _cmd_status(args: argparse.Namespace) -> int:
     # Both are projections of observable state — surfacing facts the
     # agent already acts on; the harness makes no decision here.
     research_workdir = _resolve_research_workdir(bundle)
+    try:
+        from ...skills.vertical_select import (
+            resolve_domain_if_decided,
+            resolve_vertical_if_decided,
+        )
+
+        active_vertical = resolve_vertical_if_decided(research_workdir)
+        active_domain = resolve_domain_if_decided(research_workdir)
+        if active_vertical:
+            domain_suffix = f" · domain={active_domain}" if active_domain else ""
+            print(f"  pipeline : vertical={active_vertical}{domain_suffix}")
+    except Exception:  # noqa: BLE001 - status projection remains best effort
+        pass
     lifecycle_lines = _render_lifecycle_status_lines(
         research_workdir,
         state_root=Path(bundle.project.root),

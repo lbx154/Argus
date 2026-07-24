@@ -32,10 +32,6 @@ from .core.event_catalog import EventType
 from .core.models import LoopOutcome, RoundRecord
 from .core.ports import RunnerBackend
 from .engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
-from .engineer.self_review import (
-    EngineerCompletionDecision,
-    EngineerSkillMaintenanceOutcome,
-)
 from .reviewer import Reviewer, ReviewerConfig
 from .skills.loop_prompt import PromptContextMixin
 from .skills.loop_review_hooks import ReviewedRoundHooksMixin
@@ -156,30 +152,6 @@ class SkillLoopConfig:
     isolate_workdir: bool = False
     extra_args: list[str] | None = None
     session_id: str | None = None
-    # Engineer-authored review waivers are explicit and fail closed: no valid
-    # marker or no verbatim verification means the ordinary Reviewer still runs.
-    engineer_self_review_enabled: bool = field(
-        default_factory=lambda: (
-            os.environ.get("ARGUS_SKILL_ENGINEER_SELF_REVIEW", "1").strip().lower()
-            not in {"0", "false", "no", "off"}
-        )
-    )
-    # If a self-approved Engineer requests skill create/update, resume that same
-    # provider thread once and apply its candidate through SkillRouter.
-    engineer_skill_maintenance_enabled: bool = field(
-        default_factory=lambda: (
-            os.environ.get(
-                "ARGUS_SKILL_ENGINEER_SKILL_MAINTENANCE",
-                "1",
-            ).strip().lower()
-            not in {"0", "false", "no", "off"}
-        )
-    )
-    skill_maintenance_reasoning_effort: str = field(
-        default_factory=lambda: os.environ.get(
-            "ARGUS_SKILL_MAINTENANCE_REASONING_EFFORT", "low"
-        )
-    )
     # ``require_post_task_learning`` asks for selective durable learning. This
     # stronger compatibility flag restores the legacy every-task create/update
     # requirement for controlled evaluations only.
@@ -451,18 +423,6 @@ class SkillLoop(
         def capture_reviewed_round(record: RoundRecord) -> None:
             return self._capture_reviewed_round(mission, record)
 
-        def adapt_after_rejections(rounds: list) -> str:
-            return self._adapt_after_rejections(mission, state, rounds)
-
-        def maintain_skill_with_engineer(
-            decision: EngineerCompletionDecision,
-            thread_id: str | None,
-            engineer_summary: str,
-        ) -> EngineerSkillMaintenanceOutcome:
-            return self._maintain_skill_with_engineer(
-                mission, state, decision, thread_id, engineer_summary,
-            )
-
         status, rounds, final_message, reason, last_thread_id = self.supervised.run(
             objective=task,
             original_objective=request_anchor,
@@ -478,22 +438,6 @@ class SkillLoop(
                 checkpoint_path=self.config.checkpoint_path,
                 context_packet_path=self.config.context_packet_path,
                 engineer_log_path=self.config.engineer_log_path,
-                allow_engineer_self_review=(
-                    self.config.engineer_self_review_enabled
-                ),
-                allow_engineer_skill_maintenance=(
-                    self.config.engineer_skill_maintenance_enabled
-                    and self.config.require_post_task_learning
-                ),
-                required_skill_action=(
-                    ("update" if state.learning_target_name else "create")
-                    if (
-                        self.config.require_post_task_learning
-                        and self.config.force_post_task_learning
-                    )
-                    else ""
-                ),
-                required_skill_name=state.learning_target_name,
             ),
             workdir=workdir,
             on_event=self.on_event,
@@ -501,16 +445,8 @@ class SkillLoop(
             scope=scope,
             prepare_review_context=prepare_review_context,
             review_completed_hook=capture_reviewed_round,
-            continue_adaptor=adapt_after_rejections,
+            continue_adaptor=None,
             reviewer_skill_block=state.reviewer_skill_block,
-            engineer_skill_maintenance=(
-                maintain_skill_with_engineer
-                if (
-                    self.config.engineer_skill_maintenance_enabled
-                    and self.config.require_post_task_learning
-                )
-                else None
-            ),
         )
 
         # Step 4: learn from the OUTCOME and settle the final LoopOutcome.

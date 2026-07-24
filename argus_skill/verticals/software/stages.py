@@ -6,8 +6,6 @@ STAGE_ORDER = ["delivery"]
 CHECKLIST_STAGE_ORDER = tuple(STAGE_ORDER)
 CHECKLIST_OPTIONAL_STAGES = ("delivery",)
 CHECKLIST_ITEMS: dict[str, tuple[object, ...]] = {"delivery": ()}
-STAGE_CHECKS = {"delivery": []}
-REVIEWER_CHECKLISTS = {"delivery": []}
 completion_gate = "none"
 # Safe fallback for old callers that have not yet read the Manager-persisted
 # workflow_mode. Runtime orchestration uses resolve_workflow_mode(project_root).

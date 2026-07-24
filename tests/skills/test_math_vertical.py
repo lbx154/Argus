@@ -27,6 +27,7 @@ from argus_skill.verticals._base import (
     load_vertical,
     vertical_checklist_items,
     vertical_checklist_stage_order,
+    vertical_completion_contract_version,
     vertical_completion_gate,
     vertical_research_target_levels,
     vertical_role_banner,
@@ -93,6 +94,7 @@ def test_math_is_registered_as_three_stage_targeted_vertical() -> None:
     assert vertical_checklist_stage_order(module) == ("scope", "solve", "review")
     assert vertical_workflow_mode(module) == "proportional"
     assert vertical_completion_gate(module) == "none"
+    assert vertical_completion_contract_version(module) == 1
     assert vertical_research_target_levels(module) == (
         "exploratory",
         "publishable",
@@ -165,7 +167,7 @@ def test_math_checklist_is_small_and_judges_results_not_files() -> None:
     assert {stage: len(stage_items) for stage, stage_items in items.items()} == {
         "scope": 2,
         "solve": 3,
-        "review": 3,
+        "review": 4,
     }
     assert {
         stage: {item.id for item in stage_items}
@@ -178,6 +180,7 @@ def test_math_checklist_is_small_and_judges_results_not_files() -> None:
             "solve.support-matches-claim",
         },
         "review": {
+            "review.goal-achieved",
             "review.statement-fidelity",
             "review.argument-correct",
             "review.outcome-honest",
@@ -198,6 +201,9 @@ def test_math_checklist_is_small_and_judges_results_not_files() -> None:
         "MECHANISM_OVERLAP_AUDIT",
     ):
         assert artifact not in rendered
+    assert "error-free attempt" in rendered
+    assert "leave this item unsatisfied" in rendered
+    assert "original Goal Gate is achieved" in rendered
 
 
 def test_math_roles_keep_methods_optional_and_checks_real() -> None:
@@ -225,6 +231,7 @@ def test_math_review_checklist_is_loaded_and_required(tmp_path: Path) -> None:
     assert contract.state is ChecklistLoadState.LOADED
     assert contract.checklist_optional is False
     assert {
+        "review.goal-achieved",
         "review.statement-fidelity",
         "review.argument-correct",
         "review.outcome-honest",
@@ -260,6 +267,7 @@ def test_empty_math_review_store_entry_loads_seeds_not_empty(tmp_path: Path) -> 
     assert contract.checklist_optional is False
     ids = {item.id for item in contract.items}
     assert {
+        "review.goal-achieved",
         "review.statement-fidelity",
         "review.argument-correct",
         "review.outcome-honest",
@@ -338,7 +346,7 @@ def test_exploratory_honesty_alone_cannot_end_research() -> None:
     assert _final_stage_decision(
         result,
         "exploratory",
-        scientific_decision="go",
+        scientific_decision="continue",
     ) is None
 
 
@@ -352,7 +360,7 @@ def test_exploratory_decision_relevant_counterexample_can_end_research() -> None
     assert _final_stage_decision(
         result,
         "exploratory",
-        scientific_decision="go",
+        scientific_decision="continue",
     ) is not None
 
 

@@ -24,7 +24,6 @@ def reduce_manager_event(
     mission: dict[str, Any],
 ) -> None:
     if event_type == EventType.LIFE_MANAGER_INTENT_COMPLETED:
-        view["decision_context"] = {}
         item_id = _text(event, "item_id") or _text(event, "intent_id")
         objective = _text(event, "objective", 2000) or _text(event, "execution_task", 2000)
         mission.update({

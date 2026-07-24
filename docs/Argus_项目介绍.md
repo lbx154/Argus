@@ -273,12 +273,11 @@ harness 立「硬规则」的地方，因为它管的是诚信，不是研究选
 # 1) 一次性向导：配作者身份、三个 agent 的 API、GPU 分配、防回收 keep-alive
 argus-skill --setup
 
-# 2) 起一个研究项目（建目录、导出 skill、启动 7×24 守护进程）
-python -m argus_skill.tools.new_auto_research_project \
-  --parent ~/research --venue emnlp \
-  --objective "World Model for Agent Action Selection"
+# 2) 在目标项目目录中启动 Argus；项目结构由 Agent 根据任务自行创建
+mkdir -p ~/research/world-model && cd ~/research/world-model
+argus-skill
 
-# 3) 看它在干嘛（断 SSH 不影响后台运行）
+# 3) 在 cockpit 中提交目标，然后查看运行状态（断 SSH 不影响后台运行）
 argus-skill --status     # 当前状态
 argus-skill --watch      # 实时驾驶舱
 argus-skill --follow     # 事件流

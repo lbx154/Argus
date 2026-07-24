@@ -50,7 +50,7 @@ The full suite is a certification gate, not a localization tool. After a red
 gate, require the next round to run the first failing node/shape/configuration
 with synchronous error reporting or sanitizer evidence. If the same failure
 signature returns again without a new code/config diagnostic, set
-`planner_report.plan_signal="reconsider"` and ask L4 for a scoped repair task.
+`status="replan_requested"` and use `next_action` to ask L4 for a scoped repair task.
 Do not certify repeated prose, refreshed timestamps, or another unchanged full
 suite as forward progress.
 
@@ -106,7 +106,7 @@ Require evidence appropriate to the public contract:
 
 Require valid `attempts/<id>/LEVERAGE.json` before accepting a source edit. If
 the selected kernel cannot plausibly clear the end-to-end noise floor, require a
-no-go or higher-leverage target instead of rewarding a faster subkernel.
+failed candidate or higher-leverage target instead of rewarding a faster subkernel.
 Require the target share to come from a low-overhead timeline aligned with the
 end-to-end workload. Do not accept a multi-pass NCU counter-replay duration as a
 wall-clock-share substitute; use focused NCU sections after the leverage gate to
@@ -129,7 +129,7 @@ unchanged base commit without a diff hash/snapshot identity.
 
 The prompt states `Round: x/y` (normally three rounds). A correct, path-covered
 candidate that is slower or within noise before the final round `y` is only a
-candidate no-go. Do not return `done`, certify optimize, or advance it to
+candidate failure. Do not return `done`, certify optimize, or advance it to
 validation/report. Return `continue`; require a compact regression diagnosis and
 a materially distinct next implementation based on profile evidence, current
 primary sources, and plausible headroom. Distinct means a changed mechanism—
@@ -141,7 +141,7 @@ retained winner or is genuinely exhausted. Exhaustion requires concrete evidence
 the tested implementations, regression attribution, remaining plausible
 mechanisms, and why none can reasonably clear the end-to-end noise/MDE. If
 exhausted, return `replan_requested` with
-`planner_report.plan_signal="reconsider"` so Planner selects a new mechanism;
+`next_action` asking Planner to select a new mechanism;
 do not mark a failed candidate `done` merely to send it through validate/report.
 
 ## Upstream readiness

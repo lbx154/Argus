@@ -7,10 +7,8 @@ circular imports.
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
-from pathlib import Path
 from typing import Any
 
 from ..core.run_gateway import run_exec as gateway_run_exec  # noqa: F401 — re-exported
@@ -98,18 +96,3 @@ def _manager_fast_route_min_confidence() -> float:
         return min(1.0, max(0.0, float(raw))) if raw else _DEFAULT_FAST_ROUTE_MIN_CONFIDENCE
     except ValueError:
         return _DEFAULT_FAST_ROUTE_MIN_CONFIDENCE
-
-
-def _manager_safe_mode() -> bool:
-    raw = os.environ.get("ARGUS_SKILL_SAFE_MODE")
-    if raw is None:
-        return False
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _read_json_object(path: Path) -> dict[str, Any] | None:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None
-    return value if isinstance(value, dict) else None

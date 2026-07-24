@@ -38,7 +38,6 @@ executed study. Reject physical work that bypassed authorization or safety
 controls. Reject novelty claims without direct prior-work comparison.
 
 Return `done` only when the result meets the requested bar and every headline
-claim is supported within a stated regime. A rigorous negative result,
-reproduction, bounded surrogate, or no-go can be done when honestly framed.
-Otherwise return `continue` with the single highest-value repair or `blocked`
-with the exact missing capability.
+claim is supported within a stated regime. Otherwise return `continue` with the
+single highest-value repair, `replan_requested` when the direction should change,
+or `blocked` with the exact missing capability.

@@ -336,6 +336,7 @@ class PreparedManagerHandoff:
             "objective": self.body,
             "execution_task": self.execution_task,
             "vertical": getattr(division, "vertical", ""),
+            "domain": getattr(division, "domain", ""),
             "workflow_mode": getattr(division, "workflow_mode", "staged"),
             "kind": getattr(division, "kind", ""),
             "stages": list(getattr(division, "stages", []) or []),

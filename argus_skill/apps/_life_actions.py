@@ -78,17 +78,6 @@ def add_backlog_item(
     ))
 
 
-def format_added_item(item: BacklogItem) -> str:
-    iter_blurb = (
-        f", iter≤{item.iteration_max_cycles}"
-        if item.iterate else ", once"
-    )
-    return (
-        f"added {item.id}: {item.title}  "
-        f"(priority={item.priority}{iter_blurb})"
-    )
-
-
 def format_status_change(mem: Any, cmd: str, item_id: str) -> str:
     if cmd == "/done":
         ok = mem.backlog.mark_done(item_id) is not None

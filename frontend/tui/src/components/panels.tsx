@@ -456,8 +456,7 @@ function JournalPanel({ entries, page, pageSize }: { entries: JournalEntry[]; pa
         <Text dimColor>(no journal entries yet)</Text>
       ) : (
         view.shown.map((j) => {
-          const report = (j.extra?.planner_report ?? {}) as Record<string, unknown>;
-          const detail = j.summary || String(report.headline ?? '');
+          const detail = j.summary || '';
           const certified = j.extra?.final_submission_certified === true;
           return (
             <Box key={j.id} flexDirection="column">

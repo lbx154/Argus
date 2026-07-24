@@ -162,8 +162,9 @@ base URL source, key source, wire API, and model.
 
 ## Runtime consumers
 
-- `argus_skill.tools.image_tool` loads the `image` route for generation and the
-  `image_review` route for vision review.
+- `argus_skill.tools.image_api` loads the `image` route for generation and the
+  `image_review` route for vision review; `argus_skill.verticals.research.figure_tool`
+  builds on it for paper-figure prompts and metadata syncing.
 - `argus_skill.life.research_profile` exposes capability metadata to missions
   without exposing secrets.
 - Daemon and REPL processes use the same vault path unless `--life-dir` or

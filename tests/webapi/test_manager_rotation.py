@@ -253,7 +253,7 @@ def test_natural_language_abort_is_control_not_backlog_work(
     assert result["requested"] is True
     assert result["item_id"] == item.id
     assert len(memory.backlog.all()) == 1
-    request = json.loads((life / "mission_abort_request.json").read_text())
+    request = json.loads((life / "running_item_abort.json").read_text())
     assert "停止现在的所有任务" in request["reason"]
 
 

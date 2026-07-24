@@ -110,6 +110,33 @@ def _run(
     )
 
 
+@contextmanager
+def _frontend_dependency_links(source_root: Path, worktree: Path):
+    """Expose existing frontend dependencies to a private Git worktree."""
+    created: list[Path] = []
+    try:
+        for relative in (
+            Path("frontend/web/node_modules"),
+            Path("frontend/tui/node_modules"),
+        ):
+            target = worktree / relative
+            if target.is_dir():
+                continue
+            source = source_root / relative
+            if not source.is_dir():
+                raise ValueError(
+                    "self-maintenance publication requires installed frontend "
+                    f"dependencies at {source}"
+                )
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.symlink_to(source, target_is_directory=True)
+            created.append(target)
+        yield
+    finally:
+        for path in reversed(created):
+            path.unlink(missing_ok=True)
+
+
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
@@ -829,6 +856,9 @@ class DaemonSelfMaintenance:
             ) + (
                 "argus_skill/release_manifest.json",
                 "frontend/core/src/release.generated.ts",
+                "frontend/core/src/eventPayloads.generated.ts",
+                "frontend/tui/bundle/argus.mjs",
+                "frontend/web/dist",
             )
 
             def unauthorized(paths: set[str]) -> list[str]:
@@ -856,11 +886,12 @@ class DaemonSelfMaintenance:
             # files through git ls-files. The generated manifest itself is excluded
             # from that digest.
             _run(["git", "add", "-A"], cwd=worktree)
-            _run(
-                [sys.executable, "scripts/generate_release_manifest.py"],
-                cwd=worktree,
-                timeout=120.0,
-            )
+            with _frontend_dependency_links(self.framework_root, worktree):
+                _run(
+                    [sys.executable, "scripts/build_release.py"],
+                    cwd=worktree,
+                    timeout=300.0,
+                )
             _run(["git", "add", "-A"], cwd=worktree)
             outside = unauthorized(changed_paths())
             if outside:

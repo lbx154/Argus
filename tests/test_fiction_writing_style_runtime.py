@@ -1,5 +1,5 @@
 """Runtime closed-loop test: the fiction STYLE + TEMPORAL gates enforce at RUN
-TIME via STAGE_CHECKS (subprocess), exactly as the stage-check runner does.
+TIME by executing the compatibility STAGE_CHECKS command directly.
 
 Unlike the reviewer's heuristic craft notes, these gates recompute from the files
 on disk, so their verdict cannot be faked. If the wiring in stages.py is removed,

@@ -30,14 +30,6 @@ from ..core.run_gateway import run_exec as gateway_run_exec
 _DEFAULT_PLANNER_TIMEOUT_SECONDS = 300
 TASK_SCOPE_BOUNDED = "bounded"
 TASK_SCOPE_FINAL_SUBMISSION = "final_submission"
-_TASK_SCOPES = {TASK_SCOPE_BOUNDED, TASK_SCOPE_FINAL_SUBMISSION}
-_WAIT_MODES = {"poll", "event"}
-_WAKE_SOURCES = {
-    "authorization",
-    "subagent_terminal",
-    "artifact_revision",
-    "manager_stage",
-}
 PLANNER_SCHEMA_PATH = str(Path(__file__).with_name("planner_schema.json"))
 
 
@@ -85,25 +77,6 @@ class TaskSpec:
     deps: list[str] = field(default_factory=list)
     authorization_id: str = ""
     authorization_action: str = ""
-
-
-def _parse_context_refs(value: object) -> list[dict[str, str]]:
-    if not isinstance(value, list):
-        return []
-    refs: list[dict[str, str]] = []
-    for raw in value:
-        if not isinstance(raw, dict):
-            continue
-        target = str(raw.get("ref") or "").strip()
-        if not target:
-            continue
-        refs.append({
-            "kind": str(raw.get("kind") or "artifact").strip() or "artifact",
-            "ref": target,
-            "why": str(raw.get("why") or "").strip(),
-            "content_hash": str(raw.get("content_hash") or "").strip(),
-        })
-    return refs
 
 
 @dataclass(frozen=True)
@@ -336,19 +309,6 @@ class Planner:
                 schema_repair_original_sha256=original_sha256,
                 schema_repair_error=repair_error,
             )
-        # The Planner OWNS the per-stage checklist: apply any authored ops to the
-        # per-project store AFTER the verdict is parsed (so the NEXT cycle / the
-        # next reviewer round sees them; never mid-round). Fail-soft: any error
-        # leaves the store untouched and planning continues.
-        if parsed.checklist_ops:
-            try:
-                from ..skills.checklist_store import apply_checklist_ops
-                from ..skills.harness_overlay import resolve_project_root
-
-                summary = apply_checklist_ops(resolve_project_root(), parsed.checklist_ops)
-                log.debug("planner applied checklist_ops: %s", summary)
-            except Exception:  # noqa: BLE001 — checklist write must never break planning
-                log.debug("planner checklist_ops application failed", exc_info=True)
         return parsed
 
     @staticmethod
@@ -446,119 +406,6 @@ def _parse_json_bool(value: object, default: bool) -> bool:
     return bool(value)
 
 
-def _parse_impact_score(value: object) -> int:
-    """Coerce model-provided impact scores into the bounded 0-5 scale."""
-    try:
-        if isinstance(value, int | float):
-            score = int(value)
-        elif isinstance(value, str):
-            value = value.strip()
-            if not value:
-                return 0
-            score = int(float(value))  # tolerate "4" and "4.0"
-        else:
-            return 0
-    except (TypeError, ValueError):
-        return 0
-    return max(0, min(5, score))
-
-
-def _parse_task_scope(value: object) -> str:
-    scope = str(value or TASK_SCOPE_BOUNDED).strip().lower().replace("-", "_")
-    if scope not in _TASK_SCOPES:
-        return TASK_SCOPE_BOUNDED
-    return scope
-
-
-def _parse_waiting_contract(data: dict) -> WaitingContract | None:
-    raw = data.get("waiting_contract")
-    if not isinstance(raw, dict):
-        return None
-    blocker_fingerprint = str(raw.get("blocker_fingerprint") or "").strip()
-    recheck_condition = str(raw.get("recheck_condition") or "").strip()
-    recheck_token = str(raw.get("recheck_token") or "").strip()
-    if not blocker_fingerprint or not recheck_condition or not recheck_token:
-        return None
-    try:
-        recheck_after_seconds = int(raw.get("recheck_after_seconds", 0) or 0)
-    except (TypeError, ValueError):
-        return None
-    recheck_after_seconds = max(0, min(604800, recheck_after_seconds))
-    wait_mode = str(raw.get("wait_mode") or "poll").strip().lower()
-    wake_on = tuple(dict.fromkeys(
-        str(value or "").strip().lower()
-        for value in (raw.get("wake_on") or [])
-        if str(value or "").strip().lower() in _WAKE_SOURCES
-    ))
-    if wait_mode not in _WAIT_MODES or (wait_mode == "event" and not wake_on):
-        wait_mode = "poll"
-        wake_on = ()
-    watched_paths: list[str] = []
-    for value in (raw.get("watched_paths") or [])[:16]:
-        candidate = str(value or "").strip().replace("\\", "/")
-        parts = Path(candidate).parts
-        if not candidate or candidate.startswith("/") or ".." in parts:
-            continue
-        if candidate.startswith("./"):
-            candidate = candidate[2:]
-        watched_paths.append(candidate[:500])
-    try:
-        expires_at = max(0.0, float(raw.get("expires_at", 0.0) or 0.0))
-    except (TypeError, ValueError):
-        expires_at = 0.0
-    explicit_operator_action = _parse_json_bool(
-        raw.get("operator_action_required", False),
-        False,
-    )
-    return WaitingContract(
-        blocker_fingerprint=blocker_fingerprint[:200],
-        recheck_condition=recheck_condition[:1600],
-        recheck_token=recheck_token[:200],
-        stage_reconciliation_required=_parse_json_bool(
-            raw.get("stage_reconciliation_required", False),
-            False,
-        ),
-        allow_verification_probe=_parse_json_bool(
-            raw.get("allow_verification_probe", False),
-            False,
-        ),
-        recheck_after_seconds=recheck_after_seconds,
-        wait_mode=wait_mode,
-        wake_on=wake_on,
-        watched_paths=tuple(dict.fromkeys(watched_paths)),
-        expires_at=expires_at,
-        operator_action_required=explicit_operator_action,
-    )
-
-
-def _parse_checklist_ops(data: dict) -> list[dict]:
-    """Parse the Planner's per-stage ``checklist_ops`` (fail-soft).
-
-    Drops malformed entries and any unknown op; a non-list value yields ``[]`` so
-    the loop applies nothing. ``apply_checklist_ops`` enforces the protected-floor
-    policy and bounds — this only normalizes shape."""
-    raw = data.get("checklist_ops")
-    if not isinstance(raw, list):
-        return []
-    from ..skills.checklist_store import VALID_OPS
-
-    out: list[dict] = []
-    for entry in raw:
-        if not isinstance(entry, dict):
-            continue
-        op = str(entry.get("op", "")).strip().lower()
-        stage = str(entry.get("stage", "")).strip().lower()
-        if op not in VALID_OPS or not stage:
-            continue
-        item: dict[str, str] = {"op": op, "stage": stage, "id": str(entry.get("id", "")).strip()}
-        if "statement" in entry:
-            item["statement"] = str(entry.get("statement") or "").strip()
-        if "evidence_hint" in entry:
-            item["evidence_hint"] = str(entry.get("evidence_hint") or "").strip()
-        out.append(item)
-    return out
-
-
 def parse_planner_text(text: str) -> PlannerVerdict:
     """Parse a planner JSON verdict out of an agent message.
 
@@ -583,12 +430,8 @@ def parse_planner_text(text: str) -> PlannerVerdict:
             error="unparseable planner output",
         )
     data, blob = found
-    checklist_ops = _parse_checklist_ops(data)
     project_done = _parse_json_bool(data.get("project_done", True), True)
     reason = str(data.get("reason", ""))
-    waiting = _parse_json_bool(data.get("waiting", False), False)
-    waiting_reason = str(data.get("waiting_reason", "")).strip() or reason
-    waiting_contract = _parse_waiting_contract(data)
     tasks_raw = data.get("new_tasks") or []
     new_tasks: list[TaskSpec] = []
     raw_task_count = len(tasks_raw) if isinstance(tasks_raw, list) else 0
@@ -598,56 +441,20 @@ def parse_planner_text(text: str) -> PlannerVerdict:
                 continue
             title = str(entry.get("title", "")).strip()
             objective = str(entry.get("objective", "")).strip()
-            impact_score = _parse_impact_score(entry.get("impact_score"))
-            impact_area = str(entry.get("impact_area", "")).strip()
-            evidence = str(entry.get("evidence", "")).strip()
-            acceptance_check = str(
-                entry.get("acceptance_check") or evidence
-            ).strip()
-            non_goals = [
-                str(item).strip()
-                for item in (entry.get("non_goals") or [])
-                if str(item).strip()
-            ]
-            context_refs = _parse_context_refs(entry.get("context_refs"))
-            scope = _parse_task_scope(entry.get("scope"))
-            stage_closing = _parse_json_bool(
-                entry.get("stage_closing", False),
-                False,
-            )
-            # Optional DAG fields; back-compat: a flat task simply omits them.
             key = str(entry.get("key") or "").strip()
             deps = [
                 str(d).strip()
                 for d in (entry.get("deps") or [])
                 if str(d).strip()
             ]
-            authorization_id = str(entry.get("authorization_id") or "").strip()
-            authorization_action = str(
-                entry.get("authorization_action") or ""
-            ).strip().lower()
-            if (
-                not title
-                or not objective
-                or not evidence
-            ):
+            if not title or not objective:
                 continue
             new_tasks.append(
                 TaskSpec(
                     title=title,
                     objective=objective,
-                    impact_score=impact_score,
-                    impact_area=impact_area,
-                    evidence=evidence,
-                    acceptance_check=acceptance_check,
-                    non_goals=non_goals,
-                    context_refs=context_refs,
-                    scope=scope,
-                    stage_closing=stage_closing,
                     key=key,
                     deps=deps,
-                    authorization_id=authorization_id,
-                    authorization_action=authorization_action,
                 )
             )
     if project_done and tasks_raw:
@@ -658,37 +465,10 @@ def parse_planner_text(text: str) -> PlannerVerdict:
             raw_text=blob,
             error="planner claimed project_done=true with tasks",
         )
-    # Explicit, intentional idle: the project is correctly waiting on a live
-    # external job and the planner found no genuinely new high-impact work.
-    # Honored ONLY when not also claiming done and no concrete tasks
-    # were accepted — real tasks always win over waiting. This is NOT an error
-    # (it bypasses the "no concrete tasks" retry/churn path below).
-    if waiting and not project_done and not new_tasks:
-        if not waiting_reason:
-            waiting_reason = "awaiting a live external job; no new high-impact work"
-        if waiting_contract is None:
-            return PlannerVerdict(
-                project_done=False,
-                reason="planner waiting verdict omitted a valid waiting contract",
-                new_tasks=[],
-                raw_text=blob,
-                error="waiting verdict requires waiting_contract",
-                checklist_ops=checklist_ops,
-            )
-        return PlannerVerdict(
-            project_done=False,
-            reason=waiting_reason,
-            new_tasks=[],
-            raw_text=blob,
-            waiting=True,
-            waiting_reason=waiting_reason,
-            waiting_contract=waiting_contract,
-            checklist_ops=checklist_ops,
-        )
     if not project_done and not new_tasks:
         # Inconsistent: not done but no tasks → retry later, don't mark done.
         if raw_task_count:
-            reason = "planner proposed only malformed or unevidenced tasks"
+            reason = "planner proposed only malformed tasks"
             error = "planner produced no usable tasks"
         else:
             error = "planner said not done but produced no concrete tasks"
@@ -700,12 +480,10 @@ def parse_planner_text(text: str) -> PlannerVerdict:
             new_tasks=[],
             raw_text=blob,
             error=error,
-            checklist_ops=checklist_ops,
         )
     return PlannerVerdict(
         project_done=project_done,
         reason=reason,
         new_tasks=new_tasks,
         raw_text=blob,
-        checklist_ops=checklist_ops,
     )

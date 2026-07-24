@@ -113,8 +113,8 @@ class _RunnerConstructionMixin:
         # or by the test/legacy ``_invoke_supervisor`` path. This is what
         # lets the Manager (running in the operator-facing API process)
         # ask the daemon to abort whatever mission it is currently executing:
-        # the request is a small file in the shared life_dir (see
-        # ``tools.mission_control``), and only the runner that is actually
+        # the request is a small mailbox file in the shared life_dir, and only
+        # the runner that is actually
         # driving a real mission round should ever consume it. Gating
         # explicitly (rather than piggybacking on ``stop_event is not None``)
         # keeps this correct even if a future change wires a Ctrl-C
@@ -130,9 +130,9 @@ class _RunnerConstructionMixin:
             if stop_event is not None and stop_event.is_set():
                 return "daemon stop requested"
             if self._enable_mission_abort_signal:
-                from ..tools.mission_control import pop_pending_mission_abort
+                from ..life.memory import consume_running_item_abort
 
-                abort_reason = pop_pending_mission_abort(
+                abort_reason = consume_running_item_abort(
                     getattr(self, "_manager_session_root", None)
                 )
                 if abort_reason:
@@ -321,10 +321,10 @@ class _RunnerConstructionMixin:
             from ..loop import SkillLoopConfig
             from ..skills.layered import (
                 LayeredSkillStore,
-                shared_vertical_skills_dir,
+                shared_skill_scope_dir,
             )
             from ..skills.store import SkillStore
-            from ..skills.vertical_select import _persisted_vertical
+            from ..skills.vertical_select import resolve_skill_scope
 
             # A default config is enough for the matcher: ``resolved_matcher_model``
             # already applies the ``ARGUS_SKILL_MATCHER_MODEL`` env override, and
@@ -335,13 +335,13 @@ class _RunnerConstructionMixin:
             project_state_dir = str(getattr(args, "project_state_dir", "") or "").strip()
             if project_state_dir:
                 workdir = Path(args.workdir).expanduser() if args.workdir else Path.cwd()
-                active_vertical = _persisted_vertical(workdir) or ""
+                active_skill_scope = resolve_skill_scope(workdir)
                 return LayeredSkillStore(
                     project_dir=Path(project_state_dir) / "skills",
                     global_dir=global_dir,
-                    vertical_dir=shared_vertical_skills_dir(
+                    vertical_dir=shared_skill_scope_dir(
                         global_dir,
-                        active_vertical,
+                        active_skill_scope,
                     ),
                     runner=self.manager_backend or self._backend,
                     matcher_model=cfg.resolved_matcher_model(),
@@ -476,7 +476,7 @@ def _format_daemon_mode_cell(theme, mem: _SplitMemory) -> str:  # noqa: ANN001
     """
     try:
         from ..daemon.life_worker import read_daemon_status
-        from .cli import _format_short_duration
+        from .cli._core import _format_short_duration
 
         status = read_daemon_status(mem.project.root)
     except Exception:  # noqa: BLE001

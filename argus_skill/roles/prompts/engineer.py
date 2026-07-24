@@ -33,7 +33,6 @@ def assemble_round_prompt(
     prompt: str,
     *,
     checkpoint_block: str = "",
-    control_block: str = "",
     background_advisory: str = "",
     external_work_advisory: str = "",
 ) -> str:
@@ -42,7 +41,6 @@ def assemble_round_prompt(
         block
         for block in (
             checkpoint_block,
-            control_block,
             background_advisory,
             external_work_advisory,
         )
@@ -61,7 +59,6 @@ def build_mission_prompt(
     original_request: str = "",
     include_static: bool = True,
     role_banner: str = "",
-    allow_self_review: bool = False,
     matched_skill_name: str = "",
     require_post_task_learning: bool = False,
     force_post_task_learning: bool = False,
@@ -108,44 +105,14 @@ def build_mission_prompt(
         "## Handoff\n"
         "End with a short, natural account of what changed and the decisive "
         "check or observation. Do not recite a checklist or build an evidence "
-        "packet; include only details the next researcher needs.\n\n"
-        + (
-            "Use `review=skip` only for low-risk bounded work with a passing "
-            "verifier. Require review for failures, risky cross-module changes, "
-            "or unsettled judgment. Do not spawn a Reviewer subagent; for "
-            "`review=required`, yield for a fresh Reviewer session. Request skill "
-            "maintenance only for durable learning.\n"
-            if allow_self_review
-            else
-            "`review=required`; don't spawn Reviewer subagents. Yield for fresh "
-            "Reviewer session.\n"
-        )
+        "packet; include only details the next researcher needs. A fresh Reviewer "
+        "handles acceptance; do not spawn a Reviewer subagent.\n"
     )
-    if require_post_task_learning and force_post_task_learning:
-        required_action = "update" if matched_skill_name else "create"
-        target = (
-            f" the matched skill `{matched_skill_name}`"
-            if matched_skill_name
-            else " one reusable Engineer skill"
-        )
-        sections.append(
-            "## Required self-evolution\n"
-            "After verification, select `"
-            + required_action
-            + "` in the internal "
-            "control file for"
-            + target
-            + "; the harness resumes this session to author it. Also retain one "
-            "concise `.autors/<project>/wiki/` note with the reusable mechanism, "
-            "failed approach, and decisive verification."
-        )
-    elif require_post_task_learning:
-        sections.append(
-            "## Durable learning\n"
-            "Use `skill_action=create|update` only for a verified durable mechanism "
-            "that changes future work; otherwise use `skill_action=none`. Write a "
-            "wiki note only for similarly durable project knowledge."
-        )
+    _ = (
+        require_post_task_learning,
+        force_post_task_learning,
+        matched_skill_name,
+    )
     static_text = "\n\n".join(sections)
     delta_text = "\n\n".join(delta_sections)
     if include_static:

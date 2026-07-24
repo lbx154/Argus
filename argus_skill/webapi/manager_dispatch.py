@@ -633,9 +633,9 @@ def _handle_abort_control(
     emitter: _TurnEmitter,
 ) -> dict[str, Any]:
     """Request a stop for the currently running mission task, if any."""
-    from ..tools.mission_control import request_current_mission_abort
+    from ..life.memory import request_running_item_abort
 
-    requested, item_id = request_current_mission_abort(
+    requested, item_id = request_running_item_abort(
         life_dir,
         reason=f"operator requested: {body}",
         requested_by="manager",

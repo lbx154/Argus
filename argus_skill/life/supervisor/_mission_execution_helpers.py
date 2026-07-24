@@ -121,11 +121,6 @@ class _MissionRunState:
         # Set by ``_emit_mission_outcome_and_build_result``.
         self.kind: str = ""
         self.final_submission_certified: bool = False
-        self.planner_report: Any = None
-        self.harness_control: dict[str, Any] = {}
-        self.checklist_feedback: dict[str, Any] = {}
-        self.research_result: dict[str, Any] = {}
-        self.claim_synthesis: Any = None
         self.final_submission_signature: str = ""
         self.scientist_totals: Any = None
         self.scientist_usage_by_model: Any = None

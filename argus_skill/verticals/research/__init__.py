@@ -131,8 +131,6 @@ from .run_evidence_health import (
 # Paper-specific pipeline (stage definitions + checks)
 # ---------------------------------------------------------------------------
 from .stages import (
-    REVIEWER_CHECKLISTS,
-    STAGE_CHECKS,
     STAGE_ORDER,
     WORKFLOW_MODE,
 )
@@ -208,9 +206,7 @@ __all__ = [
     # evidence_chain (generic, from skills/)
     "ChainIssue",
     "ChainReport",
-    # pipeline / stage_check
-    "REVIEWER_CHECKLISTS",
-    "STAGE_CHECKS",
+    # pipeline stages
     "STAGE_ORDER",
     "WORKFLOW_MODE",
 ]

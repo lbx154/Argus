@@ -180,9 +180,12 @@ def build_pending_question_prompt(item: Any, answer: str) -> str:
         "in that case also set resolved=false and leave decision and reply empty. "
         "Set resolved=true only when the response supplies enough authority or "
         "information for the team to continue. decision must then be an explicit, "
-        "role-clean instruction for Planner/Engineer. If it is unrelated or "
-        "insufficient, set resolved=false, keep decision empty, and use reply to "
-        "ask one concise clarification question.\n\n"
+        "role-clean instruction for Planner/Engineer. The latest operator response "
+        "is binding wherever it conflicts with inherited mission details. When it "
+        "changes a method, scope, tool, or acceptance requirement, explicitly name "
+        "the inherited constraint that is superseded instead of trying to satisfy "
+        "both. If it is unrelated or insufficient, set resolved=false, keep "
+        "decision empty, and use reply to ask one concise clarification question.\n\n"
         f"Blocked item id: {item.id}\n"
         f"Blocked mission title: {item.title}\n"
         f"Blocked mission objective:\n{item.objective}\n\n"
@@ -344,12 +347,17 @@ def build_fast_vertical_decision_prompt(
     task: str,
     *,
     verticals_with_purpose: dict[str, str],
+    domains_with_purpose: dict[str, str] | None = None,
     existing_data_domains: Sequence[str] = (),
     research_target_verticals: Sequence[str] = (),
 ) -> str:
     """Render the compact, tool-free first-pass vertical router prompt."""
     menu = "\n".join(
         f"  - `{name}`: {purpose}" for name, purpose in verticals_with_purpose.items()
+    ) or "  (none)"
+    domain_menu = "\n".join(
+        f"  - `{name}`: {purpose}"
+        for name, purpose in (domains_with_purpose or {}).items()
     ) or "  (none)"
     existing = ", ".join(f"`{v}`" for v in existing_data_domains) or "(none)"
     target_verticals = (
@@ -365,10 +373,15 @@ def build_fast_vertical_decision_prompt(
         "or a new domain may be appropriate, request `grounded` instead.\n\n"
         "## Existing built-in verticals\n"
         f"{menu}\n\n"
+        "## Optional built-in research domains\n"
+        f"{domain_menu}\n\n"
         f"## Existing project data domains: {existing}\n\n"
         "## Classification rules\n"
-        "- `vertical` is the capability/domain (software, research, math, etc.). "
+        "- `vertical` is the workflow/capability (software, research, math, etc.). "
         "Never use an execution topology such as direct/full/staged as a vertical.\n"
+        "- `domain` is an optional built-in specialization composed with the "
+        "`research` vertical. Use `chemistry` for chemistry research; otherwise "
+        "use null. A non-research vertical must use null.\n"
         "- Independently choose `workflow_mode=direct` when one Engineer mission "
         "can finish the bounded request. Choose `workflow_mode=staged` when the "
         "Manager should invoke planning and stage progression.\n"
@@ -385,6 +398,7 @@ def build_fast_vertical_decision_prompt(
         f"{(task or '').strip()}\n\n"
         "Reply with exactly one compact JSON object and nothing else:\n"
         '{"choice":"existing","vertical":"<existing name>",'
+        '"domain":"<built-in research domain>"|null,'
         '"workflow_mode":"direct|staged",'
         '"confidence":<0.0-1.0>,"research_target_level":'
         '"<exploratory|publishable|doctoral>"|null,'
@@ -399,12 +413,17 @@ def build_vertical_decision_prompt(
     task: str,
     *,
     verticals_with_purpose: dict[str, str],
+    domains_with_purpose: dict[str, str] | None = None,
     existing_data_domains: Sequence[str] = (),
     research_target_verticals: Sequence[str] = (),
 ) -> str:
     """Render the grounded vertical and workflow decision prompt."""
     menu = "\n".join(
         f"  - `{name}`: {purpose}" for name, purpose in verticals_with_purpose.items()
+    ) or "  (none)"
+    domain_menu = "\n".join(
+        f"  - `{name}`: {purpose}"
+        for name, purpose in (domains_with_purpose or {}).items()
     ) or "  (none)"
     existing = ", ".join(f"`{v}`" for v in existing_data_domains) or "(none)"
     target_verticals = (
@@ -431,6 +450,8 @@ def build_vertical_decision_prompt(
         "choose Live View artifacts or expand the Engineer task.\n\n"
         "## Built-in verticals (PREFER one of these when it fits the Task)\n"
         f"{menu}\n\n"
+        "## Optional built-in research domains\n"
+        f"{domain_menu}\n\n"
         f"## Existing project data domains (also selectable): {existing}\n\n"
         "## How to choose (in this order)\n"
         "1. If a BUILT-IN vertical above fits the Task, choose it — built-ins "
@@ -445,6 +466,9 @@ def build_vertical_decision_prompt(
         "backlog/DAG tasks; they are not competing verticals. Never author a "
         "task-specific alias such as `math_conjecture` for work already covered "
         "by `math`.\n"
+        "   Chemistry research uses `vertical=research` plus `domain=chemistry`; "
+        "the domain adds chemistry tools and review criteria without replacing "
+        "the research-to-paper stage lifecycle.\n"
         "2. Else if an existing project data domain fits, choose it.\n"
         "3. ONLY if nothing above provides the stable capability the Task needs, "
         "AUTHOR a new data domain. Do not author one merely to encode this "
@@ -474,6 +498,7 @@ def build_vertical_decision_prompt(
         "NOTHING else (no prose before or after it), in ONE of these two shapes. "
         "In BOTH shapes the chosen name goes in the field named `vertical`:\n"
         '{"choice": "existing", "vertical": "<one of the names above>", '
+        '"domain": "<built-in research domain>"|null, '
         '"workflow_mode": "<direct|staged>", '
         '"rationale": "<why it fits, citing what you found in the repo>", '
         '"research_target_level": "<exploratory|publishable|doctoral when the '
@@ -482,6 +507,7 @@ def build_vertical_decision_prompt(
         "OR\n"
         '{"choice": "new", "vertical": "<a new lowercase a-z0-9_ slug, distinct '
         'from every name above>", "stages": ["<stage1>", ...], '
+        '"domain": null, '
         '"workflow_mode": "<direct|staged>", '
         '"rationale": "<why no existing vertical fits + what you found>", '
         '"research_target_level": null, '
@@ -816,55 +842,6 @@ def assemble_manager_prompt(
     return str(role_skill_block or "") + with_vertical
 
 
-def _checklist_lines(review: Any) -> str:
-    items = getattr(review, "checklist", None) or []
-    lines: list[str] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        mark = "x" if item.get("satisfied") else " "
-        evidence = str(item.get("evidence") or "").strip()
-        line = f"- [{mark}] {item.get('item', '?')}"
-        if evidence:
-            line += f" — evidence: {evidence}"
-        lines.append(line)
-    if lines:
-        return "\n".join(lines)
-    if str(getattr(review, "review_source", "") or "") == "engineer_self_review":
-        return (
-            "(independent Reviewer waived for this bounded mission; no Reviewer "
-            "checklist is expected. Manager must judge the Engineer verification "
-            "against the current-stage checklist above.)"
-        )
-    return "(reviewer provided no per-item checklist)"
-
-
-def _planner_report_lines(review: Any) -> str:
-    report = getattr(review, "planner_report", None)
-    if not isinstance(report, dict) or not report:
-        return "(no structured planner report)"
-    keys = ("forward_progress", "plan_signal")
-    lines = [f"{key}: {report.get(key)!r}" for key in keys if key in report]
-    return "\n".join(lines) or "(no structured planner report)"
-
-
-def _harness_control_lines(review: Any) -> str:
-    control = getattr(review, "harness_control", None)
-    if not isinstance(control, dict) or not control:
-        return "(no harness arbitration)"
-    return "\n".join(
-        f"{key}: {control[key]!r}"
-        for key in (
-            "force_replan",
-            "reason",
-            "mission_scope_change_required",
-            "stage_reconciliation_required",
-            "earliest_broken_stage",
-        )
-        if key in control
-    )
-
-
 def _advisory_planner(planner_verdict: Any) -> str:
     if planner_verdict is None:
         return "(none)"
@@ -902,9 +879,6 @@ def build_stage_decision_prompt(
     )
     status = str(getattr(review, "status", "") or "")
     reason = str(getattr(review, "reason", "") or "")
-    scientific_decision = str(
-        getattr(review, "scientific_decision", "") or ""
-    ).strip()
     review_source = str(
         getattr(review, "review_source", "reviewer") or "reviewer"
     ).strip()
@@ -1020,14 +994,8 @@ def build_stage_decision_prompt(
         "## Latest completion evidence\n"
         f"source: {review_source}\n"
         f"status: {status}\n"
-        f"scientific_decision: {scientific_decision or '(not provided)'}\n"
         f"reason: {reason}\n"
-        f"{_planner_report_lines(review)}\n\n"
-        "### Harness arbitration\n"
-        f"{_harness_control_lines(review)}\n\n"
         f"{source_instructions}\n"
-        "### Reviewer per-item checklist\n"
-        f"{_checklist_lines(review)}\n\n"
         "## Planner note (advisory)\n"
         f"{_advisory_planner(planner_verdict)}\n\n"
         f"{wait_resolution_block}"
@@ -1039,12 +1007,12 @@ def build_stage_decision_prompt(
         "not the research objective. Advance toward scientific value: a capable "
         "method/system, a genuinely informative finding, or another outcome that "
         "meets the operator's value target.\n"
-        "- A completed run with `scientific_decision=pivot|no_go` is evidence that "
-        "the current direction should change, not evidence that the research project "
-        "is complete. HOLD for a replacement plan, or ROLL BACK when the framing, "
-        "method, or claimed-system representation belongs to an earlier stage. A "
-        "negative result may advance only when the Reviewer judges the negative "
-        "finding itself decision-relevant and sets `scientific_decision=go`.\n"
+        "- A Reviewer `replan_requested` verdict means the current direction should "
+        "change, not that the research project is complete. HOLD for a replacement "
+        "plan, or ROLL BACK when the framing, method, or claimed-system "
+        "representation belongs to an earlier stage. A negative result may advance "
+        "only when the Reviewer judges the finding itself decision-relevant and "
+        "returns `done`.\n"
         "- Reject construct drift: an honest evaluation of a weak proxy does not "
         "establish the value or capability of the claimed system.\n"
         "- ADVANCE only when the current stage's checklist is genuinely satisfied "

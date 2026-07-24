@@ -25,7 +25,7 @@ BEFORE the seed constants. It returns:
 
 Write path: :func:`apply_checklist_ops` is the ONLY mutator, invoked by the
 Planner after its verdict is finalized. The Reviewer never writes here — it only
-emits ``checklist_feedback`` for the Planner to act on next cycle.
+reports checklist problems in its ordinary verdict reason.
 
 Fail-open everywhere: a missing/corrupt store reads as empty; a write error
 leaves the store untouched and the planning cycle continues. ``ChecklistItem``
@@ -40,6 +40,17 @@ import os
 import tempfile
 from pathlib import Path
 from typing import Any
+
+_SHARED_PROTECTED_ITEM_IDS = frozenset({
+    "benchmark.evaluator_authentic",
+    "run.score_variance",
+    "run.method_diagnosis_recall",
+    "analysis.claims",
+    "review.placeholders",
+    "submission.assurance",
+    "submission.anonymous",
+    "submission.upstream",
+})
 
 log = logging.getLogger(__name__)
 
@@ -237,41 +248,48 @@ def seed_items_for(project_root: object, stage: str) -> "tuple[Any, ...]":
         return ()
 
 
-def _paper_gate_protected_ids(project_root: object) -> frozenset[str]:
-    """Protected floor ids the Planner may NOT remove/modify on a paper vertical.
+def _protected_floor_ids(project_root: object) -> frozenset[str] | None:
+    """Protected seed ids the Planner may not remove or modify.
 
-    For a data domain (or any non-paper gate) there is no protected floor — the
-    Planner has full authority. Fail-open to an empty set so a resolution hiccup
-    never blocks a legitimate edit.
+    Verticals may declare ``PROTECTED_ITEM_IDS`` for irreducible Goal/Integrity
+    gates. Paper verticals additionally inherit the shared anti-fraud floor.
+    ``None`` means protection could not be resolved; writes then fail closed.
     """
     try:
         from ..verticals._base import load_vertical, vertical_completion_gate
-        from .harness_overlay import PROTECTED_ITEM_IDS
         from .vertical_select import resolve_vertical
 
-        gate = vertical_completion_gate(
-            load_vertical(resolve_vertical(project_root), project_root=project_root)
+        module = load_vertical(
+            resolve_vertical(project_root),
+            project_root=project_root,
         )
-        return PROTECTED_ITEM_IDS if gate == "full_paper" else frozenset()
-    except Exception:  # noqa: BLE001
-        return frozenset()
+        vertical_ids = frozenset(
+            str(item_id).strip()
+            for item_id in getattr(module, "PROTECTED_ITEM_IDS", ())
+            if str(item_id).strip()
+        )
+        if vertical_completion_gate(module) == "full_paper":
+            return vertical_ids | _SHARED_PROTECTED_ITEM_IDS
+        return vertical_ids
+    except Exception:  # noqa: BLE001 — unknown protection refuses writes
+        return None
 
 
 def _with_protected_floor(project_root: object, stage: str, items: list[Any]) -> list[Any]:
     """Re-validate the protected anti-fraud floor for ``stage`` on READ.
 
-    On a paper vertical, force each :data:`PROTECTED_ITEM_IDS` seed item for the
-    stage to its canonical seed text (replacing any weakened override copy in
-    place) and append any protected floor item the override dropped. The write
+    Force each protected seed item for the stage to its canonical seed text
+    (replacing any weakened override copy in place) and append any protected
+    floor item the override dropped. The write
     guard in :func:`apply_checklist_ops` only covers the Planner-ops path; this
-    read-side re-injection (mirroring ``harness_overlay``'s re-validate-on-read) is
-    what makes the floor un-removable against ANY writer — including a direct edit
+    read-side     re-injection is what makes the floor un-removable against any writer,
+    including a direct edit
     of ``research/CHECKLISTS.json`` by the unsandboxed engineer subprocess. No-op
-    for a non-paper gate or if seed resolution fails (fail-open).
+    when the vertical declares no protected ids or seed resolution fails.
     """
     try:
-        protected = _paper_gate_protected_ids(project_root)
-        if not protected:
+        protected = _protected_floor_ids(project_root)
+        if protected is None or not protected:
             return items
         seed_by_id = {
             s.id: s for s in seed_items_for(project_root, stage) if s.id in protected
@@ -333,7 +351,7 @@ def apply_checklist_ops(
       **seed ID** — records a tombstone under ``disabled[stage]`` and hides that
       seed from the effective list; does not touch other seeds.
 
-    ``add``/``modify``/``remove`` on a paper-vertical PROTECTED floor id are
+    ``add``/``modify``/``remove`` on a vertical PROTECTED floor id are
     refused (counted as ``skipped``) — the floor is the Planner's read-only base.
     Atomic write, ``revision`` bumped. Fail-soft: any
     error leaves the store untouched. Returns ``{applied, skipped, revision}``.
@@ -350,7 +368,13 @@ def apply_checklist_ops(
         return {"applied": 0, "skipped": 0, "revision": raw_now["revision"]}
 
     seed_fn = seed_lookup or (lambda stage: seed_items_for(project_root, stage))
-    protected = _paper_gate_protected_ids(project_root)
+    protected = _protected_floor_ids(project_root)
+    if protected is None:
+        return {
+            "applied": 0,
+            "skipped": len(ops),
+            "revision": raw_now["revision"],
+        }
 
     try:
         raw = _load_raw(project_root)

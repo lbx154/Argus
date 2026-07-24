@@ -5,7 +5,7 @@ actually bites.
 The first test is the regression guard for the whole "fiction migrated to the
 shared protocols" claim: if anyone removes a contract's wiring from stages.py,
 this fails. The rest run the intake envelope gate as a subprocess (exactly as the
-stage-check runner does) to prove a malformed or mis-routed task envelope fails
+legacy structural command did) to prove a malformed or mis-routed task envelope fails
 the intake stage, not just a unit test.
 """
 from __future__ import annotations

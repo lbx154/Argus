@@ -182,14 +182,7 @@ def fallback_empty_stage_decision(
     stage_order: Sequence[str],
     checklist_contract: Any | None = None,
 ) -> StageDecision:
-    """Resolve persistent empty manager-stage output without wedging a stage.
-
-    Empty output is not a Manager judgment. After the Manager core exhausts its
-    retries, this fallback may advance only from a reviewer-certified current
-    stage: latest reviewer status is ``done``, structured planner progress is
-    explicitly true, and every reviewer-supplied checklist item is satisfied
-    with evidence. Anything missing or ambiguous remains a HOLD.
-    """
+    """Fail closed when the Manager returned no stage judgment."""
     cur = (current_stage or "").strip().lower()
     order = [str(s).strip().lower() for s in stage_order]
 
@@ -201,55 +194,8 @@ def fallback_empty_stage_decision(
 
     if cur not in order:
         return hold("empty_output_unknown_current_stage")
-    cur_idx = order.index(cur)
-    if cur_idx >= len(order) - 1:
-        return hold("empty_output_no_next_stage")
-
-    status = str(getattr(review, "status", "") or "").strip().lower()
-    if status != "done":
-        return hold("empty_output_review_not_done")
-    scientific_decision = str(
-        getattr(review, "scientific_decision", "") or ""
-    ).strip().lower()
-    if scientific_decision in {"pivot", "no_go"}:
-        return hold(f"empty_output_scientific_{scientific_decision}")
-    if scientific_decision == "undecided" and cur_idx >= len(order) - 1:
-        return hold("empty_output_scientific_undecided")
-
-    report = getattr(review, "planner_report", None)
-    if not isinstance(report, dict) or report.get("forward_progress") is not True:
-        return hold("empty_output_no_forward_progress")
-
-    items = getattr(review, "checklist", None)
-    if not isinstance(items, list) or not items:
-        return hold("empty_output_missing_checklist")
-    for item in items:
-        if not isinstance(item, dict):
-            return hold("empty_output_invalid_checklist")
-        if not bool(item.get("satisfied")):
-            return hold("empty_output_unsatisfied_checklist")
-        if not str(item.get("evidence", "")).strip():
-            return hold("empty_output_missing_checklist_evidence")
-    if checklist_contract is not None:
-        required_ids = {
-            str(getattr(item, "id", "") or "").strip()
-            for item in getattr(checklist_contract, "items", ())
-            if str(getattr(item, "id", "") or "").strip()
-        }
-        reviewed_ids = {
-            str(item.get("item") or item.get("id") or "").strip()
-            for item in items
-        }
-        if required_ids - reviewed_ids:
-            return hold("empty_output_missing_required_checklist_items")
-
-    next_stage = order[cur_idx + 1]
-    return StageDecision(
-        "advance",
-        next_stage,
-        "reviewer certified current-stage checklist after empty manager output",
-        "empty_output_certified_advance",
-    )
+    _ = review, checklist_contract
+    return hold("empty_output_no_manager_judgment")
 
 
 def _review_certifies_completion(
@@ -263,70 +209,12 @@ def _review_certifies_completion(
     status = str(getattr(review, "status", "") or "").strip().lower()
     if status != "done":
         return "review_not_done"
-    report = getattr(review, "planner_report", None)
-    if not isinstance(report, dict) or report.get("forward_progress") is not True:
-        return "no_forward_progress"
-    items = getattr(review, "checklist", None)
-    review_scope = str(getattr(review, "scope", "") or "").strip().lower()
-    scope = (mission_scope or "").strip().lower().replace("-", "_")
-    scientific_decision = str(
-        getattr(review, "scientific_decision", "") or ""
-    ).strip().lower()
-    if scientific_decision in {"pivot", "no_go", "undecided"}:
-        return f"scientific_decision_{scientific_decision}"
-    checklist_required = (
-        scope == "final_submission"
-        or review_scope.replace("-", "_") == "final_submission"
+    _ = (
+        vertical,
+        mission_scope,
+        research_target_level,
+        checklist_contract,
     )
-    required_item_ids: set[str] = set()
-    if checklist_contract is not None:
-        checklist_optional = bool(
-            getattr(checklist_contract, "checklist_optional", False)
-        )
-        contract_state = str(
-            getattr(getattr(checklist_contract, "state", ""), "value", "")
-            or getattr(checklist_contract, "state", "")
-        )
-        if not checklist_optional and contract_state != "loaded":
-            return f"required_checklist_{contract_state or 'not_loaded'}"
-        checklist_required = checklist_required or not checklist_optional
-        required_item_ids = {
-            str(getattr(item, "id", "") or "").strip()
-            for item in getattr(checklist_contract, "items", ())
-            if str(getattr(item, "id", "") or "").strip()
-        }
-    if not isinstance(items, list):
-        if checklist_required:
-            return "missing_checklist"
-        items = []
-    if checklist_required and not items:
-        return "missing_checklist"
-    for item in items:
-        if not isinstance(item, dict):
-            return "invalid_checklist"
-        if not bool(item.get("satisfied")):
-            return "unsatisfied_checklist"
-        if not str(item.get("evidence", "")).strip():
-            return "missing_checklist_evidence"
-    if required_item_ids:
-        reviewed_item_ids = {
-            str(item.get("item") or item.get("id") or "").strip()
-            for item in items
-            if isinstance(item, dict)
-        }
-        missing_item_ids = required_item_ids - reviewed_item_ids
-        if missing_item_ids:
-            return "missing_required_checklist_items"
-    if research_target_level:
-        from ..core.research_contract import research_completion_issue
-
-        issue = research_completion_issue(
-            getattr(review, "research_result", None),
-            research_target_level=research_target_level,
-            scope=scope or review_scope.replace("-", "_"),
-        )
-        if issue:
-            return issue
     return ""
 
 
@@ -346,6 +234,8 @@ def final_stage_completion_decision(
     cur = (current_stage or "").strip().lower()
     order = [str(s).strip().lower() for s in stage_order]
     if not order or cur != order[-1]:
+        return None
+    if (mission_scope or "").strip().lower().replace("-", "_") != "final_submission":
         return None
     missing = _review_certifies_completion(
         review,
@@ -367,23 +257,8 @@ def enforce_scientific_stage_guard(
     *,
     current_stage: str,
 ) -> StageDecision:
-    """Prevent stage progress that contradicts the Reviewer's value verdict."""
-    scientific_decision = str(
-        getattr(review, "scientific_decision", "") or ""
-    ).strip().lower()
-    if (
-        scientific_decision in {"pivot", "no_go"}
-        and decision.action in {"advance", "complete"}
-    ):
-        return StageDecision(
-            "hold",
-            str(current_stage or "").strip().lower(),
-            (
-                f"reviewer scientific_decision={scientific_decision} requires "
-                "replacement planning or rollback before stage progress"
-            ),
-            f"scientific_{scientific_decision}_advance_rejected",
-        )
+    """Return the Manager's judgment without a second machine value gate."""
+    _ = review, current_stage
     return decision
 
 

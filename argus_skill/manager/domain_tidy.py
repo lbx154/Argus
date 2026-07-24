@@ -132,10 +132,6 @@ def _render_stages_py(name: str, project_root: Path) -> str:
     lines.append(f"CHECKLIST_STAGE_ORDER = {tuple(checklist_order)!r}")
     lines.append(f"completion_gate = {domain.completion_gate!r}")
     lines.append("")
-    lines.append('_PIPELINE_CHECK = ("Pipeline state present", "test -f research/PIPELINE_STATE.json")')
-    lines.append("STAGE_CHECKS = {stage: [_PIPELINE_CHECK] for stage in STAGE_ORDER}")
-    lines.append("REVIEWER_CHECKLISTS: dict[str, list[str]] = {}")
-    lines.append("")
     lines.append("CHECKLIST_ITEMS = {")
     for stage in checklist_order:
         items = _items_for(stage)

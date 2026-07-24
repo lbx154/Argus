@@ -23,10 +23,7 @@ from ._constants import (
     VERIFICATION_PROBE_AFTER_IDLE_CYCLES,
     VERIFICATION_PROBE_COOLDOWN_SECONDS,
 )
-from ._helpers import (
-    _legacy_final_submission_marker,
-    _operator_only_external_blocker_wait_reason_for_project,
-)
+from ._helpers import _operator_only_external_blocker_wait_reason_for_project
 
 log = logging.getLogger(__name__)
 
@@ -154,16 +151,6 @@ class PlanningContextMixin:
                 return PLANNER_SCOPE_BOUNDED
         return ""
 
-    @classmethod
-    def _item_is_final_submission(cls, item: BacklogItem) -> bool:
-        """True when a backlog item is a project-final ``final_submission``
-        task. Prefers the structured ``scope:final_submission`` tag; falls back
-        to the legacy objective-prose marker only for items persisted before
-        scope tagging existed (resumed-daemon compatibility)."""
-        if cls._planner_scope_from_item(item) == PLANNER_SCOPE_FINAL_SUBMISSION:
-            return True
-        return _legacy_final_submission_marker(getattr(item, "objective", "") or "")
-
     def _render_backlog_item_metadata(self, item: BacklogItem) -> str:
         scope = self._planner_scope_from_item(item)
         context_refs = [
@@ -241,16 +228,6 @@ class PlanningContextMixin:
                     suffix += f" (content_hash: {content_hash})"
                 lines.append(f"- [{kind}] {target}{suffix}")
         return "\n".join(lines)
-
-    def _objective_with_item_scope_context(
-        self,
-        item: BacklogItem,
-        objective: str,
-    ) -> str:
-        metadata = self._render_backlog_item_metadata(item)
-        if not metadata:
-            return objective
-        return f"{metadata}\n\nOriginal operator objective:\n{objective.strip()}"
 
     def _journal_has_full_paper_gate_success(self) -> bool:
         """Decide whether the project-final completion gate has passed.

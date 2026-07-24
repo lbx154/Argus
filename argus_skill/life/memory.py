@@ -57,26 +57,6 @@ def default_life_dir() -> Path:
     return global_root() / "life"
 
 
-# ---------------------------------------------------------------------------
-# Atomic JSONL helpers
-# ---------------------------------------------------------------------------
-
-def _atomic_append_jsonl(path: Path, row: dict[str, Any]) -> None:
-    """Append a single JSON-serializable dict as one line.
-
-    Uses ``open(..., 'a')`` which on POSIX is atomic for writes <
-    ``PIPE_BUF`` (4 KiB on Linux). Mission summaries live well under
-    that. We add a trailing ``\\n`` and never embed raw newlines in
-    values (json.dumps handles escaping).
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    line = json.dumps(row, ensure_ascii=False, sort_keys=True)
-    if "\n" in line:  # paranoia — json.dumps shouldn't emit raw newlines
-        line = line.replace("\n", " ")
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(line + "\n")
-
-
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -1107,8 +1087,7 @@ class Backlog:
     ) -> tuple[str, ...]:
         """Atomically retire pending work owned by a superseded objective.
 
-        Project bootstrap work is objective-independent and is preserved. A
-        running mission is also left untouched; Manager pipeline-yield ensures
+        Running missions are left untouched; Manager pipeline-yield ensures
         replacement commits happen at a mission boundary in normal operation.
         """
         reason = str(reason).strip()
@@ -1120,9 +1099,7 @@ class Backlog:
             items = self._load()
             now = time.time()
             for item in items:
-                if item.status != "pending" or "bootstrap" in {
-                    str(tag).strip().lower() for tag in item.tags
-                }:
+                if item.status != "pending":
                     continue
                 item.status = "superseded"
                 item.finished_ts = now
@@ -1329,9 +1306,22 @@ class Backlog:
                 return blocked, None
             answer = answer.strip()
             decision = manager_decision.strip()
-            guidance = f"Operator response:\n{answer}"
             if decision:
-                guidance += f"\n\nManager interpretation and continuation decision:\n{decision}"
+                objective = (
+                    "Authoritative Manager operator-answer decision:\n"
+                    f"{decision}\n\n"
+                    "This decision supersedes every conflicting requirement in the "
+                    "inherited blocked mission objective below.\n\n"
+                    "Inherited blocked mission objective (retain only non-conflicting "
+                    "context):\n"
+                    f"{blocked.objective.strip()}\n\n"
+                    f"Operator response:\n{answer}"
+                )
+            else:
+                objective = (
+                    f"{blocked.objective.strip()}\n\n"
+                    f"Operator response:\n{answer}"
+                )
             acceptance_check = blocked.acceptance_check
             non_goals = list(blocked.non_goals)
             if decision:
@@ -1352,10 +1342,7 @@ class Backlog:
                 ]
             continuation = BacklogItem.new(
                 title=blocked.title,
-                objective=(
-                    f"{blocked.objective.strip()}\n\n"
-                    f"{guidance}"
-                ),
+                objective=objective,
                 priority=blocked.priority,
                 tags=[*blocked.tags, "operator-reply", "manager-approved"],
                 notes=f"Continues blocked item {blocked.id}.",
@@ -1886,6 +1873,122 @@ class LifeMemory:
                     f"{entry.summary}"
                 )
         return "\n".join(lines).strip() + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Running-item abort mailbox
+# ---------------------------------------------------------------------------
+
+_RUNNING_ITEM_ABORT_FILENAME = "running_item_abort.json"
+
+
+def _running_item_abort_path(life_dir: Path | str) -> Path:
+    return Path(life_dir) / _RUNNING_ITEM_ABORT_FILENAME
+
+
+def _write_running_item_abort(
+    life_dir: Path,
+    *,
+    item_id: str,
+    reason: str,
+    requested_by: str,
+) -> bool:
+    path = _running_item_abort_path(life_dir)
+    temporary = path.with_name(
+        f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+    )
+    payload = {
+        "target_item_id": item_id,
+        "reason": str(reason or "").strip() or "operator requested abort",
+        "requested_by": requested_by,
+        "requested_at": time.time(),
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+    except OSError:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return False
+    return True
+
+
+def request_running_item_abort(
+    life_dir: Path | str,
+    *,
+    reason: str,
+    requested_by: str = "manager",
+) -> tuple[bool, str | None]:
+    """Persist an abort request for the backlog item running right now."""
+    root = Path(life_dir)
+    running = [
+        item for item in LifeMemory.open(root).backlog.all()
+        if item.status == "running"
+    ]
+    if not running:
+        return False, None
+    running.sort(key=lambda item: (item.started_ts or item.ts, item.id))
+    item_id = running[-1].id
+    return (
+        _write_running_item_abort(
+            root,
+            item_id=item_id,
+            reason=reason,
+            requested_by=requested_by,
+        ),
+        item_id,
+    )
+
+
+def consume_running_item_abort(life_dir: Path | str | None) -> str | None:
+    """Consume a valid abort request while its exact target remains running."""
+    if not life_dir:
+        return None
+    path = _running_item_abort_path(life_dir)
+    claimed = path.with_name(
+        f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.claimed"
+    )
+    try:
+        os.replace(path, claimed)
+    except OSError:
+        return None
+    try:
+        raw = claimed.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    finally:
+        try:
+            claimed.unlink()
+        except OSError:
+            pass
+    try:
+        payload = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    item_id = str(payload.get("target_item_id") or "").strip()
+    if not item_id:
+        return None
+    try:
+        target = next(
+            (
+                item for item in LifeMemory.open(Path(life_dir)).backlog.all()
+                if item.id == item_id
+            ),
+            None,
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    if target is None or target.status != "running":
+        return None
+    return str(payload.get("reason") or "").strip() or "operator requested abort"
 
 
 # ---------------------------------------------------------------------------

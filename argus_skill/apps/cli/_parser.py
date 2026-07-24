@@ -214,20 +214,6 @@ def build_parser() -> argparse.ArgumentParser:
              "(like tail -f, Ctrl-C to stop)",
     )
     cockpit_grp.add_argument(
-        "--dashboard",
-        action="store_true",
-        help="serve a live HTML dashboard of ALL discovered daemons "
-             "(auto-discovers every project under the life root(s); "
-             "set ARGUS_SKILL_DASHBOARD_ROOTS to include custom --life-dir "
-             "roots). Vertical-agnostic; Ctrl-C to stop.",
-    )
-    cockpit_grp.add_argument(
-        "--dashboard-port",
-        type=int,
-        default=8787,
-        help="port for --dashboard (default 8787)",
-    )
-    cockpit_grp.add_argument(
         "--web",
         action="store_true",
         help="serve the web/TUI backend API (argus-skill[web] extra) — the "
@@ -439,28 +425,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to .autors/<project>/wiki/",
     )
 
-    query_parser = subparsers.add_parser(
-        "query",
-        help="Unified trajectory + skills + wiki search (Obelisk-style)",
-    )
-    query_parser.add_argument(
-        "text",
-        nargs="+",
-        help="search text (whitespace-joined)",
-    )
-    query_parser.add_argument(
-        "--top-k", type=int, default=5,
-        help="max hits per layer (default 5)",
-    )
-    query_parser.add_argument(
-        "--json", action="store_true",
-        help="emit JSON instead of human-readable text",
-    )
-    query_parser.add_argument(
-        "--no-index", action="store_true",
-        help="skip incremental re-index (faster; may miss recent rows)",
-    )
-
     learn_parser = subparsers.add_parser(
         "learn",
         help="Ingest learning material so a learning mission can update Argus's "
@@ -482,9 +446,5 @@ def build_parser() -> argparse.ArgumentParser:
         "--ingested-by", default="learn@manual",
         help="Provenance string for the ingested_by manifest field",
     )
-
-    from ...tools.research_report import add_report_parser
-
-    add_report_parser(subparsers)
 
     return parser

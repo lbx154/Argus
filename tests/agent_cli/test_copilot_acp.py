@@ -219,7 +219,13 @@ def _multi_session_script(req, proc):
 
 def test_acp_happy_path_maps_to_agent_run_result(monkeypatch) -> None:
     proc = _FakeAcpProc(_happy_script)
-    monkeypatch.setattr(copilot_acp.subprocess, "Popen", lambda *a, **k: proc)
+    popen_kwargs: dict[str, object] = {}
+
+    def fake_popen(*_args, **kwargs):
+        popen_kwargs.update(kwargs)
+        return proc
+
+    monkeypatch.setattr(copilot_acp.subprocess, "Popen", fake_popen)
 
     client = CopilotAcpClient("copilot-bin")
     blocks: list[str] = []
@@ -243,6 +249,8 @@ def test_acp_happy_path_maps_to_agent_run_result(monkeypatch) -> None:
     # permission auto-allowed
     perm = [w for w in proc.written if w.get("id") == 9001]
     assert perm and perm[0]["result"]["outcome"]["optionId"] == "allow"
+    assert popen_kwargs["encoding"] == "utf-8"
+    assert popen_kwargs["errors"] == "replace"
 
 
 def test_acp_warm_reuse_skips_new_handshake(monkeypatch) -> None:

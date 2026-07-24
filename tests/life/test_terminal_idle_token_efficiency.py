@@ -37,6 +37,11 @@ def _supervisor(project: Path, life: Path) -> LifeSupervisor:
         planner_runner=object(),
     )
     persist_vertical(project, "software")
+    state_path = project / "research" / "PIPELINE_STATE.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["current_stage"] = "delivery"
+    state["stages"] = {"delivery": {"status": "done"}}
+    state_path.write_text(json.dumps(state), encoding="utf-8")
     supervisor._vertical_resolved = True
     supervisor._current_pipeline_stage = lambda: "done"  # type: ignore[method-assign]
     return supervisor

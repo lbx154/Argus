@@ -1,6 +1,6 @@
 """Venue-awareness of the framework floor checklists.
 
-The floor is authored EMNLP-first and harness_overlay cannot relax it, so the
+The floor is authored EMNLP-first and project checklist edits cannot relax it, so the
 AAAI venue switch must happen in the floor itself. EMNLP must render the floor
 byte-identically; AAAI must rewrite the page budget, end-matter order, and the
 anonymity block.

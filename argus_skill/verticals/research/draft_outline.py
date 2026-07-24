@@ -32,9 +32,8 @@ This module is the harness side of (1) and (2). It defines:
   elsewhere in the workspace (e.g. ``\\label{fig:...}`` in main.tex),
   reports which ones lack a placeholder.
 
-This is *not* a hard gate. The validator returns structured issues; the
-calling site (``stage_check`` for the plan stage,
-``paper_structural_minimums`` at draft-time) decides severity. We
+This is *not* a hard gate. The validator returns structured issues;
+``paper_structural_minimums`` decides their draft-time severity. We
 specifically avoid a "you may not advance" gate because the operator's
 philosophy is "soft critique-driven, not hard checklist-driven".
 

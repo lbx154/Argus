@@ -69,7 +69,6 @@ def test_backend_death_is_blocked_not_continue() -> None:
     assert decision.status == "blocked"
     assert decision.status != "continue"
     assert decision.backend_unavailable is True
-    assert decision.failure_cause == "environmental"
 
 
 def test_missing_output_schema_is_blocked_without_spawning_codex() -> None:
@@ -84,7 +83,6 @@ def test_missing_output_schema_is_blocked_without_spawning_codex() -> None:
     decision = _evaluate(reviewer)
     assert decision.status == "blocked"
     assert decision.backend_unavailable is True
-    assert decision.failure_cause == "environmental"
     assert "unavailable" in decision.reason.lower()
 
 
@@ -105,7 +103,6 @@ def test_empty_clean_output_stays_continue() -> None:
     decision = _evaluate(Reviewer(runner=_EmptyRunner()))
     assert decision.status == "continue"
     assert decision.backend_unavailable is False
-    assert decision.progress_class == "none"
 
 
 def test_invalid_json_output_is_not_credited_as_evidence() -> None:
@@ -119,7 +116,6 @@ def test_invalid_json_output_is_not_credited_as_evidence() -> None:
     decision = _evaluate(Reviewer(runner=_InvalidRunner()))
 
     assert decision.status == "continue"
-    assert decision.progress_class == "none"
 
 
 def test_unavailable_engineer_model_blocks_once_with_actionable_error(
@@ -204,7 +200,6 @@ class _DeadBackendReviewer:
                 "Process exited with code 1 before turn completion)."
             ),
             next_action="Retry on a fresh session.",
-            failure_cause="environmental",
             backend_unavailable=True,
         )
 
@@ -268,7 +263,6 @@ class _DoneReviewer:
             status="done",
             reason="watchdog recovery completed",
             next_action="",
-            progress_class="decision",
         )
 
 
@@ -405,7 +399,6 @@ def test_loop_recovers_when_reviewer_backend_comes_back(tmp_path: Path) -> None:
                     status="blocked",
                     reason="transient backend blip",
                     next_action="retry",
-                    failure_cause="environmental",
                     backend_unavailable=True,
                 )
             return ReviewDecision(
@@ -459,7 +452,6 @@ def test_reviewer_flake_does_not_rerun_engineer(tmp_path: Path) -> None:
                     status="blocked",
                     reason="transient backend blip",
                     next_action="retry",
-                    failure_cause="environmental",
                     backend_unavailable=True,
                 )
             return ReviewDecision(status="done", reason="ok", next_action="none")

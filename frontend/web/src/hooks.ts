@@ -190,7 +190,6 @@ export interface StreamHandle {
 
 const ARTIFACT_REFRESH_EVENT_TYPES = new Set([
   'manager.live_view.updated',
-  'research.artifact.registered',
   'round.review.completed',
   'life.mission.completed',
 ]);

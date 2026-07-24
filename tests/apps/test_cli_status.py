@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from argus_skill.apps import cli as cli_mod
-from argus_skill.apps.cli import _check_logout_survival, _cmd_status
+from argus_skill.apps.cli._core import _check_logout_survival, _cmd_status
 from argus_skill.life import BacklogItem, MemoryBundle
 
 
@@ -115,8 +115,6 @@ def test_status_projects_latest_persisted_mission_outcome(
             "execution_status": "completed",
             "review_status": "done",
             "stage_certification": "not_certified",
-            "scientific_decision": "no_go",
-            "failure_source": "",
             "interruption_kind": "none",
             "resumable": False,
         },
@@ -148,7 +146,7 @@ def test_status_projects_latest_persisted_mission_outcome(
     assert rc == 0
     assert (
         "outcome  : execution=completed · review=done · "
-        "stage=not_certified · science=no_go"
+        "stage=not_certified"
     ) in out
 
 

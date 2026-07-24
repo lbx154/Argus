@@ -6,7 +6,7 @@ import pytest
 
 from argus_skill.core.models import RunnerResult
 from argus_skill.skills.venue_profiles import EMNLP_PROFILE
-from argus_skill.tools.image_tool import ImageToolError
+from argus_skill.tools.image_api import ImageToolError
 from argus_skill.verticals.research import (
     _reviewer_runner_fallback as fallback,
 )

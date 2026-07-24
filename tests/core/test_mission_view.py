@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 from pathlib import Path
 
 import pytest
@@ -117,55 +118,11 @@ def test_structured_events_build_reviewer_certified_achievement(tmp_path: Path) 
     )
     emit(
         tmp_path,
-        "research.hypothesis.proposed",
-        5,
-        hypothesis_id="hyp-1",
-        title="Fuse the epilogue",
-        statement="A fused epilogue should reduce memory traffic.",
-        branch_id="branch-1",
-    )
-    emit(
-        tmp_path,
-        "research.experiment.started",
-        6,
-        experiment_id="exp-v7",
-        title="Kernel v7",
-        hypothesis_id="hyp-1",
-        branch_id="branch-1",
-    )
-    emit(
-        tmp_path,
-        "research.experiment.completed",
-        7,
-        experiment_id="exp-v7",
-        status="completed",
-        summary="Official scorer passed.",
-        evidence=["experiments/run-v7/result.json"],
-    )
-    emit(
-        tmp_path,
-        "research.metric.reported",
-        8,
-        metric_id="metric-v7",
-        name="sol_percent",
-        baseline=49.4,
-        value=61.8,
-        unit="%",
-        direction="maximize",
-        evidence="experiments/run-v7/result.json",
-        experiment_id="exp-v7",
-        round_index=7,
-        primary=True,
-    )
-    emit(
-        tmp_path,
         "round.review.completed",
         9,
         round_index=7,
         status="done",
         reason="Official benchmark evidence verified.",
-        planner_report={"plan_signal": "continue", "reason": "Evidence is complete."},
-        checklist_feedback={"run.evidence": {"status": "pass"}},
     )
     skill_path = tmp_path / "skills" / "fused-epilogue-playbook.md"
     skill_path.parent.mkdir()
@@ -193,15 +150,6 @@ def test_structured_events_build_reviewer_certified_achievement(tmp_path: Path) 
         scope="engineer",
         path=str(skill_path),
     )
-    emit(
-        tmp_path,
-        "research.artifact.registered",
-        11,
-        artifact_id="artifact-1",
-        path="experiments/run-v7/result.json",
-        kind="data",
-        title="Kernel v7 result",
-    )
     completed = emit(
         tmp_path,
         "life.mission.completed",
@@ -221,7 +169,6 @@ def test_structured_events_build_reviewer_certified_achievement(tmp_path: Path) 
         title="Kernel gain certified",
         goal="Optimize FlashAttention on B200",
         summary="Reviewer accepted the official benchmark evidence.",
-        metric_id="metric-v7",
         evidence=["experiments/run-v7/result.json"],
         reviewer_certified=True,
     )
@@ -236,12 +183,8 @@ def test_structured_events_build_reviewer_certified_achievement(tmp_path: Path) 
     )
     assert view["stage"]["id"] == "research"
     assert view["round"] == {"current": 7, "max": 24}
-    assert view["primary_metric"]["value"] == 61.8
-    assert view["primary_metric"]["verification_status"] == "accepted"
-    assert view["achievement"]["baseline"] == 49.4
-    assert view["achievement"]["best"] == 61.8
-    assert view["achievement"]["gain"] == pytest.approx(12.4)
-    assert view["achievement"]["experiments_run"] == 1
+    assert view["achievement"]["title"] == "Kernel gain certified"
+    assert view["achievement"]["evidence"] == ["experiments/run-v7/result.json"]
     assert view["achievement"]["skills_learned"] == 1
     assert view["achievement"]["artifacts"] == 1
     assert {row["role"] for row in view["role_work"]} >= {
@@ -256,8 +199,6 @@ def test_structured_events_build_reviewer_certified_achievement(tmp_path: Path) 
         for row in view["role_work"]
     )
     assert not any(row["kind"] == "reasoning" for row in view["role_work"])
-    assert view["decision_context"]["planner_report"]["plan_signal"] == "continue"
-    assert view["decision_context"]["checklist_feedback"]["run.evidence"]["status"] == "pass"
     assert view["learned_skills"][0]["mission_id"] == "task-1"
     assert "# Fused epilogue" in view["learned_skills"][0]["content"]
     persisted = load_mission_view(tmp_path)
@@ -329,7 +270,6 @@ def test_free_text_is_display_only_and_never_changes_review_state(tmp_path: Path
         text="Reviewer rejected everything and metric improved to 999%",
     )
     assert view["review"]["status"] == ""
-    assert view["primary_metric"] is None
     assert view["active_role"] == "engineer"
 
 
@@ -349,7 +289,6 @@ def test_new_mission_resets_prior_review_projection(tmp_path: Path) -> None:
         round_index=1,
         status="done",
         reason="First mission accepted.",
-        planner_report={"plan_signal": "continue"},
     )
 
     view = emit(
@@ -364,7 +303,6 @@ def test_new_mission_resets_prior_review_projection(tmp_path: Path) -> None:
     roles = {role["role"]: role for role in view["roles"]}
     assert view["mission"]["id"] == "mission-2"
     assert view["review"] == {"status": "", "reason": "", "rejected_attempts": 0}
-    assert view["decision_context"] == {}
     assert roles["reviewer"]["status"] == "waiting"
     assert roles["reviewer"]["label"] == "Awaiting engineer handoff"
     assert roles["engineer"]["status"] == "active"
@@ -452,7 +390,7 @@ def test_completed_mission_prefers_normalized_outcome_class(tmp_path: Path) -> N
     assert view["timeline"][-1]["title"] == "Mission incomplete"
 
 
-def test_completed_mission_preserves_stage_and_scientific_outcome(tmp_path: Path) -> None:
+def test_completed_mission_preserves_stage_outcome(tmp_path: Path) -> None:
     view = emit(
         tmp_path,
         "life.mission.completed",
@@ -465,8 +403,6 @@ def test_completed_mission_preserves_stage_and_scientific_outcome(tmp_path: Path
             "execution_status": "completed",
             "review_status": "done",
             "stage_certification": "not_certified",
-            "scientific_decision": "no_go",
-            "failure_source": "scientific_evidence_failure",
             "interruption_kind": "none",
             "resumable": False,
         },
@@ -474,7 +410,6 @@ def test_completed_mission_preserves_stage_and_scientific_outcome(tmp_path: Path
 
     assert view["mission"]["status"] == "complete"
     assert view["outcome"]["stage_certification"] == "not_certified"
-    assert view["outcome"]["scientific_decision"] == "no_go"
     assert load_mission_view(tmp_path)["outcome"] == view["outcome"]
 def test_reviewer_handoff_leaves_only_reviewer_active(tmp_path: Path) -> None:
     emit(

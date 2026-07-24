@@ -21,8 +21,8 @@ from ..core.session import SessionMeta, read_session_meta, session_lifecycle_loc
 from ..core.transcript import read_turns
 from ..daemon.life_worker import read_continuous_state
 from ..life.memory import BacklogItem, LifeMemory
-from ..tools.doctor import run_diagnostics
 from . import project_state
+from .diagnostics import run_diagnostics
 
 _global_root = project_state.resolve_global_root
 _roles_list = project_state.roles_list
@@ -288,9 +288,9 @@ def abort_project_mission(
     life_dir = project_life_dir(sid, global_root=global_root)
     if life_dir is None:
         return None
-    from ..tools.mission_control import request_current_mission_abort
+    from ..life.memory import request_running_item_abort
 
-    requested, item_id = request_current_mission_abort(
+    requested, item_id = request_running_item_abort(
         life_dir,
         reason=reason or "operator requested immediate stop",
         requested_by=requested_by,
@@ -349,7 +349,7 @@ def _daemon_log_tail(life_dir: Path, *, lines: int = 12) -> str:
 
 def get_doctor(sid: str, *, global_root: Path | str | None = None) -> dict[str, Any] | None:
     """Run the daemon-executor diagnostics — /doctor: ranked checks + the single
-    recommended fix + a recent daemon.log tail. Reuses tools.doctor.run_diagnostics."""
+    recommended fix + a recent daemon.log tail."""
     life_dir = project_life_dir(sid, global_root=global_root)
     if life_dir is None:
         return None

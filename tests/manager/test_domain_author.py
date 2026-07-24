@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 
+from argus_skill.domains import BUILTIN_DOMAINS, DOMAIN_PURPOSES
 from argus_skill.manager.domain_author import (
     DomainProposal,
     build_domain_author_prompt,
@@ -10,6 +11,7 @@ from argus_skill.manager.domain_author import (
     build_vertical_decision_prompt,
     parse_domain_proposal,
     parse_fast_vertical_decision,
+    parse_vertical_decision,
 )
 from argus_skill.skills.vertical_select import VERTICAL_PURPOSES, VERTICALS
 
@@ -87,6 +89,17 @@ def test_vertical_prompt_keeps_math_routes_inside_builtin_math():
     assert "they are not competing verticals" in prompt
 
 
+def test_vertical_prompt_composes_chemistry_with_research() -> None:
+    prompt = build_vertical_decision_prompt(
+        "Run autonomous chemistry research and produce a paper",
+        verticals_with_purpose=VERTICAL_PURPOSES,
+        domains_with_purpose=DOMAIN_PURPOSES,
+    )
+
+    assert "`domain=chemistry`" in prompt
+    assert '"domain": "<built-in research domain>"|null' in prompt
+
+
 def test_vertical_prompt_does_not_escalate_bounded_repo_fix_to_new_domain() -> None:
     prompt = build_vertical_decision_prompt(
         "Repair one failing test in the current repository and return the patch.",
@@ -129,6 +142,44 @@ def test_fast_vertical_parser_accepts_confident_existing_route() -> None:
     assert route.vertical == "software"
     assert route.workflow_mode == "direct"
     assert route.confidence == 0.94
+
+
+def test_fast_vertical_parser_accepts_research_with_chemistry_domain() -> None:
+    route = parse_fast_vertical_decision(
+        json.dumps({
+            "choice": "existing",
+            "vertical": "research",
+            "domain": "chemistry",
+            "workflow_mode": "staged",
+            "confidence": 0.97,
+            "research_target_level": "publishable",
+            "rationale": "chemistry paper",
+        }),
+        known_verticals=VERTICALS,
+        known_domains=BUILTIN_DOMAINS,
+        research_target_verticals=("research",),
+    )
+
+    assert route is not None
+    assert route.vertical == "research"
+    assert route.domain == "chemistry"
+
+
+def test_vertical_parser_rejects_domain_on_non_research_workflow() -> None:
+    decision = parse_vertical_decision(
+        json.dumps({
+            "choice": "existing",
+            "vertical": "software",
+            "domain": "chemistry",
+            "workflow_mode": "staged",
+            "execution_task": "repair chemistry package",
+        }),
+        known_verticals=VERTICALS,
+        known_domains=BUILTIN_DOMAINS,
+        default_execution_task="repair chemistry package",
+    )
+
+    assert decision is None
 
 
 def test_fast_vertical_parser_sends_new_or_uncertain_work_to_grounding() -> None:

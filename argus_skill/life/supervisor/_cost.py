@@ -317,11 +317,6 @@ class _CostTrackingSink:
             return "priced"
         return self._ledger_summary().pricing_status
 
-    def usage_record_count(self) -> int:
-        if self._usage_ledger is None:
-            return 0
-        return self._ledger_summary().call_count
-
     def usage_summary(self) -> UsageSummary:
         if self._usage_ledger is None:
             return UsageSummary(

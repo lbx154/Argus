@@ -2,8 +2,8 @@
 
 The Engineer requests a wait through its mission-scoped control file. The
 harness validates the exact registry id, then sleeps on that owner's cadence.
-Legacy response sentinels remain a read-only adapter for already-running
-older agents.
+The response carries one exact JSON wait request, which the harness validates
+against the unified external-work registry view.
 """
 
 from __future__ import annotations
@@ -11,14 +11,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
-from .background_subagents import find_waitable_subagent, parse_wait_sentinel
-from .external_work import inspect_external_work, parse_external_wait_sentinel
+from .external_work import inspect_external_work, parse_external_wait_request
 from .round_signals import _pause_decision_clock
 from .round_state import RoundControl, RoundLoopState, control_continue_loop, control_proceed
 
 if TYPE_CHECKING:
     from .runner import SupervisedConfig
-    from .self_review import EngineerCompletionDecision
 
 
 class RoundWaitsMixin:
@@ -30,68 +28,28 @@ class RoundWaitsMixin:
         round_index: int,
         supervised_config: "SupervisedConfig",
         raw_engineer_message: str,
-        completion_decision: "EngineerCompletionDecision | None",
         workdir: Path,
         state: RoundLoopState,
         on_event: Callable[[dict], None] | None,
     ) -> RoundControl:
-        structured_wait = bool(
-            completion_decision is not None
-            and completion_decision.wait_control_present
-        )
-        wait_kind = (
-            completion_decision.wait_for if completion_decision is not None else "none"
-        )
-        wait_id = (
-            completion_decision.wait_id if completion_decision is not None else ""
-        )
-        if supervised_config.background_subagent_advisory:
-            wait_task_id = (
-                wait_id
-                if wait_kind == "subagent"
-                else (
-                    parse_wait_sentinel(raw_engineer_message)
-                    if not structured_wait
-                    else None
-                )
-            )
-            if wait_task_id and find_waitable_subagent(workdir, wait_task_id) is not None:
-                # Call through the ``runner`` module attribute (not a static
-                # imported name) so tests that monkeypatch
-                # ``runner._run_background_wait`` keep observing it, exactly
-                # as when this call lived directly inside ``runner.py``.
-                from . import runner as _runner_module
-
-                _, waited_s = _runner_module._run_background_wait(
-                    workdir=workdir,
-                    task_id=wait_task_id,
-                    round_index=round_index,
-                    round_max=supervised_config.max_rounds,
-                    on_event=on_event,
-                )
-                state.last_decision_progress_at = _pause_decision_clock(
-                    state.last_decision_progress_at,
-                    waited_s,
-                )
-                # A deliberate yield is neither progress nor a stall. Preserve
-                # the pre-wait streak and re-assess fresh next round.
-                return control_continue_loop()
-
-        external_work_id = (
-            wait_id
-            if wait_kind == "external_work"
-            else (
-                parse_external_wait_sentinel(raw_engineer_message)
-                if not structured_wait
-                else None
-            )
-        )
+        wait_request = parse_external_wait_request(raw_engineer_message)
+        wait_kind, external_work_id = wait_request or ("", "")
         external_work = (
             inspect_external_work(workdir, external_work_id) if external_work_id else None
         )
-        if external_work is not None and external_work.waitable:
-            # See the background-wait call above: route through the
-            # ``runner`` module attribute so monkeypatching
+        source_matches = (
+            external_work is not None
+            and (
+                (wait_kind == "external_work" and external_work.source != "subagent")
+                or (
+                    wait_kind == "subagent"
+                    and supervised_config.background_subagent_advisory
+                    and external_work.source == "subagent"
+                )
+            )
+        )
+        if source_matches and external_work is not None and external_work.waitable:
+            # Route through the ``runner`` module attribute so monkeypatching
             # ``runner._run_external_work_wait`` keeps taking effect.
             from . import runner as _runner_module
 

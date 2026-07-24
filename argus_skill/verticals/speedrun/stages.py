@@ -325,7 +325,7 @@ def role_banner(role: str = "engineer") -> str:
     """Top-of-prompt HARD-OVERRIDE banner for the speedrun vertical.
 
     The default planner/reviewer/engineer prompts bake in the research-paper
-    pipeline (research gate, literature grounding, GO/NO-GO, paper draft/
+    pipeline (research gate, literature grounding, decision gates, paper draft/
     review/submission, and stage rollback to upstream paper stages). In a
     speedrun (numeric-optimization) mission those assumptions are wrong and
     actively harmful — the planner will refuse to start ("still at the research
@@ -366,7 +366,7 @@ def role_banner(role: str = "engineer") -> str:
         "\n"
         "## PIPELINE = OPTIMIZE — hard override of everything below\n"
         "Lean numeric-optimization loop, NOT a research paper. NO paper / draft / "
-        "review / submission / EMNLP / GO-NO-GO gate; the only stages are `run` (edit "
+        "review / submission / EMNLP / decision gate; the only stages are `run` (edit "
         "+ score) and `analysis`; missing paper artifacts are EXPECTED, never a defect "
         "— the stage is never rolled back to research/plan (stage transitions are the "
         "Manager's, not yours), never rebuild a paper literature "
@@ -391,7 +391,7 @@ def role_banner(role: str = "engineer") -> str:
             "when it stalls (~3 rounds <0.001 or failing), basin-hop to a DIFFERENT op "
             "to attack or a DIFFERENT technique. A maturing mechanism may sit ABOVE the "
             "global best — never kill it after one losing round. Do NOT queue paper / "
-            "GO-NO-GO / rollback tasks. Judge project_done purely on the metric.\n"
+            "paper / rollback tasks. Judge project_done purely on the metric.\n"
         ),
         "reviewer": (
             "- As REVIEWER, you are also the INNOVATION COACH, and you run a "

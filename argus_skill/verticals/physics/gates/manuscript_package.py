@@ -2,23 +2,24 @@
 
 Root-cause fix for the Case B lifecycle stall: the deterministic manuscript
 delivery contract (`verify_all_deliverables`, i.e. `manuscript check --layer all`)
-was only ever *run* at the terminal ``manuscript`` stage's HARD gate
-(``manager/_core.py`` ``enforce_terminal_stage_check``). But the paper package is
-produced and judged at the ``review`` stage, so when it did not satisfy the
-contract the agent never received the concrete failure list — the reviewer only
-gave vague prose, the engineer-runner semantic-stall detector bailed the mission
-``no_progress``, and it never reached the manuscript stage where the repair loop
-lives.
+was historically only ever *run* at the terminal ``manuscript`` stage. But the
+paper package is produced and judged at the ``review`` stage, so when it did not
+satisfy the contract the agent never received the concrete failure list — the
+reviewer only gave vague prose, the engineer-runner semantic-stall detector
+bailed the mission ``no_progress``, and it never reached the manuscript stage
+where the repair loop lives.
 
 This gate closes that gap. Once a paper package exists (MANUSCRIPT.md or
 MANUSCRIPT.tex present), it runs the SAME deterministic checker at ``review`` and
 writes the exact failure list through the shared ``research_gates`` repair
 machinery, so the physics ``role_banner`` injects those failures + an executable
 repair loop into the next agent round (via ``render_active_repair_blocks``). It is
-strictly ADVISORY: it NEVER hard-blocks review->manuscript and NEVER weakens the
-terminal contract — the terminal ``manuscript`` HARD gate is unchanged and remains
-the only thing that authorises completion. When no paper package exists yet the
-gate passes (the paper is a manuscript-stage deliverable; nothing to surface).
+strictly ADVISORY: it NEVER hard-blocks review->manuscript. Terminal completion
+is judged by the L2 Reviewer against the ``manuscript`` stage checklist (there is
+no separate machine hard gate); this review-stage check only gets the same
+deterministic failure list in front of the agent earlier, before it reaches the
+manuscript stage. When no paper package exists yet the gate passes (the paper is
+a manuscript-stage deliverable; nothing to surface).
 
 Failure ids: MPKG-000 (checker unavailable), MPKG-NNN (one per deterministic
 `verify_all_deliverables` failure, verbatim).

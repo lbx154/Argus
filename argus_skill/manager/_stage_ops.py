@@ -8,9 +8,6 @@ by phase — gather context, run the model, parse the decision, apply to disk �
 so that no method exceeds 350 lines while the full decision logic is preserved
 byte-for-byte.
 
-``_manager_blocked_rollback_artifact`` is a module-level function (not in the
-mixin) because it stands alone conceptually and is exercised by tests via the
-public ``Manager.decide_stage_transition`` path.
 """
 from __future__ import annotations
 
@@ -23,61 +20,11 @@ from typing import Any
 from ._helpers import (
     _manager_model,
     _manager_reasoning_effort,
-    _read_json_object,
     gateway_run_exec,
     log,
 )
 
 _log = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Module-level helper (not in the mixin) — guards the rollback artifact path
-# inside decide_stage_transition.
-# ---------------------------------------------------------------------------
-
-def _manager_blocked_rollback_artifact(
-    root: Path,
-    *,
-    current_stage: str,
-    stage_order: list[str],
-) -> dict[str, Any] | None:
-    payload = _read_json_object(root / "research" / "STAGE_CHECK_MANAGER_BLOCKED.json")
-    if payload is None:
-        return None
-    if payload.get("outcome") != "MANAGER_BLOCKED":
-        return None
-    if payload.get("status") != "rollback-accepted":
-        return None
-    if payload.get("current_stage") != current_stage:
-        return None
-    if payload.get("requested_stage") != current_stage:
-        return None
-    target = payload.get("rollback_target")
-    if not isinstance(target, str) or not target:
-        return None
-    if payload.get("earliest_broken_stage") != target:
-        return None
-    if payload.get("manager_action_required") != f"rollback_stage_to_{target}":
-        return None
-    if payload.get("pipeline_stage_fields_clean") is not True:
-        return None
-    try:
-        current_idx = stage_order.index(current_stage)
-        target_idx = stage_order.index(target)
-    except ValueError:
-        return None
-    if target_idx >= current_idx:
-        return None
-    evidence_files = payload.get("evidence_files")
-    if not isinstance(evidence_files, dict) or not evidence_files:
-        return None
-    for rel in evidence_files.values():
-        if not isinstance(rel, str) or not rel:
-            return None
-        if not (root / rel).exists():
-            return None
-    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -289,25 +236,26 @@ class _StageDecisionMixin:
                 stage_order=order,
                 checklist_contract=checklist_contract,
             )
-            if not open_ended:
-                from ..core.research_contract import resolve_research_target_level
-                from ..skills.vertical_select import resolve_vertical
+            from ..core.research_contract import resolve_research_target_level
+            from ..skills.vertical_select import resolve_vertical
 
-                _completion_vertical = resolve_vertical(root)
-                _research_target_level = resolve_research_target_level(root)
-                final_decision = final_stage_completion_decision(
-                    review,
-                    current_stage=cur,
-                    stage_order=order,
-                    vertical=_completion_vertical,
-                    mission_scope=mission_scope,
-                    research_target_level=_research_target_level,
-                    checklist_contract=checklist_contract,
-                    trigger_diagnostic=decision.diagnostic,
-                    trigger_reason=decision.reason,
-                )
-                if final_decision is not None:
-                    decision = final_decision
+            _completion_vertical = resolve_vertical(root)
+            _research_target_level = resolve_research_target_level(root)
+            final_decision = final_stage_completion_decision(
+                review,
+                current_stage=cur,
+                stage_order=order,
+                vertical=_completion_vertical,
+                mission_scope=mission_scope,
+                research_target_level=_research_target_level,
+                checklist_contract=checklist_contract,
+                trigger_diagnostic=decision.diagnostic,
+                trigger_reason=decision.reason,
+            )
+            if final_decision is not None and (
+                not open_ended or decision.action == "hold"
+            ):
+                decision = final_decision
             decision = enforce_scientific_stage_guard(
                 decision,
                 review,
@@ -363,25 +311,26 @@ class _StageDecisionMixin:
 
         decision = parse_stage_decision(raw, current_stage=cur, stage_order=order)
 
-        if not open_ended:
-            from ..core.research_contract import resolve_research_target_level
-            from ..skills.vertical_select import resolve_vertical
+        from ..core.research_contract import resolve_research_target_level
+        from ..skills.vertical_select import resolve_vertical
 
-            _completion_vertical = resolve_vertical(root)
-            _research_target_level = resolve_research_target_level(root)
-            final_decision = final_stage_completion_decision(
-                review,
-                current_stage=cur,
-                stage_order=order,
-                vertical=_completion_vertical,
-                mission_scope=mission_scope,
-                research_target_level=_research_target_level,
-                checklist_contract=checklist_contract,
-                trigger_diagnostic=decision.diagnostic,
-                trigger_reason=decision.reason,
-            )
-            if final_decision is not None:
-                decision = final_decision
+        _completion_vertical = resolve_vertical(root)
+        _research_target_level = resolve_research_target_level(root)
+        final_decision = final_stage_completion_decision(
+            review,
+            current_stage=cur,
+            stage_order=order,
+            vertical=_completion_vertical,
+            mission_scope=mission_scope,
+            research_target_level=_research_target_level,
+            checklist_contract=checklist_contract,
+            trigger_diagnostic=decision.diagnostic,
+            trigger_reason=decision.reason,
+        )
+        if final_decision is not None and (
+            not open_ended or decision.action == "hold"
+        ):
+            decision = final_decision
 
         decision = enforce_scientific_stage_guard(
             decision,
@@ -481,7 +430,7 @@ class _StageDecisionMixin:
         mission_scope: str = "",
     ) -> "StageTransition":  # noqa: F821
         """Independently decide advance / hold / rollback for the pipeline stage,
-        then WRITE it. The Manager is the SOLE post-bootstrap writer of
+        then WRITE it. The Manager is the SOLE writer of
         ``current_stage`` — the reviewer/planner only ADVISE (via ``review`` /
         ``planner_verdict``); the engineer never edits stage state.
 
@@ -495,7 +444,6 @@ class _StageDecisionMixin:
         or the model picks an illegal target. A HOLD simply leaves the stage put;
         the mission/planner loop continues, so the daemon never deadlocks.
         """
-        from ..skills.stage_machine import rollback_stage as _rollback
         from ._core import StageTransition
 
         root = Path(project_root) if project_root is not None else self.project_root
@@ -506,38 +454,7 @@ class _StageDecisionMixin:
             return ctx
         cur, order, checklist_contract = ctx
 
-        # --- Phase 2: Consume blocked-rollback artifact ---
-        artifact = _manager_blocked_rollback_artifact(
-            root, current_stage=cur, stage_order=order
-        )
-        if artifact is not None:
-            target = str(artifact["rollback_target"])
-            try:
-                _rollback(
-                    root,
-                    target_stage=target,
-                    reason=(
-                        "stage_check accepted positive evidence rollback packet: "
-                        f"earliest_broken_stage={artifact['earliest_broken_stage']}"
-                    ),
-                    rolled_back_by="manager",
-                )
-            except ValueError:
-                return StageTransition(
-                    "hold", cur, "illegal rollback artifact target", current_stage=cur,
-                    source="illegal_target_hold",
-                    diagnostic="manager_blocked_artifact_illegal_target",
-                )
-            return StageTransition(
-                "rollback",
-                target,
-                "stage_check accepted positive evidence rollback packet",
-                cur,
-                "manager_blocked_rollback_artifact",
-                "accepted_manager_blocked_artifact",
-            )
-
-        # --- Phase 3: Compute reconciliation flags ---
+        # --- Phase 2: Compute reconciliation flags ---
         # An open-ended final-stage checkpoint may need a new solve cycle after
         # the Planner confirms the operator's objective is still unresolved.
         # The Manager remains the sole rollback authority; the Planner only
@@ -580,16 +497,6 @@ class _StageDecisionMixin:
                         "and requests a stage-authority decision. "
                         f"Planner advisory: {planner_reason}"
                     ),
-                    planner_report={
-                        "forward_progress": False,
-                        "blocker": planner_reason,
-                        "recommended_next": (
-                            "HOLD if this is a genuine live external wait. ROLL "
-                            "BACK only if current_stage prevents prerequisite "
-                            "work that belongs to an earlier stage."
-                        ),
-                    },
-                    checklist=[],
                 )
             else:
                 review = SimpleNamespace(
@@ -599,15 +506,6 @@ class _StageDecisionMixin:
                         "open-ended campaign objective remains unresolved. "
                         f"Planner advisory: {planner_reason}"
                     ),
-                    planner_report={
-                        "forward_progress": False,
-                        "blocker": planner_reason,
-                        "recommended_next": (
-                            "Manager decides whether to roll back for another "
-                            "evidence-led cycle or hold."
-                        ),
-                    },
-                    checklist=[],
                 )
 
         # --- Phase 5: Build the LLM caller ---

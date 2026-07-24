@@ -352,7 +352,6 @@ class MissionExecutionRuntimeMixin:
                     final_review_status=(
                         "done" if recovered_accepted else "not_assessed"
                     ),
-                    failure_source="",
                     stage_transition={},
                 )
             else:
@@ -461,15 +460,6 @@ class MissionExecutionRuntimeMixin:
             success=False,
             review_status=str(
                 getattr(outcome, "final_review_status", "") or ""
-            ),
-            scientific_decision=str(
-                getattr(outcome, "scientific_decision", "") or ""
-            ),
-            failure_source=str(
-                getattr(outcome, "failure_source", "") or ""
-            ),
-            failure_layer=str(
-                getattr(outcome, "failure_layer", "") or ""
             ),
             stop_kind=state.stop_kind,
             resumable=True,

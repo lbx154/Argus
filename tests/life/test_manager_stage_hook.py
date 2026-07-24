@@ -1,7 +1,7 @@
 """Integration test for the Manager stage-decision hook in the mission runner.
 
 After each mission round, ``_SkillLoopRunner._decide_stage_transition`` hands the
-final reviewer verdict to the Manager (the sole post-bootstrap writer of the
+final reviewer verdict to the Manager (the sole writer of the
 pipeline stage), which judges advance / hold / rollback and writes
 ``PIPELINE_STATE.json``. These tests drive that hook directly with a
 ``__new__``-built runner (no full ``__init__``) + a stub manager backend.
@@ -19,7 +19,10 @@ from argus_skill.apps._runtime import _SkillLoopRunner
 from argus_skill.core.models import ReviewDecision
 from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus_skill.skills.stage_machine import resolve_stage_checklist_contract
+from argus_skill.skills.stage_machine import (
+    complete_final_stage,
+    resolve_stage_checklist_contract,
+)
 from argus_skill.skills.vertical_select import persist_vertical
 
 
@@ -40,19 +43,6 @@ class _StubRunner:
 class _BoomRunner:
     def run_exec(self, *, prompt: str, options, run_label: str):  # noqa: ANN001
         raise RuntimeError("backend down")
-
-
-class _NullMissionRunner:
-    """Mission runner; never invoked when the backlog is empty."""
-
-
-class _PlannerCalled(Exception):
-    pass
-
-
-class _ExplodingPlannerRunner:
-    def run_exec(self, *, prompt: str, options, run_label: str, resume_thread_id=None):  # noqa: ANN001
-        raise _PlannerCalled("planner should not run before Manager rollback")
 
 
 class _MissionOutcome:
@@ -154,25 +144,6 @@ class _ScopeThenFinalRunner:
         return outcome
 
 
-class _WritesRollbackPacketMissionRunner:
-    def __init__(self, project_root: Path) -> None:
-        self.project_root = project_root
-        self.calls = 0
-
-    def execute(
-        self,
-        *,
-        objective: str,
-        sink,  # noqa: ANN001
-        prelude_context: str = "",
-        scope: str = "",
-        original_objective: str = "",
-    ) -> _MissionOutcome:
-        self.calls += 1
-        _seed_manager_blocked_packet(self.project_root)
-        return _MissionOutcome()
-
-
 class _EmptyThenRunner:
     """Returns ``empties`` empty turns (the gpt-5.5/fnyweg flake) then the real
     verdict — exercises decide_stage_transition's empty-output retry."""
@@ -217,26 +188,11 @@ def _review(
     forward_progress: bool | None = True,
     scope: str = "",
 ) -> ReviewDecision:
-    report = {"headline": "done"}
-    if forward_progress is not None:
-        report["forward_progress"] = forward_progress
+    _ = checklist, forward_progress, scope
     return ReviewDecision(
         status=status,  # type: ignore[arg-type]
         reason="checklist satisfied",
         next_action="advance",
-        checklist=(
-            checklist
-            if checklist is not None
-            else [
-                {
-                    "item": "research.first_score_plan",
-                    "satisfied": True,
-                    "evidence": "X",
-                }
-            ]
-        ),
-        scope=scope,
-        planner_report=report,
     )
 
 
@@ -273,33 +229,6 @@ def _submission_project(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def _seed_manager_blocked_packet(root: Path) -> None:
-    evidence_files = {
-        "analysis_route_decision": "paper/ANALYSIS_ROUTE_DECISION.json",
-        "evidence_bundle": "experiments/run_stage/EVIDENCE_BUNDLE.json",
-        "manager_action_request": "research/MANAGER_ACTION_REQUEST.json",
-        "pipeline_state": "research/PIPELINE_STATE.json",
-        "run_stage_routing_request": "experiments/run_stage/RUN_STAGE_ROUTING_REQUEST.json",
-    }
-    for key, rel in evidence_files.items():
-        if key != "pipeline_state":
-            _write_json(root / rel, {"ok": True})
-    _write_json(
-        root / "research" / "STAGE_CHECK_MANAGER_BLOCKED.json",
-        {
-            "outcome": "MANAGER_BLOCKED",
-            "status": "rollback-accepted",
-            "requested_stage": "submission",
-            "current_stage": "submission",
-            "earliest_broken_stage": "run",
-            "rollback_target": "run",
-            "manager_action_required": "rollback_stage_to_run",
-            "pipeline_stage_fields_clean": True,
-            "evidence_files": evidence_files,
-        },
-    )
-
-
 def _stage(root: Path) -> str:
     return json.loads(
         (root / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
@@ -308,10 +237,6 @@ def _stage(root: Path) -> str:
 
 def test_replan_control_outcome_does_not_run_manager_stage_transition() -> None:
     assert _runtime._should_run_stage_transition("replan_requested") is False
-    assert _runtime._should_run_stage_transition(
-        "replan_requested",
-        harness_control={"stage_reconciliation_required": True},
-    ) is True
     assert _runtime._should_run_stage_transition("paused_budget") is False
     assert _runtime._should_run_stage_transition("done") is False
     assert _runtime._should_run_stage_transition(
@@ -334,12 +259,6 @@ def test_direct_stage_closing_review_still_runs_manager_stage_transition() -> No
         require_independent_review=True,
         review_source="reviewer",
     ) is True
-    assert _runtime._should_run_stage_transition(
-        "done",
-        require_independent_review=False,
-        review_source="reviewer",
-        mission_scope="bounded",
-    ) is False
 
 
 def test_kernel_direct_scope_certification_advances_before_planner_wait(
@@ -386,13 +305,13 @@ def test_kernel_direct_scope_certification_advances_before_planner_wait(
     assert _stage(tmp_path) == "environment"
 
 
-def test_ordinary_reviewed_intermediate_task_skips_manager_stage_call() -> None:
+def test_reviewer_verdict_runs_manager_stage_transition() -> None:
     assert _runtime._should_run_stage_transition(
         "done",
         review_source="reviewer",
         require_independent_review=False,
         mission_scope="bounded",
-    ) is False
+    ) is True
 
 
 def test_open_ended_terminal_planner_error_triggers_manager_rollback(
@@ -407,9 +326,13 @@ def test_open_ended_terminal_planner_error_triggers_manager_rollback(
             "stages": {
                 "scope": {"status": "done"},
                 "solve": {"status": "done"},
-                "review": {"status": "done"},
+                "review": {"status": "pending"},
             },
         },
+    )
+    complete_final_stage(
+        tmp_path,
+        reason="reviewer certified the final math checklist",
     )
     backend = _StubRunner({
         "action": "rollback",
@@ -455,7 +378,6 @@ def test_hook_advances_stage_and_emits_event(tmp_path: Path) -> None:
     ))
     sink = _Sink()
     review = _review()
-    review.failure_layer = "evaluator"
 
     decision = runner._decide_stage_transition(
         rounds_list=[_Round(review)], workdir=root, sink=sink
@@ -478,7 +400,7 @@ def test_hook_advances_stage_and_emits_event(tmp_path: Path) -> None:
             encoding="utf-8"
         )
     )
-    assert control_snapshot["terminal_evidence"][0]["failure_layer"] == "evaluator"
+    assert control_snapshot["terminal_evidence"][0]["status"] == "done"
     # The retired self-reported confidence must not leak into the event payload.
     assert "confidence" not in decision
 
@@ -866,11 +788,10 @@ def test_hook_retries_on_empty_output_then_advances(tmp_path: Path, monkeypatch)
     assert _stage(root) == "plan"
 
 
-def test_hook_persistent_empty_done_satisfied_advances(
+def test_hook_persistent_empty_manager_output_holds(
     tmp_path: Path, monkeypatch
 ) -> None:
-    # If every Manager turn is empty after a certified reviewer verdict, the
-    # Manager-owned fallback advances to the immediate next stage.
+    # Empty Manager output is not a stage judgment.
     monkeypatch.setattr("argus_skill.manager._stage_ops.time.sleep", lambda *_a, **_k: None)
     root = _project(tmp_path, current="research")
     backend = _EmptyThenRunner({}, empties=99)
@@ -887,12 +808,11 @@ def test_hook_persistent_empty_done_satisfied_advances(
         rounds_list=[_Round(review)], workdir=root, sink=sink
     )
     assert backend.calls == 3
-    assert decision["action"] == "advance"
-    assert decision["target_stage"] == "plan"
-    assert decision["diagnostic"] == "empty_output_certified_advance"
-    assert _stage(root) == "plan"
+    assert decision["action"] == "hold"
+    assert decision["diagnostic"] == "empty_output_no_manager_judgment"
+    assert _stage(root) == "research"
     event = next(e for e in sink.events if e.get("type") == "life.manager.stage_decision")
-    assert event["diagnostic"] == "empty_output_certified_advance"
+    assert event["diagnostic"] == "empty_output_no_manager_judgment"
 
 
 def test_hook_persistent_empty_done_satisfied_completes_final_stage(
@@ -917,20 +837,23 @@ def test_hook_persistent_empty_done_satisfied_completes_final_stage(
     ])
 
     decision = runner._decide_stage_transition(
-        rounds_list=[_Round(review)], workdir=root, sink=sink
+        rounds_list=[_Round(review)],
+        workdir=root,
+        sink=sink,
+        mission_scope="final_submission",
     )
 
     assert backend.calls == 3
     assert decision["action"] == "complete"
     assert decision["target_stage"] == "submission"
-    assert decision["diagnostic"] == "empty_output_no_next_stage"
+    assert decision["diagnostic"] == "empty_output_no_manager_judgment"
     state = json.loads(
         (root / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
     )
     assert state["stages"]["submission"]["status"] == "done"
     event = next(e for e in sink.events if e.get("type") == "life.manager.stage_decision")
     assert event["action"] == "complete"
-    assert event["diagnostic"] == "empty_output_no_next_stage"
+    assert event["diagnostic"] == "empty_output_no_manager_judgment"
 
 
 def test_hook_does_not_complete_bounded_final_stage_without_required_checklist(
@@ -951,7 +874,7 @@ def test_hook_does_not_complete_bounded_final_stage_without_required_checklist(
     assert decision["target_stage"] == "submission"
 
 
-def test_hook_persistent_empty_unsatisfied_checklist_holds(
+def test_hook_persistent_empty_holds_without_parsing_checklist(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setattr("argus_skill.manager._stage_ops.time.sleep", lambda *_a, **_k: None)
@@ -968,10 +891,10 @@ def test_hook_persistent_empty_unsatisfied_checklist_holds(
         rounds_list=[_Round(review)], workdir=root, sink=sink
     )
     assert decision["action"] == "hold"
-    assert decision["diagnostic"] == "empty_output_unsatisfied_checklist"
+    assert decision["diagnostic"] == "empty_output_no_manager_judgment"
     assert _stage(root) == "research"
     event = next(e for e in sink.events if e.get("type") == "life.manager.stage_decision")
-    assert event["diagnostic"] == "empty_output_unsatisfied_checklist"
+    assert event["diagnostic"] == "empty_output_no_manager_judgment"
 
 
 def test_hook_no_review_holds_and_does_not_write(tmp_path: Path) -> None:
@@ -1019,192 +942,6 @@ def test_hook_backend_error_holds_and_never_raises(tmp_path: Path) -> None:
     # Manager swallows the LLM error → fail-safe HOLD; stage untouched.
     assert decision["action"] == "hold"
     assert _stage(root) == "research"
-
-
-def test_hook_consumes_manager_blocked_rollback_artifact_before_no_review_hold(
-    tmp_path: Path,
-) -> None:
-    root = _submission_project(tmp_path)
-    _seed_manager_blocked_packet(root)
-    runner = _runner_with(_BoomRunner())
-    sink = _Sink()
-
-    decision = runner._decide_stage_transition(rounds_list=[], workdir=root, sink=sink)
-
-    assert decision["action"] == "rollback"
-    assert decision["target_stage"] == "run"
-    assert decision["source"] == "manager_blocked_rollback_artifact"
-    assert decision["diagnostic"] == "accepted_manager_blocked_artifact"
-    assert _stage(root) == "run"
-
-    state = json.loads(
-        (root / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
-    )
-    # `run` is the earliest_broken_stage we rolled back TO — it must be REOPENED
-    # (actionable) so the engineer redoes it. Landing on a "done" current_stage
-    # is the liveness deadlock the harness now forbids.
-    assert state["stages"]["run"]["status"] == "in_progress"
-    assert state["stages"]["analysis"]["status"] == "pending"
-    assert state["stages"]["draft"]["status"] == "pending"
-    assert state["stages"]["review"]["status"] == "pending"
-    assert state["stages"]["submission"]["status"] == "pending"
-    assert state["rollback_history"][-1]["from_stage"] == "submission"
-    assert state["rollback_history"][-1]["to_stage"] == "run"
-    assert state["stage_history"][-1]["direction"] == "rollback"
-    assert state["stage_history"][-1]["by"] == "manager"
-
-    event = next(e for e in sink.events if e.get("type") == "life.manager.stage_decision")
-    assert event["action"] == "rollback"
-    assert event["source"] == "manager_blocked_rollback_artifact"
-    assert event["diagnostic"] == "accepted_manager_blocked_artifact"
-
-
-def test_hook_consumes_manager_blocked_rollback_artifact_before_review_llm(
-    tmp_path: Path,
-) -> None:
-    root = _submission_project(tmp_path)
-    _seed_manager_blocked_packet(root)
-    runner = _runner_with(_BoomRunner())
-    sink = _Sink()
-
-    decision = runner._decide_stage_transition(
-        rounds_list=[_Round(_review(status="continue", forward_progress=False))],
-        workdir=root,
-        sink=sink,
-    )
-
-    assert decision["action"] == "rollback"
-    assert decision["target_stage"] == "run"
-    assert decision["source"] == "manager_blocked_rollback_artifact"
-    assert decision["diagnostic"] == "accepted_manager_blocked_artifact"
-    assert _stage(root) == "run"
-
-    event = next(e for e in sink.events if e.get("type") == "life.manager.stage_decision")
-    assert event["action"] == "rollback"
-    assert event["source"] == "manager_blocked_rollback_artifact"
-    assert event["diagnostic"] == "accepted_manager_blocked_artifact"
-
-
-def test_supervisor_consumes_manager_blocked_rollback_before_planner(
-    tmp_path: Path,
-) -> None:
-    root = _submission_project(tmp_path / "project")
-    _seed_manager_blocked_packet(root)
-    memory = LifeMemory.open(tmp_path / "life")
-    sink = _Sink()
-    sup = LifeSupervisor(
-        memory=memory,
-        runner=_NullMissionRunner(),
-        sink=sink,
-        config=LifeSupervisorConfig(
-            continuous=True,
-            continuous_objective="paper objective",
-            project_worktree=root,
-            artifact_root=root,
-            paper_mission=False,
-            full_paper_gate=False,
-            open_ended=False,
-        ),
-        planner_runner=_ExplodingPlannerRunner(),
-    )
-
-    result = sup.run()
-
-    assert result["stopped_by"] == "manager_blocked_rollback"
-    assert _stage(root) == "run"
-    event = next(e for e in sink.events if e.get("type") == "life.manager.stage_decision")
-    assert event["action"] == "rollback"
-    assert event["source"] == "manager_blocked_rollback_artifact"
-    assert event["diagnostic"] == "accepted_manager_blocked_artifact"
-    assert not any(e.get("type") == "life.planner.start" for e in sink.events)
-
-
-def test_supervisor_consumes_manager_blocked_rollback_after_mission_before_hook(
-    tmp_path: Path,
-) -> None:
-    root = _submission_project(tmp_path / "project")
-    memory = LifeMemory.open(tmp_path / "life")
-    memory.backlog.add(
-        BacklogItem.new(
-            title="completed submission control mission",
-            objective="refresh rollback-accepted packet",
-        )
-    )
-    sink = _Sink()
-    runner = _WritesRollbackPacketMissionRunner(root)
-    post_mission_calls = {"count": 0}
-
-    def _post_mission_hook(_outcome: dict) -> str:
-        post_mission_calls["count"] += 1
-        return "post_mission_hook_called"
-
-    sup = LifeSupervisor(
-        memory=memory,
-        runner=runner,
-        sink=sink,
-        config=LifeSupervisorConfig(
-            continuous=True,
-            continuous_objective="paper objective",
-            project_worktree=root,
-            artifact_root=root,
-            paper_mission=False,
-            full_paper_gate=False,
-            open_ended=False,
-            post_mission_hook=_post_mission_hook,
-        ),
-        planner_runner=_ExplodingPlannerRunner(),
-    )
-
-    result = sup.run()
-
-    assert runner.calls == 1
-    assert result["stopped_by"] == "manager_blocked_rollback"
-    assert post_mission_calls["count"] == 0
-    assert _stage(root) == "run"
-    event = next(e for e in sink.events if e.get("type") == "life.manager.stage_decision")
-    assert event["action"] == "rollback"
-    assert event["source"] == "manager_blocked_rollback_artifact"
-    assert event["diagnostic"] == "accepted_manager_blocked_artifact"
-    assert not any(e.get("type") == "life.post_mission.stop" for e in sink.events)
-    assert not any(e.get("type") == "life.planner.start" for e in sink.events)
-
-
-def test_supervisor_ignores_stale_manager_blocked_packet_after_one_rollback(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    root = _submission_project(tmp_path / "project")
-    _seed_manager_blocked_packet(root)
-    memory = LifeMemory.open(tmp_path / "life")
-    sup = LifeSupervisor(
-        memory=memory,
-        runner=_NullMissionRunner(),
-        sink=_Sink(),
-        config=LifeSupervisorConfig(
-            continuous=True,
-            continuous_objective="paper objective",
-            project_worktree=root,
-            artifact_root=root,
-            paper_mission=False,
-            full_paper_gate=False,
-            open_ended=False,
-        ),
-        planner_runner=None,
-    )
-    assert sup.run()["stopped_by"] == "manager_blocked_rollback"
-    assert _stage(root) == "run"
-
-    planner_calls = {"count": 0}
-
-    def _fake_plan_next_work():
-        planner_calls["count"] += 1
-        return "planner_retry"
-
-    monkeypatch.setattr(sup, "_plan_next_work", _fake_plan_next_work)
-
-    assert sup.run()["stopped_by"] == "planner_retry"
-    assert planner_calls["count"] == 1
-    assert _stage(root) == "run"
 
 
 # ---------------------------------------------------------------------------
@@ -1450,7 +1187,7 @@ def test_execute_path_disables_self_review_when_independent_review_required(
             require_independent_review=True,
         )
 
-    assert captured.get("engineer_self_review_enabled") is False
+    assert "engineer_self_review_enabled" not in captured
 
 
 def test_execute_path_disables_self_review_for_research_vertical(
@@ -1479,7 +1216,7 @@ def test_execute_path_disables_self_review_for_research_vertical(
     with pytest.raises(_ConfigKwargsCaptured):
         runner.execute(objective="run the bounded premise probe", sink=_Sink())
 
-    assert captured.get("engineer_self_review_enabled") is False
+    assert "engineer_self_review_enabled" not in captured
 def test_execute_direct_stage_closure_forwards_reviewer_to_manager(
     tmp_path: Path,
 ) -> None:

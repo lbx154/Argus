@@ -80,7 +80,7 @@ If no audit exists: label verdict as "provisional — no integrity audit run"
 
 #### `no` — Claim not supported
 1. Record what was tested, what the evidence rejects, and which broad claim is unsafe.
-2. Before pivoting, check whether the evidence supports a narrower scenario-scoped paper: a bounded diagnostic result, method characterization, protocol/evidence-boundary study, no-go result for a specific candidate, or status report.
+2. Before pivoting, check whether the evidence supports a narrower scenario-scoped paper: a bounded diagnostic result, method characterization, protocol/evidence-boundary study, negative result for a specific candidate, or status report.
 3. If a coherent scenario remains, rewrite the claim around that scenario instead of saying the method is generally bad.
 4. If no coherent scenario or contribution remains, pivot to the next idea or try an alternative approach.
 5. Update pipeline state.

@@ -182,7 +182,6 @@ def _engineer_log_audit_block(
             "provenance, or suspected shortcut; otherwise spend the review judging "
             "the result and next research decision.\n\n"
         )
-    progress_filter = '\'"type": "engineer.progress"\''
     if call_id:
 
         def shell_quote(value: str) -> str:
@@ -193,37 +192,21 @@ def _engineer_log_audit_block(
             "argus_skill.tools.event_log_query "
             f"--log {shell_quote(path)} --call-id {shell_quote(call_id)}"
         )
-        audit_scope = (
+        query_block = (
             f"Current engineer call id: `{call_id}`. Scope every audit command "
             "to this id so prior rounds and this Reviewer's own prompt cannot "
             "pollute the evidence. The query parses top-level JSON fields and "
-            "reads rolled logs in chronological order.\n"
-        )
-        progress_recipe = f"{current_call_rows} | tail -60"
-        cheat_recipe = (
-            f"{current_call_rows} | grep -nE 'use_attach|set_pose|teleport|hardcod|"
-            "HARDCODE|TODO|FIXME|mock|monkeypatch|fake|dummy|placeholder|"
-            "return 0\\.9|assert True|--skip|xfail'"
-        )
-        evaluator_recipe = (
-            f"{current_call_rows} | grep -nE "
-            "'pytest|check_success|scorer|evaluate|benchmark|metric'"
+            "reads rolled logs in chronological order:\n"
+            f"    {current_call_rows}\n"
         )
         log_row_description = (
             "The call-scoped raw `agent.io.*` rows record the commands, tool "
             "results, and assistant messages produced by this invocation."
         )
     else:
-        audit_scope = ""
-        progress_recipe = f"grep {progress_filter} '{path}' | tail -60"
-        cheat_recipe = (
-            "grep -nE 'use_attach|set_pose|teleport|hardcod|HARDCODE|TODO|FIXME|"
-            "mock|monkeypatch|fake|dummy|placeholder|return 0\\.9|assert True|"
-            f"--skip|xfail' '{path}'"
-        )
-        evaluator_recipe = (
-            "grep -nE 'pytest|check_success|scorer|evaluate|benchmark|metric' "
-            f"'{path}'"
+        query_block = (
+            "No exact call id is available. Do not scan the whole project history "
+            "unless a concrete concern cannot be resolved from current artifacts.\n"
         )
         log_row_description = (
             "Each `engineer.progress` event's `text` field is what the engineer "
@@ -234,10 +217,9 @@ def _engineer_log_audit_block(
         when_clause = (
             "MEASURED-BENCHMARK mode is active, so this is a RED-FLAG-ONLY check: "
             "you already TRUST the frozen scorer's pasted RESULT line and must NOT "
-            "burn the round re-deriving an honest number. Grep the log ONLY when "
+            "burn the round re-deriving an honest number. Inspect the log ONLY when "
             "the engineer pasted NO RESULT line, the number is implausible / "
-            "self-contradictory, or the score jumped suspiciously — then confirm "
-            "the scorer was actually invoked and not bypassed/hardcoded. Otherwise "
+            "self-contradictory, or the score jumped suspiciously. Otherwise "
             "skip this section.\n"
         )
     else:
@@ -254,40 +236,17 @@ def _engineer_log_audit_block(
         "This round's engineer EXECUTION LOG is on disk at:\n"
         f"  {path}\n"
         "It is the per-project event log (NOT in the git work-tree). "
-        f"{log_row_description} You have shell access; you can grep it.\n"
-        f"{audit_scope}\n"
+        f"{log_row_description}\n"
+        f"{query_block}\n"
         "Result-traceability (does the final artifact match the checklist?) tells "
         "you the OUTCOME is real. This log tells you the PROCESS was honest — the "
         "two are different, and an artifact can match the checklist while the "
-        "process that produced it was faked. Use this to catch what the summary "
-        "hides.\n\n"
+        "process may still contradict the claim.\n\n"
         f"{when_clause}\n"
-        "Grep recipes (substitute the path above):\n"
-        "- See what the engineer ran this round (newest last):\n"
-        f"    {progress_recipe}\n"
-        "- Hunt for cheats / shortcuts that mask a real failure:\n"
-        f"    {cheat_recipe}\n"
-        "- Check the claimed evaluator/scorer was actually invoked (not bypassed "
-        "or replaced by an inline constant):\n"
-        f"    {evaluator_recipe}\n\n"
-        "Red flags → even if the artifact traces to the checklist, return "
-        "`continue` (or `blocked` if it needs the operator) and NAME the process "
-        "defect in `reason` / `next_action`:\n"
-        "- (a) HARDCODED the expected value/answer instead of computing it (e.g. "
-        "writing the gold number straight into the output, an `assert True`, a "
-        "constant return where a measurement belongs).\n"
-        "- (b) SKIPPED a required step and wrote the result directly (the "
-        "checklist says 'run X then measure', but no X command appears in the "
-        "log).\n"
-        "- (c) Used a WRONG or CHEATING method — a physics/sim override "
-        "(`use_attach`, forced pose), a fabricated metric, or a bypassed/replaced "
-        "real evaluator — to make a failing task look passed.\n"
-        "- (d) Ran commands that CONTRADICT the method the checklist/summary "
-        "claims (the prose says one approach; the log shows another).\n\n"
-        "If the log is clean and the process matches the claim, say so briefly and "
-        "judge on the result as usual — do NOT manufacture a process objection "
-        "where there is none. This audit SUPPLEMENTS result-traceability; it does "
-        "not replace it, and it never changes the frozen outcome/metric/verifier.\n\n"
+        "Choose any further inspection yourself from the concrete concern and the "
+        "actual event fields; do not classify the process by a preset keyword list. "
+        "If the process matches the claim, judge the result as usual. This audit "
+        "supplements result traceability and never changes frozen measurements.\n\n"
     )
 
 
@@ -341,7 +300,7 @@ def render_reviewer_prompt(
     """Render the complete Reviewer prompt as ``(static_preamble, round_delta)``."""
     from ...core.research_contract import resolve_research_target_level
     from ...engineer.checkpoint import shared_checkpoint_instructions
-    from ...skills.harness_overlay import resolve_project_root
+    from ...core.project import resolve_project_root
     from ...skills.vertical_select import _persisted_vertical
     from ...verticals.research.stages import CANONICAL_STAGE_ORDER
     from ..task_contract import EFFECTIVE_TASK_CONTRACT
@@ -417,34 +376,16 @@ def render_reviewer_prompt(
         and not _requires_engineering_audit
     ):
         optimize_banner = ""
-    research_result_instruction = ""
+    research_target_instruction = ""
     _research_target_level = resolve_research_target_level(_proot)
     if _research_target_level is not None:
-        _bounded_research_contract = (
-            "Bounded `done` certifies only this item, not the project target. "
-            "Emit an honest `research_result`; novelty/significance may remain "
-            "unverified unless this objective requires them. Do not use "
-            "`research_incomplete` merely because later project work remains.\n"
-            if (scope or "").strip().lower().replace("-", "_") == "bounded"
-            else ""
-        )
-        research_result_instruction = (
-            "`research_result` is required. Judge its correctness, novelty, "
-            "significance, fidelity, evidence, and limitations independently. "
-            f"Project target: `{_research_target_level}`. "
-            f"{_bounded_research_contract}"
-            "For non-bounded `publishable`/`doctoral` completion require verified "
-            "correctness, verified-new novelty, matching significance, and an "
-            "original terminal result. Known/literature/finite/local-verification "
-            "or generic failure reports are evidence, not success. A novel "
-            "negative/boundary result qualifies only as a standalone venue-level "
-            "thesis; label it `counterexample`/`partial_result`, not "
-            "`structured_failure_report`. Polish never lowers this bar. "
-            "Otherwise end the cycle with `research_incomplete`, "
-            "`paused_no_breakthrough`, or `exhausted_current_methods`. "
-            "For `exploratory`, an independently verified honest failure may finish "
-            "a bounded item, but project completion still requires a decision-relevant "
-            "terminal finding and `scientific_decision=go`.\n\n"
+        research_target_instruction = (
+            f"Project target: `{_research_target_level}`. Judge correctness, novelty, "
+            "significance, fidelity, evidence, and limitations directly. Explain the "
+            "judgment in `reason`; do not encode it in extra fields. For project-level "
+            "`publishable` or `doctoral` completion, require a verified original result "
+            "at the requested significance. If the current direction cannot meet that "
+            "bar, return `replan_requested`.\n\n"
         )
     # Live search-altitude facts (NO verdict) so the reviewer can SEE the
     # floor history when judging forward_progress — i.e. distinguish "this
@@ -539,20 +480,9 @@ def render_reviewer_prompt(
         f"Current stage: `{stage}`. Earlier stages: {earlier_stages}.\n"
         "If earlier-stage evidence is broken and this mission cannot repair it "
         "within its own scope, return `replan_requested` (never `continue`) and "
-        "name the earliest broken stage in `reason`. Set "
-        "`planner_report.plan_signal` to `reconsider` and point "
-        "`evidence_files` at the defect; the Manager owns rollback. "
+        "name the earliest broken stage and concrete evidence in `reason`; the "
+        "Manager owns rollback. "
         "Never edit `research/PIPELINE_STATE.json`."
-    )
-    # Checklist-feedback channel. The PLANNER owns the per-stage checklist
-    # (it authors/edits it via checklist_ops). The reviewer is FEEDBACK-ONLY:
-    # if the checklist ITSELF is wrong for this task, it reports rather than
-    # working around or silently honoring a broken item.
-    checklist_feedback_block = (
-        "## Checklist ownership\n"
-        "Judge this round against the checklist as written. If the checklist "
-        "itself is wrong, report concise `checklist_feedback`; the Planner owns "
-        "edits. Never write `research/CHECKLISTS.json`."
     )
     operator_text = (
         "\n".join(f"- {line}" for line in operator_messages)
@@ -598,13 +528,8 @@ def render_reviewer_prompt(
             "NOT by itself the engineer's forward progress. If the engineer only "
             "re-polled a healthy self-watched subagent this round, steer "
             "`next_action` to advance independent work that does not depend on "
-            "it — or, if nothing else can proceed, emit "
-            "`control = {\"action\": \"wait_for_subagent\", \"task_id\": "
-            "\"<task_id>\"}` in the FINAL JSON handoff. Do NOT encode this wait "
-            "in prose (`reason` or `next_action`); the "
-            "harness ignores prose for control flow. When you use `control`, keep "
-            "`status = continue` and write `next_action` for what the engineer "
-            "should do AFTER the wait resumes, not another poll instruction.\n"
+            "it. If nothing else can proceed, return `continue` and state what "
+            "evidence the next round should wait for.\n"
         )
     # ``prior_checkpoint`` is accepted only for source compatibility with
     # older callers. The live handoff is the ordinary Markdown file that the
@@ -665,7 +590,7 @@ def render_reviewer_prompt(
     # Byte-stable static policy; every fresh Reviewer receives it in full.
     static = (
         optimize_banner
-        + research_result_instruction
+        + research_target_instruction
         + EFFECTIVE_TASK_CONTRACT
         + "\n\n## Reviewer role\n"
         "Judge the objective against real evidence and its checklist. Bounded "
@@ -689,72 +614,27 @@ def render_reviewer_prompt(
         + final_submission_block
         + rollback_block
         + "\n\n"
-        + checklist_feedback_block
-        + "\n\n"
         + venv_skill_block
         + "\n\n## Final handoff fields\n"
-        "Fill the attached schema. `reason` is the only verdict rationale; "
-        "`next_action` is the only Engineer instruction and is empty for `done`.\n"
-        "- `planner_report`: honest `forward_progress`, `plan_signal`, and file "
-        "pointers only. Use `reconsider` only when new evidence invalidates the "
-        "remaining plan.\n"
-        "- `routing_decision` is shadow-only and never changes control flow. Fill "
-        "the three routing fields only for `continue`; leave them empty otherwise. "
-        "It is independent of status and `plan_signal`, and is most informative "
-        "when both stay `continue`: use `keep_mission` if another Engineer round "
-        "fits this acceptance-bearing mission, or `return_to_planner` if L4 must "
-        "judge boundary, priority, dependencies, or method first. Explain in "
-        "`routing_reason`; give a concrete `routing_handoff` only for return. Never "
-        "decide from token, cost, or round-count thresholds.\n"
+        "Return only `status`, `reason`, `next_action`, and `operator_question`. "
+        "`reason` is the only verdict rationale; `next_action` is the only Engineer "
+        "instruction and is empty for `done`.\n"
         "- Put measured surprises, open questions, and alternative directions "
-        "in CHECKPOINT.md once, not in a second structured reflection.\n"
+        "in CHECKPOINT.md once, not in extra JSON fields.\n"
         "- Every valid measured result must identify the strongest supported "
-        "finding in `reason` and `research_result` when applicable. Preserve clean negative, null, "
+        "finding in `reason`. Preserve clean negative, null, "
         "boundary, and diagnostic evidence, but integrity is a hard constraint, "
         "not scientific value by itself. Do not automatically turn an honest result "
         "into a paper or project completion. First audit implementation adequacy, "
         "construct fidelity, and plausible repairs. An agent-designed weak proxy is "
         "not evidence about the claimed online agent or system. "
         "Recommend publication work only when the result supports a standalone, "
-        "venue-relevant thesis beyond 'we tried and it failed'; otherwise set "
-        "`scientific_decision` to pivot/no_go and request a replacement plan. "
+        "venue-relevant thesis beyond 'we tried and it failed'; otherwise return "
+        "`replan_requested`. "
         "There is no fixed retry count: judge further engineering by the diagnosed "
         "cause, expected information gain, and remaining resources.\n"
-        "- `scientific_decision` is the project-value verdict, not the sign of one "
-        "metric. Use `go` only when the evidence meets the operator's value target or "
-        "supports a standalone decision-relevant finding. A bounded experiment may "
-        "finish with `pivot`/`no_go`, but a stage-closing or final-submission verdict "
-        "must return `replan_requested` with `planner_report.plan_signal=reconsider` "
-        "instead of `done` until a valuable direction is independently certified.\n"
-        "- When the objective/acceptance check explicitly requires the consumed "
-        "framework handoff's top-level `review` object to carry bounded "
-        "correctness/checklist verdicts, put that Reviewer-authored object in "
-        "`certification_payload.review`; do not leave the verdict only in "
-        "CHECKPOINT prose, `reason`, or sidecar files.\n"
-        "- `failure_cause` classifies non-done outcomes. Reusable skill/wiki "
-        "learning must already have been edited directly during this Reviewer "
-        "turn, except Wiki pages, which must use the schema's structured "
-        "`wiki_ops`. Never directly edit `.autors/**/wiki/pages/**`, and never "
-        "encode other memory edits in the final JSON.\n"
-        "- `failure_source` is independent acceptance provenance. Use null "
-        "without a diagnosed acceptance failure; otherwise choose exactly one "
-        "structured kind and cite concrete artifact observations. A "
-        "`validator_defect` requires a stable validator_id plus exact project-"
-        "relative repair_paths limited to validator/test/provenance files. "
-        "Never list raw scientific evidence, preregistration, thresholds, or "
-        "success criteria as repair_paths. Classification does "
-        "not authorize repair. Never label missing/failed scientific evidence "
-        "as a validator defect. Set `scientific_decision` independently to "
-        "go, pivot, no_go, undecided, or null.\n"
-        "- `failure_layer` is orthogonal and must be one of `platform`, "
-        "`orchestration`, `evaluator`, `evidence_packaging`, `scientific`, "
-        "`operator`, or `unknown`. Platform/program/evaluator/packaging failures "
-        "must request repair and must not be used as evidence against the idea.\n"
-        "- `operator_question` is only for an operator-only blocker. "
-        "`checklist_feedback` is only when the checklist itself is wrong.\n\n"
+        "- `operator_question` is only for an operator-only blocker.\n\n"
         "Decision rules:\n"
-        "- Set `progress_class`. Do not add a separate explanation: `decision`, "
-        "`evidence`, `setup_only`, `artifact_sync_only`, or `none`.\n"
         "- `done` requires concrete evidence and exact adherence to material "
         "operator constraints. A generic acknowledgment is never enough.\n"
         "- Default to `continue` whenever the agent's claims are not backed by "
@@ -767,22 +647,16 @@ def render_reviewer_prompt(
         "mission objective, acceptance check, non-goals, stage, and resource "
         "contract. If the next work needs a new/separate/scoped mission, a "
         "replacement plan, or any change to those boundaries, return "
-        "`replan_requested` instead; set `planner_report.plan_signal` to "
-        "`reconsider` and cite the relevant files. Reviewer reports the "
+        "`replan_requested` instead and cite the relevant files. Reviewer reports the "
         "defect but never authorizes scope expansion.\n"
         "- `blocked` is only for credentials, inaccessible resources, or a "
         "decision/specification only the operator can provide.\n"
-        "- When a supervised background task is healthy and nothing else is "
-        "actionable, use structured `control = {\"action\": "
-        "\"wait_for_subagent\", \"task_id\": \"<id>\"}` with action "
-        "`wait_for_subagent`; never encode the "
-        "wait only in prose.\n"
         "- New measured evidence or a measured failed mechanism can be forward "
         "progress; setup, bookkeeping, repeated re-scoring, and near-identical "
         "unproductive tweaks are not. A smoke run proves wiring, not final "
         "evidence. Do not declare a method dead from a misconfigured run.\n"
-        "- Final-submission `done` requires every full-pipeline checklist item; "
-        "bounded scope uses only its objective and relevant stage items.\n\n"
+        "- Final-submission `done` means you independently judge the whole project "
+        "ready; bounded scope uses only its objective and relevant stage evidence.\n\n"
         + objective_block
         + "Operator messages:\n"
         f"{operator_text}\n\n"
@@ -823,7 +697,7 @@ def render_reviewer_prompt(
             "direct_memory": direct_memory_edit_block,
             "wiki_curator": wiki_curator_skill_block,
             "paper_review": paper_review_skill_block,
-            "research_result": research_result_instruction,
+            "research_target": research_target_instruction,
             "final_submission": final_submission_block,
             "objective_context": objective_context,
             "checkpoint": checkpoint_block,

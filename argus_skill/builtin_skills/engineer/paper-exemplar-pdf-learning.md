@@ -20,8 +20,8 @@ The `exemplar_grounding` harness gate hard-blocks the round unless every artifac
 |---|---|---|
 | `paper/style_ref/EXEMPLAR.json` | draft+ | `exemplar_schema_version=2`, ≥2 entries, each with `title`/`url`/`venue`/`year`/`local_pdf` (file on disk)/`pdf_sha256` (non-empty)/`structural_profile` |
 | `structural_profile.figure_inventory` (or `figures` / `figure_table_inventory`) in EVERY exemplar | draft+ | non-empty — record what figures/tables the exemplar uses so this paper can mirror the plan |
-| **`format_facts`** (or `format_facts_path` pointing at one) in EVERY exemplar | draft+ | produced by `python -m argus_skill.tools.format_facts <local_pdf> --write paper/style_ref/exemplars/<slug>/format_facts.json` — fields: `total_pages`, `section_count`, `figure_count`, `table_count`, `citations_per_page`, `body_pages_before_references`, plus per-section character counts |
-| **`paper/PAPER_FORMAT_FACTS.json`** | draft+ | produced by `python -m argus_skill.tools.format_facts paper/main.pdf --write paper/PAPER_FORMAT_FACTS.json` after every PDF rebuild. The gate diffs this against the **primary exemplar's** facts on `total_pages` / `section_count` / `figure_count` / `table_count` / `citations_per_page` / `body_pages_before_references` and fails if any field is outside tolerance |
+| **`format_facts`** (or `format_facts_path` pointing at one) in EVERY exemplar | draft+ | produced by `python -m argus_skill.verticals.research.format_facts <local_pdf> --write paper/style_ref/exemplars/<slug>/format_facts.json` — includes page structure, real layout blocks, columns, images, tables, citations, and section lengths |
+| **`paper/PAPER_FORMAT_FACTS.json`** | draft+ | produced by `python -m argus_skill.verticals.research.format_facts paper/main.pdf --write paper/PAPER_FORMAT_FACTS.json` after every PDF rebuild. Differences from the primary exemplar are Reviewer evidence, not a mechanical pass/fail gate. |
 | `paper/style_ref/STYLE_PROFILE.md` | draft+ | ≥2000 chars (no one-line stubs) |
 | `paper/style_ref/EXEMPLAR_SUITABILITY.json` | draft+ | `verdict=="PASS"`, `primary_exemplar` matches a slug in EXEMPLAR.json, `no_prose_copy_attestation=true` |
 | `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md` | draft+ | ≥1500 chars |
@@ -31,16 +31,20 @@ The `exemplar_grounding` harness gate hard-blocks the round unless every artifac
 
 ```bash
 # Once per exemplar (cached in EXEMPLAR.json sidecar)
-python -m argus_skill.tools.format_facts \
+python -m argus_skill.verticals.research.format_facts \
   paper/style_ref/exemplars/<slug>/paper.pdf \
   --write paper/style_ref/exemplars/<slug>/format_facts.json
 
 # After every paper/main.pdf rebuild (the gate compares this against primary)
-python -m argus_skill.tools.format_facts paper/main.pdf \
+python -m argus_skill.verticals.research.format_facts paper/main.pdf \
   --write paper/PAPER_FORMAT_FACTS.json
 ```
 
-Tolerances are intentionally generous (~40-70% relative window on most fields, plus a small absolute floor) — the goal is "ballpark same venue", not byte-identical. If facts diverge by more than that, fix by adjusting **section lengths**, **figure/table count**, or **citation density** to mirror the primary exemplar; do NOT fudge the facts file.
+Treat large differences as inspection pointers, not defects. Render the current
+paper and primary exemplar side by side, then let the Reviewer judge hierarchy,
+information density, whitespace, column balance, and figure/table readability.
+Never adjust content merely to match an exemplar's counts, and never edit the
+facts file by hand.
 
 If a candidate exemplar does not pass suitability, fetch a better one — do not draft from a bad template. Hand-typed EXEMPLAR entries without an actual local PDF are detected (path-exists check + sha256 floor).
 

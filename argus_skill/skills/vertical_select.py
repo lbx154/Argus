@@ -59,7 +59,7 @@ log = logging.getLogger(__name__)
 #:   nanogpt_speedrun — Task 2: minimize wall-time to val_loss<=3.28 (8xH100)
 #:   kernelbench      — Task 3: maximize SOL score (B200 kernels)
 VERTICALS: tuple[str, ...] = (
-    "software", "digital_circuit", "digital_circuit_benchmark", "research", "math", "physics", "materials", "chemistry", "quant", "speedrun",
+    "software", "digital_circuit", "digital_circuit_benchmark", "research", "math", "physics", "materials", "quant", "speedrun",
     "kernel_engineering", "nanochat", "nanogpt_speedrun", "kernelbench",
     "learning", "ale_last_exam", "fiction_writing", "classical_poetry",
     "modern_poetry", "prose", "literary_editor",
@@ -86,18 +86,12 @@ VERTICAL_PURPOSES: dict[str, str] = {
     "metric-optimization vertical",
     "physics": "physics tasks on a real physical system; dynamically choose theoretical "
     "derivation, numerical simulation, data analysis, literature synthesis, or experiment "
-    "design (or an honest no-go) as appropriate, reporting bounded provenance-tracked "
+    "design (or an honest negative result) as appropriate, reporting bounded provenance-tracked "
     "evidence; not a paper pipeline or a metric-optimization vertical",
     "materials": "materials science and materials processing research across atomistic, "
     "microstructure, continuum, CAD/CAE, and experimental scales; dynamically choose "
     "literature/data analysis, DFT/MD/MLIP, constitutive modeling, FEM/process simulation, "
     "or experiment design, with independent physical validation and provenance",
-    "chemistry": "chemistry research across molecular properties and activity, reactions "
-    "and synthesis, cheminformatics, quantum chemistry, computational screening, "
-    "closed-loop optimization, and authorized instrument-backed experiments; preserve "
-    "whether the tested control is online agent, periodically revised, or frozen policy, "
-    "with independent evidence review; not generic paper writing, pure physics, "
-    "materials-only work (use materials), or a fixed single-metric speedrun",
     "quant": "finance factor-research REPORT — mine/evaluate equity factors "
     "(IC/ICIR, backtest, Sharpe) into a reviewer-certified factor report; not a metric loop",
     "speedrun": "generic single-metric optimize loop on a script/benchmark under a "
@@ -152,7 +146,7 @@ _STATE_RELPATH = ("research", "PIPELINE_STATE.json")
 class VerticalResolutionError(RuntimeError):
     """Raised by ``resolve_vertical`` when no vertical can be resolved.
 
-    The Manager DECIDES and PERSISTS the vertical at mission bootstrap; once it
+    The Manager DECIDES and PERSISTS the vertical on the initial task; once it
     has, ``research/PIPELINE_STATE.json`` names it and this never fires. If it
     DOES fire, a read happened before the decision was persisted, or the state
     is corrupt — a real invariant violation, surfaced loudly instead of silently
@@ -251,6 +245,26 @@ def _state_path(project_root: object) -> Path:
     return Path(str(project_root)).joinpath(*_STATE_RELPATH)
 
 
+def _load_state_payload(project_root: object) -> dict:
+    """Read Manager-owned pipeline state once with fail-visible corruption."""
+    path = _state_path(project_root)
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {}
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise VerticalResolutionError(
+            f"PIPELINE_STATE.json at {path} is not valid JSON: {exc}"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise VerticalResolutionError(
+            f"PIPELINE_STATE.json at {path} is not a JSON object"
+        )
+    return payload
+
+
 def _persisted_vertical(project_root: object) -> str | None:
     """Return the persisted ``vertical`` from PIPELINE_STATE.json, or ``None``.
 
@@ -260,40 +274,36 @@ def _persisted_vertical(project_root: object) -> str | None:
     Manager-owned state and RAISES ``VerticalResolutionError`` — we do not
     silently treat corruption as "fresh" and fall through to research.
     """
-    try:
-        raw = _state_path(project_root).read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return None
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise VerticalResolutionError(
-            f"PIPELINE_STATE.json at {_state_path(project_root)} is not valid JSON: {exc}"
-        ) from exc
-    if not isinstance(payload, dict):
-        raise VerticalResolutionError(
-            f"PIPELINE_STATE.json at {_state_path(project_root)} is not a JSON object"
-        )
+    payload = _load_state_payload(project_root)
     return _known_vertical(payload.get("vertical"), project_root)
+
+
+def _persisted_domain(project_root: object) -> str | None:
+    """Return the optional built-in domain composed with ``research``."""
+    payload = _load_state_payload(project_root)
+    raw = str(payload.get("domain") or "").strip()
+    if not raw:
+        return None
+    vertical = _known_vertical(payload.get("vertical"), project_root)
+    if vertical != "research":
+        raise VerticalResolutionError(
+            f"PIPELINE_STATE.json at {_state_path(project_root)} sets domain={raw!r} "
+            f"for non-research vertical={vertical!r}"
+        )
+    from ..domains import UnknownDomainError, require_domain
+
+    try:
+        return require_domain(raw)
+    except UnknownDomainError as exc:
+        raise VerticalResolutionError(
+            f"PIPELINE_STATE.json at {_state_path(project_root)} names unknown "
+            f"domain {raw!r}"
+        ) from exc
 
 
 def resolve_workflow_mode(project_root: object = ".") -> str:
     """Return the Manager-persisted orchestration mode."""
-    try:
-        raw = _state_path(project_root).read_text(encoding="utf-8")
-    except FileNotFoundError:
-        payload: dict = {}
-    else:
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise VerticalResolutionError(
-                f"PIPELINE_STATE.json at {_state_path(project_root)} is not valid JSON: {exc}"
-            ) from exc
-        if not isinstance(payload, dict):
-            raise VerticalResolutionError(
-                f"PIPELINE_STATE.json at {_state_path(project_root)} is not a JSON object"
-            )
+    payload = _load_state_payload(project_root)
     mode = _normalize_workflow_mode(payload.get("workflow_mode"))
     if mode:
         return mode
@@ -345,6 +355,16 @@ def resolve_vertical_if_decided(project_root: object = ".") -> str | None:
     return _persisted_vertical(project_root)
 
 
+def resolve_domain_if_decided(project_root: object = ".") -> str | None:
+    """Return the Manager-decided research domain, or ``None``."""
+    return _persisted_domain(project_root)
+
+
+def resolve_skill_scope(project_root: object = ".") -> str:
+    """Return the shared-Skill namespace for the active workflow/domain context."""
+    return _persisted_domain(project_root) or _persisted_vertical(project_root) or ""
+
+
 def resolve_checklist_vertical(project_root: object = ".") -> str | None:
     """Resolve the vertical that owns this project's checklist.
 
@@ -381,8 +401,8 @@ def _vertical_first_stage(vertical: str, project_root: object = None) -> str | N
 
     Late import to avoid a module-load cycle (``_base`` ↔ ``stage_machine``).
     ``project_root`` is threaded so a project-local DATA domain resolves to its
-    own first stage. Fail-open: any error yields ``None`` so persistence never
-    breaks bootstrap.
+    own first stage. Fail-open: any error yields ``None`` so persistence remains
+    available.
     """
     try:
         from ..verticals._base import (
@@ -400,6 +420,7 @@ def persist_vertical(
     project_root: object,
     vertical: str,
     *,
+    domain: str | None = None,
     research_target_level: str | None = None,
     workflow_mode: str | None = None,
     target_venue: str | None = None,
@@ -416,7 +437,7 @@ def persist_vertical(
     STAGE AUTHORITY — the harness must NOT control ``current_stage``; only the
     reviewer agent moves it (advance via its verdict, or roll back via
     ``stage_machine.rollback_stage``). So this function SEEDS the vertical's
-    first stage only when no stage exists yet (bootstrap of a fresh state
+    first stage only when no stage exists yet (initialization of a fresh state
     file); it NEVER overwrites or resets an existing stage. A stale stage left
     by a vertical change is real progress — clobbering it to the first stage is
     an unauthorized rollback that destroys evidence. It is left for the
@@ -445,6 +466,16 @@ def persist_vertical(
             )
 
     payload["vertical"] = vert
+    if domain is not None:
+        from ..domains import require_domain
+
+        if vert != "research":
+            raise ValueError(
+                f"domain overlays require vertical='research', found {vert!r}"
+            )
+        payload["domain"] = require_domain(domain)
+    else:
+        payload.pop("domain", None)
     if target_venue is not None:
         venue = " ".join(str(target_venue).strip().split())[:100]
         if venue:
@@ -555,6 +586,58 @@ def vertical_reached_own_terminal_stage(project_root: object, vertical: str) -> 
     if not isinstance(record, dict):
         return False
     return str(record.get("status") or "").strip().lower() == "done"
+
+
+def vertical_has_current_completion_certificate(
+    project_root: object,
+    vertical: str,
+) -> bool:
+    """Whether terminal ``done`` matches the vertical's current contract.
+
+    Legacy terminal detection remains available for new-intent reset. Completion
+    decisions use this stricter predicate so a versioned checklist change forces
+    one fresh Reviewer/Manager certification.
+    """
+    if not vertical_reached_own_terminal_stage(project_root, vertical):
+        return False
+    try:
+        from ..verticals._base import (
+            load_vertical,
+            vertical_checklist_stage_order,
+            vertical_completion_contract_version,
+        )
+
+        module = load_vertical(vertical, project_root=project_root)
+        order = vertical_checklist_stage_order(module)
+        completion_contract_version = vertical_completion_contract_version(module)
+    except Exception:  # noqa: BLE001 — strict completion fails closed
+        return False
+    if completion_contract_version <= 0:
+        return True
+    last_stage = _normalize_stage(order[-1])
+    try:
+        from .stage_machine import completion_contract_fingerprint
+
+        payload = json.loads(_state_path(project_root).read_text(encoding="utf-8"))
+        stages = payload.get("stages") if isinstance(payload, dict) else None
+        record = stages.get(last_stage) if isinstance(stages, dict) else None
+        if not isinstance(record, dict):
+            return False
+        expected = completion_contract_fingerprint(
+            project_root,
+            last_stage,
+            version=completion_contract_version,
+        )
+    except Exception:  # noqa: BLE001 — versioned completion fails closed
+        return False
+    try:
+        persisted_version = int(record.get("completion_contract_version") or 0)
+    except (TypeError, ValueError):
+        return False
+    return bool(
+        persisted_version == completion_contract_version
+        and str(record.get("completion_contract_sha256") or "") == expected
+    )
 
 
 def reset_stage_for_new_intent(
@@ -678,6 +761,7 @@ __all__ = [
     "resolve_workflow_mode",
     "resolve_evidence_mode",
     "persist_vertical",
+    "vertical_has_current_completion_certificate",
     "vertical_reached_own_terminal_stage",
     "reset_stage_for_new_intent",
 ]

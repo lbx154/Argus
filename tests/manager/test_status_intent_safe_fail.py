@@ -3,8 +3,8 @@
 Incident (2026-07-11): a Chinese "请只做状态检查，不要运行任务" message was
 dispatched to the team. Root cause was the empty-model pricing block making the
 Manager's classify call raise; ``manager_triage`` then hit its
-"triage failure -> treat as a task" fallback and the message was enqueued as a
-real mission (Engineer -> "bootstrap empty project root").
+"triage failure -> treat as a task" fallback and enqueued the status request as
+real work.
 
 Defense-in-depth fix: on a triage FAILURE (the classify call errored), if the
 operator explicitly forbade running (status-only / do-not-run), safe-fail to a

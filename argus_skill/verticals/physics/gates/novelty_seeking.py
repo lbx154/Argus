@@ -4,13 +4,11 @@ Part of the physics vertical (NOT a post-processing step). In
 ``original-research-required`` mode (see ``mode_config``), before the terminal
 manuscript the agent must actively seek novelty rather than settle for a
 diagnostic benchmark: propose a pool of candidate directions, score them, select
-the top 2-3, do extra theory/numerical verification, and either reach original
-research or emit an honest ``ORIGINAL_RESEARCH_NO_GO.md`` after <=2 pivots.
+the top 2-3, and do extra theory/numerical verification.
 
 This verifier only inspects agent-produced artifacts; it never invents ideas.
-Advisory (does not hard-block review->manuscript) but it FEEDS the Paper-Type /
-manuscript decision: in original-research-required mode a downgrade terminal is
-illegitimate unless this loop ran (or a justified NO_GO exists).
+Advisory (does not hard-block review->manuscript) but it feeds the Paper-Type /
+manuscript decision.
 
 Artifacts: NOVELTY_IDEA_POOL.csv (+ .md), PIVOT_SELECTION.md,
 REVISED_RESEARCH_OBJECTIVE.md, ADDITIONAL_THEORY_PLAN.md, ADDITIONAL_NUMERICAL_PLAN.md.
@@ -54,7 +52,6 @@ SUPPORTING_FILES: tuple[str, ...] = (
     "PIVOT_SELECTION.md", "REVISED_RESEARCH_OBJECTIVE.md",
     "ADDITIONAL_THEORY_PLAN.md", "ADDITIONAL_NUMERICAL_PLAN.md",
 )
-NO_GO_FILE = "ORIGINAL_RESEARCH_NO_GO.md"
 
 
 def _fail(fid, sev, message, action, *, field="", blocks=False):
@@ -77,10 +74,6 @@ def verify_novelty_seeking(project_root: object) -> list[dict]:
     # optional, so nothing is required (pass).
     if not is_original_research_required():
         return []
-    # An honest, justified NO_GO is an acceptable terminal for this gate.
-    if _exists(root, NO_GO_FILE):
-        return []
-
     header, rows = read_csv_rows(root / ARTIFACT)
     if not header:
         return [_fail("NSL-000", "blocker",
@@ -133,9 +126,9 @@ def _render_review(root: Path, failures: list[dict], *, passed: bool) -> str:
         "# Novelty-Seeking Loop review", "",
         f"Status: {'PASS' if passed else 'FAIL'}  |  failures: {len(failures)}  |  artifact: {ARTIFACT}",
         f"Mode: original_research_required={is_original_research_required()}", "",
-        "ADVISORY, but in original-research-required mode a downgrade terminal is illegitimate "
-        "unless this loop ran (>=10 scored directions, top 2-3 selected + verified) or a justified "
-        f"{NO_GO_FILE} exists.", "",
+        "ADVISORY, but in original-research-required mode a downgrade terminal is "
+        "illegitimate unless this loop ran (>=10 scored directions, top 2-3 "
+        "selected + verified).", "",
         "## Novelty capabilities available (family L)",
     ]
     for c in caps[:12]:
@@ -173,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     passed, failures = run_gate(args.project_root)
     if passed:
-        print("novelty-seeking gate: satisfied (or not required / justified NO_GO)")
+        print("novelty-seeking gate: satisfied (or not required)")
         return 0
     print("novelty-seeking gate: NOT satisfied:", file=sys.stderr)
     for f in failures:

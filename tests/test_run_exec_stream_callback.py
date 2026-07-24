@@ -86,6 +86,8 @@ def test_on_agent_message_fires_per_block_in_order(_fake_copilot, monkeypatch) -
     assert result.last_agent_message == "block two"
     assert result.thread_id == "sess-1"
     assert result.exit_code == 0
+    assert _fake_copilot["encoding"] == "utf-8"
+    assert _fake_copilot["errors"] == "replace"
 
 
 def test_none_callback_leaves_turn_unchanged(_fake_copilot, monkeypatch) -> None:

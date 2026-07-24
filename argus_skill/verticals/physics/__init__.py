@@ -41,8 +41,6 @@ from .manuscript import (
 from .stages import (
     CHECKLIST_ITEMS,
     CHECKLIST_STAGE_ORDER,
-    REVIEWER_CHECKLISTS,
-    STAGE_CHECKS,
     STAGE_ORDER,
     WORKFLOW_MODE,
     completion_gate,
@@ -52,8 +50,6 @@ from .stages import (
 __all__ = [
     "CHECKLIST_ITEMS",
     "CHECKLIST_STAGE_ORDER",
-    "REVIEWER_CHECKLISTS",
-    "STAGE_CHECKS",
     "STAGE_ORDER",
     "WORKFLOW_MODE",
     "completion_gate",

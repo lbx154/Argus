@@ -32,13 +32,13 @@ or label a local vector/raster as image-2.
 1. Freeze paper context:
 
 ```bash
-python -m argus_skill.tools.image_tool freeze-paper-context --project-root .
+python -m argus_skill.verticals.research.figure_tool freeze-paper-context --project-root .
 ```
 
 2. Create a canonical prompt:
 
 ```bash
-python -m argus_skill.tools.image_tool paper-prompt \
+python -m argus_skill.verticals.research.figure_tool paper-prompt \
   --project-root . \
   --out paper/figures/<id>.prompt.txt \
   --figure-type <type> \
@@ -57,14 +57,16 @@ python -m argus_skill.tools.image_tool paper-prompt \
   --layout-variant "<one named variant>"
 ```
 
-Keep the `argus-image2-paper-prompt-v1` and
-`paper-framework-figure-studio-pro-v3.1.4a` markers. Pin visible labels exactly;
-never invent method names, results, or evidence.
+This is the recommended canonical prompt (it carries the
+`argus-image2-paper-prompt-v1` and `paper-framework-figure-studio-pro-v3.1.4a`
+markers), not a mandatory gate — `sync-paper-metadata` accepts any prompt as
+long as the real raster/prompt/review hash chain is consistent. Pin visible
+labels exactly; never invent method names, results, or evidence.
 
 3. Generate one candidate and wait for completion:
 
 ```bash
-python -m argus_skill.tools.image_tool generate \
+python -m argus_skill.tools.image_api generate \
   --prompt-file paper/figures/<id>.prompt.txt \
   --out paper/figures/<id>.png \
   --size 1536x1024
@@ -73,9 +75,9 @@ python -m argus_skill.tools.image_tool generate \
 4. Only after the output exists, inspect and review it:
 
 ```bash
-python -m argus_skill.tools.image_tool inspect \
+python -m argus_skill.tools.image_api inspect \
   --image paper/figures/<id>.png
-python -m argus_skill.tools.image_tool review \
+python -m argus_skill.verticals.research.figure_tool review \
   --image paper/figures/<id>.png \
   --prompt-file paper/figures/<id>.prompt.txt \
   --out paper/figures/<id>.png.review.json
@@ -84,7 +86,7 @@ python -m argus_skill.tools.image_tool review \
 5. Synchronize metadata from the real files:
 
 ```bash
-python -m argus_skill.tools.image_tool sync-paper-metadata \
+python -m argus_skill.verticals.research.figure_tool sync-paper-metadata \
   --project-root . \
   --image paper/figures/<id>.png \
   --prompt-file paper/figures/<id>.prompt.txt \

@@ -27,7 +27,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..core.models import LoopStatus, RoundRecord
-from .self_review import EngineerCompletionDecision
 
 
 @dataclass
@@ -57,7 +56,6 @@ class EngineerTurnOutcome:
     stop_kind: str | None
     raw_engineer_message: str
     engineer_message: str
-    completion_decision: EngineerCompletionDecision | None
     process_ownership_note: str
     round_started_at: float
 

@@ -116,8 +116,9 @@ Use the repository's existing conventions if they are already present; otherwise
    Use the reported routes: `engineer` for code/evaluation helpers, `reviewer` for audits, `image` for image-2/codex-image2 generation, and `image_review` for visual inspection. If a needed route is unavailable but operator-approved environment/Codex config exists, initialize once with:
    `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill --init-model-api`
 3. Put reusable project wrappers under `code/`; do not scatter raw API calls through notebooks, paper generators, or review JSON writers. Use `load_model_api_route(...)` from Argus, not hard-coded keys, base URLs, or model names. Route-specific environment overrides such as `ARGUS_SKILL_IMAGE_MODEL=gpt-image-2`, `ARGUS_SKILL_IMAGE_BASE_URL`, and `ARGUS_SKILL_IMAGE_API_KEY` may be used only as process environment, never as committed text.
-4. Officially launched projects already include `code/llm.py`; prefer that seeded helper over
-   rewriting raw HTTP calls. If you must edit or replace it, preserve transient 429/5xx/URL
+4. No model wrapper is pre-seeded. If the task needs model calls, create a small
+   project-owned helper such as `code/llm.py` instead of scattering raw HTTP calls.
+   Preserve transient 429/5xx/URL
    retry with exponential backoff and `Retry-After` handling. Do not convert a rate-limit,
    disconnect, or temporary backend error directly into a deterministic fallback answer for an
    experiment row; retry first, then record the failure explicitly if the route is still unusable.
@@ -196,19 +197,19 @@ Use the repository's existing conventions if they are already present; otherwise
 
 5. For image-2 Figure 1 generation, prefer the Argus image tool and preserve the exact raster it returns:
 
-       "${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.tools.image_tool generate \
+       "${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.tools.image_api generate \
          --prompt-file paper/figures/method_overview.prompt.txt \
          --out paper/figures/method_overview.png \
          --size 1536x1024 --force
-       "${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.tools.image_tool inspect \
+       "${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.tools.image_api inspect \
          --image paper/figures/method_overview.png > paper/figures/method_overview.inspect.json
-       "${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.tools.image_tool review \
+       "${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.verticals.research.figure_tool review \
          --image paper/figures/method_overview.png \
          --prompt-file paper/figures/method_overview.prompt.txt \
          --out paper/figures/method_overview.review.json
 
    A helper such as `code/generate_image2_figure.py` must then write `paper/figures/IMAGE2_FIGURES.json` with `figure_id`, `figure_type`, `model` or `generator_model`, `prompt_path`, `output_path`, `output_sha256`, `sidecar_path`, `inspect_path`, `review_path`, `generation_provenance_path`, width, and height. The sidecar must preserve image-tool/API evidence (`/images/generations`, model, created time, prompt SHA, output SHA, dimensions), and `review_path` must come from the `image_review` model route. `generation_provenance_path` may point at the image sidecar if that JSON records `prompt_path`, `output_path`, and `output_sha256`. Never crop, downsample, resave, PDF-wrap, locally redraw the accepted raster, or hand-fill `codex-image2` metadata around a local PNG after provenance is written.
-6. Do not let the model freehand a one-paragraph image prompt. Before calling image-2, create `paper/figures/method_overview.prompt.txt` with `python -m argus_skill.tools.image_tool paper-prompt ...`, keep the required `argus-image2-paper-prompt-v1` and `paper-framework-figure-studio-pro-v3.1.4a` markers, then generate 6--20 layout variants by changing only the layout/candidate-contract fields; keep the best reviewed raster and record the selected `prompt_variant_id` in provenance or the manifest:
+6. Do not let the model freehand a one-paragraph image prompt. Before calling image-2, create `paper/figures/method_overview.prompt.txt` with `python -m argus_skill.verticals.research.figure_tool paper-prompt ...`; it is the recommended canonical prompt (carrying the `argus-image2-paper-prompt-v1` and `paper-framework-figure-studio-pro-v3.1.4a` markers), then generate as many layout variants as needed (up to 20) by changing only the layout/candidate-contract fields; keep the best reviewed raster and record the selected `prompt_variant_id` in provenance or the manifest:
 
        Use case: scientific-educational
        Prompt template: argus-image2-paper-prompt-v1
@@ -542,7 +543,7 @@ The full project is complete only when the L2 reviewer certifies `done` for `sco
 
 ## Harness self-evolution
 Recurring role-behavior failures may be encoded as reversible prompt rules with
-`python -m argus_skill.tools.harness_evolve add-rule`. Checklist changes belong
+Reusable behavior belongs in a Skill. Checklist changes belong
 only to Planner `checklist_ops`; Reviewer supplies feedback and Engineer never
 edits checklist content.
 ````

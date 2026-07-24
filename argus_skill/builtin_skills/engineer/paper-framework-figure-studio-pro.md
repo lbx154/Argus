@@ -50,8 +50,8 @@ moving. First ensure these exist:
 Then run:
 
 ```bash
-python -m argus_skill.tools.image_tool freeze-paper-context --project-root .
-python -m argus_skill.tools.image_tool paper-cache-status \
+python -m argus_skill.verticals.research.figure_tool freeze-paper-context --project-root .
+python -m argus_skill.verticals.research.figure_tool paper-cache-status \
   --project-root . --figure-type method
 ```
 
@@ -95,17 +95,17 @@ Based on S0 extraction, decide:
 
 ### S2-SKETCH-EXPLORE — Generate diverse exploration candidates
 
-Generate and review **6 structurally different candidates** as the minimum
-cache. Use up to 20 only when the first six do not contain an acceptable
-direction. Generate independent variants in parallel, then run `review` and
-`sync-paper-metadata` for every candidate so it enters
-`IMAGE2_CANDIDATE_CACHE.json`.
+Generate and review structurally different candidates until at least one
+reviewed candidate passes — there is no fixed minimum batch size to grind
+through before you are allowed to stop. Explore additional variants (up to 20)
+only when you actually want alternative directions to compare. Generate
+independent variants in parallel, then run `review` and `sync-paper-metadata`
+for every candidate so it enters `IMAGE2_CANDIDATE_CACHE.json`.
 
-Every `paper-prompt` call must pass `--project-root . --figure-type method`;
-every `generate` call must pass `--paper-figure-type method`. Once
-`paper-cache-status` reports `reusable: true`, both commands return a cache hit
-instead of creating another candidate unless `--ignore-reviewed-cache` is
-explicitly supplied.
+Every `paper-prompt` call must pass `--project-root . --figure-type method`.
+Check `paper-cache-status --figure-type method` before generating: once it
+reports `reusable: true`, reuse the cached candidate instead of spending
+another image call, unless `--ignore-reviewed-cache` is explicitly supplied.
 
 ### S3-DIRECTION-SELECT — Pick the best structural direction
 
@@ -145,11 +145,12 @@ The content block must use actual project module names, NOT generic labels.
 
 ### S5-CANDIDATE-IMAGE — Generate refined formal candidates
 
-Check the reviewed cache first. If six or more passing candidates already exist
-for the frozen context, do not generate again: select/refine the best cached
-candidate through caption and manuscript integration. Otherwise generate only
-the additional variants needed, never exceeding 20 reviewed candidates for the
-figure type. Refined candidates should be clean publication-ready references:
+Check the reviewed cache first (`paper-cache-status --figure-type method`). If
+a passing candidate already exists for the frozen context, do not generate
+again: select/refine the best cached candidate through caption and manuscript
+integration. Otherwise generate only the additional variants you actually
+want to compare, never exceeding 20 reviewed candidates for the figure type.
+Refined candidates should be clean publication-ready references:
 - Straight or gently curved connectors with consistent stroke weight
 - Modular cards, panels, callouts, compact mechanism insets
 - Restrained color coding and high contrast
@@ -158,19 +159,18 @@ figure type. Refined candidates should be clean publication-ready references:
 - The core contribution module shows its internal mechanism
 
 ```bash
-python -m argus_skill.tools.image_tool paper-prompt \
+python -m argus_skill.verticals.research.figure_tool paper-prompt \
   --project-root . --figure-type method \
   --out paper/figures/<id>.prompt.txt \
   --figure-title "<from S4>" --content "<from S4>" \
   --layout-variant "<from S4>" --force
 
-python -m argus_skill.tools.image_tool generate \
-  --project-root . --paper-figure-type method \
+python -m argus_skill.tools.image_api generate \
   --prompt-file paper/figures/<id>.prompt.txt \
   --out paper/figures/<id>.png --size 1536x1024 --force
 
-python -m argus_skill.tools.image_tool inspect --image paper/figures/<id>.png
-python -m argus_skill.tools.image_tool review \
+python -m argus_skill.tools.image_api inspect --image paper/figures/<id>.png
+python -m argus_skill.verticals.research.figure_tool review \
   --image paper/figures/<id>.png \
   --prompt-file paper/figures/<id>.prompt.txt \
   --out paper/figures/<id>.png.review.json
@@ -198,7 +198,7 @@ cp paper/figures/<selected>.png.review.json paper/figures/method_overview.png.re
 cp paper/figures/<selected>.prompt.txt paper/figures/method_overview.prompt.txt
 
 # MUST run sync immediately after copy — fixes all hash/metadata alignment
-"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.tools.image_tool sync-paper-metadata \
+"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.verticals.research.figure_tool sync-paper-metadata \
   --project-root . --image paper/figures/method_overview.png \
   --prompt-file paper/figures/method_overview.prompt.txt \
   --figure-id method_overview --figure-type method
@@ -224,7 +224,7 @@ Verdict: `PASS`, `TEXT-REPAIR` (fix caption/legend → S6), `IMAGE-REPAIR`
 
 If PASS: sync metadata and validate:
 ```bash
-python -m argus_skill.tools.image_tool sync-paper-metadata \
+python -m argus_skill.verticals.research.figure_tool sync-paper-metadata \
   --project-root . --image paper/figures/method_overview.png \
   --prompt-file paper/figures/method_overview.prompt.txt \
   --figure-id method_overview --figure-type method

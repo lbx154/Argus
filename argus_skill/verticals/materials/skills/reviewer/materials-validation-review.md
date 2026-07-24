@@ -37,7 +37,7 @@ method and claim rather than requiring the same packet for every task.
 - inspect all relevant attempts, not only the selected successful run;
 - reject hard-coded outputs, edited references, target leakage, mismatched
   hardware/conditions/metrics, and unsupported cherry-picking;
-- calibrate the conclusion to supported, partial, inconclusive, no-go, or unknown.
+- calibrate the conclusion to supported, partial, inconclusive, or unknown.
 
 Do not demand physical experiments for a claim explicitly bounded to a
 simulation method, but do require the report to say that experimental validity

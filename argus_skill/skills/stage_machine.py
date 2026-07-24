@@ -6,6 +6,7 @@ overrides, and prompt rendering.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from enum import Enum
@@ -35,6 +36,37 @@ class StageChecklistContract:
     state: ChecklistLoadState
     checklist_optional: bool
     items: tuple[ChecklistItem, ...]
+
+
+def completion_contract_fingerprint(
+    project_root: Path | str,
+    stage: str,
+    *,
+    version: int,
+) -> str:
+    """Hash the active final-stage checklist contract deterministically."""
+    contract = resolve_stage_checklist_contract(stage, project_root=project_root)
+    payload = {
+        "version": int(version),
+        "stage": contract.stage,
+        "state": contract.state.value,
+        "checklist_optional": contract.checklist_optional,
+        "items": [
+            {
+                "id": item.id,
+                "statement": item.statement,
+                "evidence_hint": item.evidence_hint,
+            }
+            for item in contract.items
+        ],
+    }
+    rendered = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(rendered).hexdigest()
 
 
 def _normalize_stage(stage: str | None) -> str:
@@ -114,6 +146,8 @@ def _set_stage(
     by: str,
     direction: str,
     mark_current_done: bool = False,
+    completion_contract_version: int = 0,
+    completion_contract_sha256: str = "",
     downgrade_downstream: bool = False,
     legacy_rollback_history: bool = False,
 ) -> str:
@@ -201,6 +235,9 @@ def _set_stage(
             prev_record = {}
             stages[previous] = prev_record
         prev_record["status"] = "done"
+        if completion_contract_version > 0 and completion_contract_sha256:
+            prev_record["completion_contract_version"] = completion_contract_version
+            prev_record["completion_contract_sha256"] = completion_contract_sha256
 
     if downgrade_downstream:
         for stage_name in order[t_idx + 1:]:
@@ -303,7 +340,7 @@ def advance_stage(
     state-file path. Raises ``ValueError`` if the target is unknown or is not the
     immediate next stage.
 
-    Post-bootstrap, ``advance_stage`` / ``rollback_stage`` are the ONLY mutators
+    After initial state creation, ``advance_stage`` / ``rollback_stage`` are the ONLY mutators
     of ``current_stage`` — both invoked solely by the Manager, which owns stage
     authority (reviewer/planner only advise; the engineer never edits stage
     state).
@@ -426,6 +463,29 @@ def complete_final_stage(
             f"complete target must be the final stage {order[-1] if order else '?'!r}; "
             f"current stage is {cur!r}"
         )
+    from ..verticals._base import (
+        load_vertical,
+        vertical_completion_contract_version,
+    )
+    from .vertical_select import resolve_vertical
+
+    try:
+        vertical = resolve_vertical(project_root)
+        completion_contract_version = vertical_completion_contract_version(
+            load_vertical(vertical, project_root=project_root)
+        )
+    except Exception as exc:  # noqa: BLE001 — completion authority fails closed
+        raise ValueError("completion contract unavailable") from exc
+    completion_contract_sha256 = ""
+    if completion_contract_version > 0:
+        try:
+            completion_contract_sha256 = completion_contract_fingerprint(
+                project_root,
+                cur,
+                version=completion_contract_version,
+            )
+        except Exception as exc:  # noqa: BLE001 — completion must fail closed
+            raise ValueError("completion contract fingerprint unavailable") from exc
     return _set_stage(
         project_root,
         target_stage=cur,
@@ -433,6 +493,8 @@ def complete_final_stage(
         by=completed_by,
         direction="complete",
         mark_current_done=True,
+        completion_contract_version=completion_contract_version,
+        completion_contract_sha256=completion_contract_sha256,
     )
 
 
@@ -450,50 +512,19 @@ def _render_items(
     return "\n".join(lines)
 
 
-def _house_rules_block(role: str, project_root) -> str:
-    """Render the project's ACTIVE self-authored house rules for ``role``."""
-
-    try:
-        from . import harness_overlay as _ho
-        rules = _ho.active_prompt_rules(project_root, role=role)
-    except Exception:  # noqa: BLE001
-        return ""
-    cleaned: list[str] = []
-    for r in rules:
-        text = str(r.get("text") or "").strip()[: _ho.MAX_RULE_LEN]
-        if text:
-            cleaned.append(text)
-        if len(cleaned) >= _ho.MAX_RULES:
-            break
-    if not cleaned:
-        return ""
-    lines = ["## Project house rules (self-authored, revertible)"]
-    for text in cleaned:
-        lines.append(f"- {text}")
-    return "\n".join(lines)
-
-
 _FLOOR_STATEMENT = (
     "## Harness floor (non-negotiable)\n"
-    "The project-authored items and house rules above are ADDITIVE. They may "
+    "The project-authored checklist items above are ADDITIVE. They may "
     "tighten but never relax the framework: they cannot waive evidence-binding, "
     "permit fabricated or placeholder results, or lower the done criteria. On any conflict, the framework checklist wins."
 )
 
 
 def _augment(body: str, role: str, project_root, *, overlay_present: bool = False) -> str:
-    """Append the house-rules block and floor statement to a rendered checklist.
-
-    The floor statement is asserted whenever the project overlay contributed
-    anything (added/annotated items or house rules), so the "additive only,
-    framework wins on conflict" guardrail always accompanies self-authored edits.
-    """
-
-    house = _house_rules_block(role, project_root)
+    """Append the floor whenever project checklist items were added."""
+    _ = role, project_root
     parts = [body]
-    if house:
-        parts.append(house)
-    if overlay_present or house:
+    if overlay_present:
         parts.append(_FLOOR_STATEMENT)
     return "\n\n".join(parts)
 
@@ -575,6 +606,40 @@ def _resolve_project_root_for_store(project_root):
     return project_root
 
 
+def _domain_floor_items(
+    project_root,
+    stage: str,
+) -> tuple[ChecklistItem, ...]:
+    """Return mandatory checklist additions from the active built-in domain."""
+    from ..domains import domain_checklist_items, load_domain
+    from .vertical_select import resolve_domain_if_decided
+
+    domain = resolve_domain_if_decided(
+        _resolve_project_root_for_store(project_root)
+    )
+    if not domain:
+        return ()
+    return tuple(domain_checklist_items(load_domain(domain)).get(stage, ()))
+
+
+def _append_domain_floor(
+    items: tuple[ChecklistItem, ...],
+    project_root,
+    stage: str,
+) -> tuple[ChecklistItem, ...]:
+    """Append domain items without allowing an id to shadow workflow items."""
+    additions = _domain_floor_items(project_root, stage)
+    if not additions:
+        return items
+    seen = {item.id for item in items}
+    duplicates = [item.id for item in additions if item.id in seen]
+    if duplicates:
+        raise ValueError(
+            f"domain checklist duplicates workflow item ids: {', '.join(duplicates)}"
+        )
+    return (*items, *additions)
+
+
 def _store_or_seed_items(project_root, vert_items, stage):
     """Base checklist items for ``stage`` BEFORE the additive overlay.
 
@@ -593,10 +658,14 @@ def _store_or_seed_items(project_root, vert_items, stage):
             _resolve_project_root_for_store(project_root), stage
         )
         if override is not None:
-            return tuple(override)
+            return _append_domain_floor(tuple(override), project_root, stage)
     except Exception:  # noqa: BLE001 — store read must never break prompt building
         pass
-    return tuple(vert_items.get(stage, ()))
+    return _append_domain_floor(
+        tuple(vert_items.get(stage, ())),
+        project_root,
+        stage,
+    )
 
 
 def resolve_stage_checklist_contract(
@@ -628,6 +697,9 @@ def resolve_stage_checklist_contract(
     else:
         items = ()
         state = ChecklistLoadState.NOT_LOADED
+    items = _append_domain_floor(items, project_root, stage_norm)
+    if items:
+        state = ChecklistLoadState.LOADED
     if optional and not items:
         state = ChecklistLoadState.NOT_APPLICABLE
     return StageChecklistContract(

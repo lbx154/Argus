@@ -126,7 +126,7 @@ class VenueProfile:
     # ---- figure (image-2) style persona --------------------------------
     # The venue family used when prompting/reviewing paper figures. EMNLP
     # figures read as "EMNLP/ACL/NeurIPS" method figures; AAAI as "AAAI".
-    # image_tool builds its prompt/rubric skeleton and fills the venue from
+    # figure_tool builds the prompt/rubric skeleton and fills the venue from
     # here, so a figure is never prompted or graded against the wrong venue.
     figure_style_persona: str = "EMNLP/ACL/NeurIPS"
 

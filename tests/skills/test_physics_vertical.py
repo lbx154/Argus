@@ -70,13 +70,13 @@ def test_physics_planner_banner_encodes_dynamic_route_and_no_fixed_pipeline() ->
 
     assert "physics-specific route selection" in planner
     assert "no fixed paper pipeline" in planner
-    # The route menu itself must be present, including an honest no-go.
+    # The route menu itself must include real physics methods.
     assert "theoretical derivation" in planner
     assert "numerical simulation" in planner
     assert "data analysis" in planner
     assert "literature synthesis" in planner
     assert "experiment design" in planner
-    assert "no-go" in planner
+    assert "bounded negative result" in planner
     # It must require the scope to be pinned before execute.
     assert "Before execute" in planner
     assert "observables" in planner
@@ -99,7 +99,7 @@ def test_physics_engineer_banner_encodes_units_equations_assumptions_evidence() 
     assert "uncertainty" in engineer
     assert "provenance" in engineer
     assert "toy demo" in engineer
-    assert "NO_GO" in engineer
+    assert "explicit blocker" in engineer
 
 
 def test_physics_reviewer_banner_encodes_fidelity_units_bcic_evidence_and_antidrift() -> None:
@@ -123,7 +123,7 @@ def test_physics_reviewer_banner_encodes_fidelity_units_bcic_evidence_and_antidr
     assert "metadata-only" in reviewer
     assert "unavailable" in reviewer
     # Final claim-status vocabulary.
-    assert "supported, partial, no-go, inconclusive, or unknown" in reviewer
+    assert "supported, partial, inconclusive, or unknown" in reviewer
 
 
 def test_every_physics_stage_has_checklist_items() -> None:

@@ -11,11 +11,10 @@ the Python verticals use.
 ``DataDomain`` exposes the exact attribute surface the optional-hook accessors in
 :mod:`argus_skill.verticals._base` read via ``getattr``
 (``STAGE_ORDER`` / ``CHECKLIST_STAGE_ORDER`` / ``CHECKLIST_ITEMS`` /
-``completion_gate`` / ``role_banner`` / ``STAGE_CHECKS`` / ``REVIEWER_CHECKLISTS``),
-so ``_base`` needs no changes to consume it. A fresh data domain ships an EMPTY
-``CHECKLIST_ITEMS`` (the Planner authors the per-stage checklist at runtime via
-:mod:`argus_skill.skills.checklist_store`) and ``completion_gate="none"`` so it
-does not demand the paper submission gate.
+``completion_gate`` / ``role_banner``), so ``_base`` needs no changes to consume
+it. A fresh data domain ships an EMPTY ``CHECKLIST_ITEMS`` (the Planner authors
+the per-stage checklist at runtime via :mod:`argus_skill.skills.checklist_store`)
+and ``completion_gate="none"`` so it does not demand the paper submission gate.
 
 Hybrid lifecycle: a data domain that proves out is later PROMOTED into a real
 ``argus_skill/verticals/<name>/`` package by
@@ -47,10 +46,6 @@ INDEX_FILE = "INDEX.json"
 #: A valid data-domain name: lowercase slug, no path separators, no leading dot.
 _NAME_RE = re.compile(r"^[a-z0-9_]+$")
 
-#: Shared minimal stage check (mirrors the Python verticals' ``_PIPELINE_CHECK``):
-#: every stage at least needs the pipeline-state file present.
-_PIPELINE_CHECK = ("Pipeline state present", "test -f research/PIPELINE_STATE.json")
-
 #: A fresh data domain does not demand the paper submission gate.
 DEFAULT_COMPLETION_GATE = "none"
 
@@ -73,7 +68,7 @@ def _index_path(project_root: object) -> Path:
 
 
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    """Atomic tmp+rename write (mirrors ``harness_overlay._atomic_write_json``)."""
+    """Atomic tmp+rename write."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
     try:
@@ -118,12 +113,6 @@ class DataDomain:
         self.CHECKLIST_STAGE_ORDER = tuple(checklist_stage_order)
         self.completion_gate = gate or DEFAULT_COMPLETION_GATE
         self._role_banner = str(payload.get("role_banner") or "")
-
-        # Minimal System-A shell checks per stage (the markdown checklist + the
-        # reviewer are the real gate; these only confirm artifacts physically
-        # exist). Kept for any future per-vertical dispatch / promotion template.
-        self.STAGE_CHECKS = {stage: [_PIPELINE_CHECK] for stage in stages}
-        self.REVIEWER_CHECKLISTS: dict[str, list[str]] = {}
 
         # Optional per-stage seed checklist (usually empty for a fresh
         # Manager-authored domain; the Planner authors items at runtime via the

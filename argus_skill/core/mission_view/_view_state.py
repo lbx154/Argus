@@ -18,7 +18,7 @@ from ..event_catalog import EventType, canonical_event_type
 
 MISSION_VIEW_FILE = "mission-view.json"
 MISSION_VIEW_LOCK_FILE = "mission-view.lock"
-MISSION_VIEW_SCHEMA_VERSION = 1
+MISSION_VIEW_SCHEMA_VERSION = 2
 MISSION_TIMELINE_LIMIT = 120
 MISSION_ROLE_WORK_LIMIT_PER_ROLE = 40
 MISSION_BOOTSTRAP_MAX_BYTES = 8 * 1024 * 1024
@@ -58,12 +58,7 @@ def empty_mission_view() -> dict[str, Any]:
             for role in _ROLE_NAMES
         ],
         "role_work": [],
-        "decision_context": {},
         "dag": [],
-        "hypotheses": [],
-        "experiments": [],
-        "metrics": [],
-        "primary_metric": None,
         "timeline": [],
         "artifacts": [],
         "learned_skills": [],
@@ -114,8 +109,21 @@ def _read_unlocked(root: Path) -> dict[str, Any]:
         payload = json.loads((root / MISSION_VIEW_FILE).read_text(encoding="utf-8"))
     except (FileNotFoundError, OSError, json.JSONDecodeError, ValueError):
         return empty_mission_view()
-    if not isinstance(payload, dict) or payload.get("schema_version") != MISSION_VIEW_SCHEMA_VERSION:
+    if not isinstance(payload, dict):
         return empty_mission_view()
+    schema_version = payload.get("schema_version")
+    if schema_version not in {1, MISSION_VIEW_SCHEMA_VERSION}:
+        return empty_mission_view()
+    if schema_version == 1:
+        payload["schema_version"] = MISSION_VIEW_SCHEMA_VERSION
+        for key in (
+            "hypotheses",
+            "experiments",
+            "metrics",
+            "primary_metric",
+            "decision_context",
+        ):
+            payload.pop(key, None)
     storage_defaults = {
         "project_skill_dir": "",
         "global_skill_dir": "",
@@ -132,7 +140,6 @@ def _read_unlocked(root: Path) -> dict[str, Any]:
         storage.setdefault(key, value)
     payload.setdefault("learned_wiki_pages", [])
     payload.setdefault("role_work", [])
-    payload.setdefault("decision_context", {})
     payload.setdefault("outcome", {})
     for skill in payload.setdefault("learned_skills", []):
         if isinstance(skill, dict):
@@ -196,12 +203,6 @@ _PROJECTED_EVENT_TYPES = frozenset({
     EventType.ROUND_REVIEW_DEFERRED,
     EventType.ROUND_REVIEW_COMPLETED,
     EventType.ENGINEER_PROGRESS,
-    EventType.RESEARCH_HYPOTHESIS_PROPOSED,
-    EventType.RESEARCH_EXPERIMENT_STARTED,
-    EventType.RESEARCH_EXPERIMENT_COMPLETED,
-    EventType.RESEARCH_METRIC_REPORTED,
-    EventType.RESEARCH_METRIC_VERIFIED,
-    EventType.RESEARCH_ARTIFACT_REGISTERED,
     EventType.RESEARCH_ACHIEVEMENT_CERTIFIED,
     EventType.SKILL_CREATED,
     EventType.SKILL_UPDATED,

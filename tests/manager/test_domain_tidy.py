@@ -66,7 +66,6 @@ def test_rendered_stages_py_is_valid_and_exposes_contract(tmp_path, monkeypatch)
     assert mod.completion_gate == "none"
     assert [i.id for i in mod.CHECKLIST_ITEMS["scope"]] == ["scope.obj"]
     assert [i.id for i in mod.CHECKLIST_ITEMS["simulate"]] == ["simulate.seeds"]
-    assert set(mod.STAGE_CHECKS) == set(mod.STAGE_ORDER)
     assert callable(mod.role_banner)
 
 

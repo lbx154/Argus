@@ -73,9 +73,10 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
    Use the reported routes: `author` for literature/claim synthesis, `engineer` for code/evaluation helpers, `reviewer` for audits, `image` for image-2/codex-image2 generation, and `image_review` for visual inspection. If a needed route is unavailable but operator-approved environment/Codex config exists, initialize once with:
    `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill --init-model-api`
 3. Keep or create reusable wrappers under `code/`; do not scatter raw API calls through paper generators or review JSON writers. Use `load_model_api_route(...)` from Argus, not hard-coded keys, base URLs, or model names. Route-specific environment overrides such as `ARGUS_SKILL_IMAGE_MODEL=gpt-image-2`, `ARGUS_SKILL_IMAGE_BASE_URL`, and `ARGUS_SKILL_IMAGE_API_KEY` may be used only as process environment, never as committed text.
-4. Officially launched projects include `code/llm.py`; prefer repairing that helper over
-   scattering raw HTTP calls through generators or experiment code. If you must edit or
-   replace it, preserve transient 429/5xx/URL retry with exponential backoff and
+4. No model wrapper is guaranteed to exist. Reuse a sound project helper when present;
+   otherwise create a small project-owned helper such as `code/llm.py` instead of
+   scattering raw HTTP calls through generators or experiment code. Preserve transient
+   429/5xx/URL retry with exponential backoff and
    `Retry-After` handling. Do not convert a rate-limit, disconnect, or temporary backend
    error directly into a deterministic fallback answer for an experiment row; retry first,
    then record the failure explicitly if the route is still unusable. Minimal `code/llm.py`
@@ -154,19 +155,19 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 
 5. For image-2 Figure 1 repair, prefer the Argus image tool and preserve the exact raster it returns:
 
-       "${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.tools.image_tool generate \
+       "${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.tools.image_api generate \
          --prompt-file paper/figures/method_overview.prompt.txt \
          --out paper/figures/method_overview.png \
          --size 1536x1024 --force
-       "${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.tools.image_tool inspect \
+       "${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.tools.image_api inspect \
          --image paper/figures/method_overview.png > paper/figures/method_overview.inspect.json
-       "${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.tools.image_tool review \
+       "${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.verticals.research.figure_tool review \
          --image paper/figures/method_overview.png \
          --prompt-file paper/figures/method_overview.prompt.txt \
          --out paper/figures/method_overview.review.json
 
    A helper such as `code/generate_image2_figure.py` must then write or refresh `paper/figures/IMAGE2_FIGURES.json` with `figure_id`, `figure_type`, `model` or `generator_model`, `prompt_path`, `output_path`, `output_sha256`, `sidecar_path`, `inspect_path`, `review_path`, `generation_provenance_path`, width, and height. The sidecar must preserve image-tool/API evidence (`/images/generations`, model, created time, prompt SHA, output SHA, dimensions), and `review_path` must come from the `image_review` model route. `generation_provenance_path` may point at the image sidecar if that JSON records `prompt_path`, `output_path`, and `output_sha256`. Never crop, downsample, resave, PDF-wrap, locally redraw the accepted raster, or hand-fill `codex-image2` metadata around a local PNG after this provenance is written.
-6. If the current Figure 1/teaser uses image-2 and is ugly, cramped, misspelled, square, generic, or prompt-thin, regenerate through image-2 from `python -m argus_skill.tools.image_tool paper-prompt ...`, keeping the required `argus-image2-paper-prompt-v1` and `paper-framework-figure-studio-pro-v3.1.4a` markers, generating 6--20 layout variants by changing only the layout/candidate-contract fields; keep the best reviewed raster and record the selected `prompt_variant_id` in provenance or the manifest. For any other recorded renderer, repair its source and rerender through the Research Visualization Router:
+6. If the current Figure 1/teaser uses image-2 and is ugly, cramped, misspelled, square, generic, or prompt-thin, regenerate through image-2 from `python -m argus_skill.verticals.research.figure_tool paper-prompt ...`, using it as the recommended canonical prompt (carrying the `argus-image2-paper-prompt-v1` and `paper-framework-figure-studio-pro-v3.1.4a` markers), generating as many layout variants as needed (up to 20) by changing only the layout/candidate-contract fields; keep the best reviewed raster and record the selected `prompt_variant_id` in provenance or the manifest. For any other recorded renderer, repair its source and rerender through the Research Visualization Router:
 
        Use case: scientific-educational
        Prompt template: argus-image2-paper-prompt-v1

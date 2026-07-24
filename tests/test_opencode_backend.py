@@ -259,17 +259,19 @@ def test_opencode_recovers_completed_turn_when_json_stream_ends_early(
         },
     }
     process = _FakeProcess([json.dumps(step_start)])
-    monkeypatch.setattr(runner_mod.subprocess, "Popen", lambda *args, **kwargs: process)
-    monkeypatch.setattr(
-        runner_mod.subprocess,
-        "run",
-        lambda *args, **kwargs: subprocess.CompletedProcess(
+    run_kwargs: dict[str, object] = {}
+
+    def fake_run(*args, **kwargs):
+        run_kwargs.update(kwargs)
+        return subprocess.CompletedProcess(
             args=args[0],
             returncode=0,
             stdout=_export_payload(message_id="assistant-1"),
             stderr="",
-        ),
-    )
+        )
+
+    monkeypatch.setattr(runner_mod.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(runner_mod.subprocess, "run", fake_run)
     monkeypatch.setattr(
         AgentCliRunner,
         "_resolve_executable",
@@ -296,6 +298,8 @@ def test_opencode_recovers_completed_turn_when_json_stream_ends_early(
     assert usage.input_tokens == 15
     assert usage.output_tokens == 2
     assert usage.provider_cost_usd == 0.002
+    assert run_kwargs["encoding"] == "utf-8"
+    assert run_kwargs["errors"] == "replace"
 
 
 def test_opencode_export_recovery_rejects_stale_assistant_message(
@@ -390,12 +394,11 @@ def test_opencode_recovers_from_database_when_export_is_truncated(
             ],
         )
 
-    calls = 0
+    call_kwargs: list[dict[str, object]] = []
 
     def fake_run(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        if calls == 1:
+        call_kwargs.append(kwargs)
+        if len(call_kwargs) == 1:
             return subprocess.CompletedProcess(
                 args=args[0],
                 returncode=0,
@@ -426,7 +429,9 @@ def test_opencode_recovers_from_database_when_export_is_truncated(
     assert [event["type"] for event in events] == ["text", "step_finish"]
     assert events[0]["part"]["text"] == "OK"
     assert events[1]["part"]["reason"] == "stop"
-    assert calls == 2
+    assert len(call_kwargs) == 2
+    assert all(kwargs["encoding"] == "utf-8" for kwargs in call_kwargs)
+    assert all(kwargs["errors"] == "replace" for kwargs in call_kwargs)
 
 
 def test_opencode_nested_error_is_preserved() -> None:

@@ -19,10 +19,6 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
-from ..core.bootstrap import (
-    inspect_project_bootstrap,
-    structured_research_bootstrap_requested,
-)
 from ..life.memory import GlobalMemory, LifeMemory, MemoryBundle, ProjectMemory
 from ._life_worker_identity import (
     _apply_continuous_suppression,
@@ -63,9 +59,6 @@ class _RunForeverState:
         self.sink: Any = None
         self.daemon_sink: Any = None
 
-        # Set by ``_rf_capture_bootstrap_preflight``.
-        self.bootstrap_preflight_pending: Any = None
-
         # Set by ``_rf_resolve_continuous_boot_state``.
         self.resume_intent: bool = False
         self.boot: Any = None
@@ -77,7 +70,7 @@ class _RunForeverState:
         self.init_source_state: Any = None
         self.resume_has_manager_handoff: bool = False
 
-        # Set by ``_rf_finish_bootstrap_and_build_supervisor``.
+        # Set by ``_rf_build_supervisor``.
         self.sup: Any = None
 
 
@@ -88,10 +81,9 @@ class LifeWorkerBootMixin:
         rf_state = _RunForeverState()
         self._rf_bootstrap_environment()
         self._rf_build_memory_runner_sink(rf_state)
-        self._rf_capture_bootstrap_preflight(rf_state)
         self._rf_resolve_continuous_boot_state(rf_state)
         self._rf_manager_divide_on_boot(rf_state)
-        self._rf_finish_bootstrap_and_build_supervisor(rf_state)
+        self._rf_build_supervisor(rf_state)
         maintenance_result = self._rf_init_self_maintenance(rf_state)
         if maintenance_result is not None:
             return maintenance_result
@@ -200,24 +192,6 @@ class LifeWorkerBootMixin:
             life_dir=rf_state.runtime_root,
             verbosity=getattr(rf_state.cfg, "event_log_verbosity", "signal"),
         )
-
-    def _rf_capture_bootstrap_preflight(self, rf_state: _RunForeverState) -> None:
-        """Capture (but do not enqueue) an empty-root bootstrap candidate."""
-        # Capture an empty-root RESEARCH bootstrap candidate before Manager.divide
-        # writes PIPELINE_STATE, but do not enqueue it yet. After divide, only a
-        # structured research signal (persisted research/quant vertical or an
-        # explicit research profile) may activate it. Custom domains such as
-        # composition own their workspace shape and never receive a Python
-        # package bootstrap from the harness.
-        rf_state.bootstrap_preflight_pending = None
-        if rf_state.cfg.project_workdir is not None:
-            bootstrap_preflight = inspect_project_bootstrap(
-                rf_state.cfg.project_workdir,
-                objective_hint=rf_state.cfg.continuous_objective,
-                research_requested=True,
-            )
-            if bootstrap_preflight.should_bootstrap:
-                rf_state.bootstrap_preflight_pending = bootstrap_preflight
 
     def _rf_resolve_continuous_boot_state(self, rf_state: _RunForeverState) -> None:
         """Resolve the boot-time continuous config, suppression, and the live
@@ -373,11 +347,17 @@ class LifeWorkerBootMixin:
                 from ..manager.front_door import (
                     require_manager_execution_task,
                 )
-                from ..skills.vertical_select import _persisted_vertical
+                from ..skills.vertical_select import (
+                    _persisted_domain,
+                    _persisted_vertical,
+                )
 
                 decision = mgr.decide_vertical(source_objective)
                 execution_task = require_manager_execution_task(decision)
                 prior_vertical = _persisted_vertical(
+                    rf_state.cfg.project_workdir or rf_state.runtime_root
+                )
+                prior_domain = _persisted_domain(
                     rf_state.cfg.project_workdir or rf_state.runtime_root
                 )
                 prior_handoff = _read_manager_handoff_identity(rf_state.runtime_root)
@@ -386,13 +366,17 @@ class LifeWorkerBootMixin:
                         rf_state.runtime_root,
                         objective=expected_state.objective,
                         vertical=prior_vertical,
+                        domain=prior_domain or "",
                     )
                 prior_vertical_name = str(prior_vertical or "").strip()
                 next_vertical_name = str(getattr(decision, "vertical", "") or "").strip()
+                next_domain_name = str(getattr(decision, "domain", "") or "").strip()
                 replacement_intent = _daemon_objective_requires_stage_reset(
                     project_root=rf_state.cfg.project_workdir or rf_state.runtime_root,
                     prior_vertical=prior_vertical_name,
                     next_vertical=next_vertical_name,
+                    prior_domain=str(prior_domain or ""),
+                    next_domain=next_domain_name,
                     prior_handoff=prior_handoff,
                     expected_objective=expected_state.objective,
                     source_objective=source_objective,
@@ -451,6 +435,7 @@ class LifeWorkerBootMixin:
                         "objective": source_objective,
                         "execution_task": execution_task,
                         "vertical": getattr(division, "vertical", ""),
+                        "domain": getattr(division, "domain", ""),
                         "kind": getattr(division, "kind", ""),
                         "stages": list(getattr(division, "stages", []) or []),
                         "text": "manager completed daemon objective handoff",
@@ -476,6 +461,7 @@ class LifeWorkerBootMixin:
                         rf_state.runtime_root,
                         objective=execution_task,
                         vertical=str(getattr(division, "vertical", "") or ""),
+                        domain=str(getattr(division, "domain", "") or ""),
                         continuous_generation=expected_state.generation + 1,
                         intent_id=intent_id,
                     )
@@ -548,34 +534,8 @@ class LifeWorkerBootMixin:
                     }
                 )
 
-    def _rf_finish_bootstrap_and_build_supervisor(self, rf_state: _RunForeverState) -> None:
-        """Run the deferred bootstrap seed, refresh project contract, and
-        construct the ``LifeSupervisor``.
-        """
-        # Now that the Manager's divide() above has had its chance to resolve
-        # and persist the real vertical, perform the previously-deferred
-        # bootstrap seed. ``_seed_project_agents_and_venv`` re-reads the
-        # persisted vertical itself, so this ordering is what actually closes
-        # the race — no vertical is threaded through by hand here.
-        if (
-            rf_state.bootstrap_preflight_pending is not None
-            and structured_research_bootstrap_requested(
-                Path(rf_state.bootstrap_preflight_pending.project_root)
-            )
-        ):
-            self._seed_bootstrap_task(
-                rf_state.mem, rf_state.sink, rf_state.bootstrap_preflight_pending
-            )
-
-        # Refresh framework-owned project surfaces only after Manager divide has
-        # persisted the final vertical. Safe digest upgrades preserve user-edited
-        # common skills; the active vertical's read-only layer is authoritative.
-        if rf_state.cfg.project_workdir is not None:
-            try:
-                self._refresh_existing_project_contract(rf_state.mem)
-            except Exception:  # noqa: BLE001 — refresh must not prevent recovery
-                log.exception("daemon: failed to refresh existing project contract")
-
+    def _rf_build_supervisor(self, rf_state: _RunForeverState) -> None:
+        """Construct the ``LifeSupervisor`` after Manager vertical selection."""
         # Build supervisor policy only AFTER Manager.divide() has persisted the
         # vertical.  Mission typing is fail-safe (non-paper until a
         # ``full_paper`` vertical is positively resolved), so constructing this

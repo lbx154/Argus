@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from .event_format import _trunc, format_event_message
+from .event_format import _strip_shell_wrapper, _trunc, format_event_message
 from .theme import BOX, Theme
 
 # ── per-event-type coloring ───────────────────────────────────────────────
@@ -338,20 +338,6 @@ def _first_line(text: str) -> str:
         if s:
             return s
     return text.strip()
-
-
-def _strip_shell_wrapper(cmd: str) -> str:
-    # codex stream-json wraps commands as ``/bin/bash -lc 'real cmd'`` or
-    # ``/bin/bash -c "real cmd"``. Unwrap one layer of quotes so the
-    # operations lane shows the command the model actually intended.
-    prefixes = ("/bin/bash -lc ", "/bin/bash -c ", "bash -lc ", "bash -c ", "sh -c ")
-    for p in prefixes:
-        if cmd.startswith(p):
-            inner = cmd[len(p):].strip()
-            if len(inner) >= 2 and inner[0] == inner[-1] and inner[0] in ("'", '"'):
-                return inner[1:-1]
-            return inner
-    return cmd
 
 
 def _looks_like_diff(text: str) -> bool:
