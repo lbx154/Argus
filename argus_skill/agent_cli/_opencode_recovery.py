@@ -44,6 +44,10 @@ class OpenCodeRecoveryMixin:
                 cwd=options.working_dir or None,
                 env=self._child_env(options),
                 text=True,
+                # UTF-8 avoids a cp1252 decode crash on Windows when the exported
+                # session JSON contains non-Latin-1 model output.
+                encoding="utf-8",
+                errors="replace",
                 capture_output=True,
                 timeout=30.0,
                 check=False,
@@ -187,6 +191,8 @@ class OpenCodeRecoveryMixin:
                 cwd=options.working_dir or None,
                 env=self._child_env(options),
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 capture_output=True,
                 timeout=10.0,
                 check=False,

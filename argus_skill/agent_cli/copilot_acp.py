@@ -192,6 +192,10 @@ class CopilotAcpClient:
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,  # unread stderr PIPE would deadlock; we don't need it
             text=True,
+            # Force UTF-8 so Windows does not fall back to cp1252 and crash the
+            # JSON-RPC stdio bridge on non-Latin-1 payloads.
+            encoding="utf-8",
+            errors="replace",
             bufsize=1,
         )
         self._alive = True
