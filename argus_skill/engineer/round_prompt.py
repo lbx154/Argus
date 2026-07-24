@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, Callable
 
 from ..core.event_catalog import EventType
 from ..roles.prompts.engineer import assemble_round_prompt
-from .background_subagents import render_background_subagents_advisory
 from .checkpoint import shared_checkpoint_instructions
 from .external_work import render_external_work_advisory
 
@@ -50,16 +49,14 @@ class RoundPromptMixin:
             checkpoint_path,
             role="engineer",
         )
-        background_advisory = (
-            render_background_subagents_advisory(workdir)
-            if supervised_config.background_subagent_advisory
-            else ""
+        external_work_advisory = render_external_work_advisory(
+            workdir,
+            include_subagents=supervised_config.background_subagent_advisory,
         )
-        external_work_advisory = render_external_work_advisory(workdir)
         engineer_prompt = assemble_round_prompt(
             engineer_prompt,
             checkpoint_block=checkpoint_block,
-            background_advisory=background_advisory,
+            background_advisory="",
             external_work_advisory=external_work_advisory,
         )
         if on_event:

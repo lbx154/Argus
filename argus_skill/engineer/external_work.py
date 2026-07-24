@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -17,18 +16,10 @@ from typing import Any, Callable
 
 EXTERNAL_WORK_REGISTRY = ".argus_external_work"
 EXTERNAL_WORK_PROTOCOL_VERSION = 1
-_WAIT_SENTINEL = "WAIT_FOR_EXTERNAL_WORK:"
-_WAIT_SENTINEL_RE = re.compile(
-    r"^WAIT_FOR_EXTERNAL_WORK:\s*(?:`([^`\s]+)`|([^\s`]+))\s*$"
-)
-_TERMINAL_STATES = frozenset({
-    "complete", "completed", "done", "error", "failed", "timeout",
-    "crashed", "cancelled", "canceled", "stopped", "early_stopped",
-})
-_LEGACY_INFLIGHT_STATES = frozenset({
+_SUBAGENT_INFLIGHT_STATES = frozenset({
     "running", "starting", "preflight", "discussing",
 })
-_LEGACY_DEGRADED_HEALTH = frozenset({"degrading", "stuck", "diverging"})
+_SUBAGENT_DEGRADED_HEALTH = frozenset({"degrading", "stuck", "diverging"})
 _CADENCE_FLOOR_SECONDS = 30.0
 _CADENCE_CAP_SECONDS = 900.0
 
@@ -171,7 +162,7 @@ def _canonical_status(
     )
 
 
-def _legacy_status(
+def _subagent_status(
     record: dict[str, Any], *, path: Path, now: float
 ) -> ExternalWorkStatus | None:
     work_id = str(record.get("task_id") or path.stem).strip()
@@ -194,19 +185,19 @@ def _legacy_status(
     concern = " ".join(str(
         record.get("last_supervisor_concern") or record.get("concern") or ""
     ).split())
-    if state_value not in _LEGACY_INFLIGHT_STATES:
+    if state_value not in _SUBAGENT_INFLIGHT_STATES:
         state = ExternalWorkState.TERMINAL
-        reason = f"legacy subagent state={state_value or 'unknown'}"
+        reason = f"subagent state={state_value or 'unknown'}"
     elif not _pid_alive(record.get("worker_pid", record.get("pid"))):
         state = ExternalWorkState.STALLED
-        reason = "legacy subagent worker process is not alive"
+        reason = "subagent worker process is not alive"
     elif heartbeat_at <= 0 or now - heartbeat_at > stale_after:
         state = ExternalWorkState.STALLED
-        reason = "legacy subagent supervisor heartbeat is stale"
+        reason = "subagent supervisor heartbeat is stale"
     elif (
         mode != "supervised"
         or state_value == "discussing"
-        or health in _LEGACY_DEGRADED_HEALTH
+        or health in _SUBAGENT_DEGRADED_HEALTH
         or concern.lower().strip(".") not in {
             "", "none", "n/a", "na", "null", "nil", "-", "no concern",
             "no concerns", "no issues", "no issue",
@@ -214,7 +205,8 @@ def _legacy_status(
         or decision == "early_stop"
     ):
         state = ExternalWorkState.NEEDS_ATTENTION
-        reason = "legacy subagent requires Engineer attention"
+        details = concern or health or decision or mode
+        reason = f"subagent requires Engineer attention: {details}"
     else:
         state = ExternalWorkState.RUNNING_HEALTHY
         reason = ""
@@ -236,7 +228,7 @@ def scan_external_work(
     workdir: Path | str,
     *,
     now: float | None = None,
-    include_legacy_subagents: bool = True,
+    include_subagents: bool = True,
 ) -> list[ExternalWorkStatus]:
     """Return validated current states, preferring canonical records by work id."""
     observed_at = time.time() if now is None else float(now)
@@ -250,11 +242,11 @@ def scan_external_work(
         )
         if status is not None:
             statuses[status.work_id] = status
-    if include_legacy_subagents:
+    if include_subagents:
         for path in _registry_files(workdir, ".argus_subagents"):
             record = _read_record(path)
             status = (
-                _legacy_status(record, path=path, now=observed_at)
+                _subagent_status(record, path=path, now=observed_at)
                 if record is not None
                 else None
             )
@@ -277,23 +269,24 @@ def inspect_external_work(
     )
 
 
-def parse_external_wait_sentinel(message: str | None) -> str | None:
-    """Legacy adapter for pre-control-file Engineer sessions."""
+def parse_external_wait_request(message: str | None) -> tuple[str, str] | None:
+    """Parse an exact structured wait request from the final response line."""
     if not message:
         return None
-    text = message.strip()
-    lines = text.splitlines()
-    if (
-        len(lines) >= 2
-        and lines[0].strip().startswith("```")
-        and lines[-1].strip() == "```"
-    ):
-        text = "\n".join(lines[1:-1]).strip()
-    non_empty = [line.strip() for line in text.splitlines() if line.strip()]
+    non_empty = [line.strip() for line in message.splitlines() if line.strip()]
     if not non_empty:
         return None
-    match = _WAIT_SENTINEL_RE.fullmatch(non_empty[-1])
-    return (match.group(1) or match.group(2)) if match is not None else None
+    try:
+        payload = json.loads(non_empty[-1])
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    wait_for = str(payload.get("wait_for") or "").strip()
+    wait_id = str(payload.get("wait_id") or "").strip()
+    if wait_for not in {"external_work", "subagent"} or not wait_id:
+        return None
+    return wait_for, wait_id
 
 
 def cadence_seconds(status: ExternalWorkStatus) -> float:
@@ -335,12 +328,24 @@ def wait_for_external_work_cadence(
 
 
 def render_external_work_advisory(
-    workdir: Path | str, *, now: float | None = None
+    workdir: Path | str,
+    *,
+    now: float | None = None,
+    include_subagents: bool = True,
 ) -> str:
-    """Render canonical external work only; legacy subagents keep their old advisory."""
-    statuses = scan_external_work(
-        workdir, now=now, include_legacy_subagents=False
-    )
+    """Render the single liveness advisory for external work and subagents."""
+    statuses = [
+        status
+        for status in scan_external_work(
+            workdir,
+            now=now,
+            include_subagents=include_subagents,
+        )
+        if not (
+            status.source == "subagent"
+            and status.state is ExternalWorkState.TERMINAL
+        )
+    ]
     if not statuses:
         return ""
     lines = [
@@ -350,11 +355,14 @@ def render_external_work_advisory(
     for status in statuses:
         detail = status.reason or status.outcome or status.description
         suffix = f" - {detail}" if detail else ""
-        lines.append(f"- `{status.work_id}`: {status.state.value}{suffix}")
+        lines.append(
+            f"- `{status.work_id}` ({status.source}): {status.state.value}{suffix}"
+        )
     if any(status.waitable for status in statuses):
         lines.extend([
-            "If all remaining work depends on one RUNNING_HEALTHY item, end your response with",
-            "    WAIT_FOR_EXTERNAL_WORK: <work_id>",
+            "If all remaining work depends on one RUNNING_HEALTHY item, end your response with one JSON line:",
+            '    {"wait_for": "external_work", "wait_id": "<work_id>"}',
+            'Use "subagent" instead of "external_work" for a listed subagent.',
             "Argus will pause progress clocks for one declared cadence. File growth alone never counts as progress.",
         ])
     return "\n".join(lines)

@@ -43,9 +43,13 @@ class PlanningCycleMixin(
             return None
         root = self._artifact_root()
         try:
-            from ...engineer.background_subagents import scan_inflight_subagents
+            from ...engineer.external_work import scan_external_work
 
-            watched = [job for job in scan_inflight_subagents(root) if job.self_watched]
+            watched = [
+                job
+                for job in scan_external_work(root)
+                if job.source == "subagent" and job.waitable
+            ]
         except Exception:  # noqa: BLE001 - overlap is a throughput optimization
             return None
         if not watched:
@@ -63,7 +67,7 @@ class PlanningCycleMixin(
         from ...skills.stage_machine import current_stage
 
         stage = current_stage(root)
-        job_ids = ", ".join(job.task_id for job in watched[:4])
+        job_ids = ", ".join(job.work_id for job in watched[:4])
         objective = (
             f"Bounded overlap mission while current_stage remains `{stage}` and "
             f"healthy self-watched background job(s) `{job_ids}` continue. Do not "

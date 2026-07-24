@@ -4,7 +4,7 @@ from __future__ import annotations
 from argparse import Namespace
 from pathlib import Path
 
-from argus_skill.apps.cli import _cmd_daemon_runbook
+from argus_skill.apps.cli._core import _cmd_daemon_runbook
 
 
 def test_daemon_runbook_mentions_external_shell_and_verification(

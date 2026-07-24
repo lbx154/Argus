@@ -30,7 +30,6 @@ from ..core.stop_kinds import (
     pause_status_for_stop_kind,
     stop_kind_from_external_interrupt,
 )
-from .background_subagents import render_background_subagents_advisory
 from .external_work import render_external_work_advisory
 from .round_signals import _review_event_payload
 from .round_state import (
@@ -137,15 +136,9 @@ class RoundReviewerMixin:
             reviewer_background_context = ""
             if supervised_config.background_subagent_advisory:
                 try:
-                    reviewer_background_context = (
-                        "\n\n".join(
-                            block
-                            for block in (
-                                render_background_subagents_advisory(workdir),
-                                render_external_work_advisory(workdir),
-                            )
-                            if block
-                        )
+                    reviewer_background_context = render_external_work_advisory(
+                        workdir,
+                        include_subagents=True,
                     )
                 except Exception:  # noqa: BLE001 — advisory is non-critical context
                     log.debug(

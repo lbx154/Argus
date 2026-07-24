@@ -8,7 +8,7 @@ from argus_skill.engineer.external_work import (
     EXTERNAL_WORK_PROTOCOL_VERSION,
     ExternalWorkState,
     inspect_external_work,
-    parse_external_wait_sentinel,
+    parse_external_wait_request,
     render_external_work_advisory,
     scan_external_work,
     wait_for_external_work_cadence,
@@ -138,5 +138,7 @@ def test_advisory_and_sentinel_are_explicit_about_liveness_only(tmp_path: Path) 
     assert "not scientific evidence" in advisory
     assert '"wait_for": "external_work"' in advisory
     assert "WAIT_FOR_EXTERNAL_WORK:" not in advisory
-    assert parse_external_wait_sentinel("summary\nWAIT_FOR_EXTERNAL_WORK: job-1") == "job-1"
-    assert parse_external_wait_sentinel("WAIT_FOR_EXTERNAL_WORK: job-1 please") is None
+    assert parse_external_wait_request(
+        'summary\n{"wait_for": "external_work", "wait_id": "job-1"}'
+    ) == ("external_work", "job-1")
+    assert parse_external_wait_request("WAIT_FOR_EXTERNAL_WORK: job-1") is None
