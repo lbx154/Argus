@@ -704,6 +704,10 @@ def test_life_worker_separates_boundary_stop_from_mission_interrupt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_SKIP_VAULT_PREFLIGHT", "1")
+    monkeypatch.setattr(
+        "argus_skill.core.backend_readiness.check_backend_readiness",
+        lambda *_args, **_kwargs: SimpleNamespace(ok=True),
+    )
     cfg = LifeWorkerConfig(life_dir=tmp_path, backend="codex", poll_interval=0.1)
     LifeMemory.open(tmp_path).init()
     captured: dict[str, Any] = {}

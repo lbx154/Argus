@@ -317,12 +317,23 @@ def _preflight_route_on_codex(route: str) -> bool:
         BACKEND_CODEX,
         resolve_available_runner,
     )
+    from ..core.backend_readiness import (
+        AUTH_MODE_MODEL_API,
+        resolve_backend_profile,
+    )
     from ..core.knobs import resolve_role_backend
 
     role = route if route in ("engineer", "reviewer", "planner", "manager", "curator") else ""
     chosen = resolve_role_backend(role)
     if not chosen:
         chosen = BACKEND_CODEX
+    if str(chosen).strip().lower() not in {
+        "codex",
+        "copilot",
+        "claude",
+        "opencode",
+    }:
+        return True
     role_bin = (
         os.environ.get(f"ARGUS_SKILL_{role.upper()}_RUNNER_BIN", "").strip()
         if role
@@ -334,7 +345,10 @@ def _preflight_route_on_codex(route: str) -> bool:
             chosen,
             configured or None,
         )
-        return effective == BACKEND_CODEX
+        return (
+            effective == BACKEND_CODEX
+            and resolve_backend_profile(chosen).auth_mode == AUTH_MODE_MODEL_API
+        )
     except Exception:  # noqa: BLE001 — unknown value: keep the safety probe
         return True
 

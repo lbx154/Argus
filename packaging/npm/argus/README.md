@@ -6,17 +6,18 @@ The Copilot path requires Node.js 22 or newer and an active Copilot subscription
 ```bash
 npm install -g @github/copilot @argusevolve/argus@beta
 copilot login
-argus --setup
+argus --setup --non-interactive --backend copilot --accept-house-rules
 argus
 ```
 
-`argus --setup` creates the required trusted baseline house-rules directive
-when none exists, preserves any operator-authored directives, and defaults to
-Copilot when it is the only supported agent CLI on `PATH`.
+`argus --setup` validates and persists an explicit backend/auth mode. It creates
+the required trusted baseline house-rules directive when accepted, preserves
+operator-authored directives, and does not change global Git identity or
+backend-owned authentication files by default.
 
-`argus` opens the terminal cockpit. `argus --web` starts and opens the Web UI.
-The compatibility command `argus-skill` remains available for administrative
-operations.
+`argus` opens the terminal cockpit. `argus --daemon-fg` runs a supervised
+foreground worker; `argus --daemon` runs persistently in the background;
+`argus --doctor` validates readiness.
 
 The npm tarball contains a small JavaScript launcher and a platform executable;
 it does not contain the Argus Python source tree, tests, private documentation,

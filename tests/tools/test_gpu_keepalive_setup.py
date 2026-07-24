@@ -147,7 +147,7 @@ def test_configure_author_prompts_and_sets_git(tmp_path: Path, monkeypatch) -> N
         _wizard, "_apply_git_identity",
         lambda name, email: applied.update(name=name, email=email) or True,
     )
-    result = _wizard._configure_author(None)
+    result = _wizard._configure_author(None, set_git_global=True)
     assert result == {"name": "lbx154", "email": "lbxhaixing154@sjtu.edu.cn"}
     assert applied == {"name": "lbx154", "email": "lbxhaixing154@sjtu.edu.cn"}
     assert _wizard._load_existing_author() == result
@@ -199,7 +199,7 @@ def test_setup_defaults_to_only_installed_copilot(
     from argus_skill.core.knob_store import read_persisted_knobs
 
     assert _wizard._configure_runner_backend() == "copilot"
-    assert read_persisted_knobs()["ARGUS_SKILL_RUNNER_BACKEND"] == "copilot"
+    assert "ARGUS_SKILL_RUNNER_BACKEND" not in read_persisted_knobs()
 
 
 def test_setup_defaults_to_only_installed_opencode(
@@ -218,7 +218,7 @@ def test_setup_defaults_to_only_installed_opencode(
     from argus_skill.core.knob_store import read_persisted_knobs
 
     assert _wizard._configure_runner_backend() == "opencode"
-    assert read_persisted_knobs()["ARGUS_SKILL_RUNNER_BACKEND"] == "opencode"
+    assert "ARGUS_SKILL_RUNNER_BACKEND" not in read_persisted_knobs()
 
 
 def test_setup_rejects_selected_backend_missing_from_path(
@@ -236,7 +236,7 @@ def test_setup_rejects_selected_backend_missing_from_path(
     assert "ARGUS_SKILL_RUNNER_BACKEND" not in read_persisted_knobs()
 
 
-def test_setup_replaces_stale_persisted_backend_with_only_installed_cli(
+def test_setup_does_not_replace_persisted_backend_before_readiness(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
@@ -253,7 +253,7 @@ def test_setup_replaces_stale_persisted_backend_with_only_installed_cli(
     monkeypatch.setattr("builtins.input", lambda _prompt="": "")
 
     assert _wizard._configure_runner_backend() == "copilot"
-    assert read_persisted_knobs()["ARGUS_SKILL_RUNNER_BACKEND"] == "copilot"
+    assert read_persisted_knobs()["ARGUS_SKILL_RUNNER_BACKEND"] == "codex"
 
 
 def test_experiment_api_prompt_content() -> None:

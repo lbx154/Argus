@@ -80,6 +80,10 @@ class LifeWorkerBootMixin:
     def run_forever(self) -> int:
         rf_state = _RunForeverState()
         self._rf_bootstrap_environment()
+        rf_state.cfg = self.config
+        readiness_result = self._rf_vault_preflight(rf_state)
+        if readiness_result is not None:
+            return readiness_result
         self._rf_build_memory_runner_sink(rf_state)
         self._rf_resolve_continuous_boot_state(rf_state)
         self._rf_manager_divide_on_boot(rf_state)
@@ -87,9 +91,6 @@ class LifeWorkerBootMixin:
         maintenance_result = self._rf_init_self_maintenance(rf_state)
         if maintenance_result is not None:
             return maintenance_result
-        vault_result = self._rf_vault_preflight(rf_state)
-        if vault_result is not None:
-            return vault_result
         self._rf_start_services(rf_state)
         self._rf_main_loop(rf_state)
         return self._rf_shutdown(rf_state)

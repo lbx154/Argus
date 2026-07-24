@@ -57,22 +57,13 @@ To dispatch and return immediately:
 ./scripts/release_beta.py --no-watch
 ```
 
-## Planned product changes
+## Current command surface
 
-### One public command: `argus`
-
-All user-facing operations must use the `argus` command. The public package,
-website, setup output, help, diagnostics, and update instructions must stop
-teaching `argus-skill` as a separate command.
-
-Required behavior includes:
-
-- `argus --version` and `argus version` report the installed product version;
-- `argus --setup` performs first-time configuration;
-- `argus --web` opens the Web cockpit;
-- maintenance and diagnostic operations remain reachable under `argus`;
-- the npm package no longer installs a public `argus-skill` executable; and
-- any internal CLI/backend mode remains an implementation detail.
+User documentation teaches one command, `argus`: `argus --setup`,
+`argus --doctor`, `argus --daemon-fg`, `argus --daemon`, and `argus --web`
+all reach the same native executable. The package may retain an
+`argus-skill` compatibility executable for old automation, but it is not the
+product-facing setup or startup path.
 
 ### Startup update notification
 

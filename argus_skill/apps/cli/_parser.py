@@ -6,10 +6,18 @@ import argparse
 import os
 from pathlib import Path
 
-_PUBLIC_HELP = """usage: argus
+_PUBLIC_HELP = """usage: argus [mode]
 
-Start Argus:
+Human cockpit:
   argus
+
+First-time setup and diagnostics:
+  argus --setup
+  argus --doctor
+
+Automation:
+  argus --daemon-fg    supervised foreground worker (systemd/debugging)
+  argus --daemon       persistent unattended background worker
 
 Then type what you need in natural language.
 
@@ -21,8 +29,8 @@ Examples:
   "换成 copilot 后端"
   "把模型换成 claude-sonnet-5"
 
-Argus has one user-facing mode: the cockpit. The Manager decides whether your
-message is chat, status, resume, configuration, planning, or real work.
+The cockpit is the human interface. Daemon flags are explicit automation
+surfaces; they do not start an interactive conversation.
 """
 
 
@@ -244,7 +252,49 @@ def build_parser() -> argparse.ArgumentParser:
     capability_grp.add_argument(
         "--setup",
         action="store_true",
-        help="run the interactive setup wizard (API + GPU configuration)",
+        help="configure and validate an explicit backend/auth mode",
+    )
+    capability_grp.add_argument(
+        "--doctor",
+        action="store_true",
+        help="run backend/auth, capability, daemon, and state diagnostics",
+    )
+    capability_grp.add_argument(
+        "--backend",
+        choices=("copilot", "codex", "claude", "opencode"),
+        default=None,
+        help="backend selected by --setup, --doctor, or this daemon launch",
+    )
+    capability_grp.add_argument(
+        "--auth-mode",
+        choices=("subscription_cli", "model_api"),
+        default=None,
+        help="authentication contract (model_api is supported with codex)",
+    )
+    capability_grp.add_argument(
+        "--non-interactive",
+        action="store_true",
+        help="with --setup: never prompt; requires --backend and --accept-house-rules",
+    )
+    capability_grp.add_argument(
+        "--accept-house-rules",
+        action="store_true",
+        help="with noninteractive --setup: explicitly accept the default house rules",
+    )
+    capability_grp.add_argument(
+        "--allow-prerelease",
+        action="store_true",
+        help="allow an explicitly selected prerelease backend CLI",
+    )
+    capability_grp.add_argument(
+        "--set-git-global",
+        action="store_true",
+        help="with --setup: opt in to changing global Git identity",
+    )
+    capability_grp.add_argument(
+        "--configure-codex",
+        action="store_true",
+        help="with --setup: opt in to writing Codex config/auth files",
     )
     capability_grp.add_argument(
         "--model-api-status",

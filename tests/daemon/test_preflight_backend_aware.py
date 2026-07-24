@@ -31,6 +31,7 @@ _BACKEND_ENVS = (
     "ARGUS_SKILL_PLANNER_RUNNER_BIN",
     "ARGUS_SKILL_MANAGER_RUNNER_BIN",
     "ARGUS_SKILL_CURATOR_RUNNER_BIN",
+    "ARGUS_SKILL_BACKEND_AUTH_MODE",
 )
 
 
@@ -46,8 +47,12 @@ def _clear_backend_env(monkeypatch):
     )
 
 
-def test_default_probes_all_required_routes() -> None:
-    # No overrides → every required route is on codex → probe them all (unchanged).
+def test_default_codex_subscription_skips_model_api_routes() -> None:
+    assert required_codex_routes() == []
+
+
+def test_explicit_model_api_mode_probes_all_required_routes(monkeypatch) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_BACKEND_AUTH_MODE", "model_api")
     assert required_codex_routes() == ["engineer", "reviewer", "text"]
 
 
@@ -70,12 +75,14 @@ def test_persisted_copilot_skips_without_env(monkeypatch) -> None:
 
 def test_mixed_probes_only_codex_roles(monkeypatch) -> None:
     # engineer on copilot, reviewer left on codex default → probe only reviewer+text.
+    monkeypatch.setenv("ARGUS_SKILL_BACKEND_AUTH_MODE", "model_api")
     monkeypatch.setenv("ARGUS_SKILL_ENGINEER_BACKEND", "copilot")
     assert required_codex_routes() == ["reviewer", "text"]
 
 
 def test_per_role_override_beats_runner_default(monkeypatch) -> None:
     # runner default copilot, but reviewer explicitly forced back to codex.
+    monkeypatch.setenv("ARGUS_SKILL_BACKEND_AUTH_MODE", "model_api")
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
     monkeypatch.setenv("ARGUS_SKILL_REVIEWER_BACKEND", "codex")
     assert required_codex_routes() == ["reviewer"]
@@ -124,12 +131,14 @@ def test_effective_runner_backend_uses_instantiated_fallback() -> None:
 
 def test_text_route_follows_runner_default(monkeypatch) -> None:
     # 'text' has no dedicated backend env; it tracks the default runner backend.
+    monkeypatch.setenv("ARGUS_SKILL_BACKEND_AUTH_MODE", "model_api")
     assert _preflight_route_on_codex("text") is True
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
     assert _preflight_route_on_codex("text") is False
 
 
 def test_copilot_worker_still_preflights_codex_role(monkeypatch) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_BACKEND_AUTH_MODE", "model_api")
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
     monkeypatch.setenv("ARGUS_SKILL_ENGINEER_BACKEND", "codex")
 

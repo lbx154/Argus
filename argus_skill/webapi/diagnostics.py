@@ -88,7 +88,7 @@ def _check_daemon(project_root: Path) -> Check:
         "daemon",
         False,
         "no daemon is running for this project — queued backlog will NOT execute",
-        "run: argus-skill --daemon",
+        "run: argus --daemon",
     )
 
 
@@ -214,40 +214,43 @@ def _check_model_api(probe: Callable[..., Any] | None) -> Check:
     return Check("model API capability", False, f"unreachable: {detail}", fix)
 
 
-def _check_backend_preflight() -> Check:
-    """(4) Reuse ``_codex_preflight_warning`` — can the configured runner
-    backend (``ARGUS_SKILL_RUNNER_BACKEND``, default codex) actually run?
+def _check_backend_preflight(
+    *,
+    backend: str | None = None,
+    auth_mode: str | None = None,
+    probe_auth: bool = True,
+    allow_prerelease: bool = False,
+) -> Check:
+    from ..core.backend_readiness import check_backend_readiness
 
-    The warning already embeds its own fix (install the CLI / reinstall).
-    On import failure we still return a failed Check rather than raising.
-    """
-    try:
-        from ..apps._runtime import _codex_preflight_warning
-    except Exception as exc:  # noqa: BLE001
+    report = check_backend_readiness(
+        backend,
+        auth_mode,
+        probe_auth=probe_auth,
+        probe_vault=False,
+        allow_prerelease=allow_prerelease,
+    )
+    selected = report.profile.backend
+    source = report.profile.config_source
+    if not report.ok:
+        problem = report.problems[0]
         return Check(
             "backend preflight",
             False,
-            f"could not load backend preflight ({type(exc).__name__})",
-            "reinstall argus-skill",
+            (
+                f"{selected} {problem.capability} failed: {problem.detail}; "
+                f"source={source}"
+            ),
+            problem.remediation,
         )
-    try:
-        warning = _codex_preflight_warning()
-    except Exception as exc:  # noqa: BLE001
-        return Check(
-            "backend preflight",
-            False,
-            f"backend preflight raised ({type(exc).__name__}: {exc})",
-            "reinstall argus-skill",
-        )
-    from ..core.knobs import resolve_role_backend
-
-    backend = resolve_role_backend("")
-    if warning:
-        return Check("backend preflight", False, f"{backend} backend cannot run: {warning}", warning)
+    auth = "authentication checked" if report.auth_checked else "configuration checked"
     return Check(
         "backend preflight",
         True,
-        f"{backend} backend runnable (bundled agent_cli + {backend} binary present)",
+        (
+            f"{selected} {report.version} runnable at {report.executable} "
+            f"({report.profile.auth_mode}; {auth}; source={source})"
+        ),
         "",
     )
 
@@ -343,7 +346,7 @@ def _check_empty_session(
         "empty session",
         False,
         f"this is an empty session — no backlog, no events yet{extra}",
-        "run: argus-skill --gc  (sweep empty shells)  ·  or relaunch with "
+        "run: argus --gc  (sweep empty shells)  ·  or relaunch with "
         "--resume / --continue to attach to existing work",
     )
 
@@ -357,6 +360,10 @@ def run_diagnostics(
     *,
     global_root: Path | None = None,
     probe: Callable[..., Any] | None = None,
+    backend: str | None = None,
+    auth_mode: str | None = None,
+    probe_auth: bool = True,
+    allow_prerelease: bool = False,
 ) -> list[Check]:
     """Run every diagnostic and return the ordered list of :class:`Check`.
 
@@ -389,8 +396,37 @@ def run_diagnostics(
     daemon_check = _run("daemon", lambda: _check_daemon(root))
     checks.append(daemon_check)
     checks.append(_run("lock sanity", lambda: _check_locks(root)))
-    checks.append(_run("model API capability", lambda: _check_model_api(probe)))
-    checks.append(_run("backend preflight", _check_backend_preflight))
+    from ..core.backend_readiness import (
+        AUTH_MODE_MODEL_API,
+        resolve_backend_profile,
+    )
+
+    profile = resolve_backend_profile(backend, auth_mode)
+    if profile.auth_mode == AUTH_MODE_MODEL_API:
+        checks.append(_run("model API capability", lambda: _check_model_api(probe)))
+    else:
+        checks.append(
+            Check(
+                "model API capability",
+                True,
+                (
+                    f"not required for {profile.backend} "
+                    f"{profile.auth_mode} mode"
+                ),
+                "",
+            )
+        )
+    checks.append(
+        _run(
+            "backend preflight",
+            lambda: _check_backend_preflight(
+                backend=backend,
+                auth_mode=auth_mode,
+                probe_auth=probe_auth,
+                allow_prerelease=allow_prerelease,
+            ),
+        )
+    )
     checks.append(
         _run(
             "empty session",
@@ -438,7 +474,7 @@ def render_report(checks: list[Check], theme: Any = None) -> str:
     methods). ``None`` produces plain, un-colored text suitable for tests and
     non-TTY output.
     """
-    lines: list[str] = [_paint(theme, "bold", "argus-skill doctor — self-diagnosis")]
+    lines: list[str] = [_paint(theme, "bold", "argus doctor — self-diagnosis")]
     n_fail = sum(1 for c in checks if not c.ok)
     summary = (
         "all checks passed"

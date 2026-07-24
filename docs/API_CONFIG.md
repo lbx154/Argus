@@ -167,8 +167,9 @@ base URL source, key source, wire API, and model.
   builds on it for paper-figure prompts and metadata syncing.
 - `argus_skill.life.research_profile` exposes capability metadata to missions
   without exposing secrets.
-- Daemon and REPL processes use the same vault path unless `--life-dir` or
-  `ARGUS_SKILL_CAPABILITY_VAULT` overrides it.
+- Daemon and cockpit processes use the same vault path. Only
+  `ARGUS_SKILL_CAPABILITY_VAULT` overrides it; `--life-dir` selects
+  project/session state and does not select the vault.
 
 ## Security rules
 

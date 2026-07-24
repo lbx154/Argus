@@ -15,11 +15,15 @@ import pytest
 from argus_skill.apps.cli import build_parser, main
 
 
-def test_public_help_is_single_entry_cockpit_help() -> None:
+def test_public_help_distinguishes_human_and_automation_surfaces() -> None:
     help_text = build_parser().format_help()
     assert "usage: argus" in help_text
     assert "Then type what you need in natural language." in help_text
-    assert "--daemon" not in help_text
+    assert "argus --daemon-fg" in help_text
+    assert "supervised foreground worker" in help_text
+    assert "argus --daemon" in help_text
+    assert "persistent unattended background worker" in help_text
+    assert "argus --doctor" in help_text
     assert "--status" not in help_text
     assert "dashboard" not in help_text.lower()
     assert "wiki" not in help_text
@@ -50,6 +54,35 @@ def test_parser_accepts_stage_targeted_notify() -> None:
     ])
     assert args.notify == "profile after certification"
     assert args.notify_stage == "optimize"
+
+
+def test_parser_accepts_noninteractive_backend_setup_contract() -> None:
+    args = build_parser().parse_args(
+        [
+            "--setup",
+            "--non-interactive",
+            "--backend",
+            "codex",
+            "--auth-mode",
+            "subscription_cli",
+            "--accept-house-rules",
+            "--allow-prerelease",
+        ]
+    )
+
+    assert args.setup is True
+    assert args.non_interactive is True
+    assert args.backend == "codex"
+    assert args.auth_mode == "subscription_cli"
+    assert args.accept_house_rules is True
+    assert args.allow_prerelease is True
+
+
+def test_parser_exposes_cli_doctor() -> None:
+    args = build_parser().parse_args(["--doctor", "--backend", "copilot"])
+
+    assert args.doctor is True
+    assert args.backend == "copilot"
 
 
 def test_parser_accepts_wiki_ingest_subcommand(tmp_path: Path):

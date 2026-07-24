@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 import time
 from contextlib import nullcontext
 from pathlib import Path
@@ -112,51 +111,34 @@ class LifeWorkerRunMixin:
         return None
 
     def _rf_vault_preflight(self, rf_state: _RunForeverState) -> int | None:
-        """Refuse to start when a required model_api route is misconfigured.
-        Returns ``2`` to abort ``run_forever`` immediately, else ``None``.
-        """
-        # Vault pre-flight: refuse to start daemon if a required
-        # model_api route is misconfigured (e.g. wrong deployment
-        # name → 404 on every mission, observed 2026-06-01: 47 min /
-        # $2.50 doom loop). Only routes that actually run on the codex/Azure
-        # backend are probed — roles pinned to copilot/claude/opencode authenticate
-        # via their own CLI, not the model_api vault,
-        # so a fully copilot-backed run needs NO Azure routes and skips this.
-        # memory backend (tests) skips. Override: ARGUS_SKILL_SKIP_VAULT_PREFLIGHT=1.
-        # 只探测真正跑在 codex/Azure 后端的路由；固定到其他 agent CLI 的角色用自己的
-        # CLI 认证，不走 model_api vault，故无需 Azure 路由时直接跳过。
-        if os.environ.get("ARGUS_SKILL_SKIP_VAULT_PREFLIGHT", "").strip() not in (
-            "1",
-            "true",
-            "yes",
-        ):
-            codex_routes = _worker_vault_preflight_routes(rf_state.cfg.backend)
-            if not codex_routes:
-                log.info(
-                    "vault preflight skipped: no required route runs on the codex "
-                    "backend (other agent CLIs authenticate independently)"
-                )
-            else:
-                from ..core.vault_preflight import (
-                    check_routes as _vault_preflight_check,
-                )
-                from ..core.vault_preflight import (
-                    format_report as _vault_preflight_format,
-                )
+        """Validate backend/auth before constructing providers or mutating state."""
+        from ..core.backend_readiness import (
+            check_backend_readiness,
+            format_backend_readiness,
+        )
 
-                try:
-                    preflight = _vault_preflight_check(required=codex_routes)
-                except Exception as exc:  # noqa: BLE001 - never fail-start on preflight infra bug
-                    log.warning("vault preflight infra failed; proceeding: %s", exc)
-                    preflight = None
-                if preflight is not None and not preflight.ok:
-                    sys.stderr.write(_vault_preflight_format(preflight) + "\n")
-                    sys.stderr.write(
-                        "argus-skill: daemon refused to start due to vault preflight "
-                        "failure. Fix the routes above, or set "
-                        "ARGUS_SKILL_SKIP_VAULT_PREFLIGHT=1 to bypass.\n"
-                    )
-                    return 2
+        if str(rf_state.cfg.backend or "").strip().lower() == "memory":
+            return None
+        skip_vault_probe = (
+            os.environ.get("ARGUS_SKILL_SKIP_VAULT_PREFLIGHT", "").strip() == "1"
+        )
+        if skip_vault_probe:
+            log.warning(
+                "UNSAFE diagnostic override: skipping model-api network probe; "
+                "backend/auth/config validation remains enabled"
+            )
+        readiness = check_backend_readiness(
+            rf_state.cfg.backend,
+            probe_auth=True,
+            probe_vault=not skip_vault_probe,
+            required_routes=_worker_vault_preflight_routes(rf_state.cfg.backend),
+        )
+        if not readiness.ok:
+            log.error(
+                "daemon refused before Manager/provider/state mutation:\n%s",
+                format_backend_readiness(readiness),
+            )
+            return 2
         return None
 
     def _rf_start_services(self, rf_state: _RunForeverState) -> None:

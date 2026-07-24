@@ -240,7 +240,7 @@ def wait_for_registry(version: str, timeout: int = 120) -> None:
 def verify_install(version: str) -> None:
     with tempfile.TemporaryDirectory(prefix="argus-release-install-") as prefix:
         run(["npm", "install", "--prefix", prefix, f"{PACKAGE}@beta"])
-        executable = Path(prefix) / "node_modules" / ".bin" / "argus-skill"
+        executable = Path(prefix) / "node_modules" / ".bin" / "argus"
         result = run([str(executable), "--version"], capture=True)
         rendered = result.stdout.strip()
         if version not in rendered:

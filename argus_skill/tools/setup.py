@@ -21,6 +21,16 @@ import subprocess
 import sys
 from pathlib import Path
 
+from ..core.backend_readiness import (
+    AUTH_MODE_MODEL_API,
+    AUTH_MODE_SUBSCRIPTION,
+    SETUP_EXIT_NOT_READY,
+    SETUP_EXIT_PERSISTENCE,
+    SETUP_EXIT_USAGE,
+    check_backend_readiness,
+    format_backend_readiness,
+    persist_validated_profile,
+)
 from ..core.paths import (
     capabilities_root,
     logs_root,
@@ -111,10 +121,9 @@ def _configured_runner_backend() -> str:
     return ""
 
 
-def _configure_runner_backend() -> str | None:
-    """Select and persist the agent CLI used by every role."""
+def _configure_runner_backend(requested: str | None = None) -> str | None:
+    """Select the agent CLI used by every role without mutating global config."""
     from ..agent_cli.runner_backend import resolve_runner_bin
-    from ..core.knob_store import write_persisted_knob
 
     available = [
         name for name in _SUPPORTED_AGENT_BACKENDS if resolve_runner_bin(name)
@@ -124,24 +133,25 @@ def _configure_runner_backend() -> str | None:
         default = configured
     elif len(available) == 1:
         default = available[0]
+    elif len(available) > 1:
+        default = ""
     else:
-        default = next(
-            (
-                name
-                for name in ("codex", "copilot", "claude", "opencode")
-                if name in available
-            ),
-            "codex",
-        )
+        default = ""
 
     print(_bold("  Step 1: Agent CLI Backend"))
     print()
     detected = ", ".join(available) if available else "none"
     print(_dim(f"  Detected on PATH: {detected}"))
-    selected = _prompt("Backend (copilot/codex/claude/opencode)", default).lower()
+    selected = (
+        str(requested).strip().lower()
+        if requested is not None
+        else _prompt("Backend (copilot/codex/claude/opencode)", default).lower()
+    )
     if selected not in _SUPPORTED_AGENT_BACKENDS:
-        print(_yellow(f"  Unknown backend '{selected}', using {default}."))
-        selected = default
+        print(_yellow(f"  Unknown backend '{selected}'."))
+        print(_dim("    Choose one of: copilot, codex, claude, opencode"))
+        print()
+        return None
 
     executable = resolve_runner_bin(selected)
     if executable is None:
@@ -154,17 +164,101 @@ def _configure_runner_backend() -> str | None:
         print()
         return None
 
-    if not write_persisted_knob("ARGUS_SKILL_RUNNER_BACKEND", selected):
-        print(_yellow("  Could not persist the selected backend."))
-        print()
-        return None
-
     print()
-    print(f"  {_green('✓')} Agent backend → {selected} ({executable})")
+    print(f"  {_green('✓')} Agent backend selected → {selected} ({executable})")
     if selected == "copilot":
         print(_dim("    Requires an active subscription and `copilot login`."))
     print()
     return selected
+
+
+def _configure_auth_mode(backend: str, requested: str | None = None) -> str | None:
+    if backend != "codex":
+        if requested and requested.replace("-", "_") not in {
+            "cli",
+            "subscription",
+            AUTH_MODE_SUBSCRIPTION,
+        }:
+            print(_yellow(f"  `{requested}` is not supported with `{backend}`."))
+            return None
+        return AUTH_MODE_SUBSCRIPTION
+    selected = (
+        str(requested).strip().lower().replace("-", "_")
+        if requested is not None
+        else _prompt(
+            "Codex authentication mode (subscription_cli/model_api)",
+            AUTH_MODE_SUBSCRIPTION,
+        ).lower().replace("-", "_")
+    )
+    aliases = {
+        "cli": AUTH_MODE_SUBSCRIPTION,
+        "subscription": AUTH_MODE_SUBSCRIPTION,
+        AUTH_MODE_SUBSCRIPTION: AUTH_MODE_SUBSCRIPTION,
+        "api": AUTH_MODE_MODEL_API,
+        "vault": AUTH_MODE_MODEL_API,
+        AUTH_MODE_MODEL_API: AUTH_MODE_MODEL_API,
+    }
+    normalized = aliases.get(selected)
+    if normalized is None:
+        print(_yellow(f"  Unknown Codex authentication mode '{selected}'."))
+        return None
+    print(f"  {_green('✓')} Authentication mode selected → {normalized}")
+    print()
+    return normalized
+
+
+def _run_noninteractive_setup(
+    *,
+    backend: str | None,
+    auth_mode: str | None,
+    accept_house_rules: bool,
+    allow_prerelease: bool,
+) -> int:
+    if not backend:
+        sys.stderr.write(
+            "argus: --setup --non-interactive requires --backend "
+            "{copilot,codex,claude,opencode}\n"
+        )
+        return SETUP_EXIT_USAGE
+    selected = str(backend).strip().lower()
+    if selected not in _SUPPORTED_AGENT_BACKENDS:
+        sys.stderr.write(f"argus: unsupported backend {selected!r}\n")
+        return SETUP_EXIT_USAGE
+    if not accept_house_rules:
+        sys.stderr.write(
+            "argus: noninteractive setup requires --accept-house-rules\n"
+        )
+        return SETUP_EXIT_USAGE
+    mode = _configure_auth_mode(selected, auth_mode)
+    if mode is None:
+        return SETUP_EXIT_USAGE
+    house_rules_path = _ensure_default_house_rules_prompt()
+    if house_rules_path is None:
+        sys.stderr.write("argus: failed to create or validate default house rules\n")
+        return SETUP_EXIT_PERSISTENCE
+    report = check_backend_readiness(
+        selected,
+        mode,
+        probe_auth=mode == AUTH_MODE_SUBSCRIPTION,
+        probe_vault=mode == AUTH_MODE_MODEL_API,
+        allow_prerelease=allow_prerelease,
+    )
+    rendered = format_backend_readiness(report)
+    stream = sys.stdout if report.ok else sys.stderr
+    stream.write(rendered + "\n")
+    if not report.ok:
+        return SETUP_EXIT_NOT_READY
+    if not persist_validated_profile(report):
+        sys.stderr.write("argus: readiness passed but profile persistence failed\n")
+        return SETUP_EXIT_PERSISTENCE
+    sys.stdout.write(
+        "\nNext:\n"
+        "  argus                    # interactive cockpit\n"
+        "  argus --daemon-fg        # supervised foreground worker\n"
+        "  argus --daemon           # persistent unattended worker\n"
+        "No global Git identity or backend authentication files were changed.\n"
+    )
+    return 0
 
 
 def _detect_gpus() -> list[dict]:
@@ -882,7 +976,11 @@ def _apply_git_identity(name: str, email: str) -> bool:
         return False
 
 
-def _configure_author(existing: dict | None) -> dict | None:
+def _configure_author(
+    existing: dict | None,
+    *,
+    set_git_global: bool | None = None,
+) -> dict | None:
     """Prompt for the author identity used on generated papers / project commits."""
     print(_dim("  Who authors the generated papers and project commits?"))
     print(_dim("  Used as the git author for the research workspace and for the"))
@@ -907,10 +1005,22 @@ def _configure_author(existing: dict | None) -> dict | None:
     path = _save_author(name, email)
     print()
     print(f"  {_green('✓')} Author identity → {path}")
-    if _apply_git_identity(name, email):
-        print(f"  {_green('✓')} git --global user.name/user.email set")
-    else:
+    apply_global = set_git_global
+    if apply_global is None:
+        print(
+            _dim(
+                "  Argus can also change ~/.gitconfig. "
+                "Leaving it unchanged is recommended."
+            )
+        )
+        answer = _prompt("Configure global Git identity? (y/N)", "n")
+        apply_global = answer.lower() in ("y", "yes")
+    if apply_global and _apply_git_identity(name, email):
+        print(f"  {_green('✓')} git --global user.name/user.email set (opt-in)")
+    elif apply_global:
         print(_yellow("  Could not set global git identity (git unavailable?)"))
+    else:
+        print(_dim("  Global Git identity left unchanged."))
     print()
     return {"name": name, "email": email}
 
@@ -922,6 +1032,7 @@ def _summary(
     experiment_api: bool = False,
     author: dict | None = None,
     backend: str = "codex",
+    auth_mode: str = AUTH_MODE_SUBSCRIPTION,
 ) -> None:
     """Print final summary."""
     print(_bold("═" * 60))
@@ -933,6 +1044,7 @@ def _summary(
         print(f"  {_cyan('Author'):30s} {who}")
         print()
     print(f"  {_cyan('Agent backend'):30s} {backend}")
+    print(f"  {_cyan('Authentication mode'):30s} {auth_mode}")
     print()
     for name in ("planner", "engineer", "reviewer"):
         r = routes.get(name, {})
@@ -955,44 +1067,25 @@ def _summary(
     print()
 
 
-def run_setup() -> int:
-    """Run the interactive setup wizard."""
-    _banner()
-
-    existing_routes = _load_existing_routes()
-    existing_gpu = _load_existing_gpu()
-    existing_author = _load_existing_author()
-
-    # Step 0: Author identity
-    print(_bold("  Step 0: Author Identity"))
+def _configure_model_api_routes(
+    existing_routes: dict[str, dict],
+) -> dict[str, dict]:
+    print(_bold("  Step 2: Model API Configuration"))
     print()
-    author = _configure_author(existing_author)
-
-    backend = _configure_runner_backend()
-    if backend is None:
-        return 2
-
-    # Step 2: Check if all 3 agents share the same API
-    print(_bold("  Step 2: API Configuration"))
+    share = _prompt("Do all 3 agents share the same API endpoint? (y/n)", "y")
     print()
-    share = _prompt(
-        "Do all 3 agents share the same API endpoint? (y/n)",
-        "y" if not existing_routes else "y",
-    )
-    print()
-
     if share.lower() in ("y", "yes", ""):
-        # Shared config
         print(_cyan("  ── Shared API (used by all 3 agents) ──"))
         print()
         ex = existing_routes.get("engineer", existing_routes.get("planner", {}))
         base_url = _prompt("API Base URL", ex.get("base_url", ""))
         api_key = _prompt("API Key", ex.get("api_key", ""), secret=True)
         print()
-
         planner_model = _prompt(
             "Planner model",
-            existing_routes.get("planner", existing_routes.get("author", {})).get("model", "gpt-5.5"),
+            existing_routes.get("planner", existing_routes.get("author", {})).get(
+                "model", "gpt-5.5"
+            ),
         )
         engineer_model = _prompt(
             "Engineer model",
@@ -1002,8 +1095,6 @@ def run_setup() -> int:
             "Reviewer model",
             existing_routes.get("reviewer", {}).get("model", "gpt-5.5"),
         )
-        print()
-
         shared_route = {
             "base_url": base_url,
             "api_key": api_key,
@@ -1017,8 +1108,6 @@ def run_setup() -> int:
             "author": {**shared_route, "model": planner_model},
             "text": {**shared_route, "model": engineer_model},
         }
-
-        # Image route
         img_model = _prompt("Image model (Enter to skip)", "gpt-image-2")
         if img_model:
             routes["image"] = {
@@ -1028,109 +1117,174 @@ def run_setup() -> int:
             }
             routes["image_review"] = {**shared_route, "model": reviewer_model}
         print()
-    else:
-        # Per-agent config
-        routes = {}
-        planner = _configure_agent(
-            "Planner", existing_routes.get("planner", existing_routes.get("author")), "gpt-5.5",
-        )
-        routes["planner"] = planner
-        routes["author"] = planner  # planner = author
+        return routes
 
-        routes["engineer"] = _configure_agent(
-            "Engineer", existing_routes.get("engineer"), "gpt-5.5",
-        )
-        routes["reviewer"] = _configure_agent(
-            "Reviewer", existing_routes.get("reviewer"), "gpt-5.5",
-        )
-        routes["text"] = routes["engineer"]
+    routes: dict[str, dict] = {}
+    planner = _configure_agent(
+        "Planner",
+        existing_routes.get("planner", existing_routes.get("author")),
+        "gpt-5.5",
+    )
+    routes["planner"] = planner
+    routes["author"] = planner
+    routes["engineer"] = _configure_agent(
+        "Engineer", existing_routes.get("engineer"), "gpt-5.5"
+    )
+    routes["reviewer"] = _configure_agent(
+        "Reviewer", existing_routes.get("reviewer"), "gpt-5.5"
+    )
+    routes["text"] = routes["engineer"]
+    return routes
 
-    # Step 2b: Experiment API access
-    print(_bold("  Step 2b: Experiment API access"))
+
+def run_setup(
+    *,
+    backend: str | None = None,
+    auth_mode: str | None = None,
+    non_interactive: bool = False,
+    accept_house_rules: bool = False,
+    allow_prerelease: bool = False,
+    set_git_global: bool | None = None,
+    configure_codex: bool | None = None,
+) -> int:
+    """Configure and validate one explicit backend/auth contract."""
+    if non_interactive:
+        return _run_noninteractive_setup(
+            backend=backend,
+            auth_mode=auth_mode,
+            accept_house_rules=accept_house_rules,
+            allow_prerelease=allow_prerelease,
+        )
+
+    _banner()
+    existing_routes = _load_existing_routes()
+    existing_gpu = _load_existing_gpu()
+    existing_author = _load_existing_author()
+
+    print(_bold("  Step 0: Author Identity"))
     print()
-    experiment_api = _configure_experiment_api(routes)
+    author = _configure_author(
+        existing_author,
+        set_git_global=set_git_global,
+    )
 
-    # Step 3: GPU
+    selected_backend = _configure_runner_backend(backend)
+    if selected_backend is None:
+        return SETUP_EXIT_USAGE
+    selected_auth_mode = _configure_auth_mode(selected_backend, auth_mode)
+    if selected_auth_mode is None:
+        return SETUP_EXIT_USAGE
+
+    if selected_auth_mode == AUTH_MODE_MODEL_API:
+        routes = _configure_model_api_routes(existing_routes)
+        print(_bold("  Step 2b: Experiment API access"))
+        print()
+        experiment_api = _configure_experiment_api(routes)
+    else:
+        routes = existing_routes
+        experiment_api = False
+        print(_dim("  Model API vault left unchanged for subscription CLI mode."))
+        print()
+
     print(_bold("  Step 3: GPU Resources"))
     print()
     gpus = _detect_gpus()
     gpu_config = _configure_gpus(gpus, existing_gpu)
-
-    # Step 3b: GPU keep-alive (anti-reclaim)
     existing_keepalive = _load_existing_keepalive()
-    keepalive_config = _configure_gpu_keepalive(gpus, gpu_config, existing_keepalive)
+    keepalive_config = _configure_gpu_keepalive(
+        gpus, gpu_config, existing_keepalive
+    )
 
     codex_paths: tuple[Path, Path] | None = None
-    if backend == "codex":
-        # Step 4: codex CLI config
-        print(_bold("  Step 4: Codex CLI Configuration"))
+    if selected_backend == "codex" and selected_auth_mode == AUTH_MODE_MODEL_API:
+        print(_bold("  Step 4: Optional Codex CLI Configuration"))
         print()
-        print(_dim("  argus-skill drives the `codex` CLI for every L1 round."))
-        print(_dim("  The wizard can seed ~/.codex/config.toml and ~/.codex/auth.json"))
-        print(_dim("  from the API you just entered so codex talks to the same endpoint."))
-        print()
-        engineer_route = routes.get("engineer") or routes.get("text") or {}
-        codex_base_url = engineer_route.get("base_url", "")
-        codex_api_key = engineer_route.get("api_key", "")
-        codex_model = engineer_route.get("model", "gpt-5.5")
-        if codex_base_url and codex_api_key:
-            codex_paths = _seed_codex_config(codex_base_url, codex_api_key, codex_model)
+        print(
+            _dim(
+                "  Writing ~/.codex changes user-owned backend config/auth. "
+                "Leave unchanged unless Argus should own that configuration."
+            )
+        )
+        opt_in = configure_codex
+        if opt_in is None:
+            answer = _prompt("Configure Codex files from this model API? (y/N)", "n")
+            opt_in = answer.lower() in ("y", "yes")
+        if opt_in:
+            engineer_route = routes.get("engineer") or routes.get("text") or {}
+            codex_paths = _seed_codex_config(
+                engineer_route.get("base_url", ""),
+                engineer_route.get("api_key", ""),
+                engineer_route.get("model", "gpt-5.5"),
+            )
         else:
-            print(_yellow("  Skipped: no engineer API endpoint configured."))
+            print(_dim("  ~/.codex left unchanged."))
             print()
     else:
         print(_bold("  Step 4: Agent CLI Authentication"))
         print()
-        print(_dim(f"  Argus will authenticate through the `{backend}` CLI."))
-        if backend == "copilot":
-            print(_dim("  Run `copilot login` before launching Argus if needed."))
-        elif backend == "opencode":
-            print(_dim("  Run `opencode auth login` before launching Argus if needed."))
+        print(
+            _dim(
+                f"  Argus will use existing `{selected_backend}` CLI authentication; "
+                "no backend auth files will be written."
+            )
+        )
         print()
 
-    # Save
     print(_bold("  Saving..."))
-    api_path = _save_model_api(routes)
-    print(f"  {_green('✓')} Model API → {api_path}")
-
+    if selected_auth_mode == AUTH_MODE_MODEL_API:
+        api_path = _save_model_api(routes)
+        print(f"  {_green('✓')} Model API → {api_path}")
     if gpu_config:
         gpu_path = _save_gpu_resources(gpu_config)
         print(f"  {_green('✓')} GPU config → {gpu_path}")
-
     if codex_paths:
         cfg, auth = codex_paths
         print(f"  {_green('✓')} codex config → {cfg}")
         print(f"  {_green('✓')} codex auth   → {auth}")
 
     house_rules_path = _ensure_default_house_rules_prompt()
-    if house_rules_path is not None:
-        print(f"  {_green('✓')} Base house rules → {house_rules_path}")
-        if house_rules_path.name != _DEFAULT_HOUSE_RULES_PROMPT_NAME:
-            print(
-                _yellow(
-                    f"  Existing {_DEFAULT_HOUSE_RULES_PROMPT_NAME} was preserved "
-                    "because it did not pass the trust gate."
-                )
+    if house_rules_path is None:
+        print(_yellow("  Could not establish a trusted house-rules prompt."))
+        return SETUP_EXIT_PERSISTENCE
+    print(f"  {_green('✓')} Base house rules → {house_rules_path}")
+    if house_rules_path.name != _DEFAULT_HOUSE_RULES_PROMPT_NAME:
+        print(
+            _yellow(
+                f"  Existing {_DEFAULT_HOUSE_RULES_PROMPT_NAME} was preserved "
+                "because it did not pass the trust gate."
             )
+        )
 
-    if backend == "codex":
-        _check_codex_prereq()
+    report = check_backend_readiness(
+        selected_backend,
+        selected_auth_mode,
+        probe_auth=selected_auth_mode == AUTH_MODE_SUBSCRIPTION,
+        probe_vault=selected_auth_mode == AUTH_MODE_MODEL_API,
+        allow_prerelease=allow_prerelease,
+    )
     print()
+    print(format_backend_readiness(report))
+    if not report.ok:
+        print(_yellow("  Setup is not ready; the backend profile was not persisted."))
+        return SETUP_EXIT_NOT_READY
+    if not persist_validated_profile(report):
+        print(_yellow("  Readiness passed but backend profile persistence failed."))
+        return SETUP_EXIT_PERSISTENCE
 
-    # Summary
     _summary(
         routes,
         gpu_config,
         keepalive_config,
         experiment_api,
         author,
-        backend,
+        selected_backend,
+        selected_auth_mode,
     )
-
-    print(_green("  ✓ Setup complete! To start working on a project:"))
+    print(_green("  ✓ Setup complete!"))
     print()
-    print(_dim('    cd <your project directory>'))
-    print(_dim('    argus            # enter the Manager conversation to launch a mission'))
+    print(_dim("    argus              # interactive cockpit"))
+    print(_dim("    argus --daemon-fg  # supervised foreground worker"))
+    print(_dim("    argus --daemon     # persistent unattended worker"))
     print()
     return 0
 

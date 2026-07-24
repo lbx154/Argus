@@ -125,14 +125,20 @@ quality stays a structured agent decision grounded in the artifacts of the run.
 
 ## Quick Start
 
-Argus requires Python 3.11 or newer and one supported agent CLI.
-
-For GitHub Copilot subscribers:
+The canonical public beta is the native npm package. Install one backend first;
+for GitHub Copilot subscribers:
 
 ```bash
 npm install -g @github/copilot
 copilot login
+npm install -g @argusevolve/argus@beta
+argus --setup --non-interactive \
+  --backend copilot \
+  --accept-house-rules
+argus
 ```
+
+For development, use the source fallback:
 
 ```bash
 git clone https://github.com/lbx154/argus-skill.git
@@ -140,7 +146,7 @@ cd argus-skill
 python -m venv .venv
 . .venv/bin/activate
 pip install -e .
-argus-skill --setup  # defaults to Copilot when it is the only supported CLI on PATH
+argus --setup
 ```
 
 Install `pip install -e '.[quant]'` when using the quant analysis, backtest,
@@ -159,12 +165,14 @@ Start a continuous project from its working directory:
 ```bash
 mkdir -p ~/research/world-models
 cd ~/research/world-models
-argus-skill --daemon --continuous \
+argus --daemon --continuous \
   --objective "World Model for Agent Action Selection"
 ```
 
-Use `argus` for the interactive TUI cockpit, or inspect a running project with
-`argus-skill --status`, `--watch`, and `--follow`. Argus can also run under a
+Use `argus` for the interactive TUI cockpit, `argus --daemon-fg` for a
+supervised foreground worker, and `argus --daemon` for persistent unattended
+operation. Inspect a running project with `argus --status`, `--watch`, and
+`--follow`. Argus can also run under a
 user-level service manager for persistent operation; controlled replacement
 preserves the campaign identity and never silently re-plans an active objective
 during an upgrade.
@@ -190,12 +198,18 @@ Argus targets four interchangeable agent-CLI backends:
 | Backend | Configuration value | Installation | Authentication |
 |---|---|---|---|
 | GitHub Copilot CLI | `copilot` | `npm install -g @github/copilot` (Node.js ≥ 22) | Interactive GitHub device authorization |
-| OpenAI Codex CLI | `codex` (default) | `npm install -g @openai/codex` | See [`docs/API_CONFIG.md`](docs/API_CONFIG.md) |
+| OpenAI Codex CLI | `codex` (default) | `npm install -g @openai/codex@latest` | `subscription_cli` or explicit `model_api`; stable `>=0.128.0` |
 | Claude Code | `claude` | `npm install -g @anthropic-ai/claude-code` | Interactive login |
 | OpenCode | `opencode` | `curl -fsSL https://opencode.ai/install \| bash` | `opencode auth login` or provider environment variables |
 
 Set `ARGUS_SKILL_RUNNER_BACKEND`, or switch the backend and model from the
 cockpit without restarting the project.
+
+The complete platform, version, authentication-mode, noninteractive setup, and
+exit-code contract is in
+[`docs/setup-and-support.md`](docs/setup-and-support.md). Setup and
+`argus --doctor` share the same readiness check. Global Git identity and
+backend-owned authentication files are never changed without explicit opt-in.
 
 OpenCode model IDs use its `provider/model` form. When Argus has only a bare
 model name configured, the OpenCode backend defers to OpenCode's own selected

@@ -30,6 +30,39 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  backend-compat:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    strategy:
+      matrix:
+        codex-version: ["0.128.0", "0.144.5"]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install source fallback and Codex compatibility target
+        run: |
+          python -m pip install -e .
+          npm install -g @openai/codex@${{ matrix.codex-version }}
+      - name: Verify supported Codex version without mutating auth
+        run: |
+          python - <<'PY'
+          from argus_skill.core.backend_readiness import check_backend_readiness
+          report = check_backend_readiness(
+              "codex",
+              "subscription_cli",
+              probe_auth=False,
+          )
+          assert report.ok, report.problems
+          print(report.version)
+          PY
+
   platform:
     if: ${{ github.ref == 'refs/heads/main' }}
     strategy:
@@ -105,8 +138,10 @@ jobs:
         run: |
           python -m pytest -q \
             tests/core/test_release.py \
+            tests/core/test_backend_readiness.py \
             tests/apps/test_tui_launcher.py \
             tests/daemon/test_windows_terminal_process.py \
+            tests/tools/test_setup_readiness.py \
             tests/scripts/test_prepare_npm_binary_packages.py \
             tests/tools/test_verify_npm_tarballs.py
           npm test --prefix frontend/web
@@ -152,7 +187,7 @@ jobs:
 
   publish:
     if: ${{ github.ref == 'refs/heads/main' && inputs.publish }}
-    needs: platform
+    needs: [platform, backend-compat]
     runs-on: ubuntu-22.04
     environment: npm-beta
     permissions:

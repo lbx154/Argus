@@ -101,14 +101,17 @@ campaign。运行时把可靠性作为一等问题处理：有界的 mission/每
 
 ## 快速开始
 
-Argus 要求 Python 3.11+ 和至少一个受支持的 agent CLI。
-
-GitHub Copilot 订阅用户先安装并登录官方 CLI：
+公开 beta 的标准安装路径是 npm。GitHub Copilot 订阅用户可执行：
 
 ```bash
 npm install -g @github/copilot
 copilot login
+npm install -g @argusevolve/argus@beta
+argus --setup --non-interactive --backend copilot --accept-house-rules
+argus
 ```
+
+源码安装是开发 fallback：
 
 ```bash
 git clone https://github.com/lbx154/argus-skill.git
@@ -116,7 +119,7 @@ cd argus-skill
 python -m venv .venv
 . .venv/bin/activate
 pip install -e .
-argus-skill --setup  # PATH 中只有 Copilot 时自动选择并持久化 copilot backend
+argus --setup
 ```
 
 如果尚无机器策略，setup 向导会自动生成一份受信任的基础策略，并且绝不会覆盖 operator
@@ -131,11 +134,12 @@ ${EDITOR:-vi} ~/.argus-skill/special_prompts/10-house-rules.md
 ```bash
 mkdir -p ~/research/world-models
 cd ~/research/world-models
-argus-skill --daemon --continuous \
+argus --daemon --continuous \
   --objective "World Model for Agent Action Selection"
 ```
 
-日常交互使用 `argus` TUI cockpit；运行状态可通过 `argus-skill --status`、`--watch`
+日常交互使用 `argus` TUI cockpit；`argus --daemon-fg` 是受监督的前台 worker，
+`argus --daemon` 是无人值守的后台 worker；运行状态可通过 `argus --status`、`--watch`
 与 `--follow` 查看。Argus 也可交给用户级 service manager 长期托管；受控替换会保留
 campaign identity，绝不在升级时静默重规划正在执行的目标。
 
@@ -144,10 +148,12 @@ Argus 面向三种可互换的 agent CLI backend：
 | Backend | 配置值 | 安装 | 鉴权 |
 |---|---|---|---|
 | GitHub Copilot CLI | `copilot` | `npm install -g @github/copilot`（Node.js ≥ 22） | GitHub device authorization |
-| OpenAI Codex CLI | `codex`（默认） | `npm install -g @openai/codex` | 见 [`docs/API_CONFIG.md`](docs/API_CONFIG.md) |
+| OpenAI Codex CLI | `codex`（默认） | `npm install -g @openai/codex@latest` | `subscription_cli` 或显式 `model_api`；稳定版 `>=0.128.0` |
 | Claude Code | `claude` | `npm install -g @anthropic-ai/claude-code` | 交互式登录 |
 
 可设置 `ARGUS_SKILL_RUNNER_BACKEND`，也可直接在 cockpit 中切换 backend 与 model。
+完整支持矩阵、鉴权模式、非交互 setup 与退出码见
+[`docs/setup-and-support.md`](docs/setup-and-support.md)。
 
 ## 技术报告、局限与来源
 

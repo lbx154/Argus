@@ -245,7 +245,9 @@ def main(argv: list[str] | None = None) -> int:
     args.skill_stats = bool(args.skill_stats or args.skill_stats_json)
     from ...core.knobs import resolve_role_backend
 
-    backend_default = resolve_role_backend("")
+    backend_default = (
+        getattr(args, "backend", None) or resolve_role_backend("")
+    )
     continuous_error = _continuous_contract_error(
         continuous=bool(args.continuous),
         objective=str(getattr(args, "objective", "") or ""),
@@ -273,6 +275,7 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.notify)
         + bool(args.init_identity)
         + bool(args.setup)
+        + bool(getattr(args, "doctor", False))
         + bool(args.model_api_status)
         + bool(args.init_model_api)
         + bool(args.install_ppt_master)
@@ -290,11 +293,40 @@ def main(argv: list[str] | None = None) -> int:
     if getattr(args, "notify_stage", "") and not args.notify:
         sys.stderr.write("argus-skill: --notify-stage requires --notify MSG\n")
         return 2
+    setup_only = (
+        bool(getattr(args, "non_interactive", False))
+        or bool(getattr(args, "accept_house_rules", False))
+        or bool(getattr(args, "set_git_global", False))
+        or bool(getattr(args, "configure_codex", False))
+    )
+    if setup_only and not args.setup:
+        sys.stderr.write(
+            "argus-skill: --non-interactive / --accept-house-rules / "
+            "--set-git-global / --configure-codex require --setup\n"
+        )
+        return 2
+    readiness_modifier = (
+        getattr(args, "backend", None)
+        or getattr(args, "auth_mode", None)
+        or bool(getattr(args, "allow_prerelease", False))
+    )
+    if readiness_modifier and not (
+        args.setup
+        or getattr(args, "doctor", False)
+        or args.daemon
+        or args.daemon_fg
+    ):
+        sys.stderr.write(
+            "argus-skill: --backend / --auth-mode / --allow-prerelease "
+            "require --setup, --doctor, --daemon, or --daemon-fg\n"
+        )
+        return 2
     if action_flags > 1:
         sys.stderr.write(
             "argus-skill: --daemon / --daemon-fg / --daemon-stop / --status / "
             "--daemon-runbook / --config-help / --config-snapshot / "
             "--watch / --follow / --notify / --init-identity / "
+            "--setup / --doctor / "
             "--model-api-status / --init-model-api / --skill-stats / "
             "--install-ppt-master / --ppt-master-status / "
             "--skill-cleanse / --export-builtin-skills / "
@@ -360,7 +392,21 @@ def main(argv: list[str] | None = None) -> int:
         return _run_with_path_resolution_errors(lambda: _cmd_init_identity(args))
     if args.setup:
         from ...tools.setup import run_setup
-        return run_setup()
+        return run_setup(
+            backend=getattr(args, "backend", None),
+            auth_mode=getattr(args, "auth_mode", None),
+            non_interactive=bool(getattr(args, "non_interactive", False)),
+            accept_house_rules=bool(getattr(args, "accept_house_rules", False)),
+            allow_prerelease=bool(getattr(args, "allow_prerelease", False)),
+            set_git_global=(
+                True if bool(getattr(args, "set_git_global", False)) else None
+            ),
+            configure_codex=(
+                True if bool(getattr(args, "configure_codex", False)) else None
+            ),
+        )
+    if getattr(args, "doctor", False):
+        return _run_with_path_resolution_errors(lambda: _cmd_doctor(args))
     if args.model_api_status:
         return _run_with_path_resolution_errors(lambda: _cmd_model_api_status(args))
     if args.init_model_api:
@@ -464,11 +510,17 @@ def _build_worker_config(args: argparse.Namespace):
 
 
 def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
+    from ...core.backend_readiness import (
+        check_backend_readiness,
+        format_backend_readiness,
+    )
     from ...core.knobs import resolve_role_backend
     from ...daemon.commands import execute_daemon_command
     from ...daemon.life_worker import run_foreground, spawn_detached_daemon
 
-    backend_default = resolve_role_backend("")
+    backend_default = (
+        getattr(args, "backend", None) or resolve_role_backend("")
+    )
     continuous_error = _continuous_contract_error(
         continuous=bool(getattr(args, "continuous", False)),
         objective=str(getattr(args, "objective", "") or ""),
@@ -481,6 +533,26 @@ def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
     if entry_error:
         sys.stderr.write(f"argus-skill: {entry_error}\n")
         return 2
+    if bool(getattr(args, "allow_prerelease", False)):
+        os.environ["ARGUS_SKILL_ALLOW_BACKEND_PRERELEASE"] = "1"
+    skip_vault_probe = (
+        os.environ.get("ARGUS_SKILL_SKIP_VAULT_PREFLIGHT", "").strip() == "1"
+    )
+    readiness = check_backend_readiness(
+        getattr(args, "backend", None) or backend_default,
+        getattr(args, "auth_mode", None),
+        probe_auth=True,
+        probe_vault=not skip_vault_probe,
+        allow_prerelease=bool(getattr(args, "allow_prerelease", False)),
+    )
+    if not readiness.ok:
+        sys.stderr.write(format_backend_readiness(readiness) + "\n")
+        return 3
+    if skip_vault_probe:
+        sys.stderr.write(
+            "argus-skill: UNSAFE diagnostic override: model-api network "
+            "readiness probe skipped; backend/auth/config checks still passed.\n"
+        )
     cfg = _build_worker_config(args)
     if foreground:
         return run_foreground(cfg)
@@ -491,6 +563,22 @@ def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
         handler=lambda: {"rc": spawn_detached_daemon(cfg)},
     )
     return int(receipt.result.get("rc", 3 if receipt.status != "applied" else 0))
+
+
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    from ...webapi.diagnostics import render_report, run_diagnostics
+
+    bundle = _resolve_project_bundle(args)
+    checks = run_diagnostics(
+        bundle.project.root,
+        global_root=bundle.global_root,
+        backend=getattr(args, "backend", None),
+        auth_mode=getattr(args, "auth_mode", None),
+        probe_auth=True,
+        allow_prerelease=bool(getattr(args, "allow_prerelease", False)),
+    )
+    sys.stdout.write(render_report(checks) + "\n")
+    return 0 if all(check.ok for check in checks) else 3
 
 
 def _cmd_daemon_stop(args: argparse.Namespace) -> int:

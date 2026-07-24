@@ -9,6 +9,7 @@ real network call.
 from __future__ import annotations
 
 import os
+import subprocess
 
 from argus_skill.webapi.diagnostics import Check, render_report, run_diagnostics
 
@@ -18,15 +19,15 @@ from argus_skill.webapi.diagnostics import Check, render_report, run_diagnostics
 
 def test_render_report_lists_each_check_and_fix_lines():
     checks = [
-        Check("daemon", False, "no daemon is running", "run: argus-skill --daemon"),
+        Check("daemon", False, "no daemon is running", "run: argus --daemon"),
         Check("lock sanity", True, "no stale lock files", ""),
     ]
     report = render_report(checks)  # theme=None -> plain text
-    assert "argus-skill doctor" in report
+    assert "argus doctor" in report
     assert "✗ daemon" in report
     assert "✓ lock sanity" in report
     # The failing check's fix shows on its own indented line.
-    assert "↳ fix: run: argus-skill --daemon" in report
+    assert "↳ fix: run: argus --daemon" in report
     # A passing check shows no fix line.
     assert "no stale lock files" in report
     assert "1 issue(s) found" in report
@@ -75,7 +76,7 @@ def test_render_report_with_theme_is_failsoft():
         [Check("daemon", False, "down", "run: argus-skill --daemon")],
         theme=BrokenTheme(),
     )
-    assert "argus-skill doctor" in report
+    assert "argus doctor" in report
     assert "run: argus-skill --daemon" in report
 
 
@@ -92,7 +93,7 @@ def test_no_daemon_flagged_with_daemon_fix(tmp_path):
     by_name = _by_name(checks)
     daemon = by_name["daemon"]
     assert daemon.ok is False
-    assert "argus-skill --daemon" in daemon.fix
+    assert "argus --daemon" in daemon.fix
     assert "NOT execute" in daemon.detail
 
 
@@ -153,6 +154,22 @@ def test_run_diagnostics_returns_all_five_checks_and_never_raises(tmp_path):
 # backend preflight — must check the CONFIGURED backend, not always "codex"
 # ---------------------------------------------------------------------------
 
+def _mock_backend_commands(monkeypatch, version: str) -> None:
+    monkeypatch.setattr(
+        "argus_skill.core.backend_readiness._run_text",
+        lambda command, **_kwargs: subprocess.CompletedProcess(
+            args=command,
+            returncode=0,
+            stdout=version,
+            stderr="",
+        ),
+    )
+    monkeypatch.setattr(
+        "argus_skill.core.backend_readiness._probe_cli_auth",
+        lambda *_args, **_kwargs: (True, ""),
+    )
+
+
 def test_backend_preflight_checks_configured_backend_not_always_codex(monkeypatch):
     """Regression: this used to hardcode ``shutil.which("codex")`` regardless
     of ``ARGUS_SKILL_RUNNER_BACKEND``, so an operator running entirely on
@@ -165,6 +182,7 @@ def test_backend_preflight_checks_configured_backend_not_always_codex(monkeypatc
     monkeypatch.setattr(
         "shutil.which", lambda name: "/usr/bin/copilot" if name == "copilot" else None
     )
+    _mock_backend_commands(monkeypatch, "GitHub Copilot CLI 1.0.74")
 
     check = _check_backend_preflight()
     assert check.ok is True
@@ -219,11 +237,12 @@ def test_backend_preflight_uses_persisted_copilot_selection(
         "shutil.which",
         lambda name: "/usr/local/bin/copilot" if name == "copilot" else None,
     )
+    _mock_backend_commands(monkeypatch, "GitHub Copilot CLI 1.0.74")
 
     check = _check_backend_preflight()
 
     assert check.ok is True
-    assert "copilot backend runnable" in check.detail
+    assert "copilot 1.0.74 runnable" in check.detail
     assert "codex" not in check.detail
 
 
@@ -253,7 +272,14 @@ def test_injected_probe_429_surfaces_switch_backend_fix(tmp_path, monkeypatch):
     def fake_probe(base_url, api_key, model, wire_api, *, timeout_s=10.0):
         return (False, 429, "HTTP 429: rate limited")
 
-    checks = run_diagnostics(tmp_path, probe=fake_probe)
+    checks = run_diagnostics(
+        tmp_path,
+        probe=fake_probe,
+        backend="codex",
+        auth_mode="model_api",
+        probe_auth=False,
+        allow_prerelease=True,
+    )
     api = _by_name(checks)["model API capability"]
     assert api.ok is False
     assert "429" in api.detail
