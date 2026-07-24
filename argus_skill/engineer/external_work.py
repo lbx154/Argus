@@ -334,7 +334,18 @@ def render_external_work_advisory(
     include_subagents: bool = True,
 ) -> str:
     """Render the single liveness advisory for external work and subagents."""
-    statuses = scan_external_work(workdir, now=now, include_subagents=include_subagents)
+    statuses = [
+        status
+        for status in scan_external_work(
+            workdir,
+            now=now,
+            include_subagents=include_subagents,
+        )
+        if not (
+            status.source == "subagent"
+            and status.state is ExternalWorkState.TERMINAL
+        )
+    ]
     if not statuses:
         return ""
     lines = [

@@ -44,9 +44,8 @@ DISCUSSION_STALE_AFTER_S = 600
 # engineer mission can learn why past runs succeeded or failed.
 EXPERIMENT_HISTORY_REL = "research/EXPERIMENT_HISTORY.jsonl"
 
-# Internal accounting helpers — not exported in __all__ but used widely.
+# Internal accounting helpers used by the supervised worker.
 _ZERO_USAGE_TUPLE = (0, 0, 0, 0)
-_SUPERVISOR_USAGE_BASELINE_FIELD = "supervisor_cost_folded_totals"
 
 _QUIET_LOGS_ENV = "ARGUS_SUBAGENT_QUIET_LOGS"
 
@@ -59,8 +58,9 @@ def _registry_path(task_id: str) -> Path:
     return REGISTRY_DIR / f"{task_id}.json"
 
 
-def _exit_status_path(task_id: str) -> Path:
-    return REGISTRY_DIR / f"{task_id}_logs" / "exit_code"
+def _exit_status_path(task_id: str, run_id: str | None = None) -> Path:
+    name = f"exit_code.{run_id}" if run_id else "exit_code"
+    return REGISTRY_DIR / f"{task_id}_logs" / name
 
 
 # ---------------------------------------------------------------------------
@@ -95,13 +95,14 @@ def _child_env() -> dict[str, str]:
 def _launch_durable_command(
     *,
     task_id: str,
+    run_id: str,
     command: str,
     cwd: str,
     stdout: Any,
     stderr: Any,
 ) -> "subprocess.Popen[Any]":
     """Launch a command whose exit status survives loss of its Python owner."""
-    exit_path = _exit_status_path(task_id).resolve()
+    exit_path = _exit_status_path(task_id, run_id).resolve()
     temporary = exit_path.with_name(exit_path.name + ".tmp")
     wrapper = (
         'set +e\n'
@@ -132,25 +133,35 @@ def _write_task(task_id: str, data: dict[str, Any]) -> None:
         existing = json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
     except (json.JSONDecodeError, OSError):
         existing = None
-    if (
-        isinstance(existing, dict)
-        and _SUPERVISOR_USAGE_BASELINE_FIELD not in data
-        and isinstance(existing.get(_SUPERVISOR_USAGE_BASELINE_FIELD), dict)
-    ):
-        data = dict(data)
-        data[_SUPERVISOR_USAGE_BASELINE_FIELD] = existing[_SUPERVISOR_USAGE_BASELINE_FIELD]
     if isinstance(existing, dict):
-        preserved_cpu = {
+        preserved_fields = {
             key: existing[key]
-            for key in ("cpu_ids", "cpu_count")
+            for key in ("cpu_ids", "cpu_count", "cwd")
             if key not in data and key in existing
         }
-        if preserved_cpu:
+        if preserved_fields:
             data = dict(data)
-            data.update(preserved_cpu)
+            data.update(preserved_fields)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, path)
+
+
+def _write_task_if_run_id(
+    task_id: str,
+    data: dict[str, Any],
+    *,
+    expected_run_id: str,
+) -> bool:
+    """Write only while *task_id* still names the expected run."""
+    from ._cpu_admission import cpu_admission_lock  # noqa: PLC0415
+
+    with cpu_admission_lock(Path.cwd()):
+        current = _read_task(task_id)
+        if current is None or str(current.get("run_id") or "") != expected_run_id:
+            return False
+        _write_task(task_id, data)
+        return True
 
 
 def _read_task(task_id: str) -> dict[str, Any] | None:
@@ -189,9 +200,11 @@ def _is_pid_alive(pid: int) -> bool:
         return False
 
 
-def _read_exit_code(task_id: str) -> int | None:
+def _read_exit_code(task_id: str, run_id: str | None = None) -> int | None:
     try:
-        return int(_exit_status_path(task_id).read_text(encoding="utf-8").strip())
+        return int(
+            _exit_status_path(task_id, run_id).read_text(encoding="utf-8").strip()
+        )
     except (OSError, ValueError):
         return None
 
@@ -207,7 +220,8 @@ def reconcile_terminal_task(task_id: str, task: dict[str, Any]) -> dict[str, Any
             task["owner_lost"] = True
             task["terminal_owner"] = "exit_sidecar_reconciler"
         return task
-    exit_code = _read_exit_code(task_id)
+    run_id = str(task.get("run_id") or "") or None
+    exit_code = _read_exit_code(task_id, run_id)
     if exit_code is None:
         task["state"] = "crashed"
         task["error"] = f"sub-agent process {pid} no longer running and no exit sidecar exists"
@@ -494,31 +508,6 @@ def _parse_codex_jsonl_events(stdout: str) -> list[dict[str, Any]]:
         if isinstance(event, dict):
             events.append(event)
     return events
-
-
-def _usage_delta_for_thread(
-    *,
-    thread_id: str | None,
-    raw_totals: tuple[int, int, int, int],
-    baselines: dict[str, tuple[int, int, int, int]],
-) -> tuple[int, int, int, int]:
-    if not any(raw_totals):
-        return _ZERO_USAGE_TUPLE
-    if not thread_id:
-        return raw_totals
-    previous = baselines.get(thread_id)
-    baselines[thread_id] = raw_totals
-    if previous is None:
-        return raw_totals
-    delta = (
-        raw_totals[0] - previous[0],
-        raw_totals[1] - previous[1],
-        raw_totals[2] - previous[2],
-        raw_totals[3] - previous[3],
-    )
-    if any(value < 0 for value in delta):
-        return raw_totals
-    return delta
 
 
 def _add_usage_totals(

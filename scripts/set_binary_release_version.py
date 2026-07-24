@@ -54,7 +54,11 @@ def main(argv: list[str] | None = None) -> int:
     env = os.environ.copy()
     env["ARGUS_RELEASE_VERSION"] = version
     subprocess.run(
-        [sys.executable, "scripts/generate_release_manifest.py"],
+        [
+            sys.executable,
+            "scripts/generate_release_manifest.py",
+            "--prepare-build",
+        ],
         cwd=ROOT,
         check=True,
         env=env,

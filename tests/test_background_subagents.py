@@ -55,6 +55,15 @@ def test_subagent_attention_and_advisory_use_unified_path(tmp_path: Path) -> Non
     assert "subagent" in advisory
 
 
+def test_terminal_subagent_is_omitted_from_advisory(tmp_path: Path) -> None:
+    _write_record(tmp_path, "train-1", state="done")
+
+    status = scan_external_work(tmp_path)[0]
+
+    assert status.state is ExternalWorkState.TERMINAL
+    assert render_external_work_advisory(tmp_path) == ""
+
+
 def test_structured_subagent_wait_request() -> None:
     request = '{"wait_for": "subagent", "wait_id": "train-1"}'
     assert parse_external_wait_request(request) == ("subagent", "train-1")

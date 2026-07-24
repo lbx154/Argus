@@ -44,10 +44,21 @@ def render() -> tuple[str, str]:
     return manifest, generated
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--check", action="store_true")
-    args = parser.parse_args()
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--check", action="store_true")
+    mode.add_argument(
+        "--prepare-build",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    args = parser.parse_args(argv)
+    if not args.check and not args.prepare_build:
+        parser.error(
+            "release identity cannot be updated without rebuilding the shipped "
+            "frontends; run scripts/build_release.py"
+        )
     manifest, generated = render()
     if args.check:
         current_manifest = (
@@ -56,7 +67,7 @@ def main() -> int:
         current_ts = TS_PATH.read_text(encoding="utf-8") if TS_PATH.exists() else ""
         if current_manifest != manifest or current_ts != generated:
             raise SystemExit(
-                "release manifest is stale; run scripts/generate_release_manifest.py"
+                "release manifest is stale; run scripts/build_release.py"
             )
         return 0
     MANIFEST_PATH.write_text(manifest, encoding="utf-8")

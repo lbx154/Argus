@@ -22,7 +22,11 @@ def main() -> int:
         # steps makes a schema change require two builds: the first build updates
         # types and then correctly rejects its now-stale manifest.
         run(sys.executable, "scripts/generate_event_payload_types.py")
-        run(sys.executable, "scripts/generate_release_manifest.py")
+        run(
+            sys.executable,
+            "scripts/generate_release_manifest.py",
+            "--prepare-build",
+        )
         run("npm", "run", "build", cwd=ROOT / "frontend" / "web")
         run("npm", "run", "build", cwd=ROOT / "frontend" / "tui")
         run(sys.executable, "scripts/check_release_artifacts.py")

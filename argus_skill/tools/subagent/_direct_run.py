@@ -1,8 +1,7 @@
 """Direct (unmonitored) execution: fork + Popen, no LLM.
 
-Owns: codex wrapper for supervisor LLM calls, process termination, RL
-detection, run-contract preflight, launch-flag parsing, and the direct
-`_run_direct` dispatcher.
+Owns process termination, RL detection, run-contract preflight, launch-flag
+parsing, and the direct `_run_direct` dispatcher.
 """
 from __future__ import annotations
 
@@ -14,23 +13,17 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ...core.codex_usage import sum_token_counts
 from ._registry import (
     _ZERO_USAGE_TUPLE,
     REGISTRY_DIR,
     _apply_supervisor_usage_fields,
     _exit_status_path,
     _launch_durable_command,
-    _parse_codex_jsonl_events,
+    _read_task,
     _write_task,
 )
 from ._reporting import _alert_engineer
-from ._text import (
-    _codex_agent_messages,
-    _codex_thread_id,
-    _find_codex,
-    _tail_file,
-)
+from ._text import _tail_file
 
 # ---------------------------------------------------------------------------
 # RL detection and collapse-guidance helpers
@@ -219,84 +212,6 @@ def _run_contract_preflight(command: str, cwd: str) -> tuple[bool, str]:
 
 
 # ---------------------------------------------------------------------------
-# Codex LLM runner (used by supervisor check and preflight)
-# ---------------------------------------------------------------------------
-
-def _run_codex_with_usage(
-    prompt: str,
-    model: str,
-    cwd: str,
-    thread_id: str | None = None,
-    timeout: int = 120,
-) -> tuple[list[str], str | None, tuple[int, int, int, int]]:
-    """Run one (optionally resumed) codex turn; return messages/thread/usage.
-
-    Persistent supervisor: when ``thread_id`` is given the turn RESUMES that
-    codex session, so the supervisor carries its full run-observation history
-    and the discussion transcript across checks instead of re-deriving context
-    from scratch each call. The prompt is streamed via stdin so it never appears
-    in process lists and multiline survives intact. If a resume yields nothing
-    (an expired/missing session), it retries once on a fresh thread so a lost
-    session never blinds the supervisor. Never raises — returns ([], thread_id)
-    on error.
-    """
-    codex = _find_codex()
-    from ...core.sandbox import codex_sandbox_args, codex_sandbox_env  # noqa: PLC0415
-
-    def _exec(tid: str | None) -> subprocess.CompletedProcess[str]:
-        cmd = [codex, "exec"]
-        if tid:
-            cmd.append("resume")
-        cmd += ["--json", "-m", model, "--skip-git-repo-check",
-                *codex_sandbox_args(working_dir=cwd)]
-        if tid:
-            cmd.append(tid)
-        cmd.append("-")  # stream prompt via stdin
-        return subprocess.run(
-            cmd, input=prompt, capture_output=True, text=True,
-            timeout=timeout, cwd=cwd, env=codex_sandbox_env(),
-        )
-
-    try:
-        result = _exec(thread_id)
-    except Exception:
-        return ([], thread_id, _ZERO_USAGE_TUPLE)
-    msgs = _codex_agent_messages(result.stdout)
-    usage = sum_token_counts(_parse_codex_jsonl_events(result.stdout))
-    new_tid = _codex_thread_id(result.stdout) or thread_id
-    if thread_id and not msgs:
-        # Resume produced nothing — the session is likely gone. Retry once fresh
-        # so the supervisor keeps working (a new thread is seeded by the caller's
-        # prompt, which already includes the run signals).
-        try:
-            result = _exec(None)
-            msgs = _codex_agent_messages(result.stdout)
-            usage = sum_token_counts(_parse_codex_jsonl_events(result.stdout))
-            new_tid = _codex_thread_id(result.stdout)
-        except Exception:
-            return ([], None, _ZERO_USAGE_TUPLE)
-    return (msgs, new_tid, usage)
-
-
-def _run_codex(
-    prompt: str,
-    model: str,
-    cwd: str,
-    thread_id: str | None = None,
-    timeout: int = 120,
-) -> tuple[list[str], str | None]:
-    """Backward-compatible wrapper returning only ``(agent_messages, thread_id)``."""
-    msgs, new_tid, _usage = _run_codex_with_usage(
-        prompt,
-        model,
-        cwd,
-        thread_id,
-        timeout,
-    )
-    return msgs, new_tid
-
-
-# ---------------------------------------------------------------------------
 # Process termination
 # ---------------------------------------------------------------------------
 
@@ -361,10 +276,15 @@ def _run_direct(
     stderr_path = log_dir / "stderr.log"
 
     start_time = time.time()
+    run_id = str(
+        (_read_task(task_id) or {}).get("run_id")
+        or f"{task_id}-{time.time_ns()}"
+    )
     try:
         with stdout_path.open("w") as out, stderr_path.open("w") as err:
             proc = _launch_durable_command(
                 task_id=task_id,
+                run_id=run_id,
                 command=command,
                 stdout=out,
                 stderr=err,
@@ -372,11 +292,14 @@ def _run_direct(
             )
             running_task = _apply_supervisor_usage_fields({
                 "state": "running", "task_id": task_id,
+                "run_id": run_id,
                 "description": description, "command": command,
                 "pid": proc.pid, "worker_pid": os.getpid(),
                 "started_at": time.time(), "mode": "direct",
                 "run_dir": run_dir,
-                "exit_status_path": str(_exit_status_path(task_id).resolve()),
+                "exit_status_path": str(
+                    _exit_status_path(task_id, run_id).resolve()
+                ),
                 "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
             }, model="", totals=_ZERO_USAGE_TUPLE)
             _write_task(task_id, running_task)
@@ -388,8 +311,10 @@ def _run_direct(
                 # would otherwise survive the timeout and leak the GPU.
                 _terminate_proc(proc)
                 td = {"state": "timeout", "task_id": task_id,
+                    "run_id": run_id,
                     "description": description, "command": command,
-                    "pid": proc.pid, "timeout_seconds": timeout,
+                    "pid": proc.pid, "worker_pid": os.getpid(),
+                    "timeout_seconds": timeout,
                     "elapsed_seconds": round(time.time() - start_time, 1),
                     "completed_at": time.time(), "mode": "direct",
                     "run_dir": run_dir,
@@ -405,10 +330,10 @@ def _run_direct(
         stderr_tail = _tail_file(stderr_path, 3000)
         td = {
             "state": "done" if proc.returncode == 0 else "error",
-            "task_id": task_id, "description": description,
+            "task_id": task_id, "run_id": run_id, "description": description,
             "command": command, "exit_code": proc.returncode,
             "elapsed_seconds": elapsed, "completed_at": time.time(),
-            "pid": proc.pid, "mode": "direct",
+            "pid": proc.pid, "worker_pid": os.getpid(), "mode": "direct",
             "run_dir": run_dir,
             "stdout_tail": stdout_tail, "stderr_tail": stderr_tail,
             "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
@@ -420,10 +345,12 @@ def _run_direct(
     except Exception as exc:
         td = {
             "state": "error", "task_id": task_id,
+            "run_id": run_id,
             "description": description, "command": command,
             "error": f"{type(exc).__name__}: {exc}",
             "elapsed_seconds": round(time.time() - start_time, 1),
             "completed_at": time.time(), "mode": "direct",
+            "worker_pid": os.getpid(),
             "run_dir": run_dir,
         }
         _apply_supervisor_usage_fields(td, model="", totals=_ZERO_USAGE_TUPLE)

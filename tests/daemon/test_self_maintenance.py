@@ -78,6 +78,30 @@ def test_read_self_maintenance_snapshot_is_typed_and_fail_soft(
     assert snapshot.publication_error == "no push permission"
 
 
+def test_frontend_dependency_links_are_temporary(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    worktree = tmp_path / "worktree"
+    for relative in (
+        Path("frontend/web/node_modules"),
+        Path("frontend/tui/node_modules"),
+    ):
+        dependency_dir = source / relative
+        dependency_dir.mkdir(parents=True)
+        (dependency_dir / "marker").write_text("installed\n", encoding="utf-8")
+
+    with self_maintenance_mod._frontend_dependency_links(source, worktree):
+        for relative in (
+            Path("frontend/web/node_modules"),
+            Path("frontend/tui/node_modules"),
+        ):
+            target = worktree / relative
+            assert target.is_symlink()
+            assert (target / "marker").read_text(encoding="utf-8") == "installed\n"
+
+    assert not (worktree / "frontend/web/node_modules").exists()
+    assert not (worktree / "frontend/tui/node_modules").exists()
+
+
 def _controller(tmp_path: Path, manager: _Manager) -> DaemonSelfMaintenance:
     memory = LifeMemory.open(tmp_path / "life")
     memory.init()
@@ -110,6 +134,12 @@ def _publication_repo(tmp_path: Path) -> tuple[Path, str]:
     )
     (repo / "argus_skill").mkdir()
     (repo / "scripts").mkdir()
+    (repo / "frontend" / "core" / "src").mkdir(parents=True)
+    (repo / "frontend" / "tui" / "bundle").mkdir(parents=True)
+    (repo / "frontend" / "tui" / "node_modules").mkdir()
+    (repo / "frontend" / "web" / "dist" / "assets").mkdir(parents=True)
+    (repo / "frontend" / "web" / "node_modules").mkdir()
+    (repo / ".gitignore").write_text("node_modules/\n", encoding="utf-8")
     (repo / "argus_skill" / "base.py").write_text("BASE = 1\n", encoding="utf-8")
     (repo / "scripts" / "generate_release_manifest.py").write_text(
         "import pathlib, subprocess, sys\n"
@@ -117,13 +147,50 @@ def _publication_repo(tmp_path: Path) -> tuple[Path, str]:
         "tracked = subprocess.check_output(['git', 'ls-files'], cwd=root, text=True)\n"
         "expected = 'new-feature\\n' if 'argus_skill/new_feature.py' in tracked else 'base\\n'\n"
         "manifest = root / 'argus_skill' / 'release_manifest.json'\n"
+        "generated = root / 'frontend/core/src/release.generated.ts'\n"
         "if '--check' in sys.argv:\n"
-        "    raise SystemExit(0 if manifest.read_text() == expected else 2)\n"
-        "manifest.write_text(expected)\n",
+        "    valid = manifest.read_text() == expected and generated.read_text() == expected\n"
+        "    raise SystemExit(0 if valid else 2)\n"
+        "if '--prepare-build' not in sys.argv:\n"
+        "    raise SystemExit(2)\n"
+        "manifest.write_text(expected)\n"
+        "generated.write_text(expected)\n",
+        encoding="utf-8",
+    )
+    (repo / "scripts" / "build_release.py").write_text(
+        "import pathlib, subprocess, sys\n"
+        "root = pathlib.Path(__file__).resolve().parents[1]\n"
+        "subprocess.run([\n"
+        "    sys.executable,\n"
+        "    'scripts/generate_release_manifest.py',\n"
+        "    '--prepare-build',\n"
+        "], cwd=root, check=True)\n"
+        "release = (root / 'argus_skill/release_manifest.json').read_text()\n"
+        "(root / 'frontend/tui/bundle/argus.mjs').write_text(release)\n"
+        "(root / 'frontend/web/dist/assets/index.js').write_text(release)\n"
+        "(root / 'frontend/web/dist/index.html').write_text(\n"
+        "    '<script src=\"/assets/index.js\"></script>\\n'\n"
+        ")\n",
         encoding="utf-8",
     )
     (repo / "argus_skill" / "release_manifest.json").write_text(
         "base\n",
+        encoding="utf-8",
+    )
+    (repo / "frontend" / "core" / "src" / "release.generated.ts").write_text(
+        "base\n",
+        encoding="utf-8",
+    )
+    (repo / "frontend" / "tui" / "bundle" / "argus.mjs").write_text(
+        "base\n",
+        encoding="utf-8",
+    )
+    (repo / "frontend" / "web" / "dist" / "assets" / "index.js").write_text(
+        "base\n",
+        encoding="utf-8",
+    )
+    (repo / "frontend" / "web" / "dist" / "index.html").write_text(
+        '<script src="/assets/index.js"></script>\n',
         encoding="utf-8",
     )
     subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
