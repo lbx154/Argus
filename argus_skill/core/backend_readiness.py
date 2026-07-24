@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 from ..agent_cli.runner_backend import normalize_runner_backend, resolve_runner_bin
+from .knobs import resolve_runner_bin_setting
 from .knob_store import read_persisted_knobs, write_persisted_knobs
 
 AUTH_MODE_KNOB = "ARGUS_SKILL_BACKEND_AUTH_MODE"
@@ -323,7 +324,8 @@ def check_backend_readiness(
         return report
 
     configured_bin = str(
-        runner_bin or env_map.get("ARGUS_SKILL_RUNNER_BIN") or ""
+        runner_bin
+        or resolve_runner_bin_setting(env=env_map, persisted=read_persisted_knobs())
     ).strip()
     executable = resolve_runner_bin(profile.backend, configured_bin or None)
     if executable is None:

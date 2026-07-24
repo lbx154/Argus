@@ -248,6 +248,34 @@ def resolve_knob(
     return ResolvedKnob(default, "default")
 
 
+def resolve_runner_bin_setting(
+    role: str | None = None,
+    *,
+    env: Mapping[str, str] | None = None,
+    persisted: Mapping[str, str] | None = None,
+) -> str:
+    """Resolve role/shared runner paths with env-before-persisted precedence."""
+    env_map = env if env is not None else os.environ
+    if persisted is None:
+        from .knob_store import read_persisted_knobs
+
+        persisted = read_persisted_knobs()
+    role_name = str(role or "").strip().upper()
+    role_key = f"ARGUS_SKILL_{role_name}_RUNNER_BIN" if role_name else ""
+    for source, key in (
+        (env_map, role_key),
+        (env_map, "ARGUS_SKILL_RUNNER_BIN"),
+        (persisted, role_key),
+        (persisted, "ARGUS_SKILL_RUNNER_BIN"),
+    ):
+        if not key:
+            continue
+        value = str(source.get(key, "") or "").strip()
+        if value:
+            return value
+    return ""
+
+
 def _parse_budget_value(name: str, raw: str) -> float:
     try:
         value = float(raw)

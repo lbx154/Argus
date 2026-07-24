@@ -21,6 +21,7 @@ from typing import Any
 
 from ..core.ports import EventSink
 from ..core.run_gateway import run_exec as gateway_run_exec
+from ..core.knobs import resolve_runner_bin_setting
 from ._env import env_int as _env_int
 from ._runtime_backends import _MemoryRunner, _ScriptedPlannerBackend
 from ._runtime_helpers import _SplitMemory
@@ -86,7 +87,7 @@ class _RunnerConstructionMixin:
         # ``/backend`` knob). Env-only reads here silently fell back to codex for
         # the in-process Manager front-door — see ``_resolve_runner_backend_name``.
         backend_name = _resolve_runner_backend_name(args)
-        runner_bin = os.environ.get("ARGUS_SKILL_RUNNER_BIN") or None
+        runner_bin = resolve_runner_bin_setting() or None
         from ..agent_cli.runner_backend import (
             normalize_runner_backend,
             resolve_available_runner,
@@ -106,6 +107,12 @@ class _RunnerConstructionMixin:
             )
         raw_extra = os.environ.get("ARGUS_SKILL_RUNNER_EXTRA_ARGS", "").strip()
         extra = _strip_legacy_codex_profile_args(shlex.split(raw_extra) if raw_extra else None)
+        if (
+            normalize_runner_backend(backend_name) == "claude"
+            and os.environ.get("ANTHROPIC_API_KEY")
+            and "--bare" not in (extra or [])
+        ):
+            extra = [*(extra or []), "--bare"]
         stop_event = getattr(args, "stop_event", None)
         # Set ONLY by the real 7×24 daemon's own namespace builder (see
         # ``daemon/life_worker.py:_runner_namespace``) — never by the
@@ -176,7 +183,7 @@ class _RunnerConstructionMixin:
                 role,
                 backend_name,
             )
-            bin_env = os.environ.get(f"ARGUS_SKILL_{role.upper()}_RUNNER_BIN", "").strip()
+            bin_env = resolve_runner_bin_setting(role)
             from ..agent_cli.runner_backend import (
                 normalize_runner_backend,
                 resolve_available_runner,
@@ -207,7 +214,15 @@ class _RunnerConstructionMixin:
             return AgentCliBackend(
                 backend=chosen,
                 runner_bin=role_bin,
-                default_extra_args=extra,
+                default_extra_args=(
+                    extra
+                    if chosen == normalize_runner_backend(backend_name)
+                    else (
+                        ["--bare"]
+                        if chosen == "claude" and os.environ.get("ANTHROPIC_API_KEY")
+                        else None
+                    )
+                ),
                 default_interrupt_reason_provider=(
                     _stop_reason if stop_event is not None else None
                 ),

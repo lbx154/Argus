@@ -240,6 +240,9 @@ _FOLLOW_HEARTBEAT_SECONDS = 20.0
 
 
 def main(argv: list[str] | None = None) -> int:
+    from ...core.runtime_env import load_backend_runtime_env
+
+    load_backend_runtime_env()
     parser = build_parser()
     args = parser.parse_args(argv)
     args.skill_stats = bool(args.skill_stats or args.skill_stats_json)

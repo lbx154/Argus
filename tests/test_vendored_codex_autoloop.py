@@ -8,6 +8,8 @@ gets dropped or its public surface diverges from what
 """
 from __future__ import annotations
 
+import json
+
 
 def test_vendored_agent_cli_runner_importable() -> None:
     from argus_skill.agent_cli.agent_cli_runner import (
@@ -80,3 +82,26 @@ def test_agent_cli_package_init_is_thin() -> None:
         "LoopConfig",
     ):
         assert not hasattr(pkg, legacy), f"legacy symbol leaked: {legacy}"
+
+
+def test_claude_command_omits_unsupported_schema_dialect(tmp_path) -> None:
+    from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+    from argus_skill.agent_cli.runner_backend import BACKEND_CLAUDE
+
+    schema_path = tmp_path / "schema.json"
+    schema_path.write_text(
+        json.dumps({
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+        }),
+        encoding="utf-8",
+    )
+    runner = AgentCliRunner(agent_bin="claude", backend=BACKEND_CLAUDE)
+
+    command = runner._build_command(
+        resume_thread_id=None,
+        options=RunnerOptions(output_schema_path=str(schema_path)),
+    )
+
+    schema = json.loads(command[command.index("--json-schema") + 1])
+    assert schema == {"type": "object"}

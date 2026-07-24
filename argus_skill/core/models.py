@@ -60,6 +60,7 @@ class RunnerOptions:
     reasoning_effort: str | None = None
     output_schema_path: str | None = None
     working_dir: str | None = None
+    add_dirs: list[str] | None = None
     extra_args: list[str] | None = None
     skip_git_repo_check: bool = False
     # Enable codex's native live web_search tool for this call (``codex exec

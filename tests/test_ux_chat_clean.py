@@ -14,6 +14,7 @@ from argus_skill.manager.front_door import _extract_chat_reply_text
 
 def test_extract_chat_reply_text_plain_and_json():
     assert _extract_chat_reply_text("你好，我在") == "你好，我在"
+    assert _extract_chat_reply_text("internal draft\n📢 最终回答") == "最终回答"
     assert _extract_chat_reply_text('{"reply": "hi there"}') == "hi there"
     assert _extract_chat_reply_text('{"message": "yo"}') == "yo"
     pending_decision = (

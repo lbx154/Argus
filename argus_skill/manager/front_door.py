@@ -897,6 +897,8 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
 def _extract_chat_reply_text(msg: str) -> str:
     """Pull the human reply out of a chat result (plain text, or JSON-wrapped)."""
     msg = (msg or "").strip()
+    if "📢" in msg:
+        msg = msg.rsplit("📢", 1)[1].strip()
     if msg.startswith("{") and msg.endswith("}"):
         try:
             data = json.loads(msg)

@@ -262,9 +262,21 @@ class SelfReplyMixin:
             return ""
         try:
             from ..cli.roles_status import role_activity
+            from ..daemon.life_worker import read_daemon_status
             from ..life.memory import Backlog
 
             root = Path(session_root)
+            daemon = read_daemon_status(root)
+            daemon_lines = [
+                "## Authoritative daemon status",
+                f"- alive: {'true' if daemon.alive else 'false'}",
+                f"- pid: {daemon.pid if daemon.alive and daemon.pid is not None else 'none'}",
+                (
+                    "- evidence source: daemon status/pid files for this session; "
+                    "WebAPI activity and events.jsonl writes do not prove daemon liveness."
+                ),
+            ]
+            daemon_block = "\n".join(daemon_lines)
             backlog_items = Backlog(root / "backlog.jsonl").all()
             running = [
                 item
@@ -276,12 +288,22 @@ class SelfReplyMixin:
             else:
                 item = running[0]
                 activity = role_activity(root)
-                lines = [
-                    "## Live mission status",
-                    "A mission is currently running under your supervision in a "
-                    f"separate daemon process (life_dir={root}):",
-                    f'- item: "{(item.title or "").strip()[:120]}" (id={item.id})',
-                ]
+                lines = (
+                    [
+                        "## Live mission status",
+                        "A mission is currently running under your supervision in a "
+                        f"separate daemon process (life_dir={root}):",
+                    ]
+                    if daemon.alive
+                    else [
+                        "## Interrupted mission status",
+                        "The backlog still marks a mission as running, but the "
+                        "authoritative daemon status is offline:",
+                    ]
+                )
+                lines.append(
+                    f'- item: "{(item.title or "").strip()[:120]}" (id={item.id})'
+                )
                 started = getattr(item, "started_ts", None)
                 if isinstance(started, (int, float)) and started > 0:
                     lines[-1] += (
@@ -304,7 +326,7 @@ class SelfReplyMixin:
                 mission = "\n".join(lines)
             maintenance = self._self_maintenance_status_block(root)
             return "\n\n".join(
-                block for block in (mission, maintenance) if block
+                block for block in (daemon_block, mission, maintenance) if block
             )
         except Exception:  # noqa: BLE001 - status context is optional
             return ""
@@ -433,6 +455,12 @@ class SelfReplyMixin:
             if configured_workspace
             else Path(args.workdir).expanduser() if args.workdir else Path.cwd()
         )
+        session_root = getattr(self, "_manager_session_root", None)
+        read_dirs = (
+            [str(Path(session_root).expanduser())]
+            if session_root and Path(session_root).expanduser() != workdir
+            else None
+        )
 
         def _self_inactivity(snapshot: Any) -> str | None:
             try:
@@ -470,10 +498,12 @@ class SelfReplyMixin:
                 "ARGUS_SKILL_SELF_REASONING_EFFORT",
                 default="xhigh",
             ),
-            full_auto=True,
+            full_auto=False,
             skip_git_repo_check=True,
-            dangerous_yolo=True,
+            dangerous_yolo=False,
+            sandbox_mode="read-only",
             working_dir=str(workdir),
+            add_dirs=read_dirs,
             watchdog_hard_idle_seconds=env_int(
                 "ARGUS_SKILL_SELF_HARD_IDLE_SECONDS", 120
             ),

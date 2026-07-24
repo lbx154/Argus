@@ -174,7 +174,18 @@ class RunExecMixin:
     def _spawn_turn_process(
         self, *, prompt: str, resume_thread_id: str | None, options
     ) -> tuple[list[str], subprocess.Popen[str] | None, AgentRunResult | None]:
-        command = self._build_command(resume_thread_id=resume_thread_id, options=options)
+        command = self._build_command(
+            resume_thread_id=resume_thread_id, options=options
+        )
+        effective_prompt = self._effective_prompt(
+            prompt=prompt,
+            resume_thread_id=resume_thread_id,
+            options=options,
+        )
+        command, stdin_prompt = self._prepare_prompt_delivery(
+            command,
+            effective_prompt,
+        )
         command[0] = self._resolve_executable(command[0])
         if options.isolate_workdir:
             try:
@@ -215,14 +226,10 @@ class RunExecMixin:
             env=self._child_env(options),
             start_new_session=os.name != "nt",
         )
-        if self._prompt_via_stdin():
+        if stdin_prompt is not None:
             self._write_prompt(
                 process=process,
-                prompt=self._effective_prompt(
-                    prompt=prompt,
-                    resume_thread_id=resume_thread_id,
-                    options=options,
-                ),
+                prompt=stdin_prompt,
             )
         else:
             self._close_stdin(process)

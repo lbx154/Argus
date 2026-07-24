@@ -199,9 +199,9 @@ def test_execute_self_path_one_turn_no_reviewer(tmp_path: Path) -> None:
     assert backend.calls[0]["options"].watchdog_hard_idle_seconds == 120
     assert backend.calls[0]["options"].watchdog_soft_idle_seconds == 5
     assert callable(backend.calls[0]["options"].inactivity_callback)
-    assert backend.calls[0]["options"].sandbox_mode is None
-    assert backend.calls[0]["options"].dangerous_yolo is True
-    assert backend.calls[0]["options"].full_auto is True
+    assert backend.calls[0]["options"].sandbox_mode == "read-only"
+    assert backend.calls[0]["options"].dangerous_yolo is False
+    assert backend.calls[0]["options"].full_auto is False
     types = [e.get("type") for e in sink.events]
     assert "round.review.completed" not in types  # NO reviewer
     assert "round.review.started" not in types

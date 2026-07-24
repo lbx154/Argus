@@ -278,7 +278,13 @@ class CommandBuilderMixin:
             command.extend(["--permission-mode", "acceptEdits"])
         if options.output_schema_path and not resume_thread_id:
             command.extend(
-                ["--json-schema", self._load_compact_schema_text(options.output_schema_path)]
+                [
+                    "--json-schema",
+                    self._load_compact_schema_text(
+                        options.output_schema_path,
+                        omit_dialect=True,
+                    ),
+                ]
             )
 
         # --add-dir

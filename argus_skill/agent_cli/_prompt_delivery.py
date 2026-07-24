@@ -15,7 +15,7 @@ from pathlib import Path
 
 from ..core.sandbox import sandboxed_child_env
 from ._sandbox_commands import _OPENCODE_READ_ONLY_AGENT
-from .runner_backend import BACKEND_COPILOT, BACKEND_OPENCODE
+from .runner_backend import BACKEND_CLAUDE, BACKEND_COPILOT, BACKEND_OPENCODE
 
 _OPENCODE_CONFIG_CONTENT_ENV = "OPENCODE_CONFIG_CONTENT"
 
@@ -118,13 +118,46 @@ class PromptDeliveryMixin:
         except OSError:
             return
 
-    def _prompt_via_stdin(self) -> bool:
-        # All agent CLI backends receive the prompt through
-        # stdin. Passing a large prompt via argv trips the kernel per-arg limit
-        # (E2BIG / OSError: [Errno 7] Argument list too long); stdin has no such
-        # cap. codex uses a trailing ``-``, claude runs ``-p`` print-mode with no
-        # value, and copilot/opencode omit a prompt argument entirely.
-        return True
+    def _prepare_prompt_delivery(
+        self,
+        command: list[str],
+        prompt: str,
+    ) -> tuple[list[str], str | None]:
+        if self.backend != BACKEND_CLAUDE:
+            return command, prompt
+        prepared = list(command)
+        if "--bare" in prepared:
+            if "--input-format" not in prepared:
+                prepared.extend(["--input-format", "stream-json"])
+            session_id = ""
+            if "--resume" in prepared:
+                index = prepared.index("--resume") + 1
+                if index < len(prepared):
+                    session_id = prepared[index]
+            payload = json.dumps({
+                "type": "user",
+                "session_id": session_id,
+                "message": {"role": "user", "content": prompt},
+                "parent_tool_use_id": None,
+            }, ensure_ascii=False, separators=(",", ":"))
+            return prepared, payload
+        executable = str(prepared[0] if prepared else "").casefold()
+        if executable.endswith((".cmd", ".bat")):
+            raise RuntimeError(
+                "Claude requires a native executable for safe prompt delivery"
+            )
+        max_bytes = 24_000 if os.name == "nt" else 100_000
+        if len(prompt.encode("utf-8")) > max_bytes:
+            raise RuntimeError(
+                "Claude prompt exceeds the safe positional argument limit; "
+                "configure API-key bare mode or reduce the prompt"
+            )
+        try:
+            prompt_index = prepared.index("-p") + 1
+        except ValueError:
+            prompt_index = 1
+        prepared.insert(prompt_index, prompt)
+        return prepared, None
 
     def _child_env(self, options) -> dict[str, str] | None:
         if not options.sandbox_mode and not options.isolate_workdir:
@@ -170,9 +203,15 @@ class PromptDeliveryMixin:
         return env
 
     @staticmethod
-    def _load_compact_schema_text(path: str) -> str:
+    def _load_compact_schema_text(
+        path: str,
+        *,
+        omit_dialect: bool = False,
+    ) -> str:
         raw = Path(path).read_text(encoding="utf-8")
         parsed = json.loads(raw)
+        if omit_dialect and isinstance(parsed, dict):
+            parsed.pop("$schema", None)
         return json.dumps(parsed, ensure_ascii=True, separators=(",", ":"))
 
     def _prompt_schema_suffix(self, schema_path: str) -> str:
