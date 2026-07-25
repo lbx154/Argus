@@ -111,39 +111,10 @@ def test_malformed_json_fails(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# automated_gates wiring
 # ---------------------------------------------------------------------------
 
 
-def test_automated_gates_wires_experiment_audit_into_analysis_review_submission() -> None:
-    from argus_skill.skills.automated_gates import (
-        GATE_KINDS,
-        STAGE_GATES,
-        gates_for_stage,
-    )
-
-    for stage in ("analysis", "review", "submission"):
-        assert "experiment_audit" in STAGE_GATES[stage]
-        assert "experiment_audit" in gates_for_stage(stage)
-    # Not at draft — at draft the agent is still writing the manuscript,
-    # the audit should run alongside analysis-stage artifact rebuild.
-    assert "experiment_audit" not in STAGE_GATES["draft"]
-    assert GATE_KINDS["experiment_audit"] == "structural"
 
 
-def test_run_stage_gates_experiment_audit_blocks_at_analysis_when_missing(tmp_path: Path) -> None:
-    from argus_skill.skills.automated_gates import run_stage_gates
-    results = run_stage_gates(tmp_path, stage="analysis")
-    names = {r.name for r in results}
-    assert "experiment_audit" in names
-    ea = next(r for r in results if r.name == "experiment_audit")
-    assert ea.passed is False
-    assert ea.is_blocking is True
 
 
-def test_run_stage_gates_experiment_audit_passes_with_complete_artifact(tmp_path: Path) -> None:
-    _seed(tmp_path, md="# audit\n", js=_good_audit())
-    from argus_skill.skills.automated_gates import run_stage_gates
-    results = run_stage_gates(tmp_path, stage="analysis")
-    ea = next(r for r in results if r.name == "experiment_audit")
-    assert ea.passed is True, ea.detail

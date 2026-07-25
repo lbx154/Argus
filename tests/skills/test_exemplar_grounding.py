@@ -466,14 +466,3 @@ def test_format_facts_skipped_when_primary_unset(tmp_path: Path) -> None:
     assert "format_facts_diverge_from_primary_exemplar" not in codes
 
 
-def test_exemplar_grounding_is_optional_not_an_automated_gate() -> None:
-    from argus_skill.skills.automated_gates import (
-        GATE_KINDS,
-        STAGE_GATES,
-        gates_for_stage,
-    )
-
-    for stage in ("draft", "review", "submission"):
-        assert "exemplar_grounding" not in STAGE_GATES[stage]
-        assert "exemplar_grounding" not in gates_for_stage(stage)
-    assert "exemplar_grounding" not in GATE_KINDS

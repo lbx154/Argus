@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.skills.automated_gates import run_stage_gates
 from argus_skill.skills.rl_training_plots import (
     MIN_OPTIMIZER_STEPS,
     validate_rl_training_plots,
@@ -161,26 +160,7 @@ def test_steps_from_progress_fallback(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------
 
 
-def test_run_stage_is_advisory_never_blocks(tmp_path: Path) -> None:
-    _seed_run(tmp_path, "optimizer_a", steps=10, plot=None)
-    results = run_stage_gates(tmp_path, stage="run")
-    gate = next(r for r in results if r.name == "rl_training_plots")
-    assert gate.kind == "advisory"
-    assert not gate.is_blocking
 
 
-def test_analysis_stage_is_structural_and_blocks(tmp_path: Path) -> None:
-    _seed_run(tmp_path, "optimizer_a", steps=10, plot=None)
-    results = run_stage_gates(tmp_path, stage="analysis")
-    gate = next(r for r in results if r.name == "rl_training_plots")
-    assert gate.kind == "structural"
-    assert gate.is_blocking
 
 
-def test_analysis_stage_passes_when_plotted(tmp_path: Path) -> None:
-    _seed_run(tmp_path, "optimizer_a", steps=10, plot="training_curve.png")
-    results = run_stage_gates(tmp_path, stage="analysis")
-    gate = next(r for r in results if r.name == "rl_training_plots")
-    assert gate.kind == "structural"
-    assert gate.passed
-    assert not gate.is_blocking

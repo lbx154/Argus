@@ -23,8 +23,20 @@ def _stage_modules() -> list[str]:
 
 @pytest.mark.parametrize("module_name", _stage_modules())
 def test_stage_checks_do_not_embed_content_scanners(module_name: str) -> None:
+    """A harness-run stage check must not scan CONTENT to form a judgment.
+
+    Only the legacy ``STAGE_CHECKS`` shape (stage -> [(description, shell
+    command)]) can express this anti-pattern. Verticals that migrated to typed
+    ``ChecklistItem`` statements hand the judgment to the Reviewer by
+    construction, so there is nothing here to guard — skip them rather than
+    erroring, which is what silently retired this guard once ``STAGE_CHECKS``
+    was renamed.
+    """
     module = importlib.import_module(module_name)
-    for stage, checks in module.STAGE_CHECKS.items():
+    stage_checks = getattr(module, "STAGE_CHECKS", None)
+    if not stage_checks:
+        pytest.skip(f"{module_name} has no harness-run STAGE_CHECKS")
+    for stage, checks in stage_checks.items():
         for description, command in checks:
             assert not _CONTENT_SCANNER.search(command), (
                 f"{module_name}.{stage} ({description}) embeds a content scanner; "

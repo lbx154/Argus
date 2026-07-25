@@ -17,9 +17,10 @@ assumes the project is producing a research paper:
 Submodules are imported directly (e.g.
 ``from argus_skill.verticals.research import academic_language_review``), and the
 most-used public symbols (validators, generators, report dataclasses, path
-constants) are re-exported here so aggregate callers such as
-``argus_skill.skills.automated_gates`` wire up cleanly. The generic anti-fraud
-gate ``evidence_chain`` stays in
+constants) are re-exported here for callers that want one import site. Each
+validator is an agent-callable tool (``python -m ...``); there is no harness
+router deciding which one runs at which stage — that judgment is the
+Reviewer's. The generic anti-fraud gate ``evidence_chain`` stays in
 ``argus_skill.skills`` (it is domain-agnostic) and is re-exported here for the
 paper pipeline's convenience.
 """

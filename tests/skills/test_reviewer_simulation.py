@@ -141,69 +141,8 @@ def test_questions_missing_top_level_questions_key_fails(tmp_path: Path) -> None
 
 
 # ---------------------------------------------------------------------------
-# automated_gates wiring
 # ---------------------------------------------------------------------------
 
 
-def test_automated_gates_wires_reviewer_simulation_into_review_stage() -> None:
-    from argus_skill.skills.automated_gates import (
-        GATE_KINDS,
-        STAGE_GATES,
-        gates_for_stage,
-    )
-
-    for stage in ("review", "submission"):
-        assert "reviewer_simulation" in STAGE_GATES[stage]
-        assert "reviewer_simulation" in gates_for_stage(stage)
-    # NOT at draft stage — the gate fires after the draft is "done",
-    # not while it's being assembled.
-    assert "reviewer_simulation" not in STAGE_GATES["draft"]
-    assert GATE_KINDS["reviewer_simulation"] == "structural"
 
 
-def test_run_stage_gates_reviewer_simulation_blocks_when_missing(tmp_path: Path) -> None:
-    """Wire-through smoke test — review stage on a project without
-    REVIEWER_QUESTIONS.json must produce a structural failure."""
-    # Seed a passing paper so other gates don't fire (we want to isolate
-    # reviewer_simulation's contribution).
-    from argus_skill.verticals.research.paper_structural_minimums import MIN_INTEXT_CITES
-    paper = tmp_path / "paper"
-    (paper / "figures").mkdir(parents=True)
-    (paper / "figures" / "teaser.png").write_bytes(b"\x89PNG\r\n")
-    (paper / "figures" / "pipeline.png").write_bytes(b"\x89PNG\r\n")
-    (paper / "figures" / "IMAGE2_FIGURES.json").write_text(
-        json.dumps({"figures": [
-            {"name": "teaser", "file": "paper/figures/teaser.png"},
-            {"name": "pipeline", "file": "paper/figures/pipeline.png"},
-        ]}),
-        encoding="utf-8",
-    )
-    cite_block = ", ".join(f"\\cite{{w{i}}}" for i in range(MIN_INTEXT_CITES))
-    (paper / "main.tex").write_text(
-        r"\documentclass{article}\begin{document}" + "\n"
-        + r"\includegraphics{figures/teaser.png}" + "\n"
-        + cite_block + "\n"
-        + r"\section{Related Work}" + ("Prior work. " * 120) + "\n"
-        + r"\section{Conclusion}" + "\nEnd.\n" + r"\end{document}" + "\n",
-        encoding="utf-8",
-    )
-    (paper / "refs.bib").write_text(
-        "\n".join(
-            f"@article{{w{i}, title={{T}}, author={{A}}, year={{2024}}}}"
-            for i in range(MIN_INTEXT_CITES)
-        ),
-        encoding="utf-8",
-    )
-
-    from argus_skill.skills.automated_gates import (
-        any_blocking_failure,
-        run_stage_gates,
-    )
-
-    results = run_stage_gates(tmp_path, stage="review")
-    names = {r.name for r in results}
-    assert "reviewer_simulation" in names
-    rs = next(r for r in results if r.name == "reviewer_simulation")
-    assert rs.passed is False
-    assert rs.is_blocking is True
-    assert any_blocking_failure(results) is True

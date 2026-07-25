@@ -29,7 +29,7 @@ pdf,svg}`` under the run dir, where ``<curve-token>`` is one of
 ``CURVE_TOKENS``. A named file under ``plots/`` (not just any stray image
 anywhere) keeps the gate from being satisfied by an unrelated screenshot.
 
-Wiring (see automated_gates.py): ADVISORY at the ``run`` stage (surface a
+Advisory by construction: this reports facts at the ``run`` stage (surface a
 repair queue while experiments are still evolving, never block) and
 STRUCTURAL at the ``analysis`` stage (by analysis time the run is about to
 be cited as evidence, so its curve must exist).

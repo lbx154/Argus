@@ -167,39 +167,10 @@ def test_malformed_ctrf_does_not_crash_or_count_as_failed(tmp_path: Path) -> Non
 
 
 # ---------------------------------------------------------------------------
-# automated_gates wiring
 # ---------------------------------------------------------------------------
 
 
-def test_automated_gates_wires_run_evidence_health() -> None:
-    from argus_skill.skills.automated_gates import (
-        GATE_KINDS,
-        STAGE_GATES,
-        gates_for_stage,
-    )
-
-    for stage in ("run", "analysis", "review", "submission"):
-        assert "run_evidence_health" in STAGE_GATES[stage]
-        assert "run_evidence_health" in gates_for_stage(stage)
-    # NOT at draft — draft is paper-side, not bundle-side.
-    assert "run_evidence_health" not in STAGE_GATES["draft"]
-    assert GATE_KINDS["run_evidence_health"] == "structural"
 
 
-def test_run_stage_gates_run_evidence_health_blocks_when_broken_bundle_exists(tmp_path: Path) -> None:
-    _seed_bundle(tmp_path, "broken", ctrf_total=10, n_failed=10)
-    from argus_skill.skills.automated_gates import run_stage_gates
-    results = run_stage_gates(tmp_path, stage="analysis")
-    names = {r.name for r in results}
-    assert "run_evidence_health" in names
-    reh = next(r for r in results if r.name == "run_evidence_health")
-    assert reh.passed is False
-    assert reh.is_blocking is True
 
 
-def test_run_stage_gates_run_evidence_health_passes_when_clean(tmp_path: Path) -> None:
-    _seed_bundle(tmp_path, "clean", ctrf_total=10, n_failed=0)
-    from argus_skill.skills.automated_gates import run_stage_gates
-    results = run_stage_gates(tmp_path, stage="run")
-    reh = next(r for r in results if r.name == "run_evidence_health")
-    assert reh.passed is True

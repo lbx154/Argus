@@ -4,12 +4,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.skills.automated_gates import (
-    GATE_KINDS,
-    STAGE_GATES,
-    any_blocking_failure,
-    run_stage_gates,
-)
 from argus_skill.skills.rl_training_health import (
     TAIL_WINDOW,
     validate_rl_training_health,
@@ -226,28 +220,5 @@ def test_tiny_tail_suppresses_sustained_labels(tmp_path: Path) -> None:
     assert "insufficient_tail_for_sustained_collapse" in sig
 
 
-def test_gate_is_advisory_and_never_blocks(tmp_path: Path) -> None:
-    _write_run(
-        tmp_path,
-        "optimizer_sat2",
-        steps=TAIL_WINDOW,
-        adv_spans=[0.0] * TAIL_WINDOW,
-        reward_means=[1.0] * TAIL_WINDOW,
-        grad_norms=[1e-6] * TAIL_WINDOW,
-        task_ids=[f"math_train_{i % 10:04d}" for i in range(200)],
-        admitted=10,
-    )
-    for stage in ("run", "analysis"):
-        results = run_stage_gates(tmp_path, stage=stage)
-        health = [r for r in results if r.name == "rl_training_health"]
-        assert len(health) == 1, f"gate missing at stage {stage}"
-        assert health[0].kind == "advisory"
-        assert health[0].passed is True
-        assert not health[0].is_blocking
-    assert not any_blocking_failure(run_stage_gates(tmp_path, stage="run"))
 
 
-def test_gate_wired_into_stage_map() -> None:
-    assert "rl_training_health" in STAGE_GATES["run"]
-    assert "rl_training_health" in STAGE_GATES["analysis"]
-    assert GATE_KINDS["rl_training_health"] == "advisory"

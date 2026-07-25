@@ -1508,49 +1508,6 @@ def _render_mid_mission_progress_lines(bundle: Any, *, current_item_id: str | No
     return lines
 
 
-def _render_gate_snapshot_lines(workdir: Path, stage: str | None) -> list[str]:
-    """Render the structural/advisory gate snapshot for --status.
-    Runs the F3/F4 gates against the current pipeline stage and shows
-    each result with its kind. Structural failures are marked ❌;
-    advisory findings are marked 📋 (never failure). Fail-soft.
-    """
-    if not stage:
-        return []
-    try:
-        from ...skills.automated_gates import (
-            gates_for_stage,
-            run_stage_gates,
-        )
-    except Exception:  # noqa: BLE001
-        return []
-
-    if not gates_for_stage(stage):
-        return [f"  gates @ {stage}: (no gates configured at this stage)"]
-
-    try:
-        results = run_stage_gates(
-            workdir,
-            stage=stage,
-            proposed_condition=os.environ.get("ARGUS_SKILL_PROPOSED_CONDITION") or None,
-            baseline_condition=os.environ.get("ARGUS_SKILL_BASELINE_CONDITION") or None,
-        )
-    except Exception:  # noqa: BLE001
-        return [f"  gates @ {stage}: (snapshot failed)"]
-
-    lines = [f"  gates @ {stage}:"]
-    for gate in results:
-        if gate.kind == "advisory":
-            mark = "📋"
-        elif gate.passed:
-            mark = "✅"
-        else:
-            mark = "❌"
-        lines.append(
-            f"    {mark} {gate.name} ({gate.kind}) — {gate.summary}"
-        )
-    return lines
-
-
 def _cmd_gc(args: argparse.Namespace) -> int:
     """Prune stale projects (no live daemon + untouched for --gc-days)."""
     from ...core.project_gc import gc_stale_projects, retention_days_default
@@ -1685,10 +1642,6 @@ def _cmd_status(args: argparse.Namespace) -> int:
         state_root=Path(bundle.project.root),
     )
     for line in lifecycle_lines:
-        print(line)
-    current_stage = _read_current_stage(research_workdir)
-    gate_lines = _render_gate_snapshot_lines(research_workdir, current_stage)
-    for line in gate_lines:
         print(line)
 
     # Mid-mission progress (Opt #3). Tails events.jsonl for the

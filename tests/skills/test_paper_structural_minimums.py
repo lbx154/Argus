@@ -685,38 +685,7 @@ Settings.
     assert report.ok, report.to_text()
 
 
-def test_automated_gates_wires_paper_minimums_into_draft_stage() -> None:
-    """The gate must be reachable via the STAGE_GATES router or it won't
-    actually run in production."""
-    from argus_skill.skills.automated_gates import (
-        GATE_KINDS,
-        STAGE_GATES,
-        gates_for_stage,
-    )
-
-    for stage in ("draft", "review", "submission"):
-        assert "paper_structural_minimums" in STAGE_GATES[stage]
-        assert "paper_structural_minimums" in gates_for_stage(stage)
-    assert GATE_KINDS["paper_structural_minimums"] == "structural"
 
 
-def test_run_stage_gates_returns_paper_minimums_result_for_draft(tmp_path: Path) -> None:
-    from argus_skill.skills.automated_gates import run_stage_gates
-
-    results = run_stage_gates(tmp_path, stage="draft")
-    names = [r.name for r in results]
-    assert "paper_structural_minimums" in names
-    paper_result = next(r for r in results if r.name == "paper_structural_minimums")
-    # Empty workdir has no paper/main.tex → must fail structurally.
-    assert paper_result.kind == "structural"
-    assert paper_result.passed is False
-    assert paper_result.is_blocking is True
 
 
-def test_run_stage_gates_passes_when_minimal_paper_present(tmp_path: Path) -> None:
-    _seed_minimal_passing_paper(tmp_path)
-    from argus_skill.skills.automated_gates import run_stage_gates
-
-    results = run_stage_gates(tmp_path, stage="draft")
-    paper_result = next(r for r in results if r.name == "paper_structural_minimums")
-    assert paper_result.passed, paper_result.detail

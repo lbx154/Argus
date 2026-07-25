@@ -16,7 +16,6 @@ import pytest
 
 from argus_skill.apps.cli._core import (
     _read_current_stage,
-    _render_gate_snapshot_lines,
     _render_lifecycle_status_lines,
     _resolve_research_workdir,
 )
@@ -150,17 +149,11 @@ def test_lifecycle_lines_mark_persisted_state(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# _render_gate_snapshot_lines
 # ---------------------------------------------------------------------------
 
 
-def test_gate_snapshot_returns_empty_when_stage_unknown(tmp_path: Path) -> None:
-    assert _render_gate_snapshot_lines(tmp_path, None) == []
 
 
-def test_gate_snapshot_handles_no_gates_stage(tmp_path: Path) -> None:
-    lines = _render_gate_snapshot_lines(tmp_path, "research")
-    assert lines == ["  gates @ research: (no gates configured at this stage)"]
 
 
 def _write_bundle(root: Path, name: str, *, condition: str, reward: float, dataset_id: str) -> None:
@@ -188,41 +181,8 @@ def _write_claims_tsv(root: Path, rows: list[dict[str, str]]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def test_gate_snapshot_review_stage_shows_both_kinds(tmp_path: Path) -> None:
-    _write_bundle(tmp_path, "a", condition="argus", reward=0.72,
-                  dataset_id="harbor-bench@1.0")
-    _write_bundle(tmp_path, "b", condition="bare", reward=0.60,
-                  dataset_id="harbor-bench@1.0")
-    _write_claims_tsv(tmp_path, [
-        {
-            "claim_id": "demo",
-            "status": "current_evidence",
-            "claim": "x",
-            "evidence_1": "benchmarks/evidence/a/summary.tsv",
-        }
-    ])
-
-    lines = _render_gate_snapshot_lines(tmp_path, "review")
-    text = "\n".join(lines)
-    assert "gates @ review:" in text
-    assert "✅ evidence_chain (structural)" in text
-    assert "📋 mediocrity_finding (advisory)" in text
 
 
-def test_gate_snapshot_surfaces_structural_failure(tmp_path: Path) -> None:
-    _write_claims_tsv(tmp_path, [
-        {
-            "claim_id": "broken",
-            "status": "current_evidence",
-            "claim": "x",
-            "evidence_1": "benchmarks/evidence/does-not-exist/summary.tsv",
-        }
-    ])
-    lines = _render_gate_snapshot_lines(tmp_path, "draft")
-    text = "\n".join(lines)
-    assert "❌ evidence_chain (structural)" in text
-    # No advisory at draft stage.
-    assert "📋" not in text
 
 
 # ---------------------------------------------------------------------------
@@ -254,35 +214,3 @@ def test_status_subprocess_includes_lifecycle_block(
     assert "allocatable   :" in proc.stdout
 
 
-def test_status_subprocess_shows_gate_snapshot_when_stage_known(
-    tmp_path: Path, monkeypatch
-) -> None:
-    home = tmp_path / "home"
-    home.mkdir()
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    # Seed PIPELINE_STATE.json so the stage is known. Also place under
-    # repo / "code" so the resolver picks up the legacy nested layout.
-    code = repo / "code"
-    (code / "research").mkdir(parents=True)
-    (code / "research" / "PIPELINE_STATE.json").write_text(
-        json.dumps({"current_stage": "draft"}), encoding="utf-8"
-    )
-    # Empty claims TSV → evidence_chain passes (no claims to check).
-    (code / "paper").mkdir()
-    (code / "paper" / "claims_to_evidence.tsv").write_text(
-        "claim_id\tstatus\tclaim\tevidence_1\tevidence_2\tevidence_3\tnotes\n",
-        encoding="utf-8",
-    )
-
-    # The fixture pattern stores life-dir under home; the cli computes
-    # bundle.project.root deterministically from cwd hash. Easier: place
-    # the research project at `<bundle.project.root>/code/` after we
-    # discover the bundle path. Skip subprocess routing complexity here
-    # and just verify the helper directly via a Namespace bundle.
-    from argus_skill.apps.cli._core import _render_gate_snapshot_lines
-
-    lines = _render_gate_snapshot_lines(code, "draft")
-    text = "\n".join(lines)
-    assert "gates @ draft:" in text
-    assert "evidence_chain" in text

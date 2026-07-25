@@ -412,6 +412,27 @@ paper/
 
 质量校验由 L2 Reviewer 读取 active vertical 在 `verticals/*/stages.py` 定义的 checklist，并通过 `skills/stage_machine.py` 的通用渲染入口对照真实 artifact 裁决。仓库不再提供独立的 pipeline validator/policy 模块。
 
+### 没有 gate router —— 只有 agent 可调用的工具
+
+历史上有一个 `skills/automated_gates.py`：一张 stage→gates 路由表，替 agent 决定
+「哪个 gate 在哪个 stage 跑、算 structural(阻断) 还是 advisory(建议)」。它已删除
+（2026-07，连同 `--status` 里的 gate 快照渲染与配套测试，约 -2.3k 行）。
+
+删除依据是实测而非口味：全仓只有两个生产调用点，都在 `--status` 的展示函数里；
+它**不进任何 agent prompt、不阻断任何 round、不参与完成判定**。而「哪一项该在此刻
+被检查、失败算不算致命」本来就是 Reviewer 的判断——正是设计哲学禁止 harness 代劳的
+那类判断。它自己的 docstring 也记录了前一版因硬编码科研质量阈值而被 review 否决。
+
+**保留下来的是每一个 validator 本身**（`evidence_chain`、`anti_mediocrity`、
+`rl_training_health`/`_plots`、`paper_structural_minimums`、`method_differentiation`、
+`experiment_audit_gate`、`reviewer_simulation`、`run_evidence_health`）。它们都带
+`python -m ...` CLI 入口，由 Engineer/Reviewer 按需自行调用，是**给 agent 的工具**，
+不是替 agent 的裁决。新增这类检查时：写成独立可调用工具 + 在 skill 里说明何时用，
+**不要**再造一张路由表。
+
+> 依赖分析注意：本仓有**两条依赖图**——Python import，以及 skill markdown 里的
+> `python -m argus_skill...` CLI 调用。只看前者会把活模块误判成死代码。
+
 ```bash
 # 完成判定由 reviewer 走 stage checklist：
 python -c "from argus_skill.skills.stage_machine import format_full_pipeline_checklist; print(format_full_pipeline_checklist(role='reviewer'))"
@@ -561,6 +582,46 @@ USD 预算只读全局配置；项目没有独立预算文件。
 - `argus_skill/apps/_watch.py`
 - `argus_skill/apps/cli/_core.py` 的 `--follow` helpers
 - `argus_skill/life/telegram_bot.py`
+- `argus_skill/core/progress_step.py`
+
+### 实时步骤流（cockpit 看得到系统在干什么）
+
+operator 一次 Manager 回合期间，cockpit 显示的是一条**追加式 step trail**，不是一行被
+不断覆盖的状态。链路有三道闸，历史上每一道都单独把 Manager 的实时活动吞掉过：
+
+1. `adapters/agent_cli_backend/_io_log.py` 的 `_PROGRESS_STREAM_MARKERS`
+   决定哪些 provider stdout 行会被转发去做实时进度（磁盘 raw log 是另一条分支）。
+   新增 provider 事件名要在这里登记，否则后面两层根本收不到。
+2. `adapters/stream_progress.py` 把这些行解析成 `engineer.progress`。
+   Copilot 现在用 `tool.execution_start` / `tool.execution_complete`
+   报告工具活动（旧的 `tool.call` / `tool.result` 仅作兼容保留）。
+   `_actor_is_visible()` 决定哪些 run label 属于 operator 可见角色——**Manager 的
+   run label(`simple-*` / `chat-*` / `manager-*` / `router-*` …)在列**，
+   matcher/distiller 等协议噪音不在。
+3. `core/progress_step.py` 的 `describe_progress_step(event) -> (label, detail)`
+   把一个 progress 事件渲染成一行真实动作（跑的命令、调的工具、改的文件），
+   并经 `core/secret_guard` 脱敏。**它不做“这步有没有用”的判断**，只如实呈现；
+   不要退回旧的“inspecting project state”这类笼统措辞。
+
+前端：`webapi/routes/manager.py` 的 SSE `phase` frame 现在带 `kind` / `detail`；
+`frontend/core/src/phaseTrail.ts` 是纯 reducer（TUI 和 Web 共用），
+`frontend/tui/src/components/ThinkingLine.tsx` 和 `frontend/web/src/components/ChatBox.tsx`
+渲染 trail，回合结束后 TUI 把 trail 折进 scrollback（`ui.activity` 事件）。
+
+### Prompt 改写（`/rewrite` · Ctrl+R · Web 的 Rewrite 按钮）
+
+operator 的短 prompt 在派发前可以先让 Manager 重写成可执行 brief：
+`manager/prompt_rewrite.py`（结构与 `manager/plan_mode.py` 对齐）+
+`roles/prompts/manager.py:build_prompt_rewrite_prompt` +
+`webapi/manager_bridge.py:manager_rewrite` + `POST /api/projects/{sid}/prompt/rewrite`。
+**永远是预览**：结果回填到输入框由 operator 审阅/编辑后才发送，不入 backlog、不碰
+mission；改写失败时保留 operator 原文。
+
+契约不是"禁止 Manager 提指标"——那是 harness 替 agent 闭嘴。Manager **应该**用自己
+的判断看这个任务缺什么（成功指标、阈值、baseline、范围边界、deadline、工具），并
+**带上建议值主动问 operator**，让对方一句"可以"就能拍板。唯一的红线是**不许悄悄
+决定**：凡是 operator 没表达过的东西，只能出现在 `questions` 里，不能混进
+`rewritten`——operator 不该在任务跑起来之后才发现一条自己没同意的要求。
 
 ## 实验和论文证据
 

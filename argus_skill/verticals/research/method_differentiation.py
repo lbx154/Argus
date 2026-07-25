@@ -30,8 +30,8 @@ For each (proposed, baseline) condition pair it reads each condition's
 
 Anti-fraud vs research-quality boundary
 ---------------------------------------
-Per the harness philosophy ("harness 没有 agent 自己聪明"; see
-``automated_gates.py`` docstring), this gate does **not** judge whether a
+Per the harness philosophy ("harness 没有 agent 自己聪明"), this gate does
+**not** judge whether a
 *different* method is *good enough* — that Δreward call belongs to the reviewer
 (and to ``anti_mediocrity``). It only catches the mechanical fact that the
 treatment is **not actually applied / not actually different**:
