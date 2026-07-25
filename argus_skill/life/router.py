@@ -17,7 +17,6 @@ from ..roles.prompts.manager import (
     build_classify_prompt,
     build_config_intent_prompt,
     build_front_door_prompt,
-    build_persistence_prompt,
     build_route_prompt,
     build_simple_prompt,
 )
@@ -75,33 +74,6 @@ def classify_is_conversational(
     return _first_alpha_token(_extract_answer(result)).upper() == "CHAT"
 
 
-def classify_needs_persistence(
-    text: str,
-    *,
-    run_exec: Callable[[str], Any],
-) -> bool:
-    """Is ``text`` open-ended work that should run as a standing (continuous)
-    campaign, rather than a one-shot bounded mission?
-
-    This is called only for substantive TEAM work after chat and simple one-turn
-    requests have been removed. Bias toward ``True`` (STANDING), preserving
-    Argus's autonomous lifetime by default; only an explicit BOUNDED verdict
-    makes the task one-shot.
-    """
-    cleaned = (text or "").strip()
-    if not cleaned:
-        return False
-    try:
-        result = run_exec(build_persistence_prompt(cleaned))
-    except Exception:  # noqa: BLE001
-        return True
-    if int(getattr(result, "exit_code", 0) or 0) != 0:
-        return True
-    return _first_alpha_token(_extract_answer(result)).upper() not in {
-        "BOUNDED",
-        "ONE_SHOT",
-        "ONESHOT",
-    }
 
 
 def _extract_answer(result: Any) -> str:
@@ -397,12 +369,10 @@ __all__ = [
     "AuthorizationAction",
     "classify_is_conversational",
     "classify_route",
-    "classify_needs_persistence",
     "classify_config_intent",
     "classify_front_door",
     "build_classify_prompt",
     "build_route_prompt",
-    "build_persistence_prompt",
     "build_config_intent_prompt",
     "build_front_door_prompt",
     "build_chat_prompt",

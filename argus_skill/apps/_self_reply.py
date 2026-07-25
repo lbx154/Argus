@@ -152,46 +152,6 @@ class SelfReplyMixin:
         _phase("Handing off to Planner / Engineer / Reviewer…")
         return None
 
-    def classify_needs_continuous(
-        self,
-        objective: str,
-        *,
-        root_task_id: str | None = None,
-    ) -> bool:
-        safe_mode = env_flag("ARGUS_SKILL_SAFE_MODE", False)
-        workdir = (
-            Path(self._args.workdir).expanduser()
-            if getattr(self._args, "workdir", None)
-            else Path.cwd()
-        )
-
-        def _classify_run_exec(prompt: str) -> Any:
-            return gateway_run_exec(
-                self._backend,
-                prompt=prompt,
-                options=RunnerOptions(
-                    model=self._args.engineer_model,
-                    reasoning_effort="low",
-                    full_auto=safe_mode,
-                    skip_git_repo_check=True,
-                    dangerous_yolo=not safe_mode,
-                    working_dir=str(workdir),
-                ),
-                run_label="router-classify-persistence",
-                resume_thread_id=None,
-            )
-
-        try:
-            with self.task_usage_context(root_task_id):
-                return bool(
-                    self.manager.needs_persistence(
-                        objective,
-                        run_exec=_classify_run_exec,
-                        root_task_id=root_task_id,
-                    )
-                )
-        except Exception:  # noqa: BLE001 - substantive TEAM work defaults standing
-            return True
 
     def chat_reply_if_conversational(
         self,

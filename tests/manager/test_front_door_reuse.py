@@ -27,7 +27,7 @@ class _Manager:
         return None, None, self.route
 
 
-def test_front_door_wrapper_caches_team_lifetime_for_dispatch() -> None:
+def test_front_door_wrapper_routes_team_work_as_complex() -> None:
     state: dict = {}
 
     decision = _front_door_classify(
@@ -38,11 +38,17 @@ def test_front_door_wrapper_caches_team_lifetime_for_dispatch() -> None:
     )
 
     assert decision == (None, None, "complex")
-    assert state["_frontdoor_lifetime"] == "standing"
+    # Classification does not pre-commit a vertical; the Manager decides later.
     assert "_frontdoor_vertical" not in state
 
 
-def test_front_door_wrapper_forces_team_to_standing() -> None:
+def test_front_door_wrapper_ignores_a_model_lifetime_answer() -> None:
+    """A TEAM request stays TEAM even if the model volunteers "bounded".
+
+    Lifetime is no longer a front-door decision: dispatch promotes every TEAM
+    request to a durable campaign, so a stray lifetime answer must not leak
+    into the classification result or the chat state.
+    """
     state: dict = {}
 
     decision = _front_door_classify(
@@ -55,7 +61,7 @@ def test_front_door_wrapper_forces_team_to_standing() -> None:
     )
 
     assert decision == (None, None, "complex")
-    assert state["_frontdoor_lifetime"] == "standing"
+    assert "_frontdoor_lifetime" not in state
 
 
 def test_front_door_wrapper_carries_one_turn_greeting_reply() -> None:

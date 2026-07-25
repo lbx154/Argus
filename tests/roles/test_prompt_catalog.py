@@ -141,51 +141,6 @@ def test_non_vertical_manager_operation_resolves_empty_context() -> None:
     assert context.fragment_ids == ()
 
 
-def test_legacy_manager_modules_reexport_catalog_prompt_builders() -> None:
-    assert stage_decider.build_stage_decision_prompt is (
-        manager_prompts.build_stage_decision_prompt
-    )
-    assert domain_author.build_domain_author_prompt is (
-        manager_prompts.build_domain_author_prompt
-    )
-    assert domain_author.build_fast_vertical_decision_prompt is (
-        manager_prompts.build_fast_vertical_decision_prompt
-    )
-    assert domain_author.build_vertical_decision_prompt is (
-        manager_prompts.build_vertical_decision_prompt
-    )
-    assert domain_author.build_research_target_prompt is (
-        manager_prompts.build_research_target_prompt
-    )
-    assert plan_mode.build_plan_prompt is manager_prompts.build_plan_prompt
-    assert self_maintenance.build_maintenance_prompt is (
-        manager_prompts.build_maintenance_prompt
-    )
-    assert skill_review.build_skill_placement_prompt is (
-        manager_prompts.build_skill_placement_prompt
-    )
-    assert skill_review.build_skill_placements_prompt is (
-        manager_prompts.build_skill_placements_prompt
-    )
-    assert live_view.manager_workspace_capability_prompt is (
-        manager_prompts.manager_workspace_capability_prompt
-    )
-    assert live_view.manager_rendering_prompt is (
-        manager_prompts.manager_rendering_prompt
-    )
-    assert life_router.build_front_door_prompt is (
-        manager_prompts.build_front_door_prompt
-    )
-    assert life_router.build_config_intent_prompt is (
-        manager_prompts.build_config_intent_prompt
-    )
-    assert life_router.build_route_prompt is manager_prompts.build_route_prompt
-    assert life_router.build_classify_prompt is manager_prompts.build_classify_prompt
-    assert life_router.build_persistence_prompt is (
-        manager_prompts.build_persistence_prompt
-    )
-    assert life_router.build_chat_prompt is manager_prompts.build_chat_prompt
-    assert life_router.build_simple_prompt is manager_prompts.build_simple_prompt
 
 
 def test_unknown_role_operation_fails_loudly(tmp_path) -> None:

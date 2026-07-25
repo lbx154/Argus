@@ -736,28 +736,8 @@ def test_is_conversational_does_not_fire_matcher(tmp_path):
     assert out is True
 
 
-# ---- needs_persistence: BOUNDED vs STANDING (auto continuous-mode arming) ---
-
-def test_manager_no_runner_treats_free_text_as_bounded():
-    # No backend → can't classify → safe default is BOUNDED (never silently
-    # force an expensive 7x24 campaign onto a task that did not ask for one).
-    assert Manager(runner=None).needs_persistence("optimize everything forever") is False
 
 
-def test_manager_owns_bounded_vs_standing_decision():
-    mgr = Manager()
-    assert mgr.needs_persistence(
-        "optimize as many kernels as possible", run_exec=lambda p: _FakeResult("STANDING")
-    ) is True
-    assert mgr.needs_persistence(
-        "fix the flaky test in test_foo.py", run_exec=lambda p: _FakeResult("BOUNDED")
-    ) is False
 
 
-def test_needs_persistence_does_not_fire_matcher(tmp_path):
-    mgr = _mgr_with_store(tmp_path)
-    out = mgr.needs_persistence(
-        "keep improving this indefinitely", run_exec=lambda p: _FakeResult("STANDING")
-    )
-    assert mgr.mission.calls == 0
-    assert out is True
+

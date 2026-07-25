@@ -98,9 +98,11 @@ def _front_door_classify(
             intent, route = decision
             control = None
         normalized_route = route if route in ("simple", "complex") else "complex"
-        if normalized_route == "complex":
-            chat_state["_frontdoor_lifetime"] = "standing"
-        elif intent is None and control not in {"abort", "no_dispatch", "steer"}:
+        if (
+            normalized_route != "complex"
+            and intent is None
+            and control not in {"abort", "no_dispatch", "steer"}
+        ):
             greeting_reply = next(
                 (
                     str(value).strip()

@@ -337,6 +337,9 @@ def maybe_promote_to_continuous(
 ) -> bool:
     """Promote every TEAM task to vertical-aware continuous planning."""
     del root_task_id
+    # Retired concept: the front door no longer classifies a TEAM lifetime, so
+    # nothing writes this key. The drain stays so a stray value left by an older
+    # in-process state can never resurrect a finite-lifetime decision here.
     chat_state.pop("_frontdoor_lifetime", None)
 
     from ..core.knobs import resolve_role_backend

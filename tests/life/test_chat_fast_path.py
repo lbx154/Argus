@@ -610,37 +610,11 @@ def test_chat_path_marks_status_error_on_codex_failure() -> None:
     assert out.chat_mode is False
 
 
-# ---------- classify_needs_continuous: BOUNDED vs STANDING auto-promote ----
-
-def test_classify_needs_continuous_true_for_standing_answer() -> None:
-    """An open-ended task ("optimize as many kernels as possible") should be
-    judged STANDING, so the REPL can auto-arm continuous mode without the
-    operator ever typing --continuous --objective."""
-    backend = _FakeBackend(classify_answer="STANDING")
-    runner = _make_runner(backend)
-
-    assert runner.classify_needs_continuous(
-        "optimize as many kernels as possible, keep going until none are left"
-    ) is True
-    assert backend.classify_calls[-1]["run_label"] == "router-classify-persistence"
 
 
-def test_classify_needs_continuous_false_for_bounded_answer() -> None:
-    """A well-scoped task with a natural finish line stays BOUNDED (one-shot)."""
-    backend = _FakeBackend(classify_answer="BOUNDED")
-    runner = _make_runner(backend)
-
-    assert runner.classify_needs_continuous("fix the flaky test in test_foo.py") is False
 
 
-def test_classify_needs_continuous_defaults_true_on_backend_error() -> None:
-    """A classify hiccup must not silently turn substantive TEAM work one-shot."""
-    class _BoomBackend(_FakeBackend):
-        def run_exec(self, **kwargs: Any) -> RunnerResult:  # noqa: ANN401
-            raise RuntimeError("boom")
 
-    runner = _make_runner(_BoomBackend())
-    assert runner.classify_needs_continuous("anything") is True
 
 
 # ---------- supervisor: chat outcomes skip the critic loop ---------------

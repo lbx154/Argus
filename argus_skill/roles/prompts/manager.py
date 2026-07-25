@@ -93,23 +93,6 @@ def build_classify_prompt(text: str) -> str:
     )
 
 
-def build_persistence_prompt(text: str) -> str:
-    return (
-        "Reply with exactly one word: BOUNDED or STANDING.\n"
-        "BOUNDED = the task has a natural finish line — work stops once one "
-        'concrete goal is met. e.g. "fix the bug in module X", "add feature '
-        'Y", "answer whether Z is faster", "run one benchmark".\n'
-        "STANDING = open-ended work with NO natural finish line that should "
-        "keep running autonomously (7x24) until the objective is exhausted or "
-        'the operator stops it. e.g. "optimize as many X as possible", '
-        '"keep improving Y", "continuously search/monitor Z".\n'
-        "This classifier only sees substantive TEAM work after chat and simple "
-        "one-turn requests were already removed. When in doubt, answer STANDING. "
-        "Answer BOUNDED only when this TEAM task clearly has a natural one-mission "
-        "finish line.\n\n"
-        f"Message:\n{(text or '').strip()}\n\n"
-        "Answer:\n"
-    )
 
 
 def build_chat_prompt(
@@ -1159,7 +1142,6 @@ __all__ = [
     "build_front_door_prompt",
     "build_maintenance_prompt",
     "build_manager_checkpoint_correction_prompt",
-    "build_persistence_prompt",
     "build_pending_question_prompt",
     "build_plan_prompt",
     "build_prompt_rewrite_prompt",

@@ -931,51 +931,6 @@ def test_manager_decided_math_vertical_web_enqueue_enters_backlog(
     assert state["research_target_level"] == "exploratory"
 
 
-def test_standing_web_task_persists_only_manager_authored_objective(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    sid = "s-standing-objective"
-    life = _make_project(tmp_path, sid)
-    manager_bridge._STATES.clear()
-    state = manager_bridge._chat_state_for(sid)
-    state["backend"] = "codex"
-    raw = "research this forever; internal operator note must not persist"
-
-    class _Manager:
-        def decide_vertical(self, text, **kwargs):
-            return SimpleNamespace(execution_task="research the conjecture autonomously")
-
-        def commit_vertical_decision(self, text, decision, **kwargs):
-            return SimpleNamespace(execution_task=decision.execution_task)
-
-    class _Runner:
-        manager = _Manager()
-
-        def classify_needs_continuous(self, objective, **kwargs):
-            return True
-
-    runner = _Runner()
-    monkeypatch.setattr(
-        front_door,
-        "_ensure_manager_runner",
-        lambda chat_state, mem: runner,
-    )
-    monkeypatch.setattr(
-        config_intent,
-        "_front_door_classify",
-        lambda *args, **kwargs: (None, None, "complex"),
-    )
-    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
-
-    result = manager_bridge.manager_message(sid, raw, global_root=tmp_path)
-
-    continuous = json.loads((life / "continuous.json").read_text(encoding="utf-8"))
-    assert continuous["enabled"] is True
-    assert continuous["objective"] == "research the conjecture autonomously"
-    assert raw not in (life / "continuous.json").read_text(encoding="utf-8")
-    assert result["item"] is None
-    assert result["continuous"] is True
 
 
 def test_message_empty_400(client: TestClient) -> None:

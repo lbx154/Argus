@@ -8,13 +8,12 @@ from argus_skill.life.router import (
     _IDENTITY_GUARD,
     build_chat_prompt,
     build_classify_prompt,
-    build_persistence_prompt,
     build_route_prompt,
     build_simple_prompt,
     classify_is_conversational,
-    classify_needs_persistence,
     classify_route,
 )
+
 
 
 class _FakeResult:
@@ -234,51 +233,15 @@ def test_manager_prompts_include_runtime_context_only_when_given() -> None:
     assert fact not in build_simple_prompt(objective="status")
 
 
-# ---- classify_needs_persistence: BOUNDED vs STANDING -----------------------
 
 
-@pytest.mark.parametrize(
-    ("answer", "expected"),
-    [
-        ("STANDING", True),
-        ("standing", True),
-        (" STANDING ", True),
-        ("CONTINUOUS", True),
-        ("PERSIST", True),
-        ("PERSISTENT", True),
-        ("BOUNDED", False),
-        ("bounded", False),
-        ("BOUNDED.", False),
-    ],
-)
-def test_classify_needs_persistence_two_way(answer: str, expected: bool) -> None:
-    assert (
-        classify_needs_persistence("x", run_exec=_runner(_FakeResult(message=answer))) is expected
-    )
 
 
-@pytest.mark.parametrize("answer", ["", "maybe", "yes"])
-def test_classify_needs_persistence_unknown_defaults_to_standing(answer: str) -> None:
-    assert classify_needs_persistence("x", run_exec=_runner(_FakeResult(message=answer))) is True
 
 
-def test_classify_needs_persistence_empty_is_bounded_without_calling_model() -> None:
-    run = _runner(_FakeResult(message="STANDING"))
-    assert classify_needs_persistence("   ", run_exec=run) is False
-    assert run.calls == []  # type: ignore[attr-defined]
 
 
-def test_classify_needs_persistence_backend_exception_defaults_to_standing() -> None:
-    assert classify_needs_persistence("x", run_exec=_runner(RuntimeError("boom"))) is True
 
 
-def test_classify_needs_persistence_nonzero_exit_defaults_to_standing() -> None:
-    res = _FakeResult(message="STANDING", exit_code=1)
-    assert classify_needs_persistence("x", run_exec=_runner(res)) is True
 
 
-def test_persistence_prompt_has_two_labels_and_continuous_default_hint() -> None:
-    p = build_persistence_prompt("optimize all the kernels")
-    assert "BOUNDED" in p and "STANDING" in p
-    assert "optimize all the kernels" in p
-    assert "When in doubt, answer STANDING" in p

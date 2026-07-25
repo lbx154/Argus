@@ -20,7 +20,7 @@ from ._helpers import (
 
 
 class _FrontDoorMixin:
-    """Mixin: is_conversational, classify_*, route, needs_persistence, skill placement."""
+    """Mixin: is_conversational, classify_*, route, and skill placement."""
 
     # ---- conversational-intent decision (the Manager owns this) ----
     def is_conversational(self, text: str, *, run_exec: Any = None) -> bool:
@@ -207,43 +207,6 @@ class _FrontDoorMixin:
         with self._task_usage_scope(root_task_id):
             return classify_route(text, run_exec=run_exec)
 
-    def needs_persistence(
-        self,
-        text: str,
-        *,
-        run_exec: Any = None,
-        root_task_id: str | None = None,
-    ) -> bool:
-        """Should this task be armed as a STANDING (continuous) campaign, or is
-        it BOUNDED (one mission, drains once)? The Manager owns this decision so
-        the operator never has to manually pass ``--continuous --objective`` for
-        open-ended work typed straight into chat (e.g. "optimize as many kernels
-        as possible"). Reuses ``life/router.classify_needs_persistence`` (TEAM
-        work defaults to STANDING unless the Manager explicitly chooses
-        BOUNDED). With no backend, returns False because no Manager exists to
-        author the continuous objective."""
-        from ..life.router import classify_needs_persistence as _classify
-
-        if run_exec is None:
-            if self.runner is None:
-                return False
-            from ..core.models import RunnerOptions
-
-            _backend = self._session or self.runner
-
-            def run_exec(prompt: str) -> Any:  # noqa: ANN401
-                return gateway_run_exec(
-                    _backend,
-                    prompt=prompt,
-                    options=RunnerOptions(
-                        reasoning_effort=_manager_reasoning_effort(),
-                        skip_git_repo_check=True,
-                    ),
-                    run_label="manager-persistence",
-                )
-
-        with self._task_usage_scope(root_task_id):
-            return _classify(text, run_exec=run_exec)
 
     # ---- skill-library tidy-up (the Manager is the "janitor") ----
     def classify_skill_placement(self, *, content: str, task: str) -> Any:
