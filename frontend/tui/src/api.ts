@@ -133,6 +133,15 @@ export interface PlanPreview {
   error: string;
 }
 
+/** A Manager-authored restatement of an operator draft (see /rewrite). */
+export interface PromptRewrite {
+  original: string;
+  rewritten: string;
+  changes: string[];
+  questions: string[];
+  error: string;
+}
+
 export interface DaemonStartResult extends Partial<DaemonAdmission> {
   rc: number;
   already_alive?: boolean;
@@ -158,6 +167,10 @@ export interface SSEFrame {
 export interface ManagerPhaseMeta {
   heartbeat: boolean;
   quietS: number;
+  /** Progress kind ('command_execution', 'tool_use', …) when the backend sent one. */
+  kind: string;
+  /** Longer redacted body for the step (e.g. the full command). */
+  detail: string;
 }
 
 /** The final ``done`` frame's payload — the same shape blocking ``message()`` returns. */
@@ -439,6 +452,8 @@ export class ApiClient {
           {
             heartbeat: frame.heartbeat === true,
             quietS: Number.isFinite(quietS) ? quietS : 0,
+            kind: String(frame.kind ?? ''),
+            detail: String(frame.detail ?? ''),
           },
         );
       }
@@ -521,6 +536,14 @@ export class ApiClient {
 
   async previewPlan(text: string): Promise<PlanPreview> {
     return (await this.post('/plan', { text })) as unknown as PlanPreview;
+  }
+
+  /**
+   * Ask the Manager to restate a short draft as an executable brief. Preview
+   * only — nothing is queued; the operator edits/sends the result themselves.
+   */
+  async rewritePrompt(text: string): Promise<PromptRewrite> {
+    return (await this.post('/prompt/rewrite', { text })) as unknown as PromptRewrite;
   }
 
   async setConfig(name: string, value: string): Promise<Record<string, unknown>> {

@@ -4,7 +4,7 @@ export type CommandKind = 'panel' | 'action' | 'local';
 
 export type CommandId =
   | 'status' | 'roles' | 'journal' | 'backlog' | 'artifacts' | 'artifact'
-  | 'events' | 'find' | 'cancel' | 'task' | 'plan' | 'nudge' | 'abort'
+  | 'events' | 'find' | 'cancel' | 'task' | 'plan' | 'rewrite' | 'nudge' | 'abort'
   | 'note' | 'done' | 'skip' | 'stop' | 'item' | 'run' | 'new' | 'daemons'
   | 'resume' | 'attach' | 'rename' | 'doctor' | 'backend' | 'config'
   | 'identity' | 'reset' | 'skills' | 'clear' | 'reconnect' | 'help' | 'quit';
@@ -32,6 +32,7 @@ export const COMMANDS: SlashCommand[] = [
   { id: 'cancel', name: '/cancel', argument: 'none', desc: 'stop waiting for the current Manager reply', group: 'Everyday', kind: 'local' },
   { id: 'task', name: '/task', arg: '<text>', argument: 'required', desc: 'queue work directly', aliases: ['/add'], group: 'Task management', kind: 'action' },
   { id: 'plan', name: '/plan', arg: '<objective>', argument: 'required', desc: 'preview a Planner-authored execution plan', group: 'Task management', kind: 'action' },
+  { id: 'rewrite', name: '/rewrite', arg: '[text]', argument: 'optional', desc: 'let the Manager rewrite your prompt before sending', aliases: ['/refine'], group: 'Task management', kind: 'action' },
   { id: 'nudge', name: '/nudge', arg: '<text>', argument: 'required', desc: 'inject guidance into the running mission', aliases: ['/inject', '/notify'], group: 'Task management', kind: 'action' },
   { id: 'abort', name: '/abort', argument: 'none', desc: 'immediately stop the running mission', group: 'Task management', kind: 'action' },
   { id: 'note', name: '/note', arg: '<text>', argument: 'required', desc: 'append a manual note to the timeline', group: 'Task management', kind: 'action' },

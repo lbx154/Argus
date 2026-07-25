@@ -66,7 +66,7 @@ export function EventLog({
       : lines.filter((line) => !line.r.reasoning);
     return mode === 'conversation'
       ? visible.filter((line) => (
-          ['ui.operator', 'ui.argus'].includes(String(line.ev.type ?? ''))
+          ['ui.operator', 'ui.argus', 'ui.activity'].includes(String(line.ev.type ?? ''))
           || line.r.reasoning
         ))
       : visible;

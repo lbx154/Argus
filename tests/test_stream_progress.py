@@ -146,6 +146,30 @@ def test_command_execution_progress_carries_existing_result_metadata() -> None:
     assert "FAILED tests/foo.py::test_x" in sink.events[-1]["output_excerpt"]
 
 
+def test_progress_callback_redacts_secrets_before_live_sink() -> None:
+    """Live sinks may not wrap JsonlEventSink, so redact at the source."""
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+    secret = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345678901"
+    line = json.dumps({
+        "type": "item.completed",
+        "item": {
+            "id": "item_0",
+            "type": "command_execution",
+            "command": f"curl -H 'Authorization: token {secret}' https://api.github.com",
+            "status": "failed",
+            "exit_code": 1,
+            "aggregated_output": f"fatal: token {secret} rejected",
+        },
+    })
+
+    cb("main.stdout", line)
+
+    payload = json.dumps(sink.events[-1], ensure_ascii=False)
+    assert secret not in payload
+    assert "REDACTED" in payload
+
+
 # ---------------------------------------------------------------------------
 # Copilot dialect — incremental message_delta + final assistant.message
 # ---------------------------------------------------------------------------
@@ -510,3 +534,102 @@ def test_relay_rebuilds_on_sink_change() -> None:
 
     t2 = [e["text"] for e in sink2.events if e["type"] == "engineer.progress"]
     assert t2 == ["second"]  # fresh buffer — "first" never leaks in
+
+
+# --- Copilot tool execution + Manager visibility ---------------------------
+# Three gates used to hide ALL of the Manager's live work from the cockpit:
+#   1. ``_io_log._PROGRESS_STREAM_MARKERS`` did not forward Copilot's
+#      ``tool.execution_*`` lines to the progress callback at all;
+#   2. this module only understood the legacy ``tool.call`` / ``tool.result``
+#      pair, so those lines parsed to nothing; and
+#   3. the visible-role filter listed engineer/reviewer/planner but no Manager
+#      run label, so the Manager's whole stream was dropped.
+# Together they produced the "the CLI never shows me what it's doing" report.
+
+def _tool_start_line(name: str, arguments: dict[str, Any], call_id: str = "c1") -> str:
+    return json.dumps({
+        "type": "tool.execution_start",
+        "data": {"toolCallId": call_id, "toolName": name, "arguments": arguments},
+    })
+
+
+def _tool_complete_line(call_id: str = "c1", *, success: bool = True, **result: Any) -> str:
+    return json.dumps({
+        "type": "tool.execution_complete",
+        "data": {"toolCallId": call_id, "success": success, "result": result},
+    })
+
+
+def test_copilot_tool_execution_start_emits_progress() -> None:
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+    cb("main.stdout", _tool_start_line("view", {"path": "/repo/main.py"}))
+
+    events = [e for e in sink.events if e["type"] == "engineer.progress"]
+    assert len(events) == 1
+    assert events[0]["kind"] == "tool_use"
+    assert events[0]["tool_name"] == "view"
+    assert "/repo/main.py" in events[0]["text"]
+
+
+def test_copilot_shell_tool_is_reported_as_a_command() -> None:
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+    cb("main.stdout", _tool_start_line("bash", {"command": "pytest -q tests/a.py"}))
+
+    event = [e for e in sink.events if e["type"] == "engineer.progress"][0]
+    assert event["kind"] == "command_execution"
+    assert event["text"] == "pytest -q tests/a.py"
+
+
+def test_successful_tool_completion_does_not_double_report() -> None:
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+    cb("main.stdout", _tool_start_line("view", {"path": "/repo/a.py"}))
+    cb("main.stdout", _tool_complete_line(success=True, content="ok"))
+
+    events = [e for e in sink.events if e["type"] == "engineer.progress"]
+    assert len(events) == 1, "a successful call is already reported at start"
+
+
+def test_failed_tool_completion_is_reported_with_the_original_call() -> None:
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+    cb("main.stdout", _tool_start_line("bash", {"command": "pytest -q"}, call_id="x9"))
+    cb("main.stdout", _tool_complete_line("x9", success=False, exitCode=1, content="boom"))
+
+    events = [e for e in sink.events if e["type"] == "engineer.progress"]
+    assert len(events) == 2
+    assert events[1]["status"] == "failed"
+    assert events[1]["exit_code"] == 1
+    assert events[1]["text"] == "pytest -q"
+
+
+def test_manager_stream_is_operator_visible() -> None:
+    """The Manager drives the operator's own turn — its work must be narrated."""
+    for label in ("simple-1", "chat-1", "manager-frontdoor-classify", "router-classify"):
+        sink = _RecordingSink()
+        cb = make_stream_progress_callback(sink)
+        cb(f"{label}.stdout", _tool_start_line("view", {"path": "/repo/a.py"}))
+
+        events = [e for e in sink.events if e["type"] == "engineer.progress"]
+        assert events, f"{label} stream was dropped"
+        assert events[0]["agent_layer"] == "manager"
+
+
+def test_skill_maintenance_streams_stay_hidden() -> None:
+    """Matcher/distiller stdout is protocol traffic, not narratable work."""
+    for label in ("matcher", "distiller", "scientist-1", "compaction_batch"):
+        sink = _RecordingSink()
+        cb = make_stream_progress_callback(sink)
+        cb(f"{label}.stdout", _tool_start_line("view", {"path": "/repo/a.py"}))
+        assert not [e for e in sink.events if e["type"] == "engineer.progress"], label
+
+
+def test_copilot_tool_lines_are_forwarded_for_live_progress() -> None:
+    """The io-log gate must not drop tool events before they reach the parser."""
+    from argus_skill.adapters.agent_cli_backend._io_log import _needed_for_live_progress
+
+    assert _needed_for_live_progress("stdout", _tool_start_line("view", {"path": "/a"}))
+    assert _needed_for_live_progress("simple-1.stdout", _tool_complete_line())
+    assert not _needed_for_live_progress("stderr", _tool_start_line("view", {"path": "/a"}))

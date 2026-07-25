@@ -359,6 +359,125 @@ def manager_plan(
     return result
 
 
+def _rewrite_project_context(mem: Any, sid: str) -> str:
+    """Advisory context for a prompt rewrite: what project is the operator in?
+
+    Purely factual and best-effort — the workdir, the standing objective, and
+    the resolved vertical. It exists so the Manager does not have to ask the
+    operator questions the session already answers. It is NOT a judgment about
+    what the operator wants, and an empty string is a fine result.
+    """
+    lines: list[str] = []
+    try:
+        from ..core.session import read_session_meta
+
+        meta = read_session_meta(getattr(mem, "global_root", None), sid)
+        if meta is not None:
+            workdir = (meta.workdir or meta.cwd or "").strip()
+            if workdir:
+                lines.append(f"- working directory: {workdir}")
+            if (meta.display_name or "").strip():
+                lines.append(f"- session: {meta.display_name.strip()}")
+            if (meta.objective or "").strip():
+                lines.append(f"- standing objective: {meta.objective.strip()[:400]}")
+    except Exception:  # noqa: BLE001 — context is advisory
+        pass
+    try:
+        from ..skills.vertical_select import resolve_checklist_vertical
+
+        vertical = resolve_checklist_vertical(mem.project_root)
+        if vertical:
+            lines.append(f"- active workflow (vertical): {vertical}")
+    except Exception:  # noqa: BLE001 — context is advisory
+        pass
+    return "\n".join(lines)
+
+
+def manager_rewrite(
+    sid: str,
+    text: str,
+    *,
+    global_root: Path | str | None = None,
+) -> dict[str, Any]:
+    """Restate a short operator draft as an executable brief, via the Manager.
+
+    A preview only: the result is handed back to the operator to accept, edit,
+    or discard. Nothing is enqueued and no mission is touched. On failure the
+    caller keeps the operator's original text — see
+    :func:`argus_skill.manager.prompt_rewrite.rewrite_prompt`.
+    """
+    from ..agent_cli.runner_backend import normalize_runner_backend
+    from ..core.knobs import (
+        resolve_knob,
+        resolve_role_backend,
+        resolve_role_model,
+        resolve_role_reasoning_effort,
+    )
+    from ..life.memory import MemoryBundle
+    from ..manager.front_door import _ensure_manager_runner
+    from ..manager.prompt_rewrite import rewrite_prompt
+
+    body = (text or "").strip()
+    if not body:
+        return {
+            "original": "",
+            "rewritten": "",
+            "changes": [],
+            "questions": [],
+            "error": "empty prompt",
+        }
+    mem = MemoryBundle.for_cwd(
+        fingerprint=sid, global_root=Path(global_root) if global_root else None
+    )
+    with _lock_for(sid):
+        if not mem.project_root.is_dir():
+            return {
+                "original": body,
+                "rewritten": "",
+                "changes": [],
+                "questions": [],
+                "error": "project no longer exists",
+            }
+        state = _chat_state_for(sid)
+        runner = _ensure_manager_runner(state, mem)
+        manager_model = resolve_role_model(
+            "manager",
+            role_env="ARGUS_SKILL_MANAGER_MODEL",
+        )
+        preview_model = resolve_knob(
+            "ARGUS_SKILL_REWRITE_MODEL",
+            "auto",
+        ).value.strip()
+        if preview_model.lower() in {"", "auto", "inherit", "default"}:
+            manager_backend = normalize_runner_backend(resolve_role_backend("manager"))
+            model = (
+                "gpt-5.4-mini"
+                if manager_backend in {"codex", "copilot"}
+                else manager_model
+            )
+        else:
+            model = preview_model
+        effort = resolve_role_reasoning_effort(
+            "ARGUS_SKILL_REWRITE_REASONING_EFFORT",
+            default="low",
+        )
+        rewrite = rewrite_prompt(
+            runner,
+            body,
+            model=model,
+            reasoning_effort=effort,
+            run_label="manager-rewrite",
+            project_context=_rewrite_project_context(mem, sid),
+        )
+    return {
+        "original": rewrite.original or body,
+        "rewritten": rewrite.rewritten,
+        "changes": list(rewrite.changes),
+        "questions": list(rewrite.questions),
+        "error": rewrite.error,
+    }
+
+
 # --- Re-exports -------------------------------------------------------------
 # Everything below moved out of this module into manager_state.py /
 # manager_pending_question.py / manager_dispatch.py as part of a

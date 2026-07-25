@@ -381,6 +381,52 @@ test('Manager heartbeat keeps rotating Argus phrases while reporting real silenc
   assert.match(second.replace(/\s+/g, ' '), /consulting a hundred eyes… · Manager alive · 14s quiet/);
 });
 
+test('the live step trail shows every real action, not one overwritten line', async () => {
+  // The trail is the cure for "I can't see what the CLI is doing": finished
+  // steps stay on screen with their duration, the newest one is active.
+  const now = Date.now() / 1000;
+  const steps = [
+    { id: 's1', role: 'manager', label: '$ rg -n cockpit src', detail: '', kind: 'command_execution', startedTs: now - 9, endedTs: now - 5, heartbeat: false },
+    { id: 's2', role: 'manager', label: '\u2699 view \u00b7 src/App.tsx', detail: '', kind: 'tool_use', startedTs: now - 5, endedTs: now - 2, heartbeat: false },
+    { id: 's3', role: 'manager', label: '$ pytest -q tests/a.py', detail: '', kind: 'command_execution', startedTs: now - 2, endedTs: 0, heartbeat: false },
+  ];
+  const out = await renderNode(
+    React.createElement(ThinkingLine, {
+      tick: 3,
+      phase: 'Manager \u00b7 running',
+      elapsedS: 9,
+      steps,
+      width: 120,
+    }),
+    120,
+  );
+  assert.match(out, /rg -n cockpit src/);
+  assert.match(out, /view \u00b7 src\/App\.tsx/);
+  assert.match(out, /pytest -q tests\/a\.py/);
+  assert.match(out, /\u2713/, 'finished steps are ticked off');
+  assert.match(out, /4s/, 'each finished step reports its own duration');
+});
+
+test('the trail window keeps the newest steps when a turn runs long', async () => {
+  const now = Date.now() / 1000;
+  const steps = Array.from({ length: 10 }, (_, i) => ({
+    id: `s${i}`,
+    role: 'manager',
+    label: `$ step-${i}`,
+    detail: '',
+    kind: 'command_execution',
+    startedTs: now - (10 - i),
+    endedTs: i === 9 ? 0 : now - (9 - i),
+    heartbeat: false,
+  }));
+  const out = await renderNode(
+    React.createElement(ThinkingLine, { tick: 1, phase: '', elapsedS: 10, steps, width: 120 }),
+    120,
+  );
+  assert.doesNotMatch(out, /step-0\b/, 'the oldest steps scroll out of the window');
+  assert.match(out, /step-9/, 'the active step is always visible');
+});
+
 test('slash menu scales with terminal height while retaining a bounded ceiling', () => {
   assert.equal(slashMenuVisibleRows(16), 3);
   assert.equal(slashMenuVisibleRows(20), 7);

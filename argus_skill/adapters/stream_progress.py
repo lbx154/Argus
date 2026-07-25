@@ -25,6 +25,8 @@ import os
 import time
 from typing import Any, Callable
 
+from ..core.secret_guard import known_secret_values, redact_secrets_text
+
 # Items larger than this are truncated in the cooked progress event so a
 # 50KB tool-output dump doesn't blow up the chat scrollback. The full
 # payload is still recoverable from the raw ``stream`` lines in the
@@ -52,6 +54,21 @@ def _nonnegative_int_env(name: str, default: int) -> int:
         return max(0, int(raw))
     except ValueError:
         return default
+
+
+# Tool names that run a shell command, so their progress reads as a command
+# rather than an opaque tool call.
+_SHELL_TOOL_NAMES = frozenset({"bash", "shell", "sh", "run", "execute", "terminal"})
+
+
+def _render_tool_arguments(args: Any) -> str:
+    """Render tool arguments as a compact one-line string (never raises)."""
+    if isinstance(args, (dict, list)):
+        try:
+            return json.dumps(args, ensure_ascii=False)
+        except (TypeError, ValueError):
+            return str(args)
+    return str(args or "")
 
 
 def _action_summary(kind: str, text: str, item: dict[str, Any]) -> str:
@@ -123,6 +140,11 @@ def _truncate(s: str, n: int = _PROGRESS_TEXT_LIMIT) -> str:
     if len(s) <= n:
         return s
     return s[: n - 1].rstrip() + "…"
+
+
+def _safe_progress_text(text: str, *, limit: int = _PROGRESS_TEXT_LIMIT) -> str:
+    redacted = redact_secrets_text(text, known_values=known_secret_values())
+    return _truncate(redacted, limit)
 
 
 def _is_structured_role_result(actor: str, text: str) -> bool:
@@ -252,6 +274,9 @@ def make_stream_progress_callback(
     delta_buffers: dict[tuple[str, str], str] = {}
     delta_emits: dict[tuple[str, str], tuple[float, int]] = {}
     delta_rendered: dict[tuple[str, str], str] = {}
+    # toolCallId -> (name, kind, text) so a ``tool.execution_complete`` failure
+    # can name the call that started earlier. Per-callback, like the buffers.
+    tool_calls: dict[str, tuple[str, str, str]] = {}
     delta_interval_s = (
         _nonnegative_float_env(
             "ARGUS_SKILL_STREAM_PROGRESS_INTERVAL_S",
@@ -279,7 +304,7 @@ def make_stream_progress_callback(
         payload: dict[str, Any] = {
             "type": "engineer.progress",
             "kind": kind,
-            "text": _truncate(text),
+            "text": _safe_progress_text(text),
             "actor": actor,
             "agent_layer": _agent_layer_for_actor(actor),
         }
@@ -288,7 +313,7 @@ def make_stream_progress_callback(
                 if value is None or value == "":
                     continue
                 if isinstance(value, str):
-                    payload[key] = _truncate(value, 360)
+                    payload[key] = _safe_progress_text(value, limit=360)
                 else:
                     payload[key] = value
         if replace:
@@ -307,6 +332,9 @@ def make_stream_progress_callback(
             delta_buffers.pop(key, None)
             delta_emits.pop(key, None)
             delta_rendered.pop(key, None)
+        # End of turn: any tool call still in flight will never complete, so
+        # drop it rather than leaking ids across turns.
+        tool_calls.clear()
 
     def _accumulate_delta(
         *,
@@ -350,25 +378,16 @@ def make_stream_progress_callback(
             sink.handle_stream_line(stream, line)
         except Exception:  # noqa: BLE001 — never let logging crash the runner
             pass
-        # Surface the operator-visible hierarchy layers:
-        #   L1 engineer/main, L2 reviewer, L4 planner.
-        # Keep matcher/author/distiller hidden because their stdout is
-        # protocol traffic or skill-maintenance noise, not live work.
+        # Surface the operator-visible hierarchy layers: the Manager front door
+        # plus L1 engineer/main, L2 reviewer, L4 planner. Matcher/author/
+        # distiller stay hidden because their stdout is protocol traffic or
+        # skill-maintenance noise, not live work.
         is_stdout = stream == "stdout" or stream.endswith(".stdout")
         if not is_stdout:
             return
         role = stream.rsplit(".", 1)[0] if "." in stream else ""
         actor = role or "main"
-        if role and not (
-            role == "engineer"
-            or role == "main"
-            or role == "reviewer"
-            or role.startswith("engineer")
-            or role.startswith("main")
-            or role.startswith("reviewer")
-            or role.startswith("critic")
-            or role.startswith("planner")
-        ):
+        if not _actor_is_visible(role):
             return
         line = line.strip()
         if not line or line[0] not in "{[":
@@ -597,6 +616,90 @@ def make_stream_progress_callback(
         # Copilot tool/command activity. These match codex's
         # ``item.completed`` semantically — surface them as progress so
         # the user sees what the agent is doing between deltas.
+        #
+        # Current Copilot builds report tool work as
+        # ``tool.execution_start`` / ``tool.execution_complete`` (the older
+        # ``tool.call`` / ``tool.result`` pair is kept below for compatibility).
+        # Without this branch every command the agent ran was invisible to the
+        # cockpit: the operator saw reply deltas appear out of nowhere with no
+        # sign of the work in between.
+        if et == "tool.execution_start":
+            data = event.get("data") or {}
+            if not isinstance(data, dict):
+                return
+            name = str(data.get("toolName") or data.get("name") or "tool").strip()
+            args = data.get("arguments") or data.get("args") or ""
+            command = ""
+            if isinstance(args, dict):
+                command = str(
+                    args.get("command") or args.get("cmd") or args.get("script") or ""
+                ).strip()
+            rendered = _render_tool_arguments(args)
+            call_id = str(data.get("toolCallId") or "").strip()
+            is_shell = bool(command) or name.lower() in _SHELL_TOOL_NAMES
+            kind = "command_execution" if is_shell else "tool_use"
+            text = command if is_shell and command else (
+                name + (f": {rendered}" if rendered else "")
+            )
+            if not text:
+                return
+            item = {"type": kind, "name": name, "command": command}
+            if call_id:
+                tool_calls[call_id] = (name, kind, text)
+            _emit_progress(
+                kind=kind,
+                text=text,
+                actor=actor,
+                extra={
+                    "status": "running",
+                    "action_summary": _action_summary(kind, text, item),
+                    "tool_name": name,
+                },
+            )
+            return
+
+        if et == "tool.execution_complete":
+            data = event.get("data") or {}
+            if not isinstance(data, dict):
+                return
+            call_id = str(data.get("toolCallId") or "").strip()
+            name, kind, text = tool_calls.pop(
+                call_id, ("tool", "tool_use", ""),
+            )
+            result = data.get("result")
+            result = result if isinstance(result, dict) else {}
+            success = data.get("success")
+            exit_code = result.get("exitCode", result.get("exit_code"))
+            failed = success is False or (
+                isinstance(exit_code, int) and exit_code != 0
+            )
+            if not failed:
+                # A successful tool call was already reported at start; a second
+                # row per call would double the noise without adding signal.
+                return
+            item = {
+                "type": kind,
+                "name": name,
+                "status": "failed",
+                "exit_code": exit_code,
+                "aggregated_output": result.get("content") or "",
+            }
+            if ledger is not None:
+                _record_failure_if_any(ledger, kind, item)
+            _emit_progress(
+                kind=kind,
+                text=text or name,
+                actor=actor,
+                extra={
+                    "status": "failed",
+                    "exit_code": exit_code,
+                    "output_excerpt": _extract_output_excerpt(item),
+                    "action_summary": _action_summary(kind, text or name, item),
+                    "tool_name": name,
+                },
+            )
+            return
+
         if et == "tool.call":
             data = event.get("data") or {}
             if isinstance(data, dict):
@@ -676,6 +779,39 @@ class StreamProgressRelay:
         self._cb(stream, line)
 
 
+# Manager run labels. The Manager front door drives the operator's own turn
+# (route classification, the SELF reply, vertical/stage decisions), so its
+# stream IS operator-visible work — it is one of the four displayed roles, it
+# simply has no L-number. These labels were previously absent from the
+# visible-role filter below, which silently dropped every command and tool call
+# the Manager made: the cockpit showed a spinner and nothing else.
+_MANAGER_ACTOR_PREFIXES = (
+    "manager",
+    "simple",
+    "chat",
+    "router",
+    "vertical",
+    "stage",
+    "domain",
+)
+
+# Actors whose stdout is protocol traffic or skill-maintenance noise rather than
+# live work the operator wants narrated.
+_HIDDEN_ACTOR_PREFIXES = ("matcher", "author", "distill", "scientist", "compaction")
+
+
+def _actor_is_visible(role: str) -> bool:
+    """True when this run label's stream should be narrated to the operator."""
+    if not role:
+        return True
+    lowered = role.lower()
+    if lowered.startswith(_HIDDEN_ACTOR_PREFIXES):
+        return False
+    return lowered.startswith(
+        ("engineer", "main", "reviewer", "critic", "planner", *_MANAGER_ACTOR_PREFIXES)
+    )
+
+
 def _agent_layer_for_actor(actor: str) -> str:
     actor = (actor or "").lower()
     if actor.startswith("reviewer"):
@@ -684,6 +820,8 @@ def _agent_layer_for_actor(actor: str) -> str:
         return "critic"
     if actor.startswith("planner"):
         return "planner"
+    if actor.startswith(_MANAGER_ACTOR_PREFIXES):
+        return "manager"
     return "engineer"
 
 

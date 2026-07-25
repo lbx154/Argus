@@ -587,6 +587,88 @@ def build_plan_prompt(
     return f"## Active vertical role\n{banner}\n\n{prompt}"
 
 
+def build_prompt_rewrite_prompt(
+    draft: str,
+    *,
+    role_banner: str = "",
+    project_context: str = "",
+) -> str:
+    """Render the prompt asking the Manager to rewrite an operator's draft.
+
+    Operators type short, under-specified requests ("优化一下 kernel", "写个
+    paper"). Handing that verbatim to the team wastes rounds on guessing what
+    was meant. The Manager — which already owns front-door judgment — restates
+    the request as a brief the team can act on.
+
+    The Manager is expected to use its own judgment about what the task needs,
+    including metrics, thresholds, baselines and scope limits the operator never
+    mentioned. The constraint is not "never propose" — it is "never decide
+    silently": anything the operator did not ask for is raised back to them as a
+    concrete, answerable question instead of being baked into the rewrite.
+    """
+    body = (draft or "").strip()
+    context = (project_context or "").strip()
+    prompt = (
+        "You are the Manager (front door) of an autonomous engineering/research "
+        "team. The operator typed a short request and asked you to REWRITE it "
+        "into a brief your team can execute, BEFORE anything is dispatched.\n\n"
+        "Your job is to make the request ACTIONABLE. A bare restatement of the "
+        "operator's words is a failed rewrite: the team would have to guess the "
+        "same things the operator left implicit. Organise the request so it "
+        "states, in the operator's own terms:\n"
+        "- the outcome wanted and the concrete deliverable it implies;\n"
+        "- the subject/scope, grounded in the real project below when given "
+        "(actual paths, files, components) rather than left abstract;\n"
+        "- what would count as done, derived from what the operator asked for.\n\n"
+        "Use your own judgment about what this task actually needs. If it needs "
+        "a success metric, a threshold, a baseline, a scope limit, a deadline or "
+        "a tool that the operator never mentioned, you SHOULD raise it — ask the "
+        "operator in `questions`, with your suggested value, so they can simply "
+        "approve it. Proposing is expected; deciding for them is not.\n\n"
+        "Hard rules:\n"
+        "1. Do NOT do the work, run commands, inspect the repo, or write code. "
+        "This is a rewrite only.\n"
+        "2. The REWRITE itself carries only what the operator asked for (plus "
+        "their implicit intent made explicit). Anything you are proposing rather "
+        "than restating — a number, threshold, baseline, deadline, tool or "
+        "narrowed scope they never expressed — belongs in `questions`, not in "
+        "`rewritten`. The operator must never discover a requirement they did "
+        "not agree to.\n"
+        "3. Preserve every concrete detail the operator DID give (names, "
+        "numbers, paths, hardware, file names) verbatim.\n"
+        "4. Write the rewrite AND the questions in the SAME language the "
+        "operator used.\n"
+        "5. Return the draft essentially unchanged ONLY when it is already a "
+        "well-formed brief. 'Vague but short' is not a reason to leave it "
+        "alone — that is exactly what you are here to fix.\n"
+        "6. If the core goal itself is genuinely unknowable (you cannot tell "
+        "what outcome is wanted at all), still produce the best faithful brief "
+        "you can and put the unknowns in `questions`.\n"
+        "7. Keep `questions` worth answering: each one should change how the "
+        "work is done. Prefer a concrete proposal the operator can accept or "
+        "correct (\"cover the public API, target ~80% line coverage — ok?\") "
+        "over an open prompt (\"what coverage do you want?\").\n\n"
+        "Keep it compact — a short paragraph or a few bullet lines a teammate "
+        "can act on, not a specification document.\n\n"
+    )
+    if context:
+        prompt += f"## Project context (advisory, may be empty)\n{context}\n\n"
+    prompt += (
+        "## Operator's draft\n"
+        f"{body}\n\n"
+        "## Your answer\n"
+        "Reply with ONE JSON object and NOTHING else:\n"
+        '{"rewritten":"<the rewritten request>",'
+        '"changes":["<what you made explicit and why>", ...],'
+        '"questions":["<what you propose or could not infer, kept out of the '
+        'rewrite until the operator answers>", ...]}\n'
+    )
+    banner = str(role_banner or "").strip()
+    if not banner:
+        return prompt
+    return f"## Active vertical role\n{banner}\n\n{prompt}"
+
+
 def build_maintenance_prompt(
     observations: Iterable[dict[str, Any]],
     *,
@@ -1080,6 +1162,7 @@ __all__ = [
     "build_persistence_prompt",
     "build_pending_question_prompt",
     "build_plan_prompt",
+    "build_prompt_rewrite_prompt",
     "build_research_target_prompt",
     "build_route_prompt",
     "build_simple_prompt",

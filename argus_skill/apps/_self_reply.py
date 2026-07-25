@@ -9,7 +9,9 @@ from typing import Any
 from ..core.knobs import resolve_manager_reply_model, resolve_role_reasoning_effort
 from ..core.models import RunnerOptions
 from ..core.ports import EventSink
+from ..core.progress_step import REPLY_KINDS, describe_progress_step
 from ..core.run_gateway import run_exec as gateway_run_exec
+from ..core.secret_guard import known_secret_values, redact_secrets_record
 from ..engineer.runner import should_clear_thread_id_after_outcome
 from ._env import env_flag, env_int
 from ._runtime_backends import _Outcome
@@ -19,6 +21,11 @@ _SELF_RETRYABLE_ACP_ERRORS = (
     "acp process died",
     "stopreason=cancelled",
 )
+
+
+def _redact_live_event(event: dict[str, Any]) -> dict[str, Any]:
+    safe = redact_secrets_record(event, known_values=known_secret_values())
+    return safe if isinstance(safe, dict) else event
 
 
 def self_retryable_transport_failure(result: Any) -> bool:
@@ -71,45 +78,46 @@ class SelfReplyMixin:
                 resume_thread_id=None,
             )
 
-        def _phase(label: str, *, role: str = "manager") -> None:
+        def _phase(
+            label: str,
+            *,
+            role: str = "manager",
+            kind: str = "",
+            detail: str = "",
+        ) -> None:
             if not callable(phase_cb):
                 return
-            try:
-                phase_cb(label, role=role)
-                return
-            except TypeError:
-                pass
-            except Exception:  # noqa: BLE001 - UI callbacks never own the turn
-                return
-            try:
-                phase_cb(label)
-            except Exception:  # noqa: BLE001
-                pass
+            for kwargs in (
+                {"role": role, "kind": kind, "detail": detail},
+                {"role": role},
+                {},
+            ):
+                try:
+                    phase_cb(label, **kwargs)
+                    return
+                except TypeError:
+                    continue
+                except Exception:  # noqa: BLE001 - UI callbacks never own the turn
+                    return
 
         class _PhaseSink:
             def __init__(self, inner: EventSink) -> None:
                 self._inner = inner
 
             def handle_event(self, event: dict[str, Any]) -> None:
-                event_type = str(event.get("type") or "")
-                kind = str(event.get("kind") or "")
-                is_reply = event_type == "engineer.progress" and kind in {
-                    "assistant_message",
-                    "agent_message",
-                    "message",
-                }
+                safe_event = _redact_live_event(event)
+                event_type = str(safe_event.get("type") or "")
+                kind = str(safe_event.get("kind") or "")
+                is_reply = event_type == "engineer.progress" and kind in REPLY_KINDS
                 if event_type == "loop.start":
-                    _phase(f"{backend_label} working on your message…")
+                    _phase(
+                        f"{backend_label} working on your message…",
+                        kind="loop.start",
+                    )
                 elif event_type == "engineer.progress" and not is_reply:
-                    summary = str(event.get("action_summary") or "").strip()
-                    safe = summary or {
-                        "reasoning": "reasoning about the response",
-                        "command_execution": "checking project state",
-                        "file_change": "preparing a change",
-                        "tool_use": "using a tool",
-                    }.get(kind, "working on your message")
-                    _phase(safe[:80])
-                self._inner.handle_event(event)
+                    label, detail = describe_progress_step(safe_event)
+                    _phase(label, kind=kind, detail=detail)
+                self._inner.handle_event(safe_event)
 
             def handle_stream_line(self, stream: str, line: str) -> None:
                 handler = getattr(self._inner, "handle_stream_line", None)

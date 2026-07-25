@@ -78,6 +78,10 @@ class PlanIn(BaseModel):
     text: str
 
 
+class RewriteIn(BaseModel):
+    text: str
+
+
 class ConfigSetIn(BaseModel):
     name: str
     value: str

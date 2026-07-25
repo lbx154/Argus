@@ -121,8 +121,8 @@ test('history dedupes consecutive + ignores empty', () => {
 // ── slash ─────────────────────────────────────────────────────────────────
 
 test('shared slash registry is complete and collision-free', () => {
-  assert.equal(COMMANDS.length, 34);
-  assert.equal(new Set(COMMANDS.map((row) => row.id)).size, 34);
+  assert.equal(COMMANDS.length, 35);
+  assert.equal(new Set(COMMANDS.map((row) => row.id)).size, 35);
   const names = COMMANDS.flatMap((row) => [row.name, ...(row.aliases ?? [])]);
   assert.equal(new Set(names.map((name) => name.toLowerCase())).size, names.length);
   assert.equal(commandById('status').name, '/status');

@@ -21,6 +21,7 @@ interface BuildWebCommandHandlersOptions {
   onOpenSidebar: () => void;
   onReconnectEvents: () => void;
   onRenameProject: (name: string) => Promise<void>;
+  onRewriteDraft: (draft: string) => void;
   onSelectProject: (id: string) => void;
   onSetArtifactPath: (path: string) => void;
   onSetEventFilter: (filter: EventViewFilter) => void;
@@ -49,6 +50,7 @@ export function buildWebCommandHandlers({
   onOpenSidebar,
   onReconnectEvents,
   onRenameProject,
+  onRewriteDraft,
   onSelectProject,
   onSetArtifactPath,
   onSetEventFilter,
@@ -92,6 +94,14 @@ export function buildWebCommandHandlers({
       await api.addTask(activeSid, rest);
       void refetchSnapshot();
       notify('success', 'Task queued.');
+    },
+    rewrite: async (rest) => {
+      const draft = rest.trim();
+      if (!draft) {
+        notify('info', 'Type your prompt in the composer and press Rewrite, or use /rewrite <text>.');
+        return;
+      }
+      onRewriteDraft(draft);
     },
     plan: async (rest) => {
       if (!activeSid) return;

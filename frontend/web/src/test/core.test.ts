@@ -605,7 +605,7 @@ describe('shared frontend core', () => {
 
   it('builds one palette row for every shared slash command', () => {
     const rows = commandPaletteRows(COMMANDS, vi.fn(), vi.fn());
-    expect(rows).toHaveLength(34);
+    expect(rows).toHaveLength(35);
     expect(rows.map((row) => row.hint)).toContain('/status');
     expect(rows.map((row) => row.hint)).toContain('/quit');
   });

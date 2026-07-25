@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { ApiClient, DaemonStartResult, EventMsg } from './api.js';
 import { taskDispatchMessage } from './api.js';
+import {
+  appendPhaseStep,
+  closePhaseTrail,
+  summarizeTrail,
+  type PhaseStep,
+} from '../../core/src/phaseTrail.js';
 
 export interface ActiveManagerRequest {
   id: number;
@@ -14,6 +20,8 @@ export interface ManagerSessionState {
   phase: string;
   phaseHeartbeat: boolean;
   phaseQuietS: number;
+  /** Append-only record of every real step in the current turn. */
+  steps: PhaseStep[];
   startedAt: number;
   tick: number;
   managerRequestRef: MutableRefObject<ActiveManagerRequest | null>;
@@ -45,6 +53,7 @@ export function useManagerSession({
   const [phase, setPhase] = useState('');
   const [phaseHeartbeat, setPhaseHeartbeat] = useState(false);
   const [phaseQuietS, setPhaseQuietS] = useState(0);
+  const [steps, setSteps] = useState<PhaseStep[]>([]);
   const [startedAt, setStartedAt] = useState(0);
   const [tick, setTick] = useState(0);
   const managerRequestRef = useRef<ActiveManagerRequest | null>(null);
@@ -59,6 +68,7 @@ export function useManagerSession({
     setPhase('');
     setPhaseHeartbeat(false);
     setPhaseQuietS(0);
+    setSteps([]);
     setStartedAt(0);
     return cancelled;
   };
@@ -114,6 +124,7 @@ export function useManagerSession({
       { type: 'ui.operator', text, ts: Date.now() / 1000 } as EventMsg,
     ]);
     setPhase('');
+    setSteps([]);
     setStartedAt(Date.now());
     setTick(0);
     setPending(true);
@@ -136,20 +147,49 @@ export function useManagerSession({
       ));
     };
 
+    // The live trail disappears with the status line, so fold it into the
+    // scrollback ONCE — right before the first reply block — and let the
+    // operator scroll back through exactly what Argus did. The trail is kept in
+    // a ref as well as state: React batches setSteps, and a reply block can
+    // arrive in the same tick as the phase that preceded it.
+    let trail: PhaseStep[] = [];
+    let trailFlushed = false;
+    const flushTrail = () => {
+      if (trailFlushed || !isCurrent()) return;
+      trailFlushed = true;
+      const summary = summarizeTrail(closePhaseTrail(trail));
+      if (!summary) return;
+      setEvents((events) => (
+        isCurrent()
+          ? [...events, { type: 'ui.activity', text: summary, ts: Date.now() / 1000 } as EventMsg]
+          : events
+      ));
+    };
+
     let gotDelta = false;
     let streamErr: Error | null = null;
     try {
       try {
         await api.messageStream(text, {
-          onPhase: (label, _role, meta) => {
+          onPhase: (label, role, meta) => {
             if (!isCurrent()) return;
             setPhase(label);
             setPhaseHeartbeat(meta.heartbeat);
             setPhaseQuietS(meta.quietS);
+            trail = appendPhaseStep(trail, {
+              label,
+              role,
+              kind: meta.kind,
+              detail: meta.detail,
+              heartbeat: meta.heartbeat,
+              quietS: meta.quietS,
+            });
+            setSteps(trail);
           },
           onDelta: (block, messageId) => {
             if (!isCurrent()) return;
             gotDelta = true;
+            flushTrail();
             setPhase('');
             setPhaseHeartbeat(false);
             setPhaseQuietS(0);
@@ -160,6 +200,7 @@ export function useManagerSession({
           },
           onDone: (result) => {
             if (!isCurrent()) return;
+            flushTrail();
             if (result.kind === 'task') {
               captureAdmission(
                 result.daemon,
@@ -202,10 +243,12 @@ export function useManagerSession({
       }
     } finally {
       if (managerRequestRef.current?.id === requestId) {
+        flushTrail();
         managerRequestRef.current = null;
         setPending(false);
         setPhaseHeartbeat(false);
         setPhaseQuietS(0);
+        setSteps([]);
       }
     }
   };
@@ -215,6 +258,7 @@ export function useManagerSession({
     phase,
     phaseHeartbeat,
     phaseQuietS,
+    steps,
     startedAt,
     tick,
     managerRequestRef,

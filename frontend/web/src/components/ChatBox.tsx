@@ -3,6 +3,12 @@ import { spinnerFrame } from '../lib/soul';
 import { thinkingStatusLine } from '../../../core/src/thinking';
 import { slashCompletions, applyCompletion } from '../../../core/src/commands';
 import {
+  formatStepSeconds,
+  stepElapsedS,
+  visibleTrail,
+  type PhaseStep,
+} from '../../../core/src/phaseTrail';
+import {
   clampSlashCompletionSelection,
   slashCompletionOptionId,
   SlashCompletionMenu,
@@ -34,6 +40,9 @@ export function ChatBox({
   heartbeat = false,
   quietS = 0,
   startedAt = 0,
+  steps = [],
+  onRewrite,
+  rewriting = false,
   slashSelection,
   onSlashSelectionChange,
 }: {
@@ -49,6 +58,10 @@ export function ChatBox({
   heartbeat?: boolean;
   quietS?: number;
   startedAt?: number;
+  steps?: PhaseStep[];
+  /** Ask the Manager to rewrite the current draft; result replaces the draft. */
+  onRewrite?: (draft: string) => void;
+  rewriting?: boolean;
   slashSelection: number;
   onSlashSelectionChange: (n: number) => void;
 }) {
@@ -58,13 +71,15 @@ export function ChatBox({
   const [menuDismissed, setMenuDismissed] = useState(false);
 
   useEffect(() => {
-    if (!pending) return;
+    if (!pending && !rewriting) return;
     setThinkTick((t) => t + 1);
     const id = setInterval(() => setThinkTick((t) => t + 1), 120);
     return () => clearInterval(id);
-  }, [pending]);
+  }, [pending, rewriting]);
   const thinkingLine = thinkingStatusLine(phase, thinkTick, heartbeat, quietS);
   const elapsedS = startedAt ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000)) : 0;
+  const trailRows = visibleTrail(steps);
+  const trailNow = Date.now() / 1000;
 
   useEffect(() => {
     if (focusSignal && !disabled) taRef.current?.focus();
@@ -138,6 +153,30 @@ export function ChatBox({
             <span className="min-w-0 flex-1 truncate text-blue" title={thinkingLine}>{thinkingLine}</span>
             <span className="shrink-0 font-mono tabular-nums text-ink-faint">{elapsedS}s</span>
           </div>
+          {trailRows.length ? (
+            <ol className="mt-1.5 space-y-0.5">
+              {trailRows.map((step, index) => {
+                const active = index === trailRows.length - 1 && !step.endedTs;
+                const seconds = formatStepSeconds(stepElapsedS(step, trailNow));
+                return (
+                  <li key={step.id} className="flex min-w-0 items-baseline gap-2 text-xs">
+                    <span className={`shrink-0 font-mono ${active ? 'text-manager' : 'text-ok'}`}>
+                      {active ? spinnerFrame(thinkTick) : '✓'}
+                    </span>
+                    <span
+                      className={`min-w-0 flex-1 truncate font-mono ${active ? 'text-ink' : 'text-ink-faint'}`}
+                      title={step.detail || step.label}
+                    >
+                      {step.label}
+                    </span>
+                    {seconds ? (
+                      <span className="shrink-0 font-mono tabular-nums text-ink-faint">{seconds}</span>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ol>
+          ) : null}
           <div className="mt-1 text-xs text-ink-faint">Esc stop waiting</div>
         </div>
       ) : null}
@@ -168,6 +207,18 @@ export function ChatBox({
           className="max-h-48 min-h-[38px] min-w-0 flex-1 resize-none bg-transparent py-2 font-sans text-[15px] text-ink outline-none placeholder:text-ink-faint"
           style={{ fieldSizing: 'content' } as React.CSSProperties}
         />
+        {onRewrite ? (
+          <button
+            type="button"
+            onClick={() => onRewrite(value.trim())}
+            disabled={disabled || pending || rewriting || !value.trim()}
+            title="Let the Manager rewrite this prompt into a brief the team can act on. Nothing is sent — the rewrite lands back in this box for you to edit."
+            aria-label="rewrite prompt with the Manager"
+            className="send-control h-9 shrink-0 rounded-full border-manager/70 bg-manager/10 px-3 text-xs font-medium text-manager hover:border-manager hover:bg-manager/20 disabled:opacity-40"
+          >
+            {rewriting ? `${spinnerFrame(thinkTick)} rewriting` : '✦ Rewrite'}
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={pending ? onCancel : () => void submit()}

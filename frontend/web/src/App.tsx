@@ -4,6 +4,11 @@ import { api, type EventMsg } from './api';
 import { TopBar } from './components/TopBar';
 import { EventStream } from './components/EventStream';
 import { ChatBox } from './components/ChatBox';
+import {
+  appendPhaseStep,
+  closePhaseTrail,
+  type PhaseStep,
+} from '../../core/src/phaseTrail';
 import { CommandPalette, commandPaletteRows, type PaletteItem } from './components/CommandPalette';
 import { KeybindingHelp } from './components/KeybindingHelp';
 import { DoctorModal, ConfigModal, IdentityModal, TranscriptModal } from './components/InfoModals';
@@ -96,12 +101,14 @@ export default function App() {
   } = useWorkbenchLayout();
   const [composerFocus, setComposerFocus] = useState(0);
   const [composerDraft, setComposerDraft] = useState('');
+  const [rewriting, setRewriting] = useState(false);
   const [slashSelection, setSlashSelection] = useState(0);
   const [chatPending, setChatPending] = useState(false);
   const [localConversationEvents, setLocalConversationEvents] = useState<EventMsg[]>([]);
   const [managerPhase, setManagerPhase] = useState('');
   const [managerPhaseHeartbeat, setManagerPhaseHeartbeat] = useState(false);
   const [managerPhaseQuietS, setManagerPhaseQuietS] = useState(0);
+  const [managerSteps, setManagerSteps] = useState<PhaseStep[]>([]);
   const [managerStartedAt, setManagerStartedAt] = useState(0);
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [taskItemId, setTaskItemId] = useState<string | null>(null);
@@ -127,6 +134,7 @@ export default function App() {
     setManagerPhase('');
     setManagerPhaseHeartbeat(false);
     setManagerPhaseQuietS(0);
+    setManagerSteps([]);
     setManagerStartedAt(0);
     return cancelled;
   }, []);
@@ -158,6 +166,42 @@ export default function App() {
     messageRequestRef.current?.controller.abort();
     messageRequestRef.current = null;
   }, []);
+
+  /**
+   * Let the Manager restate a short draft before it is sent.
+   *
+   * The rewrite replaces the composer draft — the operator always reads and
+   * edits it before anything is dispatched. The Manager may propose metrics or
+   * constraints the operator never mentioned, but only as questions surfaced
+   * here — never silently inside the rewritten text. A failed rewrite leaves
+   * the original untouched.
+   */
+  const rewriteDraft = useCallback((draft: string) => {
+    const body = (draft || '').trim();
+    const sid = sidRef.current;
+    if (!body || !sid || rewriting) return;
+    setRewriting(true);
+    void api.rewritePrompt(sid, body).then(
+      (result) => {
+        setRewriting(false);
+        if (result.error || !result.rewritten.trim()) {
+          notify('error', `Rewrite failed: ${result.error || 'empty rewrite'} — your prompt is unchanged`);
+          return;
+        }
+        setComposerDraft(result.rewritten);
+        setComposerFocus((x) => x + 1);
+        const open = result.questions.length
+          ? ` Manager asks: ${result.questions.join(' · ')}`
+          : '';
+        notify('success', `Prompt rewritten — review it, then send.${open}`);
+      },
+      (error) => {
+        setRewriting(false);
+        notify('error', `Rewrite failed: ${errorText(error)} — your prompt is unchanged`);
+      },
+    );
+  }, [notify, rewriting, sidRef]);
+
 
   const { createDaemon, creatingDaemon } = useCreateDaemonSession({
     localCwd,
@@ -275,6 +319,7 @@ export default function App() {
     onOpenSidebar: () => setSidebarOpen(true),
     onReconnectEvents: () => dispatchEventView({ kind: 'reconnect' }),
     onRenameProject: renameCurrentProject,
+    onRewriteDraft: rewriteDraft,
     onSelectProject: selectProject,
     onSetArtifactPath: setArtifactPath,
     onSetEventFilter: setEventFilter,
@@ -334,6 +379,7 @@ export default function App() {
     setManagerPhase('');
     setManagerPhaseHeartbeat(false);
     setManagerPhaseQuietS(0);
+    setManagerSteps([]);
     setManagerStartedAt(Date.now());
     setLocalConversationEvents((current) => [
       ...current,
@@ -388,18 +434,33 @@ export default function App() {
     void (async () => {
       let gotDelta = false;
       let streamErr: Error | null = null;
+      // Append-only record of the real steps in this turn (see phaseTrail.ts).
+      // Kept in a local rather than state because React batches setManagerSteps
+      // and a reply block can land in the same tick as the phase before it.
+      let trail: PhaseStep[] = [];
       try {
         try {
           await api.messageStream(requestSid, text, {
-            onPhase: (label, _role, meta) => {
+            onPhase: (label, role, meta) => {
               if (!isCurrent()) return;
               setManagerPhase(label);
               setManagerPhaseHeartbeat(meta.heartbeat);
               setManagerPhaseQuietS(meta.quietS);
+              trail = appendPhaseStep(trail, {
+                label,
+                role,
+                kind: meta.kind,
+                detail: meta.detail,
+                heartbeat: meta.heartbeat,
+                quietS: meta.quietS,
+              });
+              setManagerSteps(trail);
             },
             onDelta: (block, messageId) => {
               if (!isCurrent()) return;
               gotDelta = true;
+              trail = closePhaseTrail(trail);
+              setManagerSteps(trail);
               setManagerPhase('');
               setManagerPhaseHeartbeat(false);
               setManagerPhaseQuietS(0);
@@ -440,6 +501,7 @@ export default function App() {
           setManagerPhaseHeartbeat(false);
           setManagerPhaseQuietS(0);
           setManagerStartedAt(0);
+          setManagerSteps([]);
         }
       }
     })();
@@ -621,7 +683,10 @@ export default function App() {
                     phase={managerPhase}
                     heartbeat={managerPhaseHeartbeat}
                     quietS={managerPhaseQuietS}
+                    steps={managerSteps}
                     startedAt={managerStartedAt}
+                    onRewrite={rewriteDraft}
+                    rewriting={rewriting}
                     slashSelection={slashSelection}
                     onSlashSelectionChange={setSlashSelection}
                   />

@@ -28,16 +28,33 @@ _AGENT_IO_LOG_ENV = "ARGUS_SKILL_AGENT_IO_LOG"
 _AGENT_IO_MODE_ENV = "ARGUS_SKILL_AGENT_IO_MODE"
 _AGENT_IO_BATCH_BYTES_ENV = "ARGUS_SKILL_AGENT_IO_BATCH_BYTES"
 _AGENT_IO_FLUSH_INTERVAL_ENV = "ARGUS_SKILL_AGENT_IO_FLUSH_INTERVAL_S"
+# ``agent_io.jsonl`` is the verbatim provider transcript — a DEBUG artifact.
+# ``events.jsonl`` is the authoritative history, and it already rotates. This
+# one did not, so a long-lived session grew it without bound: measured 6.1 GiB
+# in a single session and 33 GiB across sessions on one box. Bound it as a ring
+# (cap x (keep + 1)) so the recent window stays debuggable without the daemon
+# slowly filling the disk.
+_AGENT_IO_MAX_BYTES_ENV = "ARGUS_SKILL_AGENT_IO_MAX_BYTES"
+_AGENT_IO_KEEP_ENV = "ARGUS_SKILL_AGENT_IO_KEEP"
+_DEFAULT_AGENT_IO_MAX_BYTES = 128 * 1024 * 1024
+_DEFAULT_AGENT_IO_KEEP = 2
 _DEFAULT_AGENT_IO_BATCH_BYTES = 64 * 1024
 _DEFAULT_AGENT_IO_FLUSH_INTERVAL_S = 0.5
 _PROGRESS_STREAM_MARKERS = (
     '"item.completed"',
     '"assistant.message_delta"',
     '"assistant.message"',
+    '"assistant.reasoning"',
     '"type":"assistant"',
     '"type": "assistant"',
     '"tool.call"',
     '"tool.result"',
+    # Current Copilot builds report tool work with these two events rather than
+    # ``tool.call`` / ``tool.result``. Omitting them dropped every command the
+    # agent ran before it reached the progress parser, so the cockpit showed a
+    # spinner and nothing else while real work was happening.
+    '"tool.execution_start"',
+    '"tool.execution_complete"',
     '"type":"result"',
     '"type": "result"',
     '"type":"text"',
@@ -140,6 +157,49 @@ def _jsonl_append(path: Path, row: dict[str, Any], lock: threading.Lock) -> None
         return
 
 
+def _positive_int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return default
+
+
+def _roll_agent_io_log(path: Path) -> None:
+    """Rotate ``path`` once it exceeds the cap, keeping a bounded ring.
+
+    ``path`` -> ``path.1`` -> ... -> ``path.<keep>``; the oldest generation is
+    dropped. Unlike ``events.jsonl`` (the authoritative history, which retains
+    every generation) this transcript is reproducible debug output, so bounding
+    total disk is worth more than infinite retention. Best-effort: a failed
+    rotation must never break the provider call that is trying to log.
+    """
+    max_bytes = _positive_int_env(_AGENT_IO_MAX_BYTES_ENV, _DEFAULT_AGENT_IO_MAX_BYTES)
+    if max_bytes <= 0:
+        return
+    try:
+        if path.stat().st_size < max_bytes:
+            return
+    except OSError:
+        return
+    keep = _positive_int_env(_AGENT_IO_KEEP_ENV, _DEFAULT_AGENT_IO_KEEP)
+    try:
+        if keep <= 0:
+            path.unlink(missing_ok=True)
+            return
+        oldest = path.with_name(f"{path.name}.{keep}")
+        oldest.unlink(missing_ok=True)
+        for index in range(keep - 1, 0, -1):
+            src = path.with_name(f"{path.name}.{index}")
+            if src.exists():
+                src.replace(path.with_name(f"{path.name}.{index + 1}"))
+        path.replace(path.with_name(f"{path.name}.1"))
+    except OSError:
+        return
+
+
 def _jsonl_append_lines(
     path: Path,
     lines: list[str],
@@ -154,6 +214,7 @@ def _jsonl_append_lines(
         return
     try:
         with lock:
+            _roll_agent_io_log(path)
             with path.open("a", encoding="utf-8") as fh:
                 fh.write(payload)
     except OSError:

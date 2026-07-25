@@ -15,7 +15,16 @@ from fastapi import Depends, HTTPException, Query
 from starlette.concurrency import run_in_threadpool
 
 from .context import ServerContext
-from .models import AbortMissionIn, AnswerIn, DisposeIn, NoteIn, NudgeIn, PlanIn, TaskIn
+from .models import (
+    AbortMissionIn,
+    AnswerIn,
+    DisposeIn,
+    NoteIn,
+    NudgeIn,
+    PlanIn,
+    RewriteIn,
+    TaskIn,
+)
 
 
 def register_workitem_routes(app, ctx: ServerContext, server_mod) -> None:
@@ -146,6 +155,21 @@ def register_workitem_routes(app, ctx: ServerContext, server_mod) -> None:
         from ..manager_bridge import manager_plan
         return await run_in_threadpool(
             manager_plan, sid, body.text, global_root=project_root,
+        )
+
+    @app.post("/api/projects/{sid}/prompt/rewrite", dependencies=[Depends(ctx.require_auth)])
+    async def _rewrite_prompt(sid: str, body: RewriteIn) -> dict[str, Any]:
+        """Ask the Manager to restate a short operator draft as a usable brief.
+
+        Preview only — nothing is enqueued and no mission is touched. The
+        operator reviews/edits the result before sending it.
+        """
+        if not body.text.strip():
+            raise HTTPException(status_code=400, detail="empty prompt")
+        project_root = ctx.project_root_or_404(sid)
+        from ..manager_bridge import manager_rewrite
+        return await run_in_threadpool(
+            manager_rewrite, sid, body.text, global_root=project_root,
         )
 
     @app.post("/api/projects/{sid}/backlog/{item_id}/dispose", dependencies=[Depends(ctx.require_auth)])

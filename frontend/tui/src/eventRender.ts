@@ -237,6 +237,12 @@ export function renderEvent(ev: EventMsg): Rendered | null {
     const body = S(ev, 'text');
     return body ? { role: 'manager', label: 'Argus', glyph: '▌', text: body, tone: 'bright' } : null;
   }
+  // The step trail of a finished Manager turn, folded into the scrollback so the
+  // operator can still read WHAT Argus did after the live status line is gone.
+  if (t === 'ui.activity') {
+    const body = S(ev, 'text');
+    return body ? { role: 'manager', label: 'Steps', glyph: '⋮', text: body, tone: 'dim' } : null;
+  }
 
   // Everything else (agent.io.*, internal bookkeeping) → hidden.
   return null;

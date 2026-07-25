@@ -4,6 +4,7 @@ import {
   ApiClient,
   type DaemonStartResult,
   type ArtifactInfo,
+  type EventMsg,
   type ProjectRow,
 } from './api.js';
 import {
@@ -141,6 +142,7 @@ export function App({
   const creatingProjectRef = useRef(false);
   const dismissedAdmissionRef = useRef(0);
   const pasteActiveRef = useRef(false);
+  const rewritingRef = useRef(false);
 
   useEffect(() => {
     if (!stdout.isTTY) return;
@@ -227,6 +229,7 @@ export function App({
     phase,
     phaseHeartbeat,
     phaseQuietS,
+    steps: managerSteps,
     startedAt,
     tick,
     managerRequestRef,
@@ -337,6 +340,53 @@ export function App({
     }
   };
 
+  /**
+   * Let the Manager restate a short draft before it is sent (Ctrl+R, /rewrite).
+   *
+   * The rewrite lands back in the prompt box — the operator always reads and
+   * edits it before anything is dispatched, and the original plus the Manager's
+   * "made explicit / asks" notes go into the feed. The Manager may propose
+   * metrics or constraints, but only as questions here — never silently inside
+   * the rewritten text.
+   */
+  const rewriteDraft = (source: string) => {
+    const draft = (source || '').trim();
+    if (!draft) {
+      setNotice('nothing to rewrite · type a prompt first');
+      return;
+    }
+    if (rewritingRef.current) return;
+    rewritingRef.current = true;
+    setNotice('Manager is rewriting your prompt…');
+    void api.rewritePrompt(draft).then(
+      (result) => {
+        rewritingRef.current = false;
+        if (result.error || !result.rewritten.trim()) {
+          setNotice(`rewrite failed · ${result.error || 'empty rewrite'} · your prompt is unchanged`);
+          return;
+        }
+        setEdit(fromString(result.rewritten));
+        const lines = [`Rewrote your prompt (not sent — edit it, then Enter):`, '', `was: ${draft}`];
+        if (result.changes.length) {
+          lines.push('', 'made explicit:', ...result.changes.map((item) => `  - ${item}`));
+        }
+        if (result.questions.length) {
+          lines.push('', 'Manager asks (answer these, or they stay unspecified):',
+            ...result.questions.map((item) => `  ? ${item}`));
+        }
+        setEvents((events) => [
+          ...events,
+          { type: 'ui.activity', text: lines.join('\n'), ts: Date.now() / 1000 } as EventMsg,
+        ]);
+        setNotice('prompt rewritten · review it, then Enter to send');
+      },
+      (error: unknown) => {
+        rewritingRef.current = false;
+        setNotice(`rewrite failed · ${(error as Error).message} · your prompt is unchanged`);
+      },
+    );
+  };
+
   const dispatchSlash = (line: string) => {
     dispatchSlashCommand(line, {
       api,
@@ -351,6 +401,7 @@ export function App({
       quit,
       switchProject,
       openNewDaemon,
+      rewriteDraft,
     });
   };
 
@@ -444,6 +495,10 @@ export function App({
         setNotice(`reasoning ${current ? 'hidden' : 'shown'}`);
         return !current;
       });
+      return;
+    }
+    if (key.ctrl && input === 'r') {
+      rewriteDraft(edit.value);
       return;
     }
     if (pendingExit) setPendingExit(false); // any other key disarms the double-Ctrl-C
@@ -705,6 +760,8 @@ export function App({
                   phase={phase}
                   heartbeat={phaseHeartbeat}
                   quietS={phaseQuietS}
+                  steps={managerSteps}
+                  width={terminal.columns}
                   elapsedS={Math.max(0, Math.floor((Date.now() - startedAt) / 1000))}
                 />
               )}

@@ -13,7 +13,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..core.knobs import resolve_role_model
+from ..core.progress_step import REPLY_KINDS
 from ..core.runner_errors import is_pre_provider_refusal_error
+from ..core.secret_guard import known_secret_values, redact_secrets_text
 
 
 class ManagerHandoffError(RuntimeError):
@@ -766,9 +768,17 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
         f"Request: {_fallback_request_excerpt(body)}"
     )
 
+    def _redact_live_text(text: Any) -> str:
+        return redact_secrets_text(str(text or ""), known_values=known_secret_values())
+
     def _fragment(kind: str, payload: dict[str, Any]) -> None:
         if not callable(on_fragment):
             return
+        if kind in {"delta", "phase"}:
+            payload = dict(payload)
+            for key in ("text", "label", "detail"):
+                if key in payload:
+                    payload[key] = _redact_live_text(payload[key])
         try:
             on_fragment(kind, payload)
         except Exception:  # noqa: BLE001 — a UI callback must never break triage
@@ -777,7 +787,7 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
     def _progress_label(event: dict[str, Any]) -> tuple[str, str] | None:
         try:
             from ..apps.cli._follow import _clean_follow_text
-            txt = str(
+            txt = _redact_live_text(
                 event.get("text")
                 or event.get("title")
                 or event.get("reason")
@@ -797,23 +807,44 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
         except Exception:  # noqa: BLE001
             return None
 
-    def _emit_phase(role: str, label: str) -> None:
+    def _emit_phase(role: str, label: str, *, kind: str = "", detail: str = "") -> None:
         # Relay every real runner phase to both callback styles so SSE sees
         # classify/direct-reply transitions instead of a generic spinner.
+        safe_label = _redact_live_text(label)
+        safe_detail = _redact_live_text(detail)
         if callable(on_phase):
-            try:
-                on_phase(label, role=role)
-            except TypeError:
+            for kwargs in (
+                {"role": role, "kind": kind, "detail": safe_detail},
+                {"role": role},
+                {},
+            ):
                 try:
-                    on_phase(label)
-                except Exception:  # noqa: BLE001
-                    pass
-            except Exception:  # noqa: BLE001 — a UI callback must never break triage
-                pass
-        _fragment("phase", {"role": role, "label": label})
+                    on_phase(safe_label, **kwargs)
+                    break
+                except TypeError:
+                    continue
+                except Exception:  # noqa: BLE001 — a UI callback must never break triage
+                    break
+        payload: dict[str, Any] = {"role": role, "label": safe_label}
+        if kind:
+            payload["kind"] = kind
+        if safe_detail:
+            payload["detail"] = safe_detail
+        _fragment("phase", payload)
 
-    def _runner_phase(label: str, *, role: str = "manager") -> None:
-        _emit_phase(str(role or "manager"), str(label or ""))
+    def _runner_phase(
+        label: str,
+        *,
+        role: str = "manager",
+        kind: str = "",
+        detail: str = "",
+    ) -> None:
+        _emit_phase(
+            str(role or "manager"),
+            str(label or ""),
+            kind=str(kind or ""),
+            detail=str(detail or ""),
+        )
 
     class _Capture:
         def __init__(self, *, progress_phases: bool) -> None:
@@ -825,8 +856,8 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
                 # A live assistant reply block → stream it as a delta fragment
                 # (grows the reply in the front-end) rather than treating it as a
                 # phase label. Keep capturing the authoritative reply below.
-                if etype == "engineer.progress" and str(event.get("kind") or "") == "assistant_message":
-                    blk = str(event.get("text") or "").strip()
+                if etype == "engineer.progress" and str(event.get("kind") or "") in REPLY_KINDS:
+                    blk = _redact_live_text(event.get("text")).strip()
                     if blk:
                         _fragment("delta", {
                             "text": blk,
@@ -845,7 +876,9 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
                     return
                 if etype != "round.main.completed":
                     return
-                text = _extract_chat_reply_text(str(event.get("last_message") or ""))
+                text = _redact_live_text(
+                    _extract_chat_reply_text(str(event.get("last_message") or ""))
+                )
                 if text:
                     captured.append(text)
             except Exception:  # noqa: BLE001

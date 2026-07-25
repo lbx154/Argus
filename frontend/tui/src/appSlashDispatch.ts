@@ -16,6 +16,8 @@ interface SlashDispatchDeps {
   quit: () => void;
   switchProject: (arg: string) => Promise<void>;
   openNewDaemon: (objective?: string) => void;
+  /** Ask the Manager to restate a draft; the result lands in the prompt box. */
+  rewriteDraft: (source: string) => void;
 }
 
 export function dispatchSlashCommand(line: string, deps: SlashDispatchDeps): void {
@@ -156,6 +158,10 @@ export function dispatchSlashCommand(line: string, deps: SlashDispatchDeps): voi
     case '/nudge':
       if (parsed.rest) void deps.api.postNudge(parsed.rest).then(ok('nudge sent'), err);
       else need('/nudge <text>');
+      break;
+    case '/rewrite':
+      if (parsed.rest) deps.rewriteDraft(parsed.rest);
+      else need('/rewrite <text> — or press Ctrl+R to rewrite what you already typed');
       break;
     case '/note':
       if (parsed.rest) void deps.api.postNote(parsed.rest).then(ok('note added'), err);

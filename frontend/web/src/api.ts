@@ -114,6 +114,14 @@ export interface PlanPreview {
   notes: string[];
   error: string;
 }
+/** A Manager-authored restatement of an operator draft (see the rewrite button). */
+export interface PromptRewrite {
+  original: string;
+  rewritten: string;
+  changes: string[];
+  questions: string[];
+  error: string;
+}
 export interface TrashEntry {
   trash_id: string;
   sid: string;
@@ -421,7 +429,7 @@ export const api = {
       onPhase?: (
         label: string,
         role: string,
-        meta: { heartbeat: boolean; quietS: number },
+        meta: { heartbeat: boolean; quietS: number; kind: string; detail: string },
       ) => void;
       onDelta?: (block: string, messageId: string) => void;
       onDone?: (result: StreamDone) => void;
@@ -447,6 +455,8 @@ export const api = {
           {
             heartbeat: f.heartbeat === true,
             quietS: Number.isFinite(quietS) ? quietS : 0,
+            kind: String(f.kind ?? ''),
+            detail: String(f.detail ?? ''),
           },
         );
       }
@@ -471,6 +481,12 @@ export const api = {
   note: (sid: string, text: string) => postJson(P(sid, '/note'), { text }),
   previewPlan: (sid: string, text: string) =>
     postJson<PlanPreview>(P(sid, '/plan'), { text }),
+  /**
+   * Ask the Manager to restate a short draft as an executable brief. Preview
+   * only — nothing is queued; the operator edits/sends the result themselves.
+   */
+  rewritePrompt: (sid: string, text: string) =>
+    postJson<PromptRewrite>(P(sid, '/prompt/rewrite'), { text }),
   setConfig: (sid: string, name: string, value: string) =>
     postJson<Record<string, unknown>>(P(sid, '/config/set'), { name, value }),
   setBudgets: (sid: string, values: Record<string, string>) =>
