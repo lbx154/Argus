@@ -308,6 +308,10 @@ def daemon_stop_review_decision(
     error_text = str(fatal_error or f"exit={exit_code}").strip()
     return ReviewDecision(
         status="blocked",
+        # An intentional shutdown, recorded structurally so a consumer reading
+        # this decision alone can tell it apart from a real failure instead of
+        # having to parse ``reason`` prose.
+        backend_stop_kind="daemon_shutdown",
         reason=(
             "Engineer interrupted because daemon shutdown was requested; "
             f"no backend retry was attempted. error={error_text}"
@@ -327,6 +331,11 @@ def operator_abort_review_decision(
     error_text = str(fatal_error or f"exit={exit_code}").strip()
     return ReviewDecision(
         status="blocked",
+        # Same contract as the daemon-stop sibling: this was an operator's
+        # deliberate abort of ONE mission, not a crash and not a daemon
+        # shutdown. Keep it structural so the distinction survives being read
+        # apart from the round record that also carries ``stop_kind``.
+        backend_stop_kind="operator_abort",
         reason=(
             "Engineer interrupted because the Manager decided, on the "
             f"operator's behalf, to abort this mission; error={error_text}"

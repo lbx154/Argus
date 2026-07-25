@@ -244,8 +244,6 @@ class _CapturingReviewer:
             status="done",
             reason="ok",
             next_action="",
-            round_summary_markdown="# done",
-            completion_summary_markdown="done",
         )
 
 

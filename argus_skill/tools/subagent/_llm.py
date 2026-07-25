@@ -8,6 +8,7 @@ from ...adapters.agent_cli_backend import AgentCliBackend
 from ...core.models import RunnerOptions, RunnerResult
 from ...core.paths import session_state_root
 from ...core.project import project_fingerprint
+from ...core.run_gateway import run_exec as gateway_run_exec
 from ...core.sandbox import engineer_sandbox_mode
 from ._registry import _add_usage_totals
 from ._text import _find_codex
@@ -55,7 +56,8 @@ def _run_backend_turn(
         return None
 
     sandbox_mode = engineer_sandbox_mode()
-    return backend.run_exec(
+    return gateway_run_exec(
+        backend,
         prompt=prompt,
         options=RunnerOptions(
             model=model,

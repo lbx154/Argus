@@ -80,7 +80,7 @@ def test_operator_abort_review_decision_is_honest_daemon_keeps_running() -> None
         exit_code=0,
     )
     assert decision.status == "blocked"
-    assert decision.failure_cause == "operator_interrupt"
+    assert decision.backend_stop_kind == "operator_abort"
     # Must NOT claim the daemon itself is restarting/shutting down — only
     # this one mission was interrupted (regression guard against copy-pasting
     # daemon_stop_review_decision's "restart the daemon" wording verbatim,
@@ -155,7 +155,7 @@ class _ReviewerAbortedByOperator:
                 f"(exit=-15, fatal_error={fatal})."
             ),
             next_action="",
-            failure_cause="environmental",
+            backend_stop_kind="operator_abort",
             backend_unavailable=True,
             backend_fatal_error=fatal,
             backend_exit_code=-15,
@@ -193,7 +193,7 @@ def test_loop_stops_clean_on_operator_abort_without_calling_reviewer(
     assert status == "aborted"
     assert engineer.calls == 1
     assert len(rounds) == 1
-    assert rounds[0].review.failure_cause == "operator_interrupt"
+    assert rounds[0].review.backend_stop_kind == "operator_abort"
     assert "operator" in reason.lower() or "abort" in reason.lower()
 
     skipped = [
@@ -237,7 +237,7 @@ def test_loop_stops_without_backend_retry_when_reviewer_is_operator_aborted(
     assert engineer.calls == 1
     assert reviewer.calls == 1
     assert len(rounds) == 1
-    assert rounds[0].review.failure_cause == "operator_interrupt"
+    assert rounds[0].review.backend_stop_kind == "operator_abort"
     assert "operator" in reason.lower() or "abort" in reason.lower()
     assert not any(
         event.get("type") == "round.reviewer_backend_failure"

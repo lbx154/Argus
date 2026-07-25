@@ -359,9 +359,6 @@ class PlanningContextMixin:
                 f"{reason}; skipping planner cycle to avoid impossible repair-task loop"
             ),
             new_tasks=[],
-            input_tokens=0,
-            cached_input_tokens=0,
-            output_tokens=0,
         )
 
     def _defer_project_done_for_operator_external_blocker(self, verdict: Any) -> Any:
