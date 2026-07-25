@@ -18,7 +18,13 @@ from ...core.event_catalog import EventType
 from ...core.stop_kinds import stop_kind_is_recoverable
 from ..memory import BacklogItem
 from ..mission_outcome import mission_outcome_class, mission_outcome_dimensions
-from ._constants import PLANNER_SCOPE_BOUNDED, PLANNER_SCOPE_FINAL_SUBMISSION
+from ._constants import (
+    PLANNER_RECENT_FAILURE_STATUS,
+    PLANNER_SCOPE_BOUNDED,
+    PLANNER_SCOPE_FINAL_SUBMISSION,
+    _REPLAN_STREAK_JOURNAL_WINDOW,
+    consecutive_replan_escalation_threshold,
+)
 from ._helpers import _normalize_planner_text
 from ._mission_execution_helpers import _MissionRunState
 
@@ -316,6 +322,33 @@ class MissionExecutionSettlementMixin:
     # Phase: final status resolution against the backlog
     # ------------------------------------------------------------------
 
+    def _count_consecutive_item_replans(self, item_id: str) -> int:
+        """Trailing consecutive replan_requested missions journaled for one item.
+
+        Walks the journal newest-first and counts ``mission_replan_requested``
+        entries for ``item_id``, stopping at the first forward-progress marker
+        (``mission_complete``) for that item. The current mission's own replan
+        has not been journaled yet, so this is the count of PRIOR consecutive
+        replans; the caller adds one for the in-flight outcome.
+        """
+        try:
+            entries = self.memory.journal.tail(_REPLAN_STREAK_JOURNAL_WINDOW)
+        except Exception:  # noqa: BLE001 - guard degrades to current behavior
+            log.exception(
+                "life supervisor: failed to read journal for replan streak"
+            )
+            return 0
+        count = 0
+        for entry in reversed(entries):
+            if str(getattr(entry, "id", "") or "") != item_id:
+                continue
+            kind = str(getattr(entry, "kind", "") or "")
+            if kind == "mission_complete":
+                break
+            if kind == "mission_replan_requested":
+                count += 1
+        return count
+
     def _finalize_mission_status(self, state: _MissionRunState) -> None:
         item = state.item
         outcome = state.outcome
@@ -368,13 +401,49 @@ class MissionExecutionSettlementMixin:
                 outcome=outcome_dimensions,
             )
         elif replan_requested:
-            self.memory.backlog.update(
-                item.id,
-                status="pending",
-                started_ts=None,
-                finished_ts=None,
-                last_error=state.stop_reason,
+            # Bounded convergence guard. A refuted node that keeps returning
+            # replan_requested with no intervening forward progress
+            # (mission_complete) must not be re-dispatched forever. Count the
+            # consecutive replans already journaled for this item and add the
+            # in-flight one; at/above the threshold, stop resetting to pending
+            # and escalate to a terminal no-progress failure that the planner
+            # quarantine (kind=mission_failed, terminal_status=no_progress)
+            # recognizes, so the daemon idles/escalates instead of re-running.
+            consecutive_replans = (
+                self._count_consecutive_item_replans(item.id) + 1
             )
+            if consecutive_replans >= consecutive_replan_escalation_threshold():
+                replan_requested = False
+                success = False
+                status = PLANNER_RECENT_FAILURE_STATUS
+                err = (
+                    f"no forward progress after {consecutive_replans} "
+                    "consecutive replan_requested outcomes on this node"
+                    + (f": {state.stop_reason}" if state.stop_reason else "")
+                )
+                outcome_dimensions = mission_outcome_dimensions(
+                    status=status,
+                    success=success,
+                    review_status=str(
+                        getattr(outcome, "final_review_status", "") or ""
+                    ),
+                    stage_transition=stage_transition,
+                    stop_kind=state.stop_kind,
+                    resumable=resumable,
+                )
+                self.memory.backlog.mark_failed(
+                    item.id,
+                    error=err,
+                    outcome=outcome_dimensions,
+                )
+            else:
+                self.memory.backlog.update(
+                    item.id,
+                    status="pending",
+                    started_ts=None,
+                    finished_ts=None,
+                    last_error=state.stop_reason,
+                )
         elif research_pause:
             self.memory.backlog.update(
                 item.id,
