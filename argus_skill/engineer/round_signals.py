@@ -37,9 +37,6 @@ def _review_event_payload(
     )
 
 
-def _normalize_dynamic_plan_mode(value: object) -> str:
-    mode = str(value or "").strip().lower()
-    return mode if mode in {"off", "shadow", "active"} else "off"
 
 
 def _apply_round_secret_guard(
@@ -127,7 +124,6 @@ def _run_external_work_wait(
 
 __all__ = [
     "_apply_round_secret_guard",
-    "_normalize_dynamic_plan_mode",
     "_pause_decision_clock",
     "_review_event_payload",
     "_run_external_work_wait",

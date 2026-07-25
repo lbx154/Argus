@@ -68,7 +68,6 @@ def test_repeated_reviewer_prose_does_not_force_harness_replan(tmp_path) -> None
         engineer_prompt_builder=lambda _next, _static=True: "Do the task.",
         supervised_config=SupervisedConfig(
             max_rounds=4,
-            dynamic_plan_mode="off",
             stall_threshold=0,
         ),
         workdir=tmp_path,

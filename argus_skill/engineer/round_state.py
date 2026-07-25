@@ -37,7 +37,6 @@ class RoundLoopState:
     last_engineer_message: str = ""
     no_progress_streak: int = 0
     semantic_stall_streak: int = 0
-    plan_reconsider_streak: int = 0
     reviewer_next_action: str | None = None
     last_decision_progress_at: float = field(default_factory=lambda: time.monotonic())
     backend_failure_streak: int = 0

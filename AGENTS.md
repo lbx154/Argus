@@ -202,25 +202,27 @@ Engineer 和 Reviewer 不再继承上一轮 raw transcript。每个角色每轮�
 - `ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS` 默认 0，不用绝对墙钟时间截断正常工作。
 - 测试：`tests/test_checkpoint_loop.py`、`tests/test_session_resume.py`。
 
-### Backlog-native Dynamic Plan（默认关闭）
+### Replan：Reviewer 如何推翻剩余计划
 
-- Reviewer 的 `planner_report.plan_signal` 只有 `continue|reconsider`；
-  Reviewer 只报告“当前剩余计划是否已被新证据推翻”，L4 仍是唯一计划作者。
-- `ARGUS_SKILL_DYNAMIC_PLAN_MODE=off|shadow|active`，默认 `off`。
-  `shadow` 只写 `life.plan.signal`；`active` 需要连续
-  `ARGUS_SKILL_DYNAMIC_PLAN_CONFIRM_ROUNDS` 次 reviewed `reconsider`
-  （默认 2）才在 round 边界返回 `replan_requested`。
-- `replan_requested` 不是 done/failed/blocked，不触发 Manager stage
-  transition。当前 item 先回到 pending；随后仍经过现有 Planner
-  rate/budget gate。
-- Backlog row 持久化 `plan_id` / `plan_version` / `node_key` /
-  `context_refs`。替换在一个 backlog 文件锁内 compare-and-swap：
-  done 永不改写，旧 active nodes 进入不可复活的 `superseded`，新 DAG
-  一次落盘；Planner/校验/冲突/写盘失败都保留旧计划。
+- Reviewer 可以直接返回 `status=replan_requested`。这**不是** done/failed/blocked，
+  不触发 Manager stage transition；当前 item 回到 pending，随后仍走现有 Planner
+  rate/budget gate。实现见 `engineer/round_settlement.py` 与
+  `life/supervisor/_core.py`。
+- Backlog row 持久化 `plan_id` / `plan_version` / `node_key` / `context_refs`。
+  替换在一个 backlog 文件锁内 compare-and-swap：done 永不改写，旧 active nodes
+  进入不可复活的 `superseded`，新 DAG 一次落盘；Planner/校验/冲突/写盘失败都保留
+  旧计划。stage 推进由 `_apply_dynamic_plan_stage_guard` 守住未完成的后继节点。
 - `context_refs` 只注入路径、用途与可选 hash，正文由 Engineer 按需读取。
-  不新增关键词 relevance scorer，也不复制 Claude 的 JS workflow runtime。
-- 实现：`engineer/runner.py`、`life/memory.py`、
-  `life/supervisor/{_core,_mission_execution,_planning_context,_planning_cycle}.py`。
+  不新增关键词 relevance scorer。
+
+> **2026-07 更正。** 本节此前描述了一套 `plan_signal: continue|reconsider` +
+> `ARGUS_SKILL_DYNAMIC_PLAN_MODE=off|shadow|active` + 连续确认轮次的机制。
+> 那套实现**在代码里并不存在**：`dynamic_plan_mode` / `dynamic_plan_confirm_rounds`
+> 只被读进配置就再无人消费，`plan_reconsider_streak` 从不读写，`life.plan.signal`
+> 事件类型定义了却从不发射。这些惰性符号已删除，本节改为描述真实存在的路径。
+> 实测背景：一个长期项目累计 319 次节点级 `done`、仅 1 次 replan，296 次 planner
+> 判决全是 `tasks_scheduled`——负结果没有被回灌成重规划。若要重建自动 replan 升级，
+> 请**先实现再写文档**，并带上能证伪的测试。
 
 ### Live credential guard
 

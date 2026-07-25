@@ -16,7 +16,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .round_signals import _normalize_dynamic_plan_mode
 
 _RUNNER_HARD_IDLE_ENV = "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS"
 _SHIFT_ROUND_LIMIT_ENV = "ARGUS_SKILL_SHIFT_ROUND_LIMIT"
@@ -26,8 +25,6 @@ _DECISION_PROGRESS_TIMEOUT_ENV = "ARGUS_SKILL_DECISION_PROGRESS_TIMEOUT_SECONDS"
 # unset/true, each round surfaces in-flight supervised subagents so the engineer
 # does not babysit a self-watched run. Set to 0 to disable (e.g. tests).
 _BG_SUBAGENT_ADVISORY_ENV = "ARGUS_SKILL_BG_SUBAGENT_ADVISORY"
-_DYNAMIC_PLAN_MODE_ENV = "ARGUS_SKILL_DYNAMIC_PLAN_MODE"
-_DYNAMIC_PLAN_CONFIRM_ROUNDS_ENV = "ARGUS_SKILL_DYNAMIC_PLAN_CONFIRM_ROUNDS"
 _COMPACT_CONTINUATION_PROMPTS_ENV = "ARGUS_SKILL_COMPACT_CONTINUATION_PROMPTS"
 _CONTINUE_WORK_SENTINEL = "CONTINUE_WORK:"
 _CONTINUE_WORK_MAX_CHARS = 500
@@ -126,17 +123,6 @@ class SupervisedConfig:
     # artifact-sync-only, or no decision progress. The harness counts the
     # structured verdict; it never infers scientific progress from activity.
     stall_threshold: int = 4
-    # Dynamic Plan is observation-only by default. ``active`` lets two
-    # consecutive Reviewer-authored reconsider signals end the current mission
-    # cleanly so L4 can replace the remaining backlog plan.
-    dynamic_plan_mode: str = field(
-        default_factory=lambda: _normalize_dynamic_plan_mode(
-            os.environ.get(_DYNAMIC_PLAN_MODE_ENV, "off")
-        )
-    )
-    dynamic_plan_confirm_rounds: int = field(
-        default_factory=lambda: _env_int(_DYNAMIC_PLAN_CONFIRM_ROUNDS_ENV, 2)
-    )
     # Round 1 receives the full task/skill contract. Continuation rounds use
     # Reviewer guidance plus the shared CHECKPOINT.md baton.
     compact_continuation_prompts: bool = field(

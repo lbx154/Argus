@@ -60,7 +60,6 @@ from .round_settlement import RoundSettlementMixin
 # direct ``from argus_skill.engineer.runner import _apply_round_secret_guard``).
 from .round_signals import (
     _apply_round_secret_guard,  # noqa: F401
-    _normalize_dynamic_plan_mode,  # noqa: F401
     _pause_decision_clock,  # noqa: F401
     _review_event_payload,  # noqa: F401
     _run_external_work_wait,  # noqa: F401
