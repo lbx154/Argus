@@ -103,6 +103,14 @@ def build_mission_prompt(
     )
     sections.append(
         "## Handoff\n"
+        "If you changed code, build it before you call the work finished: "
+        "compile or type-check the packages you touched, not just the tests you "
+        "happened to run. The tests in front of you are not necessarily the "
+        "tests you are judged on, so a rename, a signature, or an import you "
+        "left unreconciled can still break the build for whoever compiles it "
+        "next. It costs seconds and it is the cheapest failure to catch. If you "
+        "are skipping independent review, this is the check you are standing in "
+        "for.\n"
         "End with a short, natural account of what changed and the decisive "
         "check or observation. Do not recite a checklist or build an evidence "
         "packet; include only details the next researcher needs. A fresh Reviewer "
@@ -124,7 +132,8 @@ def build_mission_prompt(
         "command; reduce it to the cheapest decisive diagnostic. The original "
         "task, active vertical, and repository instructions remain binding.\n\n"
         "## Handoff\n"
-        "End with a concise natural summary and decisive check."
+        "End with a concise natural summary and decisive check. If you changed "
+        "code, build the packages you touched before calling it done."
     )
     return compact + ("\n\n" + delta_text if delta_text else "")
 
