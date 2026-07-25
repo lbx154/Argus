@@ -154,7 +154,9 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             id="spec.behavior-interface",
             statement=(
                 "The cycle-level functional behavior and complete module interface are explicit, "
-                "including port direction, width, signedness, parameters, and legal value ranges."
+                "including port direction, width, signedness, parameters, and legal value ranges. "
+                "A public benchmark interface is preserved exactly unless the prompt explicitly "
+                "requests its repair; every unresolved ambiguity is recorded."
             ),
             evidence_hint="design/SPEC.md with behavior tables and a port/parameter table",
         ),
@@ -230,7 +232,9 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             id="verify.reset-boundary-random",
             statement=(
                 "Verification covers reset entry/exit, boundaries, protocol stalls, illegal inputs "
-                "where defined, and randomized or exhaustive cases appropriate to the design."
+                "where defined, exact width/signing, combinational versus prior-state sequential "
+                "semantics, reset polarity/synchronicity, latency, initialization uncertainty, "
+                "and randomized, exhaustive, or metamorphic cases appropriate to the public design."
             ),
             evidence_hint="verification plan and fresh run log with scenario counts/seeds",
         ),
@@ -336,7 +340,10 @@ def role_banner(role: str) -> str:
         "For a fixed external benchmark, freeze the prompt, evaluator, official "
         "test inputs, tool versions, and score policy before editing. Keep the first "
         "official attempt immutable, record repair attempts separately, and never "
-        "inspect or expose golden outputs or hidden harness sources.\n"
+        "inspect or expose golden outputs or hidden harness sources. Preserve the "
+        "exact public module/port contract; record ambiguity rather than silently "
+        "correcting an interface. Classify evaluator no-execution separately and "
+        "draw no RTL correctness conclusion from it.\n"
     )
     role_norm = (role or "").strip().lower()
     if role_norm == "planner":

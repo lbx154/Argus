@@ -23,6 +23,7 @@ _BUILTIN_PACKAGE = "argus_skill.builtin_skills"
 DEFAULT_PROJECT_BUILTIN_SKILLS_DIR = "argus_builtin_skills"
 _VERTICAL_SKILL_INHERITANCE = {
     "digital_circuit_benchmark": ("digital_circuit",),
+    "chip_design": ("digital_circuit",),
 }
 _SAFE_BUILTIN_UPGRADE_DIGESTS = {
     "agent-md-existing-project-optimization-template.md": {

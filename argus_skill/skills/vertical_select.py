@@ -59,7 +59,8 @@ log = logging.getLogger(__name__)
 #:   nanogpt_speedrun — Task 2: minimize wall-time to val_loss<=3.28 (8xH100)
 #:   kernelbench      — Task 3: maximize SOL score (B200 kernels)
 VERTICALS: tuple[str, ...] = (
-    "software", "digital_circuit", "digital_circuit_benchmark", "research", "math", "physics", "materials", "quant", "speedrun",
+    "software", "digital_circuit", "digital_circuit_benchmark", "chip_design",
+    "research", "math", "physics", "materials", "quant", "speedrun",
     "kernel_engineering", "nanochat", "nanogpt_speedrun", "kernelbench",
     "learning", "ale_last_exam", "fiction_writing", "classical_poetry",
     "modern_poetry", "prose", "literary_editor",
@@ -78,6 +79,11 @@ VERTICAL_PURPOSES: dict[str, str] = {
     "digital_circuit_benchmark": "single-stage fixed-harness RTL benchmark execution "
     "under digital_circuit: exact public interface closure, RTL, local verification, "
     "pre-score elaboration, and immutable attempt handoff without staged overhead",
+    "chip_design": "end-to-end digital ASIC and accelerator design: workload and product "
+    "definition, microarchitecture and memory modeling, EDA/PDK/IP readiness, RTL, "
+    "independent verification, DFT, synthesis, physical implementation, STA/power/"
+    "signal-integrity sign-off, DRC/LVS, fair public-baseline comparison, and a "
+    "provenance-bound pre-tapeout release",
     "research": "full multi-stage research-PAPER pipeline (literature review → "
     "experiments → draft → submission); the default when the goal is a written paper",
     "math": "mathematical conjectures, proofs, and open research problems; dynamically "

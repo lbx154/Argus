@@ -19,7 +19,12 @@ version: 2
 4. Keep synthesizable RTL separate from testbench, formal, generated, and report artifacts.
 5. Use `always_comb`/complete combinational assignments and `always_ff`/nonblocking sequential assignments where SystemVerilog is available. Make width casts and signedness explicit.
 6. Build an independent verification oracle. Do not copy the RTL algorithm into the scoreboard and call agreement proof.
-7. Verify reset, first/last values, counter and FIFO boundaries, stalls/backpressure, simultaneous events, parameter extremes, and X/Z behavior. Preserve random seeds.
+7. Verify exact expression width/signing, combinational current-input versus
+   sequential prior-state behavior, reset polarity/synchronicity, documented
+   latency, first/last values, counter and FIFO boundaries, stalls/backpressure,
+   simultaneous events, parameter extremes, initialization uncertainty, and X/Z
+   behavior. Exhaust public small spaces; otherwise add public-contract
+   metamorphic properties. Preserve random seeds.
 8. Add assertions for protocol and state invariants. Use formal proof when the state space and toolchain support it, but state exactly which properties were proved.
 9. For synthesizable designs, run lint and synthesis with explicit target and constraints. Audit latches, loops, undriven nets, black boxes, critical warnings, timing, and utilization/area. If a frozen functional benchmark does not score synthesis or PPA, write `synthesis/NOT_APPLICABLE.md` with the exact scorer-scope reason instead of adding unscored work.
 10. Produce one clean reproduction command and a results summary that links every claim to a raw log/report.

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+
+import pytest
+
 from argus_skill.manager import Manager
 from argus_skill.manager._helpers import _OPTIMIZE_VERTICALS
 from argus_skill.skills.builtins import iter_vertical_skill_texts
@@ -19,6 +23,10 @@ from argus_skill.verticals._base import (
     load_vertical,
     vertical_completion_gate,
     vertical_role_banner,
+)
+from argus_skill.verticals.digital_circuit.evidence import (
+    EvidenceError,
+    validate_verification_results,
 )
 
 
@@ -90,6 +98,8 @@ def test_digital_circuit_role_banners_pin_hardware_evidence() -> None:
         assert "MISSION TYPE: DIGITAL CIRCUIT / RTL ENGINEERING" in banner
         assert "NOT a paper pipeline" in banner
         assert "Never claim PASS from compile success alone" in banner
+        assert "silently correcting an interface" in banner
+        assert "no-execution separately" in banner
     assert "clock/reset/protocol" in planner
     assert "Verilator/iverilog" in engineer
     assert "hardware sign-off reviewer" in reviewer
@@ -126,11 +136,23 @@ def test_digital_circuit_skills_are_packaged() -> None:
     assert "design/BENCHMARK_INTERFACE.json" in skills[
         "engineer/digital-circuit-first-pass-contract-closure.md"
     ]
+    assert "never silently “correct”" in skills[
+        "engineer/digital-circuit-first-pass-contract-closure.md"
+    ]
+    assert "uninitialized state as uncertain" in skills[
+        "engineer/digital-circuit-first-pass-contract-closure.md"
+    ]
     assert '"status": "ready"' in skills[
         "engineer/digital-circuit-first-pass-contract-closure.md"
     ]
     assert "evidence/preflight.json" in skills[
         "engineer/digital-circuit-benchmark-execution.md"
+    ]
+    assert "yields no new RTL" in skills[
+        "engineer/digital-circuit-benchmark-execution.md"
+    ]
+    assert "changed public-only hypothesis" in skills[
+        "engineer/digital-circuit-error-guided-repair.md"
     ]
     assert "Pure combinational truth table" in skills[
         "engineer/digital-circuit-spec-guidance-registry.md"
@@ -170,3 +192,37 @@ def test_digital_circuit_banners_cover_benchmark_integrity_and_local_tools() -> 
 def test_digital_circuit_uses_custom_staged_kind() -> None:
     assert Manager._kind_for("digital_circuit") == "custom"
     assert "digital_circuit" not in _OPTIMIZE_VERTICALS
+
+
+def test_verification_stage_rejects_failed_log_and_accepts_explicit_pass(tmp_path) -> None:
+    (tmp_path / "research").mkdir()
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps({"vertical": "digital_circuit", "current_stage": "verification"}),
+        encoding="utf-8",
+    )
+    (tmp_path / "tb").mkdir()
+    (tmp_path / "tb" / "dut_tb.sv").write_text("module dut_tb; endmodule\n", encoding="utf-8")
+    (tmp_path / "verification").mkdir()
+    log = tmp_path / "verification" / "simulation.log"
+    log.write_text("0 passed, 1 failed\nFAIL: expected pass after reset\n", encoding="utf-8")
+
+    with pytest.raises(EvidenceError, match="no verification"):
+        validate_verification_results(tmp_path)
+
+    log.write_text("PASS: reset and boundary scenarios\n", encoding="utf-8")
+    assert validate_verification_results(tmp_path) == log
+
+
+def test_verification_result_does_not_count_as_verification_source(tmp_path) -> None:
+    (tmp_path / "research").mkdir()
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        json.dumps({"vertical": "digital_circuit", "current_stage": "verification"}),
+        encoding="utf-8",
+    )
+    (tmp_path / "verification").mkdir()
+    (tmp_path / "verification" / "result.json").write_text(
+        json.dumps({"status": "pass"}),
+        encoding="utf-8",
+    )
+    with pytest.raises(EvidenceError, match="no executable verification source"):
+        validate_verification_results(tmp_path)

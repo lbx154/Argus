@@ -80,13 +80,78 @@ def _has_failure(payload: object, *, ignore_structural_keys: bool = False) -> bo
     return False
 
 
-def _string_values(payload: Mapping[str, Any], singular: str, plural: str) -> list[str]:
-    value = payload.get(plural, payload.get(singular))
+def _string_list(value: object) -> list[str]:
     if isinstance(value, str):
         return [value.strip()] if value.strip() else []
     if isinstance(value, list):
         return [str(item).strip() for item in value if str(item).strip()]
     return []
+
+
+def compatible_string_values(
+    payload: Mapping[str, Any],
+    singular: str,
+    plural: str,
+) -> tuple[str, ...]:
+    """Normalize a public schema's singular/plural spelling without ambiguity."""
+    singular_values = _string_list(payload.get(singular))
+    plural_values = _string_list(payload.get(plural))
+    if singular_values and plural_values and singular_values != plural_values:
+        raise EvidenceError(f"{singular} and {plural} disagree")
+    return tuple(plural_values or singular_values)
+
+
+def benchmark_output_paths(payload: Mapping[str, Any]) -> tuple[str, ...]:
+    """Return canonical benchmark output paths from either public spelling."""
+    return compatible_string_values(payload, "output_path", "output_paths")
+
+
+def _validate_interface_ports(
+    path: Path,
+    ports: object,
+    *,
+    require_typed_shape: bool,
+) -> None:
+    if isinstance(ports, list):
+        rows = ports
+    elif isinstance(ports, dict):
+        rows = [
+            {"name": name, **details}
+            for name, details in ports.items()
+            if isinstance(details, dict)
+        ]
+        if len(rows) != len(ports):
+            raise EvidenceError(f"{path}: every port definition must be an object")
+    else:
+        raise EvidenceError(f"{path}: non-empty ports are required")
+    if not rows:
+        raise EvidenceError(f"{path}: non-empty ports are required")
+    if not require_typed_shape:
+        return
+    names: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            raise EvidenceError(f"{path}: every port definition must be an object")
+        name = str(row.get("name") or "").strip()
+        direction = str(row.get("direction") or "").strip().lower()
+        width = row.get("width")
+        valid_width = (
+            isinstance(width, int)
+            and not isinstance(width, bool)
+            and width > 0
+        ) or (isinstance(width, str) and bool(width.strip()))
+        if (
+            not name
+            or name in names
+            or direction not in {"input", "output", "inout"}
+            or not valid_width
+            or not isinstance(row.get("signed"), bool)
+        ):
+            raise EvidenceError(
+                f"{path}: each unique port requires name, input/output/inout "
+                "direction, exact width, and boolean signedness"
+            )
+        names.add(name)
 
 
 def _require_project_files(project_root: Path, paths: list[str], field: str) -> None:
@@ -106,8 +171,35 @@ def _require_project_files(project_root: Path, paths: list[str], field: str) -> 
             raise EvidenceError(f"{field} references a missing or empty file: {value!r}")
 
 
+def validate_verification_sources(project_root: Path) -> Path:
+    """Require executable verification source, not only a success-shaped report."""
+    root = project_root.resolve()
+    suffixes = {".v", ".sv", ".py", ".sby"}
+    for relative in ("tb", "testbench", "verification", "formal", "reference"):
+        base = root / relative
+        if not base.is_dir():
+            continue
+        for path in sorted(base.rglob("*")):
+            try:
+                resolved = path.resolve(strict=True)
+            except OSError:
+                continue
+            if (
+                resolved.is_relative_to(root)
+                and resolved.is_file()
+                and resolved.stat().st_size > 0
+                and resolved.suffix.lower() in suffixes
+            ):
+                return path
+    raise EvidenceError(
+        "no executable verification source found under tb/, testbench/, "
+        "verification/, formal/, or reference/"
+    )
+
+
 def validate_verification_results(project_root: Path) -> Path:
     """Return one non-contradictory passing verification result."""
+    validate_verification_sources(project_root)
     root = project_root.resolve()
     candidates: list[Path] = []
     for rel in ("reports", "verification"):
@@ -152,13 +244,40 @@ def validate_benchmark_interface(project_root: Path) -> Path:
     payload = _load_object(path)
     if payload.get("status") != "ready":
         raise EvidenceError(f"{path}: status must be 'ready'")
-    if not _string_values(payload, "top_module", "top_modules"):
+    if not compatible_string_values(payload, "top_module", "top_modules"):
         raise EvidenceError(f"{path}: top_module/top_modules is required")
-    if not _string_values(payload, "output_path", "output_paths"):
+    if not benchmark_output_paths(payload):
         raise EvidenceError(f"{path}: output_path/output_paths is required")
-    ports = payload.get("ports")
-    if not isinstance(ports, (list, dict)) or not ports:
-        raise EvidenceError(f"{path}: non-empty ports are required")
+    schema_version = payload.get("schema_version", 1)
+    if isinstance(schema_version, bool) or schema_version not in {1, 2}:
+        raise EvidenceError(f"{path}: schema_version must be 1 or 2")
+    _validate_interface_ports(
+        path,
+        payload.get("ports"),
+        require_typed_shape=schema_version == 2,
+    )
+    if schema_version == 2:
+        ambiguities = payload.get("ambiguities")
+        if not isinstance(ambiguities, list) or any(
+            not isinstance(item, str) or not item.strip() for item in ambiguities
+        ):
+            raise EvidenceError(
+                f"{path}: ambiguities must be a list of non-empty strings"
+            )
+        interface_change = payload.get("interface_change")
+        if not isinstance(interface_change, dict) or not isinstance(
+            interface_change.get("requested"), bool
+        ):
+            raise EvidenceError(
+                f"{path}: interface_change.requested must record whether the public "
+                "prompt explicitly requested an interface bug fix"
+            )
+        if interface_change["requested"] and not str(
+            interface_change.get("public_request") or ""
+        ).strip():
+            raise EvidenceError(
+                f"{path}: requested interface changes require public_request provenance"
+            )
     if _has_failure(payload, ignore_structural_keys=True):
         raise EvidenceError(f"{path}: ready manifest contains failure evidence")
     return path
@@ -173,9 +292,9 @@ def validate_preflight(project_root: Path) -> Path:
     if _has_failure(payload):
         raise EvidenceError(f"{path}: passing preflight contains failure evidence")
 
-    top_modules = _string_values(payload, "top_module", "top_modules")
-    rtl_files = _string_values(payload, "rtl_file", "rtl_files")
-    output_paths = _string_values(payload, "output_path", "output_paths")
+    top_modules = compatible_string_values(payload, "top_module", "top_modules")
+    rtl_files = compatible_string_values(payload, "rtl_file", "rtl_files")
+    output_paths = benchmark_output_paths(payload)
     if not top_modules or not rtl_files or not output_paths:
         raise EvidenceError(
             f"{path}: top_modules, rtl_files, and output_paths must all be non-empty"
@@ -191,8 +310,8 @@ def validate_preflight(project_root: Path) -> Path:
     ):
         raise EvidenceError(f"{path}: every compile result must have integer returncode 0")
 
-    _require_project_files(project_root, rtl_files, "rtl_files")
-    _require_project_files(project_root, output_paths, "output_paths")
+    _require_project_files(project_root, list(rtl_files), "rtl_files")
+    _require_project_files(project_root, list(output_paths), "output_paths")
     return path
 
 

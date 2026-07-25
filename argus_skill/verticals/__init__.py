@@ -16,6 +16,10 @@ Current verticals:
 * ``argus_skill.verticals.kernel_engineering`` — environment-first production
   GPU kernel work (scope → environment → baseline → optimize → validate →
   report), distinct from the fixed SOL-ExecBench ``kernelbench`` vertical.
+* ``argus_skill.verticals.chip_design`` — complete digital ASIC and accelerator
+  work from workload definition through RTL, verification, DFT, synthesis,
+  physical implementation, sign-off, public-baseline comparison, and a
+  reproducible pre-tapeout release.
 
 Planned verticals:
 

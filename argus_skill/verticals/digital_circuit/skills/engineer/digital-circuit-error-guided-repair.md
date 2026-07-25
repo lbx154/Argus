@@ -19,6 +19,8 @@ Classify the first decisive failure before editing:
 6. `cdc-transfer`: lost, duplicated, incoherent, or metastability-unsafe transfer.
 7. `datapath-arithmetic`: value, overflow, truncation, endianness, algorithm.
 8. `benchmark-packaging`: required public context or tool input is missing.
+9. `evaluator-infrastructure`: the official harness did not execute, returned no
+   run, or failed outside RTL compilation/simulation. This is not an RTL verdict.
 
 ## Repair loop
 
@@ -29,8 +31,16 @@ Classify the first decisive failure before editing:
 5. Rerun compile plus the smallest functional gate, then independent Reviewer.
 6. Append the result to the attempt ledger and update cumulative correctness for
    every allowed iteration.
-7. Stop on success or the predeclared cap. Repeated identical failures require a
+7. Record only the categorical official signature status (`changed`, `unchanged`,
+   `unavailable`, or `no_execution`), never mismatch vectors or hidden behavior.
+8. When the signature is unchanged, write a changed public-only hypothesis JSON
+   and a changed task-local regression/metamorphic test. Both must identify
+   `provenance_scope=public_only`, `changed_from_prior=true`, and the current
+   `generation` / `iteration` / `repair_mission_id`; wording-only RTL regeneration
+   cannot satisfy the repair gate.
+9. Stop on success or the predeclared cap. Repeated identical failures require a
    different hypothesis, not another wording-only regeneration.
 
 Do not treat tool/backend refusal, missing public context, or stale packaging as
-an RTL failure. Surface those environmental defects separately.
+an RTL failure. Surface those environmental defects separately, and do not infer
+correctness or incorrectness when the evaluator never executed.

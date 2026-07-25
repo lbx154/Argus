@@ -18,8 +18,20 @@ version: 1
 7. Serialize official scoring and any shared container runtime with the campaign lock. Use a fresh output prefix for every attempt.
 8. Record the first official attempt immutably before any repair. Keep Pass@1 separate from post-repair success.
 9. On failure, expose only the allowed official failure/oracle log to a narrow repair mission. Do not expose hidden source or infer golden implementation details.
-10. Bound repair by the predeclared attempt, cost, or time limit. Preserve every failed attempt and stop honestly when the cap is reached.
-11. Report per-task status plus aggregate Pass@1, post-repair success, category/difficulty macro averages, compile/simulation failures, cost, elapsed time, and failure taxonomy.
+   Before dispatch, the trusted controller must run
+   `python -m argus_skill.verticals.digital_circuit.benchmark.stages
+   --project-root . --prepare-repair-expectation --generation N --iteration N
+   --mission-id ID --answer-path <public-output>` for every answer artifact.
+   Never let the repair worker invent or rewrite this pre-dispatch identity.
+10. Record evaluator infrastructure/no-execution separately from compile,
+    simulation, or RTL mismatch. A scorer that did not execute yields no new RTL
+    correctness conclusion.
+11. If the safe official failure signature is unchanged, do not regenerate the
+    same idea: record a different public-contract-derived hypothesis and a changed
+    task-local test. Never copy mismatch vectors or inferred hidden behavior into
+    either artifact.
+12. Bound repair by the predeclared attempt, cost, or time limit. Preserve every failed attempt and stop honestly when the cap is reached.
+13. Report per-task status plus aggregate Pass@1, post-repair success, category/difficulty macro averages, compile/simulation failures, evaluator-infrastructure failures, cost, elapsed time, and failure taxonomy.
 
 ## Pre-score handoff schema
 
@@ -34,6 +46,10 @@ The controller-facing gate is `evidence/preflight.json`. It must contain:
   "compile_results": [{"returncode": 0}]
 }
 ```
+
+For compatibility, public manifests and preflight accept either singular
+`"output_path"` or plural `"output_paths"`; when both appear they must normalize
+to the same ordered paths. Controllers use this same normalization.
 
 Use `"status": "blocked"` when interface closure or elaboration is incomplete;
 never invoke the official scorer from a blocked preflight.

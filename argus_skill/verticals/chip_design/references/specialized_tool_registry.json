@@ -1,0 +1,351 @@
+{
+  "schema_version": 1,
+  "refreshed_at": "2026-07-20",
+  "policy": {
+    "completeness": "curated-not-exhaustive",
+    "selection_rule": "Prefer project-native pinned flows, then maintained open/vendor tools. Record licenses, versions, targets, and rejected alternatives.",
+    "comparison_rule": "Compare PPA only in the same technology/device flow and compare workloads only under matched numerical and system constraints."
+  },
+  "entries": [
+    {
+      "id": "verilator",
+      "name": "Verilator",
+      "status": "active",
+      "platforms": ["cpu", "fpga", "asic", "multi"],
+      "categories": ["simulation", "lint"],
+      "official_url": "https://github.com/verilator/verilator",
+      "executables": ["verilator"],
+      "use_when": "Compile, lint, and cycle-simulate synthesizable SystemVerilog with C++ or cocotb testbenches."
+    },
+    {
+      "id": "iverilog",
+      "name": "Icarus Verilog",
+      "status": "active",
+      "platforms": ["cpu", "fpga", "asic", "multi"],
+      "categories": ["simulation"],
+      "official_url": "https://github.com/steveicarus/iverilog",
+      "executables": ["iverilog", "vvp"],
+      "use_when": "Run lightweight Verilog/SystemVerilog compile and simulation checks."
+    },
+    {
+      "id": "cocotb",
+      "name": "cocotb",
+      "status": "active",
+      "platforms": ["cpu", "fpga", "asic", "multi"],
+      "categories": ["simulation", "verification"],
+      "official_url": "https://github.com/cocotb/cocotb",
+      "python_imports": ["cocotb"],
+      "distributions": ["cocotb"],
+      "use_when": "Build Python-driven randomized and reference-model RTL verification."
+    },
+    {
+      "id": "verible",
+      "name": "Verible",
+      "status": "active",
+      "platforms": ["cpu", "fpga", "asic"],
+      "categories": ["lint", "formatting"],
+      "official_url": "https://github.com/chipsalliance/verible",
+      "executables": ["verible-verilog-lint", "verible-verilog-format"],
+      "use_when": "Lint and format SystemVerilog with machine-readable diagnostics."
+    },
+    {
+      "id": "slang",
+      "name": "slang SystemVerilog compiler",
+      "status": "active",
+      "platforms": ["cpu", "fpga", "asic"],
+      "categories": ["lint", "elaboration", "simulation"],
+      "official_url": "https://github.com/MikePopoloski/slang",
+      "executables": ["slang"],
+      "use_when": "Perform standards-oriented SystemVerilog parsing, elaboration, and diagnostics."
+    },
+    {
+      "id": "yosys",
+      "name": "Yosys Open SYnthesis Suite",
+      "status": "active",
+      "platforms": ["fpga", "asic", "multi"],
+      "categories": ["synthesis", "formal"],
+      "official_url": "https://github.com/YosysHQ/yosys",
+      "executables": ["yosys", "yosys-smtbmc"],
+      "use_when": "Synthesize open RTL, inspect cells/memories, and support SMT-based formal flows."
+    },
+    {
+      "id": "symbiyosys",
+      "name": "SymbiYosys",
+      "status": "active",
+      "platforms": ["fpga", "asic", "multi"],
+      "categories": ["formal", "verification"],
+      "official_url": "https://github.com/YosysHQ/sby",
+      "executables": ["sby"],
+      "use_when": "Run bounded/unbounded safety, liveness, cover, and equivalence properties."
+    },
+    {
+      "id": "nextpnr",
+      "name": "nextpnr",
+      "status": "active",
+      "platforms": ["fpga"],
+      "categories": ["fpga", "place_route"],
+      "official_url": "https://github.com/YosysHQ/nextpnr",
+      "executables": ["nextpnr-ice40", "nextpnr-ecp5", "nextpnr-nexus", "nextpnr-himbaechel"],
+      "use_when": "Place and route supported open FPGA families after Yosys synthesis."
+    },
+    {
+      "id": "vivado",
+      "name": "AMD Vivado",
+      "status": "active",
+      "platforms": ["fpga", "amd_xilinx"],
+      "categories": ["synthesis", "fpga", "place_route", "signoff"],
+      "official_url": "https://www.amd.com/en/products/software/adaptive-socs-and-fpgas/vivado.html",
+      "executables": ["vivado", "vitis_hls"],
+      "env_vars": ["XILINX_VIVADO"],
+      "use_when": "Build, implement, time, power-estimate, and program AMD/Xilinx FPGA prototypes."
+    },
+    {
+      "id": "quartus",
+      "name": "Intel Quartus Prime",
+      "status": "active",
+      "platforms": ["fpga", "intel"],
+      "categories": ["synthesis", "fpga", "place_route", "signoff"],
+      "official_url": "https://www.intel.com/content/www/us/en/products/details/fpga/development-tools/quartus-prime.html",
+      "executables": ["quartus_sh"],
+      "env_vars": ["QUARTUS_ROOTDIR"],
+      "use_when": "Build and sign off Intel FPGA prototypes."
+    },
+    {
+      "id": "litex",
+      "name": "LiteX",
+      "status": "active",
+      "platforms": ["fpga", "riscv"],
+      "categories": ["fpga", "soc", "memory_controller", "runtime"],
+      "official_url": "https://github.com/enjoy-digital/litex",
+      "python_imports": ["litex"],
+      "distributions": ["litex"],
+      "source_markers": ["litex", "third_party/litex"],
+      "use_when": "Integrate a CPU, buses, LiteDRAM, peripherals, and custom accelerator into an FPGA SoC."
+    },
+    {
+      "id": "openroad",
+      "name": "OpenROAD",
+      "status": "active",
+      "platforms": ["asic"],
+      "categories": ["physical_design", "place_route", "signoff"],
+      "official_url": "https://github.com/The-OpenROAD-Project/OpenROAD",
+      "executables": ["openroad"],
+      "source_markers": ["OpenROAD", "openroad", "third_party/OpenROAD"],
+      "use_when": "Perform floorplan, placement, CTS, routing, extraction, and STA in an open RTL-to-GDS flow."
+    },
+    {
+      "id": "openroad_flow_scripts",
+      "name": "OpenROAD Flow Scripts",
+      "status": "active",
+      "platforms": ["asic", "sky130", "nangate45", "asap7"],
+      "categories": ["physical_design", "flow", "signoff", "ppa"],
+      "official_url": "https://github.com/The-OpenROAD-Project/OpenROAD-flow-scripts",
+      "source_markers": ["OpenROAD-flow-scripts", "flow/Makefile", "third_party/OpenROAD-flow-scripts"],
+      "use_when": "Run reproducible, comparable RTL-to-GDS PPA experiments across supported public platforms such as SKY130, Nangate45, and ASAP7."
+    },
+    {
+      "id": "librelane",
+      "name": "LibreLane",
+      "status": "active",
+      "platforms": ["asic"],
+      "categories": ["physical_design", "flow", "signoff"],
+      "official_url": "https://github.com/librelane/librelane",
+      "python_imports": ["librelane"],
+      "distributions": ["librelane"],
+      "executables": ["librelane"],
+      "source_markers": ["config.yaml", "config.json", "librelane"],
+      "use_when": "Run a reproducible open-source ASIC flow around Yosys, OpenROAD, Magic, KLayout, and Netgen."
+    },
+    {
+      "id": "opensta",
+      "name": "OpenSTA",
+      "status": "active",
+      "platforms": ["asic"],
+      "categories": ["signoff", "timing"],
+      "official_url": "https://github.com/The-OpenROAD-Project/OpenSTA",
+      "executables": ["sta", "opensta"],
+      "use_when": "Run static timing analysis with explicit libraries, parasitics, corners, and SDC constraints."
+    },
+    {
+      "id": "klayout",
+      "name": "KLayout",
+      "status": "active",
+      "platforms": ["asic"],
+      "categories": ["signoff", "drc", "lvs", "layout"],
+      "official_url": "https://github.com/KLayout/klayout",
+      "executables": ["klayout"],
+      "use_when": "Inspect GDS/OASIS and run scripted DRC/LVS/layout checks."
+    },
+    {
+      "id": "magic",
+      "name": "Magic VLSI",
+      "status": "active",
+      "platforms": ["asic"],
+      "categories": ["signoff", "drc", "layout"],
+      "official_url": "https://github.com/RTimothyEdwards/magic",
+      "executables": ["magic"],
+      "use_when": "Run open-PDK layout, extraction, and DRC steps."
+    },
+    {
+      "id": "netgen",
+      "name": "Netgen LVS",
+      "status": "active",
+      "platforms": ["asic"],
+      "categories": ["signoff", "lvs"],
+      "official_url": "https://github.com/RTimothyEdwards/netgen",
+      "executables": ["netgen"],
+      "use_when": "Compare extracted and schematic/netlist connectivity for LVS."
+    },
+    {
+      "id": "sky130",
+      "name": "SkyWater SKY130 Open PDK",
+      "status": "active",
+      "platforms": ["asic", "sky130"],
+      "categories": ["pdk", "standard_cells", "memory"],
+      "official_url": "https://github.com/google/skywater-pdk",
+      "env_vars": ["PDK_ROOT"],
+      "source_markers": ["sky130A", "sky130B", "pdks/sky130A"],
+      "use_when": "Target an open 130nm digital proof-of-concept or shuttle-compatible design."
+    },
+    {
+      "id": "nangate45",
+      "name": "Nangate Open Cell Library 45nm platform",
+      "status": "active",
+      "platforms": ["asic", "nangate45"],
+      "categories": ["standard_cells", "ppa", "academic_platform"],
+      "official_url": "https://github.com/The-OpenROAD-Project/OpenROAD-flow-scripts",
+      "source_markers": ["flow/platforms/nangate45", "platforms/nangate45"],
+      "use_when": "Produce a reproducible 45nm academic PPA comparison in the same OpenROAD flow; never present it as a foundry-qualified production PDK sign-off."
+    },
+    {
+      "id": "asap7",
+      "name": "ASAP7 predictive 7nm platform",
+      "status": "active",
+      "platforms": ["asic", "asap7"],
+      "categories": ["standard_cells", "ppa", "predictive_platform"],
+      "official_url": "https://github.com/The-OpenROAD-Project/OpenROAD-flow-scripts",
+      "source_markers": ["flow/platforms/asap7", "platforms/asap7"],
+      "use_when": "Produce a reproducible predictive 7nm PPA study in the same OpenROAD flow; label results as ASAP7 projections, not measured silicon or production-node sign-off."
+    },
+    {
+      "id": "ihp_sg13g2",
+      "name": "IHP SG13G2 Open PDK",
+      "status": "active",
+      "platforms": ["asic", "ihp_sg13g2"],
+      "categories": ["pdk", "standard_cells", "memory"],
+      "official_url": "https://github.com/IHP-GmbH/IHP-Open-PDK",
+      "env_vars": ["PDK_ROOT"],
+      "source_markers": ["ihp-sg13g2", "sg13g2", "pdks/ihp-sg13g2"],
+      "use_when": "Target the IHP 130nm open flow and supported MPW/shuttle programs."
+    },
+    {
+      "id": "gf180mcu",
+      "name": "GlobalFoundries GF180MCU Open PDK",
+      "status": "active",
+      "platforms": ["asic", "gf180mcu"],
+      "categories": ["pdk", "standard_cells", "memory"],
+      "official_url": "https://github.com/google/gf180mcu-pdk",
+      "env_vars": ["PDK_ROOT"],
+      "source_markers": ["gf180mcu", "gf180mcuD", "pdks/gf180mcuD"],
+      "use_when": "Target a supported 180nm open-PDK digital/MCU-class design."
+    },
+    {
+      "id": "openram",
+      "name": "OpenRAM",
+      "status": "active",
+      "platforms": ["asic"],
+      "categories": ["memory", "ip_generation"],
+      "official_url": "https://github.com/VLSIDA/OpenRAM",
+      "python_imports": ["openram"],
+      "executables": ["openram.py"],
+      "source_markers": ["OpenRAM", "openram"],
+      "use_when": "Generate and characterize SRAM macros when the selected PDK and flow are supported."
+    },
+    {
+      "id": "chipyard_firesim",
+      "name": "Chipyard and FireSim",
+      "status": "active",
+      "platforms": ["fpga", "asic", "riscv"],
+      "categories": ["soc", "fpga", "simulation", "compiler_runtime"],
+      "official_url": "https://github.com/ucb-bar/chipyard",
+      "source_markers": ["chipyard", "generators/chipyard", "sims/firesim"],
+      "use_when": "Integrate a RISC-V SoC/accelerator and run cycle-accurate or FPGA-accelerated system simulation."
+    },
+    {
+      "id": "gemmini",
+      "name": "Gemmini",
+      "status": "active",
+      "platforms": ["fpga", "asic", "riscv"],
+      "categories": ["accelerator_ip", "systolic_array", "compiler_runtime", "baseline"],
+      "official_url": "https://github.com/ucb-bar/gemmini",
+      "source_markers": ["gemmini", "generators/gemmini"],
+      "use_when": "Reuse or compare against a configurable systolic-array accelerator with DMA, scratchpad, and Chipyard software."
+    },
+    {
+      "id": "nvdla",
+      "name": "NVIDIA Deep Learning Accelerator",
+      "status": "active",
+      "platforms": ["fpga", "asic", "soc"],
+      "categories": ["accelerator_ip", "compiler_runtime", "baseline"],
+      "official_url": "https://github.com/nvdla/hw",
+      "source_markers": ["nvdla", "hw/vmod/nvdla", "third_party/nvdla"],
+      "use_when": "Reuse or compare against an open inference accelerator with convolution, SDP/PDP/CDP blocks, CSB control, memory interfaces, and a published software stack."
+    },
+    {
+      "id": "tvm_vta",
+      "name": "Apache TVM and VTA",
+      "status": "active",
+      "platforms": ["fpga", "cpu", "multi"],
+      "categories": ["accelerator_ip", "compiler_runtime", "fpga", "baseline"],
+      "official_url": "https://github.com/apache/tvm",
+      "python_imports": ["tvm"],
+      "distributions": ["apache-tvm", "tvm"],
+      "source_markers": ["vta", "3rdparty/vta-hw"],
+      "use_when": "Use a compiler-integrated FPGA accelerator baseline or generate schedules for custom hardware."
+    },
+    {
+      "id": "circt",
+      "name": "CIRCT and firtool",
+      "status": "active",
+      "platforms": ["cpu", "fpga", "asic"],
+      "categories": ["compiler_runtime", "rtl_generation", "lint"],
+      "official_url": "https://github.com/llvm/circt",
+      "executables": ["firtool", "circt-opt"],
+      "source_markers": ["circt", "third_party/circt"],
+      "use_when": "Lower Chisel/FIRRTL or MLIR hardware dialects to SystemVerilog and run circuit transformations."
+    },
+    {
+      "id": "chisel",
+      "name": "Chisel",
+      "status": "active",
+      "platforms": ["fpga", "asic", "riscv"],
+      "categories": ["compiler_runtime", "rtl_generation"],
+      "official_url": "https://github.com/chipsalliance/chisel",
+      "executables": ["sbt"],
+      "source_markers": ["build.sbt", "project/build.properties"],
+      "use_when": "Develop configurable hardware generators and integrate with Chipyard/Gemmini."
+    },
+    {
+      "id": "buddy_mlir",
+      "name": "Buddy-MLIR",
+      "status": "active",
+      "platforms": ["cpu", "riscv", "multi"],
+      "categories": ["compiler_runtime", "llm", "mlir"],
+      "official_url": "https://github.com/buddy-compiler/buddy-mlir",
+      "source_markers": ["buddy-mlir", "buddy"],
+      "use_when": "Compile transformer/LLM workloads through MLIR and target RISC-V or a custom accelerator lowering."
+    },
+    {
+      "id": "iree",
+      "name": "IREE",
+      "status": "active",
+      "platforms": ["cpu", "gpu", "mobile", "multi"],
+      "categories": ["compiler_runtime", "llm", "mlir"],
+      "official_url": "https://github.com/iree-org/iree",
+      "python_imports": ["iree"],
+      "distributions": ["iree-compiler", "iree-runtime"],
+      "executables": ["iree-compile", "iree-run-module"],
+      "use_when": "Build an edge runtime/compiler path or a custom HAL backend for accelerator integration."
+    }
+  ]
+}

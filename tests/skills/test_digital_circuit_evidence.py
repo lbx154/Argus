@@ -6,6 +6,7 @@ import pytest
 
 from argus_skill.verticals.digital_circuit.evidence import (
     EvidenceError,
+    benchmark_output_paths,
     validate_benchmark_interface,
     validate_preflight,
     validate_verification_results,
@@ -17,7 +18,14 @@ def _json(path, payload) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def _verification_source(root) -> None:
+    source = root / "tb" / "dut_tb.sv"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("module dut_tb; endmodule\n", encoding="utf-8")
+
+
 def test_verification_rejects_success_text_with_failure_evidence(tmp_path):
+    _verification_source(tmp_path)
     log = tmp_path / "verification" / "simulation.log"
     log.parent.mkdir()
     log.write_text("SUCCESS but actually failed on reset\n", encoding="utf-8")
@@ -40,6 +48,7 @@ def test_verification_rejects_success_text_with_failure_evidence(tmp_path):
 
 
 def test_verification_accepts_status_log_and_rejects_nested_failure(tmp_path):
+    _verification_source(tmp_path)
     log = tmp_path / "verification" / "simulation.log"
     log.parent.mkdir()
     log.write_text("status: pass\n0 failures\n", encoding="utf-8")
@@ -55,6 +64,7 @@ def test_verification_accepts_status_log_and_rejects_nested_failure(tmp_path):
 
 
 def test_verification_rejects_failure_nested_under_outputs(tmp_path):
+    _verification_source(tmp_path)
     _json(
         tmp_path / "verification" / "result.json",
         {
@@ -67,6 +77,7 @@ def test_verification_rejects_failure_nested_under_outputs(tmp_path):
 
 
 def test_verification_rejects_result_symlink_outside_project(tmp_path):
+    _verification_source(tmp_path)
     outside = tmp_path.parent / "outside-pass.log"
     outside.write_text("status: pass\n", encoding="utf-8")
     link = tmp_path / "verification" / "result.log"
@@ -85,10 +96,20 @@ def test_benchmark_interface_requires_contract_fields(tmp_path):
     _json(
         path,
         {
+            "schema_version": 2,
             "status": "ready",
             "top_module": "dut",
             "output_path": "rtl/dut.sv",
-            "ports": [{"name": "clk", "direction": "input"}],
+            "ports": [
+                {
+                    "name": "clk",
+                    "direction": "input",
+                    "width": 1,
+                    "signed": False,
+                }
+            ],
+            "ambiguities": [],
+            "interface_change": {"requested": False},
         },
     )
     assert validate_benchmark_interface(tmp_path) == path
@@ -99,10 +120,19 @@ def test_benchmark_interface_allows_port_named_error(tmp_path):
     _json(
         path,
         {
+            "schema_version": 2,
             "status": "ready",
             "top_module": "dut",
             "output_path": "rtl/dut.sv",
-            "ports": {"error": {"direction": "output", "width": 1}},
+            "ports": {
+                "error": {
+                    "direction": "output",
+                    "width": 1,
+                    "signed": False,
+                }
+            },
+            "ambiguities": [],
+            "interface_change": {"requested": False},
         },
     )
     assert validate_benchmark_interface(tmp_path) == path
@@ -113,10 +143,20 @@ def test_fixed_evidence_files_cannot_resolve_outside_project(tmp_path):
     _json(
         outside,
         {
+            "schema_version": 2,
             "status": "ready",
             "top_module": "dut",
             "output_path": "rtl/dut.sv",
-            "ports": [{"name": "clk", "direction": "input"}],
+            "ports": [
+                {
+                    "name": "clk",
+                    "direction": "input",
+                    "width": 1,
+                    "signed": False,
+                }
+            ],
+            "ambiguities": [],
+            "interface_change": {"requested": False},
         },
     )
     link = tmp_path / "design" / "BENCHMARK_INTERFACE.json"
@@ -179,3 +219,122 @@ def test_preflight_rejects_reference_resolving_outside_project(tmp_path):
     )
     with pytest.raises(EvidenceError, match="outside"):
         validate_preflight(tmp_path)
+
+
+def test_output_path_spellings_normalize_and_disagreement_fails() -> None:
+    assert benchmark_output_paths({"output_path": "rtl/dut.sv"}) == (
+        "rtl/dut.sv",
+    )
+    assert benchmark_output_paths(
+        {"output_paths": ["rtl/dut.sv", "rtl/wrapper.sv"]}
+    ) == ("rtl/dut.sv", "rtl/wrapper.sv")
+    assert benchmark_output_paths(
+        {
+            "output_path": "rtl/dut.sv",
+            "output_paths": ["rtl/dut.sv"],
+        }
+    ) == ("rtl/dut.sv",)
+    with pytest.raises(EvidenceError, match="disagree"):
+        benchmark_output_paths(
+            {
+                "output_path": "rtl/dut.sv",
+                "output_paths": ["rtl/other.sv"],
+            }
+        )
+
+
+def test_interface_requires_explicit_ambiguity_and_change_records(tmp_path) -> None:
+    path = tmp_path / "design" / "BENCHMARK_INTERFACE.json"
+    base = {
+        "schema_version": 2,
+        "status": "ready",
+        "top_module": "dut",
+        "output_path": "rtl/dut.sv",
+        "ports": [
+            {
+                "name": "a",
+                "direction": "input",
+                "width": 4,
+                "signed": False,
+            }
+        ],
+    }
+    _json(path, base)
+    with pytest.raises(EvidenceError, match="ambiguities"):
+        validate_benchmark_interface(tmp_path)
+
+    base["ambiguities"] = ["reset release is not specified publicly"]
+    base["interface_change"] = {"requested": True}
+    _json(path, base)
+    with pytest.raises(EvidenceError, match="public_request"):
+        validate_benchmark_interface(tmp_path)
+
+    base["interface_change"] = {
+        "requested": True,
+        "public_request": "prompt section: fix the declared interface bug",
+    }
+    _json(path, base)
+    assert validate_benchmark_interface(tmp_path) == path
+
+    base["ports"][0]["width"] = 0
+    _json(path, base)
+    with pytest.raises(EvidenceError, match="exact width"):
+        validate_benchmark_interface(tmp_path)
+
+
+def test_legacy_interface_manifest_remains_compatible(tmp_path) -> None:
+    path = tmp_path / "design" / "BENCHMARK_INTERFACE.json"
+    _json(
+        path,
+        {
+            "status": "ready",
+            "top_module": "dut",
+            "output_path": "rtl/dut.sv",
+            "ports": [
+                {"name": "clk", "direction": "input"},
+                {"name": "done", "direction": "output"},
+            ],
+        },
+    )
+
+    assert validate_benchmark_interface(tmp_path) == path
+
+
+def test_version_two_interface_manifest_is_strict(tmp_path) -> None:
+    path = tmp_path / "design" / "BENCHMARK_INTERFACE.json"
+    base = {
+        "schema_version": 2,
+        "status": "ready",
+        "top_module": "dut",
+        "output_path": "rtl/dut.sv",
+        "ports": [{"name": "clk", "direction": "input"}],
+    }
+    _json(path, base)
+    with pytest.raises(EvidenceError, match="exact width"):
+        validate_benchmark_interface(tmp_path)
+
+    base["ports"][0].update({"width": 1, "signed": False})
+    _json(path, base)
+    with pytest.raises(EvidenceError, match="ambiguities"):
+        validate_benchmark_interface(tmp_path)
+
+    base["ambiguities"] = []
+    base["interface_change"] = {"requested": False}
+    _json(path, base)
+    assert validate_benchmark_interface(tmp_path) == path
+
+
+def test_interface_manifest_rejects_unknown_schema_version(tmp_path) -> None:
+    path = tmp_path / "design" / "BENCHMARK_INTERFACE.json"
+    _json(
+        path,
+        {
+            "schema_version": 3,
+            "status": "ready",
+            "top_module": "dut",
+            "output_path": "rtl/dut.sv",
+            "ports": [{"name": "clk", "direction": "input"}],
+        },
+    )
+    with pytest.raises(EvidenceError, match="schema_version"):
+        validate_benchmark_interface(tmp_path)
