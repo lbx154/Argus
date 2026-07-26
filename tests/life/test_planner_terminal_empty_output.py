@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -20,6 +21,7 @@ from argus_skill.life.supervisor._constants import (
     PLAN_TERMINAL_IDLE,
 )
 from argus_skill.life.supervisor._core import LifeSupervisor
+from argus_skill.planner import NO_CONCRETE_TASKS_ERROR
 
 
 class _RecordingSink:
@@ -56,6 +58,52 @@ class _EmptyPlannerThenManagerRunner:
                     "there is no legal follow-up work",
                 ]
             )
+        else:
+            assert run_label == "manager-stage"
+            self.manager_calls += 1
+            payload = {
+                "action": self.manager_action,
+                "target_stage": self.manager_target_stage,
+                "reason": "final delivery remains certified; hold terminal stage",
+            }
+        return RunnerResult(
+            exit_code=0,
+            agent_messages=[json.dumps(payload) if isinstance(payload, dict) else payload],
+            stdout_lines=[],
+            stderr_lines=[],
+            thread_id=None,
+            fatal_error=None,
+            input_tokens=0,
+            cached_input_tokens=0,
+            output_tokens=0,
+        )
+
+
+class _EmptyThenTaskPlannerRunner(_EmptyPlannerThenManagerRunner):
+    def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+        if run_label.startswith("planner.cycle"):
+            self.planner_calls += 1
+            if self.planner_calls == 1:
+                payload = "\n".join(
+                    [
+                        "PROJECT_DONE=false",
+                        "REASON=the current repair is not complete yet",
+                    ]
+                )
+            else:
+                payload = "\n".join(
+                    [
+                        "PROJECT_DONE=false",
+                        "REASON=repair retry produced concrete next work",
+                        "TASK_KEY=planner-empty-repair",
+                        "TASK_TITLE=Repair empty planner verdict handling",
+                        (
+                            "TASK_OBJECTIVE=Update planner lifecycle handling and "
+                            "run the focused tests."
+                        ),
+                        "TASK_ACCEPTANCE_CHECK=pytest tests/planner/test_planner.py",
+                    ]
+                )
         else:
             assert run_label == "manager-stage"
             self.manager_calls += 1
@@ -133,6 +181,7 @@ def _make_supervisor(
     *,
     terminal_stage_done: bool,
     split_memory: bool = False,
+    backend: _EmptyPlannerThenManagerRunner | None = None,
 ) -> tuple[LifeSupervisor, _EmptyPlannerThenManagerRunner, _RecordingSink]:
     project = tmp_path / "project"
     project.mkdir()
@@ -148,7 +197,7 @@ def _make_supervisor(
     else:
         memory = LifeMemory.open(tmp_path / "life")
     sink = _RecordingSink()
-    backend = _EmptyPlannerThenManagerRunner()
+    backend = backend or _EmptyPlannerThenManagerRunner()
     supervisor = LifeSupervisor(
         memory=memory,
         runner=_NullRunner(),
@@ -188,7 +237,7 @@ def test_certified_terminal_empty_plan_completes_without_planner_error(
 
     assert supervisor._plan_next_work() == PLAN_TERMINAL_IDLE
 
-    assert backend.planner_calls == 1
+    assert backend.planner_calls == 2
     assert backend.manager_calls == 1
     assert supervisor.memory.backlog.pending() == []
     assert not any(event.get("type") == "life.planner.error" for event in sink.events)
@@ -206,7 +255,34 @@ def test_certified_terminal_empty_plan_completes_without_planner_error(
     )
 
 
-def test_nonterminal_empty_plan_still_fails_with_planner_error(
+def test_nonterminal_empty_plan_repairs_into_concrete_backlog_task(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    supervisor, backend, sink = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        terminal_stage_done=False,
+        backend=_EmptyThenTaskPlannerRunner(),
+    )
+
+    assert supervisor._plan_next_work() is True
+
+    assert backend.planner_calls == 2
+    assert backend.manager_calls == 0
+    pending = supervisor.memory.backlog.pending()
+    assert len(pending) == 1
+    assert pending[0].title == "Repair empty planner verdict handling"
+    assert pending[0].acceptance_check == "pytest tests/planner/test_planner.py"
+    assert not any(event.get("type") == "life.planner.error" for event in sink.events)
+    assert any(
+        event.get("type") == "life.planner.task_added"
+        and event.get("title") == "Repair empty planner verdict handling"
+        for event in sink.events
+    )
+
+
+def test_nonterminal_empty_plan_repair_exhaustion_fails_with_planner_error(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -218,14 +294,39 @@ def test_nonterminal_empty_plan_still_fails_with_planner_error(
 
     assert supervisor._plan_next_work() == PLAN_ERROR
 
-    assert backend.planner_calls == 1
+    assert backend.planner_calls == 2
     assert backend.manager_calls == 0
     assert supervisor.memory.backlog.pending() == []
-    assert any(event.get("type") == "life.planner.error" for event in sink.events)
+    error_event = next(
+        event for event in sink.events if event.get("type") == "life.planner.error"
+    )
+    assert str(error_event.get("error", "")).startswith(NO_CONCRETE_TASKS_ERROR)
+    assert "repair exhausted after 1 attempt" in str(error_event.get("error", ""))
     assert not any(
         event.get("type") == "life.planner.verdict" and event.get("status") == "completed"
         for event in sink.events
     )
+
+
+def test_nonterminal_empty_plan_repair_exhaustion_stops_run_with_planner_error(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    supervisor, backend, sink = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        terminal_stage_done=False,
+    )
+
+    summary = supervisor.run()
+
+    assert summary["stopped_by"] == "planner_error"
+    assert backend.planner_calls == 2
+    error_event = next(
+        event for event in sink.events if event.get("type") == "life.planner.error"
+    )
+    assert str(error_event.get("error", "")).startswith(NO_CONCRETE_TASKS_ERROR)
+    assert "repair exhausted after 1 attempt" in str(error_event.get("error", ""))
 
 
 def test_nonterminal_empty_plan_replays_unassessed_current_stage_review(
@@ -283,7 +384,7 @@ def test_nonterminal_empty_plan_replays_unassessed_current_stage_review(
 
     assert supervisor._plan_next_work() == PLAN_RETRY
 
-    assert backend.planner_calls == 1
+    assert backend.planner_calls == 2
     assert backend.manager_calls == 1
     state = json.loads((project / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8"))
     assert state["current_stage"] == "solve"
@@ -300,3 +401,70 @@ def test_nonterminal_empty_plan_replays_unassessed_current_stage_review(
         and event.get("recovered_item_id") == item.id
         for event in sink.events
     )
+
+
+def test_replan_with_no_planner_tasks_reaches_the_manager(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """A replan the Planner cannot turn into tasks must not dead-end.
+
+    Observed live on a real project: the Reviewer returns ``replan_requested``
+    ("integrity-complete, but this direction cannot meet the bar inside the
+    frozen boundary"), the item goes back to pending, and the Planner agrees —
+    structurally answering "not done, and I have no task to propose". The
+    reconciliation that exists for exactly that answer was skipped whenever a
+    revision was in flight, so the verdict became a plain planner error, the
+    cycle backed off, the pending item was claimed again, and the same mission
+    reran. That project did it 100 times across 75 hours without ever changing
+    course.
+
+    The Planner has to be able to get itself out rather than the operator being
+    paged, and the way out is a stage decision: its verdict must reach the
+    Manager, the sole stage authority, so a rollback makes earlier-stage work
+    enqueueable on the next cycle. This asserts the verdict gets there; what the
+    Manager then decides is the Manager's business.
+    """
+    supervisor, backend, sink = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        terminal_stage_done=True,
+    )
+    reconciled: list[Any] = []
+
+    def _record(verdict: Any) -> str:
+        reconciled.append(verdict)
+        return "rollback"
+
+    monkeypatch.setattr(
+        supervisor, "_reconcile_open_ended_terminal_stage_action", _record
+    )
+
+    # A real replan arrives from a versioned, still-active backlog item — the
+    # one the Reviewer just judged.
+    item = BacklogItem(
+        id=BacklogItem.new_id(),
+        ts=time.time(),
+        title="Validating frozen held-out predictions",
+        objective="Validating frozen held-out predictions",
+        status="running",
+        plan_id="plan-1",
+        plan_version=1,
+    )
+    supervisor.memory.backlog.add(item)
+
+    outcome = supervisor._plan_next_work(
+        revision_request={
+            "item_id": item.id,
+            "expected_plan_id": "plan-1",
+            "expected_plan_version": 1,
+            "review_reason": (
+                "integrity-complete but the direction cannot meet the bar "
+                "inside the frozen boundary"
+            ),
+        }
+    )
+
+    assert reconciled, "the Planner's no-task verdict never reached the Manager"
+    assert outcome == PLAN_RETRY, "a rolled-back stage must give the Planner another cycle"
+    assert outcome != PLAN_ERROR

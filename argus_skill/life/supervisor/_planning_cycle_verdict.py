@@ -113,12 +113,27 @@ class PlanningCycleVerdictMixin:
                     }
                 )
             reconciliation = ""
-            if (
-                revision_request is None
-                and verdict.error == "planner said not done but produced no concrete tasks"
-            ):
+            from ...planner import NO_CONCRETE_TASKS_ERROR
+
+            if str(verdict.error).startswith(NO_CONCRETE_TASKS_ERROR):
+                # "Not done, and I have no task to propose" is the Planner
+                # reporting that the work has run out at this stage — most
+                # sharply on a replan, where the Reviewer has just called the
+                # present direction a dead end. Handing that to the Manager, the
+                # sole stage authority, to roll back or hold is what lets the
+                # Planner enqueue earlier-stage work next cycle and get itself
+                # out. Nothing here judges the science; the Manager decides.
+                #
+                # This was skipped whenever a revision was in flight, which is
+                # exactly when the Planner most needs it: the verdict became a
+                # plain error, the cycle backed off, the pending item was claimed
+                # again, and the same mission reran. One project did that 100
+                # times across 75 hours without ever changing course.
                 reconciliation = self._reconcile_open_ended_terminal_stage_action(verdict)
-                if not reconciliation:
+                if not reconciliation and revision_request is None:
+                    # Replaying an unassessed review is post-upgrade recovery;
+                    # during a replan that review has already been assessed —
+                    # assessing it is what produced the revision request.
                     reconciliation = self._reconcile_reviewed_stage_empty_plan(verdict)
             if reconciliation in {"advance", "rollback"}:
                 return PLAN_RETRY
