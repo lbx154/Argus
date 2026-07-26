@@ -327,6 +327,15 @@ class SelfReplyMixin:
             )
         if snapshot.pr_url:
             lines.append(f"- open maintenance PR: {snapshot.pr_url}")
+        if snapshot.awaiting_commit:
+            # A reviewed, canaried fix is already live locally and is waiting on
+            # the operator only to leave the machine. Say what to type, or the
+            # gate turns into a pile nobody notices.
+            lines.append(
+                "- **awaiting your approval to publish**: "
+                f"{snapshot.awaiting_commit[:12]} "
+                f"(`argus-skill --approve-publication {snapshot.awaiting_commit[:12]}`)"
+            )
         if snapshot.publication_status:
             lines.append(f"- upstream publication: {snapshot.publication_status}")
         if snapshot.publication_error:

@@ -318,6 +318,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="show the installed PPT Master path, revision, and dependency status",
     )
 
+    maintenance_grp = parser.add_argument_group("self-maintenance")
+    maintenance_grp.add_argument(
+        "--approve-publication",
+        metavar="COMMIT",
+        default="",
+        help="approve pushing a reviewed self-maintenance fix upstream and "
+             "opening its PR. Nothing leaves this machine without it; the fix "
+             "is already reviewed, canaried and live locally. The approval is "
+             "bound to COMMIT and is single-use, so the next fix needs its own",
+    )
+    maintenance_grp.add_argument(
+        "--list-pending-publications",
+        action="store_true",
+        help="list reviewed self-maintenance fixes waiting for approval",
+    )
+
     skills_grp = parser.add_argument_group("skill admin")
     skills_grp.add_argument(
         "--skill-stats",

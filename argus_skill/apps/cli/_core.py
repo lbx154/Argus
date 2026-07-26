@@ -283,6 +283,8 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.init_model_api)
         + bool(args.install_ppt_master)
         + bool(args.ppt_master_status)
+        + bool(getattr(args, "approve_publication", ""))
+        + bool(getattr(args, "list_pending_publications", False))
         + bool(args.skill_stats)
         + bool(args.skill_cleanse)
         + bool(args.export_builtin_skills is not None)
@@ -418,6 +420,14 @@ def main(argv: list[str] | None = None) -> int:
         return _run_with_path_resolution_errors(lambda: _cmd_install_ppt_master(args))
     if args.ppt_master_status:
         return _run_with_path_resolution_errors(lambda: _cmd_ppt_master_status(args))
+    if getattr(args, "list_pending_publications", False):
+        return _run_with_path_resolution_errors(
+            lambda: _cmd_list_pending_publications(args)
+        )
+    if getattr(args, "approve_publication", ""):
+        return _run_with_path_resolution_errors(
+            lambda: _cmd_approve_publication(args)
+        )
     if args.skill_stats:
         return _run_with_path_resolution_errors(lambda: _cmd_skill_stats(args))
     if args.skill_cleanse:
@@ -1016,6 +1026,84 @@ def _run_with_path_resolution_errors(action) -> int:
     except core_paths.PathResolutionError as exc:
         sys.stderr.write(f"argus-skill: {exc}\n")
         return 2
+
+
+def _pending_publications() -> list[tuple[Path, Any]]:
+    """Every project holding a reviewed fix that is waiting on the operator.
+
+    Scans all projects rather than the current one: each daemon maintains its
+    own repair state, and on this host there are sixteen. A command that only
+    looked at the project you happen to be standing in would make the approval
+    gate a thing you find by accident.
+    """
+    from ...core.paths import global_root
+    from ...daemon.self_maintenance import read_self_maintenance_snapshot
+
+    found: list[tuple[Path, Any]] = []
+    projects = global_root() / "projects"
+    if not projects.is_dir():
+        return found
+    for life_dir in sorted(projects.iterdir()):
+        if not life_dir.is_dir():
+            continue
+        snapshot = read_self_maintenance_snapshot(life_dir)
+        if snapshot is not None and snapshot.awaiting_commit:
+            found.append((life_dir, snapshot))
+    return found
+
+
+def _cmd_list_pending_publications(args: argparse.Namespace) -> int:
+    _ = args
+    pending = _pending_publications()
+    if not pending:
+        print("argus-skill: no self-maintenance fix is waiting for approval")
+        return 0
+    print(f"argus-skill: {len(pending)} reviewed fix(es) awaiting approval\n")
+    for life_dir, snapshot in pending:
+        print(f"  project : {life_dir.name}")
+        print(f"  commit  : {snapshot.awaiting_commit[:12]}")
+        if snapshot.publication_error:
+            print(f"  note    : {snapshot.publication_error}")
+        print(f"  approve : argus-skill --approve-publication {snapshot.awaiting_commit[:12]}")
+        print()
+    return 0
+
+
+def _cmd_approve_publication(args: argparse.Namespace) -> int:
+    from ...daemon.self_maintenance import SelfMaintenanceState
+
+    wanted = str(getattr(args, "approve_publication", "") or "").strip()
+    pending = _pending_publications()
+    matches = [
+        (life_dir, snap)
+        for life_dir, snap in pending
+        if snap.awaiting_commit.startswith(wanted) or wanted.startswith(snap.awaiting_commit)
+    ]
+    if not matches:
+        sys.stderr.write(
+            f"argus-skill: no reviewed fix is waiting at {wanted[:12]}. "
+            "Run --list-pending-publications to see what is.\n"
+        )
+        return 2
+    if len(matches) > 1:
+        sys.stderr.write(
+            f"argus-skill: {wanted[:12]} matches {len(matches)} projects; "
+            "use a longer commit prefix\n"
+        )
+        return 2
+
+    life_dir, snapshot = matches[0]
+    approvals = SelfMaintenanceState(life_dir=life_dir)
+    error = approvals.approve_publication(snapshot.awaiting_commit)
+    if error:
+        sys.stderr.write(f"argus-skill: {error}\n")
+        return 1
+    print(
+        f"argus-skill: approved {snapshot.awaiting_commit[:12]} in {life_dir.name}; "
+        "the daemon will push the branch and open a PR on its next maintenance "
+        "pass. It will not merge it."
+    )
+    return 0
 
 
 def _cmd_skill_stats(args: argparse.Namespace) -> int:

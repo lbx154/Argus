@@ -434,6 +434,11 @@ def test_canary_publication_uses_current_authorized_github_identity(
         lambda _name: "/usr/bin/gh",
     )
 
+    # Publication now needs the operator's approval (2026-07-26). This test is
+    # about *how* an approved fix is published — which identity, which commands
+    # — so grant the approval and keep asserting the same thing.
+    assert controller.approve_publication(reviewed_commit) == ""
+
     url = controller.publish_after_canary(
         summary={"stopped_by": "planner_retry", "planning_cycles": 1}
     )

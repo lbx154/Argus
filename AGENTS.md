@@ -110,9 +110,14 @@ checklist seed 的数据源是各 `verticals/*/stages.py`；`skills/stage_machin
     evidence id 的具体框架问题才能派修复；禁止猜测式重构。Engineer/Reviewer 在该 daemon
     私有 framework worktree 内隔离执行，Reviewer 通过后本 daemon 在干净 mission 边界
     blue/green 灰度，失败回滚旧 source；灰度成功即成为该 daemon 的持久本地 source，
-    不依赖 GitHub 账号或仓库权限。若当前 GitHub 身份对 origin 具有 push 权限，可选推
-    独立分支并自动开 PR，永不自动 merge/main；无权限时安静保持 local-active，不把发布
-    失败伪装成修复失败。PR 被拒也不回滚已验证的本地修复。其他 daemon 只把可验证的人工
+    不依赖 GitHub 账号或仓库权限。**发布(推分支/开 PR)需 operator 显式批准**：灰度成功后
+    daemon 停在 `local_active`，把 `publication_status` 置为 `awaiting_approval` 并记下
+    `awaiting_commit`，emit `manager.self_maintenance.publication_awaiting_approval`；
+    operator 用 `argus-skill --list-pending-publications` 查看、
+    `argus-skill --approve-publication <commit>` 批准。批准**绑定单个 commit、单次消费、7 天过期**——
+    不是「允许发布」的总开关，否则批的就是下一轮它自己写的东西。批准后仍永不自动 merge/main。
+    无 push 权限时安静保持 local-active，不把发布失败伪装成修复失败。PR 被拒也不回滚已验证的
+    本地修复。其他 daemon 只把可验证的人工
     合并 `origin/main` 当作可选采用证据，各自 Manager 决定采用或延后并本地灰度。隔离
     能力缺失时 fail closed，不退化为 yolo。
     支持的 Linux host 必须预装 `bubblewrap`（Debian/Ubuntu: `apt install bubblewrap`）；

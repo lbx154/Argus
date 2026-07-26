@@ -26,6 +26,22 @@ except ImportError:  # pragma: no cover - Windows
 _STATE_SCHEMA = 1
 _FALLBACK_GIT_NAME = "Argus Self-Maintenance"
 _FALLBACK_GIT_EMAIL = "argus-self-maintenance@localhost"
+
+# Publishing a reviewed fix is the one self-maintenance step that leaves the
+# machine, so it waits for the operator. Everything before it is unchanged: the
+# fix is still authored, independently reviewed, canaried and adopted locally,
+# and `local_active` remains a complete terminal state. Only pushing a branch
+# and opening a PR is held.
+#
+# The approval is bound to the exact reviewed commit and is single-use. Binding
+# matters more than expiry here: an approval that merely said "yes, publish"
+# would silently authorise whatever the next self-maintenance cycle produced.
+_PUBLICATION_APPROVAL_TTL_SECONDS = 7 * 24 * 3600
+_PUBLICATION_AWAITING = "awaiting_approval"
+_PUBLICATION_PENDING = "pending"
+_PUBLICATION_UNAVAILABLE = "unavailable"
+_PUBLICATION_OPENED = "opened"
+_PUBLICATION_FAILED = "failed"
 _OBSERVED_EVENT_TYPES = frozenset({
     "life.supervisor.error",
     "life.planner.error",
@@ -53,6 +69,7 @@ class SelfMaintenanceSnapshot:
     pr_url: str
     publication_status: str
     publication_error: str
+    awaiting_commit: str = ""
 
 
 @dataclass(frozen=True)
@@ -90,6 +107,11 @@ def read_self_maintenance_snapshot(
         pr_url=str(value.get("pr_url") or "").strip(),
         publication_status=str(value.get("publication_status") or "").strip(),
         publication_error=str(value.get("publication_error") or "").strip()[:500],
+        awaiting_commit=(
+            str(value.get("awaiting_commit") or value.get("commit") or "").strip()
+            if str(value.get("publication_status") or "") == _PUBLICATION_AWAITING
+            else ""
+        ),
     )
 
 
@@ -212,24 +234,17 @@ def _compact_event(event: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-class DaemonSelfMaintenance:
-    """Observe one daemon and delegate evidence-bound repairs to its own team."""
+class SelfMaintenanceState:
+    """The self-maintenance state file, owned separately from the controller.
 
-    def __init__(
-        self,
-        *,
-        life_dir: Path,
-        framework_root: Path,
-        project_workdir: Path,
-        manager: Any,
-        memory: Any,
-        on_event: Any = None,
-    ) -> None:
+    Granting a publication approval and reading what is waiting are operations
+    on this file alone: they have no use for a manager, a memory or a framework
+    checkout. Keeping them reachable without one is what lets the operator's CLI
+    approve a fix, which is the whole point of a gate that a human holds.
+    """
+
+    def __init__(self, *, life_dir: Path, on_event: Any = None) -> None:
         self.life_dir = Path(life_dir)
-        self.framework_root = Path(framework_root).resolve()
-        self.project_workdir = Path(project_workdir)
-        self.manager = manager
-        self.memory = memory
         self.on_event = on_event
         self.root = self.life_dir / "self-maintenance"
         self.state_path = self.root / "state.json"
@@ -274,6 +289,111 @@ class DaemonSelfMaintenance:
             }
             _atomic_json(self.state_path, state)
             return state
+
+    def _publication_approval_error(self, reviewed_commit: str) -> str:
+        """Empty when the operator has approved publishing exactly this commit.
+
+        Returns the reason to hold otherwise. The approval is consumed here, so
+        a second cycle producing a different fix has to be approved again — an
+        approval that outlived its commit would authorise work the operator
+        never saw.
+        """
+        commit = str(reviewed_commit or "").strip()
+        if not commit:
+            return "no reviewed commit to publish"
+        state = self._state()
+        approved = str(state.get("publication_approved_commit") or "").strip()
+        if not approved:
+            return "operator approval required before pushing a branch or opening a PR"
+        if approved != commit:
+            return (
+                "operator approved a different commit "
+                f"({approved[:12]}); this fix is {commit[:12]}"
+            )
+        issued = float(state.get("publication_approved_at") or 0.0)
+        if issued and time.time() - issued > _PUBLICATION_APPROVAL_TTL_SECONDS:
+            return "operator approval expired; approve again to publish"
+        # Single-use: clear it before the push so a failed publish cannot be
+        # retried indefinitely on one approval.
+        self._write_state(
+            publication_approved_commit="",
+            publication_approved_at=0.0,
+            publication_approved_by="",
+        )
+        return ""
+
+    def approve_publication(self, commit: str, *, approved_by: str = "operator") -> str:
+        """Record the operator's approval to publish ``commit``. Returns an error.
+
+        Deliberately not a blanket "publishing is allowed" switch: the operator
+        approves a specific reviewed fix, which is the thing they can actually
+        have looked at.
+        """
+        wanted = str(commit or "").strip()
+        if not wanted:
+            return "no commit given"
+        state = self._state()
+        awaiting = str(
+            state.get("awaiting_commit") or state.get("commit") or ""
+        ).strip()
+        if not awaiting:
+            return "no reviewed fix is waiting to be published"
+        if not awaiting.startswith(wanted) and not wanted.startswith(awaiting):
+            return f"no reviewed fix waiting at {wanted[:12]}; waiting on {awaiting[:12]}"
+        self._write_state(
+            publication_approved_commit=awaiting,
+            publication_approved_at=time.time(),
+            publication_approved_by=str(approved_by or "operator")[:120],
+            publication_error="",
+        )
+        self._emit({
+            "type": "manager.self_maintenance.publication_approved",
+            "incident_id": state.get("incident_id"),
+            "commit": awaiting,
+            "approved_by": approved_by,
+            "agent_layer": "manager",
+        })
+        return ""
+
+    def pending_publication(self) -> dict[str, Any] | None:
+        """The reviewed fix waiting on the operator, if any.
+
+        A gate with no way to see through it just accumulates work silently, so
+        this is what `--status` and the CLI read.
+        """
+        state = self._state()
+        if str(state.get("publication_status") or "") != _PUBLICATION_AWAITING:
+            return None
+        commit = str(state.get("awaiting_commit") or state.get("commit") or "").strip()
+        if not commit:
+            return None
+        return {
+            "commit": commit,
+            "incident_id": str(state.get("incident_id") or ""),
+            "worktree": str(state.get("worktree") or ""),
+            "accepted_at": float(state.get("local_accepted_at") or 0.0),
+            "reason": str(state.get("publication_error") or ""),
+        }
+
+
+class DaemonSelfMaintenance(SelfMaintenanceState):
+    """Observe one daemon and delegate evidence-bound repairs to its own team."""
+
+    def __init__(
+        self,
+        *,
+        life_dir: Path,
+        framework_root: Path,
+        project_workdir: Path,
+        manager: Any,
+        memory: Any,
+        on_event: Any = None,
+    ) -> None:
+        super().__init__(life_dir=life_dir, on_event=on_event)
+        self.framework_root = Path(framework_root).resolve()
+        self.project_workdir = Path(project_workdir)
+        self.manager = manager
+        self.memory = memory
 
     def observe(self, event: dict[str, Any]) -> None:
         row = _compact_event(event)
@@ -1261,7 +1381,7 @@ class DaemonSelfMaintenance:
             phase="local_active",
             local_accepted_at=accepted_at,
             active_item_id="",
-            publication_status="pending",
+            publication_status=_PUBLICATION_PENDING,
             publication_error=(
                 str(state.get("error") or "")[:2000]
                 if legacy_publication_failure
@@ -1281,13 +1401,30 @@ class DaemonSelfMaintenance:
         if target is None:
             self._write_state(
                 phase="local_active",
-                publication_status="unavailable",
+                publication_status=_PUBLICATION_UNAVAILABLE,
                 publication_error=unavailable_reason,
             )
             self._emit({
                 "type": "manager.self_maintenance.publication_skipped",
                 "incident_id": state.get("incident_id"),
                 "reason": unavailable_reason,
+                "agent_layer": "manager",
+            })
+            return reviewed_commit
+
+        approval_error = self._publication_approval_error(reviewed_commit)
+        if approval_error:
+            self._write_state(
+                phase="local_active",
+                publication_status=_PUBLICATION_AWAITING,
+                publication_error=approval_error,
+                awaiting_commit=reviewed_commit,
+            )
+            self._emit({
+                "type": "manager.self_maintenance.publication_awaiting_approval",
+                "incident_id": state.get("incident_id"),
+                "commit": reviewed_commit,
+                "reason": approval_error,
                 "agent_layer": "manager",
             })
             return reviewed_commit
@@ -1304,7 +1441,7 @@ class DaemonSelfMaintenance:
             publication_error = f"{type(exc).__name__}: {exc}"[:2000]
             self._write_state(
                 phase="local_active",
-                publication_status="failed",
+                publication_status=_PUBLICATION_FAILED,
                 publication_error=publication_error,
             )
             self._emit({
@@ -1318,7 +1455,7 @@ class DaemonSelfMaintenance:
             phase="pr_open",
             pr_url=pr_url,
             published_at=time.time(),
-            publication_status="opened",
+            publication_status=_PUBLICATION_OPENED,
             publication_error="",
             error="",
         )
