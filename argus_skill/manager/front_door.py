@@ -234,6 +234,7 @@ def _maybe_name_session(
     task_text: str,
     *,
     suggested_name: str = "",
+    replacing: bool = False,
 ) -> None:
     """Name the current session after its first real task (once, fail-soft).
 
@@ -241,8 +242,17 @@ def _maybe_name_session(
     True). Only the first task in a freshly-minted, still-unnamed session sets
     the display_name shown in the resume picker. Prefer Manager's concise title;
     use the deterministic first-line label only when no title was produced.
+
+    ``replacing`` renames an already-named session, and is passed only when the
+    Manager has recorded that a new operator objective *supersedes* the standing
+    one. An Argus session is a long-lived daemon rather than a short chat, so a
+    label taken from the very first task goes stale: an operator reported a
+    session still called after a toy arithmetic question long after it had moved
+    on to unrelated complex work. Renaming on every task would churn the picker;
+    renaming when the session's stated purpose is replaced is the same event the
+    Manager already resets the pipeline for.
     """
-    if chat_state.get("session_named"):
+    if chat_state.get("session_named") and not replacing:
         return
     sid = chat_state.get("session_id")
     gr = chat_state.get("global_root")
@@ -252,7 +262,7 @@ def _maybe_name_session(
         from ..core.session import read_session_meta, touch_session
 
         persisted = read_session_meta(gr, sid)
-        if persisted is not None and persisted.display_name.strip():
+        if persisted is not None and persisted.display_name.strip() and not replacing:
             chat_state["session_named"] = True
             return
         name = (
@@ -261,7 +271,17 @@ def _maybe_name_session(
         )
         if not name:
             return
-        touch_session(gr, sid, display_name=name)
+        if replacing:
+            # touch_session only fills an *empty* name, so it silently cannot
+            # rename. A replacement has to go through the update path.
+            from ..core.session import normalize_session_name, update_session_meta
+
+            def _rename(meta: Any) -> None:
+                meta.display_name = normalize_session_name(name)
+
+            update_session_meta(gr, sid, _rename)
+        else:
+            touch_session(gr, sid, display_name=name)
         chat_state["session_named"] = True
     except Exception:  # noqa: BLE001 — naming is cosmetic, never block the task
         pass
@@ -678,6 +698,14 @@ def manager_continuous_handoff(
                     reason="operator replaced the standing Manager objective",
                     replacement_id=prepared.intent_id,
                 )
+            # The session's stated purpose has been replaced, so the label taken
+            # from its first task is now wrong in the resume picker. This is the
+            # only rename point: every other task keeps the existing name.
+            _maybe_name_session(
+                chat_state,
+                prepared.execution_task or body,
+                replacing=True,
+            )
 
     from ._session_ops import (
         clear_manager_pipeline_yield,

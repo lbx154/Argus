@@ -223,6 +223,7 @@ class _StageDecisionMixin:
         Returns a ``StageDecision``-like object (action, target_stage, reason, …).
         """
         from .stage_decider import (
+            completion_trigger_reason,
             fallback_empty_stage_decision,
             final_stage_completion_decision,
             parse_stage_decision,
@@ -310,6 +311,12 @@ class _StageDecisionMixin:
 
         _completion_vertical = resolve_vertical(root)
         _research_target_level = resolve_research_target_level(root)
+        # Carry the trigger's own words only when the trigger agreed. A hold's
+        # reason attached to a `complete` transition is what gets persisted into
+        # stage_history, and an operator reading `direction: complete` beside
+        # `reason: manager held (default)` cannot tell what actually happened —
+        # observed verbatim in a real run on 2026-07-26. Name the override
+        # instead of inheriting a contradiction.
         final_decision = final_stage_completion_decision(
             review,
             current_stage=cur,
@@ -318,8 +325,12 @@ class _StageDecisionMixin:
             mission_scope=mission_scope,
             research_target_level=_research_target_level,
             checklist_contract=checklist_contract,
-            trigger_diagnostic=decision.diagnostic,
-            trigger_reason=decision.reason,
+            trigger_diagnostic=(
+                "" if decision.action == "hold" else decision.diagnostic
+            ),
+            trigger_reason=completion_trigger_reason(
+                decision.action, decision.reason
+            ),
         )
         if final_decision is not None and (
             not open_ended or decision.action == "hold"

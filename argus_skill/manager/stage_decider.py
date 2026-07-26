@@ -242,6 +242,27 @@ def _review_certifies_completion(
     return ""
 
 
+def completion_trigger_reason(action: str, reason: str) -> str:
+    """What a `complete` transition should record when it overrode the trigger.
+
+    A hold's reason attached to a `complete` transition is what gets persisted
+    into ``stage_history``. Observed verbatim in a real run on 2026-07-26:
+
+        {"direction": "complete", ..., "reason": "manager held (default)"}
+
+    An operator reading that cannot tell whether the stage completed or was
+    held, which is the one question stage_history exists to answer. When the
+    trigger agreed, its own words are the most informative thing to keep.
+    """
+    text = str(reason or "").strip()
+    if str(action or "").strip().lower() != "hold":
+        return text
+    return (
+        "reviewer certified the final-stage checklist, overriding the Manager "
+        f"hold ({text[:160] or 'no reason given'})"
+    )
+
+
 def final_stage_completion_decision(
     review: Any,
     *,
@@ -312,6 +333,7 @@ def _mission_scope_can_complete(mission_scope: str, vertical: str) -> bool:
 
 __all__ = [
     "StageDecision",
+    "completion_trigger_reason",
     "extract_answer",
     "fallback_empty_stage_decision",
     "final_stage_completion_decision",

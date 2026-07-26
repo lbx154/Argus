@@ -144,3 +144,43 @@ def test_an_unreadable_vertical_keeps_the_strict_rule() -> None:
 
     assert _mission_scope_can_complete("final_submission", "no-such-vertical") is True
     assert _mission_scope_can_complete("bounded", "no-such-vertical") is False
+
+
+# -- the log has to say what happened ----------------------------------------
+
+
+def test_a_completion_that_overrode_a_hold_does_not_read_as_a_hold() -> None:
+    """Persisted history must not contradict itself.
+
+    Observed verbatim in /tmp/argus-night/wd-03/research/PIPELINE_STATE.json:
+
+        {"direction": "complete", ..., "reason": "manager held (default)"}
+
+    The completion decision inherited the trigger's reason even when the trigger
+    was a *hold*, and that string is what lands in stage_history. An operator
+    reading it cannot tell whether the stage completed or was held, which is the
+    one question stage_history exists to answer.
+    """
+    from argus_skill.manager.stage_decider import completion_trigger_reason
+
+    overridden = completion_trigger_reason("hold", "manager held (default)")
+
+    assert "overriding" in overridden
+    assert "manager held (default)" in overridden, (
+        "the hold's own words are still worth keeping — inside the override, "
+        "not instead of it"
+    )
+
+
+def test_a_trigger_that_agreed_keeps_its_own_words() -> None:
+    from argus_skill.manager.stage_decider import completion_trigger_reason
+
+    agreed = "delivery checklist satisfied by reviewer-run pytest"
+
+    assert completion_trigger_reason("complete", agreed) == agreed
+
+
+def test_a_hold_with_no_reason_still_reads_as_an_override() -> None:
+    from argus_skill.manager.stage_decider import completion_trigger_reason
+
+    assert "overriding" in completion_trigger_reason("hold", "")
