@@ -206,15 +206,39 @@ def _review_certifies_completion(
     research_target_level: str | None = None,
     checklist_contract: Any | None = None,
 ) -> str:
+    """Empty when this verdict may close the project; a reason otherwise.
+
+    This used to discard every argument it took and return "" for any `done`
+    review — a guard in shape only. Nothing enforced a vertical's research
+    target here; what actually blocked a non-breakthrough "doctoral" result from
+    completing was the unrelated `final_submission` scope check, which happened
+    to reject every non-paper vertical for a different reason entirely.
+
+    That accident was invisible until the scope check was corrected, at which
+    point ten anti-fabrication tests in `test_math_vertical` went red. They were
+    right: the protection they asserted was real, it just was not where anyone
+    thought it was. The target is now checked on purpose.
+    """
+    _ = (vertical, mission_scope, checklist_contract)
     status = str(getattr(review, "status", "") or "").strip().lower()
     if status != "done":
         return "review_not_done"
-    _ = (
-        vertical,
-        mission_scope,
-        research_target_level,
-        checklist_contract,
-    )
+    if research_target_level:
+        from ..core.research_contract import research_completion_issue
+
+        # Deliberately not forwarding ``mission_scope``. A ``bounded`` scope is
+        # an escape in that checker — a bounded item certifies its own
+        # acceptance criteria, not the project's research target — and that is
+        # right for per-item checks. This call is the project-completion
+        # decision, and every Goal Gate mission arrives here scoped ``bounded``
+        # because the enqueue boundary downgrades it. Forwarding the scope would
+        # therefore waive the target on exactly the decision it exists to guard.
+        issue = research_completion_issue(
+            getattr(review, "research_result", None),
+            research_target_level=research_target_level,
+        )
+        if issue:
+            return issue
     return ""
 
 
@@ -235,7 +259,7 @@ def final_stage_completion_decision(
     order = [str(s).strip().lower() for s in stage_order]
     if not order or cur != order[-1]:
         return None
-    if (mission_scope or "").strip().lower().replace("-", "_") != "final_submission":
+    if not _mission_scope_can_complete(mission_scope, vertical):
         return None
     missing = _review_certifies_completion(
         review,
@@ -249,6 +273,41 @@ def final_stage_completion_decision(
     reason = trigger_reason or "reviewer certified final-stage checklist"
     diagnostic = trigger_diagnostic or "final_stage_certified_complete"
     return StageDecision("complete", cur, reason, diagnostic)
+
+
+def _mission_scope_can_complete(mission_scope: str, vertical: str) -> bool:
+    """Whether a mission with this scope is allowed to close the project.
+
+    ``final_submission`` is the *paper* transport scope and nothing else can
+    complete a paper project: a bounded sub-mission must not end a submission
+    just because its own Reviewer said `done`.
+
+    For every other vertical that requirement was unsatisfiable, and it produced
+    a livelock observed in a real session on 2026-07-26. Three rules interlocked:
+    ``_planner_task_tags`` downgrades ``final_submission`` to ``bounded`` for any
+    vertical whose completion gate is not ``full_paper``; ``tick()`` retires a
+    ``final_submission`` item under such a vertical as stale, which is why the
+    downgrade exists; and this function accepted nothing but
+    ``final_submission``. So the Goal Gate mission of twenty of the
+    twenty-three verticals could never close its own gate — the Reviewer
+    certified, the Manager held `not_certified`, and the Planner re-issued the
+    identical task until the operator stopped it.
+
+    The requirement now follows what the vertical declares about itself rather
+    than a transport tag it can never carry. The certification check below is
+    unchanged and still has to pass; this only decides which envelope the
+    verdict may arrive in.
+    """
+    normalized = (mission_scope or "").strip().lower().replace("-", "_")
+    if normalized == "final_submission":
+        return True
+    try:
+        from ..verticals._base import load_vertical, vertical_completion_gate
+
+        gate = vertical_completion_gate(load_vertical(vertical or ""))
+    except Exception:  # noqa: BLE001 — an unreadable vertical keeps the strict rule
+        return False
+    return gate != "full_paper"
 
 
 __all__ = [
