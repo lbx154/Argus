@@ -160,7 +160,15 @@ class PlanningCycleMixin(
             "trigger": "open_ended_terminal_stage_reconciliation",
         })
         if decision.action != "rollback":
-            if decision.action == "hold" and decision.source == "manager_llm":
+            # `complete` and `hold` both mean the same thing to the caller: the
+            # pipeline is not going backwards and there is no earlier-stage work
+            # to enqueue, so the campaign should idle rather than raise a planner
+            # error. Only `hold` used to appear here, because a non-paper
+            # vertical could never obtain a `complete` — the scope interlock
+            # fixed on 2026-07-26 made that decision reachable for the first
+            # time, and without this the newly-correct verdict fell through to
+            # the error path.
+            if decision.action in {"hold", "complete"} and decision.source == "manager_llm":
                 return "hold"
             return ""
 

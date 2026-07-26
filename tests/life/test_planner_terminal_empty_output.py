@@ -126,13 +126,55 @@ class _EmptyThenTaskPlannerRunner(_EmptyPlannerThenManagerRunner):
 
 
 def _write_software_state(project: Path, *, done: bool) -> None:
-    (project / "research").mkdir(parents=True)
-    (project / "research" / "PIPELINE_STATE.json").write_text(
+    """Write a delivery stage that is genuinely certified when ``done``.
+
+    ``status: done`` alone is not certification. `software` declares
+    COMPLETION_CONTRACT_VERSION = 1, so the terminal reconciliation checks for a
+    matching ``completion_contract_sha256`` — the guard that stops a prematurely
+    "done" stage from reading as certified.
+
+    This fixture used to write the status only, which made the "certified
+    terminal" case it names unreachable. That mirrored production: until the
+    completion livelock was fixed on 2026-07-26, a non-paper vertical could
+    never obtain this certificate at all, so the scenario did not exist. Now
+    that it does, the fixture builds it the way the Manager does.
+    """
+    research = project / "research"
+    research.mkdir(parents=True, exist_ok=True)
+    record: dict = {"status": "done" if done else "in_progress"}
+    (research / "PIPELINE_STATE.json").write_text(
         json.dumps(
             {
                 "vertical": "software",
                 "current_stage": "delivery",
-                "stages": {"delivery": {"status": "done" if done else "in_progress"}},
+                "stages": {"delivery": record},
+            }
+        ),
+        encoding="utf-8",
+    )
+    if not done:
+        return
+    from argus_skill.skills.stage_machine import completion_contract_fingerprint
+    from argus_skill.verticals._base import (
+        load_vertical,
+        vertical_completion_contract_version,
+    )
+
+    version = vertical_completion_contract_version(
+        load_vertical("software", project_root=project)
+    )
+    if version <= 0:
+        return
+    record["completion_contract_version"] = version
+    record["completion_contract_sha256"] = completion_contract_fingerprint(
+        project, "delivery", version=version
+    )
+    (research / "PIPELINE_STATE.json").write_text(
+        json.dumps(
+            {
+                "vertical": "software",
+                "current_stage": "delivery",
+                "stages": {"delivery": record},
             }
         ),
         encoding="utf-8",
@@ -247,9 +289,12 @@ def test_certified_terminal_empty_plan_completes_without_planner_error(
     assert len(planner_verdicts) == 1
     assert planner_verdicts[0]["status"] == "completed"
     assert planner_verdicts[0]["completion_kind"] == "terminal_stage_hold"
+    # `complete` since 2026-07-26: a non-paper vertical could not previously
+    # obtain a completion decision at all, so this reconciliation only ever saw
+    # `hold`. Both mean "the pipeline is at its end and is not going backwards".
     assert any(
         event.get("type") == "life.manager.stage_decision"
-        and event.get("action") == "hold"
+        and event.get("action") in {"hold", "complete"}
         and event.get("trigger") == "open_ended_terminal_stage_reconciliation"
         for event in sink.events
     )
