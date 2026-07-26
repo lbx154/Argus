@@ -1,0 +1,64 @@
+{
+  "case_study": "fla_kernel_optimization",
+  "vertical": "kernel_engineering",
+  "op": "chunk_kda",
+  "shape": "B8_T1024_H8_D64",
+  "dtype": "bf16",
+  "modes": ["fwd", "fwdbwd"],
+  "baseline": "fla-org/flash-linear-attention@ccb0ff94",
+  "hardware": "NVIDIA B200 (sm_100)",
+  "metric": "geomean_speedup = baseline_latency / candidate_latency",
+  "tolerances": {"atol": 1e-2, "rtol": 2e-2},
+  "certification_bar": "correctness PASS + 0 CUDA errors + max_mem_ratio<=1.0 + N>=10 paired + median>=1.05 + cold-cache repeat",
+  "optimizations": [
+    {
+      "id": "l2norm_pair",
+      "name": "paired q/k L2-norm fusion (forward + backward)",
+      "files": ["fla/modules/l2norm.py", "fla/ops/kda/chunk.py"],
+      "median_geomean_speedup": 1.0564,
+      "n": 10,
+      "faster_count": "10/10",
+      "correctness": "PASS",
+      "cuda_errors": 0,
+      "max_mem_ratio": 1.0,
+      "independent_reverify_median": 1.081
+    },
+    {
+      "id": "inter_solve_recompute_epilogue",
+      "name": "forward inter-solve recompute-epilogue fusion",
+      "files": ["fla/ops/kda/chunk_intra.py"],
+      "median_geomean_speedup": 1.0727,
+      "n": 10,
+      "faster_count": "10/10",
+      "correctness": "PASS",
+      "cuda_errors": 0,
+      "max_mem_ratio": 1.0,
+      "cold_cache_repeat_geomean": 1.088
+    },
+    {
+      "id": "cumsum_into_intra_producer",
+      "name": "chunk-local cumsum computed inside the intra-subchunk producer",
+      "files": ["fla/ops/kda/chunk_fwd.py", "fla/ops/kda/chunk_intra.py"],
+      "cumulative_with_inter_solve_median": 1.1766,
+      "increment_over_inter_solve": 0.1039,
+      "n": 10,
+      "faster_count": "10/10",
+      "correctness": "PASS",
+      "cuda_errors": 0,
+      "max_mem_ratio": 1.0,
+      "cold_cache_repeat_geomean": 1.088
+    }
+  ],
+  "combined": {
+    "components": ["l2norm_pair", "inter_solve_recompute_epilogue", "cumsum_into_intra_producer"],
+    "median_geomean_speedup": 1.2993,
+    "min_speedup": 1.0701,
+    "correctness": "PASS",
+    "cuda_errors": 0,
+    "max_mem_ratio": 1.0,
+    "final_status": "PASS",
+    "verification": "single frozen paired run (fwd + fwd+bwd); component optimizations each N>=10 certified"
+  },
+  "also_included": "guards chunk_kda_bwd_kernel_dAv autotune space on NVIDIA Blackwell (sm_100) to avoid an illegal memory access with BK==32 and num_warps!=2",
+  "no_push_no_public_pr": true
+}

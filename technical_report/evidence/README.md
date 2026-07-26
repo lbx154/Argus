@@ -17,6 +17,10 @@ and empirical figures in the Argus technical report.
   mapping used by the process-to-capability analysis.
 - `paper_case_study/` contains the public trajectory aggregates for six autonomous
   paper-production campaigns.
+- `fla_kernel_optimization/` contains the certified GPU-kernel-optimization results
+  (the `chunk_kda` op of `flash-linear-attention` on an NVIDIA B200) produced
+  autonomously by the `kernel_engineering` vertical, together with the combined source
+  diff against the frozen baseline.
 
 The report build uses only the fields required by the published tables and
 figures. Credentials, private model reasoning, and raw runtime event streams are
