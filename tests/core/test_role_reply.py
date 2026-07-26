@@ -221,3 +221,45 @@ def test_the_routing_prompt_no_longer_demands_json() -> None:
     assert "JSON" not in fast
     assert "JSON" not in grounded
     assert "CHOICE=existing" in fast and "CHOICE=existing" in grounded
+
+
+# -- values that are genuinely prose -----------------------------------------
+
+_VERDICT = ("STATUS", "REASON", "NEXT_ACTION", "OPERATOR_QUESTION")
+
+
+def test_a_multi_paragraph_reason_is_kept_whole() -> None:
+    """A Reviewer writing several paragraphs is writing well, not wrongly."""
+    from argus_skill.core.role_reply import read_block
+
+    reply = """STATUS=continue
+REASON=The kernel is 1.2x, not the 1.5x the operator asked for.
+
+I re-ran the benchmark ten times; the spread is 1.17-1.24x, so this is not
+noise. The fused epilogue is the bottleneck.
+NEXT_ACTION=Fuse the epilogue and re-measure.
+OPERATOR_QUESTION=none
+"""
+
+    reason = read_block(reply, "REASON", _VERDICT)
+
+    assert reason.startswith("The kernel is 1.2x")
+    assert "spread is 1.17-1.24x" in reason
+    assert "NEXT_ACTION" not in reason
+    assert read_key_values(reply, _VERDICT)["NEXT_ACTION"] == (
+        "Fuse the epilogue and re-measure."
+    )
+
+
+def test_a_block_stops_at_the_next_key_not_at_the_end() -> None:
+    from argus_skill.core.role_reply import read_block
+
+    reply = "REASON=first\nstill first\nSTATUS=done\nnot the reason"
+
+    assert read_block(reply, "REASON", _VERDICT) == "first\nstill first"
+
+
+def test_a_missing_block_is_empty_not_the_whole_reply() -> None:
+    from argus_skill.core.role_reply import read_block
+
+    assert read_block("STATUS=done", "REASON", _VERDICT) == ""

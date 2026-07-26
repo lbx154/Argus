@@ -49,9 +49,23 @@ def parse_decision_text(
     *,
     allow_research_pause: bool = False,
 ) -> ReviewDecision | None:
-    """Return a verdict only when all four control fields are valid."""
+    """Return a verdict only when all four control fields are valid.
+
+    The Reviewer states its verdict on named lines inside an ordinary reply; it
+    is not forced to serialise itself into a JSON object. `reason` is read as a
+    block because a rationale that runs to several paragraphs is the Reviewer
+    doing its job, and truncating at the first newline would discard exactly the
+    part that explains the verdict.
+
+    A JSON object is still read when one is present, so a run already in flight
+    against the older schema-constrained prompt still parses.
+    """
     _ = allow_research_pause
-    for parsed in _candidate_json_objects(_strip_markdown_fences(text)):
+    cleaned = _strip_markdown_fences(text)
+    named = _parse_named_verdict(cleaned)
+    if named is not None:
+        return named
+    for parsed in _candidate_json_objects(cleaned):
         status = str(parsed.get("status") or "").strip().lower()
         reason = parsed.get("reason")
         next_action = parsed.get("next_action")
@@ -71,6 +85,34 @@ def parse_decision_text(
             operator_question=str(operator_question or "").strip(),
         )
     return None
+
+
+_VERDICT_KEYS = ("STATUS", "REASON", "NEXT_ACTION", "OPERATOR_QUESTION")
+
+
+def _parse_named_verdict(text: str) -> ReviewDecision | None:
+    """The verdict as stated on named lines, or ``None`` if it was not.
+
+    Fails closed exactly like the JSON path did: a status outside the allowed
+    set, or a verdict with no rationale, is not a verdict. The caller treats
+    ``None`` as "the Reviewer did not rule", which is the safe reading of an
+    answer we could not understand.
+    """
+    from ..core.role_reply import read_block, read_key_values, read_optional
+
+    values = read_key_values(text, _VERDICT_KEYS)
+    status = str(values.get("STATUS") or "").strip().lower()
+    if status not in _STATUSES:
+        return None
+    reason = read_block(text, "REASON", _VERDICT_KEYS)
+    if not reason.strip():
+        return None
+    return ReviewDecision(
+        status=status,
+        reason=reason.strip()[:5000],
+        next_action=read_block(text, "NEXT_ACTION", _VERDICT_KEYS).strip()[:1500],
+        operator_question=read_optional(values, "OPERATOR_QUESTION")[:500],
+    )
 
 
 def _find_decision_in_messages(

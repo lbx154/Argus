@@ -90,13 +90,15 @@ def test_reviewer_separates_integrity_from_scientific_value(monkeypatch):
 
 
 def test_reviewer_reasons_in_prose_structured_only_at_handoff(monkeypatch):
-    # The reviewer must talk in natural language during its turn and emit the
-    # structured JSON ONLY as the final handoff — not format every message as
-    # JSON. codex --output-schema constrains only the FINAL response, so this is
-    # a prompt-framing change with no robustness loss.
+    # The reviewer must talk in natural language during its turn and carry
+    # structure ONLY at the final handoff. Since 2026-07-26 that handoff is a
+    # few named lines rather than a schema-constrained JSON object, which makes
+    # the property stronger, not weaker: the prose and the verdict now live in
+    # the same message instead of the verdict replacing it.
     p = _prompt(measured=False, monkeypatch=monkeypatch)
     assert "reason and use tools normally" in p.lower()
-    assert "only the final message is one json object" in p.lower()
-    assert "matching the attached schema" in p
-    # the old "every message is JSON" framing is gone
-    assert "Return valid JSON matching the provided schema" not in p
+    assert "STATUS=done|continue|blocked|replan_requested" in p
+    assert "REASON=" in p and "NEXT_ACTION=" in p
+    # no role is forced into a serialisation format
+    assert "JSON" not in p
+    assert "matching the attached schema" not in p

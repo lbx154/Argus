@@ -612,8 +612,14 @@ def render_reviewer_prompt(
             else _verification_directive()
         )
         + "## Output protocol\n"
-        "Reason and use tools normally. Only the final message is one JSON object "
-        "matching the attached schema. Edit CHECKPOINT.md first as instructed.\n\n"
+        "Reason and use tools normally, and write your review however is "
+        "clearest. End the final message with these lines; only they are read, "
+        "and REASON/NEXT_ACTION may run over several lines:\n"
+        "STATUS=done|continue|blocked|replan_requested\n"
+        "REASON=<the verdict rationale>\n"
+        "NEXT_ACTION=<the Engineer instruction; empty for done>\n"
+        "OPERATOR_QUESTION=<operator-only blocker, or none>\n"
+        "Edit CHECKPOINT.md first as instructed.\n\n"
         + paper_review_skill_block
         + wiki_curator_skill_block
         + direct_memory_edit_block
@@ -625,11 +631,11 @@ def render_reviewer_prompt(
         + "\n\n"
         + venv_skill_block
         + "\n\n## Final handoff fields\n"
-        "Return only `status`, `reason`, `next_action`, and `operator_question`. "
+        "Return only STATUS, REASON, NEXT_ACTION and OPERATOR_QUESTION. "
         "`reason` is the only verdict rationale; `next_action` is the only Engineer "
         "instruction and is empty for `done`.\n"
         "- Put measured surprises, open questions, and alternative directions "
-        "in CHECKPOINT.md once, not in extra JSON fields.\n"
+        "in CHECKPOINT.md once, not in extra fields.\n"
         "- Every valid measured result must identify the strongest supported "
         "finding in `reason`. Preserve clean negative, null, "
         "boundary, and diagnostic evidence, but integrity is a hard constraint, "

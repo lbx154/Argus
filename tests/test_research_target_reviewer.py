@@ -44,10 +44,11 @@ def test_research_target_is_prompt_context_not_output_schema(tmp_path: Path) -> 
 
     assert decision.status == "replan_requested"
     assert "Project target: `publishable`" in backend.prompt
-    assert backend.options.output_schema_path
-    assert Path(backend.options.output_schema_path).name.startswith(
-        Path(SCHEMA_PATH).stem
-    )
+    # The point of this test is *where* the target lives: in the prompt the
+    # Reviewer reads, never encoded into a machine-enforced output shape. Since
+    # 2026-07-26 no role is forced to emit a schema at all, so the second half
+    # of that property is now structural rather than a comparison of paths.
+    assert not backend.options.output_schema_path
 
 
 def test_reviewer_verdict_is_not_rewritten_from_formal_result_labels(

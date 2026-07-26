@@ -144,7 +144,15 @@ class Reviewer:
         memory_maintenance_enabled: bool = True,
     ) -> None:
         self.runner = runner
-        self.schema_path = SCHEMA_PATH
+        # No provider-enforced output schema. Constraining the Reviewer to emit
+        # one JSON object is the strongest form of "the harness decides how the
+        # agent may speak": it spends the verdict on satisfying a serialiser and
+        # discards everything the Reviewer wanted to say around it. The verdict
+        # is now read from named lines in an ordinary reply, and the parser
+        # still accepts a JSON object so a run already in flight is unaffected.
+        # The defensive schema plumbing below is left intact for a caller that
+        # deliberately sets one.
+        self.schema_path = ""
         self._last_prompt_block_stats: dict[str, dict[str, int]] = {}
         # Optional: when wired, the reviewer runs the same role-mission skill
         # matcher every other role uses, surfacing adaptive reviewer skills

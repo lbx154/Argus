@@ -73,6 +73,41 @@ def read_key_values(text: str, keys: Iterable[str]) -> dict[str, str]:
     return found
 
 
+def read_block(text: str, key: str, keys: Iterable[str]) -> str:
+    """A value that runs past the end of its line, up to the next named key.
+
+    Some fields are genuinely prose — a Reviewer's rationale is the obvious one
+    — and a role writing several paragraphs is writing well, not writing
+    wrongly. Truncating at the newline would silently discard the part of the
+    verdict that explains it, so the value continues until the next recognised
+    key or the end of the reply.
+    """
+    pattern = _line_pattern(keys)
+    wanted = str(key).strip().upper()
+    collected: list[str] | None = None
+    best: list[str] | None = None
+    for raw in str(text or "").splitlines():
+        line = raw.strip()
+        if _FENCE.match(line):
+            continue
+        match = pattern.match(line.strip("`").strip())
+        if match is not None:
+            if collected is not None:
+                best = collected
+            if match.group("key").upper() == wanted:
+                collected = [match.group("value").strip()]
+            else:
+                collected = None
+            continue
+        if collected is not None:
+            collected.append(raw.rstrip())
+    if collected is not None:
+        best = collected
+    if best is None:
+        return ""
+    return "\n".join(best).strip().strip("`").strip()
+
+
 def read_list(values: Mapping[str, str], key: str) -> tuple[str, ...]:
     """A repeated field written on one line, separated by ``;`` or ``|``.
 
@@ -141,6 +176,7 @@ def legacy_json_object(text: str) -> dict[str, Any] | None:
 
 __all__ = [
     "legacy_json_object",
+    "read_block",
     "read_bool",
     "read_float",
     "read_key_values",
