@@ -55,22 +55,76 @@ class DomainProposal:
     execution_task: str = ""
 
 
-def _loads_first_json(text: str) -> Any:
-    cleaned = (text or "").strip()
-    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
-    cleaned = re.sub(r"\s*```$", "", cleaned).strip()
-    try:
-        return json.loads(cleaned)
-    except Exception:  # noqa: BLE001 — fall through to brace extraction
-        pass
-    start = cleaned.find("{")
-    end = cleaned.rfind("}")
-    if start != -1 and end != -1 and end > start:
+_DECISION_KEYS = (
+    "CHOICE",
+    "VERTICAL",
+    "NAME",
+    "DOMAIN",
+    "WORKFLOW_MODE",
+    "CONFIDENCE",
+    "RESEARCH_TARGET_LEVEL",
+    "TARGET_VENUE",
+    "RATIONALE",
+    "EXECUTION_TASK",
+    "STAGES",
+    "LIVE_VIEW_PATHS",
+    "LIVE_VIEW_TITLE",
+    "LIVE_VIEW_REASON",
+)
+
+
+def _decision_fields(raw_text: str) -> dict[str, Any] | None:
+    """The Manager's decision, read from named lines in whatever it wrote.
+
+    Operator directive: no role is forced to emit a JSON Schema. The Manager
+    reasons and explains in prose and states its conclusions on named lines;
+    this lifts those lines into the same field names the validation below
+    already uses, so every check that guarded the JSON path still runs.
+
+    A volunteered JSON object is still accepted. That is a compatibility door
+    for daemons mid-flight on an older prompt, not a second contract — nothing
+    asks for it.
+    """
+    from ..core.role_reply import (
+        legacy_json_object,
+        read_key_values,
+        read_list,
+        read_optional,
+    )
+
+    values = read_key_values(raw_text, _DECISION_KEYS)
+    if not values:
+        return legacy_json_object(raw_text)
+
+    fields: dict[str, Any] = {}
+    for key in ("CHOICE", "VERTICAL", "NAME", "WORKFLOW_MODE", "RESEARCH_TARGET_LEVEL"):
+        if key in values:
+            fields[key.lower()] = read_optional(values, key)
+    for key in ("DOMAIN", "TARGET_VENUE", "RATIONALE", "EXECUTION_TASK"):
+        if key in values:
+            fields[key.lower()] = read_optional(values, key)
+    if "CONFIDENCE" in values:
         try:
-            return json.loads(cleaned[start : end + 1])
-        except Exception:  # noqa: BLE001
-            return None
-    return None
+            fields["confidence"] = float(values["CONFIDENCE"])
+        except (TypeError, ValueError):
+            # Left absent rather than defaulted: the callers treat a missing
+            # confidence as "not a usable answer" and escalate, which is the
+            # correct response to a number we could not read.
+            pass
+    if "STAGES" in values:
+        fields["stages"] = list(read_list(values, "STAGES"))
+    paths = read_list(values, "LIVE_VIEW_PATHS")
+    if paths:
+        fields["live_view"] = {
+            "paths": list(paths),
+            "title": read_optional(values, "LIVE_VIEW_TITLE"),
+            "reason": read_optional(values, "LIVE_VIEW_REASON"),
+        }
+    elif "LIVE_VIEW_PATHS" in values:
+        # An explicit empty answer means "clear the panel", which callers
+        # distinguish from never having been asked.
+        fields["live_view"] = None
+    return fields
 
 
 def _sluggify_name(raw: object) -> str:
@@ -105,7 +159,7 @@ def parse_domain_proposal(
     data domain (a numeric suffix is appended on collision). Anything else →
     ``None``.
     """
-    obj = _loads_first_json(raw_text)
+    obj = _decision_fields(raw_text)
     if not isinstance(obj, dict):
         return None
 
@@ -243,7 +297,7 @@ def parse_fast_vertical_decision(
     research_target_verticals: Sequence[str] = (),
 ) -> FastVerticalRoute | None:
     """Parse a tool-free route; invalid output fails closed to grounding."""
-    obj = _loads_first_json(raw_text)
+    obj = _decision_fields(raw_text)
     if not isinstance(obj, dict):
         return None
     choice = str(obj.get("choice") or "").strip().lower()
@@ -346,7 +400,7 @@ def parse_research_target_level(
     ),
 ) -> str | None:
     """Parse the Manager's explicit research-target verdict, fail-closed."""
-    obj = _loads_first_json(raw_text)
+    obj = _decision_fields(raw_text)
     if not isinstance(obj, dict):
         return None
     level = str(obj.get("research_target_level") or "").strip().lower()
@@ -369,7 +423,7 @@ def parse_vertical_decision(
     existing data domain (normalized). ``choice == "new"`` reuses
     :func:`parse_domain_proposal`. Any ambiguity → ``None`` (the caller raises).
     """
-    obj = _loads_first_json(raw_text)
+    obj = _decision_fields(raw_text)
     if not isinstance(obj, dict):
         return None
     parsed_live_view = parse_live_view(obj.get("live_view"))

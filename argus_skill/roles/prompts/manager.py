@@ -379,16 +379,20 @@ def build_fast_vertical_decision_prompt(
         "`target_venue`; otherwise use null. Never infer a venue from topic.\n\n"
         "## Task\n"
         f"{(task or '').strip()}\n\n"
-        "Reply with exactly one compact JSON object and nothing else:\n"
-        '{"choice":"existing","vertical":"<existing name>",'
-        '"domain":"<built-in research domain>"|null,'
-        '"workflow_mode":"direct|staged",'
-        '"confidence":<0.0-1.0>,"research_target_level":'
-        '"<exploratory|publishable|doctoral>"|null,'
-        '"target_venue":"<explicit venue>"|null,"rationale":"<brief>"}\n'
-        "OR\n"
-        '{"choice":"grounded","confidence":<0.0-1.0>,'
-        '"rationale":"<what additional context is needed>"}\n'
+        "State your decision on its own lines. Write whatever reasoning is "
+        "useful around them; only these lines are read.\n"
+        "CHOICE=existing\n"
+        "VERTICAL=<existing name>\n"
+        "DOMAIN=<built-in research domain, or none>\n"
+        "WORKFLOW_MODE=direct|staged\n"
+        "CONFIDENCE=<0.0-1.0>\n"
+        "RESEARCH_TARGET_LEVEL=<exploratory|publishable|doctoral, or none>\n"
+        "TARGET_VENUE=<explicit venue, or none>\n"
+        "RATIONALE=<brief>\n"
+        "OR, when you cannot decide from the task text alone:\n"
+        "CHOICE=grounded\n"
+        "CONFIDENCE=<0.0-1.0>\n"
+        "RATIONALE=<what additional context is needed>\n"
     )
 
 
@@ -477,37 +481,24 @@ def build_vertical_decision_prompt(
         "vertical outside that declared set, set it to null. For a `research` "
         "vertical, copy an explicitly operator-named publication venue into "
         "`target_venue`; otherwise use null. Do not infer one from the topic.\n\n"
-        "Record the operator's requirements as they were actually stated. "
-        "`precise_constraints` holds only mechanically checkable things the "
-        "operator themselves chose — a target number, a named baseline, a "
-        "hardware or time budget, a deadline — copied in their words. Never "
-        "invent one: a constraint nobody asked for becomes a goal nobody agreed "
-        "to, and downstream roles will treat it as binding. If the task clearly "
-        "needs a number the operator did not give, put that as a question in "
-        "`ambiguities` instead of guessing a value. An empty list is the correct "
-        "answer for a request that stated no hard numbers.\n\n"
-        "When your investigation is done, reply with ONE JSON object and "
-        "NOTHING else (no prose before or after it), in ONE of these two shapes. "
-        "In BOTH shapes the chosen name goes in the field named `vertical`:\n"
-        '{"choice": "existing", "vertical": "<one of the names above>", '
-        '"domain": "<built-in research domain>"|null, '
-        '"workflow_mode": "<direct|staged>", '
-        '"rationale": "<why it fits, citing what you found in the repo>", '
-        '"research_target_level": "<exploratory|publishable|doctoral when the '
-        'vertical declares a target contract, otherwise null>", '
-        '"precise_constraints": ["<operator-stated hard requirement>", ...], '
-        '"ambiguities": ["<a question only the operator can answer>", ...], '
-        '"target_venue": "<explicit venue for research>"|null}\n'
-        "OR\n"
-        '{"choice": "new", "vertical": "<a new lowercase a-z0-9_ slug, distinct '
-        'from every name above>", "stages": ["<stage1>", ...], '
-        '"domain": null, '
-        '"workflow_mode": "<direct|staged>", '
-        '"rationale": "<why no existing vertical fits + what you found>", '
-        '"research_target_level": null, '
-        '"precise_constraints": ["<operator-stated hard requirement>", ...], '
-        '"ambiguities": ["<a question only the operator can answer>", ...], '
-        '"confidence": <0.0-1.0>}\n'
+        "When your investigation is done, state the decision on its own lines. "
+        "Explain what you found in prose around them — only these lines are "
+        "read. In both shapes the chosen name goes on the VERTICAL line:\n"
+        "CHOICE=existing\n"
+        "VERTICAL=<one of the names above>\n"
+        "DOMAIN=<built-in research domain, or none>\n"
+        "WORKFLOW_MODE=<direct|staged>\n"
+        "RATIONALE=<why it fits, citing what you found in the repo>\n"
+        "RESEARCH_TARGET_LEVEL=<exploratory|publishable|doctoral when the "
+        "vertical declares a target contract, otherwise none>\n"
+        "TARGET_VENUE=<explicit venue for research, or none>\n"
+        "OR, to author a new domain:\n"
+        "CHOICE=new\n"
+        "VERTICAL=<a new lowercase a-z0-9_ slug, distinct from every name above>\n"
+        "STAGES=<stage1>; <stage2>; <stage3>\n"
+        "WORKFLOW_MODE=<direct|staged>\n"
+        "RATIONALE=<why no existing vertical fits + what you found>\n"
+        "CONFIDENCE=<0.0-1.0>\n"
         "(If your new slug collides with an existing name it is auto-suffixed.)\n"
     )
 

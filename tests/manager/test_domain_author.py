@@ -97,7 +97,10 @@ def test_vertical_prompt_composes_chemistry_with_research() -> None:
     )
 
     assert "`domain=chemistry`" in prompt
-    assert '"domain": "<built-in research domain>"|null' in prompt
+    # The reply convention is named lines, not a JSON schema: no role is forced
+    # to serialise its answer (operator directive 2026-07-26).
+    assert "DOMAIN=<built-in research domain, or none>" in prompt
+    assert "JSON" not in prompt
 
 
 def test_vertical_prompt_does_not_escalate_bounded_repo_fix_to_new_domain() -> None:
