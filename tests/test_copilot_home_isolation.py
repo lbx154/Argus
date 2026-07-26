@@ -18,12 +18,14 @@ to Copilot only, and an explicitly chosen home always wins.
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from argus_skill.agent_cli.copilot_home import (
+    prune_copilot_sessions,
     COPILOT_HOME_ENV,
     apply_copilot_home,
     argus_copilot_home,
@@ -173,3 +175,87 @@ def test_the_operators_personal_home_is_never_written_to(
 
     assert sorted(p.name for p in personal.iterdir()) == before
     assert os.environ.get(COPILOT_HOME_ENV) is None  # our own env is untouched
+
+
+# --- retention: relocating the growth is not the same as bounding it -------
+
+
+def _session(home: Path, name: str, *, age_days: float) -> Path:
+    d = home / "session-state" / name
+    d.mkdir(parents=True)
+    (d / "events.jsonl").write_text("{}\n", encoding="utf-8")
+    stamp = time.time() - age_days * 86400
+    os.utime(d, (stamp, stamp))
+    return d
+
+
+def test_stale_sessions_are_pruned_and_recent_ones_kept(tmp_path: Path) -> None:
+    # At the observed ~115 sessions/hour, moving the writes without bounding
+    # them just relocates 2.6 GB/day. Only a recent session can be resumed.
+    home = tmp_path / "copilot-home"
+    old = _session(home, "old", age_days=30)
+    edge = _session(home, "edge", age_days=6.9)
+    fresh = _session(home, "fresh", age_days=0)
+
+    assert prune_copilot_sessions(home, env={}) == 1
+    assert not old.exists()
+    assert edge.exists() and fresh.exists()
+
+
+def test_retention_window_is_configurable_and_zero_disables(tmp_path: Path) -> None:
+    home = tmp_path / "copilot-home"
+    _session(home, "a", age_days=3)
+
+    assert prune_copilot_sessions(
+        home, env={"ARGUS_SKILL_COPILOT_SESSION_RETENTION_DAYS": "0"}
+    ) == 0
+    assert (home / "session-state" / "a").exists()
+    assert prune_copilot_sessions(
+        home, env={"ARGUS_SKILL_COPILOT_SESSION_RETENTION_DAYS": "1"}
+    ) == 1
+
+
+def test_a_bad_retention_value_falls_back_rather_than_deleting_everything(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "copilot-home"
+    _session(home, "recent", age_days=1)
+
+    assert prune_copilot_sessions(
+        home, env={"ARGUS_SKILL_COPILOT_SESSION_RETENTION_DAYS": "not-a-number"}
+    ) == 0
+    assert (home / "session-state" / "recent").exists()
+
+
+def test_the_operators_personal_home_is_never_swept(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The sweep must be reachable only for the Argus-owned home. ~/.copilot is
+    # the operator's data, including sessions Argus did not create.
+    env = _argus_env(tmp_path)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    personal = Path(env["HOME"]) / ".copilot"
+    ancient = personal / "session-state" / "operators-own"
+    ancient.mkdir(parents=True)
+    stamp = time.time() - 365 * 86400
+    os.utime(ancient, (stamp, stamp))
+
+    prepare_copilot_home(env)
+
+    assert ancient.exists()
+
+
+def test_the_sweep_is_throttled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # prepare_copilot_home runs on the child-env path, once per provider turn;
+    # scanning tens of thousands of directories every time would be the cost of
+    # the fix exceeding the problem.
+    env = _argus_env(tmp_path)
+    home = prepare_copilot_home(env)
+    assert home is not None
+    _session(home, "stale", age_days=30)
+
+    prepare_copilot_home(env)  # second call within the hour
+
+    assert (home / "session-state" / "stale").exists()

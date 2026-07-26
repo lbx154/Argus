@@ -27,6 +27,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import time
 from pathlib import Path
 from typing import Mapping
 
@@ -41,6 +42,16 @@ _COPILOT_HOME_DIR = "copilot-home"
 # defaults instead of the operator's settings.
 _SEEDED_CONFIG_FILES = ("config.json", "settings.json", "permissions-config.json")
 
+# Relocating the working state bounds nothing on its own: at the observed ~115
+# sessions/hour a 7x24 host writes roughly 2.6 GB a day, so an unpruned Argus
+# home simply becomes the next 47 GB somewhere else. Sessions are per-turn
+# scratch — only a recent one can still be resumed — so they get an age limit,
+# and the sweep is throttled because it runs on the child-env path.
+_RETENTION_DAYS_ENV = "ARGUS_SKILL_COPILOT_SESSION_RETENTION_DAYS"
+_DEFAULT_RETENTION_DAYS = 7.0
+_SWEEP_INTERVAL_SECONDS = 3600.0
+_SWEEP_STAMP = ".argus-last-sweep"
+
 
 def argus_copilot_home(env: Mapping[str, str] | None = None) -> Path:
     """Path of the Argus-owned Copilot home, beside the rest of Argus state."""
@@ -48,6 +59,74 @@ def argus_copilot_home(env: Mapping[str, str] | None = None) -> Path:
     configured = str(source.get("ARGUS_SKILL_HOME") or "").strip()
     root = Path(configured).expanduser() if configured else global_root()
     return root / _COPILOT_HOME_DIR
+
+
+def _retention_days(env: Mapping[str, str]) -> float:
+    raw = str(env.get(_RETENTION_DAYS_ENV) or "").strip()
+    if not raw:
+        return _DEFAULT_RETENTION_DAYS
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        return _DEFAULT_RETENTION_DAYS
+
+
+def prune_copilot_sessions(
+    home: Path,
+    *,
+    env: Mapping[str, str] | None = None,
+    now: float | None = None,
+) -> int:
+    """Delete session scratch older than the retention window. Returns the count.
+
+    Only ever called on the Argus-owned home — the operator's ``~/.copilot`` is
+    theirs and is never swept. Age is the directory's own mtime, so a session
+    that is still being written to or was just resumed looks fresh and survives.
+
+    Deleting a session directory is safe even though ``session-store.db`` keeps
+    its row: verified by removing one from a scratch home and running the CLI
+    again, which worked with the orphaned record still present. Setting the
+    retention to ``0`` disables pruning.
+    """
+    source = env if env is not None else os.environ
+    days = _retention_days(source)
+    if days <= 0:
+        return 0
+    root = Path(home) / "session-state"
+    if not root.is_dir():
+        return 0
+
+    cutoff = (now if now is not None else time.time()) - days * 86400.0
+    removed = 0
+    for entry in root.iterdir():
+        if not entry.is_dir():
+            continue
+        try:
+            if entry.stat().st_mtime >= cutoff:
+                continue
+            shutil.rmtree(entry)
+        except OSError:  # noqa: PERF203 — one undeletable session must not stop the sweep
+            continue
+        removed += 1
+    if removed:
+        log.info("copilot home: pruned %d session(s) older than %.1fd", removed, days)
+    return removed
+
+
+def _sweep_is_due(home: Path, now: float) -> bool:
+    """True at most once per :data:`_SWEEP_INTERVAL_SECONDS`, and claim the slot.
+
+    The stamp is written *before* the sweep so that concurrent workers — and
+    there are many — do not all scan the directory at once.
+    """
+    stamp = Path(home) / _SWEEP_STAMP
+    try:
+        if stamp.exists() and now - stamp.stat().st_mtime < _SWEEP_INTERVAL_SECONDS:
+            return False
+        stamp.touch()
+    except OSError:
+        return False
+    return True
 
 
 def prepare_copilot_home(env: Mapping[str, str] | None = None) -> Path | None:
@@ -77,6 +156,10 @@ def prepare_copilot_home(env: Mapping[str, str] | None = None) -> Path | None:
             shutil.copy2(origin, target)
         except OSError:  # noqa: PERF203 — one bad file must not lose the rest
             log.warning("could not seed %s into the Argus copilot home", name)
+
+    now = time.time()
+    if _sweep_is_due(home, now):
+        prune_copilot_sessions(home, env=source, now=now)
     return home
 
 
@@ -95,6 +178,7 @@ def apply_copilot_home(env: dict[str, str]) -> dict[str, str]:
 
 
 __all__ = [
+    "prune_copilot_sessions",
     "COPILOT_HOME_ENV",
     "apply_copilot_home",
     "argus_copilot_home",
