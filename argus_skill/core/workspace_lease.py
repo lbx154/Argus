@@ -39,6 +39,41 @@ def workspace_lease_path(workdir: str | Path) -> Path:
     return lease_dir / "lease.lock"
 
 
+def _busy_message(canonical: Path, detail: str) -> str:
+    """Say who holds the lease and what to do, not just that it is held.
+
+    The raw lease record was previously appended verbatim, so an operator who
+    launched a second daemon in the same directory got a line of JSON with a pid
+    in it and no next step. Everything needed was present; none of it was
+    actionable.
+    """
+    base = f"workdir {canonical} is already leased"
+    owner: dict[str, Any] = {}
+    if detail:
+        try:
+            parsed = json.loads(detail)
+        except (TypeError, ValueError):
+            parsed = None
+        if isinstance(parsed, dict):
+            owner = parsed
+    if not owner:
+        return f"{base}{f': {detail}' if detail else ''}"
+    pid = owner.get("pid")
+    lines = [f"{base} by pid {pid}" if pid else base]
+    sid = str(owner.get("sid") or "").strip()
+    if sid:
+        lines.append(f"  session: {sid}")
+    life_dir = str(owner.get("life_dir") or "").strip()
+    if life_dir:
+        lines.append(f"  project: {life_dir}")
+    lines.append("  a workdir runs one daemon at a time. Either:")
+    lines.append("    - watch the one already there:  argus --status   (or --follow)")
+    if pid:
+        lines.append(f"    - stop it:                      kill {pid}")
+    lines.append("    - or start this objective in a different directory")
+    return "\n".join(lines)
+
+
 def acquire_workspace_lease(
     workdir: str | Path,
     *,
@@ -59,8 +94,9 @@ def acquire_workspace_lease(
         except OSError:
             pass
         os.close(fd)
-        suffix = f": {detail}" if detail else ""
-        raise WorkspaceLeaseBusy(f"workdir {canonical} is already leased{suffix}") from exc
+        raise WorkspaceLeaseBusy(
+            _busy_message(canonical, detail)
+        ) from exc
     payload = {
         "workdir": str(canonical),
         "pid": os.getpid(),
