@@ -39,7 +39,9 @@ class PlanningCycleIntakeMixin:
         """
         revision_request = state.revision_request
         state.operator_messages = (
-            self._drain_user_inbox() if revision_request is None else []
+            self._take_operator_guidance_carryover() + self._drain_user_inbox()
+            if revision_request is None
+            else []
         )
         if state.operator_messages:
             self._deactivate_planner_waiting_contract()

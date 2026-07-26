@@ -86,12 +86,37 @@ class IdleCycleMixin:
                 continue
             if isinstance(result, dict) and bool(result.get("resolved")):
                 self._reset_idle_backoff()
+                # The drain above consumed this message, so the Planner's own
+                # drain next cycle returns nothing and it plans on against
+                # whatever the operator just refuted. Observed on 2026-07-26:
+                # answering "there is no GPU and none can be provisioned, do not
+                # wait for one" unblocked the Engineer, which built the CPU
+                # fallback that was asked for — and the Planner, never shown the
+                # message, immediately proposed "Make CUDA-visible NVIDIA GPU
+                # available". An operator's words are durable guidance, not a
+                # one-shot token spent by whichever consumer reads them first.
+                #
+                # In memory only: a daemon restart between the answer and the
+                # next planning cycle loses the carryover. The answer itself is
+                # already durable on the item and in the transcript; this is the
+                # narrow "same process, next cycle" gap that was observed.
+                carryover = getattr(self, "_operator_guidance_carryover", None)
+                if carryover is None:
+                    carryover = []
+                    self._operator_guidance_carryover = carryover
+                carryover.append(message)
                 self._emit_status(
                     "operator inbox resolved pending question "
                     f"for backlog item {getattr(item, 'id', '')}"
                 )
                 return True
         return False
+
+    def _take_operator_guidance_carryover(self) -> list[str]:
+        """Operator guidance consumed elsewhere, handed to the Planner once."""
+        carryover = getattr(self, "_operator_guidance_carryover", None) or []
+        self._operator_guidance_carryover = []
+        return list(carryover)
 
     def _maybe_stop(self) -> str:
         ev = self.config.stop_event
