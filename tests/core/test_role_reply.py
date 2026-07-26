@@ -420,3 +420,57 @@ def test_a_volunteered_json_rewrite_still_parses() -> None:
 
     assert rewrite.rewritten == "do the thing"
     assert rewrite.changes == ["a"] and rewrite.questions == ["b"]
+
+
+# -- the operator-answer ruling ----------------------------------------------
+
+
+def _rule(text: str):
+    from argus_skill.webapi.manager_pending_question import (
+        _parse_pending_question_decision,
+    )
+
+    return _parse_pending_question_decision(text)
+
+
+def test_an_operator_answer_ruling_reads_from_named_lines() -> None:
+    ruling = _rule(
+        "The operator has told us no GPU exists, which supersedes the inherited\n"
+        "requirement to measure on hardware.\n"
+        "\n"
+        "IS_ANSWER=true\n"
+        "RESOLVED=true\n"
+        "DECISION=Do not wait for a GPU. Implement the kernel logic and a CPU\n"
+        "correctness harness, and state that TFLOPS could not be measured.\n"
+        "REPLY=\n"
+    )
+
+    assert ruling is not None
+    assert ruling["is_answer"] is True and ruling["resolved"] is True
+    assert "CPU\ncorrectness harness" in ruling["decision"]
+
+
+def test_an_unreadable_ruling_is_none_not_a_confident_no() -> None:
+    """The failure that would hurt an operator most.
+
+    Defaulting a missing boolean to False turns "I could not read our own
+    Manager's reply" into "your message was not an answer" — the operator is
+    told they were ignored because of our parsing, not their words.
+    """
+    assert _rule("I think the operator means we should proceed on CPU.") is None
+    assert _rule("IS_ANSWER=true\n") is None, "a missing RESOLVED is not a False"
+    assert _rule("IS_ANSWER=maybe\nRESOLVED=true\n") is None
+
+
+def test_a_resolved_ruling_without_an_instruction_is_refused() -> None:
+    """Resolving with nothing for the team to do is not a resolution."""
+    assert _rule("IS_ANSWER=true\nRESOLVED=true\nDECISION=\n") is None
+
+
+def test_a_volunteered_json_ruling_still_parses() -> None:
+    ruling = _rule(
+        '{"is_answer": true, "resolved": false, "decision": "", '
+        '"reply": "which kernel?"}'
+    )
+
+    assert ruling is not None and ruling["reply"] == "which kernel?"

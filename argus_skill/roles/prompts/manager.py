@@ -156,13 +156,17 @@ def build_pending_question_prompt(item: Any, answer: str) -> str:
     return (
         "You are the Manager resolving an operator-only blocker for an existing "
         "mission. Interpret the operator response in the blocked mission context. "
-        "Return ONLY one JSON object with exactly these fields: "
-        '{"is_answer": boolean, "resolved": boolean, "decision": string, '
-        '"reply": string}. Set is_answer=false when the message is unrelated '
+        "End your reply with these lines; DECISION and REPLY may run over "
+        "several lines:\n"
+        "IS_ANSWER=true|false\n"
+        "RESOLVED=true|false\n"
+        "DECISION=<explicit role-clean instruction for Planner/Engineer>\n"
+        "REPLY=<one concise clarification question, when not resolved>\n"
+        "Set IS_ANSWER=false when the message is unrelated "
         "chat, status, configuration, or control rather than an attempted answer; "
-        "in that case also set resolved=false and leave decision and reply empty. "
-        "Set resolved=true only when the response supplies enough authority or "
-        "information for the team to continue. decision must then be an explicit, "
+        "in that case also set RESOLVED=false and leave DECISION and REPLY empty. "
+        "Set RESOLVED=true only when the response supplies enough authority or "
+        "information for the team to continue. DECISION must then be an explicit, "
         "role-clean instruction for Planner/Engineer. The latest operator response "
         "is binding wherever it conflicts with inherited mission details. When it "
         "changes a method, scope, tool, or acceptance requirement, explicitly name "

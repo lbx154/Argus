@@ -45,7 +45,49 @@ def _emit_ui_turn(life_dir: Path, role: str, text: str, *, message_id: str) -> N
         pass
 
 
+_PQ_KEYS = ("IS_ANSWER", "RESOLVED", "DECISION", "REPLY")
+
+
+def _named_pending_question_decision(text: str) -> dict[str, Any] | None:
+    """The Manager's ruling as stated on named lines, or ``None`` if absent.
+
+    Both booleans must actually be present. Defaulting a missing one to False
+    would turn any reply this reader could not understand into a confident
+    "that was not an answer", which is the operator being told their message was
+    ignored because we failed to read our own role's output.
+
+    DECISION and REPLY are read as blocks: an instruction for the Planner is
+    prose and regularly spans lines.
+    """
+    from ..core.role_reply import read_block, read_key_values
+
+    values = read_key_values(text, _PQ_KEYS)
+    if "IS_ANSWER" not in values or "RESOLVED" not in values:
+        return None
+    truthy = {"true", "yes", "y", "1", "on"}
+    falsy = {"false", "no", "n", "0", "off"}
+    raw_answer = values["IS_ANSWER"].strip().casefold()
+    raw_resolved = values["RESOLVED"].strip().casefold()
+    if raw_answer not in truthy | falsy or raw_resolved not in truthy | falsy:
+        return None
+    is_answer = raw_answer in truthy
+    resolved = raw_resolved in truthy
+    decision = read_block(text, "DECISION", _PQ_KEYS).strip()
+    reply = read_block(text, "REPLY", _PQ_KEYS).strip()
+    if resolved and (not is_answer or not decision):
+        return None
+    return {
+        "is_answer": is_answer,
+        "resolved": resolved,
+        "decision": decision,
+        "reply": reply,
+    }
+
+
 def _parse_pending_question_decision(text: str) -> dict[str, Any] | None:
+    named = _named_pending_question_decision(text)
+    if named is not None:
+        return named
     cleaned = str(text or "").strip()
     if cleaned.startswith("```"):
         lines = cleaned.splitlines()
