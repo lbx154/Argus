@@ -32,6 +32,25 @@ log = logging.getLogger(__name__)
 _LIFECYCLE_BLOCK_HEARTBEAT_SECONDS = 1800.0
 
 
+def resolved_vertical_or_default(artifact_root: object) -> str:
+    """The active vertical, never raising.
+
+    The whole lifecycle gate runs inside one ``except Exception`` that logs and
+    allows dispatch. A raise from here would therefore skip the *block* check
+    below it, letting a project that should be held through — turning a
+    completion detail into a fail-open. The completion API already fails closed
+    on an unreadable vertical, so handing it the default is the safe answer.
+    """
+    from ...skills.vertical_select import resolve_vertical
+
+    try:
+        return resolve_vertical(artifact_root)
+    except Exception:  # noqa: BLE001 — see docstring; must not fail open
+        from ...verticals._base import DEFAULT_VERTICAL
+
+        return DEFAULT_VERTICAL
+
+
 class LifecycleMixin:
     def _lifecycle_root(self) -> Path:
         """Return the per-project directory holding ``lifecycle.json``."""
@@ -162,12 +181,52 @@ class LifecycleMixin:
                 and status.state not in (ProjectState.DONE, ProjectState.ARCHIVED)
                 and status.has_submission_artifact
             ):
-                event = LifecycleEvent(
-                    at=datetime.now(timezone.utc),
-                    from_state=status.state,
-                    to_state=ProjectState.DONE,
-                    reason="reviewer_certified_full_paper",
+                # The single DONE write path. The conditions above are exactly
+                # the ones this branch already used, so nothing completes that
+                # did not complete before; what changed is that the write, the
+                # strength check and the `project.completed` event now happen in
+                # one place instead of being inlined here.
+                from ...core.project_api import (
+                    SOURCE_REVIEWER_FULL_PAPER,
+                    CompletionSource,
+                    complete_project,
                 )
+
+                outcome = complete_project(
+                    memory_root=memory_root,
+                    project_root=artifact_root,
+                    vertical=resolved_vertical_or_default(artifact_root),
+                    source=CompletionSource(
+                        kind=SOURCE_REVIEWER_FULL_PAPER,
+                        evidence_refs=("journal:full_paper_gate_success",),
+                        detail="reviewer certified the full paper gate",
+                    ),
+                    status=status,
+                    reason="reviewer_certified_full_paper",
+                    on_event=self._emit,
+                )
+                if outcome.accepted:
+                    done_event = LifecycleEvent(
+                        at=datetime.now(timezone.utc),
+                        from_state=status.state,
+                        to_state=ProjectState.DONE,
+                        reason="reviewer_certified_full_paper",
+                    )
+                    status = apply_event(status, done_event)
+                    self._emit({
+                        "type": EventType.LIFE_LIFECYCLE_TRANSITION,
+                        "from_state": done_event.from_state.value,
+                        "to_state": done_event.to_state.value,
+                        "reason": done_event.reason,
+                        "agent_layer": "supervisor",
+                    })
+                    event = None
+                else:
+                    log.warning(
+                        "completion refused for %s: %s",
+                        memory_root,
+                        outcome.reason,
+                    )
             if event is not None:
                 status = apply_event(status, event)
                 try:
@@ -235,4 +294,5 @@ class LifecycleMixin:
         return (0.0, 0.0)
 
 
-__all__ = ["LifecycleMixin"]
+
+__all__ = ["LifecycleMixin", "resolved_vertical_or_default"]
