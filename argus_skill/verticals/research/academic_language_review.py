@@ -326,11 +326,15 @@ def generate_academic_language_review(
                 venue=venue,
             )
         except (ImageToolError, AcademicLanguageReviewError) as exc:
+            # TODO(agent-cli-review-fallback): when no vault HTTP route exists but
+            # the reviewer role runs on an agent-CLI backend (copilot/claude),
+            # dispatch this review through that backend instead of hard-blocking.
             issues.append(
                 _issue(
                     "model_review_unavailable",
                     "blocking",
-                    f"text reviewer could not review paper prose: {_redact(str(exc))}",
+                    f"text reviewer could not review paper prose: "
+                    f"{describe_reviewer_route_unavailable(exc, env)}",
                     hard_gate=True,
                     action="rewrite_introduction",
                 )
@@ -1088,6 +1092,52 @@ def _frontiers_sleep_review_prompt(
     )
 
 
+def describe_reviewer_route_unavailable(
+    exc: Exception, env: Mapping[str, str] | None = None
+) -> str:
+    """Build an accurate operator message when the model-backed ``reviewer``
+    route is unavailable.
+
+    The reviewer *role* may run on an agent-CLI backend (``copilot`` /
+    ``claude`` / ``codex``) that authenticates through its own CLI and exposes
+    no OpenAI-style HTTP route. On such deployments the raw ``_require_route``
+    guidance ("configure api_key, base_url, and model") is impossible to satisfy
+    for copilot/claude, so we surface the real options instead of a misleading
+    one. The gate stays blocking either way — this only fixes the message.
+
+    The note is only appended when the ``reviewer`` vault route is genuinely
+    absent (so a real HTTP failure on a configured route is not mislabelled).
+
+    TODO(agent-cli-review-fallback): the durable fix is to let the model-backed
+    reviews dispatch their prompt through the reviewer's agent-CLI backend
+    (``AgentCliRunner.run_exec``) when no vault HTTP route is configured, so a
+    copilot/claude-only deployment can complete the review stage without a
+    separate keyed route. That is a larger, cross-file change: these reviews run
+    as standalone ``python -m argus_skill.verticals.research.*`` subprocesses,
+    so they would need to spawn the reviewer role backend and parse its JSON
+    output (timeouts, streaming, and JSON-extraction included). Tracked as a
+    follow-up rather than folded into this message-only fix.
+    """
+    base = _redact(str(exc))
+    try:
+        from ...tools.capability_vault import load_model_api_route
+        from ...core.knobs import resolve_role_backend
+
+        route = load_model_api_route("reviewer", env)
+        route_missing = route is None or not route.usable
+        backend = resolve_role_backend("reviewer", env=env).strip().lower()
+    except Exception:  # pragma: no cover - never mask the underlying error
+        return base
+    if route_missing and backend in {"copilot", "claude"}:
+        return (
+            f"{base} — note: the reviewer role runs on the {backend!r} agent-CLI "
+            "backend, which authenticates through its own CLI and exposes no "
+            "OpenAI-style HTTP route, so api_key/base_url/model cannot be set for "
+            "it. To run this model-backed review, configure a capability-vault "
+            "'reviewer' route (~/.argus-skill/capabilities/model_api.json) that "
+            "points at an OpenAI-compatible endpoint."
+        )
+    return base
 
 
 def _issue(

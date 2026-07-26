@@ -42,6 +42,7 @@ from .academic_language_review import (
     _write_json,
     _write_text,
     collect_latex_source_paths,
+    describe_reviewer_route_unavailable,
 )
 
 PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH = Path("paper/PAPER_INFRASTRUCTURE_REVIEW.json")
@@ -154,10 +155,14 @@ def generate_paper_infrastructure_review(
                 venue=venue,
             )
         except (ImageToolError, PaperInfrastructureReviewError) as exc:
+            # TODO(agent-cli-review-fallback): when no vault HTTP route exists but
+            # the reviewer role runs on an agent-CLI backend (copilot/claude),
+            # dispatch this review through that backend instead of hard-blocking.
             issue = _issue(
                 "model_review_unavailable",
                 "blocking",
-                f"text reviewer could not inspect paper infrastructure leaks: {_redact(str(exc))}",
+                f"text reviewer could not inspect paper infrastructure leaks: "
+                f"{describe_reviewer_route_unavailable(exc, env)}",
                 action="rewrite_setup_as_paper_facing",
             )
             issues.append(issue)
