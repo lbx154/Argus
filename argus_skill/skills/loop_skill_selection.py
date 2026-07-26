@@ -210,7 +210,6 @@ class SkillSelectionMixin:
         self._run_venue_research(mission)
         state = SkillSelectionState()
         self._match_skill(mission, state)
-        self._maybe_distill_on_miss(mission, state)
         self._maybe_nearest_transfer(mission, state)
         self._render_skill_text_and_adapt(mission, state)
         self._load_adaptation_state(mission, state)
@@ -311,9 +310,6 @@ class SkillSelectionMixin:
         state.low_confidence_transfer_hint = ""
         state.skill_distilled = False
         state.distill_result = None
-
-    def _maybe_distill_on_miss(self, mission: MissionContext, state: SkillSelectionState) -> None:
-        _ = mission, state
 
     def _maybe_nearest_transfer(self, mission: MissionContext, state: SkillSelectionState) -> None:
         if state.skill is None and self.config.nearest_transfer_enabled:

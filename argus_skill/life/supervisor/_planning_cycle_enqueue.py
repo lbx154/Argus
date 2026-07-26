@@ -30,7 +30,7 @@ from ._helpers import (
     _resolve_task_dep_ids,
     _sanitize_planner_task_text,
 )
-from ._planning_cycle_helpers import _PlanCycleState, _revision_context_refs, _revision_reason
+from ._planning_cycle_helpers import _PlanCycleState, _revision_reason
 
 log = logging.getLogger(__name__)
 
@@ -73,11 +73,6 @@ class PlanningCycleEnqueueMixin:
         state.new_plan_id = f"plan-{BacklogItem.new_id()}"
         state.new_plan_version = (
             state.expected_plan_version + 1 if state.revision_request is not None else 1
-        )
-        state.revision_context_refs = (
-            _revision_context_refs(state.revision_request)
-            if state.revision_request is not None
-            else []
         )
         return None
 
@@ -244,9 +239,7 @@ class PlanningCycleEnqueueMixin:
                 plan_id=state.new_plan_id,
                 plan_version=state.new_plan_version,
                 node_key=str(getattr(task, "key", "") or item_id),
-                context_refs=(
-                    list(getattr(task, "context_refs", []) or []) or state.revision_context_refs
-                ),
+                context_refs=list(getattr(task, "context_refs", []) or []),
                 acceptance_check=str(
                     getattr(task, "acceptance_check", "") or getattr(task, "evidence", "")
                 ),

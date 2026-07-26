@@ -18,11 +18,6 @@ from typing import Any
 from ..memory import BacklogItem
 
 
-def _revision_context_refs(revision_request: dict[str, Any]) -> list[dict[str, str]]:
-    _ = revision_request
-    return []
-
-
 def _revision_reason(revision_request: dict[str, Any]) -> str:
     return str(revision_request.get("review_reason") or "").strip()
 
@@ -44,10 +39,6 @@ def _render_revision_request(
     lines.extend(
         f"  - {item.node_key or item.id}: [{item.status}] {item.title}" for item in active_items
     )
-    refs = _revision_context_refs(revision_request)
-    if refs:
-        lines.append("- evidence files to open before replanning:")
-        lines.extend(f"  - {ref['ref']}: {ref['why']}" for ref in refs)
     lines.append(
         "Return a complete replacement batch for the remaining active nodes. "
         "Completed nodes are immutable. Do not return project_done. Exception: if "
@@ -175,7 +166,6 @@ class _PlanCycleState:
         self.skipped_subagent_family_failure_titles: list[str] = []
         self.new_plan_id: str = ""
         self.new_plan_version: int = 1
-        self.revision_context_refs: list[dict[str, str]] = []
         self.key_map: dict[str, str] = {}
         self.pending_items: list[tuple[Any, Any]] = []
 
@@ -185,6 +175,5 @@ __all__ = [
     "_render_revision_request",
     "_research_project_done_issue",
     "_staged_goal_completion_issue",
-    "_revision_context_refs",
     "_revision_reason",
 ]

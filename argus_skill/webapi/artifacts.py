@@ -85,15 +85,6 @@ def safe_artifact_path(workspace: Path, relative_path: str) -> tuple[str, Path] 
     return normalized, resolved
 
 
-def latest_evidence_files(
-    sid: str,
-    *,
-    global_root: Path | str | None = None,
-) -> list[dict[str, str]]:
-    _ = sid, global_root
-    return []
-
-
 def manager_live_view_files(
     sid: str,
     workspace: Path,
@@ -245,14 +236,6 @@ def list_project_artifacts(
     evidence_rows = [
         *manager_live_view_files(sid, workspace, global_root=global_root),
         *registered_research_artifacts(sid, global_root=global_root),
-        *(
-            {
-                **evidence,
-                "source": "reviewer_evidence",
-                "group_title": "Latest reviewed result",
-            }
-            for evidence in latest_evidence_files(sid, global_root=global_root)
-        ),
     ]
     for evidence in evidence_rows:
         row = artifact_metadata(workspace, evidence["path"], why=evidence["why"])
@@ -383,7 +366,6 @@ __all__ = [
     "artifact_workspace",
     "artifact_metadata",
     "get_project_artifact",
-    "latest_evidence_files",
     "list_project_artifacts",
     "manager_live_view_files",
     "project_workspace",

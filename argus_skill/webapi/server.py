@@ -96,7 +96,6 @@ list_projects = project_state.list_projects
 list_project_costs = project_state.list_project_costs
 project_life_dir = project_state.project_life_dir
 _artifact_metadata = artifacts.artifact_metadata
-_latest_evidence_files = artifacts.latest_evidence_files
 _manager_live_view_files = artifacts.manager_live_view_files
 _project_git_diff = artifacts.project_git_diff
 _project_workspace = artifacts.project_workspace

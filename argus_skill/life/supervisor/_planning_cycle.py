@@ -15,7 +15,6 @@ from ._planning_cycle_helpers import (
     _PlanCycleState,
     _render_revision_request,
     _research_project_done_issue,
-    _revision_context_refs,
     _revision_reason,
 )
 from ._planning_cycle_intake import PlanningCycleIntakeMixin
@@ -635,6 +634,5 @@ __all__ = [
     "PlanningCycleMixin",
     "_render_revision_request",
     "_research_project_done_issue",
-    "_revision_context_refs",
     "_revision_reason",
 ]

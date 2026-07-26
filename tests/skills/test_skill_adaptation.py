@@ -12,7 +12,6 @@ from argus_skill.skills.adaptation import (
 from argus_skill.skills.missions import EngineerMission
 from argus_skill.skills.scientist import (
     SkillScientist,
-    _build_scientist_prompt,
     parse_mechanism_change,
 )
 from argus_skill.skills.skill_router import SkillRouter
@@ -55,7 +54,7 @@ class _TimedOutScientistBackend:
 def test_timed_out_scientist_does_not_activate_partial_skill() -> None:
     scientist = SkillScientist(_TimedOutScientistBackend(), model="test")
 
-    assert scientist.distill("solve a conjecture") == ""
+    assert scientist.distill_alternative("solve a conjecture", "reviewer said no") == ""
 
 
 def test_adaptation_state_is_generic_restart_safe_project_state(tmp_path: Path) -> None:
@@ -120,25 +119,6 @@ def test_scientist_alternative_enters_generic_versioned_skill_store(
     assert created.path is not None and Path(created.path).exists()
 
 
-def test_create_prompt_keeps_complete_task_without_adaptation_contract() -> None:
-    task = (
-        "Select one open Erdős problem and define the scope faithfully. "
-        "Verify the current status from primary sources. "
-        + "one-off acceptance detail " * 100
-    )
-
-    prompt = _build_scientist_prompt(
-        task,
-        "MISSION TYPE: MATHEMATICS. Initial CREATE only.",
-    )
-
-    assert "Initial CREATE only" in prompt
-    assert "Do not invoke skills or plugins" in prompt
-    assert "Do not launch subagents" in prompt
-    assert "Do not assume a prior failed method" in prompt
-    assert "one-off acceptance detail " * 40 in prompt
-    assert "Use live web search as much as needed" in prompt
-
 
 def test_scientist_call_does_not_impose_a_time_limit() -> None:
     class RecordingBackend:
@@ -150,6 +130,8 @@ def test_scientist_call_does_not_impose_a_time_limit() -> None:
             return RunnerResult(exit_code=0, agent_messages=["NONE"])
 
     recording = RecordingBackend()
-    SkillScientist(recording, model="test").distill("scope a problem")
+    SkillScientist(recording, model="test").distill_alternative(
+        "scope a problem", "reviewer said no"
+    )
     assert recording.kwargs is not None
     assert recording.kwargs["options"].watchdog_hard_idle_seconds is None
