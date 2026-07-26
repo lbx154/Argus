@@ -73,6 +73,44 @@ def read_key_values(text: str, keys: Iterable[str]) -> dict[str, str]:
     return found
 
 
+def read_records(
+    text: str,
+    keys: Iterable[str],
+    *,
+    start_key: str,
+) -> list[dict[str, str]]:
+    """Repeated blocks, each begun by ``start_key``.
+
+    The convention the Planner has always used for its ``TASK_*`` blocks,
+    generalised: a role listing several things writes them one after another,
+    and each new ``start_key`` line opens the next record. Plain
+    :func:`read_key_values` keeps only the last occurrence of a key, which is
+    right for a single verdict and wrong for a list.
+    """
+    pattern = _line_pattern(keys)
+    wanted = str(start_key).strip().upper()
+    records: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+    for raw in str(text or "").splitlines():
+        line = raw.strip()
+        if _FENCE.match(line):
+            continue
+        match = pattern.match(line.strip("`").strip())
+        if match is None:
+            continue
+        key = match.group("key").upper()
+        value = match.group("value").strip().strip("`").strip()
+        if key == wanted:
+            if current is not None:
+                records.append(current)
+            current = {key: value}
+        elif current is not None:
+            current[key] = value
+    if current is not None:
+        records.append(current)
+    return records
+
+
 def read_block(text: str, key: str, keys: Iterable[str]) -> str:
     """A value that runs past the end of its line, up to the next named key.
 
@@ -182,4 +220,5 @@ __all__ = [
     "read_key_values",
     "read_list",
     "read_optional",
+    "read_records",
 ]

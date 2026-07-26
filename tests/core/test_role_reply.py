@@ -549,3 +549,64 @@ def test_volunteered_json_presentations_still_parse() -> None:
     )
 
     assert len(presentations) == 1
+
+
+# -- repeated records --------------------------------------------------------
+
+
+def test_several_verdicts_are_read_as_separate_records() -> None:
+    """`read_key_values` keeps the last occurrence, which is wrong for a list."""
+    from argus_skill.core.role_reply import read_records
+
+    reply = (
+        "Here is how I would file them.\n"
+        "\n"
+        "CANDIDATE_ID=sk-1\n"
+        "PLACEMENT=global\n"
+        "VERTICAL=\n"
+        "WHY=nothing domain specific in it\n"
+        "\n"
+        "CANDIDATE_ID=sk-2\n"
+        "PLACEMENT=vertical\n"
+        "VERTICAL=kernelbench\n"
+        "WHY=assumes a CUDA toolchain\n"
+    )
+
+    records = read_records(
+        reply, ("CANDIDATE_ID", "PLACEMENT", "VERTICAL", "WHY"), start_key="CANDIDATE_ID"
+    )
+
+    assert [r["CANDIDATE_ID"] for r in records] == ["sk-1", "sk-2"]
+    assert records[1]["VERTICAL"] == "kernelbench"
+    assert records[0]["VERTICAL"] == ""
+
+
+def test_a_reply_with_no_records_reads_as_none_of_them() -> None:
+    from argus_skill.core.role_reply import read_records
+
+    assert read_records("nothing here", ("A", "B"), start_key="A") == []
+
+
+def test_skill_placements_keep_their_shape_and_their_fallback() -> None:
+    from argus_skill.manager.skill_review import _named_placements
+
+    named = _named_placements(
+        "CANDIDATE_ID=sk-1\nPLACEMENT=stay\nVERTICAL=\nWHY=too specific\n"
+    )
+
+    assert named is not None
+    assert named["placements"][0]["candidate_id"] == "sk-1"
+    assert _named_placements("no records at all") is None, (
+        "returning None is what keeps the JSON reader reachable"
+    )
+
+
+def test_a_single_placement_verdict_reads_from_named_lines() -> None:
+    from argus_skill.manager.skill_review import _named_placement
+
+    verdict = _named_placement(
+        "This one is reusable anywhere.\n\nPLACEMENT=global\nVERTICAL=\nWHY=no assumptions\n"
+    )
+
+    assert verdict == {"placement": "global", "vertical": "", "why": "no assumptions"}
+    assert _named_placement("just prose") is None

@@ -322,11 +322,13 @@ def build_domain_author_prompt(
         "- Prefer a small, coherent stage set a domain expert would recognize, "
         "grounded in what you actually found in the repo — do not pad with "
         "ceremony stages.\n\n"
-        "When your investigation is done, reply with ONE JSON object and "
-        "NOTHING else (no prose before or after it) — ONLY these four fields:\n"
-        '{"name": "<slug>", "stages": ["<stage1>", "<stage2>", ...], '
-        '"rationale": "<clear explanation citing what you found in the repo>", '
-        '"confidence": <0.0-1.0>}\n'
+        "When your investigation is done, state the domain on these lines. "
+        "Explain what you found in prose around them; only these lines are "
+        "read:\n"
+        "NAME=<slug>\n"
+        "STAGES=<stage1>; <stage2>; <stage3>\n"
+        "RATIONALE=<clear explanation citing what you found in the repo>\n"
+        "CONFIDENCE=<0.0-1.0>\n"
     )
 
 
@@ -706,10 +708,16 @@ def build_maintenance_prompt(
         f"{json.dumps(daemon_state, ensure_ascii=False, sort_keys=True)}\n\n"
         "Observed evidence:\n"
         f"{json.dumps(evidence, ensure_ascii=False, sort_keys=True)}\n\n"
-        "Return exactly one JSON object:\n"
-        '{"action":"no_action|repair|adopt","reason":"...","problem":"...",'
-        '"title":"...","objective":"...","acceptance_check":"...",'
-        '"evidence_ids":["..."],"affected_paths":["..."]}'
+        "State your decision on these lines; PROBLEM and OBJECTIVE may run over "
+        "several lines, and the two lists are separated by semicolons:\n"
+        "ACTION=no_action|repair|adopt\n"
+        "REASON=<why>\n"
+        "PROBLEM=<the concrete framework defect>\n"
+        "TITLE=<short repair title>\n"
+        "OBJECTIVE=<what the Engineer must do>\n"
+        "ACCEPTANCE_CHECK=<the command that proves it>\n"
+        "EVIDENCE_IDS=<id>; <id>\n"
+        "AFFECTED_PATHS=<path>; <path>\n"
     )
 
 
@@ -735,11 +743,12 @@ def build_skill_placement_prompt(
         f"## Candidate verticals\n{', '.join(candidates) or '(none)'}\n\n"
         f"## The task the skill was distilled on\n{task.strip()[:2000]}\n\n"
         f"## The skill playbook\n{content.strip()[:12000]}\n\n"
-        "Reply with ONLY a JSON object: "
-        '{"placement": "global"|"vertical"|"stay", '
-        '"vertical": "<name or empty>", "why": "<clear explanation>"}. '
-        'Use "vertical" only with a name from the candidate list; when unsure, '
-        'use "stay".'
+        "State your verdict on these lines:\n"
+        "PLACEMENT=global|vertical|stay\n"
+        "VERTICAL=<name from the candidate list, or empty>\n"
+        "WHY=<clear explanation>\n"
+        "Use `vertical` only with a name from the candidate list; when unsure, "
+        "use `stay`."
     )
 
 
@@ -759,12 +768,14 @@ def build_skill_placements_prompt(
         "Placement policy: global = cross-domain; vertical = only one named "
         "candidate vertical; stay = project-specific or uncertain. Prefer stay.\n\n"
         f"Candidate verticals: {', '.join(candidates) or '(none)'}\n\n"
-        "Skills JSON:\n"
+        "Skills to classify (input data):\n"
         f"{json.dumps(list(skills), ensure_ascii=False)}\n\n"
-        "Reply ONLY as JSON: {\"placements\":[{\"candidate_id\":\"exact input "
-        "candidate_id\","
-        "\"placement\":\"global|vertical|stay\",\"vertical\":\"\","
-        "\"why\":\"...\"}]}. Return exactly one row per input skill."
+        "State one block per input skill, in this shape, exactly one row per "
+        "input:\n"
+        "CANDIDATE_ID=<exact input candidate_id>\n"
+        "PLACEMENT=global|vertical|stay\n"
+        "VERTICAL=<name from the candidate list, or empty>\n"
+        "WHY=<clear explanation>"
     )
 
 
@@ -849,9 +860,9 @@ def manager_rendering_prompt(
         "Use read-only tools to inspect current intermediate artifacts. Never "
         "write files with tools. You "
         "may point the panel directly at a useful existing text/image/PDF artifact. "
-        "If it is missing, stale, or unattractive, author presentation content in "
-        "the final JSON for a single-file path under `.argus/live/`; the harness "
-        "will write it safely. Never alter source evidence, task outputs, code, or "
+        "If it is missing, stale, or unattractive, author presentation content "
+        "for a single-file path under `.argus/live/` using the PRESENTATION "
+        "block below; the harness will write it safely. Never alter source evidence, task outputs, code, or "
         "paper claims merely for display.\n"
         f"Current live view: {current_text}\n"
         f"Latest reviewer status: {status or '(none)'}\n"

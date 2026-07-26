@@ -44,12 +44,52 @@ def _extract_json(text: str) -> dict[str, Any] | None:
     return None
 
 
+_MAINTENANCE_KEYS = (
+    "ACTION",
+    "REASON",
+    "PROBLEM",
+    "TITLE",
+    "OBJECTIVE",
+    "ACCEPTANCE_CHECK",
+    "EVIDENCE_IDS",
+    "AFFECTED_PATHS",
+)
+
+
+def _named_maintenance_payload(text: str) -> dict[str, Any] | None:
+    """The maintenance verdict from named lines, in the shape the checks expect.
+
+    Every validation below is untouched — this only replaces the step that
+    obtained the fields, so the evidence-binding and path-binding rules that
+    keep a repair honest still run exactly as before.
+
+    PROBLEM and OBJECTIVE are read as blocks: a repair objective is prose and
+    an Engineer needs the whole of it.
+    """
+    from ..core.role_reply import read_block, read_key_values, read_list, read_optional
+
+    values = read_key_values(text, _MAINTENANCE_KEYS)
+    if "ACTION" not in values:
+        return None
+    payload: dict[str, Any] = {"action": read_optional(values, "ACTION")}
+    for key in ("REASON", "TITLE", "ACCEPTANCE_CHECK"):
+        if key in values:
+            payload[key.lower()] = read_optional(values, key)
+    for key in ("PROBLEM", "OBJECTIVE"):
+        if key in values:
+            payload[key.lower()] = read_block(text, key, _MAINTENANCE_KEYS).strip()
+    for key in ("EVIDENCE_IDS", "AFFECTED_PATHS"):
+        if key in values:
+            payload[key.lower()] = list(read_list(values, key))
+    return payload
+
+
 def parse_maintenance_decision(
     text: str,
     *,
     valid_evidence_ids: Iterable[str],
 ) -> MaintenanceDecision:
-    payload = _extract_json(text)
+    payload = _named_maintenance_payload(text) or _extract_json(text)
     if payload is None:
         return MaintenanceDecision(
             action="no_action",

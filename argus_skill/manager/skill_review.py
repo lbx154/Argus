@@ -17,6 +17,48 @@ from ..roles.prompts.manager import (
 log = logging.getLogger(__name__)
 
 
+_PLACEMENT_KEYS = ("CANDIDATE_ID", "PLACEMENT", "VERTICAL", "WHY")
+
+
+def _named_placement(text: str) -> dict | None:
+    """One placement verdict from named lines, or ``None`` when absent."""
+    from ..core.role_reply import read_key_values, read_optional
+
+    values = read_key_values(text, _PLACEMENT_KEYS)
+    if "PLACEMENT" not in values:
+        return None
+    return {
+        "placement": read_optional(values, "PLACEMENT"),
+        "vertical": read_optional(values, "VERTICAL"),
+        "why": read_optional(values, "WHY"),
+    }
+
+
+def _named_placements(text: str) -> dict | None:
+    """Several placement verdicts, one repeated block each.
+
+    Returns the same ``{"placements": [...]}`` shape the JSON reader produced,
+    so every downstream check — one row per input, candidate id must match, an
+    unknown vertical falls back to `stay` — runs unchanged.
+    """
+    from ..core.role_reply import read_records
+
+    records = read_records(text, _PLACEMENT_KEYS, start_key="CANDIDATE_ID")
+    if not records:
+        return None
+    return {
+        "placements": [
+            {
+                "candidate_id": row.get("CANDIDATE_ID", ""),
+                "placement": row.get("PLACEMENT", ""),
+                "vertical": row.get("VERTICAL", ""),
+                "why": row.get("WHY", ""),
+            }
+            for row in records
+        ]
+    }
+
+
 def _extract_json(text: str) -> dict | None:
     raw = (text or "").strip()
     if not raw:
@@ -93,7 +135,8 @@ def classify_skill_placement(
         log.warning("manager skill placement failed (%s: %s)", type(exc).__name__, exc)
         return PlacementVerdict("stay", "", f"placement error: {type(exc).__name__}")
 
-    parsed = _extract_json(getattr(result, "last_agent_message", "") or "")
+    reply = getattr(result, "last_agent_message", "") or ""
+    parsed = _named_placement(reply) or _extract_json(reply)
     if parsed is None:
         return PlacementVerdict("stay", "", "placement returned no JSON verdict")
     placement = str(parsed.get("placement", "")).strip().lower()
@@ -160,7 +203,8 @@ def classify_skill_placements(
         log.warning("manager batch skill placement failed (%s: %s)", type(exc).__name__, exc)
         return defaults
 
-    parsed = _extract_json(getattr(result, "last_agent_message", "") or "") or {}
+    reply = getattr(result, "last_agent_message", "") or ""
+    parsed = _named_placements(reply) or _extract_json(reply) or {}
     placements = parsed.get("placements")
     if not isinstance(placements, list):
         return defaults

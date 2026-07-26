@@ -61,7 +61,11 @@ def test_prompt_mentions_known_and_existing():
         existing_data_domains=["robotics_sim"],
     )
     assert "research" in prompt and "quant" in prompt and "robotics_sim" in prompt
-    assert "JSON" in prompt
+    # The prompt still has to state its output shape; since 2026-07-26 that
+    # shape is named lines rather than a JSON schema.
+    assert "NAME=<slug>" in prompt
+    assert "STAGES=" in prompt
+    assert "JSON" not in prompt
 
 
 def test_prompt_instructs_grounded_investigation_not_blind_guess():
