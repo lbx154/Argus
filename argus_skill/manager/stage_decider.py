@@ -88,6 +88,65 @@ def _normalized_stage_label(value: Any) -> str:
     return text
 
 
+_STAGE_KEYS = (
+    "ACTION",
+    "TARGET_STAGE",
+    "REASON",
+    "RESOLVES_WAIT",
+    "LIVE_VIEW_PATHS",
+    "LIVE_VIEW_TITLE",
+    "LIVE_VIEW_REASON",
+)
+
+
+def stage_decision_fields(raw_text: str) -> tuple[Any, str]:
+    """The Manager's stage verdict, read from named lines in whatever it wrote.
+
+    Operator directive: no role is forced to emit a JSON Schema. The Manager
+    explains its reasoning in prose and states the verdict on named lines; every
+    validation below is unchanged, only the step that obtains the fields moved.
+
+    Returns ``(fields, diagnostic)`` with the same diagnostic vocabulary the
+    JSON loader used, so the fail-closed HOLD path keeps reporting *why* a reply
+    was unusable rather than collapsing every failure into one label.
+
+    A volunteered JSON object is still read. Sixteen daemons are mid-flight on
+    the older prompt and refusing theirs would have made this a breaking change
+    for every run in progress.
+    """
+    from ..core.role_reply import (
+        legacy_json_object,
+        read_bool,
+        read_key_values,
+        read_list,
+        read_optional,
+    )
+
+    values = read_key_values(raw_text, _STAGE_KEYS)
+    if not values:
+        obj, diagnostic = _loads_first_json(raw_text)
+        return obj, diagnostic
+
+    fields: dict[str, Any] = {}
+    for key in ("ACTION", "TARGET_STAGE", "REASON"):
+        if key in values:
+            fields[key.lower()] = read_optional(values, key)
+    if "RESOLVES_WAIT" in values:
+        fields["resolves_wait"] = read_bool(values, "RESOLVES_WAIT")
+    paths = read_list(values, "LIVE_VIEW_PATHS")
+    if paths:
+        fields["live_view"] = {
+            "paths": list(paths),
+            "title": read_optional(values, "LIVE_VIEW_TITLE"),
+            "reason": read_optional(values, "LIVE_VIEW_REASON"),
+        }
+    elif "LIVE_VIEW_PATHS" in values:
+        # An explicit empty answer means "clear the panel", which the caller
+        # distinguishes from never having been asked.
+        fields["live_view"] = None
+    return fields, "named_lines"
+
+
 def parse_stage_decision(
     raw_text: str,
     *,
@@ -108,7 +167,7 @@ def parse_stage_decision(
     order = [str(s).strip().lower() for s in stage_order]
     hold = StageDecision("hold", cur, "manager held (default)", "default_hold")
 
-    obj, load_diagnostic = _loads_first_json(raw_text)
+    obj, load_diagnostic = stage_decision_fields(raw_text)
     if not isinstance(obj, dict):
         diagnostic = (
             "non_object_json"
@@ -333,6 +392,7 @@ def _mission_scope_can_complete(mission_scope: str, vertical: str) -> bool:
 
 __all__ = [
     "StageDecision",
+    "stage_decision_fields",
     "completion_trigger_reason",
     "extract_answer",
     "fallback_empty_stage_decision",

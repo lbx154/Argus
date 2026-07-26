@@ -263,3 +263,100 @@ def test_a_missing_block_is_empty_not_the_whole_reply() -> None:
     from argus_skill.core.role_reply import read_block
 
     assert read_block("STATUS=done", "REASON", _VERDICT) == ""
+
+
+# -- the stage decision, converted off forced JSON ---------------------------
+
+
+def test_a_verbatim_live_stage_verdict_parses() -> None:
+    """Captured from copilot against the converted stage prompt on 2026-07-26.
+
+    Kept verbatim, prose and all, because the point of the change is that the
+    Manager may reason out loud around its verdict — a fixture that omitted the
+    prose would not be testing the thing that changed.
+    """
+    from argus_skill.manager.stage_decider import parse_stage_decision
+
+    reply = (
+        "ADVANCE is both illegal (no next stage) and unsupported. HOLD is the "
+        "only legal and honest move.\n"
+        "\n"
+        "ACTION=hold\n"
+        "TARGET_STAGE=delivery\n"
+        "REASON=All three delivery checklist items are unmet with zero "
+        "supporting evidence.\n"
+        "LIVE_VIEW_PATHS=notes.md; CHECKPOINT.md\n"
+        "LIVE_VIEW_TITLE=Delivery held: no implementation artifacts exist\n"
+        "LIVE_VIEW_REASON=The working directory is empty.\n"
+    )
+
+    decision = parse_stage_decision(
+        reply, current_stage="delivery", stage_order=["delivery"]
+    )
+
+    assert decision.action == "hold"
+    assert decision.target_stage == "delivery"
+    assert "checklist items are unmet" in decision.reason
+
+
+def test_the_same_reply_carries_the_live_view_choice() -> None:
+    from argus_skill.manager.live_view import parse_live_view_response
+
+    decided, view = parse_live_view_response(
+        "ACTION=hold\n"
+        "LIVE_VIEW_PATHS=notes.md; CHECKPOINT.md\n"
+        "LIVE_VIEW_TITLE=Delivery held\n"
+        "LIVE_VIEW_REASON=nothing was built\n"
+    )
+
+    assert decided is True
+    assert view is not None
+    assert view.title == "Delivery held"
+    assert len(view.paths) == 2
+
+
+def test_an_empty_live_view_line_clears_the_panel() -> None:
+    """Distinct from never mentioning it, which must leave the panel alone."""
+    from argus_skill.manager.live_view import parse_live_view_response
+
+    cleared, view = parse_live_view_response("ACTION=hold\nLIVE_VIEW_PATHS=\n")
+    untouched, _ = parse_live_view_response("ACTION=hold\n")
+
+    assert cleared is True and view is None
+    assert untouched is False
+
+
+def test_a_stage_verdict_still_parses_from_volunteered_json() -> None:
+    from argus_skill.manager.stage_decider import parse_stage_decision
+
+    decision = parse_stage_decision(
+        '{"action":"hold","target_stage":"delivery","reason":"not yet"}',
+        current_stage="delivery",
+        stage_order=["delivery"],
+    )
+
+    assert decision.action == "hold" and decision.reason == "not yet"
+
+
+def test_the_stage_prompt_no_longer_demands_json() -> None:
+    from types import SimpleNamespace
+
+    from argus_skill.roles.prompts.manager import build_stage_decision_prompt
+
+    review = SimpleNamespace(
+        status="done", reason="r", next_action="", operator_question="", checklist=[]
+    )
+    prompt = build_stage_decision_prompt(
+        current_stage="delivery",
+        next_stage="",
+        earlier_stages=[],
+        checklist_md="- x",
+        review=review,
+        planner_verdict=None,
+        rendering_block="",
+        open_ended=True,
+        continuous_objective="obj",
+    )
+
+    assert "JSON" not in prompt
+    assert "ACTION=advance|hold|rollback" in prompt

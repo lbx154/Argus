@@ -14,6 +14,7 @@ import os
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from ..roles.prompts.manager import (
     manager_rendering_prompt,
@@ -204,13 +205,47 @@ def _response_payload(raw_text: str) -> dict[str, object] | None:
     return payload if isinstance(payload, dict) else None
 
 
+_LIVE_VIEW_KEYS = ("LIVE_VIEW_PATHS", "LIVE_VIEW_TITLE", "LIVE_VIEW_REASON")
+
+
+def _named_live_view(raw_text: str) -> dict[str, Any] | None:
+    """The live-view choice as stated on named lines, or ``None`` if absent.
+
+    The Manager is no longer forced to emit JSON, so the panel selection now
+    travels as flat lines beside the rest of its verdict. Returning ``None``
+    when no line is present keeps "never mentioned it" distinct from "chose to
+    clear it", which the caller relies on.
+    """
+    from ..core.role_reply import read_key_values, read_list, read_optional
+
+    values = read_key_values(raw_text, _LIVE_VIEW_KEYS)
+    if "LIVE_VIEW_PATHS" not in values:
+        return None
+    paths = read_list(values, "LIVE_VIEW_PATHS")
+    if not paths:
+        return {"live_view": None, "clear_live_view": True}
+    return {
+        "live_view": {
+            "paths": list(paths),
+            "title": read_optional(values, "LIVE_VIEW_TITLE"),
+            "reason": read_optional(values, "LIVE_VIEW_REASON"),
+        }
+    }
+
+
 def parse_live_view_response(
     raw_text: str,
     *,
     null_means_clear: bool = False,
 ) -> tuple[bool, LiveViewDecision | None]:
-    """Parse the optional ``live_view`` key from a Manager JSON response."""
-    payload = _response_payload(raw_text)
+    """Parse the optional live-view choice from a Manager reply.
+
+    Named lines first; a JSON object is still accepted so a run already in
+    flight against the older prompt keeps working.
+    """
+    payload = _named_live_view(raw_text)
+    if payload is None:
+        payload = _response_payload(raw_text)
     if payload is None or "live_view" not in payload:
         return False, None
     if payload.get("live_view") is None:

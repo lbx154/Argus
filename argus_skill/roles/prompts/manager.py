@@ -940,7 +940,13 @@ def build_stage_decision_prompt(
     continuous_objective: str = "",
 ) -> str:
     """Build the Manager's authoritative stage-transition prompt."""
-    earlier = ", ".join(f"`{stage}`" for stage in earlier_stages) or (
+    # A bare string is a Sequence[str], so passing one here would render it
+    # character by character as a list of one-letter stages. A live Manager run
+    # on 2026-07-26 caught exactly that in a malformed probe and reasoned about
+    # `(`,`n`,`o`,`n`,`e`,`)` as six rollback targets. Production passes a real
+    # list; this makes the mistake impossible rather than merely unlikely.
+    stages = [earlier_stages] if isinstance(earlier_stages, str) else list(earlier_stages)
+    earlier = ", ".join(f"`{stage}`" for stage in stages if str(stage).strip()) or (
         "(none — already first)"
     )
     advance_target = (
@@ -1037,16 +1043,14 @@ def build_stage_decision_prompt(
         )
 
     response_schema = (
-        '{"action": "advance|hold|rollback", "target_stage": "<stage name>", '
-        '"reason": "<clear explanation>", "resolves_wait": true|false, '
-        '"live_view": null | {"title": "<title>", "reason": "<why>", '
-        '"paths": ["<path>", ...]}}\n'
-        if planner_waiting
-        else
-        '{"action": "advance|hold|rollback", "target_stage": "<stage name>", '
-        '"reason": "<clear explanation>", "live_view": null | '
-        '{"title": "<title>", "reason": "<why>", '
-        '"paths": ["<path>", ...]}}\n'
+        "ACTION=advance|hold|rollback\n"
+        "TARGET_STAGE=<stage name>\n"
+        "REASON=<clear explanation>\n"
+        + ("RESOLVES_WAIT=true|false\n" if planner_waiting else "")
+        + "LIVE_VIEW_PATHS=<path>; <path>   (omit the line to leave the panel "
+        "alone; give it empty to clear it)\n"
+        "LIVE_VIEW_TITLE=<title>\n"
+        "LIVE_VIEW_REASON=<why>\n"
     )
 
     return (
@@ -1098,9 +1102,10 @@ def build_stage_decision_prompt(
         "because its recorded stage differs from the current "
         "`research/PIPELINE_STATE.json` stage.\n"
         "- When in doubt, HOLD. Never advance on weak evidence.\n\n"
-        "Reply with ONE JSON object and NOTHING else:\n"
+        "Explain your reasoning however is clearest, then state the verdict on "
+        "these lines at the end. Only these lines are read:\n"
         f"{response_schema}"
-        "For HOLD, set target_stage to the current stage."
+        "For HOLD, set TARGET_STAGE to the current stage."
     )
 
 

@@ -211,3 +211,34 @@ def test_grounded_vertical_prompt_has_bounded_inspection_and_no_rendering_work()
     assert "expand the Engineer task" in prompt
     assert "presentations" not in prompt
     assert "execution_task" not in prompt
+
+
+def test_a_string_of_earlier_stages_is_not_rendered_letter_by_letter() -> None:
+    """`Sequence[str]` accepts a bare string, which iterates as characters.
+
+    A live Manager run on 2026-07-26 was handed a malformed "(none)" and
+    reasoned about `(`, `n`, `o`, `n`, `e`, `)` as six rollback targets. It
+    caught the nonsense itself, but the prompt should not have been able to say
+    it. Production passes a real list; this makes the mistake impossible.
+    """
+    from types import SimpleNamespace
+
+    from argus_skill.roles.prompts.manager import build_stage_decision_prompt
+
+    review = SimpleNamespace(
+        status="done", reason="r", next_action="", operator_question="", checklist=[]
+    )
+    prompt = build_stage_decision_prompt(
+        current_stage="delivery",
+        next_stage="",
+        earlier_stages="scope",
+        checklist_md="- x",
+        review=review,
+        planner_verdict=None,
+        rendering_block="",
+        open_ended=True,
+        continuous_objective="obj",
+    )
+
+    assert "`scope`" in prompt
+    assert "`s`, `c`, `o`" not in prompt
