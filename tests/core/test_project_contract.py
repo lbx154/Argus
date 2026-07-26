@@ -338,3 +338,119 @@ def test_a_second_commit_does_not_overwrite_a_confirmed_contract(
     assert reloaded is not None
     assert reloaded.revision == 2
     assert reloaded.precise()[0].text == _RELAXED[1]
+
+
+# -- the contract has to reach the role that must honour it ------------------
+
+
+def test_the_planner_is_shown_the_constraints_it_is_told_to_honour(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The Planner prompt already said hard criteria are binding — and named none.
+
+    That block told the Planner to honour constraints it was never shown, which
+    is why relaxing a target was invisible downstream. This asserts the actual
+    clause text now reaches the prompt.
+    """
+    from argus_skill.core import project_contract as pc
+
+    save_contract(tmp_path, contract=_contract())
+    monkeypatch.setattr(pc, "state_dir_for_cwd", lambda _cwd=None: tmp_path)
+
+    briefing = pc.contract_briefing(pc.load_contract_for_cwd(tmp_path))
+
+    assert _SPEEDUP[1] in briefing
+    assert "binding" in briefing
+    assert "may not weaken" in briefing
+
+
+def test_an_empty_contract_prints_no_heading(tmp_path: Path) -> None:
+    """An empty section teaches the reader to skim past that heading."""
+    from argus_skill.core.project_contract import contract_briefing
+
+    empty = new_contract(objective="do a thing")
+
+    assert contract_briefing(empty) == ""
+
+
+def test_open_questions_are_shown_as_questions_not_as_answers(
+    tmp_path: Path,
+) -> None:
+    """The Manager records what it could not know; it must not fill it in."""
+    from argus_skill.core.project_contract import contract_briefing
+
+    contract = new_contract(
+        objective="make it faster",
+        ambiguities=["how much faster is fast enough?"],
+    )
+
+    briefing = contract_briefing(contract)
+
+    assert "how much faster is fast enough?" in briefing
+    assert "Do not invent an answer" in briefing
+
+
+def test_manager_records_only_operator_stated_constraints(tmp_path: Path) -> None:
+    """A constraint nobody asked for becomes a goal nobody agreed to."""
+    from types import SimpleNamespace
+
+    from argus_skill.manager.front_door import PreparedManagerHandoff
+
+    division = SimpleNamespace(
+        execution_task="make the attention kernel faster",
+        vertical="kernelbench",
+        research_target_level="",
+        target_venue="",
+        precise_constraints=("at least 1.5x over PyTorch on B200",),
+        ambiguities=("which sequence length matters?",),
+    )
+    PreparedManagerHandoff(
+        mem=SimpleNamespace(root=tmp_path),
+        body="make the attention kernel faster, at least 1.5x",
+        manager=SimpleNamespace(commit_vertical_decision=lambda *a, **k: division),
+        decision=division,
+        intent_id="i",
+        root_task_id=None,
+    ).commit()
+
+    contract = load_contract(tmp_path)
+    assert contract is not None
+    assert [c.text for c in contract.precise()] == [
+        "at least 1.5x over PyTorch on B200"
+    ]
+    assert contract.ambiguities == ("which sequence length matters?",)
+
+
+def test_the_clause_appears_in_the_real_planner_prompt(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """End to end through the actual prompt builder, not just the block helper.
+
+    Sabotaging the call in `roles/prompts/planner.py` turns this red; asserting
+    on `contract_briefing` alone would not.
+    """
+    from argus_skill.core.project_contract import (
+        CLAUSE_PRECISE,
+        state_dir_for_cwd,
+    )
+    from argus_skill.roles.prompts.planner import build_continuous_prompt
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
+    workdir = tmp_path / "wd"
+    workdir.mkdir()
+    monkeypatch.chdir(workdir)
+    save_contract(
+        state_dir_for_cwd(workdir),
+        contract=new_contract(
+            objective="make the attention kernel faster",
+            clauses=[make_clause(CLAUSE_PRECISE, "at least 1.5x over PyTorch on B200")],
+        ),
+    )
+
+    prompt = build_continuous_prompt(
+        continuous_objective="make the attention kernel faster",
+        journal_tail="",
+        planning_cycle=0,
+    )
+
+    assert "at least 1.5x over PyTorch on B200" in prompt

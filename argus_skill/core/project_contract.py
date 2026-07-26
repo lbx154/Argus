@@ -410,6 +410,70 @@ def save_contract(
     return path
 
 
+def state_dir_for_cwd(cwd: Path | str | None = None) -> Path:
+    """The state directory holding this project's contract.
+
+    Deliberately the state root, not the working tree: the contract records what
+    the operator agreed to, and the working tree is a place the agent writes
+    freely. A contract an agent could edit would not be a contract.
+    """
+    from .paths import session_state_root
+    from .project import project_fingerprint
+
+    return session_state_root(project_fingerprint(cwd).fingerprint)
+
+
+def load_contract_for_cwd(cwd: Path | str | None = None) -> GoalContract | None:
+    """The contract for the project containing ``cwd``, or ``None``."""
+    try:
+        return load_contract(state_dir_for_cwd(cwd))
+    except Exception:  # noqa: BLE001 — an unresolvable project simply has none
+        return None
+
+
+def contract_briefing(contract: GoalContract | None) -> str:
+    """The contract as a prompt block, or empty when there is nothing to say.
+
+    Returns "" rather than a heading with no rows: an empty section teaches a
+    role to skim past that heading, and the next time it *does* carry a binding
+    constraint it gets skimmed too.
+    """
+    if contract is None:
+        return ""
+    lines: list[str] = []
+    precise = contract.precise()
+    if precise:
+        lines.append(
+            "Operator-stated hard requirements. These are binding: work that "
+            "does not satisfy them is not done, however good it is otherwise. "
+            "You may not weaken one — if you believe one is wrong or "
+            "unachievable, say so explicitly instead of quietly re-scoping."
+        )
+        lines.extend(f"- {clause.text}" for clause in precise)
+    semantic = contract.semantic()
+    if semantic:
+        lines.append("")
+        lines.append("Stated intent (judged, not measured):")
+        lines.extend(f"- {clause.text}" for clause in semantic)
+    if contract.exclusions:
+        lines.append("")
+        lines.append("Explicitly does not count as success:")
+        lines.extend(f"- {text}" for text in contract.exclusions)
+    if contract.ambiguities:
+        lines.append("")
+        lines.append(
+            "Open questions the operator has not answered. Do not invent an "
+            "answer and proceed as if it were agreed:"
+        )
+        lines.extend(f"- {text}" for text in contract.ambiguities)
+    if not lines:
+        return ""
+    return "## Goal contract (revision %d)\n%s" % (
+        contract.revision,
+        "\n".join(lines),
+    )
+
+
 __all__ = [
     "CLAUSE_PRECISE",
     "CLAUSE_SEMANTIC",
@@ -419,12 +483,15 @@ __all__ = [
     "ContractError",
     "ContractRevision",
     "GoalContract",
+    "contract_briefing",
     "contract_path",
     "issue_confirmation",
     "load_contract",
+    "load_contract_for_cwd",
     "load_history",
     "make_clause",
     "new_contract",
     "revise_contract",
     "save_contract",
+    "state_dir_for_cwd",
 ]

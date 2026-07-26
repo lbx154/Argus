@@ -477,6 +477,15 @@ def build_vertical_decision_prompt(
         "vertical outside that declared set, set it to null. For a `research` "
         "vertical, copy an explicitly operator-named publication venue into "
         "`target_venue`; otherwise use null. Do not infer one from the topic.\n\n"
+        "Record the operator's requirements as they were actually stated. "
+        "`precise_constraints` holds only mechanically checkable things the "
+        "operator themselves chose — a target number, a named baseline, a "
+        "hardware or time budget, a deadline — copied in their words. Never "
+        "invent one: a constraint nobody asked for becomes a goal nobody agreed "
+        "to, and downstream roles will treat it as binding. If the task clearly "
+        "needs a number the operator did not give, put that as a question in "
+        "`ambiguities` instead of guessing a value. An empty list is the correct "
+        "answer for a request that stated no hard numbers.\n\n"
         "When your investigation is done, reply with ONE JSON object and "
         "NOTHING else (no prose before or after it), in ONE of these two shapes. "
         "In BOTH shapes the chosen name goes in the field named `vertical`:\n"
@@ -486,6 +495,8 @@ def build_vertical_decision_prompt(
         '"rationale": "<why it fits, citing what you found in the repo>", '
         '"research_target_level": "<exploratory|publishable|doctoral when the '
         'vertical declares a target contract, otherwise null>", '
+        '"precise_constraints": ["<operator-stated hard requirement>", ...], '
+        '"ambiguities": ["<a question only the operator can answer>", ...], '
         '"target_venue": "<explicit venue for research>"|null}\n'
         "OR\n"
         '{"choice": "new", "vertical": "<a new lowercase a-z0-9_ slug, distinct '
@@ -494,6 +505,8 @@ def build_vertical_decision_prompt(
         '"workflow_mode": "<direct|staged>", '
         '"rationale": "<why no existing vertical fits + what you found>", '
         '"research_target_level": null, '
+        '"precise_constraints": ["<operator-stated hard requirement>", ...], '
+        '"ambiguities": ["<a question only the operator can answer>", ...], '
         '"confidence": <0.0-1.0>}\n'
         "(If your new slug collides with an existing name it is auto-suffixed.)\n"
     )

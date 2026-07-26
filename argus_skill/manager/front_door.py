@@ -311,6 +311,7 @@ def _record_goal_contract(mem: Any, body: str, division: Any) -> None:
     """
     try:
         from ..core.project_contract import (
+            CLAUSE_PRECISE,
             CLAUSE_SEMANTIC,
             load_contract,
             make_clause,
@@ -322,6 +323,8 @@ def _record_goal_contract(mem: Any, body: str, division: Any) -> None:
         if load_contract(state_dir) is not None:
             return
         clauses = []
+        for text in getattr(division, "precise_constraints", ()) or ():
+            clauses.append(make_clause(CLAUSE_PRECISE, text))
         target = str(getattr(division, "research_target_level", "") or "").strip()
         if target:
             clauses.append(
@@ -332,7 +335,11 @@ def _record_goal_contract(mem: Any, body: str, division: Any) -> None:
             clauses.append(make_clause(CLAUSE_SEMANTIC, f"target venue: {venue}"))
         save_contract(
             state_dir,
-            contract=new_contract(objective=body, clauses=clauses),
+            contract=new_contract(
+                objective=body,
+                clauses=clauses,
+                ambiguities=getattr(division, "ambiguities", ()) or (),
+            ),
         )
     except Exception:  # noqa: BLE001 — see docstring; recording is additive
         log.debug("could not record goal contract", exc_info=True)

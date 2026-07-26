@@ -515,6 +515,17 @@ def build_continuous_prompt(
         "a qualifying implementation; they are not a successful outcome by "
         "themselves.\n\n"
     )
+    # The block above states that the operator's hard criteria are binding, but
+    # until the goal contract existed it never named any: the Planner was told
+    # to honour constraints it was never shown. This adds the ones the Manager
+    # recorded from what the operator actually said, and stays empty when there
+    # are none rather than printing a heading with no rows.
+    from ...core.project_contract import contract_briefing, load_contract_for_cwd
+
+    goal_contract_block = contract_briefing(load_contract_for_cwd(_proot))
+    if goal_contract_block:
+        objective_contract_block += goal_contract_block + "\n\n"
+
     planner_hygiene_block = (
         "## Runtime hygiene\n"
         "Use active project files, project-local skills, and "

@@ -201,6 +201,15 @@ class VerticalDecision:
     # Empty means "not explicitly selected"; venue discovery remains a separate
     # bounded research operation rather than a keyword guess in the harness.
     target_venue: str = ""
+    # Requirements the operator actually stated, split by how they can be
+    # checked. `precise_constraints` are mechanically checkable things the
+    # operator chose (a number, a baseline, a budget) and are recorded verbatim;
+    # the Manager must never invent one, because a constraint nobody asked for
+    # becomes a goal nobody agreed to. Where a number is clearly needed but was
+    # not given, it belongs in `ambiguities` — a question for the operator, not
+    # a guess.
+    precise_constraints: tuple[str, ...] = ()
+    ambiguities: tuple[str, ...] = ()
     # Raw validated Manager response, applied only when the decision commits.
     rendering_response: str = ""
 
@@ -304,6 +313,29 @@ def parse_fast_vertical_decision(
     )
 
 
+def _stated_requirements(obj: dict) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """The operator-stated constraints and the open questions, as Manager saw them.
+
+    Bounded and de-duplicated but otherwise passed through verbatim. The harness
+    must not reword a constraint: the operator's phrasing is the thing that was
+    agreed to, and a paraphrase is already a revision.
+    """
+
+    def _clean(key: str) -> tuple[str, ...]:
+        raw = obj.get(key)
+        if not isinstance(raw, list):
+            return ()
+        return tuple(
+            dict.fromkeys(
+                " ".join(str(value).split())[:400]
+                for value in raw
+                if isinstance(value, str) and str(value).strip()
+            )
+        )[:12]
+
+    return _clean("precise_constraints"), _clean("ambiguities")
+
+
 def parse_research_target_level(
     raw_text: str,
     *,
@@ -393,6 +425,7 @@ def parse_vertical_decision(
         )[:100]
         if name != "research":
             target_venue = ""
+        stated, ambiguities = _stated_requirements(obj)
         if name and name in known:
             return VerticalDecision(
                 choice="existing",
@@ -405,6 +438,8 @@ def parse_vertical_decision(
                 execution_task=execution_task,
                 research_target_level=target_level,
                 target_venue=target_venue,
+                precise_constraints=stated,
+                ambiguities=ambiguities,
             )
         return None
     if choice == "new":
@@ -415,6 +450,7 @@ def parse_vertical_decision(
         )
         if proposal is None:
             return None
+        stated, ambiguities = _stated_requirements(obj)
         return VerticalDecision(
             choice="new",
             vertical=proposal.name,
@@ -424,5 +460,7 @@ def parse_vertical_decision(
             live_view=parsed_live_view,
             live_view_decided=live_view_decided,
             execution_task=execution_task,
+            precise_constraints=stated,
+            ambiguities=ambiguities,
         )
     return None
