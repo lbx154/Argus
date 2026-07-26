@@ -27,6 +27,7 @@ from ._planning_cycle_helpers import (
     _PlanCycleState,
     _research_project_done_issue,
     _staged_goal_completion_issue,
+    goal_gate_task_title,
 )
 
 
@@ -231,7 +232,7 @@ class PlanningCycleCompletionMixin:
                     ),
                     new_tasks=[
                         TaskSpec(
-                            title="Complete and certify the current Goal Gate",
+                            title=goal_gate_task_title(self._artifact_root()),
                             objective=(
                                 "Goal Gate mission for the active staged project. "
                                 f"Current unmet gate: {goal_gate_issue}. "

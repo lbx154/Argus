@@ -135,6 +135,32 @@ def _staged_goal_completion_issue(project_root: object) -> str:
         return "staged Goal Gate could not be resolved"
 
 
+def goal_gate_task_title(project_root: object) -> str:
+    """Name the Goal Gate mission after the stage it has to finish.
+
+    "Complete and certify the current Goal Gate" was the title of every such
+    mission regardless of stage. On a single-stage vertical like `software`
+    that is the mission which does *all* the work, so an operator watching the
+    queue saw a task named after certification while the Engineer was actually
+    writing the code — observed on all twelve runs on 2026-07-26.
+
+    Naming the stage also makes the deduplication signature stage-specific,
+    which is more correct: the gate task for `delivery` and the gate task for
+    `submission` are different work, not a repeat.
+    """
+    from ...skills.stage_machine import current_stage
+
+    try:
+        stage = str(current_stage(project_root) or "").strip()
+    except Exception:  # noqa: BLE001 — the generic title is always valid
+        stage = ""
+    return (
+        f"Finish and certify the {stage} stage"
+        if stage
+        else "Complete and certify the current Goal Gate"
+    )
+
+
 class _PlanCycleState:
     """Mutable scratch state threaded through one ``_plan_next_work`` call."""
 
