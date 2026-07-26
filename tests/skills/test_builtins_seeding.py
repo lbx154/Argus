@@ -75,12 +75,33 @@ def test_vertical_skill_source_path_rejects_injection() -> None:
             vertical_skill_source_path(bad)
 
 
-def test_builtin_quant_files_are_pointer_stubs() -> None:
-    texts = dict(iter_builtin_skill_texts())
+def test_vertical_owned_skills_are_not_also_flat_builtins() -> None:
+    # The flat builtin pool is seeded into every runtime layer and every
+    # project workspace, so anything left there is a matcher candidate for
+    # every project forever. A skill a vertical owns must therefore live in
+    # that vertical ONLY: a quant playbook or a B200 kernel trace must not
+    # cost a maths or paper project summary tokens on every match.
+    #
+    # This used to be worked around with pointer stubs that stayed behind in
+    # builtin_skills/. Stubs are candidates too — the seeding path already
+    # skips them for the owning vertical, so they were pure dead weight for
+    # everyone else. Deleting the skill from the flat pool is the fix; this
+    # guard keeps it deleted.
+    from argus_skill.skills.vertical_select import VERTICALS
+
+    flat = {name for name, _text in iter_builtin_skill_texts()}
+    leaked = {
+        vertical: sorted({name for name, _t in iter_vertical_skill_texts(vertical)} & flat)
+        for vertical in VERTICALS
+    }
+    assert {v: names for v, names in leaked.items() if names} == {}
+
+
+def test_quant_skills_are_owned_by_the_quant_vertical(tmp_path) -> None:
+    seed_builtin_skills_for_vertical(tmp_path, "quant", overwrite=True)
     for rel in QUANT_SKILLS:
-        assert rel in texts, f"{rel} stub missing from builtin_skills"
-        assert "MOVED" in texts[rel]
-        assert "verticals/quant/skills" in texts[rel]
+        body = (tmp_path / rel).read_text(encoding="utf-8")
+        assert "MOVED" not in body, f"pointer stub leaked into workspace for {rel}"
 
 
 def test_all_builtins_valid_including_stubs() -> None:
@@ -141,12 +162,13 @@ def test_seed_for_vertical_upgrades_known_unmodified_common_builtin(
 
 
 def test_seed_for_research_does_not_pull_quant_real_body(tmp_path) -> None:
-    # A vertical that does not own the quant skill keeps the builtin stub
-    # (no cross-vertical leakage of domain skills).
+    # A vertical that does not own the quant skills must see no trace of them:
+    # not the real body (cross-vertical leakage) and no longer a pointer stub
+    # either, which used to sit in every non-quant workspace as a dead matcher
+    # candidate.
     seed_builtin_skills_for_vertical(tmp_path, "research", overwrite=True)
-    stub = tmp_path / "reviewer" / "quant-factor-report-review.md"
-    assert stub.exists()
-    assert "MOVED" in stub.read_text(encoding="utf-8")
+    for relative in QUANT_SKILLS:
+        assert not (tmp_path / relative).exists(), relative
     assert (
         tmp_path / "engineer" / "research-visualization-router.md"
     ).is_file()

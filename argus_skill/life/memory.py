@@ -2064,10 +2064,15 @@ class GlobalMemory:
         (``projects/<fingerprint>/events.jsonl``); there is no global journal.
         """
         from ..core.paths import shared_skills_root
-        from ..skills.builtins import seed_builtin_skills
+        from ..skills.builtins import (
+            retire_orphaned_builtin_seeds,
+            seed_builtin_skills,
+        )
 
         self.root.mkdir(parents=True, exist_ok=True)
-        seed_builtin_skills(shared_skills_root(self.root))
+        shared_skills = shared_skills_root(self.root)
+        retire_orphaned_builtin_seeds(shared_skills)
+        seed_builtin_skills(shared_skills)
         return {
             "identity": self.identity.ensure_default(),
         }

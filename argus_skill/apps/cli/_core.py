@@ -1039,6 +1039,7 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
         DEFAULT_PROJECT_BUILTIN_SKILLS_DIR,
         builtin_skill_source_path,
         remove_unmodified_inactive_context_skill_seeds,
+        retire_orphaned_builtin_seeds,
         seed_builtin_skills,
         seed_builtin_skills_for_context,
     )
@@ -1068,6 +1069,7 @@ def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
         vertical,
         active_domain=domain,
     )
+    removed = sorted({*removed, *retire_orphaned_builtin_seeds(target)})
     if vertical is not None:
         result = seed_builtin_skills_for_context(
             target,

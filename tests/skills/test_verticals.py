@@ -423,13 +423,20 @@ def test_kernelbench_research_checklist_is_not_paper_literature_gate(tmp_path: P
 
 
 def test_kernelbench_reviewer_skill_paths_exist() -> None:
+    # The checklist hands these paths to the reviewer as workspace-relative
+    # `argus_builtin_skills/<role>/<name>.md` references, so the contract that
+    # matters is what the kernelbench context actually seeds — cross-vertical
+    # builtins plus the vertical's own skills plus whatever it inherits — not
+    # any single source directory.
+    from argus_skill.skills.builtins import iter_context_skill_texts
     from argus_skill.verticals.kernelbench.stages import REVIEWER_CHECKLISTS
 
-    builtin_root = Path(__file__).resolve().parents[2] / "argus_skill" / "builtin_skills"
-    missing = []
-    for stage, (skill_path, _instructions, _files) in REVIEWER_CHECKLISTS.items():
-        if not (builtin_root / skill_path).exists():
-            missing.append(f"{stage}: {skill_path}")
+    seeded = {name for name, _text in iter_context_skill_texts("kernelbench", None)}
+    missing = [
+        f"{stage}: {skill_path}"
+        for stage, (skill_path, _instructions, _files) in REVIEWER_CHECKLISTS.items()
+        if skill_path not in seeded
+    ]
     assert missing == []
 
 

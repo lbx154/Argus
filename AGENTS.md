@@ -338,6 +338,15 @@ skill 是 markdown 文件，带 YAML-like frontmatter。
 - **存储边界**：Git 只保存人工维护的 built-in Skill source；初始化时把它们 seed
   到 runtime。Agent 新建、更新、共享和归档的 Skill 永远只写
   `ARGUS_SKILL_HOME` 下的 project/shared runtime 层，不得反向写回或提交到 Git。
+- **`builtin_skills/` 只放跨 vertical 的通用 Skill。** 它会被 seed 进每一个
+  runtime 层和每一个项目 workspace，所以留在那里的东西是**所有**项目的 matcher
+  候选，每次匹配都要付它的 summary token。某个 vertical 独有的 playbook 一律放
+  `verticals/<name>/skills/<role>/<file>.md`，**不要**在 `builtin_skills/` 留
+  pointer stub——stub 同样是候选，对拥有它的 vertical 会被 seeding 跳过，对其余
+  项目则是纯粹的死重量。需要让子 vertical 复用父层方法论时用
+  `builtins.py` 的 `_VERTICAL_SKILL_INHERITANCE`，不要复制文件。
+  `tests/skills/test_builtins_seeding.py::test_vertical_owned_skills_are_not_also_flat_builtins`
+  守住这条。
 - Project wiki 在每个真实 Reviewer verdict 后立即机械写入
   `.autors/<project>/wiki/sources/runs/<mission>-r<round>.md`：内容只来自
   Reviewer verdict / planner_report / research_result，是 immutable、可引用的
@@ -350,6 +359,11 @@ skill 是 markdown 文件，带 YAML-like frontmatter。
 
 - `GlobalMemory.init()` 会把 `argus_skill/builtin_skills` seed 到 `~/.argus-skill/skills/`。
 - 默认不覆盖用户已经编辑过的 skill。
+- **seeding 只增不删**，所以删除或迁走一个 builtin 之后，老 runtime 层里的副本会
+  永远留下来继续当 matcher 候选。`retire_orphaned_builtin_seeds()` 负责收尾：只在
+  文件与 `_RETIRED_BUILTIN_DIGESTS` 里钉住的出厂正文**逐字节相同**时删除，agent
+  改过的摘要不同、原样保留。删/迁 builtin 时必须把它当时的摘要补进那张表，否则改
+  动对既有安装完全无效。
 - `argus-skill --export-builtin-skills [DIR]` 可以复制内置 skill 到项目目录，默认 `./argus_builtin_skills`。目标项目尚无 Manager 持久化的 vertical 时只导出公共 skill，不回退到 research；已有 vertical 时再叠加该 vertical 的 skill，并清理其他 vertical 未修改的旧 seed（用户改过的文件保留）。
 
 改内置 skill 时：

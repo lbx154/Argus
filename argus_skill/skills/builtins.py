@@ -24,6 +24,13 @@ DEFAULT_PROJECT_BUILTIN_SKILLS_DIR = "argus_builtin_skills"
 _VERTICAL_SKILL_INHERITANCE = {
     "digital_circuit_benchmark": ("digital_circuit",),
     "chip_design": ("digital_circuit",),
+    # The three Recursive "First Steps" benchmarks are concrete instances of
+    # the generic speedrun mission shape (a fixed budget, a single scalar to
+    # move), so they inherit its methodology skills. SOL work additionally
+    # needs the general GPU-kernel priors.
+    "kernelbench": ("speedrun", "kernel_engineering"),
+    "nanochat": ("speedrun",),
+    "nanogpt_speedrun": ("speedrun",),
 }
 _SAFE_BUILTIN_UPGRADE_DIGESTS = {
     "agent-md-existing-project-optimization-template.md": {
@@ -99,6 +106,83 @@ _SAFE_BUILTIN_UPGRADE_DIGESTS = {
     },
     "reviewer/reviewer-engineer-handoff.md": {
         "451a98884ad675eace245b2974ea4b13b62a3caa83179c025481ab4e36c8ad7d",
+    },
+}
+
+
+# Factory bodies we no longer ship at these paths — either retired outright or
+# moved into the vertical that owns them. A runtime layer seeded by an older
+# release still holds a copy, and because seeding only ever ADDS, that copy
+# stays a matcher candidate forever: every project pays its summary tokens on
+# every match, including projects whose vertical will never want it.
+#
+# A copy is removed only when it is byte-identical to what we shipped. An agent
+# that edited the file has a different digest and keeps its work; a moved skill
+# is still delivered through its vertical's own seeding path, so this retires a
+# stale location, never a capability.
+_RETIRED_BUILTIN_DIGESTS: dict[str, set[str]] = {
+    "engineer/agent-research-benchmark-runner.md": {
+        "151a3ef862a408a3f8d1db7a1f9a76dc8977fc3b00d182476cb7c9ee04f8ef22",
+    },
+    "engineer/ale-last-exam-execution.md": {
+        "7577992b6add15c3281c272544067df96524bb694b5766d80295d2ff85dc56d9",
+    },
+    "engineer/b200-kernelbench-runtime.md": {
+        "1367b78b707d829758b3dadbf6eb8f2ce84645da32a344ba4a45f2d8c32ab8f1",
+    },
+    "engineer/kernel-benchmark-measurement-integrity.md": {
+        "324fe112ff4fef9da9458f871550a7610bab51e90c035697b5ac3f8e4a843ad7",
+    },
+    "engineer/kernel-optimization-knowledge.md": {
+        "8d88378eb6f6629386a6274384dfaf9cdf61eb861b63cc8f5d67e2cbf8c4a7dd",
+    },
+    "engineer/kernel-optimization-process-trace.md": {
+        "d5046c85561e8edafd0188f9c0123b992b383639902f40e6c915f972fe1623de",
+    },
+    "engineer/kline-chart.md": {
+        "956fafe74471f604f55960ffe078f01b8e9a1eeb516d5d4111e7d3f844a2b4df",
+    },
+    "engineer/model-selection-loop.md": {
+        "8e7d21f6e4ea8b75a854ecb76af3275d0d90e06fdcde96e36504ad17c401dad8",
+    },
+    "engineer/modern-gpu-blackwell-kernel-techniques.md": {
+        "d7320f39de10bf9c2742d295a022f12b5f2865b11b8e19129acbcfdeb883f458",
+    },
+    "engineer/nanochat-autoresearch-hands-on-trace.md": {
+        "5e21060a1674314e0d48d9c38d37fcfcf9614764405160e0d2d66eee94dc5c69",
+    },
+    "engineer/nanochat-autoresearch-sota-optimization.md": {
+        "98a4b6735a6f017ad0d2887409729e02827c1a5637a39c08abb0c0675a4604af",
+    },
+    "engineer/nanochat-pretrain-runner.md": {
+        "b3006cc40d2e4aead8ad99fa7187297a1e5e9d790a24e6de7671931f7c51c890",
+    },
+    "engineer/nanogpt-speedrun-h100-sota.md": {
+        "1feaf35ee286df3c371db1478edecb2485682a355cf13fb37cfc51166a019fa5",
+    },
+    "engineer/official-sol-execbench-env.md": {
+        "b89bede3c3f2a9beb70d666b6629432d75ed090c03aec29df6b5b49c78fc9895",
+    },
+    "engineer/quant-factor-loop.md": {
+        "4f86b586c18f3726bcea7d62d650d6b438d4c1dd21fa59da336dbaf19163b9ee",
+    },
+    "engineer/sol-kernel-hands-on-trace.md": {
+        "0f34d98fd42031d66f152f88c80ad77633d2804fa678620cd5bb5a12435b929b",
+    },
+    "engineer/sol-kernel-sota-optimization.md": {
+        "3a5e9933002e8621fe6e570a416562e78bd5d1b46c98b4b3d3cd3e34a83b90e8",
+    },
+    "engineer/speedrun-hands-on-trace.md": {
+        "4d311fd17722ec9f8b3a206b8f47aa0cfaa7ab70965e594d4c7545126e4eb032",
+    },
+    "engineer/speedrun-sota-optimization.md": {
+        "be87798fc1fdb8dbc6bac7ebab25f44dc7560da73c4215333339ebcf85df091e",
+    },
+    "reviewer/ale-last-exam-delivery-review.md": {
+        "3842eebdd80b2db48919bd672e1d00f379c46053656df56c17237aa9a97cf909",
+    },
+    "reviewer/quant-factor-report-review.md": {
+        "e3dfe8ea03b319bfbfc7fe023d00c69708abdc03ca3e3c553378bf33c8802e22",
     },
 }
 
@@ -218,6 +302,36 @@ def _is_bundled_script(prefix: str, filename: str) -> bool:
     # ``prefix`` ends with "/" by construction; split into segments.
     segments = [s for s in prefix.split("/") if s]
     return any(seg.endswith("_scripts") for seg in segments)
+
+
+def retire_orphaned_builtin_seeds(skills_dir: Path) -> list[str]:
+    """Delete unmodified copies of builtins this release no longer ships.
+
+    Seeding only ever adds, so a skill removed or relocated upstream lingers in
+    every already-initialised runtime layer and keeps costing matcher tokens.
+    This removes such a copy only when it is byte-identical to the body we
+    shipped (see :data:`_RETIRED_BUILTIN_DIGESTS`); anything an agent edited has
+    a different digest and survives untouched.
+
+    Returns the relative filenames that were removed.
+    """
+    root = Path(skills_dir)
+    current = {name for name, _text in iter_builtin_skill_texts()}
+    removed: list[str] = []
+    for filename, digests in _RETIRED_BUILTIN_DIGESTS.items():
+        if filename in current:
+            continue
+        path = root / filename
+        try:
+            if not path.is_file():
+                continue
+            if hashlib.sha256(path.read_bytes()).hexdigest() not in digests:
+                continue
+            path.unlink()
+        except OSError:
+            continue
+        removed.append(filename)
+    return sorted(removed)
 
 
 def seed_builtin_skills(skills_dir: Path, *, overwrite: bool = False) -> dict[str, bool]:
