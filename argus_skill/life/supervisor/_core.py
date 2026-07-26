@@ -1020,6 +1020,16 @@ class LifeSupervisor(
                 "cycle": event.get("cycle", self._planning_cycles),
                 "error": "discarded stale planner verdict outbox after semantic state change",
                 "delivery_id": record.get("delivery_id", ""),
+                # Nothing failed. The project's semantic state legitimately
+                # moved on — the Manager writing PIPELINE_STATE.json is enough —
+                # so a verdict queued against the old state is correctly
+                # dropped. LIFE_PLANNER_ERROR is a journalled type, so every
+                # fresh run was recording a "planner_error" in the history the
+                # Planner later reads back as memory context, inventing a
+                # failure that never happened; it fired on the first cycle of
+                # every run tonight. The flag keeps the full diagnostic in
+                # events.jsonl and out of the agent's memory.
+                "benign": True,
             })
             return False, None
         if record.get("delivered"):

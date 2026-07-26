@@ -520,6 +520,14 @@ class EventJournal:
         if kind is None:
             return None
         if etype == EventType.LIFE_PLANNER_ERROR:
+            if bool(row.get("benign")):
+                # An emitter marked this diagnostic as "nothing failed". The
+                # event stays in events.jsonl for debugging, but journalling it
+                # would put a failure that never happened into the history the
+                # Planner reads back as memory context. Structural flag rather
+                # than a keyword match on the message: the emitter knows whether
+                # its own event was an error, and this projection does not.
+                return None
             # Planner-error reasons can contain the discarded verdict body. That
             # body is untrusted and may belong to a stale provider response, so
             # keep it in the immutable event log but never feed it back through
