@@ -38,6 +38,17 @@ _AGENT_IO_MAX_BYTES_ENV = "ARGUS_SKILL_AGENT_IO_MAX_BYTES"
 _AGENT_IO_KEEP_ENV = "ARGUS_SKILL_AGENT_IO_KEEP"
 _DEFAULT_AGENT_IO_MAX_BYTES = 128 * 1024 * 1024
 _DEFAULT_AGENT_IO_KEEP = 2
+_RAW_TRANSCRIPT_NAME = "agent_io.jsonl"
+
+
+def raw_transcript_path(log_path: "Path | None") -> "Path | None":
+    """Sibling of the history log that holds the verbatim provider transcript.
+
+    One definition so the start record and the raw stream cannot drift onto
+    different files.
+    """
+    return None if log_path is None else Path(log_path).with_name(_RAW_TRANSCRIPT_NAME)
+
 _DEFAULT_AGENT_IO_BATCH_BYTES = 64 * 1024
 _DEFAULT_AGENT_IO_FLUSH_INTERVAL_S = 0.5
 _PROGRESS_STREAM_MARKERS = (
@@ -251,7 +262,7 @@ class AgentIOLogger:
             "run_label": run_label,
             "log_path": str(log_path) if log_path is not None else "",
             "raw_log_path": (
-                str(log_path.with_name("agent_io.jsonl"))
+                str(raw_transcript_path(log_path))
                 if log_path is not None and io_mode == "full"
                 else ""
             ),
