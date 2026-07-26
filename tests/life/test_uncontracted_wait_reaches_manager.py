@@ -83,19 +83,58 @@ class _Probe:
     def _reset_idle_backoff(self) -> None:
         return None
 
+    def _enter_idle_backoff(self) -> float:
+        return 0.0
+
+    def _load_planner_waiting_contract_state(self):
+        return None
+
+    def _write_planner_waiting_contract_state(self, state) -> None:
+        return None
+
+    def _persist_planner_waiting_contract(self, contract):
+        # The real one returns None without a recheck_condition, which is the
+        # second short-circuit this test exists to hold.
+        return None
+
+    def _apply_manager_wait_resolution(self, *a, **k):
+        return None
+
 
 def _reconciles(probe: _Probe, verdict) -> bool:
-    """Did the reconciliation get far enough to consult the Manager?
+    """Did the reconciliation actually reach the Manager?
 
-    It raises once it tries to build a real Manager against a nonexistent
-    project root; reaching that point is the signal, and returning "" early is
-    the bug being guarded.
+    Asserted by counting a real call rather than by "it did not return early":
+    my first version of this test passed while a *second* guard — persisting a
+    contract that does not exist — still short-circuited the review, and only a
+    live run caught it. Marking the Manager construction is the one signal that
+    cannot be satisfied by an early return.
     """
+    import argus_skill.manager as manager_mod
+
+    original = manager_mod.Manager
+
+    class _Marker:
+        def __init__(self, **kwargs):
+            probe.manager_calls += 1
+
+        def decide_stage_transition(self, **kwargs):
+            return SimpleNamespace(
+                action="hold",
+                target_stage="scope",
+                reason="held",
+                current_stage="scope",
+                source="manager_llm",
+                diagnostic="",
+                resolves_wait=False,
+            )
+
+    manager_mod.Manager = _Marker
     try:
         probe._reconcile(verdict)
-    except Exception:  # noqa: BLE001 — reaching the Manager is the assertion
-        return True
-    return bool(probe.events)
+    finally:
+        manager_mod.Manager = original
+    return probe.manager_calls > 0
 
 
 def test_an_uncontracted_wait_still_reaches_the_manager() -> None:

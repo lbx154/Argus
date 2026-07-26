@@ -363,6 +363,9 @@ class PlanningCycleMixin(
                 reason.encode("utf-8")
             ).hexdigest()[:16]
             recheck_token = "uncontracted"
+            uncontracted = True
+        else:
+            uncontracted = False
 
         # Manager is the sole stage authority, but it is not the operator and
         # cannot expand the operator's scope.  Never invoke wait reconciliation
@@ -443,13 +446,20 @@ class PlanningCycleMixin(
         # path. Persist a freshly returned contract first so an authoritative
         # Manager resolution has durable state to update and the next Planner
         # call receives that resolution instead of repeating the same wait.
-        if not same_contract:
+        if not same_contract and not uncontracted:
             contract_state = self._persist_planner_waiting_contract(contract)
             if contract_state is None:
                 self._emit_status(
                     "failed to persist Planner wait before Manager reconciliation"
                 )
                 return ""
+        elif uncontracted:
+            # Nothing to persist: there is no contract, so there is also no
+            # durable slot for the Manager's resolution to be handed back
+            # through. Treating that as a failure is what kept the review from
+            # happening at all. In-memory key deduplication above still bounds
+            # how often an unchanged wait is re-adjudicated.
+            contract_state = None
 
         from ...manager import Manager
 
