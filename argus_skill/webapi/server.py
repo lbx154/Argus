@@ -280,6 +280,25 @@ run_skill_command = mission_items.run_skill_command
 get_transcript = mission_items.get_transcript
 
 
+def _hides_inner_monologue() -> bool:
+    """Whether the reasoning scratchpad stays out of the UI stream.
+
+    Read per call rather than captured at import so that flipping the knob in
+    the cockpit takes effect on the next event, not the next restart.
+    """
+    from ..core.role_reply import read_bool
+
+    raw = os.environ.get("ARGUS_SKILL_SHOW_REASONING", "0")
+    return not read_bool({"SHOW": raw}, "SHOW", default=False)
+
+
+def _is_inner_monologue(event: object) -> bool:
+    return (
+        isinstance(event, dict)
+        and str(event.get("kind") or "").strip() == "reasoning"
+    )
+
+
 async def tail_events(
     life_dir: Path,
     *,
@@ -308,7 +327,10 @@ async def tail_events(
         offset = stat.st_size
         inode = stat.st_ino
 
+    hide = _hides_inner_monologue()
     for ev in _read_recent_jsonl_events(path, limit=replay_limit):
+        if hide and _is_inner_monologue(ev):
+            continue
         yield ev
 
     buf = b""
@@ -340,8 +362,14 @@ async def tail_events(
                 ev = json.loads(line.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError):
                 continue
-            if isinstance(ev, dict):
-                yield ev
+            if not isinstance(ev, dict):
+                continue
+            # The scratchpad is persisted to events.jsonl for debugging but is
+            # not pushed to a UI whose own README documents it as hidden by
+            # default. Re-read the knob each line so the setting is live.
+            if _is_inner_monologue(ev) and _hides_inner_monologue():
+                continue
+            yield ev
 
 
 # ---------------------------------------------------------------------------

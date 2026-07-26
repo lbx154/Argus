@@ -49,7 +49,9 @@ export function EventLog({
   liveMessageId = '',
   collapsed = false,
   showIdle = true,
-  showReasoning = true,
+  // Hidden unless asked for, so a caller that forgets the prop cannot leak the
+  // scratchpad. App.tsx passes the resolved knob explicitly.
+  showReasoning = false,
 }: {
   events: EventMsg[];
   width: number;

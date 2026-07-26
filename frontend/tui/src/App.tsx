@@ -33,6 +33,7 @@ import { GuardianBanner } from './components/GuardianBanner.js';
 import { NewDaemonForm } from './components/NewDaemonForm.js';
 import { PanelView } from './components/panels.js';
 import { activeGuardianAlert } from './guardian.js';
+import { resolveShowReasoning } from './showReasoning.js';
 import { useTerminalSize } from './useTerminalSize.js';
 import { filterProjects, rankProjects } from '../../core/src/projects.js';
 import { moveSelection } from './input/selection.js';
@@ -131,10 +132,7 @@ export function App({
     ),
   );
   const [pendingExit, setPendingExit] = useState(false);
-  const [showReasoning, setShowReasoning] = useState(() => {
-    const configured = String(process.env.ARGUS_SKILL_SHOW_REASONING ?? '').toLowerCase();
-    return !['0', 'false', 'no', 'off'].includes(configured);
-  });
+  const [showReasoning, setShowReasoning] = useState(resolveShowReasoning);
 
   useEffect(() => {
     setMenuSel(0);

@@ -135,6 +135,42 @@ def _staged_goal_completion_issue(project_root: object) -> str:
         return "staged Goal Gate could not be resolved"
 
 
+def staged_goal_gate_scope(project_root: object) -> str:
+    """The scope the Goal Gate mission must carry to be able to close the gate.
+
+    On the final stage this is ``final_submission`` and nothing else will do:
+    ``final_stage_completion_decision`` refuses to return a ``complete`` for any
+    other scope, so a Goal Gate mission scoped ``bounded`` cannot perform the
+    one action it was created to perform. That produced a real livelock — the
+    Reviewer certified twice, the Manager held ``not_certified`` both times, and
+    the Planner re-issued the identical task, burning 21 provider calls before
+    the operator stopped it.
+
+    Earlier stages keep ``bounded``. Their Goal Gate mission advances a stage
+    rather than completing the project, and widening its scope would let a
+    mid-pipeline mission close the whole thing.
+    """
+    from ...skills.stage_machine import current_stage
+    from ...skills.vertical_select import resolve_vertical
+    from ...verticals._base import load_vertical, vertical_checklist_stage_order
+
+    try:
+        vertical = resolve_vertical(project_root)
+        stages = vertical_checklist_stage_order(
+            load_vertical(vertical, project_root=project_root)
+        )
+        if not stages:
+            return "bounded"
+        last = str(stages[-1]).strip().lower()
+        return (
+            "final_submission"
+            if str(current_stage(project_root)).strip().lower() == last
+            else "bounded"
+        )
+    except Exception:  # noqa: BLE001 — an unreadable pipeline stays bounded
+        return "bounded"
+
+
 class _PlanCycleState:
     """Mutable scratch state threaded through one ``_plan_next_work`` call."""
 

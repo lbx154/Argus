@@ -27,6 +27,7 @@ from ._planning_cycle_helpers import (
     _PlanCycleState,
     _research_project_done_issue,
     _staged_goal_completion_issue,
+    staged_goal_gate_scope,
 )
 
 
@@ -257,7 +258,7 @@ class PlanningCycleCompletionMixin:
                                 "Treat an error-free process or honest partial progress as "
                                 "project completion."
                             ],
-                            scope="bounded",
+                            scope=staged_goal_gate_scope(self._artifact_root()),
                             stage_closing=True,
                         )
                     ],
