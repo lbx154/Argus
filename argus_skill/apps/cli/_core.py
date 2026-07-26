@@ -1670,6 +1670,26 @@ def _cmd_status(args: argparse.Namespace) -> int:
             f"{_clean_follow_text(str(getattr(current_running, 'objective', '')), limit=120)}"
         )
     print(f"  inbox    : {count_pending_inbox_messages(bundle.project.root)} pending")
+    # The one thing an operator most needs from --status: a run that stopped
+    # because it needs *them*. A blocked reviewer verdict carrying an
+    # operator_question is persisted on the item precisely so this can list it,
+    # but nothing did — a real run tonight ended with
+    # "Provision CUDA-visible NVIDIA GPU and CUDA C++/cuBLAS toolchain" waiting
+    # and --status reported only "outcome: blocked", leaving the operator to
+    # dig through events.jsonl to find out what was being asked.
+    waiting_on_operator = [
+        item
+        for item in all_items
+        if str(getattr(item, "pending_question", "") or "").strip()
+    ]
+    if waiting_on_operator:
+        print(f"  waiting on you : {len(waiting_on_operator)} unanswered question(s)")
+        for item in waiting_on_operator:
+            question = _clean_follow_text(
+                str(getattr(item, "pending_question", "")), limit=160
+            )
+            print(f"    - [{getattr(item, 'id', '')}] {question}")
+        print("    answer with: argus (then just reply), or argus --notify '<answer>'")
     history_parts = [part for part in (
         f"{done} done" if done else "",
         f"{failed} failed" if failed else "",

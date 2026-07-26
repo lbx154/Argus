@@ -410,3 +410,60 @@ def test_status_survival_line_follows_probe_result(
         assert "  survival : " not in out
     else:
         assert expected_line in out
+
+
+@pytest.fixture()
+def project_blocked_on_operator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Path, Path]:
+    home = tmp_path / "home"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(home))
+    monkeypatch.chdir(repo)
+    mem = MemoryBundle.for_cwd(repo, global_root=home)
+    mem.init()
+    blocked = mem.backlog.add(
+        BacklogItem.new(title="benchmark the GPU", objective="measure TFLOPS")
+    )
+    mem.backlog.update(
+        blocked.id,
+        status="failed",
+        pending_question=(
+            "Provision or move this session to an environment where a local "
+            "NVIDIA GPU and nvidia-smi are visible."
+        ),
+    )
+    done = mem.backlog.add(BacklogItem.new(title="scope", objective="scoped work"))
+    mem.backlog.mark_done(done.id)
+    return home, repo
+
+
+def test_status_names_the_question_it_is_waiting_on(
+    project_blocked_on_operator: tuple[Path, Path],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A run that stopped because it needs the operator must say what it needs.
+
+    Seen in a real session on 2026-07-26: a mission ended `blocked` having asked
+    for a CUDA-visible GPU, and --status reported only "outcome: blocked". The
+    question was persisted on the item for exactly this purpose but nothing read
+    it, so the operator had to open events.jsonl to find out what was being
+    asked of them.
+    """
+    _cmd_status(Namespace(life_dir=None))
+
+    out = capsys.readouterr().out
+    assert "waiting on you" in out
+    assert "NVIDIA GPU" in out
+    assert "--notify" in out, "an operator told they are needed must be told how to reply"
+
+
+def test_status_says_nothing_about_questions_when_there_are_none(
+    project_with_history: tuple[Path, Path],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A section that is usually empty teaches the reader to skip it."""
+    _cmd_status(Namespace(life_dir=None))
+
+    assert "waiting on you" not in capsys.readouterr().out
