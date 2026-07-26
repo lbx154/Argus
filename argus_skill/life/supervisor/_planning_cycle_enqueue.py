@@ -76,6 +76,35 @@ class PlanningCycleEnqueueMixin:
         )
         return None
 
+    def _gate_reproposal_is_not_a_duplicate(self, task: Any, duplicate_item: Any) -> bool:
+        """Whether a stage-closing proposal escapes the duplicate filter.
+
+        Review semantics are part of task identity. A prior ordinary
+        or self-reviewed task cannot satisfy a later stage-closing
+        certification request, even when its prose is identical.
+
+        Nor can a COMPLETED one. `done` means the mission finished,
+        not that the gate closed — a stage-closing task can run,
+        satisfy its own review, and still leave the gate uncertified.
+        When that happened the Planner re-proposed the gate and this
+        filter skipped it as a "duplicate completed task" every cycle,
+        leaving nothing pending and nothing to do but back off and
+        retry. Caught live on a clean project: 5 identical verdicts,
+        4 skips, an empty backlog and no exit, because "a done task
+        has this signature" is not a condition that changes.
+
+        If the Planner is asking for the gate again, the previous
+        attempt evidently did not close it, or the campaign would
+        have completed. A still-pending or running duplicate is a
+        genuine duplicate and is still filtered, so concurrent copies
+        of in-flight work remain impossible.
+        """
+        if not bool(getattr(task, "stage_closing", False)):
+            return False
+        return duplicate_item.status == "done" or not (
+            self._item_requires_independent_review(duplicate_item)
+        )
+
     def _pc_build_pending_items(self, state: _PlanCycleState) -> Any | None:
         # Add new tasks to the backlog.
         #
@@ -114,14 +143,9 @@ class PlanningCycleEnqueueMixin:
             duplicate_item = state.active_base_signatures.get(
                 signature[:2]
             ) or state.seen_signatures.get(signature)
-            if (
-                duplicate_item is not None
-                and bool(getattr(task, "stage_closing", False))
-                and not self._item_requires_independent_review(duplicate_item)
+            if duplicate_item is not None and self._gate_reproposal_is_not_a_duplicate(
+                task, duplicate_item
             ):
-                # Review semantics are part of task identity. A prior ordinary
-                # or self-reviewed task cannot satisfy a later stage-closing
-                # certification request, even when its prose is identical.
                 duplicate_item = None
             if duplicate_item is not None:
                 state.skipped_duplicate_titles.append(task.title)
