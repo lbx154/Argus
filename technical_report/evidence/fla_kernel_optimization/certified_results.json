@@ -60,5 +60,15 @@
     "verification": "single frozen paired run (fwd + fwd+bwd); component optimizations each N>=10 certified"
   },
   "also_included": "guards chunk_kda_bwd_kernel_dAv autotune space on NVIDIA Blackwell (sm_100) to avoid an illegal memory access with BK==32 and num_warps!=2",
-  "no_push_no_public_pr": true
+  "upstream": {
+    "pull_request": "https://github.com/fla-org/flash-linear-attention/pull/1054",
+    "opened": "2026-07-22",
+    "state": "open",
+    "merged": false,
+    "formal_reviews": 0,
+    "as_of": "2026-07-26",
+    "superseded_attempt": "https://github.com/fla-org/flash-linear-attention/pull/1053 (self-closed 4s after opening)",
+    "maintainer_feedback": "zhiyuan1i: fusion strategy sound; requests D=128 shapes (H32/H64) because D=64 has very limited practical use for KDA and the launch/HBM savings amortise over more compute at D128, plus H100 numbers since FLA CI runs on Hopper",
+    "generalisation_status": "untested — every certified number here is B8_T1024_H8_D64 on B200 only"
+  }
 }
