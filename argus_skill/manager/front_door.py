@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import time
 from contextlib import nullcontext
@@ -16,6 +17,9 @@ from ..core.knobs import resolve_role_model
 from ..core.progress_step import REPLY_KINDS
 from ..core.runner_errors import is_pre_provider_refusal_error
 from ..core.secret_guard import known_secret_values, redact_secrets_text
+
+
+log = logging.getLogger(__name__)
 
 
 class ManagerHandoffError(RuntimeError):
@@ -293,6 +297,47 @@ def _accepts_keyword(fn: Any, name: str) -> bool:
     )
 
 
+def _record_goal_contract(mem: Any, body: str, division: Any) -> None:
+    """Write the Project's goal contract once, at the moment Manager commits.
+
+    Only on first commit: a later commit revising an existing contract has to go
+    through ``revise_contract``, which is where the precise/semantic rule lives.
+    Overwriting here would let any re-triage silently reset a constraint the
+    operator had confirmed.
+
+    Additive today — nothing gates completion on the contract yet (operator
+    decision §9.6 exempts existing projects), so a failure to record one must
+    never take down the handoff that was otherwise fine.
+    """
+    try:
+        from ..core.project_contract import (
+            CLAUSE_SEMANTIC,
+            load_contract,
+            make_clause,
+            new_contract,
+            save_contract,
+        )
+
+        state_dir = _life_dir_for(mem)
+        if load_contract(state_dir) is not None:
+            return
+        clauses = []
+        target = str(getattr(division, "research_target_level", "") or "").strip()
+        if target:
+            clauses.append(
+                make_clause(CLAUSE_SEMANTIC, f"research target level: {target}")
+            )
+        venue = str(getattr(division, "target_venue", "") or "").strip()
+        if venue:
+            clauses.append(make_clause(CLAUSE_SEMANTIC, f"target venue: {venue}"))
+        save_contract(
+            state_dir,
+            contract=new_contract(objective=body, clauses=clauses),
+        )
+    except Exception:  # noqa: BLE001 — see docstring; recording is additive
+        log.debug("could not record goal contract", exc_info=True)
+
+
 @dataclass
 class PreparedManagerHandoff:
     mem: Any
@@ -321,6 +366,7 @@ class PreparedManagerHandoff:
             **kwargs,
         )
         require_manager_execution_task(division)
+        _record_goal_contract(self.mem, self.body, division)
         return division
 
     def completed(
