@@ -19,6 +19,7 @@ the test body runs after this fixture.
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -70,3 +71,56 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     reaching a real sandbox escape.
     """
     os.environ.setdefault("ARGUS_SKILL_SAFE_MODE", "1")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_working_directory(
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Path:
+    """Give every test its own working directory instead of the checkout.
+
+    Much of the runtime resolves "which project am I?" from the process cwd —
+    ``resolve_project_root``, ``resolve_vertical``, ``PIPELINE_STATE.json``
+    lookups, the daemon's own workdir. Under pytest that cwd was the source
+    checkout, so a test would silently adopt the repository as its project. The
+    visible symptom was log lines like ``no Manager vertical resolved for
+    .../argus-skill; using research only as a compatibility fallback`` during
+    unrelated tests; the invisible one is any test that writes project state
+    into the tree it is testing.
+
+    A test that genuinely needs a specific directory still calls
+    ``monkeypatch.chdir`` itself and wins, since fixtures run before the test
+    body.
+    """
+    workdir = tmp_path_factory.mktemp("workdir")
+    monkeypatch.chdir(workdir)
+    return workdir
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture(autouse=True)
+def _forbid_project_state_in_the_checkout() -> Iterator[None]:
+    """Fail a test that writes project state into the source tree.
+
+    The cwd fixture above removes the usual way this happens, but a test can
+    still pass an explicit path. Rather than trust that, this checks afterwards:
+    the files the runtime creates to mark a project are named, so their
+    appearance in the checkout is unambiguous and worth failing on immediately —
+    the alternative is finding them days later in `git status` and not knowing
+    which test left them.
+    """
+    root = _repo_root()
+    markers = ("research/PIPELINE_STATE.json", "research/CHECKLISTS.json", ".autors")
+    before = {name for name in markers if (root / name).exists()}
+    yield
+    leaked = sorted(
+        name for name in markers if (root / name).exists() and name not in before
+    )
+    assert not leaked, (
+        f"test wrote project state into the source checkout: {leaked}. "
+        "Give the daemon/supervisor an explicit workdir under tmp_path."
+    )
