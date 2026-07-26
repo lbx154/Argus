@@ -15,6 +15,7 @@ from pathlib import Path
 
 from ..core.sandbox import sandboxed_child_env
 from ._sandbox_commands import _OPENCODE_READ_ONLY_AGENT
+from .copilot_home import apply_copilot_home
 from .runner_backend import BACKEND_CLAUDE, BACKEND_COPILOT, BACKEND_OPENCODE
 
 _OPENCODE_CONFIG_CONTENT_ENV = "OPENCODE_CONFIG_CONTENT"
@@ -161,6 +162,13 @@ class PromptDeliveryMixin:
 
     def _child_env(self, options) -> dict[str, str] | None:
         if not options.sandbox_mode and not options.isolate_workdir:
+            # Normally the child inherits our environment untouched. Copilot is
+            # the exception: left alone it writes every session, log and
+            # store row into the operator's personal ~/.copilot, which on a
+            # 7x24 host is tens of thousands of Argus sessions burying their own
+            # history. Relocate the working state, change nothing else.
+            if self.backend == BACKEND_COPILOT:
+                return apply_copilot_home(dict(os.environ))
             return None
         if (
             self.backend == BACKEND_OPENCODE
@@ -168,6 +176,8 @@ class PromptDeliveryMixin:
         ):
             return _opencode_read_only_env()
         env = sandboxed_child_env()
+        if self.backend == BACKEND_COPILOT:
+            apply_copilot_home(env)
         if options.isolate_workdir:
             secret_markers = (
                 "TOKEN",
