@@ -80,6 +80,14 @@ def build_mission_prompt(
             + original_request.strip()
         )
     sections.append("## Current mission task\n" + task)
+    # The Engineer is the role that can most easily satisfy a task while
+    # missing the requirement the task exists to serve — the mission text
+    # describes this increment, not what the operator agreed "done" means.
+    from ...core.project_contract import contract_briefing, load_contract_for_cwd
+
+    contract_block = contract_briefing(load_contract_for_cwd())
+    if contract_block:
+        sections.append(contract_block)
     if next_action:
         delta_sections.append(
             "## Reviewer guidance from prior round\n"

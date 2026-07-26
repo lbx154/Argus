@@ -454,3 +454,67 @@ def test_the_clause_appears_in_the_real_planner_prompt(
     )
 
     assert "at least 1.5x over PyTorch on B200" in prompt
+
+
+@pytest.mark.parametrize("role", ["engineer", "reviewer"])
+def test_every_role_that_could_violate_the_contract_can_see_it(
+    tmp_path: Path, monkeypatch, role: str
+) -> None:
+    """Planner alone is not enough.
+
+    The Engineer can satisfy a mission task while missing the requirement the
+    task exists to serve, and the Reviewer's verdict is what closes work. A
+    constraint only the Planner sees is a constraint the closing role never
+    checks against.
+    """
+    from argus_skill.core.project_contract import (
+        CLAUSE_PRECISE,
+        state_dir_for_cwd,
+    )
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
+    workdir = tmp_path / "wd"
+    workdir.mkdir()
+    monkeypatch.chdir(workdir)
+    save_contract(
+        state_dir_for_cwd(workdir),
+        contract=new_contract(
+            objective="make it faster",
+            clauses=[make_clause(CLAUSE_PRECISE, "at least 1.5x over PyTorch on B200")],
+        ),
+    )
+
+    if role == "engineer":
+        from argus_skill.roles.prompts.engineer import build_mission_prompt
+
+        text = build_mission_prompt(
+            task="optimise the inner loop",
+            skill_text="",
+            next_action=None,
+        )
+    else:
+        from argus_skill.roles.prompts.reviewer import render_reviewer_prompt
+
+        from types import SimpleNamespace
+
+        owner = SimpleNamespace(
+            skill_store=None,
+            memory_maintenance_enabled=False,
+            mission=None,
+            _last_prompt_block_stats=None,
+        )
+        static, delta = render_reviewer_prompt(
+            owner,
+            preselected_skill_block="",
+            objective="optimise the inner loop",
+            operator_messages=[],
+            planner_review_instruction="",
+            round_index=0,
+            session_id=None,
+            main_summary="did a thing",
+            main_error=None,
+            working_dir=workdir,
+        )
+        text = static + delta
+
+    assert "at least 1.5x over PyTorch on B200" in text

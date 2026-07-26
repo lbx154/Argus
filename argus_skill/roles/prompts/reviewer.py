@@ -498,6 +498,15 @@ def render_reviewer_prompt(
             f"Original operator request:\n{original_text}\n\n"
             f"Current mission objective:\n{current_text}\n\n"
         )
+    # The Reviewer is the one role whose verdict closes work, so it is the role
+    # that most needs the operator's stated bar in front of it. Without this it
+    # judges the mission text, which describes the increment rather than what
+    # the operator agreed counts as done.
+    from ...core.project_contract import contract_briefing, load_contract_for_cwd
+
+    _contract_block = contract_briefing(load_contract_for_cwd(_proot))
+    if _contract_block:
+        objective_block += _contract_block + "\n\n"
     shared_context_block = _format_engineer_shared_context(
         skill_used=active_skill_id,
         prev_review_summary=prev_review_summary,
