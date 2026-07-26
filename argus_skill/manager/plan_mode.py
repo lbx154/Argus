@@ -226,6 +226,12 @@ def parse_plan_notes(text: str) -> list[str]:
     Only applies to the object form ``{"steps": [...], "notes": [...]}``. A
     string ``notes`` value is wrapped into a single-element list. Returns ``[]``
     when there is nothing to surface (never raises)."""
+    from ..core.role_reply import read_key_values, read_list
+
+    values = read_key_values(text, ("NOTES",))
+    if "NOTES" in values:
+        return list(read_list(values, "NOTES"))
+
     obj = _loads_json(text)
     if not isinstance(obj, dict):
         return []

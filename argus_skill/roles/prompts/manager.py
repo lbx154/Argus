@@ -539,9 +539,10 @@ def build_research_target_prompt(
         f"{(task or '').strip()}\n\n"
         "Allowed levels for this vertical: "
         f"{', '.join(supported_levels)}.\n\n"
-        "Reply with one JSON object and nothing else:\n"
-        '{"research_target_level":"one allowed level",'
-        '"rationale":"brief reason tied to the requested success bar"}'
+        "State your verdict on these lines; reason around them however is "
+        "clearest:\n"
+        "RESEARCH_TARGET_LEVEL=<one allowed level>\n"
+        "RATIONALE=<brief reason tied to the requested success bar>\n"
     )
 
 
@@ -552,7 +553,6 @@ def build_plan_prompt(
 ) -> str:
     """Render the prompt asking the model for a preview plan."""
     obj = (objective or "").strip()
-    step_shape = '{"title": "<imperative title>", "detail": "<what/why>"}'
     prompt = (
         "You are the planning front-end of an autonomous coding/research agent. "
         "The operator wants to PREVIEW a plan BEFORE any work begins. "
@@ -568,9 +568,12 @@ def build_plan_prompt(
         "## Objective\n"
         f"{obj}\n\n"
         "## Your answer\n"
-        "Reply with ONE JSON object and NOTHING else:\n"
-        f'{{"steps": [{step_shape}, ...], '
-        '"notes": ["<optional caveat or assumption>", ...]}\n'
+        "Answer as a numbered list, one step per line, each as "
+        "`<imperative title> — <what/why>`:\n"
+        "1. <imperative title> — <what/why>\n"
+        "2. ...\n"
+        "Then, if anything is worth flagging, one line:\n"
+        "NOTES=<caveat or assumption>; <another>\n"
     )
     banner = str(role_banner or "").strip()
     if not banner:
@@ -878,12 +881,16 @@ def manager_rendering_prompt(
         "Manager path without its content. If you omit that content for an existing "
         "`.argus/live/` path, the harness replaces it with a minimal status page "
         "from this response so the sidebar never displays stale prose. "
-        "In your final JSON include:\n"
-        '"live_view": null | {"title": "<short title>", "reason": "<why this is '
-        'useful now>", "paths": ["<existing artifact or .argus/live/file>", ...]},\n'
-        '"clear_live_view": false | true,\n'
-        '"presentations": [{"path": ".argus/live/<file>.<md|html|json|csv|tsv|txt>", '
-        '"content": "<Manager-authored presentation>"}]\n'
+        "State the panel choice on these lines:\n"
+        "LIVE_VIEW_PATHS=<existing artifact or .argus/live/file>; <another>\n"
+        "LIVE_VIEW_TITLE=<short title>\n"
+        "LIVE_VIEW_REASON=<why this is useful now>\n"
+        "Omit LIVE_VIEW_PATHS entirely to preserve the last valid view; give it "
+        "empty only when keeping the prior view would actively mislead.\n"
+        "For each `.argus/live/` file you author, give its path then its content "
+        "in a fenced block:\n"
+        "PRESENTATION=.argus/live/<file>.<md|html|json|csv|tsv|txt>\n"
+        "```\n<Manager-authored presentation>\n```\n"
     )
 
 

@@ -474,3 +474,78 @@ def test_a_volunteered_json_ruling_still_parses() -> None:
     )
 
     assert ruling is not None and ruling["reply"] == "which kernel?"
+
+
+# -- the live-view panel and its authored content ----------------------------
+
+_PANEL = (
+    "Delivery is held; here is what the operator should see.\n"
+    "\n"
+    "LIVE_VIEW_PATHS=.argus/live/status.md; README.md\n"
+    "LIVE_VIEW_TITLE=Delivery held\n"
+    "LIVE_VIEW_REASON=no artifacts exist yet\n"
+    "\n"
+    "PRESENTATION=.argus/live/status.md\n"
+    "```\n"
+    "# Delivery status\n"
+    "\n"
+    "Nothing has been built yet.\n"
+    "\n"
+    "- checklist: 0/3\n"
+    "```\n"
+)
+
+
+def test_authored_panel_content_survives_its_own_blank_lines() -> None:
+    """File content is the one field that genuinely needs a delimiter.
+
+    It is multi-line and may contain anything, so a flat `KEY=value` cannot
+    carry it. A fenced block is what a model writes for file content anyway.
+    """
+    from argus_skill.manager.live_view import parse_manager_presentations
+
+    presentations = parse_manager_presentations(_PANEL)
+
+    assert len(presentations) == 1
+    assert presentations[0].path == ".argus/live/status.md"
+    assert presentations[0].content.count("\n") == 4
+    assert "checklist: 0/3" in presentations[0].content
+
+
+def test_the_same_reply_also_carries_the_panel_selection() -> None:
+    from argus_skill.manager.live_view import parse_live_view_response
+
+    decided, view = parse_live_view_response(_PANEL)
+
+    assert decided is True
+    assert view is not None and view.title == "Delivery held"
+    assert len(view.paths) == 2
+
+
+def test_a_path_with_no_content_block_is_dropped_not_guessed() -> None:
+    """The caller replaces a missing presentation with a status page.
+
+    Inventing content would put Manager-attributed prose in front of the
+    operator that the Manager never wrote.
+    """
+    from argus_skill.manager.live_view import parse_manager_presentations
+
+    assert parse_manager_presentations("PRESENTATION=.argus/live/a.md\n") == ()
+
+
+def test_a_path_outside_the_managed_directory_is_refused() -> None:
+    from argus_skill.manager.live_view import parse_manager_presentations
+
+    assert parse_manager_presentations(
+        "PRESENTATION=/etc/passwd\n```\nx\n```\n"
+    ) == ()
+
+
+def test_volunteered_json_presentations_still_parse() -> None:
+    from argus_skill.manager.live_view import parse_manager_presentations
+
+    presentations = parse_manager_presentations(
+        '{"presentations":[{"path":".argus/live/a.md","content":"x"}]}'
+    )
+
+    assert len(presentations) == 1

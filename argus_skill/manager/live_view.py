@@ -9,6 +9,7 @@ inherit each other's sidebar choice.
 """
 from __future__ import annotations
 
+import re
 import json
 import os
 import time
@@ -255,8 +256,77 @@ def parse_live_view_response(
     return decided, view
 
 
+_PRESENTATION_LINE = re.compile(
+    r"^(?:[-*+]\s*)?[`*_]*(?:ARGUS_)?PRESENTATION[`*_]*\s*[:=]\s*(?P<path>.+?)\s*$",
+    re.IGNORECASE,
+)
+_FENCE_LINE = re.compile(r"^\s*```[a-zA-Z0-9_-]*\s*$")
+
+
+def _named_presentations(raw_text: str) -> tuple[ManagerPresentation, ...] | None:
+    """Presentations written as a path line followed by a fenced content block.
+
+    File content is the one Manager field that genuinely needs a delimiter: it
+    is multi-line and may contain anything, so a flat `KEY=value` line cannot
+    carry it. A fenced block is what a model writes for file content anyway, so
+    this is the natural shape rather than a second serialisation format.
+
+        PRESENTATION=.argus/live/status.md
+        ```
+        # Delivery status
+        ...
+        ```
+
+    Returns ``None`` when no PRESENTATION line is present, so the JSON reader
+    below stays reachable for runs already in flight.
+    """
+    lines = str(raw_text or "").splitlines()
+    found: list[tuple[str, str]] = []
+    index = 0
+    while index < len(lines):
+        match = _PRESENTATION_LINE.match(lines[index].strip())
+        index += 1
+        if match is None:
+            continue
+        path = match.group("path").strip().strip("`").strip()
+        while index < len(lines) and not lines[index].strip():
+            index += 1
+        if index >= len(lines) or not _FENCE_LINE.match(lines[index]):
+            # A path with no content block. The caller treats a missing
+            # presentation as "replace with a minimal status page", which is
+            # safer than inventing content, so drop it rather than guess.
+            continue
+        index += 1
+        body: list[str] = []
+        while index < len(lines) and not _FENCE_LINE.match(lines[index]):
+            body.append(lines[index])
+            index += 1
+        index += 1
+        found.append((path, "\n".join(body)))
+    if not found:
+        return None
+    presentations: list[ManagerPresentation] = []
+    for raw_path, content in found[:MAX_LIVE_VIEW_ITEMS]:
+        path = normalize_live_view_path(raw_path)
+        if (
+            path is None
+            or not path.startswith(f"{MANAGER_LIVE_DIR.as_posix()}/")
+            or Path(path).suffix.casefold() not in {
+                ".csv", ".html", ".json", ".markdown", ".md", ".tsv", ".txt",
+            }
+            or not content
+            or len(content.encode("utf-8")) > MAX_PRESENTATION_BYTES
+        ):
+            continue
+        presentations.append(ManagerPresentation(path=path, content=content))
+    return tuple(presentations)
+
+
 def parse_manager_presentations(raw_text: str) -> tuple[ManagerPresentation, ...]:
     """Validate bounded presentation content returned by Manager."""
+    named = _named_presentations(raw_text)
+    if named is not None:
+        return named
     payload = _response_payload(raw_text)
     rows = payload.get("presentations") if payload is not None else None
     if not isinstance(rows, list):
