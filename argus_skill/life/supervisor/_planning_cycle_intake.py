@@ -87,13 +87,30 @@ class PlanningCycleIntakeMixin:
                 revision_request.get("expected_plan_version") or 0
             )
             if not state.expected_plan_id:
+                # A backlog item predating plan versioning has no plan to
+                # compare-and-swap, so the atomic replacement this path exists
+                # for is meaningless for it. Erroring out was the worst of both
+                # worlds: the Reviewer's replan is discarded, the cycle backs
+                # off, the item is claimed again, and the same mission reruns —
+                # forever, because "unversioned" is not a condition that ever
+                # resolves. Exactly one such item is live on this host.
+                #
+                # With nothing to replace, the honest degradation is an ordinary
+                # planning cycle. The Planner still sees the Reviewer's reason
+                # through the revision note; it simply cannot supersede a plan
+                # that never existed.
                 self._emit({
                     "type": EventType.LIFE_PLAN_REVISION_REJECTED,
-                    "reason": "unversioned backlog items cannot be revised",
+                    "reason": (
+                        "unversioned backlog item has no plan to replace; "
+                        "planning fresh work instead"
+                    ),
                     "expected_plan_id": "",
                     "expected_plan_version": state.expected_plan_version,
                 })
-                return PLAN_ERROR
+                state.revision_request = None
+                revision_request = None
+        if revision_request is not None:
             try:
                 state.revision_active_items = [
                     item

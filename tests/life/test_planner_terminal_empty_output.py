@@ -468,3 +468,57 @@ def test_replan_with_no_planner_tasks_reaches_the_manager(
     assert reconciled, "the Planner's no-task verdict never reached the Manager"
     assert outcome == PLAN_RETRY, "a rolled-back stage must give the Planner another cycle"
     assert outcome != PLAN_ERROR
+
+
+def test_unversioned_item_replan_degrades_to_planning_not_a_dead_end(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """An item predating plan versioning must not make replanning impossible.
+
+    The revision path compare-and-swaps an active plan. An item with no
+    ``plan_id`` has no plan to swap, and the intake used to answer that with
+    ``PLAN_ERROR``: the Reviewer's replan is discarded, the cycle backs off, the
+    item is claimed again, and the same mission reruns. Being unversioned is not
+    a condition that resolves, so that loop has no exit — the same shape as the
+    replan deadlock above, reached by a different door. One such item is live on
+    this host.
+
+    With nothing to supersede, the honest degradation is an ordinary planning
+    cycle: the Planner still gets to decide what happens next.
+    """
+    supervisor, backend, sink = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        terminal_stage_done=False,
+    )
+
+    legacy = BacklogItem(
+        id=BacklogItem.new_id(),
+        ts=time.time(),
+        title="恢复 Erdős 52 任意 n frontier 研究",
+        objective="resume the frontier search",
+        status="running",
+    )
+    supervisor.memory.backlog.add(legacy)
+    assert not legacy.plan_id
+
+    outcome = supervisor._plan_next_work(
+        revision_request={
+            "item_id": legacy.id,
+            "review_reason": "this direction is exhausted",
+        }
+    )
+
+    # The exit from the loop is that the Planner gets invoked at all: before,
+    # intake returned PLAN_ERROR without ever calling it, and "unversioned" never
+    # stops being true. This stub Planner then returns no tasks, so the cycle
+    # still ends in an error — that is the stub, not the dead end.
+    assert backend.planner_calls >= 1, "the Planner never got to decide"
+    rejected = [
+        event
+        for event in sink.events
+        if event.get("type") == "life.plan.revision.rejected"
+    ]
+    assert rejected, "the degradation must stay on the record"
+    assert "planning fresh work instead" in rejected[0]["reason"]
