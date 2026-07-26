@@ -99,11 +99,19 @@ class ServerContext:
                 # resumable through the CLI, but without session.json they have
                 # no stable label/workdir contract and surface as mysterious hex
                 # rows in investor/demo sessions.
+                #
+                # A *live* daemon is the exception. Hiding running work is worse
+                # than showing an unfamiliar row: an operator who started a
+                # daemon with `argus --daemon` and then opened the cockpit could
+                # neither see it nor stop it there, which is what happened while
+                # testing on 2026-07-26. It is also not mysterious — the label
+                # below is already the campaign objective, not the hex id.
                 if (
                     not sid.startswith("s-")
                     and not (
                         core_paths.session_state_root(sid, root=root) / "session.json"
                     ).is_file()
+                    and not bool(project.get("daemon_alive"))
                 ):
                     continue
                 projects.append(project)
