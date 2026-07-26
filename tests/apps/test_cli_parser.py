@@ -336,7 +336,7 @@ def test_export_prunes_legacy_unmodified_research_fallback(
     assert not (
         target / "engineer/research_visual_scripts/browser_render.py"
     ).exists()
-    assert "pruned : 2 inactive unmodified vertical seed(s)" in out
+    assert "pruned : 2 inactive unmodified context seed(s)" in out
 
 
 def test_export_preserves_edited_legacy_research_fallback(
@@ -382,7 +382,7 @@ def test_export_prunes_unmodified_math_skills_after_vertical_switch(
 
     assert not any((target / filename).exists() for filename in math_skills)
     assert (
-        f"pruned : {len(math_skills)} inactive unmodified vertical seed(s)"
+        f"pruned : {len(math_skills)} inactive unmodified context seed(s)"
         in out
     )
 
