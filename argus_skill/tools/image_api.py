@@ -63,13 +63,22 @@ def _urlopen(req: urllib.request.Request | str, timeout: float):  # noqa: ANN001
 
 
 def _redact(text: str, grant: ModelApiGrant | ModelApiRoute | None = None) -> str:
+    """Strip credentials from provider text before it reaches an operator.
+
+    The generic patterns live in :mod:`argus_skill.core.secret_guard`, which is
+    the project's one credential redactor; this only adds what that module
+    cannot know — the exact key of the grant in hand. Keeping a second set of
+    patterns here is how ``sk-proj-`` and ``sk-ant-`` keys used to survive: the
+    local rule was ``sk-[A-Za-z0-9]{12,}``, which stops at the first hyphen and
+    therefore missed the two formats OpenAI and Anthropic actually issue today.
+    """
+    from ..core.secret_guard import redact_secrets_text
+
     redacted = str(text or "")
     if grant is not None and grant.api_key:
         redacted = redacted.replace(grant.api_key, "<redacted-api-key>")
     redacted = re.sub(r"Bearer\s+[A-Za-z0-9._~+/=-]+", "******", redacted)
-    redacted = re.sub(r"(?i)(api[-_]?key=)[^&\s]+", r"\1<redacted>", redacted)
-    redacted = re.sub(r"sk-[A-Za-z0-9]{12,}", "sk-<redacted>", redacted)
-    return redacted
+    return redact_secrets_text(redacted)
 
 
 def _endpoint_url(base_url: str, endpoint: str) -> str:
