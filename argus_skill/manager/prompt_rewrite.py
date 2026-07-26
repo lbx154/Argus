@@ -115,6 +115,33 @@ def _strip_fence(text: str) -> str:
     return body.strip()
 
 
+_REWRITE_KEYS = ("REWRITTEN", "CHANGES", "QUESTIONS")
+
+
+def _named_rewrite(raw: str) -> PromptRewrite | None:
+    """The rewrite as stated on named lines, or ``None`` when it was not.
+
+    ``REWRITTEN`` is read as a block: a rewritten request is prose and often
+    runs to several paragraphs, and cutting it at the first newline would hand
+    the operator a truncated draft. ``None`` rather than an empty result keeps
+    the JSON and plain-text fallbacks below reachable.
+    """
+    from ..core.role_reply import read_block, read_key_values, read_list
+
+    values = read_key_values(raw, _REWRITE_KEYS)
+    if "REWRITTEN" not in values:
+        return None
+    rewritten = _strip_fence(read_block(raw, "REWRITTEN", _REWRITE_KEYS))
+    if not rewritten:
+        return None
+    return PromptRewrite(
+        original="",
+        rewritten=rewritten[:_MAX_REWRITE_CHARS],
+        changes=list(read_list(values, "CHANGES"))[:_MAX_LIST_ITEMS],
+        questions=list(read_list(values, "QUESTIONS"))[:_MAX_LIST_ITEMS],
+    )
+
+
 def parse_rewrite_text(text: str) -> PromptRewrite:
     """Parse a model reply into a :class:`PromptRewrite`.
 
@@ -127,6 +154,10 @@ def parse_rewrite_text(text: str) -> PromptRewrite:
     raw = (text or "").strip()
     if not raw:
         return PromptRewrite(original="", rewritten="")
+
+    named = _named_rewrite(raw)
+    if named is not None:
+        return named
 
     obj = _loads_json(raw)
     if isinstance(obj, dict):

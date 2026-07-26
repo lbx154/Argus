@@ -644,11 +644,12 @@ def build_prompt_rewrite_prompt(
         "## Operator's draft\n"
         f"{body}\n\n"
         "## Your answer\n"
-        "Reply with ONE JSON object and NOTHING else:\n"
-        '{"rewritten":"<the rewritten request>",'
-        '"changes":["<what you made explicit and why>", ...],'
-        '"questions":["<what you propose or could not infer, kept out of the '
-        'rewrite until the operator answers>", ...]}\n'
+        "State your answer on these lines. REWRITTEN may run over several "
+        "lines; the two lists are separated by semicolons:\n"
+        "REWRITTEN=<the rewritten request>\n"
+        "CHANGES=<what you made explicit and why>; <another>\n"
+        "QUESTIONS=<what you propose or could not infer, kept out of the "
+        "rewrite until the operator answers>; <another>\n"
     )
     banner = str(role_banner or "").strip()
     if not banner:
