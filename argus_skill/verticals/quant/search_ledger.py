@@ -172,3 +172,82 @@ class SearchLedger:
             expected_prev = row.row_hash
             expected_index += 1
         return True
+
+
+def _cli(argv: list[str] | None = None) -> int:
+    """Audit a ledger's hash chain from the command line.
+
+    ``verify_chain`` existed and was tested from the day the ledger landed, but
+    nothing outside the test suite could reach it: no CLI, no production caller.
+    The reviewer is pointed at ``run/SEARCH_LEDGER.jsonl`` by the quant stage's
+    ``evidence_hint`` and then has to eyeball JSONL hashes by hand — which in
+    practice means the tamper-evidence is never checked at all.
+
+    This is a tool for the agent, not a gate over it. It reports what the chain
+    says and nothing more: whether the rows still hash together, and how many
+    trials were recorded. Whether 3 trials is too few, or whether a broken chain
+    is fraud or a crashed writer, is the reviewer's call — the exit code is
+    about chain integrity only, and this module deliberately has no opinion on
+    search breadth. Per this module's own trust model the ledger is evidence,
+    not a gate.
+
+    Exit ``0`` when the chain verifies, ``1`` when it does not (including a
+    missing file, which cannot be evidence of anything), ``2`` on bad usage.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="python -m argus_skill.verticals.quant.search_ledger",
+        description="Verify the hash chain of a factor-mining search ledger.",
+    )
+    parser.add_argument("command", choices=["verify"])
+    parser.add_argument(
+        "--path",
+        default="run/SEARCH_LEDGER.jsonl",
+        help="ledger path (default: run/SEARCH_LEDGER.jsonl)",
+    )
+    parser.add_argument(
+        "--json", action="store_true", help="emit a machine-readable report"
+    )
+    args = parser.parse_args(argv)
+
+    path = Path(args.path)
+    if not path.is_file():
+        report = {"path": str(path), "exists": False, "chain_valid": False, "rows": 0}
+        detail = f"search-ledger: no ledger at {path}"
+    else:
+        # A hand-written or truncated file is the case this tool exists to
+        # catch, so it has to be reported, not raised: `echo {} > ledger.jsonl`
+        # makes _iter_rows fail on the missing keys, and a traceback tells the
+        # reviewer nothing it can act on.
+        try:
+            ledger = SearchLedger(path)
+            rows = len(ledger.rows())
+            valid = ledger.verify_chain()
+            detail = (
+                f"search-ledger: chain OK, {rows} trial row(s) in {path}"
+                if valid
+                else (
+                    f"search-ledger: CHAIN BROKEN in {path} ({rows} row(s) parsed) — "
+                    "a row was edited, deleted or reordered after it was written"
+                )
+            )
+        except (KeyError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            rows, valid = 0, False
+            detail = (
+                f"search-ledger: NOT A LEDGER at {path} — "
+                f"rows are not in the append-only chained format ({exc!r})"
+            )
+        report = {
+            "path": str(path),
+            "exists": True,
+            "chain_valid": valid,
+            "rows": rows,
+        }
+
+    print(json.dumps(report, sort_keys=True) if args.json else detail)
+    return 0 if report["chain_valid"] else 1
+
+
+if __name__ == "__main__":  # pragma: no cover - exercised via subprocess in tests
+    raise SystemExit(_cli())

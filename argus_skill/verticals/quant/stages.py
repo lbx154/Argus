@@ -180,7 +180,13 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "time — including failures and discards — so the full search "
                 "breadth is auditable and cherry-picking is visible."
             ),
-            evidence_hint="run/SEARCH_LEDGER.jsonl",
+            evidence_hint=(
+                "run/SEARCH_LEDGER.jsonl — audit its tamper-evidence with "
+                "`python -m argus_skill.verticals.quant.search_ledger verify "
+                "--path run/SEARCH_LEDGER.jsonl`; a hand-written or edited "
+                "ledger fails the chain. The chain says whether the rows are "
+                "authentic, not whether the search was broad enough."
+            ),
         ),
         ChecklistItem(
             id="run.screening",

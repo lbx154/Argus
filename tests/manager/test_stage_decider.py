@@ -7,7 +7,6 @@ import pytest
 from argus_skill.core.models import ReviewDecision
 from argus_skill.manager.stage_decider import (
     build_stage_decision_prompt,
-    enforce_scientific_stage_guard,
     fallback_empty_stage_decision,
     final_stage_completion_decision,
     parse_stage_decision,
@@ -131,14 +130,30 @@ def test_bounded_done_does_not_auto_complete_final_stage() -> None:
 
 
 def test_no_second_machine_value_guard_overrides_manager() -> None:
+    """The Manager's parsed decision is what reaches disk.
+
+    This used to be pinned by calling ``enforce_scientific_stage_guard`` and
+    asserting it returned its input — but that function had been reduced to
+    ``_ = review, current_stage; return decision``, an identity function whose
+    name still promised a guard. It was deleted; two live call sites went with
+    it. The property it stood for is now pinned structurally instead: the write
+    path does not receive the reviewer verdict at all, so there is nowhere for a
+    second machine gate to reappear without that being visible in the signature.
+    """
+    import inspect
+
+    from argus_skill.manager import stage_decider
+    from argus_skill.manager._stage_ops import _StageDecisionMixin
+
+    assert not hasattr(stage_decider, "enforce_scientific_stage_guard")
+
+    params = set(inspect.signature(_StageDecisionMixin._apply_stage_decision_to_disk).parameters)
+    assert params == {"self", "decision", "cur", "root"}
+
     manager = parse_stage_decision(
         '{"action":"advance","target_stage":"plan","reason":"review accepted"}',
         current_stage="research",
         stage_order=ORDER,
     )
-    guarded = enforce_scientific_stage_guard(
-        manager,
-        _review(),
-        current_stage="research",
-    )
-    assert guarded == manager
+    assert manager.action == "advance"
+    assert manager.target_stage == "plan"

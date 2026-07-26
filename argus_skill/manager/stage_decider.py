@@ -251,20 +251,8 @@ def final_stage_completion_decision(
     return StageDecision("complete", cur, reason, diagnostic)
 
 
-def enforce_scientific_stage_guard(
-    decision: StageDecision,
-    review: Any,
-    *,
-    current_stage: str,
-) -> StageDecision:
-    """Return the Manager's judgment without a second machine value gate."""
-    _ = review, current_stage
-    return decision
-
-
 __all__ = [
     "StageDecision",
-    "enforce_scientific_stage_guard",
     "extract_answer",
     "fallback_empty_stage_decision",
     "final_stage_completion_decision",

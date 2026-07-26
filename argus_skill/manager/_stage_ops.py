@@ -223,7 +223,6 @@ class _StageDecisionMixin:
         Returns a ``StageDecision``-like object (action, target_stage, reason, …).
         """
         from .stage_decider import (
-            enforce_scientific_stage_guard,
             fallback_empty_stage_decision,
             final_stage_completion_decision,
             parse_stage_decision,
@@ -256,11 +255,6 @@ class _StageDecisionMixin:
                 not open_ended or decision.action == "hold"
             ):
                 decision = final_decision
-            decision = enforce_scientific_stage_guard(
-                decision,
-                review,
-                current_stage=cur,
-            )
             from .stage_decider import StageDecision
             if planner_wait_reconciliation and decision.action in {"advance", "complete"}:
                 decision = StageDecision(
@@ -332,11 +326,6 @@ class _StageDecisionMixin:
         ):
             decision = final_decision
 
-        decision = enforce_scientific_stage_guard(
-            decision,
-            review,
-            current_stage=cur,
-        )
         from .stage_decider import StageDecision
 
         if planner_wait_reconciliation and decision.action in {"advance", "complete"}:
