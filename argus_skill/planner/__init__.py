@@ -7,6 +7,7 @@ task blocks for Manager-authored DAGs.
 """
 
 from .planner import (
+    NO_CONCRETE_TASKS_ERROR,
     Planner,
     PlannerConfig,
     PlannerVerdict,
@@ -19,6 +20,7 @@ __all__ = [
     "Planner",
     "PlannerConfig",
     "PlannerVerdict",
+    "NO_CONCRETE_TASKS_ERROR",
     "TaskSpec",
     "WaitingContract",
     "parse_planner_text",
