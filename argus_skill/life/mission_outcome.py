@@ -44,6 +44,7 @@ def mission_outcome_dimensions(
     success: bool,
     review_status: str = "",
     stage_transition: object = None,
+    stage_transition_skipped: bool = False,
     stop_kind: object = None,
     resumable: bool = False,
 ) -> dict[str, object]:
@@ -65,12 +66,16 @@ def mission_outcome_dimensions(
     stage_action = ""
     if isinstance(stage_transition, dict):
         stage_action = str(stage_transition.get("action") or "").strip().lower()
-    stage_certification = {
-        "advance": "certified",
-        "complete": "certified",
-        "hold": "not_certified",
-        "rollback": "revoked",
-    }.get(stage_action, "not_assessed")
+    stage_certification = (
+        "intentionally_skipped"
+        if stage_transition_skipped
+        else {
+            "advance": "certified",
+            "complete": "certified",
+            "hold": "not_certified",
+            "rollback": "revoked",
+        }.get(stage_action, "not_assessed")
+    )
 
     return {
         "execution_status": execution_status,

@@ -199,6 +199,7 @@ class PlanningCycleMixin(
             outcome = item.outcome if isinstance(item.outcome, dict) else {}
             if (
                 item.status != "done"
+                or self._item_skips_stage_transition(item)
                 or str(outcome.get("stage_certification") or "")
                 != "not_assessed"
             ):

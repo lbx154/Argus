@@ -16,7 +16,7 @@ def test_resolve_dep_ids_empty_deps_is_flat() -> None:
     assert _resolve_task_dep_ids([], {"a": "id-a"}) == ([], [])
 
 
-def test_resolve_dep_ids_drops_unknown_keys() -> None:
+def test_resolve_dep_ids_reports_unknown_keys() -> None:
     resolved, unresolved = _resolve_task_dep_ids(
         ["a", "ghost"],
         {"a": "id-a"},

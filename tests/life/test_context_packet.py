@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from argus_skill.life.context_packet import (
     create_mission_context,
     record_engineer_handoff,
@@ -11,6 +13,7 @@ from argus_skill.life.context_packet import (
 )
 from argus_skill.life.memory import BacklogItem
 from argus_skill.life.supervisor import LifeSupervisor
+from argus_skill.planner.planner import hydrate_task_context_refs
 
 
 def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> None:
@@ -121,3 +124,37 @@ def test_agent_task_context_hides_host_content_hash() -> None:
     assert "current result" in rendered
     assert "content_hash" not in rendered
     assert "sha256" not in rendered
+
+
+def test_planner_context_ref_hash_tracks_project_file_revision(tmp_path: Path) -> None:
+    artifact = tmp_path / "research" / "chem_playground" / "x" / "QUESTION.md"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text("first revision", encoding="utf-8")
+    refs = [{
+        "kind": "artifact",
+        "ref": "research/chem_playground/x/QUESTION.md",
+        "why": "candidate question",
+        "content_hash": "",
+    }]
+
+    first = hydrate_task_context_refs(refs, tmp_path)
+    artifact.write_text("second revision", encoding="utf-8")
+    second = hydrate_task_context_refs(refs, tmp_path)
+
+    assert first[0]["content_hash"].startswith("sha256:")
+    assert second[0]["content_hash"].startswith("sha256:")
+    assert first[0]["content_hash"] != second[0]["content_hash"]
+    assert refs[0]["content_hash"] == ""
+
+
+def test_planner_context_refs_reject_project_escape(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="escapes the project root"):
+        hydrate_task_context_refs(
+            [{
+                "kind": "artifact",
+                "ref": "../../outside.txt",
+                "why": "unsafe",
+                "content_hash": "",
+            }],
+            tmp_path,
+        )

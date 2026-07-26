@@ -1,19 +1,51 @@
 ---
 name: GuacaMol Molecular Design Benchmarking
-description: Run GuacaMol distribution-learning or goal-directed benchmarks with official tasks, scoring functions, and comparable baselines.
-category: chemistry-tool-guacamol
-version: 1
+description: Run documented GuacaMol distribution-learning or goal-directed benchmarks with exact tasks, scoring functions, reference data, budgets, baselines, validity checks, and benchmark-only claim limits.
+category: chemistry-tool-benchmark
+version: 2
 ---
 
-Use <https://github.com/BenevolentAI/guacamol_baselines>. Verify package age,
-Python compatibility, task definitions, and baseline reproducibility before
-adopting it.
+## When to use
 
-Retain repository commit, environment, benchmark suite and version, training
-data provenance, generator/optimizer configuration, seeds, raw generated
-molecules, validity/uniqueness/novelty records, score outputs, timing, and
-failures.
+Use when the research question explicitly concerns GuacaMol-compatible molecular
+generation benchmark performance or reproducibility.
 
-Do not tune against hidden benchmark answers or report one task as broad
-molecular-design superiority. Check chemistry filters and unrealistic score
-exploitation rather than trusting an aggregate objective alone.
+## Do not use when
+
+Do not equate benchmark score with synthesizability, novelty beyond the declared
+corpus, biological activity, safety, or experimental discovery. Do not modify
+scoring functions after inspecting outcomes.
+
+## Required inputs
+
+Benchmark implementation/version, task set, reference data/version, molecular
+standardization, scoring functions, validity/uniqueness/novelty definitions,
+query/sample budget, seeds, baselines, and answer-access boundary.
+
+## Minimum capability probe
+
+Score known molecules and invalid inputs, reproduce one documented baseline or
+metric, verify canonicalization and duplicates, and confirm the generator cannot
+read hidden targets beyond the intended score interface.
+
+## Evidence and validation
+
+Retain configurations, reference data, generated molecules, invalid/duplicate
+records, score components, budgets, seeds, baselines, runtime failures, and
+post-benchmark chemistry checks. Evaluate distribution and failure modes, not
+only the best score.
+
+## Output contract
+
+Return benchmark/task identity, comparable scores, molecule sets, validity and
+duplicate analysis, baseline comparison, and explicit limits on real-world claims.
+
+## Stop or replan
+
+Stop when task/scorer versions differ, evaluation answers leak, generated
+identity is unstable, or the benchmark does not test the claimed chemistry.
+
+## Official references
+
+- https://github.com/BenevolentAI/guacamol
+- https://benevolent.ai/guacamol

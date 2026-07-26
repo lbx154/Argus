@@ -349,6 +349,10 @@ class MissionExecutionSettlementMixin:
                 getattr(outcome, "final_review_status", "") or ""
             ),
             stage_transition=stage_transition,
+            stage_transition_skipped=(
+                self._item_skips_stage_transition(item)
+                or bool(getattr(outcome, "stage_transition_skipped", False))
+            ),
             stop_kind=state.stop_kind,
             resumable=resumable,
         )

@@ -1,55 +1,55 @@
 ---
 name: Chemistry Research Review
-description: Add chemistry-specific independent review criteria to research missions covering chemical fidelity, evidence, controls, uncertainty, reproducibility, and claim boundaries.
+description: Provide cross-domain chemistry review and route to specialized reviewer Skills while enforcing identity, primary evidence, controls, uncertainty, reproducibility, safety, and claim ceilings.
 category: chemistry-review
-version: 1
+version: 3
 ---
 
-Review the chemistry, not the paperwork. Missing manifests, ledgers, audit packets,
-or prescribed filenames are not defects by themselves, and their presence is not
-evidence that the result is correct.
+Review the scientific result, not paperwork. Read the original question,
+original inputs, source data, code or configuration, primary tool/instrument
+outputs, controls, negative results, and the exact claim. Missing process-only
+manifests are not defects; their presence is not evidence.
 
-Read the original question, actual inputs, source data, code, primary tool or
-instrument outputs, and the claimed result. Check molecular, reaction, reagent,
-or sample identity and the observable. Where relevant, inspect canonicalization,
-structures and stereochemistry, protonation and tautomer state, charge and spin,
-units, assay or reaction conditions, approximations, method and basis choices,
-calibration, convergence, controls, repeats, and uncertainty.
+Use the specialized reviewer Skill for the task:
 
-Distinguish retrieval from prediction, surrogate-oracle output from a fresh
-calculation, retrospective data from a prospective experiment, and simulation
-from physical measurement. A route planner does not prove synthetic feasibility;
-a database record does not prove a new observation; a clean process exit does not
-prove that scientific settings were valid.
+- organic synthesis;
+- materials science;
+- crystallography;
+- MOF and reticular chemistry;
+- computational chemistry;
+- batteries and electrochemistry;
+- characterization;
+- biochemistry and chemical biology.
 
-For optimization and discovery, compare against the strongest appropriate
-baseline under the same budget. Check whether hidden answers, public benchmark
-labels, test structures, or future data leaked into proposal decisions. Review
-the full trajectory, including failed and negative observations, rather than only
-the best endpoint.
+For an explicitly matched Chem Playground candidate, use the Chemistry
+Playground Promotion Gate. A valid `promoted`, `retained`, `falsified`, or
+scientifically `blocked` RESULT may complete the bounded mission with Harness
+`done`; none of those statuses changes the formal Research stage.
 
-Audit the claimed agent involvement. A policy designed once by an agent and then
-executed as fixed code measures that frozen policy, not online agent decisions.
-Require the result to identify whether control was online, periodically revised,
-or frozen before outcomes; do not let the label "Argus-guided" blur that boundary.
-When the operator asked to evaluate online Argus control, reject a frozen policy
-as the wrong experiment even if its implementation and statistics are correct.
+For cross-domain claims, apply each relevant standard without double-counting
+the same evidence. Reconstruct chemical/sample/construct identity, units,
+conditions, transformations, software or instrument state, calibration,
+convergence, controls, grouping, uncertainty, and applicability.
 
-Audit the evaluator threat model separately from its API shape. A same-user
-subprocess, file mode, import boundary, or unchanged hash can show cooperative
-protocol compliance and provenance, but does not adversarially seal answers from
-an agent that can read or edit the same workspace. Certify a sealed or anti-cheat
-claim only when external or OS-enforced access controls actually prevent that
-path; otherwise require narrower wording.
+Distinguish retrieved, curated, predicted, computed, simulated, measured, and
+inferred results. Enforce the claim ceiling: a route planner does not prove
+synthesis; a valid CIF does not prove a new physical sample; an ideal structure
+does not prove porosity; a docking pose does not prove binding; a model fit does
+not prove mechanism; a clean exit does not prove correctness.
 
-Physical execution must be traceable to an externally authorized capability and
-facility or instrument interlocks. Do not infer safety from fluent prose, and do
-not certify a physical result that was only planned or simulated.
+For discovery or optimization, inspect source provenance, licenses, duplicates,
+split/group leakage, information available at each decision, baselines under the
+same budget, calibration, and the full trajectory including failures. When
+online agent control is claimed, verify that decisions were actually made online
+rather than by a policy frozen before outcomes.
 
-Return `done` only when the evidence supports the requested bar. State plainly
-what was observed, computed, predicted, reproduced, improved, falsified, or left
-unresolved. A bounded negative result can complete that experiment, but honesty
-alone cannot complete the research objective. If it lacks standalone decision
-value, return `replan_requested`; use `done` only for a valuable supported thesis. Check
-primary sources when novelty is claimed or required; otherwise leave novelty
-unknown rather than demanding another process artifact.
+Physical evidence must trace to an identified sample and an authorized facility
+or instrument path. Planning, computation, or simulation cannot be certified as
+physical execution.
+
+Return `done` only at the requested evidence level and state what was retrieved,
+predicted, computed, simulated, measured, inferred, reproduced, improved,
+falsified, or unresolved. Return `replan_requested` when identity, primary
+evidence, controls, capability, uncertainty, applicability, or authorization
+cannot support a valuable decision. A bounded negative result may complete its
+experiment but does not automatically complete the research objective.

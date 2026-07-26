@@ -1,55 +1,50 @@
 ---
 name: Chemistry Research Execution
-description: Add chemistry-specific execution guidance to research missions using real chemistry tools, primary outputs, comparable baselines, and honest evidence boundaries.
+description: Execute chemistry research by loading a task-specific domain workflow and shared foundations, probing real capabilities, retaining primary evidence, validating scientifically, and respecting physical authorization.
 category: chemistry-execution
-version: 1
+version: 3
 ---
 
-Do the chemical work in the form that fits the question. Distinguish observed,
-computed, simulated, predicted, retrieved, and inferred results; do not describe
-one as another.
+Load the narrowest matched domain Skill before acting. For cross-domain work,
+keep responsibilities explicit: for example, crystallography validates a CIF,
+MOF analysis derives framework topology, characterization interprets raw
+signals, and materials science evaluates the broader property relationship.
 
-Inspect the real environment before selecting a tool. Install heavy or
-domain-specific dependencies only in the project's environment or container, not
-in the Argus harness. Run a small capability probe before committing a long
-campaign. If tool selection is uncertain, consult the matchable
-`engineer/chemistry-toolkit.md` skill and then verify current official
-documentation, versions, data licenses, model weights, and API permissions.
+Resolve identity, units, conditions, evidence level, and the scientific decision
+before selecting software. Inspect the real project environment and use
+project-native tools first. Verify current versions, data/model provenance,
+licenses, and API permissions. Run a small representative capability probe
+before a long calculation, dataset build, or analysis.
 
-Preserve the inputs and primary outputs needed to reproduce the claim. Check
-identifiers, molecular or material structures, stereochemistry, charge and spin,
-units, conditions, approximations, random seeds, software versions, and
-convergence settings where they matter. Keep failed calls and negative results;
-do not replace unavailable real evidence with toy data while retaining the
-original claim.
+Preserve original inputs unchanged. Derived structures, normalized tables,
+converted files, processed signals, and repaired records are separate artifacts
+with reversible provenance. Retain configurations, versions, primary outputs,
+warnings, convergence or calibration diagnostics, controls, uncertainty,
+failed calls, and negative results. Never replace unavailable evidence with toy
+data while retaining the original claim.
 
-For a sequential campaign, let returned observations change later proposals and
-stay within the declared query or experiment budget. Run the strongest
-appropriate baseline under the same budget. Keep evaluation answers hidden from
-proposal logic and use time, scaffold, system, or task splits when the benchmark
-requires them.
+Distinguish:
 
-Record where intelligence enters the policy before implementation. Distinguish an online agent choosing
-each action, an agent-designed policy frozen before outcomes, and an ordinary
-optimizer executed by the harness. Do not label an agent-designed fixed policy as
-online agent control or use its result to claim online agent sample efficiency.
-If the requested experiment tests online Argus decisions, route each budgeted
-decision through the live agent and retain its observation context and action.
-Do not compile a heuristic in its place; reduce the evaluation budget or report
-that the requested online experiment is infeasible.
+- retrieved or curated source information;
+- predicted model output;
+- computed deterministic results;
+- simulated stochastic or dynamical results;
+- measured instrument or assay observations;
+- inferred assignments or mechanisms.
 
-State the evaluator threat model before calling answers hidden or sealed. A
-subprocess running as the same user is useful interface separation, but it is not
-adversarial sealing when the agent can still read or edit evaluator files. For an
-anti-cheat claim, use an external or OS-enforced capability boundary the evaluated
-agent cannot bypass; otherwise limit the claim to cooperative protocol compliance.
+Apply the matched workflow's validation gates. Compare methods under the same
+budget when making optimization or method claims, protect time/group/scaffold/
+system boundaries from leakage, and state applicability. Successful execution,
+database retrieval, a generated candidate, a visually good fit, or a confident
+model score is not scientific correctness.
 
-Physical actuation is permitted only through an already authorized capability
-whose facility or instrument layer enforces safety limits and interlocks. Never
-work around that layer. Without such access, restrict the result to computation,
-analysis, planning, or an explicit blocker.
+Use project-native artifacts and `CHECKPOINT.md`; do not create process-only
+manifests to appear rigorous. Do not modify Argus Harness core or create a
+Chemistry Playground for ordinary project work. When and only when the dedicated
+Playground Workflow is explicitly matched, use its single project-local protocol
+and independent Reviewer gate.
 
-Use project-native chemistry files and the existing `CHECKPOINT.md`. Do not
-create process-only manifests, ledgers, audit packets, or status files merely to
-look rigorous; the actual source data, code, tool output, and scientific result
-are the evidence.
+Physical action requires an already authorized facility capability with
+instrument-side limits, trained operation, and safety interlocks. Never bypass
+that boundary. Without it, restrict the result to retrieval, analysis,
+computation, simulation, or planning and report the blocker.

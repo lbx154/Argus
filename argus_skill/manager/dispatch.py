@@ -12,6 +12,25 @@ from . import front_door
 
 DEFAULT_MANAGER_CONFIG = DEFAULT_LIFE_CONFIG
 
+
+def _resolve_manager_workdir(mem: Any) -> Path:
+    from ..core.session import read_session_meta, resolve_session_workdir
+
+    life_dir = Path(front_door._life_dir_for(mem))
+    global_root = getattr(mem, "global_root", None)
+    root = Path(global_root) if global_root is not None else life_dir.parent.parent
+    meta = read_session_meta(root, life_dir.name)
+    if meta is not None and (
+        str(getattr(meta, "workdir", "") or "").strip()
+        or str(getattr(meta, "cwd", "") or "").strip()
+    ):
+        return resolve_session_workdir(meta, state_dir=life_dir)
+    configured = getattr(mem, "project_worktree", None)
+    if configured is not None:
+        return Path(configured).expanduser().resolve()
+    return resolve_session_workdir(meta, state_dir=life_dir)
+
+
 def _stable_topological_nodes(tasks: tuple[Any, ...]) -> list[Any]:
     ordered: list[Any] = []
     done: set[str] = set()
@@ -37,17 +56,9 @@ def _plan_bounded_execution(
     runner = front_door._ensure_manager_runner(chat_state, mem)
     backend = getattr(runner, "planner_backend", None) if runner is not None else None
     if backend is None:
-        from types import SimpleNamespace
-
-        return SimpleNamespace(
-            reason="planner backend unavailable; preserve one atomic task",
-            tasks=(SimpleNamespace(
-                key="execute",
-                deps=(),
-                title=execution_body.splitlines()[0][:120],
-                objective=execution_body,
-            ),),
-            error="",
+        raise front_door.ManagerHandoffError(
+            "bounded Planner backend unavailable; refusing an atomic fallback "
+            "that cannot preserve review and stage-transition semantics"
         )
     from ..agent_cli.runner_backend import normalize_runner_backend
     from ..core.knobs import (
@@ -56,14 +67,9 @@ def _plan_bounded_execution(
         resolve_role_model,
         resolve_role_reasoning_effort,
     )
-    from ..core.session import read_session_meta, resolve_session_workdir
     from ..planner.bounded_dag import plan_bounded_dag
 
-    life_dir = Path(front_door._life_dir_for(mem))
-    global_root = getattr(mem, "global_root", None)
-    root = Path(global_root) if global_root is not None else life_dir.parent.parent
-    meta = read_session_meta(root, life_dir.name)
-    workdir = resolve_session_workdir(meta, state_dir=life_dir)
+    workdir = _resolve_manager_workdir(mem)
     configured_model = resolve_knob(
         "ARGUS_SKILL_BOUNDED_DAG_MODEL",
         "auto",
@@ -228,17 +234,62 @@ def enqueue_mission(
 
     planned: dict[str, Any] = {}
 
+    def _hydrate_context_refs(nodes: list[Any]) -> dict[str, list[dict[str, Any]]]:
+        from ..planner.planner import hydrate_task_context_refs
+
+        workdir = _resolve_manager_workdir(mem)
+        hydrated_refs: dict[str, list[dict[str, Any]]] = {}
+        for node in nodes:
+            try:
+                hydrated_refs[node.key] = hydrate_task_context_refs(
+                    list(getattr(node, "context_refs", ()) or ()),
+                    workdir,
+                )
+            except ValueError as exc:
+                raise front_door.ManagerHandoffError(
+                    f"bounded Planner returned an invalid context reference: {exc}"
+                ) from exc
+        return hydrated_refs
+
     def _prepare_persist(execution_body: str) -> None:
         if callable(cancelled) and cancelled():
             raise front_door.ManagerHandoffError(
                 "Manager request cancelled before bounded DAG planning"
             )
-        planned["plan"] = _plan_bounded_execution(
+        plan = _plan_bounded_execution(
             mem,
             execution_body,
             chat_state,
             root_task_id=root_task_id,
         )
+        nodes = _stable_topological_nodes(tuple(getattr(plan, "tasks", ()) or ()))
+        if not nodes:
+            raise front_door.ManagerHandoffError("bounded Planner produced no tasks")
+        for node in nodes:
+            stage_closing = bool(getattr(node, "stage_closing", False))
+            require_review = bool(
+                getattr(node, "require_independent_review", False)
+            )
+            skip_stage_transition = bool(
+                getattr(node, "skip_stage_transition", False)
+            )
+            if skip_stage_transition and (stage_closing or not require_review):
+                raise front_door.ManagerHandoffError(
+                    "bounded Planner returned an invalid review-only stage "
+                    "transition contract"
+                )
+        planned["plan"] = plan
+        planned["nodes"] = nodes
+        planned["hydrated_refs"] = _hydrate_context_refs(nodes)
+
+    def _validate_persist(_execution_body: str) -> None:
+        nodes = list(planned.get("nodes") or ())
+        current_refs = _hydrate_context_refs(nodes)
+        if current_refs != dict(planned.get("hydrated_refs") or {}):
+            raise front_door.ManagerHandoffError(
+                "bounded Planner context references changed before Manager commit"
+            )
+        planned["hydrated_refs"] = current_refs
 
     def _persist(execution_body: str, _division: Any) -> Any:
         if callable(cancelled) and cancelled():
@@ -248,9 +299,8 @@ def enqueue_mission(
         pending = mem.backlog.pending()
         head_priority = min((item.priority for item in pending), default=100)
         plan = planned.get("plan")
-        nodes = _stable_topological_nodes(tuple(getattr(plan, "tasks", ()) or ()))
-        if not nodes:
-            raise front_door.ManagerHandoffError("bounded Planner produced no tasks")
+        nodes = list(planned.get("nodes") or ())
+        hydrated_refs = dict(planned.get("hydrated_refs") or {})
         from ..life.memory import BacklogItem
 
         plan_id = f"bounded-{uuid.uuid4().hex[:12]}"
@@ -265,18 +315,49 @@ def enqueue_mission(
         items: list[BacklogItem] = []
         priority = min(head_priority - 1, -1)
         for index, node in enumerate(nodes):
+            stage_closing = bool(getattr(node, "stage_closing", False))
+            require_review = bool(
+                getattr(node, "require_independent_review", False)
+            )
+            skip_stage_transition = bool(
+                getattr(node, "skip_stage_transition", False)
+            )
+            context_refs = hydrated_refs.get(node.key, [])
             item = BacklogItem.new(
                 item_id=ids[node.key],
                 title=node.title,
                 objective=node.objective,
                 priority=priority + index,
-                tags=["manager", "planner", "bounded_dag_node", "scope:bounded"],
+                tags=[
+                    "manager",
+                    "planner",
+                    "bounded_dag_node",
+                    "scope:bounded",
+                    *(
+                        ["stage_closing"]
+                        if stage_closing
+                        else []
+                    ),
+                    *(
+                        ["review:required"]
+                        if stage_closing or require_review
+                        else []
+                    ),
+                    *(
+                        ["stage_transition:skip"]
+                        if skip_stage_transition
+                        else []
+                    ),
+                ],
                 iterate=False,
                 iteration_max_cycles=1,
                 deps=[ids[dep] for dep in node.deps],
                 plan_id=plan_id,
                 plan_version=1,
                 node_key=node.key,
+                context_refs=context_refs,
+                acceptance_check=str(getattr(node, "acceptance_check", "") or ""),
+                non_goals=list(getattr(node, "non_goals", ()) or ()),
             )
             item.original_objective = execution_body
             items.append(item)
@@ -322,6 +403,7 @@ def enqueue_mission(
         _persist,
         root_task_id=root_task_id,
         prepare_persist=_prepare_persist,
+        validate_persist=_validate_persist,
     )
     chat_state["last_objective"] = item.original_objective or item.objective
     alive, pid = _daemon_status(life_dir)

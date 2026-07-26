@@ -286,6 +286,14 @@ class MissionExecutionRuntimeMixin:
                     execute_kwargs["require_independent_review"] = (
                         self._item_requires_independent_review(item)
                     )
+                if "skip_stage_transition" in params or _accepts_kw:
+                    execute_kwargs["skip_stage_transition"] = (
+                        self._item_skips_stage_transition(item)
+                    )
+                if "stage_closing" in params or _accepts_kw:
+                    execute_kwargs["stage_closing"] = (
+                        self._item_is_stage_closing(item)
+                    )
                 if "mission_id" in params or _accepts_kw:
                     execute_kwargs["mission_id"] = item.id
                 if "usage_mission_id" in params or _accepts_kw:
@@ -330,6 +338,10 @@ class MissionExecutionRuntimeMixin:
                 execute_kwargs["require_independent_review"] = (
                     self._item_requires_independent_review(item)
                 )
+                execute_kwargs["skip_stage_transition"] = (
+                    self._item_skips_stage_transition(item)
+                )
+                execute_kwargs["stage_closing"] = self._item_is_stage_closing(item)
                 execute_kwargs["context_packet_path"] = (
                     str(state.context_packet_path) if state.context_packet_path else ""
                 )

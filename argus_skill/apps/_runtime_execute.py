@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import stat
 from pathlib import Path
 
 from ..core.knobs import resolve_role_reasoning_effort
@@ -34,6 +35,312 @@ log = logging.getLogger(__name__)
 class SkillLoopExecuteMixin:
     """Mission-execution half of ``_SkillLoopRunner``."""
 
+    @staticmethod
+    def _suppress_playground_settlement(state: object) -> None:
+        setattr(state, "allow_settlement_side_effects", False)
+
+    @staticmethod
+    def _is_link_or_reparse_point(path: Path) -> bool:
+        try:
+            if path.is_symlink():
+                return True
+            is_junction = getattr(path, "is_junction", None)
+            if callable(is_junction) and is_junction():
+                return True
+            attributes = getattr(os.lstat(path), "st_file_attributes", 0)
+            return bool(
+                attributes
+                & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+            )
+        except OSError:
+            return False
+
+    @classmethod
+    def _has_linked_ancestor(cls, path: Path) -> bool:
+        for parent in path.parents:
+            if parent == parent.parent:
+                break
+            if os.path.lexists(parent) and cls._is_link_or_reparse_point(parent):
+                return True
+        return False
+
+    @classmethod
+    def _is_unaliased_regular_file(cls, path: Path) -> bool:
+        try:
+            return (
+                not cls._is_link_or_reparse_point(path)
+                and not cls._has_linked_ancestor(path)
+                and path.is_file()
+                and os.stat(path).st_nlink == 1
+            )
+        except OSError:
+            return False
+
+    @classmethod
+    def _remove_pipeline_state_replacement(cls, path: Path) -> None:
+        if path.is_symlink():
+            path.unlink()
+            return
+        is_junction = getattr(path, "is_junction", None)
+        if callable(is_junction) and is_junction():
+            path.rmdir()
+            return
+        if cls._is_link_or_reparse_point(path):
+            if path.is_dir():
+                path.rmdir()
+            else:
+                path.unlink()
+            return
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+
+    @classmethod
+    def _snapshot_pipeline_state(
+        cls,
+        workdir: Path,
+    ) -> tuple[Path, bool, bytes | None, str]:
+        path = workdir.expanduser().resolve(strict=False) / "research" / "PIPELINE_STATE.json"
+        try:
+            if os.path.lexists(path.parent) and (
+                cls._is_link_or_reparse_point(path.parent)
+                or not path.parent.is_dir()
+            ):
+                return path, True, None, "formal pipeline state parent is not a real directory"
+            if not os.path.lexists(path):
+                return path, False, None, ""
+            if not cls._is_unaliased_regular_file(path):
+                return path, True, None, "formal pipeline state is not a regular file"
+            return path, True, path.read_bytes(), ""
+        except OSError as exc:
+            return path, True, None, f"cannot snapshot formal pipeline state: {exc}"
+
+    @classmethod
+    def _restore_pipeline_state(
+        cls,
+        snapshot: tuple[Path, bool, bytes | None, str],
+    ) -> tuple[bool, str, bool]:
+        path, existed, content, snapshot_error = snapshot
+        if snapshot_error:
+            return True, snapshot_error, False
+        try:
+            if cls._has_linked_ancestor(path.parent):
+                raise OSError(
+                    f"formal pipeline state ancestor was replaced: {path.parent}"
+                )
+            parent_changed = False
+            if os.path.lexists(path.parent) and (
+                cls._is_link_or_reparse_point(path.parent)
+                or not path.parent.is_dir()
+            ):
+                cls._remove_pipeline_state_replacement(path.parent)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                parent_changed = True
+            elif not path.parent.exists():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                parent_changed = True
+            current_exists = os.path.lexists(path)
+            if not existed:
+                if not current_exists and not parent_changed:
+                    return False, "", True
+                if current_exists:
+                    cls._remove_pipeline_state_replacement(path)
+                return (
+                    True,
+                    "Playground execution created formal pipeline state; removed it",
+                    True,
+                )
+
+            if (
+                not parent_changed
+                and current_exists
+                and cls._is_unaliased_regular_file(path)
+                and path.read_bytes() == content
+            ):
+                return False, "", True
+            if current_exists:
+                cls._remove_pipeline_state_replacement(path)
+            if cls._has_linked_ancestor(path.parent):
+                raise OSError(
+                    f"formal pipeline state ancestor was replaced: {path.parent}"
+                )
+            path.write_bytes(content or b"")
+            if (
+                cls._is_link_or_reparse_point(path.parent)
+                or not path.parent.is_dir()
+                or not cls._is_unaliased_regular_file(path)
+                or path.read_bytes() != (content or b"")
+            ):
+                raise OSError("restored formal pipeline state did not verify")
+            return (
+                True,
+                "Playground execution modified formal pipeline state; restored it",
+                True,
+            )
+        except OSError as exc:
+            return True, f"formal pipeline state isolation failed: {exc}", False
+
+    @staticmethod
+    def _canonical_playground_skill_paths() -> tuple[Path, Path]:
+        root = Path(__file__).resolve().parents[1]
+        return (
+            root
+            / "domains"
+            / "chemistry"
+            / "skills"
+            / "engineer"
+            / "workflows"
+            / "chemistry-playground.md",
+            root
+            / "domains"
+            / "chemistry"
+            / "skills"
+            / "reviewer"
+            / "chemistry-playground-review.md",
+        )
+
+    @classmethod
+    def _snapshot_playground_skill_files(
+        cls,
+    ) -> tuple[tuple[tuple[Path, bytes], ...], str]:
+        snapshots: list[tuple[Path, bytes]] = []
+        try:
+            canonical_paths = cls._canonical_playground_skill_paths()
+            protected_paths = list(canonical_paths)
+            for parent in dict.fromkeys(path.parent for path in canonical_paths):
+                for sibling in sorted(parent.iterdir()):
+                    if sibling not in protected_paths and sibling.is_file():
+                        protected_paths.append(sibling)
+            for path in protected_paths:
+                if (
+                    cls._is_link_or_reparse_point(path.parent)
+                    or not path.parent.is_dir()
+                    or not cls._is_unaliased_regular_file(path)
+                ):
+                    return (), f"protected Playground Skill is not a regular file: {path}"
+                snapshots.append((path, path.read_bytes()))
+        except OSError as exc:
+            return (), f"cannot snapshot protected Playground Skills: {exc}"
+        return tuple(snapshots), ""
+
+    @classmethod
+    def _restore_playground_skill_files(
+        cls,
+        snapshots: tuple[tuple[Path, bytes], ...],
+        snapshot_error: str,
+    ) -> tuple[bool, str, bool]:
+        if snapshot_error:
+            return True, snapshot_error, False
+        changed_paths: list[str] = []
+        try:
+            canonical_paths = set(cls._canonical_playground_skill_paths())
+            recovery_parents = {
+                path.parent
+                for path in canonical_paths
+                if (
+                    not path.parent.is_dir()
+                    or cls._is_link_or_reparse_point(path.parent)
+                    or not cls._is_unaliased_regular_file(path)
+                )
+            }
+            for path, content in snapshots:
+                if path not in canonical_paths and path.parent not in recovery_parents:
+                    continue
+                if cls._has_linked_ancestor(path.parent):
+                    raise OSError(
+                        f"protected Skill ancestor was replaced: {path.parent}"
+                    )
+                if os.path.lexists(path.parent) and (
+                    cls._is_link_or_reparse_point(path.parent)
+                    or not path.parent.is_dir()
+                ):
+                    cls._remove_pipeline_state_replacement(path.parent)
+                if not path.parent.is_dir():
+                    if not path.parent.parent.is_dir():
+                        raise OSError(
+                            f"protected Skill ancestor is missing: {path.parent.parent}"
+                        )
+                    path.parent.mkdir(exist_ok=False)
+                    changed_paths.append(str(path.parent))
+                if (
+                    os.path.lexists(path)
+                    and cls._is_unaliased_regular_file(path)
+                    and path.read_bytes() == content
+                ):
+                    continue
+                if os.path.lexists(path):
+                    cls._remove_pipeline_state_replacement(path)
+                path.write_bytes(content)
+                if (
+                    not cls._is_unaliased_regular_file(path)
+                    or path.read_bytes() != content
+                ):
+                    raise OSError(f"protected Skill restoration did not verify: {path}")
+                changed_paths.append(str(path))
+        except OSError as exc:
+            return True, f"protected Playground Skill isolation failed: {exc}", False
+        if not changed_paths:
+            return False, "", True
+        return (
+            True,
+            "Playground execution modified protected Skill files; restored: "
+            + ", ".join(changed_paths),
+            True,
+        )
+
+    @classmethod
+    def _restore_playground_boundaries(
+        cls,
+        pipeline_snapshot: tuple[Path, bool, bytes | None, str],
+        skill_snapshots: tuple[tuple[Path, bytes], ...],
+        skill_snapshot_error: str,
+    ) -> tuple[bool, str, bool]:
+        pipeline_changed, pipeline_reason, pipeline_ok = cls._restore_pipeline_state(
+            pipeline_snapshot
+        )
+        skills_changed, skills_reason, skills_ok = cls._restore_playground_skill_files(
+            skill_snapshots,
+            skill_snapshot_error,
+        )
+        reasons = [reason for reason in (pipeline_reason, skills_reason) if reason]
+        return (
+            pipeline_changed or skills_changed,
+            "; ".join(reasons),
+            pipeline_ok and skills_ok,
+        )
+
+    @staticmethod
+    def _playground_skills_from_snapshots(
+        snapshots: tuple[tuple[Path, bytes], ...],
+    ) -> tuple[object | None, object | None, str]:
+        if len(snapshots) < 2:
+            return None, None, "protected Playground Skill snapshot is incomplete"
+        try:
+            from ..skills.skill_router import is_protected_skill
+            from ..skills.store import Skill
+
+            engineer = Skill.parse(
+                snapshots[0][1].decode("utf-8"),
+                str(snapshots[0][0]),
+            )
+            reviewer = Skill.parse(
+                snapshots[1][1].decode("utf-8"),
+                str(snapshots[1][0]),
+            )
+        except UnicodeError as exc:
+            return None, None, f"protected Playground Skill is not UTF-8: {exc}"
+        if (
+            engineer.name != "Chemistry Playground Bounded Hypothesis Probe"
+            or engineer.category != "chemistry-playground"
+            or not is_protected_skill(engineer)
+            or reviewer.name != "Chemistry Playground Promotion Gate"
+            or reviewer.category != "chemistry-playground-review"
+            or not is_protected_skill(reviewer)
+        ):
+            return None, None, "protected Playground Skill snapshot is invalid"
+        return engineer, reviewer, ""
+
     def execute(
         self,
         *,
@@ -52,6 +359,8 @@ class SkillLoopExecuteMixin:
         progressive_experiment_matrix: bool = False,
         workflow_mode_override: str = "",
         require_independent_review: bool = False,
+        skip_stage_transition: bool = False,
+        stage_closing: bool = False,
         working_dir_override: str = "",
         maintenance_mission: bool = False,
     ) -> _Outcome:
@@ -106,6 +415,8 @@ class SkillLoopExecuteMixin:
             mission_id=mission_id,
             usage_mission_id=usage_mission_id,
             maintenance_mission=maintenance_mission,
+            skip_stage_transition=skip_stage_transition,
+            stage_closing=stage_closing,
         )
         return self._build_execute_outcome(ex_state)
 
@@ -506,7 +817,34 @@ class SkillLoopExecuteMixin:
         self._current_sink = sink
         self._current_failure_ledger = None
         self._set_usage_context(usage_mission_id or mission_id)
+        pipeline_state_snapshot = self._snapshot_pipeline_state(ex_state.workdir)
+        skill_snapshots, skill_snapshot_error = self._snapshot_playground_skill_files()
+        (
+            canonical_playground_engineer,
+            canonical_playground_reviewer,
+            canonical_skill_error,
+        ) = self._playground_skills_from_snapshots(skill_snapshots)
+        expected_playground_digest = self._canonical_playground_skill_digest(
+            skill_snapshots
+        )
         try:
+            if pipeline_state_snapshot[3]:
+                raise RuntimeError(
+                    "refused before execution: " + pipeline_state_snapshot[3]
+                )
+            if (
+                skill_snapshot_error
+                or canonical_skill_error
+                or not expected_playground_digest
+            ):
+                raise RuntimeError(
+                    "refused before execution: "
+                    + (
+                        skill_snapshot_error
+                        or canonical_skill_error
+                        or "canonical Playground Engineer digest is unavailable"
+                    )
+                )
             self._run_bounded_planning(
                 ex_state,
                 sink=sink,
@@ -514,6 +852,77 @@ class SkillLoopExecuteMixin:
                 original_objective=original_objective,
                 preplanned=preplanned,
             )
+
+            def _pre_settlement_guard(
+                _mission: object,
+                state: object,
+                status: str,
+                _rounds: list,
+                final_message: str,
+                reason: str,
+            ) -> tuple[str, str, str]:
+                skills_changed, skills_reason, skills_ok = (
+                    self._restore_playground_skill_files(
+                        skill_snapshots,
+                        skill_snapshot_error,
+                    )
+                )
+                if not skills_ok:
+                    raise RuntimeError(skills_reason)
+                if skills_changed:
+                    setattr(state, "allow_settlement_side_effects", False)
+                    ex_state.protected_playground_source_violation = True
+                    log.error("protected Skill isolation: %s", skills_reason)
+                    return "blocked", skills_reason, skills_reason
+                skill = getattr(state, "skill", None)
+                playground_claimed = (
+                    getattr(skill, "name", "")
+                    == "Chemistry Playground Bounded Hypothesis Probe"
+                    or getattr(skill, "category", "") == "chemistry-playground"
+                )
+                if not playground_claimed:
+                    return status, final_message, reason
+                self._suppress_playground_settlement(state)
+                from ..skills.skill_router import is_protected_skill
+                from ..skills.store import skill_content_digest
+
+                ex_state.playground_workflow_guarded = True
+                ex_state.trusted_playground_workflow = bool(
+                    skill is not None
+                    and getattr(state, "strict_skill_hit", False)
+                    and not getattr(state, "nearest_transfer_fallback", False)
+                    and not getattr(state, "skill_distilled", False)
+                    and is_protected_skill(skill)
+                    and expected_playground_digest
+                    and skill_content_digest(skill) == expected_playground_digest
+                )
+                changed, isolation_reason, restoration_ok = (
+                    self._restore_playground_boundaries(
+                        pipeline_state_snapshot,
+                        skill_snapshots,
+                        skill_snapshot_error,
+                    )
+                )
+                if not restoration_ok:
+                    raise RuntimeError(isolation_reason)
+                if changed or not ex_state.trusted_playground_workflow:
+                    if not ex_state.trusted_playground_workflow:
+                        isolation_reason = (
+                            "Playground workflow trust validation failed; "
+                            "formal stage transition was suppressed"
+                        )
+                    setattr(state, "allow_settlement_side_effects", False)
+                    log.error("Chemistry Playground isolation: %s", isolation_reason)
+                    return "blocked", isolation_reason, isolation_reason
+                return status, final_message, reason
+
+            ex_state.loop.canonical_playground_engineer_skill = (
+                canonical_playground_engineer
+            )
+            ex_state.loop.canonical_playground_reviewer_skill = (
+                canonical_playground_reviewer
+            )
+            ex_state.loop.pre_settlement_guard = _pre_settlement_guard
             ex_state.outcome = ex_state.loop.run(
                 ex_state.full_task,
                 workdir=ex_state.workdir,
@@ -522,6 +931,66 @@ class SkillLoopExecuteMixin:
                 original_objective=original_objective or objective,
                 scope=ex_state.mission_scope,
             )
+            skills_changed, skills_reason, skills_ok = (
+                self._restore_playground_skill_files(
+                    skill_snapshots,
+                    skill_snapshot_error,
+                )
+            )
+            if not skills_ok:
+                raise RuntimeError(skills_reason)
+            if skills_changed:
+                log.error("protected Skill isolation: %s", skills_reason)
+                ex_state.protected_playground_source_violation = True
+                ex_state.outcome.status = "blocked"
+                ex_state.outcome.reason = skills_reason
+                ex_state.outcome.recoverable = False
+                if hasattr(ex_state.outcome, "final_message"):
+                    ex_state.outcome.final_message = skills_reason
+            playground_claimed = self._playground_workflow_claimed(
+                ex_state.outcome
+            )
+            ex_state.trusted_playground_workflow = self._trusted_playground_workflow(
+                ex_state.outcome,
+                expected_digest=expected_playground_digest,
+            )
+            ex_state.playground_workflow_guarded = playground_claimed
+            if playground_claimed:
+                changed, isolation_reason, restoration_ok = (
+                    self._restore_playground_boundaries(
+                        pipeline_state_snapshot,
+                        skill_snapshots,
+                        skill_snapshot_error,
+                    )
+                )
+                if changed or not ex_state.trusted_playground_workflow:
+                    if not ex_state.trusted_playground_workflow:
+                        isolation_reason = (
+                            "Playground workflow trust validation failed; "
+                            "formal stage transition was suppressed"
+                        )
+                    log.error("Chemistry Playground isolation: %s", isolation_reason)
+                    if not restoration_ok:
+                        raise RuntimeError(isolation_reason)
+                    ex_state.outcome.status = "blocked"
+                    ex_state.outcome.reason = isolation_reason
+                    ex_state.outcome.recoverable = False
+                    if hasattr(ex_state.outcome, "final_message"):
+                        ex_state.outcome.final_message = isolation_reason
+        except BaseException as execution_error:
+            changed, isolation_reason, restoration_ok = self._restore_playground_boundaries(
+                pipeline_state_snapshot,
+                skill_snapshots,
+                skill_snapshot_error,
+            )
+            if changed:
+                log.error(
+                    "mission exception required formal pipeline isolation recovery: %s",
+                    isolation_reason,
+                )
+            if not restoration_ok:
+                raise RuntimeError(isolation_reason) from execution_error
+            raise
         finally:
             self._current_sink = None
             self._current_failure_ledger = None
@@ -597,6 +1066,8 @@ class SkillLoopExecuteMixin:
         mission_id: str | None,
         usage_mission_id: str | None,
         maintenance_mission: bool,
+        skip_stage_transition: bool,
+        stage_closing: bool,
     ) -> None:
         """Hand this round's structured completion verdict to the Manager's
         stage authority when this round is eligible to move the pipeline stage.
@@ -613,14 +1084,28 @@ class SkillLoopExecuteMixin:
         effective_recoverable = bool(getattr(outcome, "recoverable", False))
         effective_reason = outcome.reason or ""
         stage_transition: dict = {}
+        workflow_skips_stage_transition = (
+            ex_state.playground_workflow_guarded
+            or ex_state.protected_playground_source_violation
+        )
+        effective_skip_stage_transition = (
+            workflow_skips_stage_transition
+            or (skip_stage_transition and not stage_closing)
+        )
         # Direct workflow skips an extra planning pass, not Manager stage
-        # authority. A required independent Reviewer verdict must reach the
-        # stage writer before any planner-wait reconciliation.
-        if not maintenance_mission and _should_run_stage_transition(
+        # authority. Review-only tasks explicitly suppress the stage writer;
+        # every other eligible Reviewer verdict reaches it before planner-wait
+        # reconciliation.
+        if (
+            not maintenance_mission
+            and not workflow_skips_stage_transition
+            and _should_run_stage_transition(
             effective_status,
             mission_scope=ex_state.mission_scope,
             require_independent_review=ex_state.effective_require_independent_review,
             review_source=ex_state.review_source,
+            skip_stage_transition=effective_skip_stage_transition,
+            )
         ):
             self._current_sink = sink
             self._set_usage_context(usage_mission_id or mission_id)
@@ -644,6 +1129,15 @@ class SkillLoopExecuteMixin:
         ex_state.effective_recoverable = effective_recoverable
         ex_state.effective_reason = effective_reason
         ex_state.stage_transition = stage_transition
+        ex_state.stage_transition_skipped = bool(
+            workflow_skips_stage_transition
+            or (
+                effective_skip_stage_transition
+                and ex_state.effective_require_independent_review
+                and ex_state.mission_scope.strip().lower().replace("-", "_")
+                == "bounded"
+            )
+        )
 
     def _build_execute_outcome(self, ex_state: "_ExecuteState") -> _Outcome:
         """Assemble the ``_Outcome`` returned to the caller from the fields
@@ -664,6 +1158,61 @@ class SkillLoopExecuteMixin:
             final_submission_certified=ex_state.final_submission_certified,
             completion_evidence=ex_state.completion_evidence,
             stage_transition=ex_state.stage_transition,
+            stage_transition_skipped=ex_state.stage_transition_skipped,
             operator_question=ex_state.operator_question,
             final_review_status=ex_state.final_review_status,
+        )
+
+    @staticmethod
+    def _canonical_playground_skill_digest(
+        snapshots: tuple[tuple[Path, bytes], ...],
+    ) -> str:
+        try:
+            if not snapshots:
+                return ""
+            from ..skills.store import Skill, skill_content_digest
+
+            expected_skill = Skill.parse(
+                snapshots[0][1].decode("utf-8"),
+                str(snapshots[0][0]),
+            )
+            return skill_content_digest(expected_skill)
+        except (UnicodeError, RuntimeError, ValueError):
+            return ""
+
+    @staticmethod
+    def _playground_workflow_claimed(outcome: object) -> bool:
+        extras = getattr(outcome, "extras", {})
+        skill_used = str(getattr(outcome, "skill_used", "") or "")
+        category = (
+            str(extras.get("skill_category") or "")
+            if isinstance(extras, dict)
+            else ""
+        )
+        return (
+            skill_used == "Chemistry Playground Bounded Hypothesis Probe"
+            or category == "chemistry-playground"
+        )
+
+    @classmethod
+    def _trusted_playground_workflow(
+        cls,
+        outcome: object,
+        *,
+        expected_digest: str,
+    ) -> bool:
+        if not cls._playground_workflow_claimed(outcome):
+            return False
+        extras = getattr(outcome, "extras", {})
+        if (
+            not isinstance(extras, dict)
+            or bool(getattr(outcome, "skill_distilled", False))
+            or extras.get("skill_match_strict") is not True
+            or extras.get("skill_nearest_transfer_fallback") is True
+            or extras.get("skill_protected") is not True
+            or extras.get("skill_category") != "chemistry-playground"
+        ):
+            return False
+        return bool(expected_digest) and (
+            str(extras.get("skill_digest") or "") == expected_digest
         )

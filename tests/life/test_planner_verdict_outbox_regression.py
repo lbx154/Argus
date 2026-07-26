@@ -135,6 +135,9 @@ def test_all_filtered_planned_verdict_replays_plan_retry_not_false(
                 "TASK_IMPACT_AREA=reliability",
                 "TASK_EVIDENCE=still needed",
                 "TASK_SCOPE=bounded",
+                "TASK_STAGE_CLOSING=false",
+                "TASK_REQUIRE_INDEPENDENT_REVIEW=false",
+                "TASK_SKIP_STAGE_TRANSITION=false",
             ]
         )
     verdict_text = "\n".join(verdict_lines)

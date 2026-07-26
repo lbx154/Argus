@@ -17,11 +17,16 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 from argus_skill.core.models import RunnerResult
-from argus_skill.life.memory import LifeMemory
+from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.life.supervisor._config import LifeSupervisorConfig
-from argus_skill.life.supervisor._constants import PLAN_RETRY
+from argus_skill.life.supervisor._constants import (
+    PLAN_ERROR,
+    PLAN_RETRY,
+    PLAN_TERMINAL_IDLE,
+)
 from argus_skill.life.supervisor._core import LifeSupervisor
 
 
@@ -130,9 +135,316 @@ def _flat_verdict_kv(*tasks: tuple[str, str, str]) -> str:
                 "TASK_IMPACT_AREA=reliability",
                 f"TASK_EVIDENCE={evidence}",
                 "TASK_SCOPE=bounded",
+                "TASK_STAGE_CLOSING=false",
+                "TASK_REQUIRE_INDEPENDENT_REVIEW=false",
+                "TASK_SKIP_STAGE_TRANSITION=false",
             ]
         )
     return "\n".join(lines)
+
+
+def test_invalid_parent_context_ref_rejects_entire_planner_batch(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    verdict = "\n".join(
+        [
+            "PROJECT_DONE=false",
+            "REASON=probe then summarize",
+            "TASK_KEY=parent",
+            "TASK_DEPS=",
+            "TASK_TITLE=Run parent probe",
+            "TASK_OBJECTIVE=Read the candidate and produce primary evidence.",
+            "TASK_CONTEXT_REFS=artifact::research/missing.md::required input",
+            "TASK_SCOPE=bounded",
+            "TASK_STAGE_CLOSING=false",
+            "TASK_REQUIRE_INDEPENDENT_REVIEW=false",
+            "TASK_SKIP_STAGE_TRANSITION=false",
+            "TASK_KEY=child",
+            "TASK_DEPS=parent",
+            "TASK_TITLE=Summarize parent probe",
+            "TASK_OBJECTIVE=Read the parent output and write the conclusion.",
+            "TASK_SCOPE=bounded",
+            "TASK_STAGE_CLOSING=false",
+            "TASK_REQUIRE_INDEPENDENT_REVIEW=false",
+            "TASK_SKIP_STAGE_TRANSITION=false",
+        ]
+    )
+    supervisor = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        verdict,
+        project_worktree=project_root,
+    )
+
+    assert supervisor._plan_next_work() == PLAN_ERROR
+    assert supervisor.memory.backlog.all() == []
+
+
+def test_active_dedup_preserves_review_and_stage_transition_semantics(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    verdict = "\n".join(
+        [
+            "PROJECT_DONE=false",
+            "REASON=Add a separate review-only task.",
+            "TASK_KEY=review-only",
+            "TASK_DEPS=",
+            "TASK_TITLE=Review candidate",
+            "TASK_OBJECTIVE=Assess the bounded candidate.",
+            "TASK_SCOPE=bounded",
+            "TASK_STAGE_CLOSING=false",
+            "TASK_REQUIRE_INDEPENDENT_REVIEW=true",
+            "TASK_SKIP_STAGE_TRANSITION=true",
+        ]
+    )
+    supervisor = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        verdict,
+        project_worktree=project_root,
+    )
+    supervisor.memory.backlog.add(
+        BacklogItem.new(
+            title="Review candidate",
+            objective="Assess the bounded candidate.",
+            tags=["planner", "scope:bounded", "stage_closing", "review:required"],
+        )
+    )
+
+    assert supervisor._plan_next_work() is True
+    items = supervisor.memory.backlog.all()
+
+    assert len(items) == 2
+    assert any("stage_closing" in item.tags for item in items)
+    assert any("stage_transition:skip" in item.tags for item in items)
+
+
+def test_stage_closing_dedup_uses_effective_required_review(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    verdict = "\n".join(
+        [
+            "PROJECT_DONE=false",
+            "REASON=Close the current stage.",
+            "TASK_KEY=close-stage",
+            "TASK_DEPS=",
+            "TASK_TITLE=Review stage evidence",
+            "TASK_OBJECTIVE=Certify whether the current stage can advance.",
+            "TASK_SCOPE=bounded",
+            "TASK_STAGE_CLOSING=true",
+            "TASK_REQUIRE_INDEPENDENT_REVIEW=false",
+            "TASK_SKIP_STAGE_TRANSITION=false",
+        ]
+    )
+    supervisor = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        verdict,
+        project_worktree=project_root,
+    )
+    supervisor.memory.backlog.add(
+        BacklogItem.new(
+            title="Review stage evidence",
+            objective="Certify whether the current stage can advance.",
+            tags=["planner", "scope:bounded", "stage_closing", "review:required"],
+        )
+    )
+
+    assert supervisor._plan_next_work() == PLAN_RETRY
+
+    assert len(supervisor.memory.backlog.all()) == 1
+
+
+def test_revision_rejection_helper_opens_existing_circuit_breaker(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    supervisor = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        "PROJECT_DONE=true\nREASON=unused",
+        project_worktree=project_root,
+    )
+    item = BacklogItem.new(
+        title="Revise failed node",
+        objective="Replace the invalid plan node.",
+        plan_id="plan-old",
+        plan_version=1,
+    )
+    item.replan_rejections = 2
+    supervisor.memory.backlog.add(item)
+    state = SimpleNamespace(
+        revision_request={"item_id": item.id},
+        revision_active_items=[item],
+        expected_plan_id="plan-old",
+        expected_plan_version=1,
+    )
+
+    result = supervisor._pc_record_revision_rejection(
+        state,
+        reason="replacement DAG has unresolved dependencies",
+        nonterminal_result=PLAN_ERROR,
+    )
+    updated = next(
+        stored
+        for stored in supervisor.memory.backlog.all()
+        if stored.id == item.id
+    )
+
+    assert result == PLAN_TERMINAL_IDLE
+    assert updated.replan_rejections == 3
+    assert updated.status == "failed"
+
+
+def test_dedup_uses_canonical_scope_and_acceptance_metadata(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    verdict = "\n".join(
+        [
+            "PROJECT_DONE=false",
+            "REASON=Repeat an already active task.",
+            "TASK_KEY=duplicate",
+            "TASK_DEPS=",
+            "TASK_TITLE=Validate candidate",
+            "TASK_OBJECTIVE=Run the deterministic validator.",
+            "TASK_EVIDENCE=validator exits zero",
+            "TASK_ACCEPTANCE_CHECK=",
+            "TASK_SCOPE=final_submission",
+            "TASK_STAGE_CLOSING=false",
+            "TASK_REQUIRE_INDEPENDENT_REVIEW=false",
+            "TASK_SKIP_STAGE_TRANSITION=false",
+        ]
+    )
+    supervisor = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        verdict,
+        project_worktree=project_root,
+    )
+    supervisor.memory.backlog.add(
+        BacklogItem.new(
+            title="Validate candidate",
+            objective="Run the deterministic validator.",
+            acceptance_check="validator exits zero",
+            tags=["planner", "scope:bounded", "bounded_dag_node"],
+        )
+    )
+
+    supervisor._plan_next_work()
+
+    assert len(supervisor.memory.backlog.all()) == 1
+
+
+def test_duplicate_prerequisite_key_maps_to_existing_backlog_item(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    verdict = "\n".join(
+        [
+            "PROJECT_DONE=false",
+            "REASON=Reuse the active prerequisite and enqueue its child.",
+            "TASK_KEY=parent",
+            "TASK_DEPS=",
+            "TASK_TITLE=Prepare inputs",
+            "TASK_OBJECTIVE=Prepare the validated input bundle.",
+            "TASK_EVIDENCE=input bundle exists",
+            "TASK_ACCEPTANCE_CHECK=input bundle exists",
+            "TASK_SCOPE=bounded",
+            "TASK_STAGE_CLOSING=false",
+            "TASK_REQUIRE_INDEPENDENT_REVIEW=false",
+            "TASK_SKIP_STAGE_TRANSITION=false",
+            "TASK_KEY=child",
+            "TASK_DEPS=parent",
+            "TASK_TITLE=Run child analysis",
+            "TASK_OBJECTIVE=Analyze the validated input bundle.",
+            "TASK_EVIDENCE=analysis report exists",
+            "TASK_ACCEPTANCE_CHECK=analysis report exists",
+            "TASK_SCOPE=bounded",
+            "TASK_STAGE_CLOSING=false",
+            "TASK_REQUIRE_INDEPENDENT_REVIEW=false",
+            "TASK_SKIP_STAGE_TRANSITION=false",
+        ]
+    )
+    supervisor = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        verdict,
+        project_worktree=project_root,
+    )
+    parent = supervisor.memory.backlog.add(
+        BacklogItem.new(
+            title="Prepare inputs",
+            objective="Prepare the validated input bundle.",
+            acceptance_check="input bundle exists",
+            tags=["planner", "scope:bounded", "bounded_dag_node"],
+        )
+    )
+
+    result = supervisor._plan_next_work()
+
+    items = supervisor.memory.backlog.all()
+    child = next(item for item in items if item.title == "Run child analysis")
+    assert result is True
+    assert child.deps == [parent.id]
+
+
+def test_recent_no_progress_failure_still_quarantines_expanded_task_signature(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    verdict = _flat_verdict_kv(
+        (
+            "Retry failed probe",
+            "Run the same probe again.",
+            "the prior failure remains unresolved",
+        )
+    )
+    supervisor = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        verdict,
+        project_worktree=project_root,
+    )
+    failed = SimpleNamespace(
+        title="Retry failed probe",
+        extra={
+            "item_id": "failed-item",
+            "objective": "Run the same probe again.",
+            "terminal_status": "no_progress",
+        },
+    )
+    monkeypatch.setattr(
+        supervisor,
+        "_recent_no_progress_failures",
+        lambda: {("retry failed probe", "run the same probe again."): failed},
+    )
+
+    assert supervisor._plan_next_work() == PLAN_RETRY
+    assert supervisor.memory.backlog.all() == []
+    skipped = [
+        event
+        for event in supervisor._test_sink.events  # type: ignore[attr-defined]
+        if event.get("skip_category") == "recent_no_progress_failure"
+    ]
+    assert len(skipped) == 1
 
 
 def test_task_targeting_a_stuck_family_is_skipped(tmp_path, monkeypatch) -> None:

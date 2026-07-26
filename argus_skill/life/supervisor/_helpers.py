@@ -152,6 +152,8 @@ def _planner_task_signature(
     context_refs: list[dict[str, str]] | None = None,
     scope: str = "",
     stage_closing: bool = False,
+    require_independent_review: bool = False,
+    skip_stage_transition: bool = False,
 ) -> tuple[str, ...]:
     """Identity for deduping work, including the evidence revision it reads.
 
@@ -174,7 +176,13 @@ def _planner_task_signature(
         _normalize_planner_text(acceptance_check),
         json.dumps(refs, ensure_ascii=False, separators=(",", ":")),
         str(scope or "").strip().lower().replace("-", "_"),
-        "stage_closing" if stage_closing else "ordinary",
+        "stage_closing" if stage_closing else "not_stage_closing",
+        (
+            "independent_review_required"
+            if require_independent_review
+            else "independent_review_optional"
+        ),
+        "stage_transition_skipped" if skip_stage_transition else "stage_transition_allowed",
     )
 
 

@@ -403,6 +403,67 @@ def test_nonterminal_empty_plan_replays_unassessed_current_stage_review(
     )
 
 
+def test_review_only_item_is_never_replayed_into_stage_writer(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    supervisor, _backend, _sink = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        terminal_stage_done=False,
+        split_memory=True,
+    )
+    project = Path(supervisor.config.project_worktree)
+    _write_reviewed_math_scope_state(project)
+    item = supervisor.memory.backlog.add(
+        BacklogItem.new(
+            title="Review bounded candidate",
+            objective="Assess a candidate without changing the formal stage.",
+            tags=[
+                "planner",
+                "scope:bounded",
+                "review:required",
+                "stage_transition:skip",
+            ],
+        )
+    )
+    mission_path = create_mission_context(
+        life_dir=supervisor.memory.project_root,
+        mission_id=item.id,
+        stage="scope",
+        objective=item.objective,
+        scope="bounded",
+    )
+    record_reviewed_handoff(
+        mission_context_path=mission_path,
+        round_index=1,
+        engineer_summary="",
+        review=SimpleNamespace(
+            status="done",
+            reason="The bounded candidate review is complete.",
+            next_action="",
+            operator_question="",
+        ),
+        checkpoint_path=None,
+    )
+    supervisor.memory.backlog.mark_done(
+        item.id,
+        outcome={
+            "execution_status": "completed",
+            "review_status": "done",
+            "stage_certification": "not_assessed",
+            "interruption_kind": "none",
+            "resumable": False,
+        },
+    )
+
+    assert supervisor._latest_unassessed_review_for_current_stage() is None
+    state = json.loads(
+        (project / "research" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
+    )
+    assert state["current_stage"] == "scope"
+
+
 def test_replan_with_no_planner_tasks_reaches_the_manager(
     tmp_path: Path,
     monkeypatch,

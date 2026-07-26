@@ -9,6 +9,8 @@ pipeline stage), which judges advance / hold / rollback and writes
 from __future__ import annotations
 
 import json
+import os
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -23,7 +25,151 @@ from argus_skill.skills.stage_machine import (
     complete_final_stage,
     resolve_stage_checklist_contract,
 )
+from argus_skill.skills.store import Skill, skill_content_digest
 from argus_skill.skills.vertical_select import persist_vertical
+
+
+def test_pipeline_state_restore_replaces_parent_symlink(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    research = project / "research"
+    research.mkdir(parents=True)
+    pipeline_state = research / "PIPELINE_STATE.json"
+    expected = b'{"current_stage":"scope"}'
+    pipeline_state.write_bytes(expected)
+    snapshot = _SkillLoopRunner._snapshot_pipeline_state(project)
+
+    original_research = tmp_path / "original-research"
+    research.rename(original_research)
+    redirected = tmp_path / "redirected-research"
+    redirected.mkdir()
+    (redirected / "PIPELINE_STATE.json").write_bytes(expected)
+    try:
+        os.symlink(redirected, research, target_is_directory=True)
+    except OSError as exc:
+        original_research.rename(research)
+        pytest.skip(f"directory symlinks are unavailable: {exc}")
+
+    changed, reason, restored = _SkillLoopRunner._restore_pipeline_state(snapshot)
+
+    assert changed is True
+    assert restored is True
+    assert "restored" in reason
+    assert research.is_dir()
+    assert not research.is_symlink()
+    assert pipeline_state.read_bytes() == expected
+    assert (redirected / "PIPELINE_STATE.json").read_bytes() == expected
+
+
+def test_pipeline_state_snapshot_rejects_hardlink(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    research = project / "research"
+    research.mkdir(parents=True)
+    external = tmp_path / "external-state.json"
+    external.write_text('{"current_stage":"scope"}', encoding="utf-8")
+    pipeline_state = research / "PIPELINE_STATE.json"
+    try:
+        os.link(external, pipeline_state)
+    except OSError as exc:
+        pytest.skip(f"hardlinks are unavailable: {exc}")
+
+    snapshot = _SkillLoopRunner._snapshot_pipeline_state(project)
+
+    assert snapshot[3] == "formal pipeline state is not a regular file"
+
+
+def test_protected_playground_skill_snapshot_restores_tampering(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engineer = tmp_path / "chemistry-playground.md"
+    reviewer = tmp_path / "chemistry-playground-review.md"
+    engineer.write_text("engineer canonical", encoding="utf-8")
+    reviewer.write_text("reviewer canonical", encoding="utf-8")
+    monkeypatch.setattr(
+        _SkillLoopRunner,
+        "_canonical_playground_skill_paths",
+        staticmethod(lambda: (engineer, reviewer)),
+    )
+    snapshots, error = _SkillLoopRunner._snapshot_playground_skill_files()
+    reviewer.write_text("weakened gate", encoding="utf-8")
+
+    changed, reason, restored = (
+        _SkillLoopRunner._restore_playground_skill_files(snapshots, error)
+    )
+
+    assert changed is True
+    assert restored is True
+    assert "restored" in reason
+    assert reviewer.read_text(encoding="utf-8") == "reviewer canonical"
+
+
+def test_protected_playground_skill_snapshot_restores_deleted_parent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engineer = tmp_path / "engineer" / "chemistry-playground.md"
+    reviewer = tmp_path / "reviewer" / "chemistry-playground-review.md"
+    sibling = reviewer.parent / "chemistry-review.md"
+    engineer.parent.mkdir()
+    reviewer.parent.mkdir()
+    engineer.write_text("engineer canonical", encoding="utf-8")
+    reviewer.write_text("reviewer canonical", encoding="utf-8")
+    sibling.write_text("reviewer sibling", encoding="utf-8")
+    monkeypatch.setattr(
+        _SkillLoopRunner,
+        "_canonical_playground_skill_paths",
+        staticmethod(lambda: (engineer, reviewer)),
+    )
+    snapshots, error = _SkillLoopRunner._snapshot_playground_skill_files()
+    shutil.rmtree(reviewer.parent)
+
+    changed, reason, restored = (
+        _SkillLoopRunner._restore_playground_skill_files(snapshots, error)
+    )
+
+    assert changed is True
+    assert restored is True
+    assert "restored" in reason
+    assert reviewer.read_text(encoding="utf-8") == "reviewer canonical"
+    assert sibling.read_text(encoding="utf-8") == "reviewer sibling"
+
+
+def test_playground_snapshot_does_not_protect_unrelated_sibling_skill(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engineer = tmp_path / "engineer" / "chemistry-playground.md"
+    reviewer = tmp_path / "reviewer" / "chemistry-playground-review.md"
+    sibling = reviewer.parent / "chemistry-review.md"
+    engineer.parent.mkdir()
+    reviewer.parent.mkdir()
+    engineer.write_text("engineer canonical", encoding="utf-8")
+    reviewer.write_text("reviewer canonical", encoding="utf-8")
+    sibling.write_text("reviewer sibling", encoding="utf-8")
+    monkeypatch.setattr(
+        _SkillLoopRunner,
+        "_canonical_playground_skill_paths",
+        staticmethod(lambda: (engineer, reviewer)),
+    )
+    snapshots, error = _SkillLoopRunner._snapshot_playground_skill_files()
+    sibling.write_text("legitimate sibling update", encoding="utf-8")
+
+    changed, reason, restored = (
+        _SkillLoopRunner._restore_playground_skill_files(snapshots, error)
+    )
+
+    assert changed is False
+    assert reason == ""
+    assert restored is True
+    assert sibling.read_text(encoding="utf-8") == "legitimate sibling update"
+
+
+def test_playground_status_suppresses_all_settlement_side_effects() -> None:
+    state = SimpleNamespace(allow_settlement_side_effects=True)
+
+    _SkillLoopRunner._suppress_playground_settlement(state)
+
+    assert state.allow_settlement_side_effects is False
 
 
 class _Result:
@@ -196,6 +342,40 @@ def _review(
     )
 
 
+def test_protected_playground_source_violation_skips_manager_stage_writer(
+    tmp_path: Path,
+) -> None:
+    stage_calls = []
+    runner = _SkillLoopRunner.__new__(_SkillLoopRunner)
+    runner._decide_stage_transition = lambda **kwargs: stage_calls.append(kwargs)
+    state = _runtime._ExecuteState()
+    state.workdir = tmp_path
+    state.outcome = SimpleNamespace(
+        status="blocked",
+        stop_kind=None,
+        recoverable=False,
+        reason="protected Playground Skill was restored",
+    )
+    state.mission_scope = "bounded"
+    state.effective_require_independent_review = True
+    state.review_source = "reviewer"
+    state.protected_playground_source_violation = True
+
+    runner._maybe_decide_stage_transition(
+        state,
+        sink=_Sink(),
+        mission_id="mission-protected-source",
+        usage_mission_id=None,
+        maintenance_mission=False,
+        skip_stage_transition=False,
+        stage_closing=True,
+    )
+
+    assert stage_calls == []
+    assert state.stage_transition == {}
+    assert state.stage_transition_skipped is True
+
+
 def _project(tmp_path: Path, *, current: str) -> Path:
     (tmp_path / "research").mkdir(parents=True, exist_ok=True)
     (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
@@ -241,6 +421,20 @@ def test_replan_control_outcome_does_not_run_manager_stage_transition() -> None:
     assert _runtime._should_run_stage_transition("done") is False
     assert _runtime._should_run_stage_transition(
         "done", require_independent_review=True
+    ) is True
+    assert _runtime._should_run_stage_transition(
+        "done",
+        mission_scope="bounded",
+        require_independent_review=True,
+        review_source="reviewer",
+        skip_stage_transition=True,
+    ) is False
+    assert _runtime._should_run_stage_transition(
+        "done",
+        mission_scope="final_submission",
+        require_independent_review=True,
+        review_source="reviewer",
+        skip_stage_transition=True,
     ) is True
     assert _runtime._should_run_stage_transition(
         "done", mission_scope="final_submission"
@@ -1222,6 +1416,9 @@ def test_execute_direct_stage_closure_forwards_reviewer_to_manager(
 ) -> None:
     review = _review(status="done")
     stage_calls = []
+    pipeline_state = tmp_path / "research" / "PIPELINE_STATE.json"
+    pipeline_state.parent.mkdir()
+    pipeline_state.write_text('{"current_stage":"scope"}', encoding="utf-8")
 
     class _Config:
         def __init__(self, **kwargs: object) -> None:
@@ -1230,10 +1427,32 @@ def test_execute_direct_stage_closure_forwards_reviewer_to_manager(
             self.continuous_objective = str(kwargs["continuous_objective"])
 
     class _Loop:
+        skill_used = ""
+        extras = {}
+        pipeline_mutation = ""
+
         def __init__(self, **_kwargs: object) -> None:
             pass
 
         def run(self, *_args: object, **_kwargs: object) -> SimpleNamespace:
+            if self.pipeline_mutation == "file":
+                pipeline_state.write_text(
+                    '{"current_stage":"environment"}',
+                    encoding="utf-8",
+                )
+            elif self.pipeline_mutation == "directory":
+                pipeline_state.unlink()
+                pipeline_state.mkdir()
+                (pipeline_state / "payload.txt").write_text(
+                    "replacement",
+                    encoding="utf-8",
+                )
+            elif self.pipeline_mutation == "raise":
+                pipeline_state.write_text(
+                    '{"current_stage":"environment"}',
+                    encoding="utf-8",
+                )
+                raise RuntimeError("simulated Playground failure")
             return SimpleNamespace(
                 successful=True,
                 status="done",
@@ -1242,9 +1461,10 @@ def test_execute_direct_stage_closure_forwards_reviewer_to_manager(
                 recoverable=False,
                 rounds=[_Round(review)],
                 round_count=1,
-                skill_used="",
+                skill_used=self.skill_used,
                 skill_distilled=False,
                 last_thread_id=None,
+                extras=self.extras,
             )
 
     runner = _SkillLoopRunner.__new__(_SkillLoopRunner)
@@ -1258,14 +1478,19 @@ def test_execute_direct_stage_closure_forwards_reviewer_to_manager(
     runner.last_thread_id = None
     runner._set_usage_context = lambda _mission_id: None
     runner._consume_auth_failure = lambda: False
-    runner._decide_stage_transition = lambda **kwargs: (
+    def _decide_stage_transition(**kwargs):
         stage_calls.append(kwargs)
-        or {
+        pipeline_state.write_text(
+            '{"current_stage":"environment"}',
+            encoding="utf-8",
+        )
+        return {
             "action": "advance",
             "current_stage": "scope",
             "target_stage": "environment",
         }
-    )
+
+    runner._decide_stage_transition = _decide_stage_transition
     runner._args = SimpleNamespace(
         engineer_model="stub-model",
         reviewer_model="stub-model",
@@ -1290,3 +1515,221 @@ def test_execute_direct_stage_closure_forwards_reviewer_to_manager(
     assert outcome.stage_transition["action"] == "advance"
     assert len(stage_calls) == 1
     assert stage_calls[0]["rounds_list"][-1].review is review
+
+    pipeline_state.write_text('{"current_stage":"scope"}', encoding="utf-8")
+    stage_calls.clear()
+    review_only = runner.execute(
+        objective="review bounded Playground candidate",
+        sink=_Sink(),
+        scope="bounded",
+        preplanned=True,
+        workflow_mode_override="direct",
+        require_independent_review=True,
+        skip_stage_transition=True,
+    )
+
+    assert review_only.stage_transition == {}
+    assert stage_calls == []
+    assert pipeline_state.read_text(encoding="utf-8") == '{"current_stage":"scope"}'
+
+    _Loop.skill_used = "Chemistry Playground Bounded Hypothesis Probe"
+    builtin_playground_skill = (
+        Path(__file__).resolve().parents[2]
+        / "argus_skill"
+        / "domains"
+        / "chemistry"
+        / "skills"
+        / "engineer"
+        / "workflows"
+        / "chemistry-playground.md"
+    )
+    _Loop.extras = {
+        "skill_match_strict": True,
+        "skill_nearest_transfer_fallback": False,
+        "skill_protected": True,
+        "skill_category": "chemistry-playground",
+        "skill_path": str(builtin_playground_skill),
+        "skill_digest": skill_content_digest(
+            Skill.parse(
+                builtin_playground_skill.read_text(encoding="utf-8"),
+                str(builtin_playground_skill),
+            )
+        ),
+    }
+    workflow_guarded = runner.execute(
+        objective="review bounded Playground candidate",
+        sink=_Sink(),
+        scope="bounded",
+        preplanned=True,
+        workflow_mode_override="direct",
+        require_independent_review=True,
+        skip_stage_transition=False,
+    )
+
+    assert workflow_guarded.stage_transition == {}
+    assert workflow_guarded.stage_transition_skipped is True
+    assert stage_calls == []
+    assert pipeline_state.read_text(encoding="utf-8") == '{"current_stage":"scope"}'
+
+    valid_playground_digest = _Loop.extras["skill_digest"]
+    _Loop.extras["skill_digest"] = "mismatched-digest"
+    untrusted_playground = runner.execute(
+        objective="review a Playground candidate with invalid provenance",
+        sink=_Sink(),
+        scope="bounded",
+        preplanned=True,
+        workflow_mode_override="direct",
+        require_independent_review=True,
+    )
+    _Loop.extras["skill_digest"] = valid_playground_digest
+
+    assert untrusted_playground.status == "blocked"
+    assert untrusted_playground.stage_transition == {}
+    assert untrusted_playground.stage_transition_skipped is True
+    assert stage_calls == []
+
+    _Loop.extras["skill_protected"] = False
+    unprotected_playground = runner.execute(
+        objective="review a shadowed Playground candidate",
+        sink=_Sink(),
+        scope="bounded",
+        preplanned=True,
+        workflow_mode_override="direct",
+        require_independent_review=True,
+    )
+    _Loop.extras["skill_protected"] = True
+
+    assert unprotected_playground.status == "blocked"
+    assert unprotected_playground.stage_transition == {}
+    assert unprotected_playground.stage_transition_skipped is True
+    assert stage_calls == []
+
+    workflow_guarded_without_review_metadata = runner.execute(
+        objective="review bounded Playground candidate without Planner metadata",
+        sink=_Sink(),
+        scope="bounded",
+        preplanned=True,
+        workflow_mode_override="direct",
+        require_independent_review=False,
+        skip_stage_transition=False,
+    )
+
+    assert workflow_guarded_without_review_metadata.stage_transition == {}
+    assert workflow_guarded_without_review_metadata.stage_transition_skipped is True
+    assert stage_calls == []
+
+    _Loop.pipeline_mutation = "file"
+    tampering_playground = runner.execute(
+        objective="attempt to mutate formal pipeline state",
+        sink=_Sink(),
+        scope="bounded",
+        preplanned=True,
+        workflow_mode_override="direct",
+        require_independent_review=True,
+    )
+    _Loop.pipeline_mutation = ""
+
+    assert tampering_playground.status == "blocked"
+    assert tampering_playground.stage_transition == {}
+    assert tampering_playground.stage_transition_skipped is True
+    assert pipeline_state.read_text(encoding="utf-8") == '{"current_stage":"scope"}'
+    assert stage_calls == []
+
+    _Loop.pipeline_mutation = "directory"
+    directory_replacement = runner.execute(
+        objective="replace formal pipeline state with a directory",
+        sink=_Sink(),
+        scope="bounded",
+        preplanned=True,
+        workflow_mode_override="direct",
+        require_independent_review=True,
+    )
+    _Loop.pipeline_mutation = ""
+
+    assert directory_replacement.status == "blocked"
+    assert pipeline_state.is_file()
+    assert pipeline_state.read_text(encoding="utf-8") == '{"current_stage":"scope"}'
+
+    _Loop.pipeline_mutation = "raise"
+    with pytest.raises(RuntimeError, match="simulated Playground failure"):
+        runner.execute(
+            objective="fail after mutating formal pipeline state",
+            sink=_Sink(),
+            scope="bounded",
+            preplanned=True,
+            workflow_mode_override="direct",
+            require_independent_review=True,
+        )
+    _Loop.pipeline_mutation = ""
+
+    assert pipeline_state.is_file()
+    assert pipeline_state.read_text(encoding="utf-8") == '{"current_stage":"scope"}'
+
+    runtime_copy = (
+        tmp_path
+        / "_shared_verticals"
+        / "chemistry"
+        / "engineer"
+        / "workflows"
+        / "chemistry-playground.md"
+    )
+    runtime_copy.parent.mkdir(parents=True)
+    runtime_copy.write_text(
+        builtin_playground_skill.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    _Loop.extras["skill_path"] = str(runtime_copy)
+    runtime_guarded = runner.execute(
+        objective="review bounded Playground candidate from runtime skill copy",
+        sink=_Sink(),
+        scope="bounded",
+        preplanned=True,
+        workflow_mode_override="direct",
+        require_independent_review=True,
+    )
+
+    assert runtime_guarded.stage_transition == {}
+    assert runtime_guarded.stage_transition_skipped is True
+    assert stage_calls == []
+    assert pipeline_state.read_text(encoding="utf-8") == '{"current_stage":"scope"}'
+
+    misclassified_playground_stage_closing = runner.execute(
+        objective="close the formal stage",
+        sink=_Sink(),
+        scope="bounded",
+        preplanned=True,
+        workflow_mode_override="direct",
+        require_independent_review=True,
+        stage_closing=True,
+    )
+
+    assert misclassified_playground_stage_closing.stage_transition == {}
+    assert misclassified_playground_stage_closing.stage_transition_skipped is True
+    assert stage_calls == []
+
+    _Loop.skill_used = "Formal stage-closing workflow"
+    _Loop.extras = {}
+    stage_closing = runner.execute(
+        objective="close the formal stage",
+        sink=_Sink(),
+        scope="bounded",
+        preplanned=True,
+        workflow_mode_override="direct",
+        require_independent_review=True,
+        stage_closing=True,
+    )
+
+    assert stage_closing.stage_transition["action"] == "advance"
+    assert len(stage_calls) == 1
+
+    pipeline_state.unlink()
+    pipeline_state.mkdir()
+    with pytest.raises(RuntimeError, match="formal pipeline state"):
+        runner.execute(
+            objective="must not run with invalid formal state boundary",
+            sink=_Sink(),
+            scope="bounded",
+            preplanned=True,
+            workflow_mode_override="direct",
+            require_independent_review=True,
+        )

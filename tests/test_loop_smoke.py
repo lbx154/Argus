@@ -11,10 +11,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from argus_skill import SkillLoop, SkillLoopConfig, SkillStore
 from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus_skill.life.context_packet import create_mission_context
 from argus_skill.loop import _nearest_transfer_scores
+from argus_skill.skills.store import Skill, skill_content_digest
 
 SKILL_MD = (
     "## Title\nWrite a hello message\n\n"
@@ -38,6 +41,64 @@ SKILL_MD = (
     "## Response shape\n- Reply inline with the greeting only.\n"
     "- No code blocks, no tool invocations.\n"
 )
+
+
+def test_skill_content_digest_ignores_runtime_assigned_identity() -> None:
+    skill = Skill.parse(SKILL_MD)
+    before = skill_content_digest(skill)
+
+    skill.skill_id = "runtime-assigned-id"
+    skill.successful_reuses = 3
+    skill.reuse_fingerprints.append("reviewed-use")
+
+    assert skill_content_digest(skill) == before
+
+
+def test_pre_settlement_guard_blocks_success_learning(tmp_path: Path) -> None:
+    skills_dir = tmp_path / "skills"
+    _seed_skill(skills_dir)
+    initial = next(
+        SkillStore(skills_dir).load(str(summary["path"]))
+        for summary in SkillStore(skills_dir).list_summaries()
+        if summary["name"] == "Write a hello message"
+    )
+    backend = MemoryBackend()
+    backend.queue("matcher", _match_hello())
+    backend.queue("engineer-r1", CannedResponse(message="hello"))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+    loop = SkillLoop(
+        skills_dir=skills_dir,
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(
+            max_rounds=1,
+            skill_adapter_enabled=False,
+            wiki_ops_enabled=False,
+        ),
+    )
+
+    def _block_before_settlement(
+        _mission,
+        state,
+        _status,
+        _rounds,
+        _final_message,
+        _reason,
+    ):
+        state.allow_settlement_side_effects = False
+        return "blocked", "guarded", "guarded"
+
+    loop.pre_settlement_guard = _block_before_settlement
+    outcome = loop.run("say hi to the user", workdir=tmp_path)
+    stored = next(
+        SkillStore(skills_dir).load(str(summary["path"]))
+        for summary in SkillStore(skills_dir).list_summaries()
+        if summary["name"] == "Write a hello message"
+    )
+
+    assert outcome.status == "blocked"
+    assert stored.successful_reuses == 0
+    assert stored.task_history == initial.task_history
 
 
 def test_skill_loop_defaults_use_adaptive_reasoning_effort() -> None:
@@ -337,6 +398,41 @@ def test_matched_skill_is_adapted_with_one_low_effort_call(tmp_path: Path) -> No
     pointer = reviewer_prompt.split("## Engineer skill pointer (on demand)", 1)[1]
     assert len(pointer.split("## Stage checklist", 1)[0]) < 500
     assert any(event.get("type") == "skill.transfer.completed" for event in events)
+
+
+@pytest.mark.parametrize(
+    ("explicit_protection", "category"),
+    [(True, "hello"), (False, "anti-cheat")],
+)
+def test_protected_skill_is_never_model_adapted(
+    tmp_path: Path,
+    explicit_protection: bool,
+    category: str,
+) -> None:
+    skills_dir = tmp_path / "skills"
+    _seed_skill(skills_dir)
+    store = SkillStore(skills_dir)
+    summary = store.list_summaries()[0]
+    skill = store.load(str(summary["path"]))
+    skill.protected = explicit_protection
+    skill.category = category
+    store.save(skill)
+
+    backend = MemoryBackend()
+    backend.queue("matcher", _match_hello())
+    backend.queue("engineer-r1", CannedResponse(message="done"))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+
+    outcome = SkillLoop(
+        skills_dir=skills_dir,
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(max_rounds=1),
+    ).run("say hi warmly", workdir=tmp_path)
+
+    assert outcome.successful
+    labels = [label for label, _prompt, _options in backend.history]
+    assert "skill-adapter" not in labels
 
 
 def test_skill_adapter_reasoning_effort_honors_operator_env(
