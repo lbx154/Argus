@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 from typing import Any
@@ -331,7 +332,37 @@ class PlanningCycleMixin(
         contract = getattr(verdict, "waiting_contract", None)
         blocker_fingerprint, recheck_token = self._waiting_contract_key(contract)
         if not blocker_fingerprint or not recheck_token:
-            return ""
+            # A wait with no contract is where the Manager review matters most,
+            # not least: we know least about why the Planner stopped. This used
+            # to return immediately, which made the liveness review that this
+            # method's own docstring promises for "every new non-operator wait"
+            # unreachable whenever the Planner omitted the contract fields.
+            #
+            # Measured on 2026-07-26
+            # (/tmp/argus-night/home/projects/b5626a40e50a/events.jsonl): six
+            # consecutive waits, every one with `waiting_contract: null`, so
+            # zero Manager reviews. The Planner even said why it was stuck —
+            # "only the Manager may advance current_stage from scope to
+            # environment" — and the one authority that could act was never
+            # asked. Thirteen provider calls, no progress.
+            #
+            # Deduplication still has to work or an uncontracted wait would
+            # re-review every cycle, so the key falls back to the stage plus a
+            # digest of the Planner's own stated reason: same stage, same
+            # explanation, same wait.
+            reason = " ".join(
+                str(
+                    getattr(verdict, "waiting_reason", "")
+                    or getattr(verdict, "reason", "")
+                    or ""
+                ).split()
+            )
+            if not reason:
+                return ""
+            blocker_fingerprint = "uncontracted:" + hashlib.sha256(
+                reason.encode("utf-8")
+            ).hexdigest()[:16]
+            recheck_token = "uncontracted"
 
         # Manager is the sole stage authority, but it is not the operator and
         # cannot expand the operator's scope.  Never invoke wait reconciliation
