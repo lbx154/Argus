@@ -884,22 +884,6 @@ def _seed_codex_config(base_url: str, api_key: str, model: str) -> tuple[Path, P
     return cfg_path, auth_path
 
 
-def _check_codex_prereq() -> None:
-    """Print a friendly note if the ``codex`` CLI is missing on PATH."""
-    if _codex_cli_available():
-        return
-    print()
-    print(_yellow("  Note: `codex` CLI not found on PATH."))
-    print(_dim("    argus-skill drives codex non-interactively for every L1"))
-    print(_dim("    round. Install once with:"))
-    print()
-    print(_dim("        npm install -g @openai/codex"))
-    print()
-    print(_dim("    The setup wizard will still write your codex config so the"))
-    print(_dim("    binary is ready as soon as you install it."))
-    print()
-
-
 def _load_existing_routes() -> dict[str, dict]:
     """Load existing model API routes if any."""
     path = _capabilities_dir() / "model_api.json"

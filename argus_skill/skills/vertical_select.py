@@ -344,18 +344,6 @@ def resolve_evidence_mode(project_root: object = ".") -> str:
         return "staged"
 
 
-def _is_project_data_domain(value: str | None, project_root: object) -> bool:
-    """Whether ``value`` names a project-local DATA domain, not a built-in vertical."""
-    if value is None or value in VERTICALS:
-        return False
-    try:
-        from ..verticals._data_domain import data_domain_exists  # late (cycle)
-
-        return data_domain_exists(value, project_root)
-    except Exception:  # noqa: BLE001 — resolver must remain fail-open
-        return False
-
-
 def resolve_vertical_if_decided(project_root: object = ".") -> str | None:
     """Return the Manager-decided vertical, or ``None`` without a fallback."""
     return _persisted_vertical(project_root)

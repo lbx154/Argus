@@ -126,11 +126,6 @@ def _source_identities(paper: dict[str, Any]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(identities))
 
 
-def _source_identity(paper: dict[str, Any]) -> str:
-    identities = _source_identities(paper)
-    return identities[0] if identities else ""
-
-
 def _raw_source(paper: dict[str, Any]) -> str:
     return _text(
         paper.get("raw_response_path")

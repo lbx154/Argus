@@ -117,9 +117,6 @@ class LifeStderrSink:
         except Exception:  # noqa: BLE001
             pass
 
-    def _allowed(self, event_type: str) -> bool:  # noqa: ARG002
-        return True
-
     # Events that life.mission.started/completed already cover; we silence
     # them in life mode to avoid duplicate noise around mission boundaries.
     # Also drop a few protocol/skill-machinery events that the user can't
@@ -139,8 +136,6 @@ class LifeStderrSink:
             return
         et = str(event.get("type", ""))
         if et in self._SILENCED_IN_LIFE:
-            return
-        if not self._allowed(et):
             return
         if self._render is not None:
             try:
