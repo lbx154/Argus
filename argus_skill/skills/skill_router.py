@@ -48,6 +48,13 @@ EventSink = Callable[[dict], None]
 _PROTECTED_CATEGORIES = frozenset({"anti-cheat", "guardrail", "role-identity"})
 
 
+def is_protected_skill(skill: Any) -> bool:
+    if getattr(skill, "protected", False):
+        return True
+    category = (getattr(skill, "category", "") or "").strip().lower()
+    return category in _PROTECTED_CATEGORIES
+
+
 class SkillRouter:
     """Owns skill selection + validated CRUD for one skill store."""
 
@@ -66,10 +73,7 @@ class SkillRouter:
         """A skill is protected when its frontmatter carries ``protected: true``
         OR its category names a governing/guardrail class. Both paths are the
         harness's mechanical self-governance floor."""
-        if getattr(skill, "protected", False):
-            return True
-        category = (getattr(skill, "category", "") or "").strip().lower()
-        return category in _PROTECTED_CATEGORIES
+        return is_protected_skill(skill)
 
     def _role_for_skill(self, skill: Any) -> str:
         """Resolve a skill role for both flat and layered stores."""

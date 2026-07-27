@@ -45,6 +45,9 @@ class _Outcome:
     # was skipped (error) or never ran. Journaled by the supervisor; the stage
     # write itself already happened inside execute.
     stage_transition: dict = field(default_factory=dict)
+    # True when a trusted review-only workflow deliberately bypassed the formal
+    # stage writer. Persisted separately so recovery cannot replay the review.
+    stage_transition_skipped: bool = False
     # The reviewer's ``operator_question`` (reviewer_schema.json) from the
     # FINAL round, when the mission stopped with ``status == "blocked"``. The
     # supervisor persists this onto the backlog item (``pending_question``)

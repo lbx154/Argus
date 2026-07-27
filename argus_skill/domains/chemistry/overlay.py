@@ -11,25 +11,26 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="research.chemistry-system",
             statement=(
-                "The chemical system is represented faithfully: composition, molecular "
-                "or reaction identity, regime, structures, variables, and observables "
-                "are explicit enough to investigate."
+                "The chemical object, sample, material, framework, cell, crystal, "
+                "reaction, or biological construct and the decision-relevant "
+                "observable are identifiable with conditions and unresolved "
+                "ambiguities."
             ),
             evidence_hint=(
-                "chemical identifiers and the property, structure, reaction outcome, "
-                "behavior, or mechanism the project will determine"
+                "source identifiers or files, identity assumptions, sample or "
+                "construct state, units, conditions, and the scientific question"
             ),
         ),
         ChecklistItem(
             id="research.chemistry-evidence-regime",
             statement=(
-                "Database retrieval, predictive oracle output, simulation, quantum "
-                "calculation, retrospective assay data, and physical measurement are "
-                "not treated as interchangeable evidence."
+                "Retrieved, curated, predicted, computed, simulated, measured, and "
+                "inferred evidence are distinguished, with primary-source provenance "
+                "and a claim ceiling appropriate to the objective."
             ),
             evidence_hint=(
-                "an explicit evidence ceiling and source for each claim-critical "
-                "chemical observation"
+                "claim-to-source mapping, original data or literature location, "
+                "evidence labels, conflicts, and the maximum defensible conclusion"
             ),
         ),
     ),
@@ -37,25 +38,26 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="plan.chemistry-capabilities",
             statement=(
-                "The plan fits available chemistry tools, data, compute, licenses, "
-                "permissions, and time. Missing instrument or service access leads to "
-                "a clearly bounded surrogate or explicit blocker."
+                "The next action uses the narrowest matched chemistry workflow and "
+                "available project capability, with required inputs, a representative "
+                "probe, decisive acceptance check, and explicit stop conditions; "
+                "explicit Playground work remains bounded and project-local."
             ),
             evidence_hint=(
-                "real package, source, endpoint, model-weight, license, and authorization "
-                "checks for the selected route"
+                "matched domain Skill, input inventory, tool or data availability, "
+                "capability probe, output contract, and blocker conditions"
             ),
         ),
         ChecklistItem(
             id="plan.chemistry-control-provenance",
             statement=(
-                "Agent experiments define the capability under test, decision owner, "
-                "decision cadence, and policy-freeze point. An online-agent objective "
-                "is not silently replaced by a policy frozen before outcomes."
+                "Controls, baselines, grouping or split logic, uncertainty, physical "
+                "authorization, and safety boundaries are defined before claim-critical "
+                "outcomes are exposed."
             ),
             evidence_hint=(
-                "the live, periodic, frozen, or conventional control path and how each "
-                "budgeted decision will be attributed"
+                "control and baseline design, leakage boundary, uncertainty plan, "
+                "authorized action scope, and facility or instrument constraints"
             ),
         ),
     ),
@@ -63,25 +65,25 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="benchmark.chemistry-input-fidelity",
             statement=(
-                "Chemical inputs preserve identifiers, structures, stereochemistry, "
-                "protonation or tautomer state, charge and spin, units, conditions, "
-                "approximations, software versions, and convergence settings where relevant."
+                "Benchmark inputs preserve chemically meaningful identity, structure, "
+                "composition, stereochemistry, state, units, conditions, processing, "
+                "protocol, and transformations required by the claim."
             ),
             evidence_hint=(
-                "structure, reaction, method, assay, canonicalization, or source checks "
-                "appropriate to the benchmark claim"
+                "original and normalized inputs, transformation mapping, data "
+                "dictionary, sample grouping, and identity validation"
             ),
         ),
         ChecklistItem(
             id="benchmark.chemistry-evaluator-boundary",
             statement=(
-                "The evaluator and split match the chemical claim. Hidden labels or "
-                "future observations do not reach proposal logic, and a same-user "
-                "subprocess is not described as adversarial sealing."
+                "The evaluator measures the stated chemistry capability with related "
+                "entities, future observations, duplicate sources, and hidden answers "
+                "excluded from proposal or training logic."
             ),
             evidence_hint=(
-                "evaluator provenance, access controls, split logic, contamination "
-                "analysis, and the stated cooperative or adversarial threat model"
+                "oracle definition, split and grouping rules, duplicate/leakage audit, "
+                "information available at each decision, and comparable baseline"
             ),
         ),
     ),
@@ -89,23 +91,25 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="run.chemistry-primary-evidence",
             statement=(
-                "Runs retain inspectable chemical inputs, primary outputs, failed calls, "
-                "negative observations, seeds, versions, conditions, and decision traces."
+                "Execution retains original and prepared inputs, exact settings, "
+                "versions, primary outputs, warnings, convergence or calibration "
+                "diagnostics, controls, failures, and negative observations."
             ),
             evidence_hint=(
-                "raw or minimally processed tool, oracle, simulation, calculation, or "
-                "instrument records tied to each reported run"
+                "project-native source data, tool or instrument outputs, configuration, "
+                "processing lineage, validation diagnostics, and failed cases"
             ),
         ),
         ChecklistItem(
             id="run.chemistry-online-control",
             statement=(
-                "When online agent control is the tested capability, every budgeted "
-                "decision is attributable to the live agent and its observed history; "
-                "precompiled policy code does not satisfy this item."
+                "Adaptive or agent-guided work records the information, decision owner, "
+                "action, returned observation, budget, and policy-freeze point; physical "
+                "actions remain inside pre-authorized interlocks."
             ),
             evidence_hint=(
-                "per-decision agent context, action, returned observation, and budget index"
+                "per-decision trajectory or a clear non-adaptive label, budget use, "
+                "returned evidence, authorization record, and abort behavior"
             ),
         ),
     ),
@@ -113,13 +117,13 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="analysis.chemistry-interpretation",
             statement=(
-                "Analysis respects chemical identity, assumptions, domain of validity, "
-                "units, conditions, oracle/model bias, controls, uncertainty, and the "
-                "difference between predicted and measured effects."
+                "Analysis tests controls, residuals, convergence, calibration, "
+                "uncertainty, applicability, alternative explanations, and domain "
+                "validation before translating evidence into chemical conclusions."
             ),
             evidence_hint=(
-                "claim-to-result analysis with chemistry-specific limitations and "
-                "appropriate strong baselines"
+                "replicate or sensitivity analysis, residuals, competing models or "
+                "assignments, uncertainty, limitations, and claim-to-evidence mapping"
             ),
         ),
     ),
@@ -127,16 +131,14 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="review.chemistry-claim-integrity",
             statement=(
-                "The final claim states what was retrieved, predicted, computed, "
-                "simulated, or physically measured. Agent-guided and sealed labels are "
-                "no stronger than the recorded control path and access boundary. An "
-                "bounded negative result closes its experiment but does not by itself "
-                "satisfy the research objective; unsupported or low-value routes return "
-                "to replanning."
+                "Independent review applies the relevant specialized chemistry rubric "
+                "and keeps every claim at or below its retrieved, predicted, computed, "
+                "simulated, measured, or inferred evidence level; Playground status "
+                "never advances the formal Research stage."
             ),
             evidence_hint=(
-                "the paper claims, primary outputs, policy provenance, evaluator threat "
-                "model, and chemical evidence ceiling"
+                "specialized Reviewer verdict, original evidence, unresolved failures, "
+                "authorization boundary, and the narrowest supported claim"
             ),
         ),
     ),

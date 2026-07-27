@@ -90,6 +90,17 @@ def test_mission_outcome_classifies_statuses(
     assert mission_outcome_class(status=status, success=success) == expected
 
 
+def test_review_only_outcome_marks_stage_transition_intentionally_skipped() -> None:
+    outcome = mission_outcome_dimensions(
+        status="done",
+        success=True,
+        review_status="done",
+        stage_transition_skipped=True,
+    )
+
+    assert outcome["stage_certification"] == "intentionally_skipped"
+
+
 @pytest.mark.parametrize(
     ("status", "success", "expected"),
     [

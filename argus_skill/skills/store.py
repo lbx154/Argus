@@ -1102,6 +1102,20 @@ def shared_skill_digest(skill: Skill) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def skill_content_digest(skill: Skill) -> str:
+    """Digest governing Skill content without runtime-assigned bookkeeping."""
+    payload = {
+        "name": str(skill.name or ""),
+        "description": str(skill.description or ""),
+        "category": str(skill.category or ""),
+        "content": str(skill.content or ""),
+        "version": int(skill.version or 1),
+        "protected": bool(skill.protected),
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
 def deterministic_skill_id(skill: Skill, *, role: str = "general") -> str:
     """Stable migration identity for a legacy shared Skill without an ID."""
     payload = "\0".join([

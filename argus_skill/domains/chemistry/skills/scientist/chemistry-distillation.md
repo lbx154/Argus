@@ -1,17 +1,37 @@
 ---
 name: Chemistry Skill Distillation
-description: Distill a reusable chemistry-domain method after a matcher miss without solving the current instance or fixing one target-specific workflow.
+description: Distill a reusable production-oriented chemistry workflow after a matcher miss, with discriminative domain boundaries, evidence contracts, validation gates, and stop conditions rather than target answers or tool tutorials.
 category: chemistry-distillation
-version: 1
+version: 2
 ---
 
-Distill a reusable approach for this family of chemistry questions without
-solving the current instance. Preserve the chemical system, observable, evidence
-regime, success bar, tested capability, and external action boundary.
+Create a reusable Skill for the task family without solving the current target.
+Choose one primary domain and state adjacent domains it does not cover. Preserve
+the chemical object, observable, required inputs, evidence ceiling, uncertainty,
+success bar, and physical authorization boundary.
 
-Recommend only methods that fit the family: chemical source retrieval, structure
-or reaction databases, cheminformatics, quantum calculation, simulation, model
-training, active learning, analysis, or an authorized measurement. Name
-prerequisites and decisive checks, but do not turn all possible methods into a
-required pipeline. Do not encode a benchmark answer, target-specific route, or
-expert conclusion into the skill.
+Use supported frontmatter with a matcher-discriminative `name`, `description`,
+`category`, and integer `version`. Prefer these sections when applicable:
+
+- `When to use`
+- `Do not use when`
+- `Scientific question`
+- `Required inputs`
+- `Identity and normalization`
+- `Decision procedure`
+- `Tool-selection ladder`
+- `Minimum capability probe`
+- `Evidence to retain`
+- `Validation gates`
+- `Common failure modes`
+- `Uncertainty and applicability domain`
+- `Safety and authorization`
+- `Output contract`
+- `Stop, block, or replan conditions`
+- `Official references`
+
+Treat tools as optional capabilities. Distinguish retrieved, predicted, computed,
+simulated, measured, and inferred evidence. Require primary inputs/outputs,
+versions, units, conditions, negative results, and honest claim ceilings. Do not
+encode a benchmark answer, target-specific route, private chain-of-thought,
+installation tutorial, Chemistry Playground protocol, or process-only ceremony.

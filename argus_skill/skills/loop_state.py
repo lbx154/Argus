@@ -60,6 +60,7 @@ class SkillSelectionState:
     skill_text: str = ""
     skill_name: str | None = None
     learning_target_name: str = ""
+    allow_settlement_side_effects: bool = True
 
     match: Any = None
     matcher_tokens: int = 0

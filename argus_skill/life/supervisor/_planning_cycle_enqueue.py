@@ -16,12 +16,15 @@ from typing import Any
 
 from ...core.event_catalog import EventType
 from ...core.planner_verdict import PlannerVerdictStatus
+from ...planner.planner import hydrate_task_context_refs
 from ..memory import BacklogItem
 from ._constants import (
     PLAN_ERROR,
     PLAN_RETRY,
     PLAN_TERMINAL_IDLE,
     PLANNER_DEDUP_STATUSES,
+    PLANNER_SCOPE_BOUNDED,
+    PLANNER_SCOPE_FINAL_SUBMISSION,
     REPLAN_FILTER_REJECTION_LIMIT,
 )
 from ._helpers import (
@@ -46,7 +49,7 @@ class PlanningCycleEnqueueMixin:
             state.existing_items = []
 
         seen_signatures: dict[tuple[str, ...], BacklogItem] = {}
-        active_base_signatures: dict[tuple[str, str], BacklogItem] = {}
+        active_base_signatures: dict[tuple[str, ...], BacklogItem] = {}
         revision_active_ids = {item.id for item in state.revision_active_items}
         for existing in state.existing_items:
             if existing.id in revision_active_ids:
@@ -58,11 +61,19 @@ class PlanningCycleEnqueueMixin:
                 existing.objective,
                 acceptance_check=existing.acceptance_check,
                 context_refs=list(existing.context_refs or []),
-                scope=self._planner_scope_from_item(existing),
-                stage_closing=self._item_requires_independent_review(existing),
+                scope=(
+                    self._planner_scope_from_item(existing)
+                    or PLANNER_SCOPE_BOUNDED
+                ),
+                stage_closing=self._item_is_stage_closing(existing),
+                require_independent_review=(
+                    self._item_requires_independent_review(existing)
+                ),
+                skip_stage_transition=self._item_skips_stage_transition(existing),
             )
+            base_signature = signature
             if existing.status != "done":
-                active_base_signatures[signature[:2]] = existing
+                active_base_signatures[base_signature] = existing
                 seen_signatures[signature] = existing
             elif signature not in seen_signatures:
                 seen_signatures[signature] = existing
@@ -99,11 +110,15 @@ class PlanningCycleEnqueueMixin:
         genuine duplicate and is still filtered, so concurrent copies
         of in-flight work remain impossible.
         """
-        if not bool(getattr(task, "stage_closing", False)):
-            return False
-        return duplicate_item.status == "done" or not (
-            self._item_requires_independent_review(duplicate_item)
+        stage_closing = bool(getattr(task, "stage_closing", False))
+        requires_review = stage_closing or bool(
+            getattr(task, "require_independent_review", False)
         )
+        if not requires_review:
+            return False
+        if stage_closing and duplicate_item.status == "done":
+            return True
+        return not self._item_requires_independent_review(duplicate_item)
 
     def _pc_build_pending_items(self, state: _PlanCycleState) -> Any | None:
         # Add new tasks to the backlog.
@@ -118,6 +133,41 @@ class PlanningCycleEnqueueMixin:
         key_map: dict[str, str] = {}
         pending_items: list[tuple[Any, Any]] = []  # (task, item)
         for task in state.verdict.new_tasks:
+            try:
+                hydrated_context_refs = hydrate_task_context_refs(
+                    list(getattr(task, "context_refs", []) or []),
+                    self._project_workdir(),
+                )
+            except ValueError as exc:
+                self._emit(
+                    {
+                        "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
+                        "cycle": self._planning_cycles,
+                        "title": task.title,
+                        "objective": task.objective,
+                        "impact_score": task.impact_score,
+                        "impact_area": task.impact_area,
+                        "evidence": task.evidence,
+                        "reason": str(exc),
+                        "skip_category": "invalid_context_ref",
+                    }
+                )
+                self._emit_status(
+                    "planner batch rejected because a task context ref is invalid"
+                )
+                self._enter_idle_backoff()
+                if state.revision_request is not None:
+                    return self._pc_record_revision_rejection(
+                        state,
+                        reason=(
+                            "replacement task context ref is invalid: "
+                            f"{exc}"
+                        ),
+                        nonterminal_result=PLAN_ERROR,
+                    )
+                return PLAN_ERROR
+            if hydrated_context_refs != list(getattr(task, "context_refs", []) or []):
+                task = replace(task, context_refs=hydrated_context_refs)
             sanitized_title = _sanitize_planner_task_text(task.title)
             sanitized_objective = _sanitize_planner_task_text(task.objective)
             sanitized_evidence = _sanitize_planner_task_text(task.evidence)
@@ -132,22 +182,56 @@ class PlanningCycleEnqueueMixin:
                     objective=sanitized_objective,
                     evidence=sanitized_evidence,
                 )
+            canonical_scope = self._normalize_planner_scope(
+                getattr(task, "scope", "")
+            )
+            if (
+                canonical_scope == PLANNER_SCOPE_FINAL_SUBMISSION
+                and not self._effective_full_paper_gate(self._artifact_root())
+            ):
+                canonical_scope = PLANNER_SCOPE_BOUNDED
+            canonical_acceptance = str(
+                getattr(task, "acceptance_check", "")
+                or getattr(task, "evidence", "")
+                or ""
+            )
+            canonical_context_refs = list(getattr(task, "context_refs", []) or [])
+            canonical_stage_closing = bool(
+                getattr(task, "stage_closing", False)
+            )
+            canonical_require_review = canonical_stage_closing or bool(
+                getattr(task, "require_independent_review", False)
+            )
+            task = replace(
+                task,
+                scope=canonical_scope,
+                acceptance_check=canonical_acceptance,
+                context_refs=canonical_context_refs,
+                require_independent_review=canonical_require_review,
+            )
             signature = _planner_task_signature(
                 task.title,
                 task.objective,
-                acceptance_check=str(getattr(task, "acceptance_check", "") or ""),
-                context_refs=list(getattr(task, "context_refs", []) or []),
-                scope=str(getattr(task, "scope", "") or ""),
-                stage_closing=bool(getattr(task, "stage_closing", False)),
+                acceptance_check=task.acceptance_check,
+                context_refs=list(task.context_refs),
+                scope=task.scope,
+                stage_closing=canonical_stage_closing,
+                require_independent_review=canonical_require_review,
+                skip_stage_transition=bool(
+                    getattr(task, "skip_stage_transition", False)
+                ),
             )
+            base_signature = signature
             duplicate_item = state.active_base_signatures.get(
-                signature[:2]
+                base_signature
             ) or state.seen_signatures.get(signature)
             if duplicate_item is not None and self._gate_reproposal_is_not_a_duplicate(
                 task, duplicate_item
             ):
                 duplicate_item = None
             if duplicate_item is not None:
+                if getattr(task, "key", ""):
+                    key_map[task.key] = duplicate_item.id
                 state.skipped_duplicate_titles.append(task.title)
                 duplicate_reason = (
                     "duplicate completed task"
@@ -169,7 +253,7 @@ class PlanningCycleEnqueueMixin:
                     }
                 )
                 continue
-            recent_failure = state.recent_failures.get(signature)
+            recent_failure = state.recent_failures.get(signature[:2])
             if recent_failure is not None:
                 state.skipped_recent_failure_titles.append(task.title)
                 failure_extra = getattr(recent_failure, "extra", {}) or {}
@@ -264,9 +348,7 @@ class PlanningCycleEnqueueMixin:
                 plan_version=state.new_plan_version,
                 node_key=str(getattr(task, "key", "") or item_id),
                 context_refs=list(getattr(task, "context_refs", []) or []),
-                acceptance_check=str(
-                    getattr(task, "acceptance_check", "") or getattr(task, "evidence", "")
-                ),
+                acceptance_check=str(getattr(task, "acceptance_check", "") or ""),
                 non_goals=list(getattr(task, "non_goals", []) or []),
                 authorization_id=authorization_id,
                 authorization_action=authorization_action,
@@ -284,6 +366,57 @@ class PlanningCycleEnqueueMixin:
         state.pending_items = pending_items
         return None
 
+    def _pc_record_revision_rejection(
+        self,
+        state: _PlanCycleState,
+        *,
+        reason: str,
+        nonterminal_result: Any | None,
+    ) -> Any | None:
+        revision_request = state.revision_request or {}
+        requested_item_id = str(revision_request.get("item_id") or "")
+        requested_item = next(
+            (
+                item
+                for item in state.revision_active_items
+                if item.id == requested_item_id
+            ),
+            None,
+        )
+        attempts = int(getattr(requested_item, "replan_rejections", 0) or 0) + 1
+        if requested_item is not None:
+            self.memory.backlog.update(
+                requested_item.id,
+                replan_rejections=attempts,
+                last_error=f"{reason} (attempt {attempts})",
+            )
+        terminal = attempts >= REPLAN_FILTER_REJECTION_LIMIT
+        self._emit(
+            {
+                "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                "reason": reason,
+                "expected_plan_id": state.expected_plan_id,
+                "expected_plan_version": state.expected_plan_version,
+                "attempts": attempts,
+                "terminal": terminal,
+            }
+        )
+        if terminal and requested_item is not None:
+            self.memory.backlog.mark_failed(
+                requested_item.id,
+                error=(
+                    f"filtered replacement circuit breaker opened after {attempts} attempts"
+                ),
+            )
+            sleep_s = self._enter_idle_backoff()
+            self._emit_status(
+                "planner replacement remained invalid after bounded retries; "
+                "current node failed closed and awaits new evidence"
+            )
+            self._suggested_sleep_s = max(self._suggested_sleep_s, sleep_s)
+            return PLAN_TERMINAL_IDLE
+        return nonterminal_result
+
     def _pc_commit_pending_items(self, state: _PlanCycleState) -> Any | None:
         revision_request = state.revision_request
         expected_plan_id = state.expected_plan_id
@@ -291,22 +424,42 @@ class PlanningCycleEnqueueMixin:
         manager_intent = state.manager_intent
 
         # Pass 2: resolve local dep keys to real item ids, then enqueue. Only
-        # intra-batch deps are supported — a key the planner referenced but did
-        # not define in THIS batch (typo, or an unsupported cross-cycle ref) is
-        # dropped with a warning so a stray key cannot wedge the item forever.
+        # intra-batch deps are supported. Reject the whole batch if filtering or
+        # a malformed plan leaves any dependency unresolved; executing a child
+        # without its required parent is unsafe.
+        unresolved: list[tuple[str, list[str]]] = []
         for task, item in state.pending_items:
             task_deps = list(getattr(task, "deps", []) or [])
             if task_deps:
                 resolved_ids, unresolved_keys = _resolve_task_dep_ids(task_deps, state.key_map)
                 item.deps = resolved_ids
                 if unresolved_keys:
-                    log.warning(
-                        "life supervisor: dropping unresolved planner dep "
-                        "key(s) %s for task %r (only same-batch new_tasks deps "
-                        "are supported)",
-                        unresolved_keys,
-                        item.title,
-                    )
+                    unresolved.append((item.title, unresolved_keys))
+        if unresolved:
+            details = "; ".join(
+                f"{title!r}: {keys}" for title, keys in unresolved
+            )
+            self._emit(
+                {
+                    "type": EventType.LIFE_PLANNER_ERROR,
+                    "cycle": self._planning_cycles,
+                    "error": f"planner DAG has unresolved dependencies: {details}",
+                }
+            )
+            self._emit_status(
+                "planner DAG rejected because dependencies became unresolved"
+            )
+            self._enter_idle_backoff()
+            if revision_request is not None:
+                return self._pc_record_revision_rejection(
+                    state,
+                    reason=(
+                        "replacement DAG rejected because dependencies became "
+                        f"unresolved: {details}"
+                    ),
+                    nonterminal_result=PLAN_ERROR,
+                )
+            return PLAN_ERROR
         if revision_request is None and state.pending_items:
             try:
                 self.memory.backlog.add_many([item for _task, item in state.pending_items])
@@ -410,46 +563,11 @@ class PlanningCycleEnqueueMixin:
             )
 
         if revision_request is not None and not state.pending_items:
-            requested_item_id = str(revision_request.get("item_id") or "")
-            requested_item = next(
-                (item for item in state.revision_active_items if item.id == requested_item_id),
-                None,
+            return self._pc_record_revision_rejection(
+                state,
+                reason="all replacement tasks were filtered",
+                nonterminal_result=None,
             )
-            attempts = int(getattr(requested_item, "replan_rejections", 0) or 0) + 1
-            if requested_item is not None:
-                self.memory.backlog.update(
-                    requested_item.id,
-                    replan_rejections=attempts,
-                    last_error=(
-                        "planner replacement rejected because all proposed "
-                        f"tasks were filtered (attempt {attempts})"
-                    ),
-                )
-            terminal = attempts >= REPLAN_FILTER_REJECTION_LIMIT
-            self._emit(
-                {
-                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
-                    "reason": "all replacement tasks were filtered",
-                    "expected_plan_id": expected_plan_id,
-                    "expected_plan_version": expected_plan_version,
-                    "attempts": attempts,
-                    "terminal": terminal,
-                }
-            )
-            if terminal and requested_item is not None:
-                self.memory.backlog.mark_failed(
-                    requested_item.id,
-                    error=(
-                        f"filtered replacement circuit breaker opened after {attempts} attempts"
-                    ),
-                )
-                sleep_s = self._enter_idle_backoff()
-                self._emit_status(
-                    "planner replacement remained empty after bounded retries; "
-                    "current node failed closed and awaits new evidence"
-                )
-                self._suggested_sleep_s = max(self._suggested_sleep_s, sleep_s)
-                return PLAN_TERMINAL_IDLE
         return None
 
     def _pc_emit_final_verdict(self, state: _PlanCycleState) -> Any:
@@ -457,7 +575,7 @@ class PlanningCycleEnqueueMixin:
         delivered = self._emit_planner_verdict(
             status=PlannerVerdictStatus.PLANNED,
             completion_kind="tasks_scheduled",
-            resume_outcome=True if state.added_titles else PLAN_RETRY,
+            resume_outcome=PLAN_RETRY,
             cycle=self._planning_cycles,
             project_done=verdict.project_done,
             reason=verdict.reason,

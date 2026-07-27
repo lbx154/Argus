@@ -1,18 +1,53 @@
 ---
 name: ChemOS Orchestration Reference
-description: Evaluate ChemOS as self-driving-laboratory orchestration infrastructure when authorized instruments and device services already exist.
-category: chemistry-reference-chemos
-version: 1
+description: Evaluate ChemOS as laboratory-orchestration infrastructure only when authenticated device services, facility ownership, safety interlocks, data contracts, and rollback behavior already exist.
+category: chemistry-tool-lab-orchestration
+version: 2
 ---
 
-Use <https://github.com/malcolmsimgithub/ChemOS2.0> as an orchestration reference.
-It is infrastructure-heavy and tied to device services; do not present repository
-startup as a working laboratory.
+## When to use
 
-Inventory service dependencies, message schemas, device adapters, optimizer
-interfaces, data storage, authentication, failure recovery, and facility safety
-controls. Probe in simulation before any authorized physical path.
+Use for architecture review or integration planning in an operator-owned,
+authorized laboratory environment with existing device APIs and safety systems.
 
-Retain commits, configuration, service logs, messages, observations, decisions,
-failures, and device acknowledgements. ChemOS coordinates components; it does not
-replace scientific validation or instrument-side safety.
+## Do not use when
+
+Do not treat orchestration software as an instrument driver, safety controller,
+authorization system, scientific workflow, or evidence that a physical
+experiment occurred. Do not create simulated device success while claiming
+physical execution.
+
+## Required inputs
+
+Exact ChemOS version/source, device/service inventory, authenticated interfaces,
+command/data schemas, ownership and authorization, interlocks, safe states,
+timeouts/retries, audit/event storage, recovery procedures, and a bounded
+scientific workflow.
+
+## Minimum capability probe
+
+Use a facility-approved simulator or nonhazardous authorized endpoint to verify
+one command/result lifecycle, identity, units, timeout, duplicate-command
+handling, abort, safe state, and provenance. Do not bypass instrument controls.
+
+## Evidence and validation
+
+Retain orchestration configuration, service versions, command/result IDs,
+timestamps, raw device outputs, errors, authorization reference, abort events,
+and scientific validation. Separate orchestration success from instrument and
+chemical correctness.
+
+## Output contract
+
+Return the supported orchestration boundary, device contracts, failure and
+recovery behavior, safety ownership, provenance, and unresolved integration risks.
+
+## Stop or replan
+
+Stop when device ownership, authentication, authorization, interlocks, safe
+state, or recovery behavior is absent or cannot be tested safely.
+
+## Official references
+
+- https://chemos.org/
+- https://github.com/aspuru-guzik-group/ChemOS

@@ -1,22 +1,54 @@
 ---
 name: PySCF Quantum Chemistry
-description: Execute reproducible molecular electronic-structure calculations with PySCF when energies, orbitals, gradients, or correlated methods are required.
-category: chemistry-tool-pyscf
-version: 1
+description: Use PySCF as a Python electronic-structure capability for molecular or periodic calculations after charge, spin, geometry, method, basis, boundary, and convergence requirements are defined.
+category: chemistry-tool-computational
+version: 2
 ---
 
-Use <https://github.com/pyscf/pyscf>. Install the current official package in the
-project environment and run a tiny calculation before committing compute.
+## When to use
 
-```python
-from pyscf import gto, scf
-mol = gto.M(atom="H 0 0 0; H 0 0 0.74", basis="sto-3g", unit="Angstrom")
-mf = scf.RHF(mol).run()
-assert mf.converged
-print(mf.e_tot)
-```
+Use when an existing project environment provides PySCF and a reproducible
+Python workflow is appropriate for energies, orbitals, gradients, response,
+correlated methods, embedding, or periodic calculations.
 
-Retain geometry, units, charge, spin, basis/ECP, method, grids, symmetry,
-convergence thresholds, software version, stdout, checkpoint, and hardware.
-Convergence is necessary but not sufficient: assess basis, correlation,
-relativistic, solvation, and geometry errors for the claim.
+## Do not use when
+
+Do not choose PySCF merely because it is scriptable. Do not accept SCF
+convergence as the correct state or method accuracy, and do not present computed
+results as measurements.
+
+## Required inputs
+
+Original structure/cell, units, charge/spin or magnetic state, basis and ECP,
+method/reference, symmetry, periodic settings, grids, thresholds, memory,
+parallelism, target observable, and convergence plan.
+
+## Minimum capability probe
+
+Run a small representative calculation, print the PySCF/version and resolved
+input, verify electron count and spin, inspect convergence and primary output,
+and confirm restart/checkpoint and parser behavior before scaling.
+
+## Evidence and validation
+
+Retain the exact script/input, environment/version, structures, basis/ECP source,
+settings, logs, checkpoints, raw results, warnings, convergence scans, failed
+states, and analysis. Test alternative states and method/numerical sensitivity
+according to the computational chemistry workflow.
+
+## Output contract
+
+Return the computed observable with units/reference state, method and model,
+convergence evidence, uncertainty/sensitivity, primary artifacts, and a
+`computed` evidence label.
+
+## Stop or replan
+
+Stop when the requested feature is unavailable or unvalidated in the installed
+version, state identity is unresolved, convergence is false or unstable, or
+credible method alternatives change the conclusion.
+
+## Official references
+
+- https://pyscf.org/
+- https://pyscf.org/user.html

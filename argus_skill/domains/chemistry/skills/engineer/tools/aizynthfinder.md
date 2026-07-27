@@ -1,19 +1,51 @@
 ---
 name: AiZynthFinder Retrosynthesis
-description: Run AiZynthFinder retrosynthesis with explicit model, stock, configuration, and route-scoring provenance.
-category: chemistry-tool-aizynthfinder
-version: 1
+description: Run a local AiZynthFinder retrosynthesis search with explicit target, model, stock, configuration, search budget, route output, and evidence limits; use for candidate generation, not feasibility proof.
+category: chemistry-tool-retrosynthesis
+version: 2
 ---
 
-Use <https://github.com/MolecularAI/aizynthfinder>. Verify the current supported
-Python versions and installation instructions before creating the project
-environment. The program also requires compatible policy/model files and stock
-data; package import alone is not readiness.
+## When to use
 
-Run one documented example before a campaign and retain configuration, model and
-stock hashes, target identity, command, all returned routes, scores, search
-limits, timing, and failures.
+Use after target identity and route objectives are defined and an available local
+AiZynthFinder installation can generate candidate retrosynthetic trees.
 
-A returned route is a model proposal. It does not prove reagent availability,
-selectivity, safety, scale-up, or laboratory executability. Compare routes with
-appropriate public baselines or expert review when those claims matter.
+## Do not use when
+
+Do not assume default models/stocks exist, are licensed for the use, cover the
+target chemistry, or represent current purchasability. A solved search tree is
+not an experimentally feasible route.
+
+## Required inputs
+
+Target representation, package/version, expansion and filter policies, stock,
+configuration, search algorithm/budget, route scorers, hardware limits, and
+output format.
+
+## Minimum capability probe
+
+Load the exact model and stock, run a known target, verify stereochemistry and
+components, inspect one route and source/stock membership, and confirm failed or
+unsolved outputs are captured before a campaign.
+
+## Evidence and validation
+
+Retain target, configuration, model/stock identifiers and provenance, seeds,
+budget, logs, routes, scores, unsolved targets, and version. Review every
+claim-critical step for precedent, selectivity, conditions, availability,
+safety, and whole-route compatibility.
+
+## Output contract
+
+Return candidate routes, search provenance, stock assumptions, route scores,
+failure states, and an explicit `generated-not-validated` evidence label.
+
+## Stop or replan
+
+Stop when model/stock provenance is unknown, target identity is altered, search
+failure is hidden, or the route cannot be inspected outside the score.
+
+## Official references
+
+- https://molecularai.github.io/aizynthfinder/
+- https://github.com/MolecularAI/aizynthfinder/releases

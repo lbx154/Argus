@@ -573,6 +573,7 @@ def manager_bounded_handoff(
     root_task_id: str | None = None,
     ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
     prepare_persist: Callable[[str], None] | None = None,
+    validate_persist: Callable[[str], None] | None = None,
 ) -> Any:
     """Commit Manager state and durable task enqueue under one pipeline lock.
 
@@ -594,6 +595,8 @@ def manager_bounded_handoff(
         if prepare_persist is not None:
             prepare_persist(prepared.execution_task)
         with pipeline_lock:
+            if validate_persist is not None:
+                validate_persist(prepared.execution_task)
             division = _bounded_handoff_division(
                 prepared,
                 chat_state=chat_state,

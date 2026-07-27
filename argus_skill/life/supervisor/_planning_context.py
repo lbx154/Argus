@@ -56,7 +56,13 @@ class PlanningContextMixin:
         if scope == PLANNER_SCOPE_BOUNDED:
             tags.append("bounded_dag_node")
         if bool(getattr(task, "stage_closing", False)):
-            tags.extend(["stage_closing", "review:required"])
+            tags.append("stage_closing")
+        if bool(getattr(task, "stage_closing", False)) or bool(
+            getattr(task, "require_independent_review", False)
+        ):
+            tags.append("review:required")
+        if bool(getattr(task, "skip_stage_transition", False)):
+            tags.append("stage_transition:skip")
         return tags
 
     @staticmethod
@@ -64,6 +70,21 @@ class PlanningContextMixin:
         return any(
             str(tag).strip().lower().replace("-", "_")
             in {"review:required", "independent_review:required"}
+            for tag in item.tags
+        )
+
+    @staticmethod
+    def _item_is_stage_closing(item: BacklogItem) -> bool:
+        return any(
+            str(tag).strip().lower().replace("-", "_") == "stage_closing"
+            for tag in item.tags
+        )
+
+    @staticmethod
+    def _item_skips_stage_transition(item: BacklogItem) -> bool:
+        return any(
+            str(tag).strip().lower().replace("-", "_")
+            == "stage_transition:skip"
             for tag in item.tags
         )
 
@@ -166,7 +187,12 @@ class PlanningContextMixin:
         if self._item_requires_independent_review(item):
             lines.append(
                 "- independent_review: REQUIRED; Engineer self-review cannot close "
-                "this stage-closing mission."
+                "this reviewed mission."
+            )
+        if self._item_skips_stage_transition(item):
+            lines.append(
+                "- stage_transition: DISABLED; the review verdict must not invoke "
+                "the Manager's formal stage writer."
             )
         if item.tags:
             lines.append("- tags: " + ", ".join(item.tags))
@@ -1589,7 +1615,7 @@ class PlanningContextMixin:
         delivered = self._emit_planner_verdict(
             status=PlannerVerdictStatus.PLANNED,
             completion_kind="tasks_scheduled",
-            resume_outcome=True,
+            resume_outcome=PLAN_RETRY,
             cycle=self._planning_cycles,
             project_done=False,
             reason="external blocker present; scheduling one wiki_collect escape-valve mission",

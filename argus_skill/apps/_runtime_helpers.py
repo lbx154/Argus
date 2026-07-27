@@ -172,8 +172,16 @@ def _should_run_stage_transition(
     mission_scope: str = "",
     require_independent_review: bool = False,
     review_source: str = "",
+    skip_stage_transition: bool = False,
 ) -> bool:
     normalized = str(status or "")
+    normalized_scope = str(mission_scope or "").strip().lower().replace("-", "_")
+    if (
+        skip_stage_transition
+        and require_independent_review
+        and normalized_scope == "bounded"
+    ):
+        return False
     if normalized == "replan_requested":
         return False
     if normalized.startswith("paused_"):
@@ -208,6 +216,9 @@ class _ExecuteState:
 
         # Set by ``_invoke_execute_loop``.
         self.outcome: Any = None
+        self.trusted_playground_workflow: bool = False
+        self.playground_workflow_guarded: bool = False
+        self.protected_playground_source_violation: bool = False
 
         # Set by ``_extract_execute_outcome_fields``.
         self.new_tid: str | None = None
@@ -225,3 +236,4 @@ class _ExecuteState:
         self.effective_recoverable: bool = False
         self.effective_reason: str = ""
         self.stage_transition: dict = {}
+        self.stage_transition_skipped: bool = False

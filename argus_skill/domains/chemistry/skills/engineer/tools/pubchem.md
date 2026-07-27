@@ -1,21 +1,50 @@
 ---
 name: PubChem PUG REST Retrieval
-description: Retrieve public compound records from PubChem PUG REST using stable identifiers and dated raw responses.
-category: chemistry-tool-pubchem
-version: 1
+description: Retrieve public compound, substance, assay, property, and safety records through PubChem interfaces using resolved identifiers, dated queries, raw responses, and source-aware evidence limits.
+category: chemistry-tool-database
+version: 2
 ---
 
-Use the official PUG REST API:
-<https://pubchem.ncbi.nlm.nih.gov/docs/pug-rest>. Resolve names to CIDs once,
-then perform evidence-bearing queries by CID or InChIKey.
+## When to use
 
-Minimal probe:
+Use for public compound identifiers, depositor-linked substance records,
+standardized properties, assay metadata, synonyms, or Laboratory Chemical Safety
+Summaries.
 
-```bash
-curl -fsSL 'https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/aspirin/property/CanonicalSMILES,InChIKey/JSON'
-```
+## Do not use when
 
-Retain URL, query date, HTTP status, raw response, resolved CID, InChIKey, and
-requested fields. Respect service limits and cache immutable raw responses.
-PubChem records aggregate submitted data; a database field is not a new
-measurement and may contain source-specific conflicts.
+Do not treat a name search as unique identity, a computed property as measured,
+a depositor record as independently curated truth, or a PubChem entry as proof
+of availability, purity, safety for a procedure, or a new observation.
+
+## Required inputs
+
+Resolved query identity, endpoint/fields, record type, source expectations,
+access date, rate/size constraints, and downstream evidence need.
+
+## Minimum capability probe
+
+Resolve one known identifier, fetch the exact fields, save the raw response, and
+verify CID/SID/AID semantics, compound identity, units, value provenance, and
+whether each property is experimental or computed.
+
+## Evidence and validation
+
+Retain request URL or parameters, response, access date, identifiers, record
+sources, units, and conflicts. Prefer stable identifiers over names and inspect
+linked primary sources for claim-critical values.
+
+## Output contract
+
+Return resolved identity, requested records, provenance, evidence class,
+conflicts, and fields unavailable from the selected endpoint.
+
+## Stop or replan
+
+Stop on ambiguous identity, incompatible records, undocumented units/methods, or
+an API result that cannot support the requested claim.
+
+## Official references
+
+- https://pubchem.ncbi.nlm.nih.gov/docs/pug-rest
+- https://pubchem.ncbi.nlm.nih.gov/docs

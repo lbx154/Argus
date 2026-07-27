@@ -223,6 +223,39 @@ def test_stage_closing_item_requires_independent_review(tmp_path) -> None:
     assert runner.kwargs["require_independent_review"] is True
 
 
+def test_review_only_item_suppresses_manager_stage_transition(tmp_path) -> None:
+    memory = LifeMemory.open(tmp_path / "life")
+    memory.backlog.add(
+        BacklogItem.new(
+            title="review bounded candidate",
+            objective="apply an independent review-only promotion gate",
+            tags=[
+                "planner",
+                "scope:bounded",
+                "review:required",
+                "stage_transition:skip",
+            ],
+        )
+    )
+    runner = _CaptureRunner()
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=runner,
+        sink=_Sink(),
+        config=LifeSupervisorConfig(
+            continuous=False,
+            project_worktree=tmp_path,
+            artifact_root=tmp_path,
+        ),
+    )
+
+    supervisor.tick()
+
+    assert runner.kwargs is not None
+    assert runner.kwargs["require_independent_review"] is True
+    assert runner.kwargs["skip_stage_transition"] is True
+
+
 def test_validator_repair_claims_capability_and_forces_one_direct_round(
     tmp_path,
 ) -> None:

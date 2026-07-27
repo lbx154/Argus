@@ -31,7 +31,8 @@ from .adaptation import (
 )
 from .loop_state import MissionContext, SkillSelectionState
 from .role_match import render_skill_playbook
-from .store import Skill
+from .skill_router import is_protected_skill
+from .store import Skill, skill_content_digest
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +44,103 @@ _ADAPTATION_FAILURE_CAUSES: frozenset[str] = frozenset(
         "skill_gap",
     }
 )
+
+
+def _required_playground_reviewer_skill() -> Skill:
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "domains"
+        / "chemistry"
+        / "skills"
+        / "reviewer"
+        / "chemistry-playground-review.md"
+    )
+    try:
+        skill = Skill.parse(path.read_text(encoding="utf-8"), str(path))
+    except OSError as exc:
+        raise RuntimeError(
+            "required Chemistry Playground Reviewer skill is unavailable"
+        ) from exc
+    if (
+        skill.name != "Chemistry Playground Promotion Gate"
+        or skill.category != "chemistry-playground-review"
+        or not is_protected_skill(skill)
+        or not skill.content.strip()
+    ):
+        raise RuntimeError("required Chemistry Playground Reviewer skill is invalid")
+    return skill
+
+
+def _required_playground_engineer_skill() -> Skill:
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "domains"
+        / "chemistry"
+        / "skills"
+        / "engineer"
+        / "workflows"
+        / "chemistry-playground.md"
+    )
+    try:
+        skill = Skill.parse(path.read_text(encoding="utf-8"), str(path))
+    except OSError as exc:
+        raise RuntimeError(
+            "required Chemistry Playground Engineer skill is unavailable"
+        ) from exc
+    if (
+        skill.name != "Chemistry Playground Bounded Hypothesis Probe"
+        or skill.category != "chemistry-playground"
+        or not is_protected_skill(skill)
+        or not skill.content.strip()
+    ):
+        raise RuntimeError("required Chemistry Playground Engineer skill is invalid")
+    return skill
+
+
+def _prepare_playground_primary_skills(
+    skills: list[Skill],
+    *,
+    canonical: Skill | None = None,
+) -> list[Skill]:
+    candidates = [
+        skill
+        for skill in skills
+        if (
+            skill.name == "Chemistry Playground Bounded Hypothesis Probe"
+            or skill.category == "chemistry-playground"
+        )
+    ]
+    if not candidates:
+        return skills
+    if len(candidates) != 1:
+        raise RuntimeError("ambiguous Chemistry Playground primary skill match")
+    candidate = candidates[0]
+    required = canonical or _required_playground_engineer_skill()
+    if (
+        candidate.name != required.name
+        or candidate.category != required.category
+        or not is_protected_skill(candidate)
+        or skill_content_digest(candidate) != skill_content_digest(required)
+    ):
+        raise RuntimeError("matched Chemistry Playground Engineer skill is untrusted")
+    return [candidate]
+
+
+def _ensure_playground_reviewer_reference(
+    primary: Skill | None,
+    references: list[Skill],
+    *,
+    canonical: Skill | None = None,
+) -> list[Skill]:
+    if (
+        primary is None
+        or primary.name != "Chemistry Playground Bounded Hypothesis Probe"
+        or primary.category != "chemistry-playground"
+        or not is_protected_skill(primary)
+    ):
+        return references
+    required = canonical or _required_playground_reviewer_skill()
+    return [required]
 
 
 def _reviewer_engineer_skill_pointer(
@@ -283,10 +381,28 @@ class SkillSelectionMixin:
         state.matcher_premium_requests = state.match.premium_requests
         # Own-role playbooks drive distill/writeback; cross-role references
         # are read-only context and never written back to.
-        state.primary_skills: list[Skill] = list(state.match.primary_skills)
+        state.primary_skills: list[Skill] = _prepare_playground_primary_skills(
+            list(state.match.primary_skills),
+            canonical=getattr(
+                self,
+                "canonical_playground_engineer_skill",
+                None,
+            ),
+        )
         state.reference_skills: list[Skill] = list(state.match.reference_skills)
-        state.skill: Skill | None = state.match.primary
+        state.skill: Skill | None = (
+            state.primary_skills[0] if state.primary_skills else None
+        )
         state.strict_skill_hit = state.skill is not None
+        state.reference_skills = _ensure_playground_reviewer_reference(
+            state.skill,
+            state.reference_skills,
+            canonical=getattr(
+                self,
+                "canonical_playground_reviewer_skill",
+                None,
+            ),
+        )
         # Reuse this one matcher result for Reviewer context too. Engineer-role
         # references are Reviewer-owned skills; the Engineer's own strict hit
         # becomes read-only context for Reviewer. This avoids a second matcher
@@ -386,7 +502,11 @@ class SkillSelectionMixin:
         state.learning_target_name = (
             state.skill.name if state.strict_skill_hit and state.skill is not None else ""
         )
-        if state.skill is not None and self.config.skill_adapter_enabled:
+        if (
+            state.skill is not None
+            and self.config.skill_adapter_enabled
+            and not is_protected_skill(state.skill)
+        ):
             source_skill_text = self.skill_store.render_skill(state.skill, full=True)
             adapter_reasoning_effort = self.config.resolved_skill_adapter_reasoning_effort()
             max_bullets = (

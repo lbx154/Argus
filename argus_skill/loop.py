@@ -275,6 +275,9 @@ class SkillLoop(
         self.engineer_runner = engineer_runner
         self.reviewer_runner = reviewer_runner or engineer_runner
         self.on_event = on_event
+        self.pre_settlement_guard: Callable[..., tuple[str, str, str]] | None = None
+        self.canonical_playground_engineer_skill: Any | None = None
+        self.canonical_playground_reviewer_skill: Any | None = None
         # Optional callable consulted at the start of each engineer round.
         # Returns a list of additional guidance strings to append to the
         # prompt (used by the daemon to honour /inject between rounds).
@@ -448,6 +451,15 @@ class SkillLoop(
             continue_adaptor=None,
             reviewer_skill_block=state.reviewer_skill_block,
         )
+        if self.pre_settlement_guard is not None:
+            status, final_message, reason = self.pre_settlement_guard(
+                mission,
+                state,
+                status,
+                rounds,
+                final_message,
+                reason,
+            )
 
         # Step 4: learn from the OUTCOME and settle the final LoopOutcome.
         return self._settle_mission_outcome(

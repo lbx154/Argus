@@ -1,26 +1,54 @@
 ---
 name: RDKit Molecular Integrity
-description: Parse, canonicalize, validate, fingerprint, and compute molecular descriptors with RDKit when a chemistry task depends on exact molecular identity.
-category: chemistry-tool-rdkit
-version: 1
+description: Use RDKit for deterministic molecular parsing, sanitization, stereochemistry, canonical identifiers, substructure, descriptors, fingerprints, conformers, or reaction objects; not for proving chemical identity or feasibility.
+category: chemistry-tool-cheminformatics
+version: 2
 ---
 
-Use RDKit for deterministic molecular structure handling instead of asking a
-language model to emulate chemistry rules.
+## When to use
 
-Setup in the project environment; prefer the current official conda-forge package:
-`conda install -c conda-forge rdkit`. Verify the current release before pinning.
+Use after the molecular identity requirements are known and a Python
+cheminformatics capability is needed for structures or reactions.
 
-Minimum probe:
+## Do not use when
 
-```python
-from rdkit import Chem, rdBase
-mol = Chem.MolFromSmiles("CCO")
-assert mol is not None
-print(rdBase.rdkitVersion, Chem.MolToSmiles(mol, canonical=True))
-```
+Do not let successful sanitization prove the source identity, purity,
+protonation, tautomer, stereochemistry, conformation, activity, or synthetic
+feasibility. Do not silently strip salts or select the largest fragment.
 
-Record the input string, canonical SMILES, identifiers, sanitization failures,
-stereochemistry, protonation/tautomer assumptions, descriptor/fingerprint
-parameters, and RDKit version. A parsable molecule is not evidence of activity,
-synthesizability, or assay validity.
+## Required inputs
+
+Preserve source representation, component policy, stereochemistry, isotope and
+charge state, aromaticity/kekulization expectations, target RDKit version, and
+the exact operation.
+
+## Minimum capability probe
+
+Parse one representative difficult input, inspect warnings, atom count,
+components, charge and stereochemistry, serialize it, parse again, and compare
+identity. Probe the exact descriptor, fingerprint, reaction, or conformer feature
+before batch use.
+
+## Evidence and validation
+
+Retain original and derived representations, version, sanitization flags,
+canonicalization/stereo options, errors, and atom mappings where relevant.
+Cross-check claim-critical conversions with an independent representation or
+parser. Fingerprint similarity is representation- and parameter-dependent;
+descriptor values require definitions and units.
+
+## Output contract
+
+Return the operation, version/options, successful and failed records, identity
+changes, warnings, and the evidence limitation. Keep invalid molecules visible.
+
+## Stop or replan
+
+Stop when sanitization requires an unapproved chemistry change, stereochemistry
+or components are lost, or the requested chemical concept is not represented by
+the chosen RDKit operation.
+
+## Official references
+
+- https://www.rdkit.org/docs/
+- https://github.com/rdkit/rdkit/releases

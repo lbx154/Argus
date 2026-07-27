@@ -1,16 +1,23 @@
 ---
 name: Chemistry Skill Adaptation
-description: Adapt reusable chemistry-domain skills after reviewer-certified tool, model, evidence, or search failure through the generic Scientist pipeline.
+description: Adapt a reusable chemistry workflow only after evidence shows a mechanism-level gap in identity, method, capability, validation, applicability, safety, or domain routing.
 category: chemistry-adaptation
-version: 1
+version: 2
 ---
 
-Adapt a reusable chemistry method only after a concrete failure exposes a real
-gap: an invalid assumption, out-of-domain model, inaccessible source, failed
-calculation, weak control, contaminated evaluation, or exhausted search route.
+Adapt only after primary evidence and Reviewer findings identify a reusable gap:
+wrong domain routing, ambiguous identity, invalid normalization, unsuitable
+method, missing control, inaccessible capability, leakage, failed convergence or
+calibration, out-of-domain use, unsafe action boundary, or a claim above the
+available evidence.
 
-Understand the failure from primary evidence, then change the method, evidence
-regime, or tool rather than nudging a prompt, seed, threshold, or retry count.
-Preserve negative knowledge that prevents repetition, but do not hard-code the
-current target's answer or create a process artifact merely to document the
-adaptation.
+Classify the failure before changing the Skill. Correct the decision procedure,
+input contract, capability probe, validation gate, applicability boundary, or
+stop condition that would prevent recurrence. Prefer a mechanism-level change
+over retries, prompt emphasis, seed changes, threshold nudges, or adding more
+software names.
+
+Preserve useful negative knowledge and adjacent-domain exclusions. Do not
+hard-code the current target, its answer, one benchmark's hidden labels, private
+chain-of-thought, or a Chemistry Playground. Do not weaken evidence or safety
+requirements merely to turn a failed run into success.
