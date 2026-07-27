@@ -34,6 +34,15 @@ def _make_project(root: Path, sid: str = "s-cmd00001") -> Path:
     life.mkdir(parents=True)
     (life / "events.jsonl").touch()
     (life / "backlog.jsonl").touch()
+    write_session_meta(
+        root,
+        SessionMeta(
+            id=sid,
+            cwd=str(life),
+            workdir=str(life),
+            launch_cwd=str(life),
+        ),
+    )
     return life
 
 
@@ -67,11 +76,14 @@ def _install_manager(monkeypatch, execution_for) -> None:
 
 # ── tasks ─────────────────────────────────────────────────────────────────
 
+
 def test_post_task_appends_to_backlog(ctx) -> None:
     root, sid, life = ctx
     client = TestClient(server.create_app(global_root=root))
-    r = client.post(f"/api/projects/{sid}/tasks",
-                    json={"text": "optimize the kernel", "autostart_daemon": False})
+    r = client.post(
+        f"/api/projects/{sid}/tasks",
+        json={"text": "optimize the kernel", "autostart_daemon": False},
+    )
     assert r.status_code == 200
     assert r.json()["item"]["objective"] == "optimize the kernel"
     # went through the real Backlog store (flock CAS), not a raw write
@@ -156,9 +168,7 @@ def test_post_task_preserves_active_continuous_campaign_governance(
     assert response is not None
     assert response["objective"] == "verify the migrated scope artifact"
     assert commits == []
-    pipeline = json.loads(
-        (workspace / "research" / "PIPELINE_STATE.json").read_text()
-    )
+    pipeline = json.loads((workspace / "research" / "PIPELINE_STATE.json").read_text())
     assert pipeline["vertical"] == "math"
     assert pipeline["workflow_mode"] == "staged"
     assert pipeline["research_target_level"] == "doctoral"
@@ -167,11 +177,12 @@ def test_post_task_preserves_active_continuous_campaign_governance(
 def test_post_task_honours_once_flag(ctx) -> None:
     root, sid, life = ctx
     client = TestClient(server.create_app(global_root=root))
-    r = client.post(f"/api/projects/{sid}/tasks",
-                    json={"text": "tune it --once", "autostart_daemon": False})
+    r = client.post(
+        f"/api/projects/{sid}/tasks", json={"text": "tune it --once", "autostart_daemon": False}
+    )
     item = r.json()["item"]
-    assert item["objective"] == "tune it"           # flags stripped
-    assert item["iterate"] is False                  # --once
+    assert item["objective"] == "tune it"  # flags stripped
+    assert item["iterate"] is False  # --once
 
 
 def test_post_task_enqueues_only_manager_execution_handoff(ctx, monkeypatch) -> None:
@@ -200,7 +211,8 @@ def test_post_task_enqueues_only_manager_execution_handoff(ctx, monkeypatch) -> 
 
 
 def test_post_task_returns_503_instead_of_enqueuing_raw_on_handoff_failure(
-    ctx, monkeypatch,
+    ctx,
+    monkeypatch,
 ) -> None:
     root, sid, life = ctx
 
@@ -224,8 +236,7 @@ def test_post_task_returns_503_instead_of_enqueuing_raw_on_handoff_failure(
 def test_post_task_empty_400(ctx) -> None:
     root, sid, _ = ctx
     client = TestClient(server.create_app(global_root=root))
-    assert client.post(f"/api/projects/{sid}/tasks",
-                       json={"text": "   "}).status_code == 400
+    assert client.post(f"/api/projects/{sid}/tasks", json={"text": "   "}).status_code == 400
 
 
 def test_post_task_lazy_spawns_daemon(ctx, monkeypatch) -> None:
@@ -243,21 +254,24 @@ def test_post_task_lazy_spawns_daemon(ctx, monkeypatch) -> None:
     r = client.post(f"/api/projects/{sid}/tasks", json={"text": "run it"})  # autostart default
     assert r.status_code == 200
     assert r.json()["item"]["objective"] == "run it"
-    assert "daemon" in r.json()                       # daemon-ensure result returned
+    assert "daemon" in r.json()  # daemon-ensure result returned
     assert spawned.get("life_dir") == life.resolve()  # lazy spawn fired (no daemon was alive)
 
 
 def test_start_project_daemon_returns_replacement_candidates_at_cap(
-    tmp_path, monkeypatch,
+    tmp_path,
+    monkeypatch,
 ) -> None:
     target = _make_project(tmp_path, "s-target001")
     running = _make_project(tmp_path, "s-running01")
     (running / "session.json").write_text(
-        json.dumps({
-            "id": "s-running01",
-            "display_name": "Existing work",
-            "last_active": 1,
-        }),
+        json.dumps(
+            {
+                "id": "s-running01",
+                "display_name": "Existing work",
+                "last_active": 1,
+            }
+        ),
         encoding="utf-8",
     )
     spawned = []
@@ -301,7 +315,8 @@ def test_start_project_daemon_returns_replacement_candidates_at_cap(
 
 
 def test_lazy_task_start_reclaims_oldest_safe_idle_daemon(
-    tmp_path, monkeypatch,
+    tmp_path,
+    monkeypatch,
 ) -> None:
     target = _make_project(tmp_path, "s-target001")
     victim = _make_project(tmp_path, "s-idle0001")
@@ -325,21 +340,26 @@ def test_lazy_task_start_reclaims_oldest_safe_idle_daemon(
     monkeypatch.setattr(
         server,
         "list_running_daemons",
-        lambda **kwargs: [{
-            "id": "s-idle0001",
-            "last_active": 1,
-            "unfinished_tasks": 0,
-            "active_role": "",
-            "continuous_enabled": False,
-        }],
+        lambda **kwargs: [
+            {
+                "id": "s-idle0001",
+                "last_active": 1,
+                "unfinished_tasks": 0,
+                "active_role": "",
+                "continuous_enabled": False,
+            }
+        ],
     )
     monkeypatch.setattr(
         server,
         "replace_project_daemon",
-        lambda sid, victim_sid, **kwargs: replaced.update(
-            sid=sid,
-            victim_sid=victim_sid,
-        ) or {"rc": 0},
+        lambda sid, victim_sid, **kwargs: (
+            replaced.update(
+                sid=sid,
+                victim_sid=victim_sid,
+            )
+            or {"rc": 0}
+        ),
     )
 
     result = server.start_project_daemon(
@@ -355,7 +375,8 @@ def test_lazy_task_start_reclaims_oldest_safe_idle_daemon(
 
 
 def test_replace_project_daemon_parks_state_then_starts_target(
-    tmp_path, monkeypatch,
+    tmp_path,
+    monkeypatch,
 ) -> None:
     target = _make_project(tmp_path, "s-target001")
     victim = _make_project(tmp_path, "s-victim001")
@@ -391,16 +412,20 @@ def test_replace_project_daemon_parks_state_then_starts_target(
     monkeypatch.setattr(server, "_active_daemon_count", lambda config: len(running))
     monkeypatch.setattr(server, "stop_daemon", fake_stop)
     monkeypatch.setattr(server, "spawn_detached_daemon", fake_spawn)
-    (target / "daemon.admission.json").write_text(json.dumps({
-        "admission_required": True,
-        "requested_at": 1,
-        "target_sid": "s-target001",
-        "resume_continuous": False,
-        "limit": 1,
-        "active_count": 1,
-        "error": "choose",
-        "running_daemons": [],
-    }))
+    (target / "daemon.admission.json").write_text(
+        json.dumps(
+            {
+                "admission_required": True,
+                "requested_at": 1,
+                "target_sid": "s-target001",
+                "resume_continuous": False,
+                "limit": 1,
+                "active_count": 1,
+                "error": "choose",
+                "running_daemons": [],
+            }
+        )
+    )
 
     result = server.replace_project_daemon(
         "s-target001",
@@ -415,14 +440,12 @@ def test_replace_project_daemon_parks_state_then_starts_target(
     assert parked["state_preserved"] is True
     assert parked["replaced_by"] == "s-target001"
     assert parked["unfinished_tasks"][0]["title"] == "unfinished work"
-    events = [
-        json.loads(line)
-        for line in (victim / "events.jsonl").read_text().splitlines()
-    ]
+    events = [json.loads(line) for line in (victim / "events.jsonl").read_text().splitlines()]
     assert events[-1]["type"] == "daemon.parked"
 
 
 # ── nudge ─────────────────────────────────────────────────────────────────
+
 
 def test_post_nudge_queues_inbox_and_emits_event(ctx) -> None:
     root, sid, life = ctx
@@ -439,8 +462,10 @@ def test_post_nudge_queues_inbox_and_emits_event(ctx) -> None:
 
 # ── continuous ────────────────────────────────────────────────────────────
 
+
 def test_post_continuous_writes_config_and_starts_matching_executor(
-    ctx, monkeypatch,
+    ctx,
+    monkeypatch,
 ) -> None:
     root, sid, life = ctx
     spawned = {}
@@ -453,8 +478,9 @@ def test_post_continuous_writes_config_and_starts_matching_executor(
 
     monkeypatch.setattr(server, "spawn_detached_daemon", fake_spawn)
     client = TestClient(server.create_app(global_root=root))
-    r = client.post(f"/api/projects/{sid}/continuous",
-                    json={"enabled": True, "objective": "keep improving X"})
+    r = client.post(
+        f"/api/projects/{sid}/continuous", json={"enabled": True, "objective": "keep improving X"}
+    )
     assert r.status_code == 200
     cfg = json.loads((life / "continuous.json").read_text())
     assert cfg["enabled"] is True and cfg["objective"] == "keep improving X"
@@ -466,18 +492,22 @@ def test_post_continuous_writes_config_and_starts_matching_executor(
 
 
 def test_set_continuous_persists_only_manager_execution_handoff(
-    ctx, monkeypatch,
+    ctx,
+    monkeypatch,
 ) -> None:
     root, sid, life = ctx
     raw = "study MRAM continuously; Manager decides the right sidebar"
     _install_manager(monkeypatch, lambda text: "study MRAM continuously")
 
-    assert server.set_continuous(
-        sid,
-        enabled=True,
-        objective=raw,
-        global_root=root,
-    ) is True
+    assert (
+        server.set_continuous(
+            sid,
+            enabled=True,
+            objective=raw,
+            global_root=root,
+        )
+        is True
+    )
 
     cfg = json.loads((life / "continuous.json").read_text())
     assert cfg["objective"] == "study MRAM continuously"
@@ -485,7 +515,8 @@ def test_set_continuous_persists_only_manager_execution_handoff(
 
 
 def test_disable_continuous_is_immediate_and_ignores_submitted_objective(
-    ctx, monkeypatch,
+    ctx,
+    monkeypatch,
 ) -> None:
     root, sid, life = ctx
     server.write_continuous_config(
@@ -506,12 +537,15 @@ def test_disable_continuous_is_immediate_and_ignores_submitted_objective(
         unexpected_handoff,
     )
 
-    assert server.set_continuous(
-        sid,
-        enabled=False,
-        objective="raw stale UI objective; Manager owns the sidebar",
-        global_root=root,
-    ) is True
+    assert (
+        server.set_continuous(
+            sid,
+            enabled=False,
+            objective="raw stale UI objective; Manager owns the sidebar",
+            global_root=root,
+        )
+        is True
+    )
     assert bridge_state["config"]["continuous"] is False
     assert bridge_state["continuous_objective"] == ""
     state = server.read_continuous_state(life)
@@ -520,7 +554,8 @@ def test_disable_continuous_is_immediate_and_ignores_submitted_objective(
 
 
 def test_disable_continuous_surfaces_persistence_failure(
-    ctx, monkeypatch,
+    ctx,
+    monkeypatch,
 ) -> None:
     root, sid, _life = ctx
     bridge_state = manager_bridge._chat_state_for(sid)
@@ -543,7 +578,8 @@ def test_disable_continuous_surfaces_persistence_failure(
 
 
 def test_enable_continuous_reprocesses_stored_objective(
-    ctx, monkeypatch,
+    ctx,
+    monkeypatch,
 ) -> None:
     root, sid, life = ctx
     raw = "legacy objective; Manager owns the sidebar"
@@ -556,12 +592,15 @@ def test_enable_continuous_reprocesses_stored_objective(
 
     _install_manager(monkeypatch, clean_handoff)
 
-    assert server.set_continuous(
-        sid,
-        enabled=True,
-        objective="",
-        global_root=root,
-    ) is True
+    assert (
+        server.set_continuous(
+            sid,
+            enabled=True,
+            objective="",
+            global_root=root,
+        )
+        is True
+    )
     state = server.read_continuous_state(life)
     assert seen["text"] == raw
     assert state.enabled is True
@@ -581,7 +620,8 @@ def test_post_continuous_rejects_enable_without_any_objective(ctx) -> None:
 
 
 def test_enable_continuous_does_not_overwrite_newer_same_value_stop(
-    ctx, monkeypatch,
+    ctx,
+    monkeypatch,
 ) -> None:
     root, sid, life = ctx
     server.write_continuous_config(
@@ -627,6 +667,7 @@ def test_enable_continuous_does_not_overwrite_newer_same_value_stop(
 
 
 # ── daemon start/stop (monkeypatched — no real subprocess) ─────────────────
+
 
 def test_daemon_start_delegates(ctx, monkeypatch) -> None:
     root, sid, life = ctx
@@ -736,8 +777,7 @@ def test_daemon_upgrade_restarts_from_current_web_release(ctx, monkeypatch) -> N
     monkeypatch.setattr(
         server,
         "upgrade_project_daemon",
-        lambda project_id, **kwargs: calls.append(project_id)
-        or {"rc": 0, "upgraded": True},
+        lambda project_id, **kwargs: calls.append(project_id) or {"rc": 0, "upgraded": True},
     )
     client = TestClient(server.create_app(global_root=root))
 
@@ -757,8 +797,10 @@ def test_daemon_upgrade_schedule_returns_before_boundary_drain(
     monkeypatch.setattr(
         server,
         "schedule_project_daemon_upgrade",
-        lambda project_id, **kwargs: calls.append((project_id, kwargs))
-        or {"rc": 0, "scheduled": True, "reason": "release mismatch"},
+        lambda project_id, **kwargs: (
+            calls.append((project_id, kwargs))
+            or {"rc": 0, "scheduled": True, "reason": "release mismatch"}
+        ),
     )
     client = TestClient(server.create_app(global_root=root))
 
@@ -815,8 +857,7 @@ def test_schedule_daemon_upgrade_requests_nonblocking_boundary_drain(
     monkeypatch.setattr(
         server,
         "start_project_daemon",
-        lambda project_id, **kwargs: starts.append((project_id, kwargs))
-        or {"rc": 0},
+        lambda project_id, **kwargs: starts.append((project_id, kwargs)) or {"rc": 0},
     )
     locks = []
 
@@ -852,15 +893,17 @@ def test_schedule_daemon_upgrade_requests_nonblocking_boundary_drain(
     result = server.schedule_project_daemon_upgrade(sid, global_root=root)
 
     assert result == {"rc": 0, "scheduled": True, "reason": "release mismatch"}
-    assert stops == [(
-        life,
-        {
-            "drain": True,
-            "drain_timeout": 0.0,
-            "force": False,
-            "preserve_upgrade_request": True,
-        },
-    )]
+    assert stops == [
+        (
+            life,
+            {
+                "drain": True,
+                "drain_timeout": 0.0,
+                "force": False,
+                "preserve_upgrade_request": True,
+            },
+        )
+    ]
     assert starts == []
     assert locks == []
     assert timers == [(5.0, True)]
@@ -909,8 +952,7 @@ def test_pending_daemon_upgrade_survives_webapi_restart(
     monkeypatch.setattr(
         server,
         "start_project_daemon",
-        lambda project_id, **kwargs: starts.append((project_id, kwargs))
-        or {"rc": 0},
+        lambda project_id, **kwargs: starts.append((project_id, kwargs)) or {"rc": 0},
     )
 
     result = server._complete_scheduled_daemon_upgrade(
@@ -1003,8 +1045,9 @@ def test_webapi_startup_resumes_pending_daemon_upgrades(
     monkeypatch.setattr(
         server,
         "schedule_project_daemon_upgrade",
-        lambda project_id, **kwargs: scheduled.append((project_id, kwargs))
-        or {"rc": 0, "scheduled": True},
+        lambda project_id, **kwargs: (
+            scheduled.append((project_id, kwargs)) or {"rc": 0, "scheduled": True}
+        ),
     )
 
     assert server.reconcile_pending_daemon_upgrades([root]) == [sid]
@@ -1079,7 +1122,8 @@ def test_schedule_daemon_upgrade_retries_after_thread_start_failure(
 
 
 def test_daemon_upgrade_drains_and_restores_continuous_mode(
-    ctx, monkeypatch,
+    ctx,
+    monkeypatch,
 ) -> None:
     root, sid, life = ctx
     monkeypatch.setattr(
@@ -1115,26 +1159,29 @@ def test_daemon_upgrade_drains_and_restores_continuous_mode(
     monkeypatch.setattr(
         server,
         "start_project_daemon",
-        lambda project_id, **kwargs: starts.append((project_id, kwargs))
-        or {"rc": 0},
+        lambda project_id, **kwargs: starts.append((project_id, kwargs)) or {"rc": 0},
     )
 
     result = server.upgrade_project_daemon(sid, global_root=root)
 
     assert result == {"rc": 0, "upgraded": True}
-    assert stops == [{
-        "drain": True,
-        "drain_timeout": 0.0,
-        "force": False,
-    }]
+    assert stops == [
+        {
+            "drain": True,
+            "drain_timeout": 0.0,
+            "force": False,
+        }
+    ]
     assert writes[0][1] == {
         "enabled": True,
         "objective": "keep researching",
     }
-    assert starts == [(
-        sid,
-        {"global_root": root, "resume_continuous": True},
-    )]
+    assert starts == [
+        (
+            sid,
+            {"global_root": root, "resume_continuous": True},
+        )
+    ]
 
 
 def test_daemon_upgrade_schedules_restart_when_active_mission_is_still_running(
@@ -1171,8 +1218,10 @@ def test_daemon_upgrade_schedules_restart_when_active_mission_is_still_running(
     monkeypatch.setattr(
         server,
         "schedule_project_daemon_upgrade",
-        lambda project_id, **kwargs: scheduled.append((project_id, kwargs))
-        or {"rc": 0, "scheduled": True, "reason": "draining"},
+        lambda project_id, **kwargs: (
+            scheduled.append((project_id, kwargs))
+            or {"rc": 0, "scheduled": True, "reason": "draining"}
+        ),
     )
 
     result = server.upgrade_project_daemon(sid, global_root=root)
@@ -1192,8 +1241,7 @@ def test_daemon_command_idempotency_and_revision_fencing(ctx, monkeypatch) -> No
     monkeypatch.setattr(
         server,
         "start_project_daemon",
-        lambda project_id, **kwargs: starts.append(project_id)
-        or {"rc": 0, "already_alive": False},
+        lambda project_id, **kwargs: starts.append(project_id) or {"rc": 0, "already_alive": False},
     )
     monkeypatch.setattr(
         server,
@@ -1302,9 +1350,7 @@ def test_project_delete_releases_warm_manager_runner(ctx, monkeypatch) -> None:
         ),
     )
 
-    response = TestClient(server.create_app(global_root=root)).delete(
-        f"/api/projects/{sid}"
-    )
+    response = TestClient(server.create_app(global_root=root)).delete(f"/api/projects/{sid}")
 
     assert response.status_code == 200
     assert closed == ["acp", "session"]
@@ -1332,9 +1378,7 @@ def test_project_trash_can_be_listed_and_restored(ctx, monkeypatch) -> None:
     entry = next(item for item in entries if item["sid"] == sid)
     assert entry["trash_path"] == deleted["trash_path"]
 
-    restored = client.post(
-        f"/api/trash/{quote(entry['trash_id'], safe='')}/restore"
-    )
+    restored = client.post(f"/api/trash/{quote(entry['trash_id'], safe='')}/restore")
     assert restored.status_code == 200
     assert restored.json() == {"ok": True, "sid": sid}
     assert life.is_dir()
@@ -1384,14 +1428,10 @@ def test_trash_restore_rejects_duplicate_sid_in_another_root(
         ),
     )
     assert server.delete_project(sid, global_root=secondary)["ok"] is True
-    client = TestClient(
-        server.create_app(global_root=primary, session_roots=[secondary])
-    )
+    client = TestClient(server.create_app(global_root=primary, session_roots=[secondary]))
     entry = client.get("/api/trash").json()["entries"][0]
 
-    response = client.post(
-        f"/api/trash/{quote(entry['trash_id'], safe='')}/restore"
-    )
+    response = client.post(f"/api/trash/{quote(entry['trash_id'], safe='')}/restore")
 
     assert response.status_code == 409
     assert "already exists" in response.json()["detail"]
@@ -1422,13 +1462,15 @@ def test_project_delete_refuses_live_daemon(ctx, monkeypatch) -> None:
 
 # ── retired Python-REPL parity commands ───────────────────────────────────
 
+
 def test_plan_preview_delegates_to_manager_planner(ctx, monkeypatch) -> None:
     root, sid, _ = ctx
     monkeypatch.setattr(
         "argus_skill.webapi.manager_bridge.manager_plan",
         lambda sid, text, *, global_root=None: {
             "steps": [{"title": "Check premise", "detail": "first"}],
-            "notes": [], "error": "",
+            "notes": [],
+            "error": "",
         },
     )
     client = TestClient(server.create_app(global_root=root))
@@ -1446,14 +1488,18 @@ def test_config_set_persists_cockpit_knob(ctx, monkeypatch) -> None:
     )
     assert r.status_code == 200
     assert json.loads((root / "config.json").read_text())["ARGUS_SKILL_MODEL"] == "gpt-5.6-sol"
-    assert client.post(
-        f"/api/projects/{sid}/config/set",
-        json={"name": "not_a_knob", "value": "x"},
-    ).status_code == 400
+    assert (
+        client.post(
+            f"/api/projects/{sid}/config/set",
+            json={"name": "not_a_knob", "value": "x"},
+        ).status_code
+        == 400
+    )
 
 
 def test_config_set_does_not_report_success_when_persistence_fails(
-    ctx, monkeypatch,
+    ctx,
+    monkeypatch,
 ) -> None:
     from argus_skill.core import knob_store
 
@@ -1483,9 +1529,9 @@ def test_config_set_validates_and_normalizes_typed_values(ctx, monkeypatch) -> N
     )
     assert ok.status_code == 200
     assert ok.json()["value"] == "12.5"
-    assert json.loads((root / "config.json").read_text())[
-        "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"
-    ] == "12.5"
+    assert (
+        json.loads((root / "config.json").read_text())["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"] == "12.5"
+    )
 
     invalid = client.post(
         f"/api/projects/{sid}/config/set",
@@ -1504,17 +1550,12 @@ def test_config_get_reads_host_global_budget(ctx, monkeypatch) -> None:
         encoding="utf-8",
     )
 
-    response = TestClient(server.create_app(global_root=root)).get(
-        f"/api/projects/{sid}/config"
-    )
+    response = TestClient(server.create_app(global_root=root)).get(f"/api/projects/{sid}/config")
 
     assert response.status_code == 200
     knobs = {row["name"]: row for row in response.json()["operator_knobs"]}
     assert knobs["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"]["value"] == "33.0"
-    assert (
-        knobs["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"]["source"]
-        == "global:config.json"
-    )
+    assert knobs["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"]["source"] == "global:config.json"
 
 
 def test_budget_config_batch_is_atomic(ctx, monkeypatch) -> None:
@@ -1546,18 +1587,23 @@ def test_budget_config_batch_is_atomic(ctx, monkeypatch) -> None:
 
 
 def test_budget_config_does_not_report_success_when_persistence_fails(
-    monkeypatch, tmp_path,
+    monkeypatch,
+    tmp_path,
 ) -> None:
     from argus_skill.core import knob_store
 
     monkeypatch.setattr(knob_store, "write_persisted_knobs", lambda values: False)
     with pytest.raises(RuntimeError, match="could not be persisted"):
-        server.set_budget_config({
-            "global_daily_cap": "120",
-            "codex_daily_requests": "400",
-            "copilot_daily_requests": "800",
-            "copilot_daily_premium": "300",
-        }, project_state_dir=tmp_path / "project", global_root=tmp_path)
+        server.set_budget_config(
+            {
+                "global_daily_cap": "120",
+                "codex_daily_requests": "400",
+                "copilot_daily_requests": "800",
+                "copilot_daily_premium": "300",
+            },
+            project_state_dir=tmp_path / "project",
+            global_root=tmp_path,
+        )
     assert not (tmp_path / "project" / "budget.json").exists()
     assert not (tmp_path / "global_budget.json").exists()
 
@@ -1570,13 +1616,19 @@ def test_identity_set_and_skills_and_reset(ctx, monkeypatch) -> None:
         lambda sid, *, global_root=None: True,
     )
     client = TestClient(server.create_app(global_root=root))
-    assert client.post(f"/api/projects/{sid}/identity", json={"text": "Operator A"}).status_code == 200
+    assert (
+        client.post(f"/api/projects/{sid}/identity", json={"text": "Operator A"}).status_code == 200
+    )
     assert "Operator A" in LifeMemory.open(life).identity.read()
-    assert client.post(f"/api/projects/{sid}/skills", json={"args": "promote demo"}).json()["text"] == "skills:promote demo"
+    assert (
+        client.post(f"/api/projects/{sid}/skills", json={"args": "promote demo"}).json()["text"]
+        == "skills:promote demo"
+    )
     assert client.post(f"/api/projects/{sid}/reset").json()["ok"] is True
 
 
 # ── unknown project → 404 on every POST ────────────────────────────────────
+
 
 def test_post_unknown_project_404(ctx, monkeypatch) -> None:
     root, _, _ = ctx
@@ -1584,23 +1636,28 @@ def test_post_unknown_project_404(ctx, monkeypatch) -> None:
     monkeypatch.setattr(server, "stop_daemon", lambda *a, **k: 0)
     client = TestClient(server.create_app(global_root=root))
     for path, body in [
-        ("tasks", {"text": "x"}), ("nudge", {"text": "x"}),
-        ("continuous", {"enabled": False}), ("daemon/start", None), ("daemon/stop", None),
-        ("daemon/replace", {"victim_sid": "s-other"}), ("daemon/upgrade", None),
+        ("tasks", {"text": "x"}),
+        ("nudge", {"text": "x"}),
+        ("continuous", {"enabled": False}),
+        ("daemon/start", None),
+        ("daemon/stop", None),
+        ("daemon/replace", {"victim_sid": "s-other"}),
+        ("daemon/upgrade", None),
         ("config/budget", {"values": {}}),
-        ("plan", {"text": "x"}), ("identity", {"text": "x"}),
+        ("plan", {"text": "x"}),
+        ("identity", {"text": "x"}),
         ("config/set", {"name": "model", "value": "x"}),
-        ("skills", {"args": "ls"}), ("reset", None),
+        ("skills", {"args": "ls"}),
+        ("reset", None),
     ]:
         r = client.post(f"/api/projects/s-nope/{path}", json=body)
         assert r.status_code == 404, path
-    assert client.patch(
-        "/api/projects/s-nope", json={"name": "missing"}
-    ).status_code == 404
+    assert client.patch("/api/projects/s-nope", json={"name": "missing"}).status_code == 404
     assert client.delete("/api/projects/s-nope").status_code == 404
 
 
 # ── auth (bearer token) ────────────────────────────────────────────────────
+
 
 def test_bearer_auth_on_posts(ctx) -> None:
     root, sid, _ = ctx
@@ -1609,20 +1666,28 @@ def test_bearer_auth_on_posts(ctx) -> None:
     body = {"text": "x", "autostart_daemon": False}
     # missing / wrong token → 401
     assert client.post(f"/api/projects/{sid}/tasks", json=body).status_code == 401
-    assert client.post(f"/api/projects/{sid}/tasks", json=body,
-                       headers={"Authorization": "Bearer nope"}).status_code == 401
+    assert (
+        client.post(
+            f"/api/projects/{sid}/tasks", json=body, headers={"Authorization": "Bearer nope"}
+        ).status_code
+        == 401
+    )
     # correct token → 200
-    ok = client.post(f"/api/projects/{sid}/tasks", json=body,
-                     headers={"Authorization": "Bearer secret123"})
+    ok = client.post(
+        f"/api/projects/{sid}/tasks", json=body, headers={"Authorization": "Bearer secret123"}
+    )
     assert ok.status_code == 200
     # reads stay open (no auth on GET)
     assert client.get(f"/api/projects/{sid}/snapshot").status_code == 200
     # Artifact reads are deliberately protected because they expose project files.
     assert client.get(f"/api/projects/{sid}/artifacts").status_code == 401
-    assert client.get(
-        f"/api/projects/{sid}/artifacts",
-        headers={"Authorization": "Bearer secret123"},
-    ).status_code == 200
+    assert (
+        client.get(
+            f"/api/projects/{sid}/artifacts",
+            headers={"Authorization": "Bearer secret123"},
+        ).status_code
+        == 200
+    )
 
 
 def test_project_management_requires_token(ctx) -> None:
@@ -1654,3 +1719,4 @@ def test_ws_requires_token_when_configured(ctx) -> None:
         # right token → connects (no events yet, but the connection stays open)
         with tc.websocket_connect(f"/api/projects/{sid}/stream?token=secret123&replay=0") as ws:
             assert ws is not None
+            ws.close()

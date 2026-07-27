@@ -18,7 +18,6 @@ from ..core.progress_step import REPLY_KINDS
 from ..core.runner_errors import is_pre_provider_refusal_error
 from ..core.secret_guard import known_secret_values, redact_secrets_text
 
-
 log = logging.getLogger(__name__)
 
 
@@ -317,52 +316,128 @@ def _accepts_keyword(fn: Any, name: str) -> bool:
     )
 
 
-def _record_goal_contract(mem: Any, body: str, division: Any) -> None:
-    """Write the Project's goal contract once, at the moment Manager commits.
+def _record_goal_contract(mem: Any, body: str, decision: Any) -> None:
+    """Persist the operator-originated GoalContract for this handoff.
 
-    Only on first commit: a later commit revising an existing contract has to go
-    through ``revise_contract``, which is where the precise/semantic rule lives.
-    Overwriting here would let any re-triage silently reset a constraint the
-    operator had confirmed.
+    The Manager's parsed ``VerticalDecision`` is the only object that still
+    carries operator-stated constraints. The committed ``Division`` is a runtime
+    routing record and intentionally drops them, so recording from it makes the
+    contract look empty even when the Manager saw requirements.
 
     Additive today — nothing gates completion on the contract yet (operator
     decision §9.6 exempts existing projects), so a failure to record one must
-    never take down the handoff that was otherwise fine.
+    never take down the otherwise-valid handoff. It is still surfaced as an
+    event because an invisible contract write failure leaves every downstream
+    role reading stale authority.
     """
     try:
         from ..core.project_contract import (
             CLAUSE_PRECISE,
             CLAUSE_SEMANTIC,
+            ContractConfirmation,
+            issue_confirmation,
             load_contract,
             make_clause,
             new_contract,
+            revise_contract,
             save_contract,
         )
 
         state_dir = _life_dir_for(mem)
-        if load_contract(state_dir) is not None:
-            return
         clauses = []
-        for text in getattr(division, "precise_constraints", ()) or ():
+        for text in getattr(decision, "precise_constraints", ()) or ():
             clauses.append(make_clause(CLAUSE_PRECISE, text))
-        target = str(getattr(division, "research_target_level", "") or "").strip()
+        target = str(getattr(decision, "research_target_level", "") or "").strip()
         if target:
             clauses.append(
                 make_clause(CLAUSE_SEMANTIC, f"research target level: {target}")
             )
-        venue = str(getattr(division, "target_venue", "") or "").strip()
+        venue = str(getattr(decision, "target_venue", "") or "").strip()
         if venue:
             clauses.append(make_clause(CLAUSE_SEMANTIC, f"target venue: {venue}"))
-        save_contract(
-            state_dir,
-            contract=new_contract(
-                objective=body,
-                clauses=clauses,
-                ambiguities=getattr(division, "ambiguities", ()) or (),
-            ),
+        exclusions = tuple(getattr(decision, "exclusions", ()) or ())
+        ambiguities = tuple(getattr(decision, "ambiguities", ()) or ())
+        current = load_contract(state_dir)
+        if current is None:
+            save_contract(
+                state_dir,
+                contract=new_contract(
+                    objective=body,
+                    clauses=clauses,
+                    exclusions=exclusions,
+                    ambiguities=ambiguities,
+                ),
+            )
+            return
+
+        new_objective = str(body or "").strip()
+        objective_changed = new_objective != current.objective
+        # Constraints from a previous operator task are not standing policy.
+        # On a new objective, replace them with what the Manager extracted from
+        # the new instruction; on the same objective, an omitted field means
+        # "no new information" and preserves the committed value.
+        proposed_clauses = (
+            tuple(clauses)
+            if objective_changed or clauses
+            else current.clauses
         )
-    except Exception:  # noqa: BLE001 — see docstring; recording is additive
+        proposed_exclusions = (
+            exclusions
+            if objective_changed or exclusions
+            else current.exclusions
+        )
+        proposed_ambiguities = (
+            ambiguities
+            if objective_changed or ambiguities
+            else current.ambiguities
+        )
+        if (
+            new_objective == current.objective
+            and proposed_clauses == current.clauses
+            and proposed_exclusions == current.exclusions
+            and proposed_ambiguities == current.ambiguities
+        ):
+            return
+
+        confirmation: ContractConfirmation | None = None
+        before_precise = {clause.id for clause in current.precise()}
+        after_precise = {
+            clause.id
+            for clause in proposed_clauses
+            if clause.kind == CLAUSE_PRECISE
+        }
+        changed = tuple(sorted(before_precise ^ after_precise))
+        if objective_changed:
+            changed += ("objective",)
+        if changed:
+            confirmation = issue_confirmation(
+                contract=current,
+                covers=changed,
+                issued_by="operator-front-door",
+            )
+        updated, revision = revise_contract(
+            current=current,
+            objective=new_objective,
+            clauses=proposed_clauses,
+            exclusions=proposed_exclusions,
+            ambiguities=proposed_ambiguities,
+            by="manager",
+            confirmation=confirmation,
+            note="operator front-door handoff",
+        )
+        save_contract(state_dir, contract=updated, revision=revision)
+    except Exception as exc:  # noqa: BLE001 — see docstring; recording is additive
         log.debug("could not record goal contract", exc_info=True)
+        _emit_manager_event(
+            mem,
+            {
+                "type": "life.manager.goal_contract.failed",
+                "agent_layer": "manager",
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+                "text": "manager could not record goal contract",
+            },
+        )
 
 
 @dataclass
@@ -392,8 +467,8 @@ class PreparedManagerHandoff:
             force_stage_reset=force_stage_reset,
             **kwargs,
         )
-        require_manager_execution_task(division)
-        _record_goal_contract(self.mem, self.body, division)
+        execution_task = require_manager_execution_task(division)
+        _record_goal_contract(self.mem, execution_task, self.decision)
         return division
 
     def completed(
@@ -930,20 +1005,18 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
     class _Capture:
         def __init__(self, *, progress_phases: bool) -> None:
             self._progress_phases = progress_phases
+            self._last_reply_message_id = ""
 
         def handle_event(self, event: dict[str, Any]) -> None:
             try:
                 etype = str(event.get("type") or "")
-                # A live assistant reply block → stream it as a delta fragment
-                # (grows the reply in the front-end) rather than treating it as a
-                # phase label. Keep capturing the authoritative reply below.
+                # Tool-capable SELF turns emit narration before/between tool
+                # calls and then one authoritative final answer. Sending every
+                # assistant message as a reply delta glues process narration into
+                # the answer. Keep only the latest id; round.main.completed below
+                # carries the final text and is streamed exactly once.
                 if etype == "engineer.progress" and str(event.get("kind") or "") in REPLY_KINDS:
-                    blk = _redact_live_text(event.get("text")).strip()
-                    if blk:
-                        _fragment("delta", {
-                            "text": blk,
-                            "message_id": str(event.get("message_id") or ""),
-                        })
+                    self._last_reply_message_id = str(event.get("message_id") or "")
                     return
                 if etype in {"loop.start", "engineer.progress"}:
                     # The current runner reports these same events through its
@@ -962,6 +1035,10 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
                 )
                 if text:
                     captured.append(text)
+                    _fragment("delta", {
+                        "text": text,
+                        "message_id": self._last_reply_message_id,
+                    })
             except Exception:  # noqa: BLE001
                 pass
 

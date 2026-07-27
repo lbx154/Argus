@@ -36,10 +36,14 @@ def _isolate_argus_state_roots(
     # developer shell that exports e.g. ARGUS_SKILL_RUNNER_BACKEND silently
     # changes what the suite exercises: that one var outranks the
     # ARGUS_SKILL_LIFE_BACKEND a test sets, so a guard the test expects to trip
-    # never fires and the CLI launches the real cockpit instead. Start from a
-    # clean slate; a test that needs a value sets it itself.
+    # never fires and the CLI launches the real cockpit instead. COPILOT_HOME is
+    # just as stateful: if the developer runs pytest from inside a Copilot-backed
+    # Argus session, child-env tests inherit the real worker home and stop
+    # exercising the "no explicit home was chosen" path. Start from a clean slate;
+    # a test that needs a value sets it itself.
     for name in [k for k in os.environ if k.startswith("ARGUS_SKILL_")]:
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("COPILOT_HOME", raising=False)
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
 

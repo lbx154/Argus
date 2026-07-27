@@ -293,6 +293,23 @@ def test_self_prompt_includes_latest_queued_operator_objective(
     assert "Implement durable checkpoints for interrupted experiments" in prompt
 
 
+def test_self_prompt_injects_authoritative_team_log_path(tmp_path: Path) -> None:
+    backend = _FakeBackend(response_message="grounded in the team log")
+    runner = _make_runner(backend)
+    runner._manager_session_root = tmp_path
+
+    runner._simple_quick_reply(
+        objective="What did the Team conclude?",
+        sink=_RecordingSink(),
+    )
+
+    call = backend.calls[-1]
+    expected = tmp_path / "events.jsonl"
+    assert f"Authoritative Team log: {expected}" in call["prompt"]
+    assert "read that log yourself before answering" in call["prompt"]
+    assert call["options"].add_dirs == [str(tmp_path)]
+
+
 def test_self_grounds_in_operator_workspace_without_moving_state_root(
     tmp_path: Path,
 ) -> None:

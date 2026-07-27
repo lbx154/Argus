@@ -17,7 +17,12 @@ from ..apps._life_actions import add_backlog_item, append_note, parse_add_flags
 from ..cli.roles_status import resolve_all_roles, role_activity
 from ..core.config_snapshot import build_config_snapshot
 from ..core.provider_quota import provider_usage_snapshot
-from ..core.session import SessionMeta, read_session_meta, session_lifecycle_lock
+from ..core.session import (
+    SessionMeta,
+    read_session_meta,
+    session_lifecycle_lock,
+    update_session_meta,
+)
 from ..core.transcript import read_turns
 from ..daemon.life_worker import read_continuous_state
 from ..life.memory import BacklogItem, LifeMemory
@@ -83,18 +88,32 @@ def _enqueue_task_unlocked(
             iteration_max_cycles=cycles,
         )
 
+    should_name = not bool(
+        (
+            read_session_meta(_global_root(global_root), sid) or SessionMeta(id=sid)
+        ).display_name.strip()
+    )
     item = manager_bounded_handoff(
         sid,
         objective,
         _persist,
         global_root=global_root,
         root_task_id=item_id,
-        name_session=not bool(
-            (
-                read_session_meta(_global_root(global_root), sid) or SessionMeta(id=sid)
-            ).display_name.strip()
-        ),
+        # Naming is cosmetic and deterministic below. Do not spend another
+        # front-door model call whose generic process label can overwrite the
+        # actual task name.
+        name_session=False,
     )
+    if should_name:
+        from ..manager.front_door import _derive_session_name
+
+        fallback_name = _derive_session_name(objective, limit=32)
+
+        def _fill_name(meta: SessionMeta) -> None:
+            if not meta.display_name.strip():
+                meta.display_name = fallback_name
+
+        update_session_meta(_global_root(global_root), sid, _fill_name)
     return item.to_jsonable()
 
 

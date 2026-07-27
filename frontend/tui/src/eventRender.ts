@@ -28,6 +28,7 @@ export interface Rendered {
   tone: Tone;
   rule?: boolean; // a round/mission boundary — draw a divider
   reasoning?: boolean; // provider reasoning summary; rendered faint/italic
+  expand?: boolean; // terminal delivery: preserve the complete wrapped body
 }
 
 const ROLE_LABEL: Record<string, string> = {
@@ -89,8 +90,18 @@ export function renderEvent(ev: EventMsg): Rendered | null {
     }
     if (kind === 'assistant_message' || kind === 'agent_message' || kind === 'message') {
       if (isStructuredAgentPayload(ev)) return null;
-      const body = trunc(S(ev, 'text'), 280);
-      return body ? { role: layer, label, glyph: '▌', text: body, tone: 'bright' } : null;
+      const raw = S(ev, 'text');
+      const finalDelivery = (ev as Record<string, unknown>).final_delivery === true
+        || raw.split(/\r?\n/).some((line) => line.trim().startsWith('PROJECT_DONE='));
+      const body = trunc(raw, finalDelivery ? 16_000 : 280);
+      return body ? {
+        role: layer,
+        label,
+        glyph: '▌',
+        text: body,
+        tone: 'bright',
+        expand: finalDelivery,
+      } : null;
     }
     return null;
   }

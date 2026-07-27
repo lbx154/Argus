@@ -12,6 +12,7 @@ The fast tests hand-craft minimal, valid, text-based PDFs (so the real
 integration test compiles genuine two-column LaTeX with ``pdflatex`` to prove
 the pipeline is not merely fooling a text parser.
 """
+
 from __future__ import annotations
 
 import shutil
@@ -33,8 +34,15 @@ from tests.skills._physics_paper_fixtures import (
 # --------------------------------------------------------------------------- #
 # helpers                                                                      #
 # --------------------------------------------------------------------------- #
-def _tex(*, n_cite: int = 8, n_eq: int = 4, n_table: int = 2, n_fig: int = 6,
-         bib: bool = True, figs_at_end: bool = False) -> str:
+def _tex(
+    *,
+    n_cite: int = 8,
+    n_eq: int = 4,
+    n_table: int = 2,
+    n_fig: int = 6,
+    bib: bool = True,
+    figs_at_end: bool = False,
+) -> str:
     """A MANUSCRIPT.tex skeleton with tunable structure (never compiled here)."""
     cites = "".join("\\cite{r%d}" % i for i in range(1, n_cite + 1))
     eqs = "\n".join(
@@ -46,12 +54,15 @@ def _tex(*, n_cite: int = 8, n_eq: int = 4, n_table: int = 2, n_fig: int = 6,
         for i in range(1, n_table + 1)
     )
     figs = "\n".join(
-        "\\begin{figure}\\centering\\rule{4cm}{3cm}\\caption{Figure %d.}\\label{fig:%d}\\end{figure}" % (i, i)
+        "\\begin{figure}\\centering\\rule{4cm}{3cm}\\caption{Figure %d.}\\label{fig:%d}\\end{figure}"
+        % (i, i)
         for i in range(1, n_fig + 1)
     )
     bib_block = ""
     if bib:
-        items = "\n".join("\\bibitem{r%d} Author %d (20%02d)." % (i, i, 10 + i) for i in range(1, 13))
+        items = "\n".join(
+            "\\bibitem{r%d} Author %d (20%02d)." % (i, i, 10 + i) for i in range(1, 13)
+        )
         bib_block = "\\begin{thebibliography}{99}\n" + items + "\n\\end{thebibliography}\n"
     head = (
         "\\documentclass[twocolumn]{article}\n"
@@ -158,7 +169,9 @@ def test_too_few_equation_references_fails(complete: Path) -> None:
 
 def test_obvious_raw_math_fails(complete: Path) -> None:
     lines = list(MANUSCRIPT_PDF_LINES)
-    lines.insert(4, "The evolution operator is exp(-i H_2 tau_2) over one period and we sum_n over sites.")
+    lines.insert(
+        4, "The evolution operator is exp(-i H_2 tau_2) over one period and we sum_n over sites."
+    )
     write_paper_layer(complete, manuscript_pdf_lines=lines)
     assert "un-rendered ASCII formula" in _paper_fails(complete)
 
@@ -203,7 +216,8 @@ def test_too_few_supplementary_tables_fails(complete: Path) -> None:
 # --------------------------------------------------------------------------- #
 def test_figure_not_cited_fails(complete: Path) -> None:
     lines = [
-        ln if "Fig. 6" not in ln
+        ln
+        if "Fig. 6" not in ln
         else "Fig. 3 and Fig. 4 present the diagnostics, and Fig. 5 shows the robustness."
         for ln in MANUSCRIPT_PDF_LINES
     ]
@@ -236,8 +250,12 @@ def test_main_text_paths_fail(complete: Path) -> None:
 
 def test_availability_may_contain_file_paths_passes(complete: Path) -> None:
     lines = list(MANUSCRIPT_PDF_LINES)
-    idx = lines.index("Code availability. The analysis code is described in the Supplementary Information.")
-    lines[idx] = "Code availability. See scripts/run.py, data/spectrum.json and results.csv in the archive."
+    idx = lines.index(
+        "Code availability. The analysis code is described in the Supplementary Information."
+    )
+    lines[idx] = (
+        "Code availability. See scripts/run.py, data/spectrum.json and results.csv in the archive."
+    )
     write_paper_layer(complete, manuscript_pdf_lines=lines)
     # path/extension tokens are allowed inside the availability statement
     assert ms.verify_paper_style_deliverables(complete) == []
@@ -262,15 +280,20 @@ def test_missing_code_availability_fails(complete: Path) -> None:
 
 def test_absolute_path_in_availability_fails(complete: Path) -> None:
     lines = list(MANUSCRIPT_PDF_LINES)
-    idx = lines.index("Code availability. The analysis code is described in the Supplementary Information.")
+    idx = lines.index(
+        "Code availability. The analysis code is described in the Supplementary Information."
+    )
     lines[idx] = "Code availability. Code lives at /home/user/project/run.py on the cluster."
     write_paper_layer(complete, manuscript_pdf_lines=lines)
     assert "absolute local path" in _paper_fails(complete)
 
 
 def test_supplement_cited_too_few_fails(complete: Path) -> None:
-    lines = [ln for ln in MANUSCRIPT_PDF_LINES if "Supplementary" not in ln]
-    write_paper_layer(complete, manuscript_pdf_lines=lines)
+    tex = (complete / "MANUSCRIPT.tex").read_text(encoding="utf-8")
+    tex = tex.replace("Supplementary Methods", "extended methods")
+    tex = tex.replace("Supplementary Table 1", "the extended table")
+    tex = tex.replace("Supplementary Information", "the extended material")
+    (complete / "MANUSCRIPT.tex").write_text(tex, encoding="utf-8")
     assert "cites the Supplement" in _paper_fails(complete)
 
 
@@ -324,12 +347,16 @@ def _md(*, intro_words: int, results_words: int) -> str:
 
 
 def test_thin_introduction_fails(complete: Path) -> None:
-    (complete / "MANUSCRIPT.md").write_text(_md(intro_words=50, results_words=1300), encoding="utf-8")
+    (complete / "MANUSCRIPT.md").write_text(
+        _md(intro_words=50, results_words=1300), encoding="utf-8"
+    )
     assert "Introduction is" in _paper_fails(complete)
 
 
 def test_thin_results_fails(complete: Path) -> None:
-    (complete / "MANUSCRIPT.md").write_text(_md(intro_words=700, results_words=50), encoding="utf-8")
+    (complete / "MANUSCRIPT.md").write_text(
+        _md(intro_words=700, results_words=50), encoding="utf-8"
+    )
     assert "Results is" in _paper_fails(complete)
 
 
@@ -349,7 +376,7 @@ def test_layer_flag_source_and_paper(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 # integration: genuine LaTeX compiles and passes the full contract              #
 # --------------------------------------------------------------------------- #
-_REAL_MAIN_TEX = r"""\documentclass[twocolumn]{article}
+_REAL_MAIN_TEX = r"""\documentclass[10pt,twocolumn]{article}
 \usepackage{amsmath,graphicx,booktabs}
 \begin{document}
 \title{A Diagnostic Study of a Model System}
@@ -358,34 +385,51 @@ _REAL_MAIN_TEX = r"""\documentclass[twocolumn]{article}
 \begin{abstract}
 We report bounded, finite results for a model system.
 \end{abstract}
+\noindent\textbf{Keywords:} model system, bounded analysis
 
 \section{Introduction}
-Prior work \cite{r1} and \cite{r2} established the setting \cite{r3}.
+\subsection{Context}
+Prior work \cite{r1} and \cite{r2} established the setting.
+\subsection{Objective}
+The bounded objective follows earlier diagnostics \cite{r3} and validation practice \cite{r4}.
 
 \section{Model}
+\subsection{Variables}
+The variables follow the standard formulation \cite{r5}.
 \begin{equation}\label{eq:1} a = b. \end{equation}
 \begin{equation}\label{eq:2} c = d. \end{equation}
 \begin{align}\label{eq:3} e &= f. \end{align}
 \begin{equation}\label{eq:4} g = h. \end{equation}
-The relations Eq.~(\ref{eq:1}), Eq.~(\ref{eq:2}) and Eq.~(\ref{eq:3}) define the model \cite{r4}.
+\subsection{Observables}
+The relations Eq.~(\ref{eq:1}), Eq.~(\ref{eq:2}) and Eq.~(\ref{eq:3}) define the model \cite{r6}.
 \begin{figure}\centering\rule{4cm}{3cm}\caption{First figure.}\label{fig:1}\end{figure}
 \begin{table}\centering\begin{tabular}{cc}\toprule a&b\\\midrule 1&2\\\bottomrule\end{tabular}\caption{Parameters.}\label{tab:1}\end{table}
 
 \section{Methods}
-We compute the spectra \cite{r5}. See Fig.~\ref{fig:1} and Table~\ref{tab:1}.
+\subsection{Numerical procedure}
+We compute the spectra \cite{r7}. See Fig.~\ref{fig:1}, Table~\ref{tab:1}, and Supplementary Methods.
+\subsection{Validation}
+The validation follows \cite{r8} and is tabulated in Supplementary Table~1.
 \begin{figure}\centering\rule{4cm}{3cm}\caption{Second figure.}\label{fig:2}\end{figure}
 \begin{table}\centering\begin{tabular}{cc}\toprule c&d\\\midrule 3&4\\\bottomrule\end{tabular}\caption{Design.}\label{tab:2}\end{table}
 
 \section{Results}
-Fig.~\ref{fig:2}, Fig.~\ref{fig:3}, Fig.~\ref{fig:4}, Fig.~\ref{fig:5} and Fig.~\ref{fig:6} show the trends; see Table~\ref{tab:2} \cite{r6} \cite{r9}.
-Additional detail is in Supplementary Methods and Supplementary Table~1; see Supplementary Section~2.
+\subsection{Primary trend}
+Fig.~\ref{fig:1} and Fig.~\ref{fig:2} show the primary trend \cite{r9}.
+\subsection{Diagnostics}
+Fig.~\ref{fig:3} and Fig.~\ref{fig:4} show the diagnostics \cite{r10}.
+\subsection{Robustness}
+Fig.~\ref{fig:5}, Fig.~\ref{fig:6}, and Table~\ref{tab:2} summarize robustness \cite{r11}; extended values are in Supplementary Information.
 \begin{figure}\centering\rule{4cm}{3cm}\caption{Third figure.}\label{fig:3}\end{figure}
 \begin{figure}\centering\rule{4cm}{3cm}\caption{Fourth figure.}\label{fig:4}\end{figure}
 \begin{figure}\centering\rule{4cm}{3cm}\caption{Fifth figure.}\label{fig:5}\end{figure}
 \begin{figure}\centering\rule{4cm}{3cm}\caption{Sixth figure.}\label{fig:6}\end{figure}
 
 \section{Discussion}
-The findings are consistent with prior work \cite{r7} within the tested range.
+\subsection{Interpretation}
+The findings are consistent with prior work \cite{r12} within the tested range.
+\subsection{Evidence boundary}
+The finite regime follows the caution in \cite{r1}.
 
 \section{Limitations}
 The regime is finite and the sampling is bounded.
@@ -449,10 +493,13 @@ def test_real_latex_compiles_and_passes(tmp_path: Path) -> None:
         for _ in range(2):  # two passes resolve \ref / \cite numbers
             result = subprocess.run(
                 [pdflatex, "-interaction=nonstopmode", "-halt-on-error", tex],
-                cwd=tmp_path, capture_output=True, text=True, timeout=180,
+                cwd=tmp_path,
+                capture_output=True,
+                text=True,
+                timeout=180,
             )
         pdf = tmp_path / tex.replace(".tex", ".pdf")
-        assert pdf.exists() and pdf.stat().st_size > 0, (result.stdout[-2000:] if result else "")
+        assert pdf.exists() and pdf.stat().st_size > 0, result.stdout[-2000:] if result else ""
 
     # a genuinely compiled paper satisfies the full, real contract
     assert ms.verify_all_deliverables(tmp_path) == [], ms.verify_all_deliverables(tmp_path)

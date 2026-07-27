@@ -8,6 +8,10 @@ import {
   type PhaseStep,
 } from '../../core/src/phaseTrail.js';
 
+// Elapsed durations only change once per second. Updating faster forces Ink to
+// diff and repaint the entire live frame without adding useful information.
+export const MANAGER_TICK_MS = 1_000;
+
 export interface ActiveManagerRequest {
   id: number;
   project: string;
@@ -89,7 +93,7 @@ export function useManagerSession({
 
   useEffect(() => {
     if (!pending) return;
-    const id = setInterval(() => setTick((t) => t + 1), 120);
+    const id = setInterval(() => setTick((t) => t + 1), MANAGER_TICK_MS);
     return () => clearInterval(id);
   }, [pending]);
 

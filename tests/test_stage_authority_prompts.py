@@ -5,6 +5,7 @@ every instruction telling the engineer / reviewer / planner to write pipeline
 stage state or call ``rollback_stage`` directly. The Manager is the sole
 writer of ``current_stage`` after initial state creation; the others only advise.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -26,14 +27,10 @@ def _src(rel: str) -> str:
 
 def test_planner_role_gives_stage_authority_to_manager() -> None:
     text = load_builtin_skill_text("argus-planner-role.md")
-    assert "Manager alone advances or rolls back `current_stage`" in text
-    assert "accepted Engineer self-verification" in text
-    assert "counts as stage certification for" in text
-    assert "Do not enqueue a standalone `stage_closing`" in text
-    assert "Planner owns checklist edits" in text
-    assert "Reviewer only reports `checklist_feedback`" in text
-    assert "Manager-authored domain starts with no checklist" in " ".join(text.split())
-    assert "author the current" in text
+    assert "The Manager alone edits" in text
+    assert "research/PIPELINE_STATE.json" in text
+    assert "report an upstream stage defect" in text
+    assert "A partial result or clean process is not completion" in text
     # the old "the reviewer advances the stage" wording is gone
     assert "until the reviewer has" not in text
 
@@ -43,9 +40,9 @@ def test_planner_source_has_no_rollback_recipe() -> None:
 
 
 def test_reviewer_reports_upstream_defects_instead_of_rolling_back() -> None:
-    src = _src("reviewer/_core.py")
+    src = _src("roles/prompts/reviewer.py")
     assert _ROLLBACK_RECIPE not in src
-    assert "the Manager owns rollback" in src
+    assert "Manager owns rollback" in src
 
 
 def test_auto_research_skill_does_not_tell_engineer_to_advance_stage() -> None:

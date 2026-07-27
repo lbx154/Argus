@@ -33,9 +33,7 @@ def test_research_vertical_bundles_one_visual_router_and_renderer() -> None:
 
 def test_router_makes_image2_capability_conditional() -> None:
     texts = dict(iter_vertical_skill_texts("research"))
-    content = Skill.parse(
-        texts["engineer/research-visualization-router.md"]
-    ).content.lower()
+    content = Skill.parse(texts["engineer/research-visualization-router.md"]).content.lower()
 
     assert "when configured" in content
     assert "unavailable image route is\nnot a project blocker" in content
@@ -48,8 +46,10 @@ def test_router_makes_image2_capability_conditional() -> None:
 
 def test_results_figures_keep_claim_checks_agent_owned_and_risk_based() -> None:
     content = (
-        ROOT / "engineer" / "research-results-analysis-and-figures.md"
-    ).read_text(encoding="utf-8").lower()
+        (ROOT / "engineer" / "research-results-analysis-and-figures.md")
+        .read_text(encoding="utf-8")
+        .lower()
+    )
 
     assert "never hard-code an expected" in content
     assert "prefer a small counterfactual regression" in content
@@ -60,8 +60,7 @@ def test_results_figures_keep_claim_checks_agent_owned_and_risk_based() -> None:
     assert "not merely lists the output path" in content
 
     skill = Skill.parse(
-        (ROOT / "engineer" / "research-results-analysis-and-figures.md")
-        .read_text(encoding="utf-8")
+        (ROOT / "engineer" / "research-results-analysis-and-figures.md").read_text(encoding="utf-8")
     )
     for renderer in ("PPT Master", "HTML/SVG", "ECharts", "Recharts", "FigureSpec"):
         assert renderer in skill.description
@@ -94,5 +93,5 @@ def test_engineer_matcher_sees_ppt_master_as_a_paper_figure_route(
     assert "Research Visualization Router" in matcher_prompt
     assert "PPT Master for Presentations and Paper Figures" in matcher_prompt
     assert "research-paper conceptual" in matcher_prompt
-    assert "image-2 is unavailable" in matcher_prompt
+    assert "optional image-2" in matcher_prompt
     assert "Do not select FigureSpec directly" in matcher_prompt

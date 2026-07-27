@@ -33,11 +33,7 @@ def test_redacts_sensitive_headers_and_known_environment_values() -> None:
         "PATH": "/usr/bin",
     }
     known = known_secret_values(env)
-    text = (
-        "x-api-key: response-secret-value\n"
-        "payload=live-secret-value-123\n"
-        "ordinary research text"
-    )
+    text = "x-api-key: response-secret-value\npayload=live-secret-value-123\nordinary research text"
 
     redacted = redact_secrets_text(text, known_values=known)
 
@@ -49,10 +45,12 @@ def test_redacts_sensitive_headers_and_known_environment_values() -> None:
 
 def test_structured_json_redaction_preserves_valid_json() -> None:
     redacted = redact_secrets_text(
-        json.dumps({
-            "api_key": "json-secret-value",
-            "reason": "api_key=inline-secret-value was exposed",
-        })
+        json.dumps(
+            {
+                "api_key": "json-secret-value",
+                "reason": "api_key=inline-secret-value was exposed",
+            }
+        )
     )
     parsed = json.loads(redacted)
 
@@ -61,10 +59,7 @@ def test_structured_json_redaction_preserves_valid_json() -> None:
 
 
 def test_jsonl_redaction_preserves_each_record() -> None:
-    redacted = redact_secrets_text(
-        '{"api_key":"response-secret-value"}\n'
-        '{"status":"ok"}\n'
-    )
+    redacted = redact_secrets_text('{"api_key":"response-secret-value"}\n{"status":"ok"}\n')
     records = [json.loads(line) for line in redacted.splitlines()]
 
     assert records == [
@@ -74,18 +69,20 @@ def test_jsonl_redaction_preserves_each_record() -> None:
 
 
 def test_redacts_values_under_structured_sensitive_keys() -> None:
-    redacted = redact_secrets_record({
-        "api_key": "response-secret-value",
-        "nested": {
-            "authorization": "short",
-            "clientSecret": "client-value",
-            "refreshToken": "refresh-value",
-            "auth_token": "auth-value",
-            "clientToken": "client-token-value",
-            "private_token": "private-value",
-            "status": "ok",
-        },
-    })
+    redacted = redact_secrets_record(
+        {
+            "api_key": "response-secret-value",
+            "nested": {
+                "authorization": "short",
+                "clientSecret": "client-value",
+                "refreshToken": "refresh-value",
+                "auth_token": "auth-value",
+                "clientToken": "client-token-value",
+                "private_token": "private-value",
+                "status": "ok",
+            },
+        }
+    )
 
     assert redacted["api_key"] == "<REDACTED:secret>"
     assert redacted["nested"]["authorization"] == "<REDACTED:secret>"
@@ -133,11 +130,13 @@ def test_scrub_does_not_mutate_tokenizer_config_file(tmp_path: Path) -> None:
 
 
 def test_still_redacts_explicit_provider_token_keys() -> None:
-    redacted = redact_secrets_record({
-        "github_token": "github-secret-value",
-        "hf_token": "huggingface-secret-value",
-        "session_token": "session-secret-value",
-    })
+    redacted = redact_secrets_record(
+        {
+            "github_token": "github-secret-value",
+            "hf_token": "huggingface-secret-value",
+            "session_token": "session-secret-value",
+        }
+    )
 
     assert redacted == {
         "github_token": "<REDACTED:secret>",
@@ -189,9 +188,7 @@ def test_scrubs_recent_text_artifacts_and_preserves_source_fixtures(
 def test_scrub_preserves_cue_schema_token_labels(tmp_path: Path) -> None:
     schema = tmp_path / "flipt.schema.cue"
     schema.write_text(
-        "#GitAuthentication: {\n"
-        "  token: access_token: string\n"
-        "}\n",
+        "#GitAuthentication: {\n  token: access_token: string\n}\n",
         encoding="utf-8",
     )
 
@@ -202,9 +199,7 @@ def test_scrub_preserves_cue_schema_token_labels(tmp_path: Path) -> None:
 
     assert not report.changed
     assert schema.read_text(encoding="utf-8") == (
-        "#GitAuthentication: {\n"
-        "  token: access_token: string\n"
-        "}\n"
+        "#GitAuthentication: {\n  token: access_token: string\n}\n"
     )
 
 
@@ -215,9 +210,7 @@ def test_scrub_skips_vendored_code_references_clones(tmp_path: Path) -> None:
     vendored_repo = tmp_path / "code" / "references" / "some-upstream-repo"
     vendored_repo.mkdir(parents=True)
     vendored_file = vendored_repo / "fixture.json"
-    vendored_file.write_text(
-        '{"x-api-key": "vendored-fixture-secret"}\n', encoding="utf-8"
-    )
+    vendored_file.write_text('{"x-api-key": "vendored-fixture-secret"}\n', encoding="utf-8")
     # Give the vendored clone a fresh mtime so the only reason it would be
     # excluded is the vendored-directory skip, not the modified_since filter.
     now = time.time()
@@ -251,8 +244,7 @@ def test_scrub_only_matches_known_secrets_in_project_huggingface_cache(
     )
     cache_file.parent.mkdir(parents=True)
     cache_file.write_text(
-        '{"token": "public-tokenizer-schema-value", '
-        '"download_auth": "live-cache-secret-value"}\n',
+        '{"token": "public-tokenizer-schema-value", "download_auth": "live-cache-secret-value"}\n',
         encoding="utf-8",
     )
     now = time.time()
@@ -269,8 +261,7 @@ def test_scrub_only_matches_known_secrets_in_project_huggingface_cache(
         str(cache_file.relative_to(tmp_path)),
     )
     assert cache_file.read_text(encoding="utf-8") == (
-        '{"token": "public-tokenizer-schema-value", '
-        '"download_auth": "<REDACTED:known-secret>"}\n'
+        '{"token": "public-tokenizer-schema-value", "download_auth": "<REDACTED:known-secret>"}\n'
     )
     assert report.scanned_files == 2
 
@@ -279,18 +270,10 @@ def test_scrub_skips_project_third_party_runtime_trees(tmp_path: Path) -> None:
     recent = tmp_path / "response.headers"
     recent.write_text("x-api-key: new-secret-value\n", encoding="utf-8")
     runtime_payload = (
-        tmp_path
-        / "third_party"
-        / "runtime_deps"
-        / "huggingface_hub-0.34.4.dist-info"
-        / "METADATA"
+        tmp_path / "third_party" / "runtime_deps" / "huggingface_hub-0.34.4.dist-info" / "METADATA"
     )
     reference_payload = (
-        tmp_path
-        / "third_party"
-        / "reference_sources"
-        / "transformers"
-        / "tokenizer_config.json"
+        tmp_path / "third_party" / "reference_sources" / "transformers" / "tokenizer_config.json"
     )
     runtime_payload.parent.mkdir(parents=True)
     reference_payload.parent.mkdir(parents=True)
@@ -390,28 +373,32 @@ def test_artifact_scrub_preserves_synthetic_task_tokens(
     artifact = tmp_path / "research" / "runs" / "RAW_TRAJECTORIES.jsonl"
     artifact.parent.mkdir(parents=True)
     artifact.write_text(
-        json.dumps({
-            "task_id": "synthetic-auth-task",
-            "arguments": {"access_token": "access_token_abc123"},
-            "raw_output": (
-                '<tool_call>{"username":"mzhang",'
-                '"password":"SecurePass123"}</tool_call>'
-            ),
-            "executed_call": (
-                "trading_login(username='your_username',"
-                "password='your_password')"
-            ),
-        })
+        json.dumps(
+            {
+                "task_id": "synthetic-auth-task",
+                "arguments": {"access_token": "access_token_abc123"},
+                "raw_output": (
+                    '<tool_call>{"username":"mzhang","password":"SecurePass123"}</tool_call>'
+                ),
+                "executed_call": (
+                    "trading_login(username='your_username',password='your_password')"
+                ),
+            }
+        )
         + "\n"
-        + json.dumps({
-            "task_id": "provider-credential-leak",
-            "github_token": "github-secret-value",
-        })
+        + json.dumps(
+            {
+                "task_id": "provider-credential-leak",
+                "github_token": "github-secret-value",
+            }
+        )
         + "\n"
-        + json.dumps({
-            "task_id": "known-secret-leak",
-            "arguments": {"access_token": "live-environment-secret-123"},
-        })
+        + json.dumps(
+            {
+                "task_id": "known-secret-leak",
+                "arguments": {"access_token": "live-environment-secret-123"},
+            }
+        )
         + "\n",
         encoding="utf-8",
     )
@@ -427,12 +414,8 @@ def test_artifact_scrub_preserves_synthetic_task_tokens(
     assert "SecurePass123" in rows[0]["raw_output"]
     assert "your_password" in rows[0]["executed_call"]
     assert rows[1]["github_token"] == "<REDACTED:secret>"
-    assert rows[2]["arguments"]["access_token"] == (
-        "<REDACTED:known-secret>"
-    )
-    assert report.redacted_paths == (
-        "research/runs/RAW_TRAJECTORIES.jsonl",
-    )
+    assert rows[2]["arguments"]["access_token"] == ("<REDACTED:known-secret>")
+    assert report.redacted_paths == ("research/runs/RAW_TRAJECTORIES.jsonl",)
 
 
 def test_round_guard_surfaces_scrub_to_reviewer_context(tmp_path: Path) -> None:
@@ -474,10 +457,7 @@ def test_round_guard_keeps_engineer_control_sentinels_pristine(
 
     assert reviewer_note
     assert parse_external_wait_request(wait_message) == ("subagent", "task-123")
-    assert (
-        parse_continue_work_request(continue_message)
-        == "rebuild the hash chain"
-    )
+    assert parse_continue_work_request(continue_message) == "rebuild the hash chain"
 
 
 def test_agent_io_persistence_and_stream_callback_are_redacted(
@@ -492,12 +472,16 @@ def test_agent_io_persistence_and_stream_callback_are_redacted(
         event_callback=lambda stream, line: streamed.append((stream, line)),
     )
     path = tmp_path / "events.jsonl"
-    backend._log_agent_io(path, {
-        "type": "agent.io.complete",
-        "stdout_lines": ["api_key=live-secret-value-123"],
-    })
+    backend._log_agent_io(
+        path,
+        {
+            "type": "agent.io.complete",
+            "stdout_lines": ["api_key=live-secret-value-123"],
+        },
+    )
     context = {
         "log_path": str(path),
+        "raw_log_path": str(path.with_name("agent_io.jsonl")),
         "call_id": "call",
         "run_label": "engineer-r1",
         "model": "test",
@@ -506,8 +490,8 @@ def test_agent_io_persistence_and_stream_callback_are_redacted(
         "buffer_bytes": 0,
         "last_flush": 0.0,
     }
-    with backend._io_context_lock:
-        backend._io_context = context
+    with backend._io_logger.io_context_lock:
+        backend._io_logger.io_context = context
     backend._stream_event_callback(
         "copilot.stdout",
         "Authorization: Bearer live-secret-value-123",
@@ -515,7 +499,9 @@ def test_agent_io_persistence_and_stream_callback_are_redacted(
     backend._close_io_context("call")
 
     rendered = path.read_text(encoding="utf-8")
+    raw_rendered = path.with_name("agent_io.jsonl").read_text(encoding="utf-8")
     assert "live-secret-value-123" not in rendered
+    assert "live-secret-value-123" not in raw_rendered
     assert "live-secret-value-123" not in json.dumps(streamed)
 
 
@@ -565,14 +551,16 @@ def test_jsonl_event_sink_redacts_downstream_and_disk(
         life_dir=tmp_path,
         verbosity="full",
     )
-    sink.handle_event({
-        "type": "round.main.completed",
-        "round_index": 1,
-        "fatal_error": "api_key=live-secret-value-123",
-        "next_step": "api_key=live-secret-value-123",
-        "tuple_payload": ("api_key=opaque-secret-123",),
-        "custom_payload": SecretRepr(),
-    })
+    sink.handle_event(
+        {
+            "type": "round.main.completed",
+            "round_index": 1,
+            "fatal_error": "api_key=live-secret-value-123",
+            "next_step": "api_key=live-secret-value-123",
+            "tuple_payload": ("api_key=opaque-secret-123",),
+            "custom_payload": SecretRepr(),
+        }
+    )
     sink.handle_stream_line(
         "stdout",
         "api_key=live-secret-value-123",

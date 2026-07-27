@@ -26,9 +26,7 @@ from ..core import paths as core_paths
 # project (chat_state is mutated in place) while letting different projects run
 # concurrently.
 _STATES: dict[str, dict[str, Any]] = {}
-_LOCKS: weakref.WeakValueDictionary[str, threading.RLock] = (
-    weakref.WeakValueDictionary()
-)
+_LOCKS: weakref.WeakValueDictionary[str, threading.RLock] = weakref.WeakValueDictionary()
 _REGISTRY_LOCK = threading.Lock()
 _MANAGER_PREWARMING: set[str] = set()
 _MANAGER_PREWARMING_LOCK = threading.Lock()
@@ -109,8 +107,7 @@ def _prewarm_manager_context(
 
         cwd = str(state.get("manager_runner_workdir") or Path.cwd())
         classify_effort = (
-            os.environ.get("ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT", "low").strip()
-            or "low"
+            os.environ.get("ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT", "low").strip() or "low"
         )
         prewarm(
             model=resolve_manager_classify_model(),
@@ -127,8 +124,16 @@ def _prewarm_manager_context(
             ),
             lean=False,
             cwd=cwd,
+            read_only=True,
+            add_dirs=([str(mem.project_root)] if str(mem.project_root) != cwd else None),
         )
         state["_manager_acp_prewarmed"] = True
+
+
+def _manager_context_is_prewarmed(sid: str) -> bool:
+    with _lock_for(sid):
+        state = _STATES.get(sid)
+        return bool(state and state.get("_manager_acp_prewarmed"))
 
 
 def schedule_manager_prewarm(
@@ -137,8 +142,12 @@ def schedule_manager_prewarm(
     global_root: Path | str | None = None,
 ) -> None:
     """Warm exactly one project's private Manager ACP pool in background."""
+    if _manager_context_is_prewarmed(sid):
+        return
     with _MANAGER_PREWARMING_LOCK:
         if sid in _MANAGER_PREWARMING:
+            return
+        if _manager_context_is_prewarmed(sid):
             return
         _MANAGER_PREWARMING.add(sid)
 
@@ -199,17 +208,15 @@ def _rotate_after() -> int:
 
 
 def reset_manager_context(
-    sid: str, *, global_root: Path | str | None = None,
+    sid: str,
+    *,
+    global_root: Path | str | None = None,
 ) -> bool:
     """Drop the warm Manager conversation while preserving project state."""
     from ..manager import reset_manager_session
 
     root = Path(global_root) if global_root else None
-    life_dir = (
-        core_paths.session_state_root(sid, root=root)
-        if root is not None
-        else None
-    )
+    life_dir = core_paths.session_state_root(sid, root=root) if root is not None else None
     if life_dir is None:
         life_dir = core_paths.session_state_root(sid)
     if not life_dir.is_dir():

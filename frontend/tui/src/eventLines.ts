@@ -18,7 +18,20 @@ export interface EventLinePartition {
 export function buildEventLines(events: EventMsg[]): EventLine[] {
   const list: EventLine[] = [];
   const idx = new Map<string, number>();
+  const recoveredMessageIds = new Set(
+    events
+      .map((event) => String(
+        (event as Record<string, unknown>).recovered_from_message_id ?? '',
+      ))
+      .filter(Boolean),
+  );
   events.forEach((ev) => {
+    // Repairs are append-only so the audit log stays intact. In the rendered
+    // conversation, hide the truncated row superseded by a recovered delivery.
+    if (
+      recoveredMessageIds.has(messageId(ev))
+      && (ev as Record<string, unknown>).final_delivery !== true
+    ) return;
     const r = renderEvent(ev);
     if (!r) return;
     const mid = messageId(ev);

@@ -18,13 +18,22 @@ _MAIN_TEX = _REPO_ROOT / "technical_report" / "main.tex"
 # deterministic data figures. The six structural figures are image-2 outputs
 # handled by build_ai_figure_provenance.py / validate_ai_figures.py.
 _DATA_FIGURES = ("public_results", "paper_portfolio")
-_STRUCTURAL_STEMS = (
+_LEGACY_STRUCTURAL_STEMS = (
     "master_spine",
     "dense_intelligence",
     "system_planes",
     "argus_architecture",
     "mission_lifecycle",
     "long_horizon_reliability",
+)
+_CURRENT_REPORT_PDF_STEMS = (
+    "argus_teaser",
+    "swebench_evolution",
+    "reviewer_mechanism",
+    "horizon_mountain",
+    "erdos_vertical_trace",
+    "paper_case_study",
+    "paper_case_trajectory",
 )
 
 
@@ -44,11 +53,7 @@ def _figure_text(monkeypatch, builder_name: str) -> str:
     rendered: list[str] = []
 
     def capture_text(fig, _stem):
-        rendered.extend(
-            text.get_text()
-            for axis in fig.axes
-            for text in axis.texts
-        )
+        rendered.extend(text.get_text() for axis in fig.axes for text in axis.texts)
         plt.close(fig)
         return {}
 
@@ -93,39 +98,48 @@ def test_report_figures_manifest_has_exactly_the_two_data_figures() -> None:
 
 def test_report_figures_manifest_excludes_structural_stems() -> None:
     manifest = json.loads(_REPORT_FIGURES_JSON.read_text(encoding="utf-8"))
-    for stem in _STRUCTURAL_STEMS:
+    for stem in _LEGACY_STRUCTURAL_STEMS:
         assert stem not in manifest["figures"]
 
 
 def test_no_structural_pdf_files_remain() -> None:
-    for stem in _STRUCTURAL_STEMS:
+    for stem in _LEGACY_STRUCTURAL_STEMS:
         assert not (_FIGURES_DIR / f"{stem}.pdf").exists(), (
             f"structural PDF {stem}.pdf should have been removed"
         )
 
 
-def test_latex_references_structural_png_and_data_pdf() -> None:
+def test_latex_references_the_current_academic_report_figures() -> None:
     sources = "\n".join(
         p.read_text(encoding="utf-8")
         for p in [_MAIN_TEX, *(_REPO_ROOT / "technical_report" / "sections").glob("*.tex")]
     )
-    # Structural figures are referenced as .png (image-2 outputs).
-    for stem in _STRUCTURAL_STEMS:
-        assert f"figures/{stem}.png" in sources, f"missing .png ref for {stem}"
-        assert f"figures/{stem}.pdf" not in sources, f"stale .pdf ref for {stem}"
-    # Data figures keep their deterministic .pdf includes.
-    for stem in _DATA_FIGURES:
+    for stem in _CURRENT_REPORT_PDF_STEMS:
         assert f"figures/{stem}.pdf" in sources, f"missing .pdf ref for {stem}"
+        assert (_FIGURES_DIR / f"{stem}.pdf").is_file()
+    for stem in _LEGACY_STRUCTURAL_STEMS:
+        assert f"figures/{stem}.png" not in sources
 
 
 # --------------------------------------------------------------------------- #
 # Deterministic-data content contracts.
 # --------------------------------------------------------------------------- #
-def test_public_results_distinguishes_corroborated_digests(monkeypatch) -> None:
+def test_public_results_contains_the_current_task_native_values(monkeypatch) -> None:
     text = _figure_text(monkeypatch, "build_public_results")
 
-    assert text.count("artifact digest") == 2
-    assert text.count("website snapshot") == 4
+    for expected in (
+        "NVIDIA SOL-ExecBench",
+        "nanochat · B200",
+        "nanochat · H100",
+        "nanoGPT speedrun",
+        "AARRI-Bench",
+        "Math-Reasoning Data",
+        "0.9636",
+        "0.9855",
+        "79.77s",
+        "76.8%",
+    ):
+        assert expected in text
 
 
 def test_public_results_reproducible_digests() -> None:
@@ -146,15 +160,14 @@ def test_paper_portfolio_reproducible_digests() -> None:
     assert first["pdf_sha256"] == second["pdf_sha256"]
 
 
-def test_callout_titles_use_contrasting_text() -> None:
+def test_paperbox_titles_use_the_current_contrasting_text() -> None:
     source = _MAIN_TEX.read_text(encoding="utf-8")
-    callout_style = source.split(r"\newtcolorbox{callout}", 1)[1].split(
-        r"\newtcolorbox{designbox}",
-        1,
-    )[0]
+    paperbox_style = source.split(r"\newtcolorbox{paperbox}", 1)[1].split(r"\newcommand{\code}", 1)[
+        0
+    ]
 
-    assert r"fonttitle=\bfseries\small\color{white}" in callout_style
-    assert "coltitle=white" in callout_style
+    assert r"fonttitle=\sffamily\bfseries\small\color{argusdeep}" in paperbox_style
+    assert "colback=softgray" in paperbox_style
 
 
 def test_figure_builder_imports_from_outside_repository(tmp_path) -> None:

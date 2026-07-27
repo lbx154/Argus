@@ -1,5 +1,6 @@
 """Tests for reviewer_simulation gate (Step 2 — force reviewer-perspective
 question lists to be machine-readable and freshness-tied to main.tex)."""
+
 from __future__ import annotations
 
 import json
@@ -31,6 +32,12 @@ def _good_questions(n: int = MIN_QUESTIONS) -> dict:
 
 
 def _seed_paper(root: Path, *, with_questions: dict | None) -> Path:
+    research = root / "research"
+    research.mkdir(parents=True, exist_ok=True)
+    (research / "PIPELINE_STATE.json").write_text(
+        json.dumps({"vertical": "research", "target_venue": "EMNLP"}),
+        encoding="utf-8",
+    )
     paper = root / "paper"
     paper.mkdir(parents=True, exist_ok=True)
     main_tex = paper / "main.tex"
@@ -39,9 +46,7 @@ def _seed_paper(root: Path, *, with_questions: dict | None) -> Path:
         encoding="utf-8",
     )
     if with_questions is not None:
-        (paper / QUESTIONS_FILENAME).write_text(
-            json.dumps(with_questions), encoding="utf-8"
-        )
+        (paper / QUESTIONS_FILENAME).write_text(json.dumps(with_questions), encoding="utf-8")
     return main_tex
 
 
@@ -101,9 +106,7 @@ def test_duplicate_question_id_fails(tmp_path: Path) -> None:
 
 def test_malformed_json_fails(tmp_path: Path) -> None:
     _seed_paper(tmp_path, with_questions=None)
-    (tmp_path / "paper" / QUESTIONS_FILENAME).write_text(
-        "{not valid", encoding="utf-8"
-    )
+    (tmp_path / "paper" / QUESTIONS_FILENAME).write_text("{not valid", encoding="utf-8")
     report = validate_reviewer_simulation(tmp_path)
     codes = {i.code for i in report.issues}
     assert "malformed_reviewer_questions" in codes
@@ -142,7 +145,3 @@ def test_questions_missing_top_level_questions_key_fails(tmp_path: Path) -> None
 
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
-
-
-
-

@@ -68,6 +68,24 @@ test('a Manager message_id stays live only for the active request', () => {
   assert.equal(settled.committed[0]?.r.text, 'partial answer');
 });
 
+test('recovered final delivery hides the superseded truncated row', () => {
+  const lines = buildEventLines([
+    {
+      type: 'engineer.progress', kind: 'agent_message', agent_layer: 'planner',
+      text: 'truncated result…', message_id: 'planner-original',
+    },
+    {
+      type: 'engineer.progress', kind: 'agent_message', agent_layer: 'planner',
+      text: 'complete result\nPROJECT_DONE=true\nREASON=visible',
+      message_id: 'planner-recovered', final_delivery: true,
+      recovered_from_message_id: 'planner-original',
+    },
+  ] as never);
+
+  assert.equal(lines.length, 1);
+  assert.match(lines[0]?.r.text ?? '', /REASON=visible/);
+});
+
 test('replaceable role progress stays live until a later event settles it', () => {
   const streaming = buildEventLines([
     {
@@ -172,6 +190,19 @@ test('default feed hides reviewer protocol JSON and empty phase markers', () => 
     text: 'I am rerunning the tests.',
   } as never)?.text, 'I am rerunning the tests.');
   assert.equal(renderEvent({ type: 'life.phase.started', agent_layer: 'reviewer' } as never), null);
+});
+
+test('Planner final delivery keeps its complete body and requests wrapped rendering', () => {
+  const tail = 'FINAL_TAIL_MUST_REMAIN_VISIBLE';
+  const text = `Audit result\n${'x'.repeat(500)}\nPROJECT_DONE=true\nREASON=${tail}`;
+  const rendered = renderEvent({
+    type: 'engineer.progress', kind: 'agent_message', agent_layer: 'planner',
+    text, final_delivery: true,
+  } as never);
+
+  assert.equal(rendered?.expand, true);
+  assert.match(rendered?.text ?? '', new RegExp(tail));
+  assert.doesNotMatch(rendered?.text ?? '', /…$/);
 });
 
 test('manager stage decision renders its real target_stage', () => {

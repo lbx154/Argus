@@ -10,6 +10,7 @@ Covers the three things the operator asked for:
    skill (+ any matched adaptive block) into its stage-decision prompt; with no
    ``skill_store`` (the default) the behaviour is unchanged (back-compat).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -61,9 +62,7 @@ def test_manager_in_role_subdirs_and_pools() -> None:
     assert "manager" in _ROLE_SUBDIRS
     assert ROLE_SKILL_POOLS["manager"] == frozenset({"manager"})
     # Manager sees every other role's standards as read-only references.
-    assert ROLE_CROSS_READ_POOLS["manager"] == frozenset(
-        {"engineer", "reviewer", "planner"}
-    )
+    assert ROLE_CROSS_READ_POOLS["manager"] == frozenset({"engineer", "reviewer", "planner"})
 
 
 def test_manager_role_skill_file_exists_and_loads() -> None:
@@ -106,9 +105,7 @@ class _CapturingRunExec:
         self.prompts.append(prompt)
         return RunnerResult(
             exit_code=0,
-            agent_messages=[
-                '{"action": "hold", "target_stage": "research", "reason": "stub"}'
-            ],
+            agent_messages=['{"action": "hold", "target_stage": "research", "reason": "stub"}'],
         )
 
 
@@ -142,8 +139,8 @@ def test_manager_decision_prompt_carries_role_skill_when_store_present(
     # The fixed manager role skill is prepended to the decision prompt.
     assert "Argus manager role skill" in prompt
     assert "Argus Manager Role" in prompt
-    # The original decision contract is still present (schema unchanged).
-    assert '"action": "advance|hold|rollback"' in prompt
+    # The decision contract is still present in the current named-line form.
+    assert "ACTION=advance|hold|rollback" in prompt
     # The stub returned HOLD → no stage write, decision is a HOLD.
     assert decision.action == "hold"
 
@@ -153,9 +150,7 @@ def test_manager_decision_prompt_unchanged_without_store(tmp_path: Path) -> None
     # (byte-for-byte back-compat with the pre-skill Manager).
     mgr = Manager(project_root=tmp_path, runner=object(), skill_store=None)
     cap = _CapturingRunExec()
-    mgr.decide_stage_transition(
-        review=_StubReview(), project_root=tmp_path, run_exec=cap
-    )
+    mgr.decide_stage_transition(review=_StubReview(), project_root=tmp_path, run_exec=cap)
     assert cap.prompts
     assert "Argus manager role skill" not in cap.prompts[0]
 
@@ -172,8 +167,9 @@ class _CapturingRunner:
         self.message = message
         self.prompts: list[str] = []
 
-    def run_exec(self, *, prompt: str, options=None, run_label: str = "",
-                 resume_thread_id=None) -> object:
+    def run_exec(
+        self, *, prompt: str, options=None, run_label: str = "", resume_thread_id=None
+    ) -> object:
         self.prompts.append(prompt)
 
         class _R:

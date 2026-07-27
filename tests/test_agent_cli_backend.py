@@ -676,22 +676,23 @@ def test_run_exec_writes_full_agent_io_log(
         "usage.recorded",
     ]
     assert [row["type"] for row in raw_rows] == [
+        "agent.io.start",
         "agent.io.stream",
         "agent.io.stream",
     ]
     assert [row["io_kind"] for row in rows[:-1]] == ["start", "complete"]
-    assert [row["io_kind"] for row in raw_rows] == ["stream", "stream"]
-    assert rows[0]["prompt"] == "full prompt text"
+    assert [row["io_kind"] for row in raw_rows] == ["start", "stream", "stream"]
+    assert raw_rows[0]["prompt"] == "full prompt text"
     assert rows[0]["run_label"] == "manager"
-    assert [row["stream"] for row in raw_rows] == [
+    assert [row["stream"] for row in raw_rows[1:]] == [
         "stdout",
         "stderr",
     ]
-    assert raw_rows[0]["stream"] == "stdout"
-    assert raw_rows[0]["model"] == "gpt-5.5"
-    assert raw_rows[0]["line"].startswith('{"type"')
-    assert raw_rows[1]["stream"] == "stderr"
+    assert raw_rows[1]["stream"] == "stdout"
     assert raw_rows[1]["model"] == "gpt-5.5"
+    assert raw_rows[1]["line"].startswith('{"type"')
+    assert raw_rows[2]["stream"] == "stderr"
+    assert raw_rows[2]["model"] == "gpt-5.5"
     assert "agent_messages" not in rows[-2]
     assert "stdout_lines" not in rows[-2]
     assert "stderr_lines" not in rows[-2]
@@ -824,8 +825,11 @@ def test_full_io_persists_prompt_once_not_as_user_message_echo(
     rows = [json.loads(line) for line in log_path.read_text().splitlines()]
     raw_rows = [json.loads(line) for line in (tmp_path / "agent_io.jsonl").read_text().splitlines()]
     start = next(row for row in rows if row["type"] == "agent.io.start")
+    raw_start = next(row for row in raw_rows if row["type"] == "agent.io.start")
     streams = [row for row in raw_rows if row["type"] == "agent.io.stream"]
-    assert start["prompt"] == prompt
+    assert "prompt" not in start
+    assert start["prompt_sha256"] == raw_start["prompt_sha256"]
+    assert raw_start["prompt"] == prompt
     assert len(streams) == 1
     assert "assistant.message_delta" in streams[0]["line"]
 

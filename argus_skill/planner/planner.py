@@ -1,9 +1,9 @@
-"""Planner agent — directly edits and verifies the active project.
+"""Planner agent — inspects the active project and delegates concrete work.
 
 The model-facing contract intentionally avoids JSON.  The Planner works in the
-project directory, implements the requested change itself, and ends with a
-small ``KEY=VALUE`` completion footer.  The host maps that footer back into the
-existing :class:`PlannerVerdict` object used by the supervisor.
+project directory read-only, chooses the next work, and ends with a small
+``KEY=VALUE`` completion footer. The host maps that footer back into the existing
+:class:`PlannerVerdict` object used by the supervisor; Engineer owns implementation.
 """
 
 from __future__ import annotations
@@ -19,6 +19,11 @@ from ..core.run_gateway import run_exec as gateway_run_exec
 TASK_SCOPE_BOUNDED = "bounded"
 TASK_SCOPE_FINAL_SUBMISSION = "final_submission"
 NO_CONCRETE_TASKS_ERROR = "planner said not done but produced no concrete tasks"
+OPEN_ENDED_PROJECT_DONE_ERROR = (
+    "standing continuous objective cannot finish with PROJECT_DONE=true; "
+    "delegate the next distinct task or report an explicit wait"
+)
+PLANNER_SUPERSEDED_ERROR = "planner superseded by newer continuous generation"
 _PLANNER_REPAIR_ATTEMPTS = 1
 _PLANNER_REPAIR_TEXT_LIMIT = 8000
 
@@ -30,11 +35,13 @@ class PlannerConfig:
     model: str | None = None
     reasoning_effort: str | None = "xhigh"
     working_dir: str | None = None
+    add_dirs: list[str] = field(default_factory=list)
     extra_args: list[str] = field(default_factory=list)
     skip_git_repo_check: bool = True
     full_auto: bool = False
     dangerous_yolo: bool = False
     open_ended: bool = False
+    external_interrupt_reason_provider: Any = None
 
 
 @dataclass(frozen=True)
@@ -114,7 +121,7 @@ class PlannerVerdict:
 
 
 class Planner:
-    """Project-level direct executor with a lightweight completion footer."""
+    """Project-level read-only planning authority."""
 
     def __init__(self, runner: RunnerBackend, *, skill_store: Any | None = None) -> None:
         self.runner = runner
@@ -142,7 +149,7 @@ class Planner:
         runtime_change_summary: str = "",
         config: PlannerConfig | None = None,
     ) -> PlannerVerdict:
-        """Implement the active objective directly in the project worktree."""
+        """Inspect the active objective and delegate the next concrete work."""
         cfg = config or PlannerConfig()
         prompt = self._build_planner_prompt(
             continuous_objective=continuous_objective,
@@ -156,14 +163,15 @@ class Planner:
             model=cfg.model,
             reasoning_effort=cfg.reasoning_effort or "xhigh",
             working_dir=cfg.working_dir,
-            dangerous_yolo=cfg.dangerous_yolo,
-            full_auto=cfg.full_auto,
+            add_dirs=list(cfg.add_dirs) if cfg.add_dirs else None,
+            dangerous_yolo=False,
+            full_auto=False,
+            sandbox_mode="read-only",
             skip_git_repo_check=cfg.skip_git_repo_check,
             extra_args=list(cfg.extra_args) if cfg.extra_args else None,
-            # Planner execution is intentionally unbounded.  Operator/daemon
-            # interrupts supplied by the backend still work, but this call does
-            # not add a Planner-specific wall-clock or hard-idle deadline.
-            external_interrupt_reason_provider=None,
+            # No Planner-specific wall-clock deadline, but a newer operator
+            # generation cancels this read-only planning turn immediately.
+            external_interrupt_reason_provider=cfg.external_interrupt_reason_provider,
             watchdog_hard_idle_seconds=0,
         )
         try:
@@ -192,6 +200,14 @@ class Planner:
             )
             fatal = str(getattr(result, "fatal_error", "") or "").strip()
             details = "\n".join(part for part in (fatal, stderr_tail) if part).strip()
+            if PLANNER_SUPERSEDED_ERROR in details:
+                return PlannerVerdict(
+                    project_done=False,
+                    reason=PLANNER_SUPERSEDED_ERROR,
+                    new_tasks=[],
+                    raw_text=text or details,
+                    error=PLANNER_SUPERSEDED_ERROR,
+                )
             return PlannerVerdict(
                 project_done=False,
                 reason="planner backend failed before producing output; will retry later",
@@ -200,13 +216,18 @@ class Planner:
                 error=f"planner backend exit {getattr(result, 'exit_code', 'unknown')}",
             )
         verdict = parse_planner_text(text)
-        if verdict.error == NO_CONCRETE_TASKS_ERROR:
+        rejection = verdict.error
+        open_ended_done = bool(cfg.open_ended and verdict.project_done)
+        if open_ended_done:
+            rejection = OPEN_ENDED_PROJECT_DONE_ERROR
+        if rejection == NO_CONCRETE_TASKS_ERROR or open_ended_done:
             return self._repair_no_task_verdict(
                 original_prompt=prompt,
                 previous_raw_text=text,
-                previous_error=verdict.error,
+                previous_error=rejection,
                 options=planner_options,
                 planning_cycle=planning_cycle,
+                open_ended=bool(cfg.open_ended),
             )
         return verdict
 
@@ -239,6 +260,7 @@ class Planner:
         previous_error: str,
         options: RunnerOptions,
         planning_cycle: int,
+        open_ended: bool = False,
     ) -> PlannerVerdict:
         """Retry a malformed incomplete Planner footer once without inventing work."""
         last_error = previous_error
@@ -248,6 +270,7 @@ class Planner:
                 original_prompt=original_prompt,
                 previous_raw_text=raw_attempts[-1],
                 previous_error=last_error,
+                open_ended=open_ended,
             )
             try:
                 result = gateway_run_exec(
@@ -275,19 +298,23 @@ class Planner:
                 )
                 continue
             repaired = parse_planner_text(text)
-            if not repaired.error:
+            if not repaired.error and not (open_ended and repaired.project_done):
                 return repaired
-            last_error = repaired.error
+            last_error = (
+                OPEN_ENDED_PROJECT_DONE_ERROR
+                if open_ended and repaired.project_done
+                else repaired.error
+            )
         return PlannerVerdict(
             project_done=False,
             reason=(
-                f"{NO_CONCRETE_TASKS_ERROR}; repair exhausted after "
+                f"{previous_error}; repair exhausted after "
                 f"{_PLANNER_REPAIR_ATTEMPTS} attempt(s): {last_error}"
             ),
             new_tasks=[],
             raw_text="\n\n--- planner repair attempt ---\n\n".join(raw_attempts),
             error=(
-                f"{NO_CONCRETE_TASKS_ERROR}; repair exhausted after "
+                f"{previous_error}; repair exhausted after "
                 f"{_PLANNER_REPAIR_ATTEMPTS} attempt(s): {last_error}"
             ),
         )
@@ -406,15 +433,24 @@ def _build_no_task_repair_prompt(
     original_prompt: str,
     previous_raw_text: str,
     previous_error: str,
+    open_ended: bool = False,
 ) -> str:
+    completion_rule = (
+        "- This is a standing continuous objective. Do NOT return "
+        "`PROJECT_DONE=true` merely because one increment finished. Delegate the "
+        "next distinct high-value task, or use `WAITING=true` only for a real "
+        "external blocker with a durable recheck condition.\n"
+        if open_ended
+        else "- If the operator objective is now truly complete, end with "
+        "`PROJECT_DONE=true` and `REASON=...`.\n"
+    )
     return (
         "Your previous Planner response was rejected by the host.\n\n"
         f"Rejection: {previous_error}\n\n"
         "Repair requirements:\n"
         "- Re-inspect current project reality as needed; do not fabricate tasks or "
         "scientific work.\n"
-        "- If the operator objective is now truly complete, end with "
-        "`PROJECT_DONE=true` and `REASON=...`.\n"
+        f"{completion_rule}"
         "- If work remains and is legal in the current stage, end with "
         "`PROJECT_DONE=false`, `REASON=...`, and at least one concrete task block: "
         "`TASK_KEY=...`, `TASK_TITLE=...`, `TASK_OBJECTIVE=...`; include "

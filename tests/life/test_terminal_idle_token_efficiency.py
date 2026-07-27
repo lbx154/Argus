@@ -1,4 +1,5 @@
 """Token-efficiency regressions for terminal open-ended campaigns."""
+
 from __future__ import annotations
 
 import json
@@ -8,9 +9,14 @@ from pathlib import Path
 from argus_skill.life.event_log import JsonlEventSink
 from argus_skill.life.memory import LifeMemory
 from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus_skill.life.supervisor._constants import PLAN_RETRY, PLAN_TERMINAL_IDLE
+from argus_skill.life.supervisor._constants import PLAN_RETRY
 from argus_skill.planner import PlannerVerdict
+from argus_skill.skills.stage_machine import completion_contract_fingerprint
 from argus_skill.skills.vertical_select import persist_vertical
+from argus_skill.verticals._base import (
+    load_vertical,
+    vertical_completion_contract_version,
+)
 
 
 class _Runner:
@@ -36,18 +42,33 @@ def _supervisor(project: Path, life: Path) -> LifeSupervisor:
         config=config,
         planner_runner=object(),
     )
-    persist_vertical(project, "software")
+    # This regression is about open-ended terminal-idle reuse, not the staged
+    # Goal Gate. Keep the fixture on the direct topology so a planner
+    # ``project_done`` reaches the terminal-idle path under test.
+    persist_vertical(project, "software", workflow_mode="direct")
     state_path = project / "research" / "PIPELINE_STATE.json"
     state = json.loads(state_path.read_text(encoding="utf-8"))
     state["current_stage"] = "delivery"
     state["stages"] = {"delivery": {"status": "done"}}
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    version = vertical_completion_contract_version(load_vertical("software", project_root=project))
+    state["stages"]["delivery"].update(
+        {
+            "completion_contract_version": version,
+            "completion_contract_sha256": completion_contract_fingerprint(
+                project,
+                "delivery",
+                version=version,
+            ),
+        }
+    )
     state_path.write_text(json.dumps(state), encoding="utf-8")
     supervisor._vertical_resolved = True
     supervisor._current_pipeline_stage = lambda: "done"  # type: ignore[method-assign]
     return supervisor
 
 
-def test_restart_ignores_agent_bookkeeping_without_another_planner_call(
+def test_restart_continues_standing_objective_after_agent_bookkeeping(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -84,8 +105,8 @@ def test_restart_ignores_agent_bookkeeping_without_another_planner_call(
     ignored_review.write_text("dependency metadata\n", encoding="utf-8")
 
     restarted = _supervisor(project, life)
-    assert restarted._plan_next_work() == PLAN_TERMINAL_IDLE
-    assert calls == 1
+    assert restarted._plan_next_work() == PLAN_RETRY
+    assert calls == 2
 
 
 def test_tracked_source_change_invalidates_terminal_signature(tmp_path: Path) -> None:

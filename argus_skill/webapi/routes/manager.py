@@ -200,6 +200,8 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
                     if view == "ui" and not server_mod._event_visible_in_web_ui(ev):
                         continue
                     await ws.send_json(ev)
+        except asyncio.CancelledError:
+            return
         except WebSocketDisconnect:
             return
         except Exception:  # noqa: BLE001 — a stream error must not crash the server

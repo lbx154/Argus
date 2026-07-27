@@ -36,13 +36,15 @@ def test_runtime_resolves_direct_workflow(tmp_path) -> None:
 
 def test_manager_can_commit_software_with_direct_workflow(tmp_path) -> None:
     class _Result:
-        last_agent_message = json.dumps({
-            "choice": "existing",
-            "vertical": "software",
-            "workflow_mode": "direct",
-            "confidence": 0.95,
-            "execution_task": "创作一篇《秋江赋》，语言典雅但可读。",
-        })
+        last_agent_message = json.dumps(
+            {
+                "choice": "existing",
+                "vertical": "software",
+                "workflow_mode": "direct",
+                "confidence": 0.95,
+                "execution_task": "创作一篇《秋江赋》，语言典雅但可读。",
+            }
+        )
         agent_messages = [last_agent_message]
         thread_id = "manager-direct"
 
@@ -66,7 +68,7 @@ def test_manager_prompt_separates_capability_from_execution_mode() -> None:
         verticals_with_purpose=VERTICAL_PURPOSES,
     )
 
-    assert "`vertical` is the capability/domain" in prompt
+    assert "`vertical` is the workflow/capability" in prompt
     assert "workflow_mode=direct" in prompt
     assert "expand the task" in prompt
     assert "execution_task" not in prompt

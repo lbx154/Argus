@@ -4,6 +4,7 @@ Provenance: most types here are vendored or adapted from
 ``ArgusBot/agent_cli/models.py``. Trimmed to what argus-skill actually
 uses (no planner snapshots — argus-skill is reviewer-only for v0.1).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -56,6 +57,7 @@ class RunnerOptions:
     (e.g. ``AgentCliBackend``); ``MemoryBackend`` and other
     deterministic backends ignore them.
     """
+
     model: str | None = None
     reasoning_effort: str | None = None
     output_schema_path: str | None = None
@@ -117,6 +119,7 @@ class RunnerResult:
     A slim version of ArgusBot's AgentRunResult — we keep only the parts
     the loop / reviewer / parsers actually look at.
     """
+
     exit_code: int
     agent_messages: list[str] = field(default_factory=list)
     stdout_lines: list[str] = field(default_factory=list)
@@ -188,6 +191,11 @@ class ReviewDecision:
     reason: str
     next_action: str
     operator_question: str = ""
+    # Read-only compatibility for Reviewer verdicts already in flight against
+    # the retired JSON schema. New prompts do not request skill_ops; when an old
+    # verdict supplies them, the opt-in legacy replay path may still apply them.
+    skill_ops: list[dict[str, Any]] = field(default_factory=list)
+    wiki_ops: list[dict[str, Any]] = field(default_factory=list)
     review_source: str = "reviewer"
     prompt_block_stats: dict[str, dict[str, int]] = field(default_factory=dict)
     input_tokens: int = 0
@@ -239,6 +247,7 @@ class ReviewDecision:
 @dataclass
 class RoundRecord:
     """A snapshot of one engineer round + reviewer verdict."""
+
     round_index: int
     engineer_message: str
     engineer_exit_code: int
@@ -255,6 +264,7 @@ class LoopOutcome:
     caller can render a report, persist a decision log, or write the
     successful trajectory back into the skill store.
     """
+
     status: LoopStatus
     rounds: list[RoundRecord]
     skill_used: str | None

@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 from argus_skill.life.memory import BacklogItem, LifeMemory
-from argus_skill.webapi import manager_bridge
+from argus_skill.webapi import manager_bridge, manager_state
 
 
 def _make_project(root: Path, sid: str = "s-rot00001") -> Path:
@@ -27,6 +27,37 @@ def _make_project(root: Path, sid: str = "s-rot00001") -> Path:
         encoding="utf-8",
     )
     return life
+
+
+def test_manager_prewarm_schedule_is_one_shot_after_success(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    manager_bridge._STATES.clear()
+    manager_bridge._MANAGER_PREWARMING.clear()
+    calls: list[tuple[str, Path | None]] = []
+
+    def fake_prewarm(sid: str, *, global_root=None) -> None:
+        calls.append((sid, Path(global_root) if global_root is not None else None))
+        manager_bridge._STATES.setdefault(sid, {})["_manager_acp_prewarmed"] = True
+
+    class InlineThread:
+        def __init__(self, *, target, name: str, daemon: bool) -> None:  # noqa: ANN001
+            self.target = target
+            self.name = name
+            self.daemon = daemon
+
+        def start(self) -> None:
+            self.target()
+
+    monkeypatch.setattr(manager_state, "_prewarm_manager_context", fake_prewarm)
+    monkeypatch.setattr(manager_state.threading, "Thread", InlineThread)
+
+    manager_state.schedule_manager_prewarm("s-prewarm01", global_root=tmp_path)
+    manager_state.schedule_manager_prewarm("s-prewarm01", global_root=tmp_path)
+
+    assert calls == [("s-prewarm01", tmp_path)]
+    assert manager_bridge._MANAGER_PREWARMING == set()
 
 
 def test_manager_session_rotates_with_structured_handoff(tmp_path: Path, monkeypatch) -> None:

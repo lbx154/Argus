@@ -117,7 +117,10 @@ export function useProjectFeed(api: ApiClient, project: string): ProjectFeedStat
 
   useEffect(() => {
     let alive = true;
+    let snapshotInFlight = false;
     const tick = async () => {
+      if (snapshotInFlight) return;
+      snapshotInFlight = true;
       try {
         const s = await api.snapshot();
         if (alive) {
@@ -130,6 +133,8 @@ export function useProjectFeed(api: ApiClient, project: string): ProjectFeedStat
         }
       } catch (error) {
         if (alive) setSnapshotError((error as Error).message || 'snapshot refresh failed');
+      } finally {
+        snapshotInFlight = false;
       }
     };
     tick();

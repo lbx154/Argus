@@ -1,4 +1,5 @@
 """Tests for the Paper-Type classifier gate (consumes upstream gate results)."""
+
 from __future__ import annotations
 
 import json
@@ -11,7 +12,8 @@ from argus_skill.verticals.physics.gates import paper_type as pt
 def _gate_result(root: Path, prefix: str, passed: bool) -> None:
     (root / "research").mkdir(parents=True, exist_ok=True)
     (root / "research" / f"{prefix}_RESULT.json").write_text(
-        json.dumps({"passed": passed}), encoding="utf-8")
+        json.dumps({"passed": passed}), encoding="utf-8"
+    )
 
 
 def _classifier(root: Path, **over: str) -> None:
@@ -81,7 +83,9 @@ def test_lower_type_passes_without_gates(tmp_path: Path) -> None:
 
 
 def test_advisory_cli_and_banner(tmp_path: Path) -> None:
-    (tmp_path / "research").mkdir(parents=True, exist_ok=True)  # missing classifier -> PT-000 blocker
+    (tmp_path / "research").mkdir(
+        parents=True, exist_ok=True
+    )  # missing classifier -> PT-000 blocker
     assert pt.main(["check", "--project-root", str(tmp_path), "--advisory"]) == 0
     assert pt.main(["check", "--project-root", str(tmp_path)]) == 1
     banner = stages.role_banner("reviewer", project_root=tmp_path)
@@ -89,5 +93,7 @@ def test_advisory_cli_and_banner(tmp_path: Path) -> None:
 
 
 def test_review_stage_check_includes_paper_type() -> None:
-    cmds = [cmd for _d, cmd in stages.STAGE_CHECKS["review"]]
-    assert any("gates.paper_type" in c and "--advisory" in c for c in cmds)
+    assert not hasattr(stages, "STAGE_CHECKS")
+    banner = stages.role_banner("reviewer")
+    assert "gates.paper_type" in banner
+    assert "ADVISORY" in banner

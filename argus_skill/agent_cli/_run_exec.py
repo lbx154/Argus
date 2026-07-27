@@ -41,6 +41,7 @@ from .runner_backend import BACKEND_OPENCODE
 
 _POST_EXIT_PIPE_DRAIN_QUIET_SECONDS = 0.1
 _POST_EXIT_PIPE_DRAIN_MAX_SECONDS = 5.0
+_ORPHAN_GROUP_DETACH_GRACE_SECONDS = 0.5
 
 
 @dataclass
@@ -135,6 +136,16 @@ class RunExecMixin:
             os.name == "nt"
             or process_group_id <= 0
             or not cls._process_group_alive(process_group_id)
+        ):
+            return
+        # A durable child launched through `setsid ... &` is independently
+        # owned, but under scheduler pressure the provider shell can exit just
+        # before the child executes setsid(). Give that child a brief chance to
+        # leave the provider group; genuine leaked descendants remain and are
+        # terminated below.
+        if cls._wait_process_group_exit(
+            process_group_id,
+            _ORPHAN_GROUP_DETACH_GRACE_SECONDS,
         ):
             return
         state.orphan_process_group_id = process_group_id

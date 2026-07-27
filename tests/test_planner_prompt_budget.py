@@ -71,7 +71,7 @@ def test_math_scope_prompt_is_compact_and_deduplicated(
     assert prompt.count("PROJECT_DONE=true|false") == 1
     assert "not a routing command" in prompt
     assert "Integrity and reproducibility are admission constraints" in prompt
-    assert "do not delegate the implementation" in prompt
+    assert "delegate implementation to Engineer" in prompt
     assert "JSON matching the provided schema" not in prompt
 
 
@@ -81,7 +81,7 @@ def test_math_scope_prompt_excludes_unrelated_modules(
 ) -> None:
     prompt, _objective = _build_math_scope_prompt(tmp_path, monkeypatch)
 
-    assert "## Planner direct-execution contract" in prompt
+    assert "## Planner read-only delegation contract" in prompt
     assert "## Stage checklist (scope)" in prompt
     assert "## Stage gate" in prompt
     assert "## Parallel paper-drafting track" not in prompt

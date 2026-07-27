@@ -49,19 +49,7 @@ def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
         offset: int = Query(0, ge=0),
         query: str = Query("", max_length=200),
     ) -> dict[str, Any]:
-        entries: list[dict[str, Any]] = []
-        for index, root in enumerate(ctx.roots):
-            for entry in server_mod.list_trashed_projects(global_root=root):
-                entries.append(
-                    {
-                        **entry,
-                        "trash_id": f"{index}:{entry['trash_path']}",
-                    }
-                )
-        entries.sort(
-            key=lambda entry: float(entry.get("trashed_at") or 0.0),
-            reverse=True,
-        )
+        entries = ctx.machine_trash()
         needle = query.strip().casefold()
         if needle:
             entries = [
@@ -191,22 +179,30 @@ def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
         events_limit: int = Query(80, ge=1, le=500),
         compact: bool = Query(False),
     ) -> dict[str, Any]:
-        if compact:
-            try:
-                from ..manager_bridge import schedule_manager_prewarm
+        root = ctx.project_root_or_404(sid)
 
-                schedule_manager_prewarm(
-                    sid,
-                    global_root=ctx.project_root_or_404(sid),
-                )
-            except Exception:  # noqa: BLE001 - snapshot must remain read-available
-                pass
-        return ctx.not_found_if_none(
-            server_mod.build_snapshot(
+        def _build_snapshot() -> dict[str, Any] | None:
+            if compact:
+                try:
+                    from ..manager_bridge import schedule_manager_prewarm
+
+                    schedule_manager_prewarm(
+                        sid,
+                        global_root=root,
+                    )
+                except Exception:  # noqa: BLE001 - snapshot must remain read-available
+                    pass
+            return server_mod.build_snapshot(
                 sid,
-                global_root=ctx.project_root_or_404(sid),
+                global_root=root,
                 events_limit=events_limit,
                 compact=compact,
+            )
+
+        return ctx.not_found_if_none(
+            ctx.snapshot_cache.get(
+                ("project_snapshot", sid, events_limit, compact),
+                _build_snapshot,
             ),
             sid,
         )

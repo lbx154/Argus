@@ -724,6 +724,7 @@ export function App({
               view={missionView}
               width={terminal.columns}
               height={terminal.rows}
+              busy={pending}
               spentUsd={snap?.global_spend_usd}
               spendStatus={snap?.global_spend_status}
               globalDailyCapUsd={snap?.daemon.global_daily_cap_usd}

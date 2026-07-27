@@ -106,42 +106,70 @@ list_project_artifacts = artifacts.list_project_artifacts
 
 __all__ = [
     "DaemonStatus",
-    "create_app", "serve", "project_life_dir", "build_snapshot", "list_projects",
+    "create_app",
+    "serve",
+    "project_life_dir",
+    "build_snapshot",
+    "list_projects",
     "list_project_costs",
-    "enqueue_task", "enqueue_nudge", "answer_pending_question",
-    "start_project_daemon", "stop_project_daemon",
-    "replace_project_daemon", "list_running_daemons",
-    "update_project", "delete_project", "list_trashed_projects",
-    "restore_trashed_project", "upgrade_project_daemon",
+    "enqueue_task",
+    "enqueue_nudge",
+    "answer_pending_question",
+    "start_project_daemon",
+    "stop_project_daemon",
+    "replace_project_daemon",
+    "list_running_daemons",
+    "update_project",
+    "delete_project",
+    "list_trashed_projects",
+    "restore_trashed_project",
+    "upgrade_project_daemon",
     "schedule_project_daemon_upgrade",
     "set_project_workdir",
-    "set_continuous", "get_status", "get_journal", "add_project_note",
-    "abort_project_mission", "dispose_backlog", "stop_backlog_iteration",
-    "get_doctor", "get_config",
-    "get_identity", "get_transcript",
+    "set_continuous",
+    "get_status",
+    "get_journal",
+    "add_project_note",
+    "abort_project_mission",
+    "dispose_backlog",
+    "stop_backlog_iteration",
+    "get_doctor",
+    "get_config",
+    "get_identity",
+    "get_transcript",
     "get_backlog_item",
-    "set_operator_config", "set_identity", "run_skill_command",
-    "list_project_artifacts", "get_project_artifact",
+    "set_operator_config",
+    "set_identity",
+    "run_skill_command",
+    "list_project_artifacts",
+    "get_project_artifact",
 ]
 
 EVENT_FILE = "events.jsonl"
-_WEB_UI_DROPPED_EVENT_TYPES = frozenset({
-    EventType.AGENT_IO_START,
-    EventType.AGENT_IO_STREAM,
-    EventType.AGENT_IO_COMPLETE,
-    EventType.USAGE_RECORDED,
-    EventType.CODEX_UTIL_COMPLETED,
-    EventType.SKILL_COST_COMPLETED,
-    EventType.BUDGET_RESERVATION_CREATED,
-    EventType.BUDGET_RESERVATION_SETTLED,
-    EventType.BUDGET_RESERVATION_RELEASED,
-})
+_WEB_UI_DROPPED_EVENT_TYPES = frozenset(
+    {
+        EventType.AGENT_IO_START,
+        EventType.AGENT_IO_STREAM,
+        EventType.AGENT_IO_COMPLETE,
+        EventType.USAGE_RECORDED,
+        EventType.CODEX_UTIL_COMPLETED,
+        EventType.SKILL_COST_COMPLETED,
+        EventType.BUDGET_RESERVATION_CREATED,
+        EventType.BUDGET_RESERVATION_SETTLED,
+        EventType.BUDGET_RESERVATION_RELEASED,
+    }
+)
 
 
 def _event_visible_in_web_ui(event: dict[str, Any]) -> bool:
     if event.get("operator_alert") is True:
         return True
     return canonical_event_type(event.get("type")) not in _WEB_UI_DROPPED_EVENT_TYPES
+
+
+# HTTP methods that cannot change the project index, so they leave the
+# coalescing cache alone. Everything else invalidates it once it succeeds.
+_INDEX_CACHE_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
 def _web_cache_control(path: str) -> str:
@@ -158,18 +186,21 @@ def _command_response(receipt: DaemonCommandReceipt) -> dict[str, Any]:
     if receipt.status in {"failed", "rejected"}:
         result.setdefault("rc", 3)
         result.setdefault("error", receipt.error)
-    result.update({
-        "command_id": receipt.command_id,
-        "command_status": receipt.status,
-        "command_revision": receipt.revision,
-        "command": receipt.to_jsonable(),
-    })
+    result.update(
+        {
+            "command_id": receipt.command_id,
+            "command_status": receipt.status,
+            "command_revision": receipt.revision,
+            "command": receipt.to_jsonable(),
+        }
+    )
     return result
 
 
 # ---------------------------------------------------------------------------
 # Pure helpers (no FastAPI import — unit-testable without the [web] extra)
 # ---------------------------------------------------------------------------
+
 
 def _manager_stream_heartbeat_seconds() -> float:
     """Silence interval before SSE reports that it is awaiting a model event.
@@ -293,10 +324,7 @@ def _hides_inner_monologue() -> bool:
 
 
 def _is_inner_monologue(event: object) -> bool:
-    return (
-        isinstance(event, dict)
-        and str(event.get("kind") or "").strip() == "reasoning"
-    )
+    return isinstance(event, dict) and str(event.get("kind") or "").strip() == "reasoning"
 
 
 async def tail_events(
@@ -375,6 +403,7 @@ async def tail_events(
 # ---------------------------------------------------------------------------
 # FastAPI app (imports the [web] extra lazily)
 # ---------------------------------------------------------------------------
+
 
 def create_app(
     *,
@@ -457,6 +486,13 @@ def create_app(
         cache_control = _web_cache_control(request.url.path)
         if cache_control:
             response.headers["Cache-Control"] = cache_control
+        if request.method not in _INDEX_CACHE_SAFE_METHODS and response.status_code < 400:
+            # A rename/delete/restore (and anything else that moves a session's
+            # last_active) must not be hidden behind the coalescing TTL, or the
+            # very next poll shows the pre-mutation index and the operator reads
+            # it as "my change did not take". Keyed off the HTTP method rather
+            # than a list of routes so a future mutating endpoint cannot forget.
+            ctx.invalidate_read_caches()
         return response
 
     @app.on_event("startup")
@@ -479,8 +515,10 @@ def create_app(
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
-            "http://localhost:5173", "http://127.0.0.1:5173",
-            "http://localhost:8799", "http://127.0.0.1:8799",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:8799",
+            "http://127.0.0.1:8799",
         ],
         allow_methods=["*"],
         allow_headers=["*"],
@@ -502,6 +540,7 @@ def create_app(
         api_meta=api_meta,
         list_projects=list_projects,
         list_project_costs=list_project_costs,
+        list_trashed_projects=list_trashed_projects,
         project_life_dir=project_life_dir,
     )
 
@@ -552,6 +591,8 @@ def serve(
 
     uvicorn.run(
         create_app(global_root=global_root, auth_token=auth_token),
-        host=host, port=port, log_level="info",
+        host=host,
+        port=port,
+        log_level="info",
     )
     return 0

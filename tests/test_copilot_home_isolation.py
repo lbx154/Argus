@@ -7,9 +7,9 @@ continuously, so with the default every daemon writes there. Measured on the
 host this was found: 46,220 session directories and 47 GB in the operator's
 home, growing ~115/hour, against 10 in the Argus-owned one.
 
-The relocation is safe because the CLI does not keep credentials under
-``COPILOT_HOME`` — verified by running it against an empty directory, which
-authenticated and wrote its session there instead of into ``~/.copilot``.
+Current CLI releases keep authentication fields in ``config.json`` under
+``COPILOT_HOME``. Argus mirrors only those fields into its isolated home; it
+must not copy unrelated operator state or expose token values in diagnostics.
 
 These tests pin the fix and the two ways it must stay out of the way: it applies
 to Copilot only, and an explicitly chosen home always wins.
@@ -17,6 +17,7 @@ to Copilot only, and an explicitly chosen home always wins.
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from pathlib import Path
@@ -25,11 +26,11 @@ from types import SimpleNamespace
 import pytest
 
 from argus_skill.agent_cli.copilot_home import (
-    prune_copilot_sessions,
     COPILOT_HOME_ENV,
     apply_copilot_home,
     argus_copilot_home,
     prepare_copilot_home,
+    prune_copilot_sessions,
 )
 
 
@@ -75,6 +76,61 @@ def test_seeding_never_overwrites_what_is_already_there(tmp_path: Path) -> None:
     prepare_copilot_home(env)
 
     assert home.joinpath("config.json").read_text(encoding="utf-8") == '{"argus":true}'
+
+
+def _managed_config(path: Path) -> dict:
+    payload = "\n".join(
+        line for line in path.read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("//")
+    )
+    return json.loads(payload)
+
+
+def test_auth_fields_refresh_without_overwriting_argus_state(tmp_path: Path) -> None:
+    env = _argus_env(tmp_path)
+    personal = Path(env["HOME"]) / ".copilot"
+    personal.joinpath("config.json").write_text(
+        '// managed\n{"copilotTokens":{"github.com":"fresh"},'
+        '"loggedInUsers":[{"login":"operator"}],'
+        '"lastLoggedInUser":{"login":"operator"},'
+        '"trustedFolders":["/operator-only"]}',
+        encoding="utf-8",
+    )
+    home = argus_copilot_home(env)
+    home.mkdir(parents=True)
+    home.joinpath("config.json").write_text(
+        '{"argusOnly":"keep","copilotTokens":{"github.com":"stale"}}',
+        encoding="utf-8",
+    )
+
+    prepare_copilot_home(env)
+
+    config = _managed_config(home / "config.json")
+    assert config["argusOnly"] == "keep"
+    assert config["copilotTokens"] == {"github.com": "fresh"}
+    assert config["loggedInUsers"] == [{"login": "operator"}]
+    assert config["lastLoggedInUser"] == {"login": "operator"}
+    assert "trustedFolders" not in config
+    assert (home / "config.json").stat().st_mode & 0o777 == 0o600
+
+
+def test_operator_logout_removes_stale_isolated_auth(tmp_path: Path) -> None:
+    env = _argus_env(tmp_path)
+    personal = Path(env["HOME"]) / ".copilot"
+    personal.joinpath("config.json").write_text('{"firstLaunchAt":"now"}', encoding="utf-8")
+    home = argus_copilot_home(env)
+    home.mkdir(parents=True)
+    home.joinpath("config.json").write_text(
+        '{"argusOnly":true,"copilotTokens":{"github.com":"stale"},'
+        '"loggedInUsers":[{"login":"old"}],'
+        '"lastLoggedInUser":{"login":"old"}}',
+        encoding="utf-8",
+    )
+
+    prepare_copilot_home(env)
+
+    config = _managed_config(home / "config.json")
+    assert config == {"argusOnly": True}
 
 
 def test_an_explicitly_chosen_home_always_wins(tmp_path: Path) -> None:

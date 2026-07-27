@@ -48,8 +48,13 @@ _SPEND_CACHE_LOCK = threading.Lock()
 _METRICS_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _METRICS_CACHE_LOCK = threading.Lock()
 _METRICS_CACHE_TTL_SECONDS = 60.0
-_COST_CONTROL_CACHE: dict[str, dict[str, Any]] = {}
+_HOST_SNAPSHOT_CACHE_TTL_SECONDS = 60.0
+_COST_CONTROL_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _COST_CONTROL_CACHE_LOCK = threading.Lock()
+_GLOBAL_USAGE_CACHE: dict[str, tuple[float, UsageSummary]] = {}
+_GLOBAL_USAGE_CACHE_LOCK = threading.Lock()
+_HOST_REFRESHING: set[str] = set()
+_HOST_REFRESHING_LOCK = threading.Lock()
 
 
 def project_usage_summary(project_root: Path | str) -> UsageSummary:
@@ -70,9 +75,7 @@ def resolve_global_root(value: Path | str | None) -> Path:
 
 def daemon_upgrade_pending(life_dir: Path) -> bool:
     try:
-        payload = json.loads(
-            (life_dir / DAEMON_UPGRADE_REQUEST_FILE).read_text(encoding="utf-8")
-        )
+        payload = json.loads((life_dir / DAEMON_UPGRADE_REQUEST_FILE).read_text(encoding="utf-8"))
     except (FileNotFoundError, OSError, json.JSONDecodeError):
         return False
     if not isinstance(payload, dict) or payload.get("schema_version") != 1:
@@ -115,9 +118,74 @@ def _cached_metrics_snapshot(
     return value
 
 
-def _cached_cost_control_snapshot(root: Path) -> dict[str, Any]:
-    """Keep transient writer contention out of the operator health surface."""
+def _store_cost_control_cache(key: str, value: dict[str, Any]) -> None:
+    with _COST_CONTROL_CACHE_LOCK:
+        _COST_CONTROL_CACHE[key] = (
+            time.monotonic() + _HOST_SNAPSHOT_CACHE_TTL_SECONDS,
+            value,
+        )
+
+
+def _store_global_usage_cache(key: str, value: UsageSummary) -> None:
+    with _GLOBAL_USAGE_CACHE_LOCK:
+        _GLOBAL_USAGE_CACHE[key] = (
+            time.monotonic() + _HOST_SNAPSHOT_CACHE_TTL_SECONDS,
+            value,
+        )
+
+
+def _schedule_host_projection_refresh(root: Path) -> None:
+    """Refresh both expensive host projections once, outside request threads."""
     key = str(root.resolve())
+    with _HOST_REFRESHING_LOCK:
+        if key in _HOST_REFRESHING:
+            return
+        _HOST_REFRESHING.add(key)
+
+    def _refresh() -> None:
+        try:
+            try:
+                _store_cost_control_cache(
+                    key,
+                    cost_control_snapshot(global_root=root),
+                )
+            except Exception:  # noqa: BLE001 - stale UI data remains usable
+                pass
+            try:
+                from ..life.supervisor import global_daily_usage_summary
+
+                _store_global_usage_cache(
+                    key,
+                    global_daily_usage_summary(global_root=root),
+                )
+            except Exception:  # noqa: BLE001 - stale UI data remains usable
+                pass
+        finally:
+            with _HOST_REFRESHING_LOCK:
+                _HOST_REFRESHING.discard(key)
+
+    threading.Thread(
+        target=_refresh,
+        name="argus-web-host-snapshot-refresh",
+        daemon=True,
+    ).start()
+
+
+def _cached_cost_control_snapshot(
+    root: Path,
+    *,
+    nonblocking: bool = False,
+) -> dict[str, Any] | None:
+    """Reuse the expensive host ledger projection for the operator UI."""
+    key = str(root.resolve())
+    now = time.monotonic()
+    with _COST_CONTROL_CACHE_LOCK:
+        cached = _COST_CONTROL_CACHE.get(key)
+        if cached is not None and cached[0] > now:
+            return cached[1]
+    if nonblocking:
+        _schedule_host_projection_refresh(root)
+        return {**cached[1], "snapshot_stale": True} if cached is not None else None
     try:
         value = cost_control_snapshot(global_root=root)
     except CostControlLockBusyError:
@@ -125,9 +193,30 @@ def _cached_cost_control_snapshot(root: Path) -> dict[str, Any]:
             cached = _COST_CONTROL_CACHE.get(key)
         if cached is None:
             raise
-        return {**cached, "snapshot_stale": True}
-    with _COST_CONTROL_CACHE_LOCK:
-        _COST_CONTROL_CACHE[key] = value
+        return {**cached[1], "snapshot_stale": True}
+    _store_cost_control_cache(key, value)
+    return value
+
+
+def _cached_global_daily_usage_summary(
+    root: Path,
+    *,
+    nonblocking: bool = False,
+) -> UsageSummary:
+    """Reuse the all-project daily ledger roll-up across snapshot keys/SIDs."""
+    key = str(root.resolve())
+    now = time.monotonic()
+    with _GLOBAL_USAGE_CACHE_LOCK:
+        cached = _GLOBAL_USAGE_CACHE.get(key)
+        if cached is not None and cached[0] > now:
+            return cached[1]
+    if nonblocking:
+        _schedule_host_projection_refresh(root)
+        return cached[1] if cached is not None else _empty_usage_summary()
+    from ..life.supervisor import global_daily_usage_summary
+
+    value = global_daily_usage_summary(global_root=root)
+    _store_global_usage_cache(key, value)
     return value
 
 
@@ -209,17 +298,19 @@ def roles_list(
     out: list[dict[str, Any]] = []
     for config in configs:
         activity = activities.get(config.role)
-        out.append({
-            "role": config.role,
-            "backend": config.backend,
-            "backend_label": config.backend_label,
-            "model": config.model,
-            "effort": config.effort,
-            "active": bool(activity.active) if activity else False,
-            "label": activity.label if activity else "idle",
-            "status": activity.status if activity else "idle",
-            "age_s": activity.age_s if activity else None,
-        })
+        out.append(
+            {
+                "role": config.role,
+                "backend": config.backend,
+                "backend_label": config.backend_label,
+                "model": config.model,
+                "effort": config.effort,
+                "active": bool(activity.active) if activity else False,
+                "label": activity.label if activity else "idle",
+                "status": activity.status if activity else "idle",
+                "age_s": activity.age_s if activity else None,
+            }
+        )
     return out
 
 
@@ -390,17 +481,21 @@ def build_snapshot(
         status = read_daemon_status(life_dir)
         daemon = daemon_dict(status)
         if daemon["read_status"] == "error":
-            diagnostics.append({
-                "section": "daemon",
-                "error_type": "StatusReadError",
-                "message": str(daemon["read_error"]),
-            })
+            diagnostics.append(
+                {
+                    "section": "daemon",
+                    "error_type": "StatusReadError",
+                    "message": str(daemon["read_error"]),
+                }
+            )
         if daemon["protocol_compatible"] is False:
-            diagnostics.append({
-                "section": "daemon_protocol",
-                "error_type": "ProtocolMismatch",
-                "message": str(daemon["protocol_error"]),
-            })
+            diagnostics.append(
+                {
+                    "section": "daemon_protocol",
+                    "error_type": "ProtocolMismatch",
+                    "message": str(daemon["protocol_error"]),
+                }
+            )
     except Exception as exc:  # noqa: BLE001 - return explicit partial state
         daemon = daemon_error_dict(exc)
         diagnostics.append(diagnostic("daemon", exc))
@@ -417,9 +512,7 @@ def build_snapshot(
     )
     if engineer and engineer.get("backend"):
         daemon["backend"] = engineer["backend"]
-        daemon["backend_label"] = (
-            engineer.get("backend_label") or daemon.get("backend")
-        )
+        daemon["backend_label"] = engineer.get("backend_label") or daemon.get("backend")
 
     items: list[Any] = []
     try:
@@ -482,15 +575,13 @@ def build_snapshot(
         diagnostics.append(diagnostic("request_usage", exc))
 
     try:
-        cost_control = _cached_cost_control_snapshot(root)
+        cost_control = _cached_cost_control_snapshot(root, nonblocking=compact)
     except Exception as exc:  # noqa: BLE001
         cost_control = None
         diagnostics.append(diagnostic("cost_control", exc))
 
     try:
-        from ..life.supervisor import global_daily_usage_summary
-
-        global_spend = global_daily_usage_summary(global_root=root)
+        global_spend = _cached_global_daily_usage_summary(root, nonblocking=compact)
     except Exception as exc:  # noqa: BLE001
         global_spend = _empty_usage_summary()
         diagnostics.append(diagnostic("global_usage", exc))
@@ -536,9 +627,7 @@ def build_snapshot(
     if compact:
         snapshot["continuous"] = continuous_payload
         snapshot["pending_questions"] = [
-            compact_backlog_item(item)
-            for item in items
-            if getattr(item, "pending_question", "")
+            compact_backlog_item(item) for item in items if getattr(item, "pending_question", "")
         ]
     snapshot["partial"] = bool(diagnostics)
     snapshot["diagnostics"] = diagnostics
@@ -621,15 +710,17 @@ def list_project_costs(
             updated_at = (life_dir / "usage.jsonl").stat().st_mtime
         except OSError:
             updated_at = 0.0
-        out.append({
-            "id": meta.id,
-            "spend_usd": spend.cost_usd,
-            "known_cost_usd": spend.known_cost_usd,
-            "spend_status": spend.pricing_status,
-            "usage_calls": spend.call_count,
-            "premium_requests": spend.premium_requests,
-            "updated_at": updated_at,
-        })
+        out.append(
+            {
+                "id": meta.id,
+                "spend_usd": spend.cost_usd,
+                "known_cost_usd": spend.known_cost_usd,
+                "spend_status": spend.pricing_status,
+                "usage_calls": spend.call_count,
+                "premium_requests": spend.premium_requests,
+                "updated_at": updated_at,
+            }
+        )
         if limit and len(out) >= limit:
             break
     return out

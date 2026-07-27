@@ -54,6 +54,7 @@ export function MissionCockpit({
   view,
   width,
   height,
+  busy = false,
   spentUsd,
   spendStatus,
   globalDailyCapUsd,
@@ -62,6 +63,8 @@ export function MissionCockpit({
   view: MissionView;
   width: number;
   height?: number;
+  /** Keep the live Ink frame short while a Manager turn is animating. */
+  busy?: boolean;
   spentUsd?: number | null;
   spendStatus?: string;
   globalDailyCapUsd?: number | null;
@@ -82,6 +85,31 @@ export function MissionCockpit({
   const round = view.round.max > 0 ? `${view.round.current} / ${view.round.max}` : view.round.current ? String(view.round.current) : '—';
   const outcome = outcomeDimensionSummary(view.outcome);
   const compactHeight = height != null && height < 26;
+
+  // Ink clears and repaints the whole terminal whenever the live frame reaches
+  // stdout.rows. A Manager turn adds up to nine animated rows below the
+  // cockpit, so retain the mission context in two lines instead of letting the
+  // combined frame cross that threshold and yank scrollback to the top.
+  if (busy) {
+    const activeRoles = ROLE_ORDER
+      .map((name) => roleByName.get(name))
+      .filter((role) => role && role.status === 'active')
+      .map((role) => cap(role!.role));
+    return (
+      <Box flexDirection="column" marginTop={1}>
+        <Text wrap="truncate-end">
+          <Text dimColor>MISSION </Text>
+          <Text bold>{compact(mission, Math.max(18, width - 10))}</Text>
+        </Text>
+        <Text wrap="truncate-end">
+          <Text dimColor>STAGE </Text>
+          <Text color={theme.info}>{compact(stage, 20)}</Text>
+          <Text dimColor>{` · ROUND ${round} · TEAM `}</Text>
+          <Text>{activeRoles.length ? activeRoles.join(', ') : 'Manager'}</Text>
+        </Text>
+      </Box>
+    );
+  }
 
   if (compactHeight) {
     const latest = timeline[timeline.length - 1];

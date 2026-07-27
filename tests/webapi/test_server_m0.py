@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import time
 from pathlib import Path
 
@@ -129,26 +130,28 @@ def test_project_cost_feed_reports_call_ledger_spend(tmp_path: Path) -> None:
             cwd=str(life_dir),
         ),
     )
-    UsageLedger(life_dir, migrate_legacy=False).append(UsageRecord(
-        call_id="cost-call-1",
-        project_id=sid,
-        mission_id="mission-1",
-        provider="copilot",
-        model="gpt-5.6-sol",
-        run_label="engineer-r1",
-        started_at=10,
-        completed_at=11,
-        status="completed",
-        input_tokens=100,
-        cached_input_tokens=0,
-        output_tokens=20,
-        reasoning_output_tokens=5,
-        premium_requests=1.0,
-        pricing_status="priced",
-        pricing_tier="copilot_token",
-        cost_usd=0.125,
-        cost_basis="token",
-    ))
+    UsageLedger(life_dir, migrate_legacy=False).append(
+        UsageRecord(
+            call_id="cost-call-1",
+            project_id=sid,
+            mission_id="mission-1",
+            provider="copilot",
+            model="gpt-5.6-sol",
+            run_label="engineer-r1",
+            started_at=10,
+            completed_at=11,
+            status="completed",
+            input_tokens=100,
+            cached_input_tokens=0,
+            output_tokens=20,
+            reasoning_output_tokens=5,
+            premium_requests=1.0,
+            pricing_status="priced",
+            pricing_tier="copilot_token",
+            cost_usd=0.125,
+            cost_basis="token",
+        )
+    )
 
     client = TestClient(server.create_app(global_root=tmp_path))
     response = client.get("/api/projects/costs")
@@ -167,20 +170,33 @@ def _make_project(root: Path, sid: str = "s-testaaaa") -> Path:
     life = root / "projects" / sid
     life.mkdir(parents=True)
     (life / "events.jsonl").write_text(
-        json.dumps({"type": "mission.started", "text": "hi", "ts": time.time()}) + "\n"
-        + json.dumps({"type": "round.review.completed", "status": "done",
-                      "reason": "ok", "ts": time.time()}) + "\n",
+        json.dumps({"type": "mission.started", "text": "hi", "ts": time.time()})
+        + "\n"
+        + json.dumps(
+            {"type": "round.review.completed", "status": "done", "reason": "ok", "ts": time.time()}
+        )
+        + "\n",
         encoding="utf-8",
     )
     (life / "backlog.jsonl").write_text(
-        json.dumps({"id": "abc123", "title": "do X", "objective": "do X fully",
-                    "status": "pending", "priority": 100, "ts": time.time()}) + "\n",
+        json.dumps(
+            {
+                "id": "abc123",
+                "title": "do X",
+                "objective": "do X fully",
+                "status": "pending",
+                "priority": 100,
+                "ts": time.time(),
+            }
+        )
+        + "\n",
         encoding="utf-8",
     )
     return life
 
 
 # ── pure helpers (no HTTP) ────────────────────────────────────────────────
+
 
 def test_project_life_dir_resolves_and_guards(tmp_path: Path) -> None:
     life = _make_project(tmp_path)
@@ -210,6 +226,7 @@ def test_snapshot_reuses_cost_control_cache_during_transient_lock_contention(
         raise CostControlLockBusyError("busy")
 
     project_state._COST_CONTROL_CACHE.clear()
+    monkeypatch.setattr(project_state, "_HOST_SNAPSHOT_CACHE_TTL_SECONDS", 0.0)
     monkeypatch.setattr(project_state, "cost_control_snapshot", snapshot)
 
     first = project_state.build_snapshot("s-testaaaa", global_root=tmp_path)
@@ -219,6 +236,90 @@ def test_snapshot_reuses_cost_control_cache_during_transient_lock_contention(
     assert second is not None
     assert second["partial"] is False
     assert second["cost_control"] == {**fresh, "snapshot_stale": True}
+
+
+def test_snapshot_reuses_host_cost_and_usage_across_projects(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _make_project(tmp_path, "s-host-one")
+    _make_project(tmp_path, "s-host-two")
+    calls = {"cost": 0, "usage": 0}
+
+    def cost(*, global_root):
+        calls["cost"] += 1
+        return {"day": "2026-07-27", "active_reservations": 0}
+
+    def usage(*, global_root, now=None):
+        calls["usage"] += 1
+        return project_state._empty_usage_summary()
+
+    import argus_skill.life.supervisor as supervisor_module
+
+    monkeypatch.setattr(project_state, "cost_control_snapshot", cost)
+    monkeypatch.setattr(supervisor_module, "global_daily_usage_summary", usage)
+    with project_state._COST_CONTROL_CACHE_LOCK:
+        project_state._COST_CONTROL_CACHE.clear()
+    with project_state._GLOBAL_USAGE_CACHE_LOCK:
+        project_state._GLOBAL_USAGE_CACHE.clear()
+
+    assert server.build_snapshot("s-host-one", global_root=tmp_path) is not None
+    assert server.build_snapshot("s-host-two", global_root=tmp_path) is not None
+    assert calls == {"cost": 1, "usage": 1}
+
+
+def test_compact_snapshot_refreshes_host_projections_off_request_thread(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _make_project(tmp_path, "s-nonblocking-host")
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_cost(*, global_root):
+        started.set()
+        assert release.wait(timeout=5.0)
+        return {"day": "2026-07-27", "active_reservations": 0}
+
+    def usage(*, global_root, now=None):
+        return project_state._empty_usage_summary()
+
+    import argus_skill.life.supervisor as supervisor_module
+
+    monkeypatch.setattr(project_state, "cost_control_snapshot", slow_cost)
+    monkeypatch.setattr(supervisor_module, "global_daily_usage_summary", usage)
+    with project_state._COST_CONTROL_CACHE_LOCK:
+        project_state._COST_CONTROL_CACHE.clear()
+    with project_state._GLOBAL_USAGE_CACHE_LOCK:
+        project_state._GLOBAL_USAGE_CACHE.clear()
+    with project_state._HOST_REFRESHING_LOCK:
+        project_state._HOST_REFRESHING.clear()
+
+    before = time.monotonic()
+    snap = server.build_snapshot(
+        "s-nonblocking-host",
+        global_root=tmp_path,
+        compact=True,
+    )
+    elapsed = time.monotonic() - before
+
+    try:
+        assert snap is not None
+        assert elapsed < 0.5
+        assert snap["cost_control"] is None
+        assert snap["global_usage_summary"]["call_count"] == 0
+        assert started.wait(timeout=1.0)
+    finally:
+        release.set()
+
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        with project_state._HOST_REFRESHING_LOCK:
+            if not project_state._HOST_REFRESHING:
+                break
+        time.sleep(0.01)
+    with project_state._HOST_REFRESHING_LOCK:
+        assert not project_state._HOST_REFRESHING
 
 
 def test_project_index_and_routes_span_machine_session_roots(
@@ -231,9 +332,7 @@ def test_project_index_and_routes_span_machine_session_roots(
     _make_project(primary, "s-private1")
     machine_life = _make_project(machine, "s-machine1")
     machine_backlog = LifeMemory.open(machine_life).backlog
-    running = machine_backlog.add(
-        BacklogItem.new(title="machine task", objective="work")
-    )
+    running = machine_backlog.add(BacklogItem.new(title="machine task", objective="work"))
     machine_backlog.mark_running(running.id)
     write_session_meta(
         primary,
@@ -274,11 +373,12 @@ def test_project_index_and_routes_span_machine_session_roots(
         json={"name": "Renamed machine session"},
     )
     assert renamed.status_code == 200
-    assert json.loads(
-        (machine / "projects" / "s-machine1" / "session.json").read_text(
-            encoding="utf-8"
-        )
-    )["display_name"] == "Renamed machine session"
+    assert (
+        json.loads(
+            (machine / "projects" / "s-machine1" / "session.json").read_text(encoding="utf-8")
+        )["display_name"]
+        == "Renamed machine session"
+    )
 
     aborted = client.post(
         "/api/projects/s-machine1/mission/abort",
@@ -348,10 +448,7 @@ def test_project_limit_backfills_sessions_shadowed_by_primary_root(
         )
     )
 
-    ids = [
-        project["id"]
-        for project in client.get("/api/projects?limit=2").json()["projects"]
-    ]
+    ids = [project["id"] for project in client.get("/api/projects?limit=2").json()["projects"]]
     assert ids == ["s-unique0", "s-unique1"]
 
 
@@ -369,10 +466,7 @@ def test_isolated_home_does_not_implicitly_include_user_root(
 
     client = TestClient(server.create_app())
 
-    ids = {
-        project["id"]
-        for project in client.get("/api/projects").json()["projects"]
-    }
+    ids = {project["id"] for project in client.get("/api/projects").json()["projects"]}
     assert ids == {"s-isolated"}
 
 
@@ -419,16 +513,16 @@ def test_static_web_assets_are_gzip_compressed(tmp_path: Path) -> None:
 
 
 def test_frontend_protocol_constants_match_backend_contract() -> None:
-    source = (
-        Path(__file__).parents[2] / "frontend" / "core" / "src" / "protocol.ts"
-    ).read_text(encoding="utf-8")
+    source = (Path(__file__).parents[2] / "frontend" / "core" / "src" / "protocol.ts").read_text(
+        encoding="utf-8"
+    )
     assert f"name: '{API_PROTOCOL_NAME}'" in source
     assert f"major: {API_PROTOCOL_MAJOR}" in source
     assert f"minServerMinor: {API_PROTOCOL_MINOR}" in source
     assert f"SNAPSHOT_SCHEMA_VERSION = {SNAPSHOT_SCHEMA_VERSION}" in source
-    capabilities_block = source.split(
-        "REQUIRED_API_CAPABILITIES = [", 1
-    )[1].split("] as const", 1)[0]
+    capabilities_block = source.split("REQUIRED_API_CAPABILITIES = [", 1)[1].split("] as const", 1)[
+        0
+    ]
     assert tuple(re.findall(r"'([^']+)'", capabilities_block)) == API_CAPABILITIES
 
 
@@ -441,11 +535,25 @@ def test_build_snapshot_shape_and_failsoft(
     snap = server.build_snapshot("s-testaaaa", global_root=tmp_path)
     assert snap is not None
     assert set(snap) == {
-        "schema_version", "session", "daemon", "roles", "backlog",
-        "recent_events", "spend_usd", "spend_status", "usage_summary",
-        "global_spend_usd", "global_spend_status", "global_usage_summary",
-        "request_usage", "cost_control", "daemon_commands", "observability",
-        "mission_view", "partial", "diagnostics",
+        "schema_version",
+        "session",
+        "daemon",
+        "roles",
+        "backlog",
+        "recent_events",
+        "spend_usd",
+        "spend_status",
+        "usage_summary",
+        "global_spend_usd",
+        "global_spend_status",
+        "global_usage_summary",
+        "request_usage",
+        "cost_control",
+        "daemon_commands",
+        "observability",
+        "mission_view",
+        "partial",
+        "diagnostics",
     }
     assert snap["schema_version"] == SNAPSHOT_SCHEMA_VERSION
     assert snap["partial"] is False
@@ -549,11 +657,13 @@ def test_build_snapshot_marks_failsoft_sections_partial(
     assert snap["daemon"]["read_status"] == "error"
     assert snap["daemon"]["read_error"] == "status sidecar is unreadable"
     assert "global_daily_cap_usd" in snap["daemon"]
-    assert snap["diagnostics"] == [{
-        "section": "daemon",
-        "error_type": "RuntimeError",
-        "message": "status sidecar is unreadable",
-    }]
+    assert snap["diagnostics"] == [
+        {
+            "section": "daemon",
+            "error_type": "RuntimeError",
+            "message": "status sidecar is unreadable",
+        }
+    ]
 
 
 def test_build_snapshot_marks_running_legacy_daemon_incompatible(
@@ -648,9 +758,7 @@ def test_malformed_daemon_admission_is_visible_in_snapshot_diagnostics(
     assert snap is not None
     assert snap["partial"] is True
     assert snap.get("daemon_admission") is None
-    assert "daemon_admission" in {
-        item["section"] for item in snap["diagnostics"]
-    }
+    assert "daemon_admission" in {item["section"] for item in snap["diagnostics"]}
 
 
 def test_daemon_backend_follows_engineer_role_not_stale_status(tmp_path: Path, monkeypatch) -> None:
@@ -662,8 +770,7 @@ def test_daemon_backend_follows_engineer_role_not_stale_status(tmp_path: Path, m
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "copilot")
     # A stale status.json claiming codex (as a pre-switch daemon would have written).
     (tmp_path / "projects" / "s-becons01" / "daemon.status.json").write_text(
-        json.dumps({"pid": 999999, "backend": "codex",
-                    "started_at_iso": "2020-01-01T00:00:00Z"}),
+        json.dumps({"pid": 999999, "backend": "codex", "started_at_iso": "2020-01-01T00:00:00Z"}),
         encoding="utf-8",
     )
     snap = server.build_snapshot("s-becons01", global_root=tmp_path)
@@ -730,6 +837,7 @@ def test_web_project_index_hides_legacy_internal_dirs(tmp_path: Path) -> None:
 
 # ── REST endpoints (TestClient) ───────────────────────────────────────────
 
+
 @pytest.fixture()
 def client(tmp_path: Path) -> TestClient:
     _make_project(tmp_path)
@@ -778,10 +886,7 @@ def test_web_metrics_use_route_templates_instead_of_project_ids(
     with TestClient(server.create_app(global_root=tmp_path)) as client:
         response = client.get("/api/projects/s-testaaaa/snapshot")
     assert response.status_code == 200
-    rows = [
-        json.loads(line)
-        for line in (tmp_path / "metrics.jsonl").read_text().splitlines()
-    ]
+    rows = [json.loads(line) for line in (tmp_path / "metrics.jsonl").read_text().splitlines()]
     request_metric = next(row for row in rows if row["name"] == "web.request")
     assert request_metric["labels"]["path"] == "/api/projects/{sid}/snapshot"
     assert "s-testaaaa" not in request_metric["labels"]["path"]
@@ -825,16 +930,22 @@ def test_get_events(client: TestClient) -> None:
 
 
 def test_get_events_ui_view_filters_raw_transport_frames(
-    client: TestClient, tmp_path: Path,
+    client: TestClient,
+    tmp_path: Path,
 ) -> None:
     life = tmp_path / "projects" / "s-testaaaa"
     with (life / "events.jsonl").open("a", encoding="utf-8") as handle:
         handle.write(json.dumps({"type": "agent.io.stream", "line": "large raw frame"}) + "\n")
-        handle.write(json.dumps({
-            "type": "provider.request.started",
-            "call_id": "call-1",
-            "run_label": "scientist.skill_distill",
-        }) + "\n")
+        handle.write(
+            json.dumps(
+                {
+                    "type": "provider.request.started",
+                    "call_id": "call-1",
+                    "run_label": "scientist.skill_distill",
+                }
+            )
+            + "\n"
+        )
         handle.write(json.dumps({"type": "ui.argus", "text": "visible reply"}) + "\n")
 
     body = client.get("/api/projects/s-testaaaa/events?limit=10&view=ui").json()
@@ -848,16 +959,22 @@ def test_get_events_ui_view_filters_raw_transport_frames(
 
 
 def test_get_events_ui_view_scans_past_large_raw_tail(
-    client: TestClient, tmp_path: Path,
+    client: TestClient,
+    tmp_path: Path,
 ) -> None:
     events = tmp_path / "projects" / "s-testaaaa" / "events.jsonl"
     with events.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps({"type": "ui.operator", "text": "persistent turn"}) + "\n")
         for index in range(40):
-            handle.write(json.dumps({
-                "type": "agent.io.stream",
-                "line": f"{index}:" + ("x" * 10_000),
-            }) + "\n")
+            handle.write(
+                json.dumps(
+                    {
+                        "type": "agent.io.stream",
+                        "line": f"{index}:" + ("x" * 10_000),
+                    }
+                )
+                + "\n"
+            )
 
     body = client.get("/api/projects/s-testaaaa/events?limit=10&view=ui").json()
 
@@ -874,6 +991,7 @@ def test_unknown_project_404(client: TestClient) -> None:
 
 # ── WebSocket stream: replay then live tail ───────────────────────────────
 
+
 def test_ws_stream_replays_then_tails_live(tmp_path: Path) -> None:
     life = _make_project(tmp_path)
     app = server.create_app(global_root=tmp_path)
@@ -884,9 +1002,17 @@ def test_ws_stream_replays_then_tails_live(tmp_path: Path) -> None:
             assert [e1["type"], e2["type"]] == ["mission.started", "round.review.completed"]
             # append a new event; the tail must push it
             with (life / "events.jsonl").open("a", encoding="utf-8") as fh:
-                fh.write(json.dumps({"type": "engineer.progress",
-                                     "kind": "assistant_message",
-                                     "text": "live!", "ts": time.time()}) + "\n")
+                fh.write(
+                    json.dumps(
+                        {
+                            "type": "engineer.progress",
+                            "kind": "assistant_message",
+                            "text": "live!",
+                            "ts": time.time(),
+                        }
+                    )
+                    + "\n"
+                )
             e3 = ws.receive_json()
             assert e3["type"] == "engineer.progress"
             assert e3["text"] == "live!"

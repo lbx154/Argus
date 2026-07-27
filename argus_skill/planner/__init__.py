@@ -1,13 +1,9 @@
-"""Planner sub-agent.
-
-The continuous Planner directly edits and verifies the active project, then
-reports completion through a small key-value footer mapped to
-:class:`PlannerVerdict`.  The bounded handoff helper may still emit key-value
-task blocks for Manager-authored DAGs.
-"""
+"""Read-only Planner sub-agent that delegates implementation to Engineer."""
 
 from .planner import (
     NO_CONCRETE_TASKS_ERROR,
+    OPEN_ENDED_PROJECT_DONE_ERROR,
+    PLANNER_SUPERSEDED_ERROR,
     Planner,
     PlannerConfig,
     PlannerVerdict,
@@ -21,6 +17,8 @@ __all__ = [
     "PlannerConfig",
     "PlannerVerdict",
     "NO_CONCRETE_TASKS_ERROR",
+    "OPEN_ENDED_PROJECT_DONE_ERROR",
+    "PLANNER_SUPERSEDED_ERROR",
     "TaskSpec",
     "WaitingContract",
     "parse_planner_text",

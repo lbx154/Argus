@@ -3,6 +3,7 @@ Manager as DISTINCT from a research 'literature review', and it round-trips
 through persist/resolve. The Manager's LLM judgment is mocked (fake runner);
 its live discrimination is a P3 eval — here we prove the plumbing + the menu
 disambiguation deterministically."""
+
 from __future__ import annotations
 
 import json
@@ -34,12 +35,22 @@ class _FakeRunner:
 
 
 _FICTION = {
-    "choice": "existing", "vertical": "fiction_writing",
+    "choice": "existing",
+    "vertical": "fiction_writing",
+    "domain": None,
+    "workflow_mode": "direct",
+    "confidence": 0.95,
     "rationale": "write an original short story",
     "execution_task": "Write the requested urban-suspense short story.",
 }
 _RESEARCH = {
-    "choice": "existing", "vertical": "research",
+    "choice": "existing",
+    "vertical": "research",
+    "domain": None,
+    "workflow_mode": "staged",
+    "confidence": 0.95,
+    "research_target_level": "publishable",
+    "target_venue": None,
     "rationale": "a paper with a literature review",
     "execution_task": "Write the diffusion-model literature review paper.",
 }

@@ -13,10 +13,13 @@ the Argus-owned home next to the rest of its state held 10. The operator's own
 history is buried, and the growth lands on whichever filesystem ``$HOME`` is on
 rather than the one chosen for Argus state.
 
-Pointing the workers at ``<ARGUS_SKILL_HOME>/copilot-home`` fixes both. Auth is
-unaffected: the Copilot CLI does not keep credentials under ``COPILOT_HOME``
-(verified by running it against an empty one), so this relocates working state
-only.
+Pointing the workers at ``<ARGUS_SKILL_HOME>/copilot-home`` fixes both. Recent
+Copilot CLI releases also keep login tokens in ``config.json`` under that home,
+so an empty or stale isolated home can make ordinary one-shot workers report
+``No authentication information found`` while a warm ACP process using the
+operator home still works. Preparation therefore mirrors only the small set of
+authentication fields from the operator config; Argus-owned session state and
+all unrelated config fields remain isolated.
 
 An operator who sets ``COPILOT_HOME`` themselves is always obeyed — including
 the private per-worktree home the self-maintenance sandbox sets up, which must
@@ -24,9 +27,11 @@ keep pointing at its own copy.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
+import tempfile
 import time
 from pathlib import Path
 from typing import Mapping
@@ -41,6 +46,11 @@ _COPILOT_HOME_DIR = "copilot-home"
 # Behaviour lives in these; a home without them would silently run with Copilot
 # defaults instead of the operator's settings.
 _SEEDED_CONFIG_FILES = ("config.json", "settings.json", "permissions-config.json")
+_AUTH_CONFIG_KEYS = ("copilotTokens", "loggedInUsers", "lastLoggedInUser")
+_CONFIG_HEADER = (
+    "// User settings belong in settings.json.\n"
+    "// This file is managed automatically.\n"
+)
 
 # Relocating the working state bounds nothing on its own: at the observed ~115
 # sessions/hour a 7x24 host writes roughly 2.6 GB a day, so an unpruned Argus
@@ -129,6 +139,66 @@ def _sweep_is_due(home: Path, now: float) -> bool:
     return True
 
 
+def _read_managed_config(path: Path) -> dict[str, object] | None:
+    """Read Copilot's JSON-with-leading-comments managed config."""
+    try:
+        raw = path.read_text(encoding="utf-8")
+        payload = "\n".join(
+            line for line in raw.splitlines()
+            if not line.lstrip().startswith("//")
+        ).strip()
+        value = json.loads(payload or "{}")
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _write_managed_config(path: Path, value: dict[str, object]) -> bool:
+    """Atomically write a private Copilot managed config."""
+    temp_name = ""
+    try:
+        fd, temp_name = tempfile.mkstemp(
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            dir=path.parent,
+        )
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(_CONFIG_HEADER)
+            json.dump(value, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_name, path)
+        os.chmod(path, 0o600)
+        return True
+    except OSError:
+        if temp_name:
+            try:
+                Path(temp_name).unlink(missing_ok=True)
+            except OSError:
+                pass
+        return False
+
+
+def _sync_operator_auth(personal: Path, target: Path) -> bool:
+    """Mirror login identity into the isolated home without copying state."""
+    source = _read_managed_config(personal)
+    current = _read_managed_config(target)
+    if source is None or current is None:
+        return False
+    updated = dict(current)
+    for key in _AUTH_CONFIG_KEYS:
+        if key in source:
+            updated[key] = source[key]
+        else:
+            updated.pop(key, None)
+    if updated == current:
+        return False
+    return _write_managed_config(target, updated)
+
+
 def prepare_copilot_home(env: Mapping[str, str] | None = None) -> Path | None:
     """Create the Argus Copilot home and seed the operator's config into it.
 
@@ -156,6 +226,11 @@ def prepare_copilot_home(env: Mapping[str, str] | None = None) -> Path | None:
             shutil.copy2(origin, target)
         except OSError:  # noqa: PERF203 — one bad file must not lose the rest
             log.warning("could not seed %s into the Argus copilot home", name)
+
+    # Authentication moved into COPILOT_HOME/config.json in newer CLI builds.
+    # Keep only those fields current: copying the whole operator config on every
+    # turn would collapse the storage/state isolation this module provides.
+    _sync_operator_auth(personal / "config.json", home / "config.json")
 
     now = time.time()
     if _sweep_is_due(home, now):

@@ -268,6 +268,9 @@ class PlanningCycleEnqueueMixin:
                     getattr(task, "acceptance_check", "") or getattr(task, "evidence", "")
                 ),
                 non_goals=list(getattr(task, "non_goals", []) or []),
+                original_objective=str(
+                    getattr(self.config, "continuous_objective", "") or ""
+                ),
                 authorization_id=authorization_id,
                 authorization_action=authorization_action,
             )

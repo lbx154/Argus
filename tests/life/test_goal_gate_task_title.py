@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from argus_skill.life.supervisor._planning_cycle_helpers import goal_gate_task_title
 
@@ -79,3 +80,91 @@ def test_the_planner_uses_it(tmp_path: Path) -> None:
     source = inspect.getsource(_planning_cycle_completion)
     assert "goal_gate_task_title(" in source
     assert 'title="Complete and certify the current Goal Gate"' not in source
+
+
+def test_planner_enqueued_goal_gate_keeps_the_standing_objective(tmp_path: Path) -> None:
+    """Goal Gate rows must not force roles to recover the root goal from contracts.
+
+    A live regression left `goal_contract.json` on an earlier "do not change code"
+    request while the standing objective had moved to "start fixing". Planner
+    rows therefore need to carry the standing objective in their own
+    `original_objective` field.
+    """
+    from argus_skill.life.memory import Backlog
+    from argus_skill.life.supervisor._planning_cycle_enqueue import (
+        PlanningCycleEnqueueMixin,
+    )
+    from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
+    from argus_skill.planner import PlannerVerdict, TaskSpec
+
+    class Harness(PlanningCycleEnqueueMixin):
+        def __init__(self) -> None:
+            self.memory = SimpleNamespace(backlog=Backlog(tmp_path / "backlog.jsonl"))
+            self.config = SimpleNamespace(
+                continuous_objective="start fixing the best Argus optimization"
+            )
+            self._planning_cycles = 1
+            self.events: list[dict] = []
+
+        def _emit(self, event: dict) -> bool:
+            self.events.append(event)
+            return True
+
+        def _emit_status(self, _text: str) -> None:
+            return None
+
+        def _planner_scope_from_item(self, item) -> str:
+            for tag in item.tags:
+                if str(tag).startswith("scope:"):
+                    return str(tag).split(":", 1)[1]
+            return ""
+
+        def _item_requires_independent_review(self, item) -> bool:
+            return "review:required" in item.tags
+
+        def _recent_no_progress_failures(self) -> dict:
+            return {}
+
+        def _task_mentions_family(self, _task, _family: str) -> bool:
+            return False
+
+        def _validated_task_authorization(self, _task) -> tuple[str, str]:
+            return "", ""
+
+        def _planner_task_tags(self, task) -> list[str]:
+            tags = ["planner"]
+            scope = str(getattr(task, "scope", "") or "").strip()
+            if scope:
+                tags.append(f"scope:{scope}")
+            if bool(getattr(task, "stage_closing", False)):
+                tags.extend(["stage_closing", "review:required"])
+            return tags
+
+        def _item_iteration_cycles(self) -> int:
+            return 1
+
+    state = _PlanCycleState(None)
+    state.verdict = PlannerVerdict(
+        project_done=False,
+        reason="close the current stage",
+        new_tasks=[
+            TaskSpec(
+                title="Finish and certify the delivery stage",
+                objective="Goal Gate mission for the active staged project.",
+                impact_score=5,
+                impact_area="requirement_gap",
+                evidence="delivery gate is not certified",
+                scope="bounded",
+                stage_closing=True,
+            )
+        ],
+    )
+    harness = Harness()
+
+    harness._pc_build_dedupe_index(state)
+    harness._pc_build_pending_items(state)
+
+    assert state.pending_items
+    item = state.pending_items[0][1]
+    assert item.objective == "Goal Gate mission for the active staged project."
+    assert item.original_objective == "start fixing the best Argus optimization"

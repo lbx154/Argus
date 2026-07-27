@@ -21,6 +21,7 @@ from typing import Any, Callable
 from fastapi import Header, HTTPException
 
 from ...core import paths as core_paths
+from ..index_cache import IndexCache, resolve_snapshot_ttl_seconds
 
 
 class ServerContext:
@@ -35,6 +36,7 @@ class ServerContext:
         api_meta: dict[str, Any],
         list_projects: Callable[..., list[dict[str, Any]]],
         list_project_costs: Callable[..., list[dict[str, Any]]],
+        list_trashed_projects: Callable[..., list[dict[str, Any]]],
         project_life_dir: Callable[..., Path | None],
     ) -> None:
         self.global_root = global_root
@@ -43,7 +45,38 @@ class ServerContext:
         self.api_meta = api_meta
         self._list_projects = list_projects
         self._list_project_costs = list_project_costs
+        self._list_trashed_projects = list_trashed_projects
         self._project_life_dir = project_life_dir
+        self._index_cache = IndexCache()
+        self._snapshot_cache = IndexCache(ttl_seconds=resolve_snapshot_ttl_seconds())
+
+    @property
+    def index_cache(self) -> IndexCache:
+        """Coalescing cache for the whole-home listings the cockpit polls.
+
+        Real app contexts build this eagerly so concurrent first requests
+        cannot race into separate caches. The fallback keeps listing helpers
+        usable from lightweight test subclasses that predate this shared state.
+        """
+        cache = getattr(self, "_index_cache", None)
+        if cache is None:
+            cache = IndexCache()
+            self._index_cache = cache
+        return cache
+
+    @property
+    def snapshot_cache(self) -> IndexCache:
+        """Coalescing cache for expensive per-session cockpit snapshots."""
+        cache = getattr(self, "_snapshot_cache", None)
+        if cache is None:
+            cache = IndexCache(ttl_seconds=resolve_snapshot_ttl_seconds())
+            self._snapshot_cache = cache
+        return cache
+
+    def invalidate_read_caches(self) -> None:
+        """Detach cached and in-flight reads after a successful mutation."""
+        self.index_cache.invalidate()
+        self.snapshot_cache.invalidate()
 
     def require_auth(self, authorization: str | None = Header(default=None)) -> None:
         if not self.token:
@@ -72,7 +105,21 @@ class ServerContext:
         return life_dir
 
     def machine_projects(
-        self, *, limit: int, include_empty: bool,
+        self,
+        *,
+        limit: int,
+        include_empty: bool,
+    ) -> list[dict[str, Any]]:
+        return self.index_cache.get(
+            ("machine_projects", limit, include_empty),
+            lambda: self._machine_projects_uncached(limit=limit, include_empty=include_empty),
+        )
+
+    def _machine_projects_uncached(
+        self,
+        *,
+        limit: int,
+        include_empty: bool,
     ) -> list[dict[str, Any]]:
         projects: list[dict[str, Any]] = []
         seen: set[str] = set()
@@ -125,6 +172,12 @@ class ServerContext:
         return projects[:limit]
 
     def machine_project_costs(self, *, limit: int) -> list[dict[str, Any]]:
+        return self.index_cache.get(
+            ("machine_project_costs", limit),
+            lambda: self._machine_project_costs_uncached(limit=limit),
+        )
+
+    def _machine_project_costs_uncached(self, *, limit: int) -> list[dict[str, Any]]:
         costs: list[dict[str, Any]] = []
         seen: set[str] = set()
         for root in self.roots:
@@ -148,6 +201,28 @@ class ServerContext:
                 costs.append(row)
             seen.update(root_session_ids)
         return costs[:limit]
+
+    def machine_trash(self) -> list[dict[str, Any]]:
+        return self.index_cache.get(
+            ("machine_trash",),
+            self._machine_trash_uncached,
+        )
+
+    def _machine_trash_uncached(self) -> list[dict[str, Any]]:
+        entries: list[dict[str, Any]] = []
+        for index, root in enumerate(self.roots):
+            for entry in self._list_trashed_projects(global_root=root):
+                entries.append(
+                    {
+                        **entry,
+                        "trash_id": f"{index}:{entry['trash_path']}",
+                    }
+                )
+        entries.sort(
+            key=lambda entry: float(entry.get("trashed_at") or 0.0),
+            reverse=True,
+        )
+        return entries
 
     @staticmethod
     def not_found_if_none(value, sid: str):

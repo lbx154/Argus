@@ -377,17 +377,35 @@ class LifeSupervisor(
         from ...planner import PlannerConfig
 
         safe_mode = self._safe_mode_enabled()
+        from ...daemon.state import read_continuous_state
+
+        expected = read_continuous_state(self.memory.root)
+
+        def _semantic_interrupt() -> str | None:
+            current = read_continuous_state(self.memory.root)
+            if (
+                current.generation != expected.generation
+                or current.enabled != expected.enabled
+                or current.objective != expected.objective
+            ):
+                return "planner superseded by newer continuous generation"
+            return None
+
+        workdir = self._planner_workdir()
+        state_root = Path(self.memory.root)
         return PlannerConfig(
             model=resolve_role_model("planner", role_env="ARGUS_SKILL_PLAN_MODEL")
             or self.reviewer_model,
             reasoning_effort=os.environ.get(
                 "ARGUS_SKILL_PLANNER_REASONING_EFFORT", "xhigh"
             ),
-            working_dir=str(self._planner_workdir()),
+            working_dir=str(workdir),
+            add_dirs=([str(state_root)] if state_root != workdir else []),
             skip_git_repo_check=True,
             full_auto=safe_mode,
             dangerous_yolo=not safe_mode,
             open_ended=bool(getattr(self.config, "open_ended", False)),
+            external_interrupt_reason_provider=_semantic_interrupt,
         )
 
     # ------------------------------------------------------------------
@@ -1016,21 +1034,12 @@ class LifeSupervisor(
         ):
             clear_planner_verdict_outbox(self.memory.root)
             self._emit({
-                "type": EventType.LIFE_PLANNER_ERROR,
+                "type": "life.planner.verdict.discarded",
                 "cycle": event.get("cycle", self._planning_cycles),
-                "error": "discarded stale planner verdict outbox after semantic state change",
+                "reason": "semantic state changed before the prior verdict was delivered",
                 "delivery_id": record.get("delivery_id", ""),
-                # Nothing failed. The project's semantic state legitimately
-                # moved on — the Manager writing PIPELINE_STATE.json is enough —
-                # so a verdict queued against the old state is correctly
-                # dropped. LIFE_PLANNER_ERROR is a journalled type, so every
-                # fresh run was recording a "planner_error" in the history the
-                # Planner later reads back as memory context, inventing a
-                # failure that never happened; it fired on the first cycle of
-                # every run tonight. The flag keeps the full diagnostic in
-                # events.jsonl and out of the agent's memory.
-                "benign": True,
             })
+            self._emit_status("planner: ignored a stale verdict after newer project state")
             return False, None
         if record.get("delivered"):
             if terminal_signature and self.config.open_ended:
@@ -1074,9 +1083,56 @@ class LifeSupervisor(
             log.exception("life supervisor: event sink raised")
             return False
         delivered = accepted is not False
-        if delivered and str(event.get("type") or "") == EventType.LIFE_BUDGET_PAUSE:
-            self._publish_budget_pause_message(event)
+        if delivered:
+            event_type = str(event.get("type") or "")
+            if event_type == EventType.LIFE_BUDGET_PAUSE:
+                self._publish_budget_pause_message(event)
+            elif event_type == EventType.LIFE_MISSION_COMPLETED:
+                self._publish_mission_completion_message(event)
         return delivered
+
+    def _publish_mission_completion_message(self, event: dict[str, Any]) -> None:
+        """Tell the operator a Team mission ended without another model call."""
+        try:
+            from ...core.operator_messages import publish_operator_message
+
+            project = getattr(self.memory, "project", None)
+            life_dir = getattr(project, "root", None) or getattr(self.memory, "root", None)
+            if life_dir is None:
+                return
+            item_id = str(event.get("item_id") or "").strip()
+            if not item_id:
+                return
+            title = str(event.get("title") or "Team mission").strip()
+            success = bool(event.get("success"))
+            outcome = event.get("outcome")
+            outcome = outcome if isinstance(outcome, dict) else {}
+            review = str(outcome.get("review_status") or "").strip()
+            if success:
+                result = f"Team completed · {title}"
+                if review and review not in {"none", "not_assessed"}:
+                    result += f" · review={review}"
+            else:
+                status = str(event.get("status") or event.get("outcome_class") or "ended")
+                result = f"Team ended · {title} · {status}"
+            continuation = (
+                "Continuous campaign remains active; Planner is selecting the next task."
+                if bool(getattr(self.config, "continuous", False))
+                and bool(getattr(self.config, "open_ended", False))
+                else "This task is finished."
+            )
+            publish_operator_message(
+                life_dir,
+                text=f"{result}\n{continuation}",
+                message_id=f"mission-result-{item_id}-{str(event.get('status') or '')}",
+                event_fields={
+                    "mission_result": True,
+                    "item_id": item_id,
+                    "success": success,
+                },
+            )
+        except Exception:  # noqa: BLE001 - notification must not break supervision
+            log.exception("life supervisor: failed to publish mission completion")
 
     def _publish_budget_pause_message(self, event: dict[str, Any]) -> None:
         """Surface a durable, deduplicated budget pause in the Manager chat."""
