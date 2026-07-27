@@ -70,10 +70,13 @@ def test_noninteractive_setup_validates_then_persists_without_global_mutation(
         auth_checked=True,
     )
     calls: list[str] = []
-    monkeypatch.setattr(
-        setup,
-        "_ensure_default_house_rules_prompt",
-        lambda: tmp_path / "10-house-rules.md",
+    monkeypatch.setenv(
+        "ARGUS_SKILL_SPECIAL_PROMPTS_DIR",
+        str(tmp_path / "special-prompts"),
+    )
+    existing_house_rules = setup._write_special_prompt(
+        "10-house-rules.md",
+        "Keep operator-authored policy unchanged.\n",
     )
     monkeypatch.setattr(
         setup,
@@ -108,6 +111,9 @@ def test_noninteractive_setup_validates_then_persists_without_global_mutation(
 
     assert rc == 0
     assert calls == ["check", "persist"]
+    assert existing_house_rules.read_text(encoding="utf-8") == (
+        "Keep operator-authored policy unchanged.\n"
+    )
     assert "No global Git identity or backend authentication files were changed" in (
         capsys.readouterr().out
     )

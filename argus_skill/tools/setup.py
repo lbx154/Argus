@@ -232,10 +232,7 @@ def _run_noninteractive_setup(
     mode = _configure_auth_mode(selected, auth_mode)
     if mode is None:
         return SETUP_EXIT_USAGE
-    house_rules_path = _ensure_default_house_rules_prompt()
-    if house_rules_path is None:
-        sys.stderr.write("argus: failed to create or validate default house rules\n")
-        return SETUP_EXIT_PERSISTENCE
+    _ensure_default_house_rules_prompt()
     report = check_backend_readiness(
         selected,
         mode,
@@ -1228,10 +1225,13 @@ def run_setup(
 
     house_rules_path = _ensure_default_house_rules_prompt()
     if house_rules_path is None:
-        print(_yellow("  Could not establish a trusted house-rules prompt."))
-        return SETUP_EXIT_PERSISTENCE
-    print(f"  {_green('✓')} Base house rules → {house_rules_path}")
-    if house_rules_path.name != _DEFAULT_HOUSE_RULES_PROMPT_NAME:
+        print(f"  {_green('✓')} Existing trusted house rules preserved")
+    else:
+        print(f"  {_green('✓')} Base house rules → {house_rules_path}")
+    if (
+        house_rules_path is not None
+        and house_rules_path.name != _DEFAULT_HOUSE_RULES_PROMPT_NAME
+    ):
         print(
             _yellow(
                 f"  Existing {_DEFAULT_HOUSE_RULES_PROMPT_NAME} was preserved "
