@@ -66,7 +66,7 @@ class _MaintenanceMixin:
         options = RunnerOptions(
             model=_manager_model(),
             reasoning_effort=_manager_reasoning_effort(),
-            working_dir=str(self.project_root),
+            working_dir=str(Path(framework_root).resolve()),
             sandbox_mode="read-only",
             skip_git_repo_check=True,
         )

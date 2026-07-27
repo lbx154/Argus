@@ -254,6 +254,7 @@ def test_isolated_workdir_wraps_any_backend_and_hides_vcs_credentials(
     (home / ".config" / "gh").mkdir(parents=True)
     (home / ".copilot" / "session-state").mkdir(parents=True)
     workdir.mkdir()
+    (workdir / ".git").write_text("gitdir: /readonly/admin\n", encoding="utf-8")
     monkeypatch.setattr(sandbox.Path, "home", classmethod(lambda cls: home))
     monkeypatch.setattr(
         sandbox.shutil,
@@ -275,6 +276,13 @@ def test_isolated_workdir_wraps_any_backend_and_hides_vcs_credentials(
     ]
     assert str(home / ".ssh") not in command
     assert str(home / ".config" / "gh") not in command
+    git_entry = workdir / ".git"
+    git_index = command.index(str(git_entry))
+    assert command[git_index - 1 : git_index + 2] == [
+        "--ro-bind",
+        str(git_entry),
+        str(git_entry),
+    ]
     private_state = (
         workdir
         / ".argus-self-maintenance-runtime"
@@ -285,6 +293,38 @@ def test_isolated_workdir_wraps_any_backend_and_hides_vcs_credentials(
         command.index(str(private_state)) - 1 : command.index(str(private_state)) + 2
     ]
     assert command[-2:] == ["/usr/bin/copilot", "--version"]
+
+
+def test_isolated_workdir_rebinds_symlinked_resolver_target(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    home = tmp_path / "home"
+    workdir = tmp_path / "worktree"
+    resolver = tmp_path / "run" / "resolved" / "resolv.conf"
+    (home / ".copilot" / "session-state").mkdir(parents=True)
+    workdir.mkdir()
+    resolver.parent.mkdir(parents=True)
+    resolver.write_text("nameserver 127.0.0.53\n", encoding="utf-8")
+    monkeypatch.setattr(sandbox.Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr(
+        sandbox.shutil,
+        "which",
+        lambda name: f"/usr/bin/{name}",
+    )
+    monkeypatch.setattr(sandbox, "_resolver_config_target", lambda: resolver)
+
+    command = sandbox.isolated_workdir_command(
+        ["copilot", "--version"],
+        working_dir=workdir,
+    )
+
+    resolver_index = command.index(str(resolver))
+    assert command[resolver_index - 1 : resolver_index + 2] == [
+        "--ro-bind",
+        str(resolver),
+        str(resolver),
+    ]
 
 
 def test_isolated_workdir_rebinds_runner_hidden_under_home(

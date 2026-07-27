@@ -18,7 +18,13 @@ from ...core.event_catalog import EventType
 from ...core.stop_kinds import stop_kind_is_recoverable
 from ..memory import BacklogItem
 from ..mission_outcome import mission_outcome_class, mission_outcome_dimensions
-from ._constants import PLANNER_SCOPE_BOUNDED, PLANNER_SCOPE_FINAL_SUBMISSION
+from ._constants import (
+    _REPLAN_STREAK_JOURNAL_WINDOW,
+    PLANNER_RECENT_FAILURE_STATUS,
+    PLANNER_SCOPE_BOUNDED,
+    PLANNER_SCOPE_FINAL_SUBMISSION,
+    consecutive_replan_escalation_threshold,
+)
 from ._helpers import _normalize_planner_text
 from ._mission_execution_helpers import _MissionRunState
 
@@ -239,6 +245,8 @@ class MissionExecutionSettlementMixin:
                 started_ts=None,
                 finished_ts=None,
                 last_error="",
+                consecutive_replans=0,
+                replan_streak_tracked=True,
             )
             return {
                 "success": True,
@@ -316,6 +324,33 @@ class MissionExecutionSettlementMixin:
     # Phase: final status resolution against the backlog
     # ------------------------------------------------------------------
 
+    def _count_consecutive_item_replans(self, item_id: str) -> int:
+        """Trailing consecutive replan_requested missions journaled for one item.
+
+        Walks the journal newest-first and counts ``mission_replan_requested``
+        entries for ``item_id``, stopping at the first forward-progress marker
+        (``mission_complete``) for that item. The current mission's own replan
+        has not been journaled yet, so this is the count of PRIOR consecutive
+        replans; the caller adds one for the in-flight outcome.
+        """
+        try:
+            entries = self.memory.journal.tail(_REPLAN_STREAK_JOURNAL_WINDOW)
+        except Exception:  # noqa: BLE001 - guard degrades to current behavior
+            log.exception(
+                "life supervisor: failed to read journal for replan streak"
+            )
+            return 0
+        count = 0
+        for entry in reversed(entries):
+            if str(getattr(entry, "id", "") or "") != item_id:
+                continue
+            kind = str(getattr(entry, "kind", "") or "")
+            if kind == "mission_complete":
+                break
+            if kind == "mission_replan_requested":
+                count += 1
+        return count
+
     def _finalize_mission_status(self, state: _MissionRunState) -> None:
         item = state.item
         outcome = state.outcome
@@ -324,6 +359,9 @@ class MissionExecutionSettlementMixin:
         stage_transition = state.stage_transition
         stage_action = state.stage_action
 
+        operator_question = str(
+            getattr(outcome, "operator_question", "") or ""
+        ).strip()
         research_pause = status in {
             "research_incomplete",
             "paused_no_breakthrough",
@@ -331,6 +369,12 @@ class MissionExecutionSettlementMixin:
             "infra_blocked",
         }
         replan_requested = status == "replan_requested"
+        if replan_requested and operator_question:
+            # A replacement plan cannot authorize a semantic boundary decision.
+            # Route the question through the durable operator-answer path instead
+            # of immediately asking Planner to redispatch the same mission.
+            status = "blocked"
+            replan_requested = False
         intentional_abort = status == "aborted" or state.stop_kind == "operator_abort"
         if intentional_abort:
             success = False
@@ -357,6 +401,20 @@ class MissionExecutionSettlementMixin:
         # persisted success target is resumable, not a success or terminal failure.
         if success:
             self.memory.backlog.mark_done(item.id, outcome=outcome_dimensions)
+        elif status == "blocked" and operator_question:
+            # Status and the authority-bearing question must reach disk in one
+            # backlog transaction. Keep the row nonterminal so dependency
+            # reconciliation cannot cascade-skip its downstream plan while the
+            # operator is deciding; the answer transaction terminalizes it and
+            # rewires those dependencies to the continuation atomically.
+            self.memory.backlog.update(
+                item.id,
+                status="paused_operator",
+                finished_ts=time.time(),
+                last_error=err,
+                outcome=outcome_dimensions,
+                pending_question=operator_question,
+            )
         elif stage_reconciled_replan:
             self.memory.backlog.mark_failed(
                 item.id,
@@ -368,13 +426,57 @@ class MissionExecutionSettlementMixin:
                 outcome=outcome_dimensions,
             )
         elif replan_requested:
-            self.memory.backlog.update(
-                item.id,
-                status="pending",
-                started_ts=None,
-                finished_ts=None,
-                last_error=state.stop_reason,
+            # Bounded convergence guard. A refuted node that keeps returning
+            # replan_requested with no intervening forward progress
+            # (mission_complete) must not be re-dispatched forever. Count the
+            # consecutive replans already journaled for this item and add the
+            # in-flight one; at/above the threshold, stop resetting to pending
+            # and escalate to a terminal no-progress failure that the planner
+            # quarantine (kind=mission_failed, terminal_status=no_progress)
+            # recognizes, so the daemon idles/escalates instead of re-running.
+            prior_replans = int(
+                getattr(item, "consecutive_replans", 0) or 0
             )
+            if not bool(getattr(item, "replan_streak_tracked", False)):
+                prior_replans = max(
+                    prior_replans,
+                    self._count_consecutive_item_replans(item.id),
+                )
+            consecutive_replans = prior_replans + 1
+            if consecutive_replans >= consecutive_replan_escalation_threshold():
+                replan_requested = False
+                success = False
+                status = PLANNER_RECENT_FAILURE_STATUS
+                err = (
+                    f"no forward progress after {consecutive_replans} "
+                    "consecutive replan_requested outcomes on this node"
+                    + (f": {state.stop_reason}" if state.stop_reason else "")
+                )
+                outcome_dimensions = mission_outcome_dimensions(
+                    status=status,
+                    success=success,
+                    review_status=str(
+                        getattr(outcome, "final_review_status", "") or ""
+                    ),
+                    stage_transition=stage_transition,
+                    stop_kind=state.stop_kind,
+                    resumable=resumable,
+                )
+                self.memory.backlog.mark_failed(
+                    item.id,
+                    error=err,
+                    outcome=outcome_dimensions,
+                )
+            else:
+                self.memory.backlog.update(
+                    item.id,
+                    status="pending",
+                    started_ts=None,
+                    finished_ts=None,
+                    last_error=state.stop_reason,
+                    consecutive_replans=consecutive_replans,
+                    replan_streak_tracked=True,
+                )
         elif research_pause:
             self.memory.backlog.update(
                 item.id,
@@ -399,35 +501,23 @@ class MissionExecutionSettlementMixin:
             )
 
         # A "blocked" verdict means the REVIEWER stopped progress because it
-        # needs the OPERATOR to make a call — not a bug/crash. Persist the
-        # question onto the (now-terminal) item so it outlives this one event:
+        # needs the OPERATOR to make a call — not a bug/crash. This includes a
+        # replan verdict carrying an operator question, normalized above so
+        # Planner cannot proceed without authorization. Persist the question
+        # onto the (now-terminal) item so it outlives this one event:
         # /status can list every currently-unanswered question across ALL
         # projects/restarts, not just whatever a cockpit happened to be tailing
         # live when it was asked (the old process-local state
         # ``blocked_question``, which was lost the moment that process exited).
-        # Writing a non-status field onto an already-terminal item is legal —
-        # Backlog.update()'s IllegalStateTransition seal only guards STATUS
-        # transitions, not other fields.
-        if status == "blocked":
-            operator_question = str(
-                getattr(outcome, "operator_question", "") or ""
-            ).strip()
-            if operator_question:
-                try:
-                    self.memory.backlog.update(
-                        item.id, pending_question=operator_question,
-                    )
-                    self._emit({
-                        "type": EventType.LIFE_OPERATOR_QUESTION_PENDING,
-                        "item_id": item.id,
-                        "title": item.title,
-                        "question": operator_question,
-                        "agent_layer": "manager",
-                    })
-                except Exception:  # noqa: BLE001
-                    log.exception(
-                        "life supervisor: failed to persist pending_question"
-                    )
+        # The operator pause and question were persisted atomically above.
+        if status == "blocked" and operator_question:
+            self._emit({
+                "type": EventType.LIFE_OPERATOR_QUESTION_PENDING,
+                "item_id": item.id,
+                "title": item.title,
+                "question": operator_question,
+                "agent_layer": "manager",
+            })
 
         state.success = success
         state.status = status

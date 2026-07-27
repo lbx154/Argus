@@ -18,7 +18,6 @@ cycle produced, which is precisely the thing the operator asked to stop.
 
 from __future__ import annotations
 
-import json
 import time
 from pathlib import Path
 
@@ -272,3 +271,69 @@ def test_the_real_publish_path_pushes_once_approved(tmp_path: Path) -> None:
 
     assert probe.published == [head]
     assert probe._state()["pr_url"] == "https://example.invalid/pr/1"
+
+
+def test_publication_resumes_after_operator_approves_waiting_fix(
+    tmp_path: Path,
+) -> None:
+    """The normal order is canary, visible prompt, then human approval."""
+    probe, head = _canary_ready(tmp_path)
+
+    probe.publish_after_canary(summary=_PROGRESS)
+    assert probe._state()["publication_status"] == _PUBLICATION_AWAITING
+    assert probe.approve_publication(head) == ""
+
+    probe.publish_after_canary(summary={})
+
+    assert probe.published == [head]
+    assert probe._state()["pr_url"] == "https://example.invalid/pr/1"
+
+
+def test_waiting_for_approval_does_not_poll_publication_target(
+    tmp_path: Path,
+) -> None:
+    probe, head = _canary_ready(tmp_path)
+    probe.publish_after_canary(summary=_PROGRESS)
+
+    probe._publication_target = lambda _worktree: (_ for _ in ()).throw(  # type: ignore[method-assign]
+        AssertionError("publication target polled before approval")
+    )
+
+    assert probe.publish_after_canary(summary={}) == head
+
+
+def test_approved_publication_retries_after_transient_target_failure(
+    tmp_path: Path,
+) -> None:
+    probe, head = _canary_ready(tmp_path)
+    probe.publish_after_canary(summary=_PROGRESS)
+    assert probe.approve_publication(head) == ""
+
+    probe._publication_target = lambda _worktree: (  # type: ignore[method-assign]
+        None,
+        "temporary GitHub authentication failure",
+    )
+    probe.publish_after_canary(summary={})
+    assert probe._state()["publication_status"] == "unavailable"
+
+    probe._publication_target = lambda _worktree: ("origin", "")  # type: ignore[method-assign]
+    probe._write_state(publication_last_attempt_at=0.0)
+    probe.publish_after_canary(summary={})
+
+    assert probe.published == [head]
+
+
+def test_interrupted_pending_publication_resumes_safely(tmp_path: Path) -> None:
+    probe, head = _canary_ready(tmp_path)
+    probe._write_state(
+        phase="local_active",
+        publication_status="pending",
+        local_accepted_at=time.time(),
+    )
+
+    probe.publish_after_canary(summary={})
+
+    assert probe.published == []
+    state = probe._state()
+    assert state["publication_status"] == _PUBLICATION_AWAITING
+    assert state["awaiting_commit"] == head

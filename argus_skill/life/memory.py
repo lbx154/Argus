@@ -685,7 +685,7 @@ class BacklogItem:
     started_ts: float | None = None
     finished_ts: float | None = None
     last_error: str = ""
-    # Set when this item's terminal reviewer verdict was "blocked" with a
+    # Set when this item's reviewer verdict was "blocked" with a
     # non-empty ``operator_question`` (reviewer_schema.json) — i.e. it did not
     # fail on a bug/crash, it stopped because the REVIEWER needed the operator
     # to make a call. Persisted on the item (not just kept in an ephemeral
@@ -736,6 +736,12 @@ class BacklogItem:
     superseded_reason: str = ""
     # Persisted so daemon restarts cannot reset a filtered-replan livelock.
     replan_rejections: int = 0
+    # Persisted so a configurable convergence threshold is not bounded by the
+    # finite journal tail used only to migrate older backlog rows.
+    consecutive_replans: int = 0
+    # Distinguishes an authoritative zero after forward progress from a legacy
+    # row whose pre-upgrade streak still needs reconstruction from the journal.
+    replan_streak_tracked: bool = False
     authorization_id: str = ""
     authorization_action: str = ""
     # Optional execution root selected by the Manager for framework maintenance.
@@ -852,6 +858,11 @@ class BacklogItem:
             superseded_by_plan_id=str(row.get("superseded_by_plan_id", "")),
             superseded_reason=str(row.get("superseded_reason", "")),
             replan_rejections=max(0, int(row.get("replan_rejections", 0) or 0)),
+            consecutive_replans=max(
+                0,
+                int(row.get("consecutive_replans", 0) or 0),
+            ),
+            replan_streak_tracked=bool(row.get("replan_streak_tracked", False)),
             authorization_id=str(row.get("authorization_id", "")),
             authorization_action=str(row.get("authorization_action", "")),
             execution_workdir=str(row.get("execution_workdir", "")),
@@ -1365,11 +1376,17 @@ class Backlog:
                     else ""
                 ),
                 context_refs=list(blocked.context_refs),
+                authorization_id=blocked.authorization_id,
+                authorization_action=blocked.authorization_action,
+                execution_workdir=blocked.execution_workdir,
                 acceptance_check=acceptance_check,
                 non_goals=non_goals,
             )
+            blocked.status = "failed"
+            blocked.finished_ts = time.time()
             blocked.pending_question = ""
-            # The blocked item is terminal. Every live downstream node that
+            # The blocked item becomes terminal in the same transaction that
+            # creates its continuation. Every live downstream node that
             # depended on it must now depend on the continuation; otherwise
             # the dead-dependency cascade would skip valid post-answer work.
             for item in items:
@@ -1565,6 +1582,8 @@ class Backlog:
                     continue
                 if item.status not in _RECOVERABLE_PAUSE_STATUSES:
                     return None
+                if str(item.pending_question or "").strip():
+                    return None
                 item.status = "pending"
                 item.attempt = max(1, int(item.attempt or 1)) + 1
                 item.started_ts = None
@@ -1582,6 +1601,8 @@ class Backlog:
             resumed: list[BacklogItem] = []
             for item in items:
                 if item.status not in _RECOVERABLE_PAUSE_STATUSES:
+                    continue
+                if str(item.pending_question or "").strip():
                     continue
                 item.status = "pending"
                 item.attempt = max(1, int(item.attempt or 1)) + 1
@@ -1609,6 +1630,8 @@ class Backlog:
             resumed: list[BacklogItem] = []
             for item in items:
                 if item.status not in allowed:
+                    continue
+                if str(item.pending_question or "").strip():
                     continue
                 item.status = "pending"
                 item.attempt = max(1, int(item.attempt or 1)) + 1

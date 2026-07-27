@@ -303,6 +303,7 @@ def run_handoff_child_process(
                 "handoff_requested",
                 "canary_running",
                 "publication_failed",
+                "local_active",
                 "pr_open",
                 "upstream_merged",
                 "adopted",

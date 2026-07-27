@@ -7,17 +7,28 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 import argus_skill.daemon.self_maintenance as self_maintenance_mod
 from argus_skill.daemon.self_maintenance import (
     DaemonSelfMaintenance,
     read_self_maintenance_snapshot,
 )
-from argus_skill.life.memory import LifeMemory
+from argus_skill.life.memory import BacklogItem, LifeMemory
 
 
 class _Manager:
-    def __init__(self, action: str = "repair") -> None:
+    def __init__(
+        self,
+        action: str = "repair",
+        *,
+        affected_paths: tuple[str, ...] | None = None,
+    ) -> None:
         self.action = action
+        self.affected_paths = affected_paths or (
+            "argus_skill/life/supervisor/_planning_cycle.py",
+            "tests/life/test_planner_dag_enqueue.py",
+        )
         self.calls = 0
 
     def decide_self_maintenance(self, observations, **_kwargs):
@@ -44,10 +55,7 @@ class _Manager:
             objective="Fix the planner error without broad refactoring.",
             acceptance_check="pytest -q tests/life/test_planner_dag_enqueue.py",
             evidence_ids=(observations[-1]["id"],),
-            affected_paths=(
-                "argus_skill/life/supervisor/_planning_cycle.py",
-                "tests/life/test_planner_dag_enqueue.py",
-            ),
+            affected_paths=self.affected_paths,
         )
 
 
@@ -109,6 +117,11 @@ def _controller(tmp_path: Path, manager: _Manager) -> DaemonSelfMaintenance:
     project.mkdir()
     framework = tmp_path / "framework"
     framework.mkdir()
+    for relative in (
+        Path("frontend/web/node_modules"),
+        Path("frontend/tui/node_modules"),
+    ):
+        (framework / relative).mkdir(parents=True)
     controller = DaemonSelfMaintenance(
         life_dir=memory.root,
         framework_root=framework,
@@ -136,10 +149,11 @@ def _publication_repo(tmp_path: Path) -> tuple[Path, str]:
     (repo / "scripts").mkdir()
     (repo / "frontend" / "core" / "src").mkdir(parents=True)
     (repo / "frontend" / "tui" / "bundle").mkdir(parents=True)
-    (repo / "frontend" / "tui" / "node_modules").mkdir()
     (repo / "frontend" / "web" / "dist" / "assets").mkdir(parents=True)
-    (repo / "frontend" / "web" / "node_modules").mkdir()
-    (repo / ".gitignore").write_text("node_modules/\n", encoding="utf-8")
+    (repo / ".gitignore").write_text(
+        "node_modules/\n*.pyc\n",
+        encoding="utf-8",
+    )
     (repo / "argus_skill" / "base.py").write_text("BASE = 1\n", encoding="utf-8")
     (repo / "scripts" / "generate_release_manifest.py").write_text(
         "import pathlib, subprocess, sys\n"
@@ -257,6 +271,123 @@ def test_manager_no_action_never_creates_make_work(tmp_path: Path) -> None:
     assert controller.memory.backlog.all() == []
 
 
+def test_unmerged_local_repair_blocks_a_new_maintenance_audit(
+    tmp_path: Path,
+) -> None:
+    manager = _Manager()
+    controller = _controller(tmp_path, manager)
+    controller._write_state(
+        phase="local_active",
+        publication_status="awaiting_approval",
+        commit="a" * 40,
+    )
+    controller.observe({
+        "type": "life.planner.error",
+        "ts": 10.0,
+        "error": "another failure",
+    })
+
+    assert controller.audit_if_due(daemon_state={}) == ""
+    assert manager.calls == 0
+
+
+@pytest.mark.parametrize("status", ["paused_operator", "failed"])
+def test_operator_question_repair_blocks_a_new_maintenance_audit(
+    tmp_path: Path,
+    status: str,
+) -> None:
+    manager = _Manager()
+    controller = _controller(tmp_path, manager)
+    item = controller.memory.backlog.add(BacklogItem.new(
+        title="Repair framework",
+        objective="Repair the framework.",
+        tags=["framework_maintenance"],
+    ))
+    controller.memory.backlog.update(
+        item.id,
+        status=status,
+        pending_question="May this boundary change proceed?",
+    )
+    controller._write_state(
+        phase="review_rejected",
+        active_item_id=item.id,
+        event_audit_pending=True,
+    )
+
+    assert controller.audit_if_due(daemon_state={}) == ""
+    assert manager.calls == 0
+
+
+def test_unsafe_manager_paths_fail_visibly_and_can_be_corrected(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    manager = _Manager(affected_paths=("/tmp/argus-skill (planner module)",))
+    controller = _controller(tmp_path, manager)
+    events: list[dict[str, object]] = []
+    controller.on_event = events.append
+    controller.observe({
+        "type": "life.planner.error",
+        "ts": 10.0,
+        "error": "schema failure",
+    })
+
+    assert controller.audit_if_due(daemon_state={}) == ""
+
+    state = controller._state()
+    failed_incident = state["last_incident_id"]
+    assert state["phase"] == "preparation_failed"
+    assert state["error"] == "Manager returned unsafe affected paths"
+    assert events[-1]["type"] == "manager.self_maintenance.preparation_failed"
+    assert events[-1]["affected_paths"] == [
+        "/tmp/argus-skill (planner module)"
+    ]
+
+    manager.affected_paths = ("argus_skill/life/supervisor/_core.py",)
+    controller._write_state(event_audit_pending=True)
+    retried_incidents: list[str] = []
+
+    def fail_after_retry(incident_id: str):
+        retried_incidents.append(incident_id)
+        raise ValueError("stop after retry")
+
+    monkeypatch.setattr(
+        controller,
+        "_prepare_worktree",
+        fail_after_retry,
+    )
+
+    assert controller.audit_if_due(daemon_state={}) == ""
+    assert retried_incidents
+    assert retried_incidents[0] != failed_incident
+
+
+def test_transient_preparation_failure_retries_the_same_incident(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    controller = _controller(tmp_path, _Manager())
+    controller.observe({
+        "type": "life.planner.error",
+        "ts": 10.0,
+        "error": "schema failure",
+    })
+    attempts: list[str] = []
+
+    def timeout(incident_id: str):
+        attempts.append(incident_id)
+        raise subprocess.TimeoutExpired(["git", "fetch"], 120)
+
+    monkeypatch.setattr(controller, "_prepare_worktree", timeout)
+
+    assert controller.audit_if_due(daemon_state={}) == ""
+    controller._write_state(event_audit_pending=True)
+    assert controller.audit_if_due(daemon_state={}) == ""
+
+    assert len(attempts) == 2
+    assert attempts[0] == attempts[1]
+
+
 def test_wiki_hook_warning_triggers_manager_audit(tmp_path: Path) -> None:
     controller = _controller(tmp_path, _Manager(action="no_action"))
 
@@ -306,8 +437,9 @@ def test_missing_isolation_prevents_manager_maintenance_call(tmp_path: Path) -> 
     assert manager.calls == 0
 
 
-def test_private_worktree_uses_current_source_without_remote(
+def test_private_worktree_uses_local_main_when_fetch_times_out(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
     repo = tmp_path / "framework"
     subprocess.run(["git", "init", "-b", "main", str(repo)], check=True)
@@ -320,6 +452,21 @@ def test_private_worktree_uses_current_source_without_remote(
     (repo / "README").write_text("seed\n", encoding="utf-8")
     subprocess.run(["git", "add", "README"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-m", "seed"], cwd=repo, check=True)
+    main_revision = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    subprocess.run(
+        ["git", "switch", "-c", "running-vertical"],
+        cwd=repo,
+        check=True,
+    )
+    (repo / "README").write_text("vertical\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "vertical"], cwd=repo, check=True)
 
     memory = LifeMemory.open(tmp_path / "life")
     memory.init()
@@ -332,9 +479,25 @@ def test_private_worktree_uses_current_source_without_remote(
         manager=_Manager(),
         memory=memory,
     )
+    real_run = self_maintenance_mod._run
+
+    def timeout_fetch(args, **kwargs):
+        if args[:3] == ["git", "fetch", "origin"]:
+            raise subprocess.TimeoutExpired(args, 120)
+        return real_run(args, **kwargs)
+
+    monkeypatch.setattr(self_maintenance_mod, "_run", timeout_fetch)
     worktree, branch = controller._prepare_worktree("incident123")
 
     assert branch.startswith("argus-self/")
+    assert subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=worktree,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip() == main_revision
+    assert (worktree / "README").read_text(encoding="utf-8") == "seed\n"
     assert subprocess.run(
         ["git", "config", "user.name"],
         cwd=worktree,
@@ -349,6 +512,65 @@ def test_private_worktree_uses_current_source_without_remote(
         capture_output=True,
         text=True,
     ).stdout.strip() == "seed@example.com"
+
+
+def test_private_worktree_prefers_fetched_origin_main(tmp_path: Path) -> None:
+    upstream = tmp_path / "upstream"
+    subprocess.run(["git", "init", "--bare", str(upstream)], check=True)
+    repo = tmp_path / "framework"
+    subprocess.run(["git", "init", "-b", "main", str(repo)], check=True)
+    subprocess.run(["git", "config", "user.name", "seed"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "seed@example.com"],
+        cwd=repo,
+        check=True,
+    )
+    (repo / "README").write_text("main\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "main"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "remote", "add", "origin", str(upstream)],
+        cwd=repo,
+        check=True,
+    )
+    subprocess.run(["git", "push", "-u", "origin", "main"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "switch", "-c", "running-vertical"],
+        cwd=repo,
+        check=True,
+    )
+    (repo / "README").write_text("vertical\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "vertical"], cwd=repo, check=True)
+    origin_main = subprocess.run(
+        ["git", "rev-parse", "origin/main"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    memory = LifeMemory.open(tmp_path / "life")
+    memory.init()
+    project = tmp_path / "project"
+    project.mkdir()
+    controller = DaemonSelfMaintenance(
+        life_dir=memory.root,
+        framework_root=repo,
+        project_workdir=project,
+        manager=_Manager(),
+        memory=memory,
+    )
+
+    worktree, _branch = controller._prepare_worktree("incident456")
+
+    assert subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=worktree,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip() == origin_main
 
 
 def test_canary_revision_accepts_runtime_short_sha(tmp_path: Path) -> None:
@@ -386,6 +608,30 @@ def test_canary_revision_mismatch_requires_startup_rollback(
     assert controller.failed_start_rollback_candidate(
         loaded_source_root=controller.framework_root,
     ) == prior
+
+
+def test_restarted_canary_gets_a_fresh_stability_window(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    controller = _controller(tmp_path, _Manager())
+    commit = "1" * 40
+    controller._write_state(
+        phase="canary_running",
+        canary_source_root=str(controller.framework_root),
+        commit=commit,
+        canary_started_at=1.0,
+        canary_pid=123,
+    )
+    monkeypatch.setattr(self_maintenance_mod.time, "time", lambda: 500.0)
+
+    assert controller.mark_canary_started(
+        loaded_source_root=controller.framework_root,
+        revision=commit[:12],
+    )
+    state = controller._state()
+    assert state["canary_started_at"] == 500.0
+    assert state["canary_pid"] == self_maintenance_mod.os.getpid()
 
 
 def test_canary_publication_uses_current_authorized_github_identity(
@@ -577,17 +823,20 @@ def test_legacy_publication_failure_migrates_to_local_active(
     assert state["error"] == ""
 
 
-def test_closed_upstream_pr_does_not_rollback_local_repair(
+def test_closed_upstream_pr_requests_durable_local_rollback(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     controller = _controller(tmp_path, _Manager())
     worktree = controller.framework_root
+    prior = tmp_path / "prior-argus"
+    prior.mkdir()
     controller._write_state(
         phase="pr_open",
         worktree=str(worktree),
+        canary_source_root=str(worktree),
         pr_url="https://github.com/example/argus-skill/pull/7",
-        old_source_root="/prior/argus",
+        old_source_root=str(prior),
     )
 
     monkeypatch.setattr(
@@ -609,10 +858,47 @@ def test_closed_upstream_pr_does_not_rollback_local_repair(
     result = controller.reconcile_pull_request()
 
     state = controller._state()
-    assert result == "CLOSED"
-    assert state["phase"] == "local_active"
+    assert result == f"rollback:{prior}"
+    assert state["phase"] == "pr_closed"
     assert state["publication_status"] == "closed"
     assert state["error"] == ""
+    assert controller.failed_start_rollback_candidate(
+        loaded_source_root=worktree,
+    ) == prior
+
+    controller.mark_handoff_failed("standby did not start")
+    state = controller._state()
+    assert state["phase"] == "pr_closed"
+    assert state["handoff_error"] == "standby did not start"
+    assert controller.failed_start_rollback_candidate(
+        loaded_source_root=worktree,
+    ) == prior
+    assert controller.failed_start_rollback_candidate(
+        loaded_source_root=prior,
+    ) is None
+    state = controller._state()
+    assert state["phase"] == "rolled_back"
+    assert state["handoff_error"] == ""
+
+
+def test_legacy_closed_publication_state_migrates_to_rollback(
+    tmp_path: Path,
+) -> None:
+    controller = _controller(tmp_path, _Manager())
+    candidate = controller.framework_root
+    prior = tmp_path / "prior-legacy"
+    prior.mkdir()
+    controller._write_state(
+        phase="local_active",
+        publication_status="closed",
+        canary_source_root=str(candidate),
+        old_source_root=str(prior),
+    )
+
+    assert controller.failed_start_rollback_candidate(
+        loaded_source_root=candidate,
+    ) == prior
+    assert controller._state()["phase"] == "pr_closed"
 
 
 def test_each_manager_can_adopt_merged_main_in_its_own_canary(
@@ -749,6 +1035,63 @@ def test_paused_or_failed_result_is_not_positive_canary_health(
     assert controller._state()["phase"] == "canary_running"
 
 
+def test_stable_idle_canary_is_accepted_locally(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    controller = _controller(tmp_path, _Manager())
+    repo = controller.framework_root
+    reviewed_commit = "d" * 40
+    controller._write_state(
+        phase="canary_running",
+        canary_source_root=str(repo),
+        worktree=str(repo),
+        branch="argus-self/session/incident",
+        incident_id="incident",
+        commit=reviewed_commit,
+        canary_started_at=(
+            time.time()
+            - self_maintenance_mod._IDLE_CANARY_STABILITY_SECONDS
+            - 1
+        ),
+    )
+
+    def fake_run(args, *, cwd, timeout=60.0, check=True):
+        stdout = (
+            reviewed_commit + "\n"
+            if args[:3] == ["git", "rev-parse", "HEAD"]
+            else ""
+        )
+        return subprocess.CompletedProcess(args, 0, stdout, "")
+
+    monkeypatch.setattr(self_maintenance_mod, "_run", fake_run)
+    monkeypatch.setattr(self_maintenance_mod.shutil, "which", lambda _name: None)
+
+    result = controller.publish_after_canary(
+        summary={"stopped_by": "backlog_empty", "results": []}
+    )
+
+    assert result == reviewed_commit
+    assert controller._state()["phase"] == "local_active"
+
+
+def test_recent_idle_canary_waits_for_stability(tmp_path: Path) -> None:
+    controller = _controller(tmp_path, _Manager())
+    controller._write_state(
+        phase="canary_running",
+        canary_source_root=str(controller.framework_root),
+        worktree=str(controller.framework_root),
+        branch="argus-self/session/incident",
+        commit="d" * 40,
+        canary_started_at=time.time(),
+    )
+
+    assert controller.publish_after_canary(
+        summary={"stopped_by": "backlog_empty", "results": []}
+    ) == ""
+    assert controller._state()["phase"] == "canary_running"
+
+
 def test_normal_restart_restores_persisted_self_managed_source(
     tmp_path: Path,
     monkeypatch,
@@ -774,6 +1117,60 @@ def test_normal_restart_restores_persisted_self_managed_source(
     ) == candidate
 
 
+def test_failed_source_resume_preserves_publication_state(
+    tmp_path: Path,
+) -> None:
+    manager = _Manager()
+    controller = _controller(tmp_path, manager)
+    reviewed, commit = _publication_repo(tmp_path)
+    controller._write_state(
+        phase="local_active",
+        publication_status="awaiting_approval",
+        canary_source_root=str(reviewed),
+        commit=commit,
+    )
+
+    controller.mark_handoff_failed("persisted runtime did not reach standby")
+
+    state = controller._state()
+    assert state["phase"] == "local_active"
+    assert state["publication_status"] == "awaiting_approval"
+    assert state["handoff_error"] == "persisted runtime did not reach standby"
+    controller._write_state(event_audit_pending=True)
+    assert controller.audit_if_due(daemon_state={}) == ""
+    assert manager.calls == 0
+
+    assert controller.source_resume_candidate(
+        loaded_source_root=reviewed,
+    ) is None
+    assert controller._state()["handoff_error"] == ""
+
+
+def test_dirty_resume_candidate_is_rejected_before_its_validator_runs(
+    tmp_path: Path,
+) -> None:
+    controller = _controller(tmp_path, _Manager())
+    candidate, commit = _publication_repo(tmp_path)
+    marker = tmp_path / "untrusted-validator-ran"
+    validator = candidate / "scripts" / "generate_release_manifest.py"
+    validator.write_text(
+        f"from pathlib import Path\nPath({str(marker)!r}).write_text('ran')\n",
+        encoding="utf-8",
+    )
+    controller._write_state(
+        phase="local_active",
+        canary_source_root=str(candidate),
+        commit=commit,
+        handoff_error="resume failed",
+    )
+
+    assert controller.source_resume_candidate(
+        loaded_source_root=candidate,
+    ) is None
+    assert not marker.exists()
+    assert controller._state()["handoff_error"] == "resume failed"
+
+
 def test_publication_rejects_staged_path_outside_manager_authority(
     tmp_path: Path,
 ) -> None:
@@ -797,6 +1194,107 @@ def test_publication_rejects_staged_path_outside_manager_authority(
         "review_status": "done",
     }) is None
     assert "outside Manager authorization" in controller._state()["error"]
+
+
+def test_reviewed_operator_continuation_retains_maintenance_ownership(
+    tmp_path: Path,
+) -> None:
+    controller = _controller(tmp_path, _Manager())
+    repo, base = _publication_repo(tmp_path)
+    (repo / "argus_skill" / "new_feature.py").write_text(
+        "FEATURE = True\n",
+        encoding="utf-8",
+    )
+    blocked = controller.memory.backlog.add(BacklogItem.new(
+        title="Repair framework",
+        objective="Repair the framework.",
+        tags=["framework_maintenance"],
+        execution_workdir=str(repo),
+    ))
+    blocked.status = "paused_operator"
+    blocked.pending_question = "May this repair proceed?"
+    controller.memory.backlog.update(
+        blocked.id,
+        status="paused_operator",
+        pending_question=blocked.pending_question,
+    )
+    _original, continuation = controller.memory.backlog.continue_with_operator_reply(
+        blocked.id,
+        "Proceed without expanding scope.",
+        manager_decision="Proceed in the authorized worktree.",
+    )
+    assert continuation is not None
+    controller._write_state(
+        phase="queued",
+        active_item_id=blocked.id,
+        incident_id="incident",
+        worktree=str(repo),
+        base_revision=base,
+        affected_paths=["argus_skill/new_feature.py"],
+    )
+
+    assert controller.prepare_reviewed_change({
+        "item_id": continuation.id,
+        "status": "done",
+        "success": True,
+        "review_status": "done",
+    }) == repo
+    assert controller._state()["active_item_id"] == continuation.id
+
+
+def test_manager_directory_path_does_not_authorize_descendants(
+    tmp_path: Path,
+) -> None:
+    controller = _controller(tmp_path, _Manager())
+    repo, base = _publication_repo(tmp_path)
+    (repo / "argus_skill" / "base.py").write_text("BASE = 2\n", encoding="utf-8")
+    controller._write_state(
+        phase="queued",
+        active_item_id="maintenance-prefix",
+        incident_id="incident",
+        worktree=str(repo),
+        base_revision=base,
+        affected_paths=["argus_skill"],
+    )
+
+    assert controller.prepare_reviewed_change({
+        "item_id": "maintenance-prefix",
+        "status": "done",
+        "success": True,
+        "review_status": "done",
+    }) is None
+    assert "argus_skill/base.py" in controller._state()["error"]
+
+
+def test_generated_output_symlink_is_rejected_before_build(tmp_path: Path) -> None:
+    controller = _controller(tmp_path, _Manager())
+    repo, base = _publication_repo(tmp_path)
+    (repo / "argus_skill" / "new_feature.py").write_text(
+        "FEATURE = True\n",
+        encoding="utf-8",
+    )
+    outside = tmp_path / "outside-manifest"
+    outside.write_text("sentinel\n", encoding="utf-8")
+    manifest = repo / "argus_skill" / "release_manifest.json"
+    manifest.unlink()
+    manifest.symlink_to(outside)
+    controller._write_state(
+        phase="queued",
+        active_item_id="maintenance-symlink",
+        incident_id="incident",
+        worktree=str(repo),
+        base_revision=base,
+        affected_paths=["argus_skill/new_feature.py"],
+    )
+
+    assert controller.prepare_reviewed_change({
+        "item_id": "maintenance-symlink",
+        "status": "done",
+        "success": True,
+        "review_status": "done",
+    }) is None
+    assert outside.read_text(encoding="utf-8") == "sentinel\n"
+    assert "unsafe generated output path" in controller._state()["error"]
 
 
 def test_publication_rejects_rename_from_unauthorized_source(
@@ -862,6 +1360,112 @@ def test_publication_stages_new_files_and_preserves_repository_identity(
         cwd=repo,
         check=True,
     )
+
+
+def test_publication_cleans_ignored_worktree_artifacts(tmp_path: Path) -> None:
+    controller = _controller(tmp_path, _Manager())
+    repo, base = _publication_repo(tmp_path)
+    (repo / "argus_skill" / "new_feature.py").write_text(
+        "FEATURE = True\n",
+        encoding="utf-8",
+    )
+    malicious = repo / "frontend" / "web" / "node_modules"
+    malicious.mkdir(parents=True)
+    (malicious / "vite").write_text("malicious\n", encoding="utf-8")
+    bytecode = repo / "scripts" / "sitecustomize.pyc"
+    bytecode.write_bytes(b"untrusted bytecode")
+    controller._write_state(
+        phase="queued",
+        active_item_id="maintenance-dependencies",
+        incident_id="incident",
+        worktree=str(repo),
+        base_revision=base,
+        affected_paths=["argus_skill/new_feature.py"],
+    )
+
+    result = controller.prepare_reviewed_change({
+        "item_id": "maintenance-dependencies",
+        "status": "done",
+        "success": True,
+        "review_status": "done",
+    })
+    assert result == repo, controller._state()
+    assert not malicious.exists()
+    assert not bytecode.exists()
+
+
+def test_next_repair_reuses_persisted_trusted_dependencies(
+    tmp_path: Path,
+) -> None:
+    controller = _controller(tmp_path, _Manager())
+    dependency_root = controller.framework_root
+    current_canary = tmp_path / "current-canary"
+    current_canary.mkdir()
+    controller.framework_root = current_canary
+    repo, base = _publication_repo(tmp_path)
+    (repo / "argus_skill" / "new_feature.py").write_text(
+        "FEATURE = True\n",
+        encoding="utf-8",
+    )
+    controller._write_state(
+        phase="queued",
+        active_item_id="maintenance-second-repair",
+        incident_id="incident",
+        worktree=str(repo),
+        base_revision=base,
+        dependency_root=str(dependency_root),
+        affected_paths=["argus_skill/new_feature.py"],
+    )
+
+    assert controller.prepare_reviewed_change({
+        "item_id": "maintenance-second-repair",
+        "status": "done",
+        "success": True,
+        "review_status": "done",
+    }) == repo
+
+
+def test_publication_removes_role_local_runtime_artifacts(tmp_path: Path) -> None:
+    controller = _controller(tmp_path, _Manager())
+    repo, base = _publication_repo(tmp_path)
+    (repo / "argus_skill" / "new_feature.py").write_text(
+        "FEATURE = True\n",
+        encoding="utf-8",
+    )
+    (repo / ".autors" / "maintenance" / "wiki").mkdir(parents=True)
+    (repo / ".autors" / "maintenance" / "wiki" / "state.json").write_text(
+        "{}\n",
+        encoding="utf-8",
+    )
+    runtime = repo / ".argus-self-maintenance-runtime" / "copilot-home"
+    runtime.mkdir(parents=True)
+    (runtime / "session.json").write_text("{}\n", encoding="utf-8")
+    controller._write_state(
+        phase="queued",
+        active_item_id="maintenance-runtime",
+        incident_id="incident",
+        worktree=str(repo),
+        base_revision=base,
+        affected_paths=["argus_skill/new_feature.py"],
+    )
+
+    assert controller.prepare_reviewed_change({
+        "item_id": "maintenance-runtime",
+        "status": "done",
+        "success": True,
+        "review_status": "done",
+    }) == repo
+    assert not (repo / ".autors").exists()
+    assert not (repo / ".argus-self-maintenance-runtime").exists()
+    committed = subprocess.run(
+        ["git", "show", "--pretty=", "--name-only", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert ".autors" not in committed
+    assert ".argus-self-maintenance-runtime" not in committed
 
 
 def test_prune_keeps_active_and_rollback_worktrees_only(tmp_path: Path) -> None:

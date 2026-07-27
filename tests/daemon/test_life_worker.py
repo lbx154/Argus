@@ -1168,7 +1168,10 @@ def test_handoff_child_publishes_standby_then_runs(
     assert not config_path.exists()
 
 
-@pytest.mark.parametrize("phase", ["canary_running", "pr_open", "adopted"])
+@pytest.mark.parametrize(
+    "phase",
+    ["canary_running", "local_active", "pr_open", "adopted"],
+)
 def test_failed_self_maintenance_handoff_marks_failed_before_rollback(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
