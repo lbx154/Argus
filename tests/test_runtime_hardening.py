@@ -13,9 +13,9 @@ from argus_skill.tools.capability_vault import ModelApiRoute
 def test_capability_vault_keys_are_known_secrets(tmp_path: Path) -> None:
     vault = tmp_path / "model_api.json"
     key = "azure-secret-value-123456789"
-    vault.write_text(json.dumps({
-        "capabilities": {"model_api": {"routes": {"image": {"api_key": key}}}}
-    }))
+    vault.write_text(
+        json.dumps({"capabilities": {"model_api": {"routes": {"image": {"api_key": key}}}}})
+    )
     values = known_secret_values({"ARGUS_SKILL_CAPABILITY_VAULT": str(vault)})
     assert key in values
     assert key not in redact_secrets_text(f"api_key={key}", known_values=values)
@@ -60,4 +60,7 @@ def test_image_generation_model_cannot_be_used_as_review_model(
     image = tmp_path / "figure.png"
     image.write_bytes(image_api._PNG_MAGIC + b"fake")
     with pytest.raises(image_api.ImageToolError, match="image-generation model"):
-        image_api.review_image(image=image)
+        image_api.review_image(
+            image=image,
+            review_instruction="Check whether this figure is publication-ready.",
+        )

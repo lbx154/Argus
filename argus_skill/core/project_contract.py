@@ -40,7 +40,7 @@ import json
 import os
 import secrets
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -431,16 +431,32 @@ def load_contract_for_cwd(cwd: Path | str | None = None) -> GoalContract | None:
         return None
 
 
-def contract_briefing(contract: GoalContract | None) -> str:
+def contract_briefing(
+    contract: GoalContract | None,
+    *,
+    authoritative_objective: str = "",
+) -> str:
     """The contract as a prompt block, or empty when there is nothing to say.
 
-    Returns "" rather than a heading with no rows: an empty section teaches a
-    role to skim past that heading, and the next time it *does* carry a binding
-    constraint it gets skimmed too.
+    Returns "" only when there is no contract. The committed objective itself is
+    useful authority during stage-closing Goal Gate missions, where the mission
+    text describes certification work rather than the operator's project goal.
     """
     if contract is None:
         return ""
-    lines: list[str] = []
+    live_objective = str(authoritative_objective or "").strip()
+    if live_objective and live_objective != contract.objective:
+        return (
+            "## Goal contract (live objective)\n"
+            "Committed operator objective:\n"
+            f"- {live_objective}\n\n"
+            "Recorded `goal_contract.json` belongs to a superseded objective and "
+            "is not used for this mission."
+        )
+    lines: list[str] = [
+        "Committed operator objective:",
+        f"- {contract.objective}",
+    ]
     precise = contract.precise()
     if precise:
         lines.append(

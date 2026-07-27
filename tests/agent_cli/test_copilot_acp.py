@@ -132,6 +132,37 @@ def _happy_script(req, proc):
     return []
 
 
+def _read_only_info_script(req, proc):
+    m = req.get("method")
+    if m == "initialize":
+        return [_init_ok(req)]
+    if m == "session/new":
+        return [_session_ok(req)]
+    if m == "session/prompt":
+        sid = req["params"]["sessionId"]
+
+        def upd(text):
+            return {
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": sid,
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": text},
+                    },
+                },
+            }
+
+        return [
+            upd("Info: Disabled tools: bash, create, edit"),
+            upd("SELF_"),
+            upd("ACP_OK"),
+            {"jsonrpc": "2.0", "id": req["id"], "result": {"stopReason": "end_turn"}},
+        ]
+    return []
+
+
 def _multi_session_script(req, proc):
     """Dynamic sessions + a small model multiplier for continuity tests."""
     m = req.get("method")
@@ -273,6 +304,22 @@ def test_acp_warm_reuse_skips_new_handshake(monkeypatch) -> None:
     assert len(prompts) == 2  # both prompts ran on the warm process
 
 
+def test_read_only_transport_info_is_not_part_of_manager_reply(monkeypatch) -> None:
+    proc = _FakeAcpProc(_read_only_info_script)
+    monkeypatch.setattr(copilot_acp.subprocess, "Popen", lambda *a, **k: proc)
+    client = CopilotAcpClient("copilot-bin", read_only=True)
+
+    result = client.run_prompt(
+        prompt="status",
+        resume_thread_id=None,
+        options=_Opt(),
+        run_label="simple-1",
+    )
+
+    assert result.exit_code == 0
+    assert result.agent_messages == ["SELF_ACP_OK"]
+
+
 def test_prewarm_starts_lean_process_and_session_without_model_turn(
     monkeypatch,
 ) -> None:
@@ -290,12 +337,19 @@ def test_prewarm_starts_lean_process_and_session_without_model_turn(
 
     methods = [w.get("method") for w in proc.written if w.get("method")]
     assert methods == ["initialize", "session/new"]
-    assert commands == [[
-        "copilot-bin", "--acp", "--model", "fast-model",
-        "--reasoning-effort", "low",
-        "--no-custom-instructions", "--disable-builtin-mcps",
-        "--available-tools=",
-    ]]
+    assert commands == [
+        [
+            "copilot-bin",
+            "--acp",
+            "--model",
+            "fast-model",
+            "--reasoning-effort",
+            "low",
+            "--no-custom-instructions",
+            "--disable-builtin-mcps",
+            "--available-tools=",
+        ]
+    ]
 
 
 def test_manager_chat_is_isolated_then_resumed_on_same_process(monkeypatch) -> None:
@@ -529,15 +583,14 @@ def test_keyboard_interrupt_cancels_and_rotates_acp_session(monkeypatch) -> None
     assert second.last_agent_message == "recovered"
     assert any(row.get("method") == "session/cancel" for row in proc.written)
     prompt_sids = [
-        row["params"]["sessionId"]
-        for row in proc.written
-        if row.get("method") == "session/prompt"
+        row["params"]["sessionId"] for row in proc.written if row.get("method") == "session/prompt"
     ]
     assert prompt_sids == ["sess-1", "sess-2"]
 
 
 def test_acp_soft_idle_heartbeat_resets_on_real_event_and_stops(monkeypatch) -> None:
     """ACP must honor the same idle callback as the one-shot CLI watchdog."""
+
     def _delayed_script(req, proc):
         method = req.get("method")
         if method == "initialize":
@@ -551,35 +604,50 @@ def test_acp_soft_idle_heartbeat_resets_on_real_event_and_stops(monkeypatch) -> 
 
         def _later() -> None:
             time.sleep(0.035)
-            proc._q.put(json.dumps({
-                "jsonrpc": "2.0",
-                "method": "session/update",
-                "params": {
-                    "sessionId": sid,
-                    "update": {
-                        "sessionUpdate": "tool_call",
-                        "toolCallId": "tool-quiet-reset",
-                        "title": "Reading status",
-                    },
-                },
-            }) + "\n")
+            proc._q.put(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "method": "session/update",
+                        "params": {
+                            "sessionId": sid,
+                            "update": {
+                                "sessionUpdate": "tool_call",
+                                "toolCallId": "tool-quiet-reset",
+                                "title": "Reading status",
+                            },
+                        },
+                    }
+                )
+                + "\n"
+            )
             time.sleep(0.035)
-            proc._q.put(json.dumps({
-                "jsonrpc": "2.0",
-                "method": "session/update",
-                "params": {
-                    "sessionId": sid,
-                    "update": {
-                        "sessionUpdate": "agent_message_chunk",
-                        "content": {"type": "text", "text": "ok"},
-                    },
-                },
-            }) + "\n")
-            proc._q.put(json.dumps({
-                "jsonrpc": "2.0",
-                "id": req["id"],
-                "result": {"stopReason": "end_turn"},
-            }) + "\n")
+            proc._q.put(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "method": "session/update",
+                        "params": {
+                            "sessionId": sid,
+                            "update": {
+                                "sessionUpdate": "agent_message_chunk",
+                                "content": {"type": "text", "text": "ok"},
+                            },
+                        },
+                    }
+                )
+                + "\n"
+            )
+            proc._q.put(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": req["id"],
+                        "result": {"stopReason": "end_turn"},
+                    }
+                )
+                + "\n"
+            )
 
         threading.Thread(target=_later, daemon=True).start()
         return []
@@ -635,9 +703,7 @@ def test_acp_emits_staged_idle_alerts_before_cancelling(monkeypatch) -> None:
     )
 
     event_types = [
-        json.loads(item)["type"]
-        for item in emitted
-        if item.startswith("{") and "watchdog." in item
+        json.loads(item)["type"] for item in emitted if item.startswith("{") and "watchdog." in item
     ]
     assert event_types == [
         "watchdog.no_progress_warning",
@@ -645,10 +711,7 @@ def test_acp_emits_staged_idle_alerts_before_cancelling(monkeypatch) -> None:
         "watchdog.terminated",
     ]
     assert "hard idle timeout" in str(result.fatal_error).lower()
-    assert any(
-        row.get("method") == "session/cancel"
-        for row in proc.written
-    )
+    assert any(row.get("method") == "session/cancel" for row in proc.written)
 
 
 def test_acp_timeout_tracks_inactivity_not_total_turn_time(monkeypatch) -> None:
@@ -669,23 +732,33 @@ def test_acp_timeout_tracks_inactivity_not_total_turn_time(monkeypatch) -> None:
         def _later() -> None:
             for index in range(5):
                 time.sleep(0.05)
-                proc._q.put(json.dumps({
-                    "jsonrpc": "2.0",
-                    "method": "session/update",
-                    "params": {
-                        "sessionId": sid,
-                        "update": {
-                            "sessionUpdate": "tool_call_update",
-                            "toolCallId": f"tool-{index}",
-                            "status": "in_progress",
-                        },
-                    },
-                }) + "\n")
-            proc._q.put(json.dumps({
-                "jsonrpc": "2.0",
-                "id": req["id"],
-                "result": {"stopReason": "end_turn"},
-            }) + "\n")
+                proc._q.put(
+                    json.dumps(
+                        {
+                            "jsonrpc": "2.0",
+                            "method": "session/update",
+                            "params": {
+                                "sessionId": sid,
+                                "update": {
+                                    "sessionUpdate": "tool_call_update",
+                                    "toolCallId": f"tool-{index}",
+                                    "status": "in_progress",
+                                },
+                            },
+                        }
+                    )
+                    + "\n"
+                )
+            proc._q.put(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": req["id"],
+                        "result": {"stopReason": "end_turn"},
+                    }
+                )
+                + "\n"
+            )
 
         threading.Thread(target=_later, daemon=True).start()
         return []
@@ -721,11 +794,13 @@ def test_acp_idle_timeout_cancels_an_unresponsive_turn(monkeypatch) -> None:
             prompt_id["value"] = req["id"]
             return []
         if method == "session/cancel":
-            return [{
-                "jsonrpc": "2.0",
-                "id": prompt_id["value"],
-                "result": {"stopReason": "cancelled"},
-            }]
+            return [
+                {
+                    "jsonrpc": "2.0",
+                    "id": prompt_id["value"],
+                    "result": {"stopReason": "cancelled"},
+                }
+            ]
         return []
 
     proc = _FakeAcpProc(_stalled_script)
@@ -786,13 +861,22 @@ def test_acp_fresh_session_mode(monkeypatch) -> None:
 
 def test_acp_registry_isolates_manager_scopes() -> None:
     first = copilot_acp.get_client(
-        "copilot-bin", "model", "low", scope="manager:s-a",
+        "copilot-bin",
+        "model",
+        "low",
+        scope="manager:s-a",
     )
     same = copilot_acp.get_client(
-        "copilot-bin", "model", "low", scope="manager:s-a",
+        "copilot-bin",
+        "model",
+        "low",
+        scope="manager:s-a",
     )
     second = copilot_acp.get_client(
-        "copilot-bin", "model", "low", scope="manager:s-b",
+        "copilot-bin",
+        "model",
+        "low",
+        scope="manager:s-b",
     )
 
     assert first is same
@@ -800,9 +884,18 @@ def test_acp_registry_isolates_manager_scopes() -> None:
 
     copilot_acp.close_clients_for_scope("manager:s-a")
     replaced = copilot_acp.get_client(
-        "copilot-bin", "model", "low", scope="manager:s-a",
+        "copilot-bin",
+        "model",
+        "low",
+        scope="manager:s-a",
     )
     assert replaced is not first
-    assert copilot_acp.get_client(
-        "copilot-bin", "model", "low", scope="manager:s-b",
-    ) is second
+    assert (
+        copilot_acp.get_client(
+            "copilot-bin",
+            "model",
+            "low",
+            scope="manager:s-b",
+        )
+        is second
+    )

@@ -60,12 +60,11 @@ def test_the_flag_is_structural_not_textual() -> None:
     assert entry is not None and entry.kind == "planner_error"
 
 
-def test_the_discard_marks_itself_benign() -> None:
-    """The emitter and the projection have to agree, or the fix is inert."""
-    import inspect
+def test_stale_verdict_discard_is_not_a_planner_error() -> None:
+    event = {
+        "type": "life.planner.verdict.discarded",
+        "cycle": 1,
+        "reason": "semantic state changed before the prior verdict was delivered",
+    }
 
-    from argus_skill.life.supervisor import _core
-
-    source = inspect.getsource(_core.LifeSupervisor._retry_pending_planner_verdict)
-    discard = source.index("discarded stale planner verdict outbox")
-    assert '"benign": True' in source[discard : discard + 900]
+    assert EventJournal._entry_from_event(event) is None

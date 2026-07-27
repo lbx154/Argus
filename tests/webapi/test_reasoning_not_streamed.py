@@ -94,5 +94,9 @@ def test_the_scratchpad_is_still_written_to_the_authoritative_log(
 
     _replay(life)
 
-    persisted = [json.loads(l) for l in (life / "events.jsonl").read_text().splitlines() if l.strip()]
+    persisted = [
+        json.loads(line)
+        for line in (life / "events.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
     assert len(_reasoning(persisted)) == 2

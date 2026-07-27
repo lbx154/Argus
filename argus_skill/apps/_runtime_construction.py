@@ -19,9 +19,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from ..core.knobs import resolve_runner_bin_setting
 from ..core.ports import EventSink
 from ..core.run_gateway import run_exec as gateway_run_exec
-from ..core.knobs import resolve_runner_bin_setting
 from ._env import env_int as _env_int
 from ._runtime_backends import _MemoryRunner, _ScriptedPlannerBackend
 from ._runtime_helpers import _SplitMemory

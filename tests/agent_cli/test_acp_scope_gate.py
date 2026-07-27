@@ -104,7 +104,16 @@ def test_copilot_manager_acp_defaults_on_with_explicit_rollback(monkeypatch) -> 
     runner = AgentCliRunner("copilot-bin", backend=BACKEND_COPILOT)
 
     assert runner._acp_enabled("manager-frontdoor-classify") is True
+    assert runner._acp_enabled("manager-classify-fast") is True
+    assert runner._acp_enabled("manager-classify-grounded") is True
     assert runner._acp_enabled("simple-1") is True
+    assert (
+        runner._acp_enabled(
+            "simple-1",
+            RunnerOptions(sandbox_mode="read-only"),
+        )
+        is True
+    )
     assert runner._acp_enabled("engineer-1") is False
 
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_ACP", "0")
@@ -137,14 +146,91 @@ def test_front_door_label_takes_acp_and_never_spawns_cli(monkeypatch) -> None:
     )
     assert r.exit_code == 0 and r.turn_completed
     assert r.agent_messages == ["CONFIG: NONE\nROUTE: SELF"]
+    assert commands == [
+        [
+            "copilot-bin",
+            "--acp",
+            "--no-custom-instructions",
+            "--disable-builtin-mcps",
+            "--available-tools=",
+        ]
+    ]
+    assert any(w.get("method") == "session/prompt" for w in acp_proc.written)
+
+
+def test_manager_fast_route_takes_lean_acp_and_never_spawns_cli(monkeypatch) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_ACP", "1")
+    acp_proc = _FakeAcpProc()
+    commands: list[list[str]] = []
+
+    def _popen(cmd, *a, **k):
+        if "--acp" in cmd:
+            commands.append(cmd)
+            return acp_proc
+        raise AssertionError("Manager fast route must NOT spawn the one-shot CLI")
+
+    monkeypatch.setattr(agent_cli_runner.subprocess, "Popen", _popen)
+
+    runner = AgentCliRunner("copilot-bin", backend=BACKEND_COPILOT)
+    result = runner.run_exec(
+        prompt="classify the handoff",
+        resume_thread_id=None,
+        options=RunnerOptions(model="model-x", reasoning_effort="low"),
+        run_label="manager-classify-fast",
+    )
+
+    assert result.exit_code == 0 and result.turn_completed
     assert commands == [[
         "copilot-bin",
         "--acp",
+        "--model",
+        "model-x",
+        "--reasoning-effort",
+        "low",
         "--no-custom-instructions",
         "--disable-builtin-mcps",
         "--available-tools=",
     ]]
-    assert any(w.get("method") == "session/prompt" for w in acp_proc.written)
+
+
+def test_manager_grounded_route_takes_read_only_acp(monkeypatch) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_ACP", "1")
+    acp_proc = _FakeAcpProc()
+    commands: list[list[str]] = []
+
+    def _popen(cmd, *a, **k):
+        if "--acp" in cmd:
+            commands.append(cmd)
+            return acp_proc
+        raise AssertionError("Manager grounded route must NOT spawn the one-shot CLI")
+
+    monkeypatch.setattr(agent_cli_runner.subprocess, "Popen", _popen)
+
+    runner = AgentCliRunner("copilot-bin", backend=BACKEND_COPILOT)
+    result = runner.run_exec(
+        prompt="inspect and classify the handoff",
+        resume_thread_id=None,
+        options=RunnerOptions(
+            model="model-x",
+            reasoning_effort="low",
+            sandbox_mode="read-only",
+        ),
+        run_label="manager-classify-grounded",
+    )
+
+    assert result.exit_code == 0 and result.turn_completed
+    assert commands == [[
+        "copilot-bin",
+        "--acp",
+        "--model",
+        "model-x",
+        "--reasoning-effort",
+        "low",
+        "--available-tools",
+        "view,grep,glob",
+        "--allow-tool",
+        "view,grep,glob",
+    ]]
 
 
 @pytest.mark.parametrize("run_label", ["simple-1", "chat-1"])
@@ -168,7 +254,12 @@ def test_manager_reply_labels_take_acp_and_never_spawn_cli(
     r = runner.run_exec(
         prompt="do X",
         resume_thread_id=None,
-        options=RunnerOptions(model="model-x", reasoning_effort="xhigh"),
+        options=RunnerOptions(
+            model="model-x",
+            reasoning_effort="xhigh",
+            sandbox_mode="read-only",
+            add_dirs=["/state/session"],
+        ),
         run_label=run_label,
     )
     assert r.exit_code == 0 and r.turn_completed
@@ -180,6 +271,12 @@ def test_manager_reply_labels_take_acp_and_never_spawn_cli(
             "model-x",
             "--reasoning-effort",
             "xhigh",
+            "--available-tools",
+            "view,grep,glob",
+            "--allow-tool",
+            "view,grep,glob",
+            "--add-dir",
+            "/state/session",
         ]
     ]
     assert any(w.get("method") == "session/prompt" for w in acp_proc.written)

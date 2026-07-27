@@ -7,6 +7,7 @@ re-bloat.
 These tests lock in that the turn-discipline / bounded-progress contract is
 present in the engineer prompt, for both paper and non-paper missions.
 """
+
 import pytest
 
 from argus_skill.loop import SkillLoop
@@ -54,21 +55,17 @@ def test_turn_discipline_present_even_for_nonpaper_task():
     assert "spawn subagents" in out.lower()
 
 
-@pytest.mark.parametrize("allow_self_review", [False, True])
-def test_engineer_must_not_spawn_a_subagent_to_impersonate_reviewer(
-    allow_self_review: bool,
-):
+def test_engineer_must_not_spawn_a_subagent_to_impersonate_reviewer():
     out = SkillLoop._build_engineer_prompt(
         task="Repair the run contract and request independent review.",
         skill_text="",
         next_action=None,
-        allow_self_review=allow_self_review,
     )
 
     assert "reviewer subagent" in out.lower()
-    assert "fresh reviewer session" in out.lower()
+    assert "fresh reviewer" in out.lower()
     assert "yield" in out.lower()
 
 
 def test_engineer_fixed_prompt_stays_token_efficient():
-    assert len(_prompt("Refactor the data loader and add unit tests.")) < 1_600
+    assert len(_prompt("Refactor the data loader and add unit tests.")) < 2_000

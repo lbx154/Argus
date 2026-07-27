@@ -7,6 +7,7 @@ mode, no marker file, and no env var — the verifier always checks and always
 fails closed. These tests pin that, keep the physics core checklists, and guard
 against physics-subfield hardcoding.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -42,9 +43,14 @@ def complete_package(tmp_path: Path) -> Path:
 def test_physics_stage_order_is_five_ending_in_manuscript() -> None:
     mod = load_vertical("physics")
     assert mod.STAGE_ORDER == ("scope", "model", "execute", "review", "manuscript")
-    # the terminal stage runs the manuscript verifier as a real shell check
-    checks = [desc for desc, _ in mod.STAGE_CHECKS["manuscript"]]
-    assert any("manuscript" in c.lower() for c in checks)
+    # Shell-check registries were retired; the vertical owns a reviewer-facing
+    # checklist and leaves the verifier available as an agent-callable tool.
+    assert not hasattr(mod, "STAGE_CHECKS")
+    assert {item.id for item in mod.CHECKLIST_ITEMS["manuscript"]} >= {
+        "manuscript.paper-package",
+        "manuscript.paper-composition",
+        "manuscript.review-audit",
+    }
 
 
 def test_only_physics_vertical_no_physics_paper() -> None:
@@ -70,7 +76,9 @@ def test_contract_checked_without_any_marker(tmp_path: Path) -> None:
     # a bare project (only pipeline state, NO PAPER_TARGET.json) still fails the
     # manuscript contract — there is no pass-through
     (tmp_path / "research").mkdir()
-    (tmp_path / "research" / "PIPELINE_STATE.json").write_text('{"vertical":"physics"}', encoding="utf-8")
+    (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
+        '{"vertical":"physics"}', encoding="utf-8"
+    )
     assert not (tmp_path / "research" / "PAPER_TARGET.json").exists()
     failures = ms.verify_manuscript_deliverables(tmp_path)
     assert failures  # non-empty: deliverables are required unconditionally
@@ -136,9 +144,16 @@ def test_wrong_claims_header_fails_with_rename_hint(complete_package: Path) -> N
     assert "reviewer_notes" in msg  # a missing column
     # and the CLI fails closed with the same guidance
     r = subprocess.run(
-        [sys.executable, "-m", "argus_skill.verticals.physics.manuscript",
-         "check", "--project-root", str(complete_package)],
-        capture_output=True, text=True,
+        [
+            sys.executable,
+            "-m",
+            "argus_skill.verticals.physics.manuscript",
+            "check",
+            "--project-root",
+            str(complete_package),
+        ],
+        capture_output=True,
+        text=True,
     )
     assert r.returncode == 1
     assert "rename 'claim'" in r.stderr
@@ -148,11 +163,13 @@ def test_exact_claims_header_documented_in_contract() -> None:
     mod = load_vertical("physics")
     header = "claim_id,claim_text,claim_type,evidence_type,evidence_pointer,status,boundary,reviewer_notes"
     assert ms.CLAIMS_HEADER == header
-    # the exact header must appear in all three agent-facing surfaces
+    # The exact header must appear in the tool contract, role framing, and the
+    # vertical-owned checklist consumed by the Reviewer.
     assert header in ms.manuscript_review_items()
-    assert header in mod.REVIEWER_CHECKLISTS["manuscript"][1]
     assert header in mod.role_banner("engineer")
-    manuscript_items = " ".join(i.statement + " " + i.evidence_hint for i in mod.CHECKLIST_ITEMS["manuscript"])
+    manuscript_items = " ".join(
+        i.statement + " " + i.evidence_hint for i in mod.CHECKLIST_ITEMS["manuscript"]
+    )
     assert header in manuscript_items
 
 
@@ -160,11 +177,12 @@ def test_paper_audit_heading_documented_in_contract() -> None:
     mod = load_vertical("physics")
     heading = ms.PAPER_AUDIT_HEADING
     assert heading == "Paper-Style Delivery Audit"
-    # the exact REVIEW.md audit heading must appear in the agent-facing surfaces
+    # The exact REVIEW.md audit heading must appear in the active agent-facing surfaces.
     assert heading in ms.manuscript_review_items()
-    assert heading in mod.REVIEWER_CHECKLISTS["manuscript"][1]
     assert heading in mod.role_banner("engineer")
-    manuscript_items = " ".join(i.statement + " " + i.evidence_hint for i in mod.CHECKLIST_ITEMS["manuscript"])
+    manuscript_items = " ".join(
+        i.statement + " " + i.evidence_hint for i in mod.CHECKLIST_ITEMS["manuscript"]
+    )
     assert heading in manuscript_items
 
 
@@ -211,9 +229,14 @@ def test_role_banner_declares_manuscript_terminal_deliverable() -> None:
 
 def test_manuscript_reviewer_checklist_audits_paper_and_no_overclaim() -> None:
     mod = load_vertical("physics")
-    text = mod.REVIEWER_CHECKLISTS["manuscript"][1]
-    assert "MANUSCRIPT AUDIT" in text
-    for token in ("no-go", "supported", "universal", "synthetic", "novelty", "provenance"):
+    text = (
+        " ".join(
+            item.statement + " " + item.evidence_hint for item in mod.CHECKLIST_ITEMS["manuscript"]
+        )
+        + " "
+        + mod.role_banner("reviewer")
+    )
+    for token in ("supported", "universal", "synthetic", "novelty", "provenance"):
         assert token in text.lower()
 
 
@@ -224,13 +247,19 @@ def test_physics_core_checklists_retained() -> None:
     mod = load_vertical("physics")
     items = mod.CHECKLIST_ITEMS
     assert [i.id for i in items["scope"]] == [
-        "scope.faithful-goal", "scope.task-type-success", "scope.dynamic-route",
+        "scope.faithful-goal",
+        "scope.task-type-success",
+        "scope.dynamic-route",
     ]
     assert {i.id for i in items["model"]} == {
-        "model.variables-equations", "model.assumptions-bcic", "model.validation-target",
+        "model.variables-equations",
+        "model.assumptions-bcic",
+        "model.validation-target",
     }
     assert {i.id for i in items["review"]} >= {
-        "review.no-system-drift", "review.units-bcic", "review.claim-status",
+        "review.no-system-drift",
+        "review.units-bcic",
+        "review.claim-status",
     }
     # review keeps its physics claim audit; the paper-package audit lives in manuscript
     assert "review.paper-target-contract" not in {i.id for i in items["review"]}
@@ -246,16 +275,41 @@ def test_no_domain_specific_hardcoding() -> None:
             " ".join(label for label, _ in ms.MANUSCRIPT_SECTIONS),
             " ".join(desc for _, desc in ms.REQUIRED_FILES),
             ms.manuscript_review_items(),
-            load_vertical("physics").REVIEWER_CHECKLISTS["manuscript"][1],
+            " ".join(
+                item.statement + " " + item.evidence_hint
+                for item in load_vertical("physics").CHECKLIST_ITEMS["manuscript"]
+            ),
             load_vertical("physics").role_banner("engineer"),
         ]
     ).lower()
     banned = (
-        "pendulum", "wilberforce", "floquet", "graphene", "qubit", "electron",
-        "galaxy", "black hole", "topological", "superconduct", "boson", "fermion",
-        "neutrino", "lattice", "spin glass", "navier", "schrodinger", "ising",
-        "kepler", "quark", "photon", "magnet", "ssh", "non-hermitian",
-        "gbz", "zero-pi", "zero and pi",
+        "pendulum",
+        "wilberforce",
+        "floquet",
+        "graphene",
+        "qubit",
+        "electron",
+        "galaxy",
+        "black hole",
+        "topological",
+        "superconduct",
+        "boson",
+        "fermion",
+        "neutrino",
+        "lattice",
+        "spin glass",
+        "navier",
+        "schrodinger",
+        "ising",
+        "kepler",
+        "quark",
+        "photon",
+        "magnet",
+        "ssh",
+        "non-hermitian",
+        "gbz",
+        "zero-pi",
+        "zero and pi",
     )
     hit = [w for w in banned if w in surface]
     assert not hit, f"manuscript contract must be discipline-agnostic; found: {hit}"
@@ -266,16 +320,30 @@ def test_no_domain_specific_hardcoding() -> None:
 # --------------------------------------------------------------------------- #
 def test_cli_subprocess_fail_closed_then_pass(complete_package: Path) -> None:
     r = subprocess.run(
-        [sys.executable, "-m", "argus_skill.verticals.physics.manuscript",
-         "check", "--project-root", str(complete_package)],
-        capture_output=True, text=True,
+        [
+            sys.executable,
+            "-m",
+            "argus_skill.verticals.physics.manuscript",
+            "check",
+            "--project-root",
+            str(complete_package),
+        ],
+        capture_output=True,
+        text=True,
     )
     assert r.returncode == 0, r.stderr
     (complete_package / "MANUSCRIPT.md").unlink()
     r = subprocess.run(
-        [sys.executable, "-m", "argus_skill.verticals.physics.manuscript",
-         "check", "--project-root", str(complete_package)],
-        capture_output=True, text=True,
+        [
+            sys.executable,
+            "-m",
+            "argus_skill.verticals.physics.manuscript",
+            "check",
+            "--project-root",
+            str(complete_package),
+        ],
+        capture_output=True,
+        text=True,
     )
     assert r.returncode == 1
     assert "MANUSCRIPT.md" in r.stderr

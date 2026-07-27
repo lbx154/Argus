@@ -24,6 +24,7 @@ Reviewer's. The generic anti-fraud gate ``evidence_chain`` stays in
 ``argus_skill.skills`` (it is domain-agnostic) and is re-exported here for the
 paper pipeline's convenience.
 """
+
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------
@@ -132,6 +133,7 @@ from .run_evidence_health import (
 # Paper-specific pipeline (stage definitions + checks)
 # ---------------------------------------------------------------------------
 from .stages import (
+    CHECKLIST_ITEMS,
     STAGE_ORDER,
     WORKFLOW_MODE,
 )
@@ -208,6 +210,7 @@ __all__ = [
     "ChainIssue",
     "ChainReport",
     # pipeline stages
+    "CHECKLIST_ITEMS",
     "STAGE_ORDER",
     "WORKFLOW_MODE",
 ]

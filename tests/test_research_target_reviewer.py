@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from argus_skill.core.models import RunnerResult
-from argus_skill.reviewer import Reviewer, ReviewerConfig, SCHEMA_PATH
+from argus_skill.reviewer import Reviewer, ReviewerConfig
 from argus_skill.skills.vertical_select import persist_vertical
 
 

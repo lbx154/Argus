@@ -29,9 +29,9 @@ from ...core.event_catalog import EventType
 from ...core.models import RunnerResult
 from ...core.runner_errors import result_has_pre_provider_refusal
 from ...core.secret_guard import redact_secrets_text
-from ._io_log import raw_transcript_path as _raw_transcript_path
 from ._exec_finalize import finalize_result, finish_quota
 from ._io_log import _command_metadata, _text_sha256
+from ._io_log import raw_transcript_path as _raw_transcript_path
 from ._result import _extract_copilot_premium_requests, looks_like_auth_failure
 
 if TYPE_CHECKING:

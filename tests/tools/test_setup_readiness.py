@@ -3,13 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus_skill.apps.cli import main as cli_main
 from argus_skill.apps.cli import _core as cli_core
+from argus_skill.apps.cli import main as cli_main
 from argus_skill.core.backend_readiness import (
+    SETUP_EXIT_USAGE,
     BackendProfile,
     BackendReadiness,
     ReadinessProblem,
-    SETUP_EXIT_USAGE,
 )
 from argus_skill.tools import setup
 

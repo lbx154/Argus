@@ -4,6 +4,7 @@ Construction, small per-call state readers/setters, and the option/result
 translation glue live here; the actual "make one provider call" state
 machine is delegated to :mod:`._exec`.
 """
+
 from __future__ import annotations
 
 import logging
@@ -86,9 +87,7 @@ class AgentCliBackend:
         default_extra_args: list[str] | None = None,
         default_interrupt_reason_provider=None,
         default_watchdog_soft_idle_seconds: int = _RUNNER_DEFAULT_SOFT_IDLE_SECONDS,
-        default_watchdog_stalled_idle_seconds: int = (
-            _RUNNER_DEFAULT_STALLED_IDLE_SECONDS
-        ),
+        default_watchdog_stalled_idle_seconds: int = (_RUNNER_DEFAULT_STALLED_IDLE_SECONDS),
         default_watchdog_hard_idle_seconds: int = _RUNNER_DEFAULT_HARD_IDLE_SECONDS,
         before_exec=None,
         event_callback=None,
@@ -158,6 +157,8 @@ class AgentCliBackend:
         lean: bool,
         cwd: str,
         front_door_session: bool = False,
+        read_only: bool = False,
+        add_dirs: list[str] | None = None,
     ) -> None:
         prewarm = getattr(self._runner, "prewarm_acp_client", None)
         if callable(prewarm):
@@ -167,6 +168,8 @@ class AgentCliBackend:
                 lean=lean,
                 cwd=cwd,
                 front_door_session=front_door_session,
+                read_only=read_only,
+                add_dirs=add_dirs,
             )
 
     def close_acp_clients(self) -> None:
@@ -244,8 +247,10 @@ class AgentCliBackend:
             options,
             model=model or None,
             extra_args=(
-                [*(["--profile", effective_profile] if effective_profile else []),
-                 *normalized_call_args]
+                [
+                    *(["--profile", effective_profile] if effective_profile else []),
+                    *normalized_call_args,
+                ]
                 or None
             ),
         )
@@ -386,7 +391,8 @@ class AgentCliBackend:
     ) -> tuple[int, int, int, int]:
         """Convert Codex lifecycle-cumulative usage into this call's delta."""
         return self._usage.usage_delta_for_thread(
-            thread_id=thread_id, raw_totals=raw_totals,
+            thread_id=thread_id,
+            raw_totals=raw_totals,
         )
 
     def _premium_delta_for_thread(

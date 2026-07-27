@@ -1,4 +1,5 @@
 """Tests for the Theory Capability gate (artifact verifier + repair loop)."""
+
 from __future__ import annotations
 
 import csv
@@ -9,9 +10,19 @@ from argus_skill.verticals.physics import stages
 from argus_skill.verticals.physics.gates import theory as th
 
 
-def _row(cid: str, *, applicable: bool = True, used: bool = True, kind: str = "generic",
-         exec_level: str = "basic", evidence: bool = True, comparison: bool = True,
-         impact: str = "", why: str = "", downgrade: str = "") -> dict:
+def _row(
+    cid: str,
+    *,
+    applicable: bool = True,
+    used: bool = True,
+    kind: str = "generic",
+    exec_level: str = "basic",
+    evidence: bool = True,
+    comparison: bool = True,
+    impact: str = "",
+    why: str = "",
+    downgrade: str = "",
+) -> dict:
     r = {c: "x" for c in th.REQUIRED_COLUMNS}
     r["capability_id"] = cid
     r["generic_or_domain_specific"] = "domain-specific" if kind == "domain" else "generic"
@@ -30,10 +41,18 @@ def _row(cid: str, *, applicable: bool = True, used: bool = True, kind: str = "g
 def _write(root: Path, rows: list[dict], *, domain: bool = True) -> None:
     root.mkdir(parents=True, exist_ok=True)
     if domain:
-        (root / th.DOMAIN_FILE).write_text(json.dumps(
-            {"primary_domain": "non-Hermitian systems", "secondary_domains": ["Floquet"],
-             "confidence": 0.8, "why_this_domain": "x", "domain_specific_capabilities_loaded": ["y"]}),
-            encoding="utf-8")
+        (root / th.DOMAIN_FILE).write_text(
+            json.dumps(
+                {
+                    "primary_domain": "non-Hermitian systems",
+                    "secondary_domains": ["Floquet"],
+                    "confidence": 0.8,
+                    "why_this_domain": "x",
+                    "domain_specific_capabilities_loaded": ["y"],
+                }
+            ),
+            encoding="utf-8",
+        )
     with (root / th.ARTIFACT).open("w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=list(th.REQUIRED_COLUMNS))
         w.writeheader()
@@ -42,8 +61,7 @@ def _write(root: Path, rows: list[dict], *, domain: bool = True) -> None:
 
 
 def _good_rows() -> list[dict]:
-    return [_row("CAP-THBASE-01"), _row("CAP-THBASE-03"),
-            _row("CAP-DOM-01", kind="domain")]
+    return [_row("CAP-THBASE-01"), _row("CAP-THBASE-03"), _row("CAP-DOM-01", kind="domain")]
 
 
 def _codes(root: Path) -> list[str]:
@@ -89,7 +107,9 @@ def test_used_without_evidence_fails_th003(tmp_path: Path) -> None:
 
 def test_applicable_missing_unjustified_fails_th004(tmp_path: Path) -> None:
     rows = _good_rows()
-    rows.append(_row("CAP-MISS", used=False, exec_level="missing", impact="breaks stability claim", why=""))
+    rows.append(
+        _row("CAP-MISS", used=False, exec_level="missing", impact="breaks stability claim", why="")
+    )
     _write(tmp_path, rows)
     assert "TH-004" in _codes(tmp_path)
 
@@ -103,8 +123,16 @@ def test_used_without_comparison_fails_th005(tmp_path: Path) -> None:
 
 def test_missing_without_downgrade_fails_th006(tmp_path: Path) -> None:
     rows = _good_rows()
-    rows.append(_row("CAP-MISS", used=False, exec_level="missing", impact="needed for claim C3",
-                     why="out of scope", downgrade=""))
+    rows.append(
+        _row(
+            "CAP-MISS",
+            used=False,
+            exec_level="missing",
+            impact="needed for claim C3",
+            why="out of scope",
+            downgrade="",
+        )
+    )
     _write(tmp_path, rows)
     assert "TH-006" in _codes(tmp_path)
 
@@ -125,20 +153,26 @@ def test_theory_failures_reach_model_banner(tmp_path: Path) -> None:
 
 
 def test_model_stage_check_includes_advisory_theory() -> None:
-    cmds = [cmd for _d, cmd in stages.STAGE_CHECKS["model"]]
-    assert any("gates.theory" in c and "--advisory" in c for c in cmds)
+    assert not hasattr(stages, "STAGE_CHECKS")
+    banner = stages.role_banner("engineer")
+    assert "gates.theory" in banner
+    assert "ADVISORY" in banner
 
 
 def test_theory_base_library_conforms_to_requirement_spec() -> None:
     # every base theory capability is a gate-callable action with all 18 spec fields
     repo = Path(__file__).resolve().parents[2]
     spec = json.loads(
-        (repo / "docs" / "physics_research_gates" / "THEORY_CAPABILITY_REQUIREMENT_SPEC.json").read_text()
+        (
+            repo / "docs" / "physics_research_gates" / "THEORY_CAPABILITY_REQUIREMENT_SPEC.json"
+        ).read_text()
     )
     required = [f["field"] for f in spec["required_fields"]]
     assert len(required) == 18
     lib = json.loads(
-        (repo / "argus_skill" / "verticals" / "physics" / "capabilities" / "theory.json").read_text()
+        (
+            repo / "argus_skill" / "verticals" / "physics" / "capabilities" / "theory.json"
+        ).read_text()
     )
     assert lib.get("conforms_to") == "theory_capability_requirement_spec_v1"
     for cap in lib["capabilities"]:
@@ -148,6 +182,7 @@ def test_theory_base_library_conforms_to_requirement_spec() -> None:
 
 def test_theory_capabilities_still_load_via_registry() -> None:
     from argus_skill.skills.capability_registry import CapabilityRegistry
+
     reg = CapabilityRegistry(external_path=None)
     caps = reg.for_gate("theory")
     assert len(caps) >= 6 and all(c.source_layer == "base" for c in caps)

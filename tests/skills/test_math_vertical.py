@@ -169,10 +169,7 @@ def test_math_checklist_is_small_and_judges_results_not_files() -> None:
         "solve": 3,
         "review": 4,
     }
-    assert {
-        stage: {item.id for item in stage_items}
-        for stage, stage_items in items.items()
-    } == {
+    assert {stage: {item.id for item in stage_items} for stage, stage_items in items.items()} == {
         "scope": {"scope.problem-explicit", "scope.success-criterion"},
         "solve": {
             "solve.substantive-result",
@@ -277,9 +274,7 @@ def test_empty_math_review_store_entry_loads_seeds_not_empty(tmp_path: Path) -> 
 def test_math_has_no_target_schema_or_legacy_lifecycle_branches() -> None:
     root = Path(__file__).parents[2] / "argus_skill"
     manager = (root / "manager" / "_core.py").read_text(encoding="utf-8")
-    domain_author = (root / "manager" / "domain_author.py").read_text(
-        encoding="utf-8"
-    )
+    domain_author = (root / "manager" / "domain_author.py").read_text(encoding="utf-8")
     reviewer = (root / "reviewer" / "_core.py").read_text(encoding="utf-8")
     parsing = (root / "reviewer" / "_parsing.py").read_text(encoding="utf-8")
 
@@ -328,40 +323,55 @@ def test_doctoral_verified_new_publishable_or_doctoral_result_succeeds() -> None
             novelty="verified_new",
             significance=significance,
         )
-        assert research_completion_issue(
-            result,
-            research_target_level="doctoral",
-        ) == ""
+        assert (
+            research_completion_issue(
+                result,
+                research_target_level="doctoral",
+            )
+            == ""
+        )
         assert _final_stage_decision(result, "doctoral") is not None
 
 
 def test_exploratory_honesty_alone_cannot_end_research() -> None:
     result = _research_result("structured_failure_report")
 
-    assert research_completion_issue(
-        result,
-        research_target_level="exploratory",
-    ) == "result_class_not_exploratory_terminal:structured_failure_report"
+    assert (
+        research_completion_issue(
+            result,
+            research_target_level="exploratory",
+        )
+        == "result_class_not_exploratory_terminal:structured_failure_report"
+    )
     assert _final_stage_decision(result, "exploratory") is None
-    assert _final_stage_decision(
-        result,
-        "exploratory",
-        scientific_decision="continue",
-    ) is None
+    assert (
+        _final_stage_decision(
+            result,
+            "exploratory",
+            scientific_decision="continue",
+        )
+        is None
+    )
 
 
 def test_exploratory_decision_relevant_counterexample_can_end_research() -> None:
     result = _research_result("counterexample")
 
-    assert research_completion_issue(
-        result,
-        research_target_level="exploratory",
-    ) == ""
-    assert _final_stage_decision(
-        result,
-        "exploratory",
-        scientific_decision="continue",
-    ) is not None
+    assert (
+        research_completion_issue(
+            result,
+            research_target_level="exploratory",
+        )
+        == ""
+    )
+    assert (
+        _final_stage_decision(
+            result,
+            "exploratory",
+            scientific_decision="continue",
+        )
+        is not None
+    )
 
 
 @pytest.mark.parametrize(
@@ -371,10 +381,13 @@ def test_exploratory_decision_relevant_counterexample_can_end_research() -> None
 def test_exploratory_bounded_evidence_can_end_normally(result_class: str) -> None:
     result = _research_result(result_class)
 
-    assert research_completion_issue(
-        result,
-        research_target_level="exploratory",
-    ) == ""
+    assert (
+        research_completion_issue(
+            result,
+            research_target_level="exploratory",
+        )
+        == ""
+    )
 
 
 def test_bounded_item_can_complete_without_certifying_doctoral_target() -> None:
@@ -384,12 +397,17 @@ def test_bounded_item_can_complete_without_certifying_doctoral_target() -> None:
         significance="unverified",
     )
 
-    assert research_completion_issue(
-        result,
-        research_target_level="doctoral",
-        scope="bounded",
-    ) == ""
-    assert _final_stage_decision(result, "doctoral", scope="bounded") is not None
+    assert (
+        research_completion_issue(
+            result,
+            research_target_level="doctoral",
+            scope="bounded",
+        )
+        == ""
+    )
+    # The bounded item may close honestly without meeting the doctoral target,
+    # but it cannot certify the whole final Goal Gate.
+    assert _final_stage_decision(result, "doctoral", scope="bounded") is None
 
     reviewer_context = vertical_role_banner(load_vertical("math"), "reviewer")
     assert "bounded subproblem can be done" in reviewer_context
@@ -397,14 +415,16 @@ def test_bounded_item_can_complete_without_certifying_doctoral_target() -> None:
 
 
 def test_legacy_math_result_gets_conservative_significance() -> None:
-    migrated = normalize_research_result({
-        "result_class": "known_result",
-        "correctness": "verified",
-        "novelty": "known",
-        "statement_fidelity": "verified",
-        "evidence": ["legacy evidence"],
-        "limitations": [],
-    })
+    migrated = normalize_research_result(
+        {
+            "result_class": "known_result",
+            "correctness": "verified",
+            "novelty": "known",
+            "statement_fidelity": "verified",
+            "evidence": ["legacy evidence"],
+            "limitations": [],
+        }
+    )
 
     assert migrated is not None
     assert migrated["significance_status"] == "exploratory"

@@ -4,8 +4,8 @@ import os
 
 import pytest
 
-from argus_skill.tools.subagent import _cpu_admission as cpu
 from argus_skill.tools import subagent
+from argus_skill.tools.subagent import _cpu_admission as cpu
 
 
 def test_select_cpu_ids_skips_live_leases(monkeypatch: pytest.MonkeyPatch) -> None:

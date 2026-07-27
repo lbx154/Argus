@@ -179,6 +179,7 @@ class SelfReplyMixin:
 
     def _manager_reply_runtime_context(self, run_label: str) -> str:
         workspace_context = ""
+        team_log_context = ""
         try:
             from ..roles.prompts.manager import manager_workspace_capability_prompt
 
@@ -201,14 +202,27 @@ class SelfReplyMixin:
                 workspace,
                 manifest_root=state_root,
             )
+            if getattr(self, "_manager_session_root", None):
+                team_log = state_root / "events.jsonl"
+                team_log_context = (
+                    f"Authoritative Team log: {team_log}\n"
+                    "Team replies are not automatically copied into this chat. "
+                    "When the operator asks about Team work, read that log yourself "
+                    "before answering."
+                )
         except Exception:  # noqa: BLE001 — context must never block a reply
             workspace_context = ""
+            team_log_context = ""
         try:
             runner = getattr(self._backend, "_runner", None)
             if runner is None or not runner._acp_enabled(run_label):
-                return workspace_context
+                return "\n\n".join(
+                    part for part in (workspace_context, team_log_context) if part
+                )
         except Exception:  # noqa: BLE001 - metadata must never block a reply
-            return workspace_context
+            return "\n\n".join(
+                part for part in (workspace_context, team_log_context) if part
+            )
         runtime_fact = (
             "Runtime fact (answer accurately if the operator asks): this "
             "operator-facing Manager conversation is one logical session on a "
@@ -221,7 +235,7 @@ class SelfReplyMixin:
             "session with a structured handoff."
         )
         return "\n\n".join(
-            part for part in (workspace_context, runtime_fact) if part
+            part for part in (workspace_context, team_log_context, runtime_fact) if part
         )
 
     def _live_mission_status_block(self) -> str:

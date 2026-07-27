@@ -5,6 +5,8 @@ import pytest
 from argus_skill.core.models import RunnerResult
 from argus_skill.planner.planner import (
     NO_CONCRETE_TASKS_ERROR,
+    OPEN_ENDED_PROJECT_DONE_ERROR,
+    PLANNER_SUPERSEDED_ERROR,
     Planner,
     PlannerConfig,
     TaskSpec,
@@ -278,12 +280,11 @@ def test_missing_completion_marker_is_retryable() -> None:
     assert verdict.error == "planner missing key-value completion marker"
 
 
-def test_planner_prompt_requires_direct_edits_and_plain_key_values() -> None:
-    assert "direct project executor" in _PLANNER_CORE_CONTRACT
-    assert "edit project files" in _PLANNER_CORE_CONTRACT
-    assert "Do not stop after describing a plan" in _PLANNER_CORE_CONTRACT
-    assert "PROJECT_DONE=true" in _PLANNER_CORE_CONTRACT
-    assert "PROJECT_DONE=false" in _PLANNER_CORE_CONTRACT
+def test_planner_prompt_requires_read_only_delegation_and_plain_key_values() -> None:
+    assert "Planner read-only delegation contract" in _PLANNER_CORE_CONTRACT
+    assert "Do not edit project files" in _PLANNER_CORE_CONTRACT
+    assert "Engineer owns edits" in _PLANNER_CORE_CONTRACT
+    assert "PROJECT_DONE=true|false" in _PLANNER_CORE_CONTRACT
     assert "not JSON" in _PLANNER_CORE_CONTRACT
     assert "TASK_CONTEXT_REFS" in _PLANNER_CORE_CONTRACT
     assert "TASK_STAGE_CLOSING" in _PLANNER_CORE_CONTRACT
@@ -329,6 +330,7 @@ def test_plan_next_disables_schema_and_planner_timeouts(monkeypatch) -> None:
         continuous_objective="fix the issue",
         config=PlannerConfig(
             working_dir="/tmp/project",
+            add_dirs=["/tmp/project-state"],
             dangerous_yolo=True,
         ),
     )
@@ -340,7 +342,10 @@ def test_plan_next_disables_schema_and_planner_timeouts(monkeypatch) -> None:
     assert options.output_schema_path is None
     assert options.external_interrupt_reason_provider is None
     assert options.watchdog_hard_idle_seconds == 0
-    assert options.dangerous_yolo is True
+    assert options.dangerous_yolo is False
+    assert options.full_auto is False
+    assert options.sandbox_mode == "read-only"
+    assert options.add_dirs == ["/tmp/project-state"]
 
 
 def test_plan_next_repairs_not_done_empty_task_response(monkeypatch) -> None:
@@ -412,3 +417,49 @@ def test_plan_next_reports_bounded_failure_after_empty_task_repair_exhaustion(
     assert verdict.error.startswith(NO_CONCRETE_TASKS_ERROR)
     assert "repair exhausted after 1 attempt" in verdict.error
     assert len(runner.calls) == 2
+
+
+def test_open_ended_planner_must_delegate_after_one_increment() -> None:
+    runner = _SequenceRunner([
+        "PROJECT_DONE=true\nREASON=finished one cache optimization",
+        "\n".join([
+            "PROJECT_DONE=false",
+            "REASON=continue the standing optimization campaign",
+            "TASK_KEY=next",
+            "TASK_TITLE=Remove duplicate Manager reply rows",
+            "TASK_OBJECTIVE=Unify live and persisted Manager message identity.",
+            "TASK_ACCEPTANCE_CHECK=run the focused TUI stream tests",
+            "TASK_SCOPE=bounded",
+            "TASK_STAGE_CLOSING=false",
+            "TASK_REQUIRE_INDEPENDENT_REVIEW=false",
+            "TASK_SKIP_STAGE_TRANSITION=false",
+        ]),
+    ])
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective="keep optimizing Argus",
+        config=PlannerConfig(working_dir="/tmp/project", open_ended=True),
+    )
+
+    assert verdict.project_done is False
+    assert [task.title for task in verdict.new_tasks] == [
+        "Remove duplicate Manager reply rows"
+    ]
+    assert OPEN_ENDED_PROJECT_DONE_ERROR in runner.calls[1]["prompt"]
+
+
+def test_planner_reports_newer_operator_generation_as_superseded() -> None:
+    class Runner:
+        def run_exec(self, **_kwargs):
+            return RunnerResult(
+                exit_code=1,
+                fatal_error=f"External interrupt: {PLANNER_SUPERSEDED_ERROR}",
+            )
+
+    verdict = Planner(Runner()).plan_next(
+        continuous_objective="keep optimizing Argus",
+        config=PlannerConfig(working_dir="/tmp/project", open_ended=True),
+    )
+
+    assert verdict.project_done is False
+    assert verdict.error == PLANNER_SUPERSEDED_ERROR

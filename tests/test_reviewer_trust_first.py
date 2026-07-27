@@ -13,6 +13,7 @@ floor that still stops a faked number); reinvest the round in judging the idea's
 novelty + giving high-altitude direction. In MEASURED-BENCHMARK mode this is
 sharpened and explicitly overrides the generic demand-evidence rules.
 """
+
 from __future__ import annotations
 
 from argus_skill.reviewer import Reviewer
@@ -76,9 +77,9 @@ def test_non_measured_keeps_anti_fabrication_floor(monkeypatch):
 def test_done_means_goal_achieved_not_merely_error_free(monkeypatch):
     p = _prompt(measured=False, monkeypatch=monkeypatch)
 
-    assert "`done` positively certifies the requested terminal outcome" in p
-    assert "error-free process" in p
-    assert "honest partial result" in p
+    assert "`done` requires concrete evidence" in p
+    assert "exact adherence to material operator constraints" in p
+    assert "Do not automatically turn an honest result" in p
 
 
 def test_reviewer_separates_integrity_from_scientific_value(monkeypatch):

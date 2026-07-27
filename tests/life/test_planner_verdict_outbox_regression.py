@@ -327,11 +327,14 @@ def test_stale_outbox_diagnostic_does_not_reemit_untrusted_reason(
 
     assert retried is False
     assert outcome is None
-    diagnostic = next(event for event in sink.events if event.get("type") == "life.planner.error")
-    assert diagnostic["error"] == (
-        "discarded stale planner verdict outbox after semantic state change"
+    diagnostic = next(
+        event
+        for event in sink.events
+        if event.get("type") == "life.planner.verdict.discarded"
     )
-    assert "reason" not in diagnostic
+    assert diagnostic["reason"] == (
+        "semantic state changed before the prior verdict was delivered"
+    )
     assert foreign_reason not in json.dumps(sink.events)
     assert load_planner_verdict_outbox(mem.root) is None
 
@@ -441,8 +444,7 @@ def test_stale_outbox_discard_resumes_planning_and_enqueues_recovery_task(
     stale_diagnostics = [
         event
         for event in sink.events
-        if event.get("type") == "life.planner.error"
-        and event.get("error") == "discarded stale planner verdict outbox after semantic state change"
+        if event.get("type") == "life.planner.verdict.discarded"
     ]
     assert len(stale_diagnostics) == 1
     verdict_event = next(event for event in sink.events if event.get("type") == "life.planner.verdict")

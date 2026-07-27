@@ -103,6 +103,19 @@ class PlanningCycleVerdictMixin:
         verdict = state.verdict
 
         if verdict.error:
+            from ...planner import PLANNER_SUPERSEDED_ERROR
+
+            if str(verdict.error).startswith(PLANNER_SUPERSEDED_ERROR):
+                self._emit({
+                    "type": "life.planner.superseded",
+                    "cycle": self._planning_cycles,
+                    "reason": PLANNER_SUPERSEDED_ERROR,
+                })
+                self._emit_status(
+                    "planner: stopped obsolete planning after a newer operator instruction"
+                )
+                self._reset_idle_backoff()
+                return PLAN_RETRY
             if revision_request is not None:
                 self._emit(
                     {

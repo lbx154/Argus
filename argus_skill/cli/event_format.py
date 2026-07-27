@@ -10,8 +10,8 @@ import re
 import shlex
 from typing import Any, Callable
 
-from ..core.secret_guard import redact_secrets_text
 from ..core.event_catalog import EventType
+from ..core.secret_guard import redact_secrets_text
 from ..life.mission_outcome import outcome_dimension_summary
 
 # map fall back to ``[event.type]`` so internal/dev events stay grep-able

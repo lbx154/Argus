@@ -3,6 +3,7 @@
 These are self-contained: they load the vertical directly and never read Phase 3
 pipeline outputs or any large literature-distillation artifact.
 """
+
 from __future__ import annotations
 
 from argus_skill.verticals._base import (
@@ -42,8 +43,9 @@ def test_physics_stage_contract_is_five_stages_ending_in_manuscript() -> None:
     five = ("scope", "model", "execute", "review", "manuscript")
     assert mod.STAGE_ORDER == five
     assert vertical_checklist_stage_order(mod) == five
-    assert tuple(mod.STAGE_CHECKS) == mod.STAGE_ORDER
-    assert tuple(mod.REVIEWER_CHECKLISTS) == mod.STAGE_ORDER
+    assert tuple(mod.CHECKLIST_ITEMS) == mod.STAGE_ORDER
+    assert not hasattr(mod, "STAGE_CHECKS")
+    assert not hasattr(mod, "REVIEWER_CHECKLISTS")
 
 
 def test_physics_uses_reviewer_certified_non_paper_gate() -> None:
@@ -135,13 +137,16 @@ def test_every_physics_stage_has_checklist_items() -> None:
     assert all(items[stage] for stage in mod.CHECKLIST_STAGE_ORDER)
 
 
-def test_physics_reviewer_checklists_are_native_three_tuples() -> None:
-    # REVIEWER_CHECKLISTS (System-A shell-check surface) is well-formed per stage.
+def test_physics_reviewer_checklists_are_native_items() -> None:
+    # The vertical-owned checklist is the single Reviewer contract surface.
     mod = load_vertical("physics")
 
-    assert set(mod.REVIEWER_CHECKLISTS) == {"scope", "model", "execute", "review", "manuscript"}
-    for stage, entry in mod.REVIEWER_CHECKLISTS.items():
-        skill, instructions, files = entry
-        assert isinstance(skill, str) and skill
-        assert isinstance(instructions, str) and instructions
-        assert isinstance(files, list)
+    assert set(mod.CHECKLIST_ITEMS) == {
+        "scope",
+        "model",
+        "execute",
+        "review",
+        "manuscript",
+    }
+    for items in mod.CHECKLIST_ITEMS.values():
+        assert all(item.id and item.statement and item.evidence_hint for item in items)

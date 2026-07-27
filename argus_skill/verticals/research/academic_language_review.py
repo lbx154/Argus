@@ -1120,8 +1120,8 @@ def describe_reviewer_route_unavailable(
     """
     base = _redact(str(exc))
     try:
-        from ...tools.capability_vault import load_model_api_route
         from ...core.knobs import resolve_role_backend
+        from ...tools.capability_vault import load_model_api_route
 
         route = load_model_api_route("reviewer", env)
         route_missing = route is None or not route.usable

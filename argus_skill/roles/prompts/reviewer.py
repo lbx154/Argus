@@ -298,9 +298,9 @@ def render_reviewer_prompt(
     working_dir: str | Path | None = None,
 ) -> tuple[str, str]:
     """Render the complete Reviewer prompt as ``(static_preamble, round_delta)``."""
+    from ...core.project import resolve_project_root
     from ...core.research_contract import resolve_research_target_level
     from ...engineer.checkpoint import shared_checkpoint_instructions
-    from ...core.project import resolve_project_root
     from ...skills.vertical_select import _persisted_vertical
     from ...verticals.research.stages import CANONICAL_STAGE_ORDER
     from ..task_contract import EFFECTIVE_TASK_CONTRACT
@@ -504,7 +504,10 @@ def render_reviewer_prompt(
     # the operator agreed counts as done.
     from ...core.project_contract import contract_briefing, load_contract_for_cwd
 
-    _contract_block = contract_briefing(load_contract_for_cwd(_proot))
+    _contract_block = contract_briefing(
+        load_contract_for_cwd(_proot),
+        authoritative_objective=original_objective,
+    )
     if _contract_block:
         objective_block += _contract_block + "\n\n"
     shared_context_block = _format_engineer_shared_context(

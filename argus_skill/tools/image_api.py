@@ -122,7 +122,7 @@ def _json_request(
             url,
             data=body,
             headers={
-                "Authorization": f"******",
+                "Authorization": "******",
                 "Content-Type": "application/json",
             },
             method="POST",

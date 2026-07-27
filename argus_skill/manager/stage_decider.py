@@ -115,7 +115,6 @@ def stage_decision_fields(raw_text: str) -> tuple[Any, str]:
     for every run in progress.
     """
     from ..core.role_reply import (
-        legacy_json_object,
         read_bool,
         read_key_values,
         read_list,

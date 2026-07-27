@@ -4,20 +4,12 @@ import json
 
 import pytest
 
-import argus_skill.life.router as life_router
-import argus_skill.manager.domain_author as domain_author
-import argus_skill.manager.live_view as live_view
-import argus_skill.manager.plan_mode as plan_mode
-import argus_skill.manager.self_maintenance as self_maintenance
-import argus_skill.manager.skill_review as skill_review
-import argus_skill.manager.stage_decider as stage_decider
 from argus_skill.roles.prompts import (
     ChecklistMode,
     RoleName,
     RolePromptRequest,
     resolve_role_prompt,
 )
-from argus_skill.roles.prompts import manager as manager_prompts
 from argus_skill.roles.prompts.engineer import (
     SKILL_CREATE,
     mission_request,

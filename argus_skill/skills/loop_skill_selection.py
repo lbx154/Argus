@@ -25,7 +25,6 @@ from ..core.models import RunnerOptions
 from ..core.run_gateway import run_exec as gateway_run_exec
 from .adaptation import (
     adaptation_state_path,
-    append_method_ledger,
     load_adaptation_state,
     save_adaptation_state,
 )

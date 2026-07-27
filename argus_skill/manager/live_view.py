@@ -9,9 +9,9 @@ inherit each other's sidebar choice.
 """
 from __future__ import annotations
 
-import re
 import json
 import os
+import re
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath

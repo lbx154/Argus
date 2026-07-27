@@ -15,7 +15,6 @@ from argus_skill.life.router import (
 )
 
 
-
 class _FakeResult:
     def __init__(
         self,

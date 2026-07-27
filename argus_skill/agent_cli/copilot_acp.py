@@ -41,6 +41,10 @@ _CANCEL_GRACE_S = 5.0
 _DEFAULT_SESSION_RECYCLE = 12
 _FRONT_DOOR_LABEL = "manager-frontdoor-classify"
 _TRANSPORT_CANCEL_NOTICE = "Info: Operation cancelled by user"
+_TRANSPORT_INFO_PREFIXES = (
+    "Info: Disabled tools:",
+    "Info: Unknown tool name in the tool allowlist:",
+)
 
 
 def _prompt_timeout(run_label: str | None) -> float:
@@ -73,9 +77,7 @@ def _filter_transport_notices(raw_text: str, *, final: bool = False) -> str:
         stripped = body.strip()
         if stripped == _TRANSPORT_CANCEL_NOTICE:
             continue
-        is_unterminated_last = (
-            index == len(lines) - 1 and not line.endswith(("\n", "\r"))
-        )
+        is_unterminated_last = index == len(lines) - 1 and not line.endswith(("\n", "\r"))
         if (
             not final
             and is_unterminated_last
@@ -141,11 +143,15 @@ class CopilotAcpClient:
         reasoning_effort: str | None = None,
         *,
         lean: bool = False,
+        read_only: bool = False,
+        add_dirs: tuple[str, ...] = (),
     ) -> None:
         self._agent_bin = agent_bin
         self._model = model
         self._reasoning_effort = reasoning_effort
         self._lean = bool(lean)
+        self._read_only = bool(read_only)
+        self._add_dirs = tuple(str(path) for path in add_dirs if str(path).strip())
         self._proc: subprocess.Popen[str] | None = None
         self._reader: threading.Thread | None = None
         self._alive = False
@@ -186,6 +192,18 @@ class CopilotAcpClient:
                 "--disable-builtin-mcps",
                 "--available-tools=",
             ]
+        elif self._read_only:
+            # Manager SELF is deliberately read-only. Keep it on the warm ACP
+            # transport without widening the tool surface beyond the same
+            # view/grep/glob allowlist accepted by the Copilot CLI.
+            cmd += [
+                "--available-tools",
+                "view,grep,glob",
+                "--allow-tool",
+                "view,grep,glob",
+            ]
+            for path in self._add_dirs:
+                cmd += ["--add-dir", path]
         self._proc = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
@@ -387,6 +405,11 @@ class CopilotAcpClient:
             text = content
         if not text:
             return
+        # Copilot reports its startup tool policy as an assistant chunk. This
+        # is transport diagnostics, not Manager prose; dropping the separate
+        # chunk keeps internal tool names out of the operator-facing reply.
+        if any(text.startswith(prefix) for prefix in _TRANSPORT_INFO_PREFIXES):
+            return
         turn.raw_text += text
         self._sync_turn_text(turn)
 
@@ -397,7 +420,7 @@ class CopilotAcpClient:
             return
         prior = turn.text
         turn.text = filtered
-        delta = filtered[len(prior):] if filtered.startswith(prior) else ""
+        delta = filtered[len(prior) :] if filtered.startswith(prior) else ""
         if delta and turn.emit is not None:
             try:
                 turn.emit(delta)
@@ -473,11 +496,7 @@ class CopilotAcpClient:
                 got = ev.wait(timeout)
             else:
                 got = False
-                deadline = (
-                    time.monotonic() + timeout
-                    if timeout is not None
-                    else None
-                )
+                deadline = time.monotonic() + timeout if timeout is not None else None
                 cancel_deadline: float | None = None
                 while not got:
                     now = time.monotonic()
@@ -490,9 +509,7 @@ class CopilotAcpClient:
                             break
                     wait_for = 0.05
                     active_deadlines = [
-                        value
-                        for value in (deadline, cancel_deadline)
-                        if value is not None
+                        value for value in (deadline, cancel_deadline) if value is not None
                     ]
                     if active_deadlines:
                         wait_for = min(
@@ -632,24 +649,18 @@ class CopilotAcpClient:
             prov = getattr(options, "external_interrupt_reason_provider", None)
             inactivity_cb = getattr(options, "inactivity_callback", None)
             try:
-                soft_idle = max(
-                    0.0, float(getattr(options, "watchdog_soft_idle_seconds", 0) or 0)
-                )
+                soft_idle = max(0.0, float(getattr(options, "watchdog_soft_idle_seconds", 0) or 0))
             except (TypeError, ValueError):
                 soft_idle = 0.0
             try:
                 stalled_idle = max(
                     0.0,
-                    float(
-                        getattr(options, "watchdog_stalled_idle_seconds", 0) or 0
-                    ),
+                    float(getattr(options, "watchdog_stalled_idle_seconds", 0) or 0),
                 )
             except (TypeError, ValueError):
                 stalled_idle = 0.0
             try:
-                hard_idle = max(
-                    0.0, float(getattr(options, "watchdog_hard_idle_seconds", 0) or 0)
-                )
+                hard_idle = max(0.0, float(getattr(options, "watchdog_hard_idle_seconds", 0) or 0))
             except (TypeError, ValueError):
                 hard_idle = 0.0
 
@@ -884,7 +895,10 @@ class CopilotAcpClient:
 
 # Module-level registry. ``scope`` isolates OS processes between Managers while
 # still reusing classifier/reply transports inside one Manager.
-_CLIENTS: dict[tuple[str, str, str, bool, str], CopilotAcpClient] = {}
+_CLIENTS: dict[
+    tuple[str, str, str, bool, bool, tuple[str, ...], str],
+    CopilotAcpClient,
+] = {}
 _CLIENTS_LOCK = threading.Lock()
 
 
@@ -894,13 +908,18 @@ def get_client(
     reasoning_effort: str | None = None,
     *,
     lean: bool = False,
+    read_only: bool = False,
+    add_dirs: list[str] | tuple[str, ...] | None = None,
     scope: str = "shared",
 ) -> CopilotAcpClient:
+    normalized_dirs = tuple(str(path).strip() for path in (add_dirs or ()) if str(path).strip())
     key = (
         agent_bin,
         model or "",
         reasoning_effort or "",
         bool(lean),
+        bool(read_only),
+        normalized_dirs,
         str(scope or "shared"),
     )
     with _CLIENTS_LOCK:
@@ -911,6 +930,8 @@ def get_client(
                 model,
                 reasoning_effort,
                 lean=lean,
+                read_only=read_only,
+                add_dirs=normalized_dirs,
             )
             _CLIENTS[key] = client
         return client
@@ -919,7 +940,7 @@ def get_client(
 def close_clients_for_scope(scope: str) -> None:
     target = str(scope or "shared")
     with _CLIENTS_LOCK:
-        keys = [key for key in _CLIENTS if key[4] == target]
+        keys = [key for key in _CLIENTS if key[-1] == target]
         clients = [_CLIENTS.pop(key) for key in keys]
     for client in clients:
         try:

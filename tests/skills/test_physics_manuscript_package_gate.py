@@ -10,6 +10,7 @@ at ``review`` (advisory), writes the failure list through the shared
 ``research_gates`` machinery, and thereby feeds it into the physics ``role_banner``
 repair blocks.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -81,6 +82,7 @@ def test_review_stage_role_banner_injects_the_repair_block(tmp_path: Path) -> No
     mpkg.run_gate(tmp_path)
 
     from argus_skill.verticals.physics.stages import role_banner
+
     banner = role_banner("engineer", project_root=tmp_path)
     assert PREFIX in banner and "FIGURE_LEGENDS.md" in banner
 
@@ -93,7 +95,9 @@ def test_advisory_cli_exits_zero_even_when_failing(tmp_path: Path) -> None:
     assert rc == 0
 
 
-def test_passing_package_clears_repair_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_passing_package_clears_repair_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """When the contract is satisfied, the gate passes and clears any prior repair
     state (so a fixed package unblocks the mission)."""
     _write_partial_paper(tmp_path)
@@ -111,11 +115,10 @@ def test_passing_package_clears_repair_state(tmp_path: Path, monkeypatch: pytest
     assert render_active_repair_blocks(tmp_path) == ""
 
 
-def test_gate_is_wired_into_review_stage_checks() -> None:
-    """The gate must actually run at the review stage."""
-    from argus_skill.verticals.physics.stages import STAGE_CHECKS
-    cmds = " ".join(cmd for _desc, cmd in STAGE_CHECKS["review"])
-    assert "gates.manuscript_package" in cmds
-    # terminal manuscript HARD gate is unchanged (still the only completion authority)
-    man = " ".join(cmd for _desc, cmd in STAGE_CHECKS["manuscript"])
-    assert "manuscript check" in man or "verticals.physics.manuscript" in man
+def test_gate_remains_directly_callable_after_stage_registry_removal() -> None:
+    """Validators are agent-callable tools, not a hidden stage command registry."""
+    from argus_skill.verticals.physics import stages
+
+    assert not hasattr(stages, "STAGE_CHECKS")
+    assert callable(mpkg.run_gate)
+    assert "manuscript check --layer all" in (mpkg.__doc__ or "")

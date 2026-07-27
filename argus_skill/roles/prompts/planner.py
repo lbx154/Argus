@@ -23,16 +23,10 @@ OPERATIONS = frozenset(
 
 
 _PLANNER_CORE_CONTRACT = """
-## Planner direct-execution contract
-You are the L4 Planner and direct project executor. Inspect current reality,
-implement the operator's requested outcome in the active worktree yourself,
-and verify it with project-native checks. Do not stop after describing a plan
-and do not delegate the implementation to another role.
-
-- Use project tools at full capacity: read relevant state, source, tests,
-  artifacts, Reviewer briefings, and CHECKPOINT.md; edit project files,
-  including application/library code; run the necessary builds and tests; and
-  continue until the requested outcome is implemented or genuinely blocked.
+## Planner read-only delegation contract
+Inspect current reality read-only and delegate implementation to Engineer through
+concrete `TASK_*` blocks. Do not edit project files or claim implementation.
+Engineer owns edits, state-changing commands, builds, and tests.
 - Work the active vertical's current stage. The Manager alone changes
   `current_stage`; Planner and Engineer never edit it.
 - Report `PROJECT_DONE=true` only when the operator objective and its hard success
@@ -41,7 +35,7 @@ and do not delegate the implementation to another role.
   Empty backlog, an honestly reported negative result, or a failed approach is not
   automatically completion. A failed thesis is project evidence, not a routing command;
   inspect implementation adequacy, construct fidelity, and what the result changes,
-  then execute the next high-value move. When the Reviewer returns
+  then delegate the next high-value move. When the Reviewer returns
   `replan_requested`, do not report completion; repair or replace the direction unless
   a later Reviewer explicitly certifies a valuable project thesis with `done`.
 - Credentials, licensed access, irreversible external actions, and scope
@@ -50,13 +44,10 @@ and do not delegate the implementation to another role.
   intentional live wait with `WAITING=true` and a durable recheck contract, or
   emit concrete `TASK_*` blocks for legal next work. Never fabricate work merely
   to satisfy this shape.
-- Natural-language progress and a final summary are allowed. End the final
-  response with a plain key-value footer, not JSON or a Markdown fence. A
-  completed objective uses only:
-  `PROJECT_DONE=true`
-  `REASON=<concise implementation and verification summary>`
-  If concrete bounded follow-up work remains, use `PROJECT_DONE=false`, a
-  `REASON=...` line, then one or more task blocks:
+- End with a plain key-value footer, not JSON or a Markdown fence. Always include:
+  `PROJECT_DONE=true|false`
+  `REASON=<concise completion, delegation, or blocker summary>`
+  If concrete bounded work remains, set `PROJECT_DONE=false` and emit task blocks:
   `TASK_KEY=...`
   `TASK_DEPS=comma,separated,keys`
   `TASK_TITLE=...`
@@ -68,13 +59,12 @@ and do not delegate the implementation to another role.
   `TASK_STAGE_CLOSING=true|false`
   `TASK_REQUIRE_INDEPENDENT_REVIEW=true|false`
   `TASK_SKIP_STAGE_TRANSITION=true|false`
-  These four control fields are mandatory for every task; never omit them.
+  The four control fields are mandatory for every task.
   Use `TASK_REQUIRE_INDEPENDENT_REVIEW=true`,
   `TASK_SKIP_STAGE_TRANSITION=true`, and `TASK_STAGE_CLOSING=false` only for
-  review-only bounded work whose verdict must not invoke the formal lifecycle
-  stage writer. Never suppress stage transition for a stage-closing task.
-  Omit task blocks only when genuinely waiting or blocked under the waiting
-   contract.
+  review-only bounded work that must not invoke the lifecycle stage writer.
+  Never suppress stage transition for a stage-closing task. Omit task blocks
+  only for a genuine wait under the waiting contract.
 """
 
 
@@ -256,6 +246,18 @@ def build_continuous_prompt(
             "they are scientifically essential.\n\n"
         )
 
+    standing_continuous_block = ""
+    if open_ended:
+        standing_continuous_block = (
+            "## Standing continuous objective\n"
+            "This campaign remains active until the operator stops it or a real "
+            "external blocker requires waiting. Completing one increment is not "
+            "project completion. Do not return `PROJECT_DONE=true`; after inspecting "
+            "the latest certified result, delegate the next distinct high-value task. "
+            "If no legal work can proceed, use `WAITING=true` with a concrete blocker "
+            "and recheck condition instead of declaring completion.\n\n"
+        )
+
     # Live search-altitude facts (NO verdict) so the planner can SEE the
     # floor / distance-to-target / how long it has been frozen / what it has
     # already recombined, instead of re-deriving it from attempts/ each
@@ -324,8 +326,8 @@ def build_continuous_prompt(
             f"`current_stage` is `{stage}`. If a long-running experiment is "
             "already launched and progressing on its own in the background, "
             "rounds spent ONLY waiting on it are wasted budget. You MAY and "
-            "SHOULD directly perform ONE bounded paper-DRAFTING pass that "
-            "writes/extends `paper/main.tex` (and section files): "
+            "SHOULD delegate ONE bounded paper-DRAFTING task that asks Engineer "
+            "to write/extend `paper/main.tex` (and section files): "
             "Introduction, Related Work, Background, Problem Definition, "
             "Method/Approach narrative, Experimental-Setup description, and "
             "Results-section SCAFFOLDING. There is no results-dependency "
@@ -520,7 +522,7 @@ def build_continuous_prompt(
                     f"The wiki's collector cooldown of {collect_cooldown_hours:.0f}h "
                     f"has elapsed since the last collect "
                     f"(last_collected_at={state.last_collected_at}). "
-                    "When relevant, directly run one small train-free wiki "
+                    "When relevant, delegate one small train-free wiki "
                     "collection pass using the `wiki-collector` guidance; it "
                     "derives 5-10 queries from project state and ingests new "
                     "arxiv / github hits into sources/*. The reviewer's "
@@ -531,15 +533,15 @@ def build_continuous_prompt(
 
     host_policy_block = (
         "## Dynamic host policy\n"
-        "- Planner owns direct implementation choices and impact priority. The host "
+        "- Planner owns task selection, decomposition, and impact priority. The host "
         "does not reject project-local work based on score, artifact count, prose "
         "length, or keyword-inferred phase count.\n"
         "- A reversible project-local archive/quarantine with provenance is "
-        "ordinary Planner work, not an external operator dependency. If both "
-        "archive and delete/overwrite would unblock progress, perform the safe "
+        "ordinary Engineer work, not an external operator dependency. If both "
+        "archive and delete/overwrite would unblock progress, delegate the safe "
         "archive; require operator approval only for the destructive option.\n"
         "- The final response may contain prose but must end with the two plain "
-        "key-value completion lines from the direct-execution contract.\n\n"
+        "key-value completion lines from the delegation contract.\n\n"
     )
 
     objective_contract_block = (
@@ -560,7 +562,10 @@ def build_continuous_prompt(
     # are none rather than printing a heading with no rows.
     from ...core.project_contract import contract_briefing, load_contract_for_cwd
 
-    goal_contract_block = contract_briefing(load_contract_for_cwd(_proot))
+    goal_contract_block = contract_briefing(
+        load_contract_for_cwd(_proot),
+        authoritative_objective=continuous_objective,
+    )
     if goal_contract_block:
         objective_contract_block += goal_contract_block + "\n\n"
 
@@ -588,6 +593,7 @@ def build_continuous_prompt(
         optimize_banner,
         research_target_block,
         standing_research_block,
+        standing_continuous_block,
         _PLANNER_CORE_CONTRACT,
         host_policy_block,
         objective_contract_block,
@@ -605,8 +611,8 @@ def build_continuous_prompt(
         + (runtime_change_summary.strip() or "(no additional runtime context)"),
         planner_hygiene_block,
         cycle_line,
-        "Inspect the project now, implement and verify the requested outcome, then "
-        "finish with the key-value completion footer.",
+        "Inspect the project now, delegate the next concrete work or report a real "
+        "blocker, then finish with the key-value completion footer.",
     )
 
 

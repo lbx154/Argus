@@ -895,10 +895,34 @@ def test_manager_decided_math_vertical_web_enqueue_enters_backlog(
         lambda *args, **kwargs: (None, None, "complex"),
     )
     monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
+
+    class _PlannerBackend:
+        def run_exec(self, **_kwargs):
+            return SimpleNamespace(
+                exit_code=0,
+                fatal_error=None,
+                agent_messages=[
+                    "\n".join([
+                        "PLAN_REASON=one bounded proof task",
+                        "TASK_KEY=proof",
+                        "TASK_DEPS=",
+                        "TASK_TITLE=Prove the bounded integer lemma",
+                        f"TASK_OBJECTIVE={objective}",
+                        "TASK_SCOPE=bounded",
+                        "TASK_STAGE_CLOSING=false",
+                        "TASK_REQUIRE_INDEPENDENT_REVIEW=false",
+                        "TASK_SKIP_STAGE_TRANSITION=false",
+                    ])
+                ],
+            )
+
     monkeypatch.setattr(
         front_door,
         "_ensure_manager_runner",
-        lambda chat_state, mem: SimpleNamespace(manager=manager),
+        lambda chat_state, mem: SimpleNamespace(
+            manager=manager,
+            planner_backend=_PlannerBackend(),
+        ),
     )
     monkeypatch.setattr(
         dispatch,

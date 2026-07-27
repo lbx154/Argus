@@ -85,7 +85,10 @@ def build_mission_prompt(
     # describes this increment, not what the operator agreed "done" means.
     from ...core.project_contract import contract_briefing, load_contract_for_cwd
 
-    contract_block = contract_briefing(load_contract_for_cwd())
+    contract_block = contract_briefing(
+        load_contract_for_cwd(),
+        authoritative_objective=original_request,
+    )
     if contract_block:
         sections.append(contract_block)
     if next_action:

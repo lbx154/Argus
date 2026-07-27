@@ -9,17 +9,19 @@ from argus_skill.verticals.physics import downgrade, mode_config, stages, tiers
 def _seed(tmp_path: Path) -> Path:
     (tmp_path / "research").mkdir(parents=True, exist_ok=True)
     (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
-        json.dumps({
-            "current_stage": "execute",
-            "stage_history": [
-                {"from_stage": "model", "to_stage": "execute", "direction": "advance"}
-                for _ in range(4)
-            ],
-            "rollback_history": [
-                {"from_stage": "execute", "to_stage": "model", "reason": "pivot"}
-                for _ in range(2)
-            ],
-        }),
+        json.dumps(
+            {
+                "current_stage": "execute",
+                "stage_history": [
+                    {"from_stage": "model", "to_stage": "execute", "direction": "advance"}
+                    for _ in range(4)
+                ],
+                "rollback_history": [
+                    {"from_stage": "execute", "to_stage": "model", "reason": "pivot"}
+                    for _ in range(2)
+                ],
+            }
+        ),
         encoding="utf-8",
     )
     (tmp_path / "ROUTE_CLOSURE_STATUS.json").write_text(
@@ -65,13 +67,10 @@ def test_original_research_mode_has_no_negative_result_escape(monkeypatch) -> No
 
 
 def test_stage_checks_do_not_include_terminal_negative_gate() -> None:
-    commands = " ".join(
-        command
-        for checks in stages.STAGE_CHECKS.values()
-        for _label, command in checks
-    )
-    assert "nogo_terminal" not in commands
-    assert "ORIGINAL_RESEARCH_NO_GO" not in commands
+    assert not hasattr(stages, "STAGE_CHECKS")
+    banner = stages.role_banner("reviewer")
+    assert "nogo_terminal" not in banner
+    assert "SUCCESS TERMINAL" not in banner
 
 
 def test_role_banner_does_not_authorize_negative_result_as_success(tmp_path: Path) -> None:

@@ -69,6 +69,11 @@ def test_normal_turn_exit_cleans_only_its_remaining_process_group(
         "_terminate_process",
         classmethod(lambda cls, process: terminated.append(process.pid)),
     )
+    monkeypatch.setattr(
+        AgentCliRunner,
+        "_wait_process_group_exit",
+        classmethod(lambda cls, _pgid, _timeout: False),
+    )
 
     AgentCliRunner._cleanup_orphan_process_group(_FakeProcess(), state)
 

@@ -49,6 +49,33 @@ async function renderNode(node: React.ReactElement, width: number): Promise<stri
   return output.replace(ANSI, '');
 }
 
+async function renderInteractiveNode(
+  node: React.ReactElement,
+  width: number,
+  rows: number,
+): Promise<string> {
+  const stdout = new PassThrough() as PassThrough & {
+    columns: number;
+    rows: number;
+    isTTY: boolean;
+  };
+  stdout.columns = width;
+  stdout.rows = rows;
+  stdout.isTTY = true;
+  let output = '';
+  stdout.on('data', (chunk) => { output += String(chunk); });
+  const instance = render(
+    node,
+    { stdout: stdout as never, debug: false, exitOnCtrlC: false, patchConsole: false },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  instance.rerender(React.cloneElement(node));
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  instance.unmount();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  return output;
+}
+
 async function renderPanel(
   panel: PanelState,
   width: number,
@@ -531,6 +558,24 @@ test('conversation feed shows reasoning softly and can hide it', async () => {
   assert.doesNotMatch(hidden.replace(ANSI, ''), /REASONING_SUMMARY_MARKER/);
 });
 
+test('final Planner delivery wraps instead of truncating its tail', async () => {
+  const output = await renderNode(React.createElement(EventLog, {
+    events: [{
+      type: 'engineer.progress',
+      kind: 'agent_message',
+      agent_layer: 'planner',
+      text: `Audit result ${'x'.repeat(240)}\nPROJECT_DONE=true\nREASON=FINAL_TAIL_VISIBLE`,
+      final_delivery: true,
+      ts: 1,
+    } as EventMsg],
+    width: 60,
+    mode: 'all',
+    showIdle: false,
+  }), 60);
+
+  assert.match(output.replace(ANSI, ''), /FINAL_TAIL_VISIBLE/);
+});
+
 test('19-row cockpit stays below Ink full-screen clear threshold', async () => {
   const view = emptyMissionView();
   const output = await renderNode(
@@ -565,6 +610,57 @@ test('19-row cockpit stays below Ink full-screen clear threshold', async () => {
   assert.match(finalFrame, /ENGINEER.*Waiting/);
   assert.match(finalFrame, /REVIEWER.*Waiting/);
   assert.doesNotMatch(finalFrame, /All quiet|Standing watch|Waiting, unhurried/);
+});
+
+test('pending Manager frame does not trigger Ink full-screen repaint', async () => {
+  const now = Date.now() / 1000;
+  const steps = Array.from({ length: 6 }, (_, index) => ({
+    id: `step-${index}`,
+    role: 'manager',
+    label: `Manager step ${index}`,
+    detail: '',
+    kind: 'tool_use',
+    startedTs: now - (6 - index),
+    endedTs: index === 5 ? 0 : now - (5 - index),
+    heartbeat: false,
+  }));
+  const output = await renderInteractiveNode(
+    React.createElement(
+      Box,
+      { flexDirection: 'column' },
+      React.createElement(Header, { width: 100 }),
+      React.createElement(MissionCockpit, {
+        view: emptyMissionView(),
+        width: 100,
+        height: 19,
+        busy: true,
+      }),
+      React.createElement(EventLog, {
+        events: [],
+        width: 100,
+        mode: 'conversation',
+        showIdle: false,
+      }),
+      React.createElement(ThinkingLine, {
+        tick: 1,
+        phase: 'Manager · working',
+        elapsedS: 6,
+        steps,
+        width: 100,
+      }),
+      React.createElement(PromptBox, {
+        edit: { value: '', cursor: 0 },
+        width: 100,
+        rowsBelow: 1,
+      }),
+      React.createElement(Footer, { width: 100 }),
+    ),
+    100,
+    19,
+  );
+  assert.doesNotMatch(output, /\u001B\[2J/, 'Ink must not clear the terminal while thinking');
+  assert.match(output.replace(ANSI, ''), /MISSION Waiting for a mission/);
+  assert.match(output.replace(ANSI, ''), /Manager step 5/);
 });
 
 test('24-row operations panel stays below Ink full-screen clear threshold', async () => {

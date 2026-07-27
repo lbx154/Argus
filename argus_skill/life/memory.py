@@ -775,8 +775,10 @@ class BacklogItem:
         execution_workdir: str = "",
         acceptance_check: str = "",
         non_goals: list[str] | None = None,
+        original_objective: str = "",
     ) -> "BacklogItem":
         objective = objective.strip()
+        root_objective = str(original_objective or "").strip() or objective
         return cls(
             id=str(item_id or cls.new_id()),
             ts=time.time(),
@@ -787,7 +789,7 @@ class BacklogItem:
             notes=notes.strip(),
             iterate=bool(iterate),
             iteration_max_cycles=int(iteration_max_cycles),
-            original_objective=objective,
+            original_objective=root_objective,
             deps=list(deps or []),
             plan_id=str(plan_id),
             plan_version=max(0, int(plan_version)),

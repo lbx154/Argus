@@ -276,26 +276,22 @@ class PlanningCycleCompletionMixin:
             return PLAN_ERROR
 
         if verdict.project_done and self.config.open_ended:
-            self._enter_idle_backoff()
-            terminal_signature = self._open_ended_terminal_idle_signature()
-            delivered = self._emit_planner_verdict(
-                status=PlannerVerdictStatus.COMPLETED,
-                completion_kind="project_completed",
-                resume_outcome=PLAN_RETRY,
-                terminal_signature=terminal_signature,
-                cycle=self._planning_cycles,
-                project_done=verdict.project_done,
-                reason=verdict.reason,
-                task_count=len(verdict.new_tasks),
-                enqueued_tasks=0,
-                skipped_duplicate_tasks=0,
-                enqueued_titles=[],
-                skipped_duplicate_titles=[],
-                open_ended_objective=True,
+            # A standing campaign cannot be completed by one Planner increment.
+            # The Planner class repairs this once before returning, but keep the
+            # supervisor guard for injected/fake/custom planners. Stay alive and
+            # ask again after backoff instead of recording project_done and then
+            # idling until the daemon exits.
+            sleep_s = self._enter_pause_backoff()
+            self._emit({
+                "type": "life.planner.continuation_required",
+                "cycle": self._planning_cycles,
+                "reason": verdict.reason,
+                "suggested_sleep_s": sleep_s,
+            })
+            self._emit_status(
+                "planner completed one increment, but the standing objective "
+                "remains active; requesting the next delegated task"
             )
-            if not delivered:
-                return PLAN_RETRY
-            self._emit_status("planner: project done — continuing later for open-ended objective")
             return PLAN_RETRY
 
         if verdict.project_done:

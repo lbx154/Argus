@@ -23,10 +23,9 @@ docs/STATE_MACHINE_AND_DEADLOCKS.md.
 from __future__ import annotations
 
 import time
+from types import SimpleNamespace
 
 import pytest
-
-from types import SimpleNamespace
 
 from argus_skill.life.memory import BacklogItem
 
@@ -35,11 +34,11 @@ class _Filter:
     """The real predicate, on a bare object carrying only what it reads."""
 
     def __init__(self) -> None:
-        from argus_skill.life.supervisor._planning_cycle_enqueue import (
-            PlanningCycleEnqueueMixin,
-        )
         from argus_skill.life.supervisor._planning_context import (
             PlanningContextMixin,
+        )
+        from argus_skill.life.supervisor._planning_cycle_enqueue import (
+            PlanningCycleEnqueueMixin,
         )
 
         self._impl = PlanningCycleEnqueueMixin

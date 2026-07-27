@@ -25,7 +25,7 @@ function EventRow({ r, compact, width }: { r: Rendered; compact: boolean; width:
             color={r.reasoning ? undefined : toneColor(r.tone)}
             dimColor={r.reasoning}
             italic={r.reasoning}
-            wrap={compact || r.tone !== 'bright' ? 'truncate-end' : 'wrap'}
+            wrap={r.expand ? 'wrap' : compact || r.tone !== 'bright' ? 'truncate-end' : 'wrap'}
           >
             {r.glyph} {r.text}
           </Text>

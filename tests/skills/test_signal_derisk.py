@@ -4,6 +4,7 @@ The validator is fail-closed against missing, degenerate, over-budget,
 wrong-direction, or fabricated evidence. The Reviewer decides whether that
 diagnostic satisfies the active Planner-authored checklist.
 """
+
 from __future__ import annotations
 
 import json
@@ -65,6 +66,7 @@ def _gate(tmp_path: Path, data: dict, **kw) -> tuple[bool, str]:
 
 # --- the happy path ---------------------------------------------------------
 
+
 def test_good_derisk_passes(tmp_path):
     reject, concern = _gate(tmp_path, _good())
     assert reject is False
@@ -73,13 +75,21 @@ def test_good_derisk_passes(tmp_path):
 
 def test_good_higher_direction_passes(tmp_path):
     # pass@1 should go UP: baseline 0.40 -> proposed 0.55.
-    reject, _ = _gate(tmp_path, _good(
-        metric_name="pass_at_1", success_direction="higher",
-        baseline_metric=0.40, proposed_metric=0.55, delta=0.15))
+    reject, _ = _gate(
+        tmp_path,
+        _good(
+            metric_name="pass_at_1",
+            success_direction="higher",
+            baseline_metric=0.40,
+            proposed_metric=0.55,
+            delta=0.15,
+        ),
+    )
     assert reject is False
 
 
 # --- missing / malformed ----------------------------------------------------
+
 
 def test_missing_file_rejects(tmp_path):
     reject, concern = validate_for_gate(tmp_path, tmp_path / "research" / "nope.json")
@@ -100,6 +110,7 @@ def test_commands_not_a_list_rejects(tmp_path):
 
 
 # --- degeneracy (dead idea) -------------------------------------------------
+
 
 def test_baseline_equals_proposed_rejects(tmp_path):
     reject, concern = _gate(tmp_path, _good(proposed_metric=0.62, delta=0.0))
@@ -122,6 +133,7 @@ def test_wrong_direction_rejects(tmp_path):
 
 # --- budget -----------------------------------------------------------------
 
+
 def test_over_budget_cost_rejects(tmp_path):
     reject, concern = _gate(tmp_path, _good(cost_usd=COST_CEILING_USD + 1))
     assert reject is True
@@ -135,6 +147,7 @@ def test_over_budget_duration_rejects(tmp_path):
 
 
 # --- tamper / provenance ----------------------------------------------------
+
 
 def test_delta_inconsistent_rejects(tmp_path):
     # delta hand-edited away from proposed - baseline.
@@ -157,19 +170,26 @@ def test_log_empty_rejects(tmp_path):
 
 def test_signal_moved_overclaim_rejects(tmp_path):
     # claims moved but the delta is below the bar (and we keep it consistent).
-    reject, concern = _gate(
-        tmp_path, _good(proposed_metric=0.60, delta=-0.02, signal_moved=True))
+    reject, concern = _gate(tmp_path, _good(proposed_metric=0.60, delta=-0.02, signal_moved=True))
     # signal_unmoved fires first (both are blocking); either way it's rejected.
     assert reject is True
 
 
 # --- pivot / verdict rule ---------------------------------------------------
 
+
 def test_verdict_fail_blocks_for_pivot(tmp_path):
     # A clean, in-budget run that simply showed no movement: verdict=fail.
-    reject, concern = _gate(tmp_path, _good(
-        verdict="fail", signal_moved=False,
-        proposed_metric=0.61, delta=-0.01, notes="signal flat"))
+    reject, concern = _gate(
+        tmp_path,
+        _good(
+            verdict="fail",
+            signal_moved=False,
+            proposed_metric=0.61,
+            delta=-0.01,
+            notes="signal flat",
+        ),
+    )
     assert reject is True
     # signal_unmoved or verdict_fail — both diagnose evidence that needs a pivot.
     assert "PIVOT" in concern or "pivot" in concern or "signal_unmoved" in concern
@@ -183,17 +203,24 @@ def test_pass_while_pivoted_rejects(tmp_path):
 
 # --- smoke_only exemption ---------------------------------------------------
 
+
 def test_smoke_only_waives_movement(tmp_path):
     # smoke_only run: no metric movement required, but budget + log still hold.
-    reject, _ = _gate(tmp_path, _good(
-        smoke_only=True, proposed_metric=0.62, delta=0.0, signal_moved=False,
-        notes="wiring-only smoke"))
+    reject, _ = _gate(
+        tmp_path,
+        _good(
+            smoke_only=True,
+            proposed_metric=0.62,
+            delta=0.0,
+            signal_moved=False,
+            notes="wiring-only smoke",
+        ),
+    )
     assert reject is False
 
 
 def test_smoke_only_still_enforces_budget(tmp_path):
-    reject, concern = _gate(tmp_path, _good(
-        smoke_only=True, cost_usd=COST_CEILING_USD + 5))
+    reject, concern = _gate(tmp_path, _good(smoke_only=True, cost_usd=COST_CEILING_USD + 5))
     assert reject is True
     assert "over_budget_cost" in concern
 
@@ -209,39 +236,45 @@ def test_smoke_only_false_string_fails_closed(tmp_path):
 
 # --- CLI --------------------------------------------------------------------
 
+
 def test_cli_validate_good(tmp_path, capsys):
     _write(tmp_path, _good())
-    rc = main(["validate", "--project-root", str(tmp_path),
-               "--derisk", "research/SIGNAL_DERISK.json"])
+    rc = main(
+        ["validate", "--project-root", str(tmp_path), "--derisk", "research/SIGNAL_DERISK.json"]
+    )
     assert rc == 0
 
 
 def test_cli_validate_degenerate(tmp_path, capsys):
     _write(tmp_path, _good(proposed_metric=0.62, delta=0.0))
-    rc = main(["validate", "--project-root", str(tmp_path),
-               "--derisk", "research/SIGNAL_DERISK.json"])
+    rc = main(
+        ["validate", "--project-root", str(tmp_path), "--derisk", "research/SIGNAL_DERISK.json"]
+    )
     assert rc == 1
 
 
 # --- the stage keeps quality judgment with the Reviewer ---------------------
 
-def test_research_stage_checks_do_not_dispatch_task_specific_derisk():
-    from argus_skill.verticals.research.stages import STAGE_CHECKS
 
-    cmds = [cmd for _, cmd in STAGE_CHECKS["research"]]
-    assert not any("research_derisk" in command for command in cmds)
-    assert not any("theorem_derisk" in command for command in cmds)
+def test_research_stage_checks_do_not_dispatch_task_specific_derisk():
+    from argus_skill.verticals.research import stages
+
+    assert not hasattr(stages, "STAGE_CHECKS")
+    rendered = " ".join(item.statement for item in stages.STAGE_CHECKLISTS["research"])
+    assert "mechanical routing decision" in rendered
+    assert "theorem_derisk" not in rendered
 
 
 def test_research_reviewer_checklist_has_selected_derisk_dimension():
-    from argus_skill.verticals.research.stages import REVIEWER_CHECKLISTS
+    from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
 
-    _, instructions, files = REVIEWER_CHECKLISTS["research"]
-    assert "Research de-risk audit" in instructions
-    assert "active `research.signal_derisk`" in instructions
-    assert "task-specific Python validator" in instructions
-    assert "research/SIGNAL_DERISK.json" in files
-    assert not any("THEOREM_DERISK" in path for path in files)
+    item = next(
+        item for item in STAGE_CHECKLISTS["research"] if item.id == "research.signal_derisk"
+    )
+    assert "Planner authors the evidence contract" in item.statement
+    assert "default scalar-comparison shape" in item.statement
+    assert "research/SIGNAL_DERISK.json" in item.evidence_hint
+    assert "THEOREM_DERISK" not in item.evidence_hint
 
 
 def test_research_checklist_item_present():
@@ -257,23 +290,24 @@ def test_planner_can_replace_signal_screen_with_generic_theorem_evidence(tmp_pat
     from argus_skill.skills.vertical_select import persist_vertical
 
     persist_vertical(tmp_path, "research")
-    result = apply_checklist_ops(tmp_path, [
-        {"op": "seed", "stage": "research", "id": ""},
-        {
-            "op": "modify",
-            "stage": "research",
-            "id": "research.signal_derisk",
-            "statement": (
-                "The natural-language proof states every lemma and an independent "
-                "reviewer checks the argument without performance metrics."
-            ),
-            "evidence_hint": "research/PROOF.md, research/PROOF_AUDIT.md",
-        },
-    ])
-
-    rendered = format_stage_checklist(
-        "research", role="reviewer", project_root=tmp_path
+    result = apply_checklist_ops(
+        tmp_path,
+        [
+            {"op": "seed", "stage": "research", "id": ""},
+            {
+                "op": "modify",
+                "stage": "research",
+                "id": "research.signal_derisk",
+                "statement": (
+                    "The natural-language proof states every lemma and an independent "
+                    "reviewer checks the argument without performance metrics."
+                ),
+                "evidence_hint": "research/PROOF.md, research/PROOF_AUDIT.md",
+            },
+        ],
     )
+
+    rendered = format_stage_checklist("research", role="reviewer", project_root=tmp_path)
     assert result["applied"] == 2
     assert "research/PROOF.md" in rendered
     assert "without performance metrics" in rendered

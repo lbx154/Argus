@@ -13,6 +13,7 @@ gates:
 extraction path (``pdftotext`` / ``pypdf``) is exercised without a LaTeX
 toolchain. The integration test compiles genuine LaTeX separately.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -26,6 +27,7 @@ from argus_skill.verticals.physics import manuscript as ms
 def make_pdf(path: Path, lines: list[str]) -> None:
     """Write a valid single-page PDF whose visible text is ``lines`` (one per
     row). With ``lines == []`` the PDF has no text (for fail-closed tests)."""
+
     def esc(s: str) -> str:
         return s.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
@@ -103,7 +105,6 @@ SUPPLEMENT_PDF_LINES: list[str] = [
 # --------------------------------------------------------------------------- #
 def _manuscript_tex() -> str:
     bib = "\n".join(f"\\bibitem{{r{i}}} Author {i}, Title {i} (20{10 + i})." for i in range(1, 13))
-    cites = "".join(f"\\cite{{r{i}}}" for i in range(1, 9))  # 8 citation call sites
     figs_early = "\n".join(
         f"\\begin{{figure}}\\centering\\rule{{4cm}}{{3cm}}\\caption{{Figure {i}.}}\\label{{fig:{i}}}\\end{{figure}}"
         for i in range(1, 4)
@@ -113,26 +114,49 @@ def _manuscript_tex() -> str:
         for i in range(4, 7)
     )
     return (
-        "\\documentclass[twocolumn]{article}\n"
+        "\\documentclass[10pt,twocolumn]{article}\n"
         "\\usepackage{amsmath,graphicx,booktabs}\n"
         "\\begin{document}\n"
         "\\title{A Diagnostic Study of a Model System}\\maketitle\n"
         "\\begin{abstract}We report bounded results.\\end{abstract}\n"
-        "\\section{Introduction} Background " + cites + ".\n"
+        "\\noindent\\textbf{Keywords:} model system, bounded analysis\n"
+        "\\section{Introduction}\n"
+        "\\subsection{Context} Prior studies define the setting \\cite{r1} and "
+        "the open question \\cite{r2}.\n"
+        "\\subsection{Objective} The bounded objective follows earlier diagnostics "
+        "\\cite{r3} and validation practice \\cite{r4}.\n"
         "\\section{Model}\n"
+        "\\subsection{Variables} The variables follow the standard formulation \\cite{r5}.\n"
         "\\begin{equation}\\label{eq:1} a = b \\end{equation}\n"
         "\\begin{equation}\\label{eq:2} c = d \\end{equation}\n"
         "\\begin{align}\\label{eq:3} e &= f \\end{align}\n"
         "\\begin{equation}\\label{eq:4} g = h \\end{equation}\n"
-        "See Eq.~\\eqref{eq:1}.\n"
-        + figs_early + "\n"
+        "\\subsection{Observables} See Eq.~\\eqref{eq:1}; the observable follows "
+        "the established construction \\cite{r6}.\n" + figs_early + "\n"
         "\\begin{table}\\centering\\begin{tabular}{cc}a&b\\\\\\end{tabular}"
         "\\caption{Parameters.}\\label{tab:1}\\end{table}\n"
-        "\\section{Methods} Fig.~\\ref{fig:1}.\n"
+        "\\section{Methods}\n"
+        "\\subsection{Numerical procedure} The calculation follows \\cite{r7}; "
+        "details appear in Supplementary Methods and Fig.~\\ref{fig:1}.\n"
+        "\\subsection{Validation} The validation follows \\cite{r8} and is tabulated "
+        "in Supplementary Table 1.\n"
         "\\begin{table}\\centering\\begin{tabular}{cc}c&d\\\\\\end{tabular}"
         "\\caption{Design.}\\label{tab:2}\\end{table}\n"
-        "\\section{Results} Table~\\ref{tab:1}.\n"
-        + figs_mid + "\n"
+        "\\section{Results}\n"
+        "\\subsection{Primary trend} Fig.~\\ref{fig:1} and Fig.~\\ref{fig:2} show "
+        "the primary trend \\cite{r9}.\n"
+        "\\subsection{Diagnostics} Fig.~\\ref{fig:3} and Fig.~\\ref{fig:4} show "
+        "the diagnostics \\cite{r10}.\n"
+        "\\subsection{Robustness} Fig.~\\ref{fig:5}, Fig.~\\ref{fig:6}, and "
+        "Table~\\ref{tab:1} summarize robustness \\cite{r11}; extended values are in "
+        "Supplementary Information.\n" + figs_mid + "\n"
+        "\\section{Discussion}\n"
+        "\\subsection{Interpretation} The bounded interpretation agrees with \\cite{r12}.\n"
+        "\\subsection{Evidence boundary} The finite regime follows the caution in \\cite{r1}.\n"
+        "\\section{Limitations} The tested regime is finite and bounded.\n"
+        "\\section{Conclusion} We summarize the evidence-limited contribution.\n"
+        "\\section*{Data and Code Availability} Data and code details are described "
+        "in the Supplementary Information.\n"
         "\\begin{thebibliography}{99}\n" + bib + "\n\\end{thebibliography}\n"
         "\\end{document}\n"
     )
@@ -206,7 +230,8 @@ def write_source_package(root: Path) -> None:
         "\n".join(
             f"Figure {i}. A concise legend describing panel meaning, axes and units."
             for i in range(1, 7)
-        ) + "\n",
+        )
+        + "\n",
         encoding="utf-8",
     )
     (root / "REFERENCES.bib").write_text(
@@ -238,8 +263,14 @@ def write_paper_layer(
     (root / "PAPER_BUILD_LOG.md").write_text(
         "engine: pdflatex; passes: 2; warnings: none; TeX Live 2023\n", encoding="utf-8"
     )
-    make_pdf(root / "MANUSCRIPT.pdf", manuscript_pdf_lines if manuscript_pdf_lines is not None else MANUSCRIPT_PDF_LINES)
-    make_pdf(root / "SUPPLEMENT.pdf", supplement_pdf_lines if supplement_pdf_lines is not None else SUPPLEMENT_PDF_LINES)
+    make_pdf(
+        root / "MANUSCRIPT.pdf",
+        manuscript_pdf_lines if manuscript_pdf_lines is not None else MANUSCRIPT_PDF_LINES,
+    )
+    make_pdf(
+        root / "SUPPLEMENT.pdf",
+        supplement_pdf_lines if supplement_pdf_lines is not None else SUPPLEMENT_PDF_LINES,
+    )
 
 
 def write_complete_package(root: Path) -> None:

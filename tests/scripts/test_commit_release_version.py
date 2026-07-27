@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from scripts.generate_release_manifest import render
 from scripts import set_binary_release_version
+from scripts.generate_release_manifest import render
 from scripts.set_binary_release_version import python_distribution_version
 
 
