@@ -230,6 +230,9 @@ def test_operator_answer_rewires_pending_dependents(tmp_path: Path) -> None:
     blocked = BacklogItem.new(title="blocked", objective="choose a GPU")
     blocked.status = "failed"
     blocked.pending_question = "Which GPU?"
+    blocked.execution_workdir = "/private/framework"
+    blocked.authorization_id = "maintenance-auth"
+    blocked.authorization_action = "repair"
     b.add(blocked)
     downstream = b.add(
         BacklogItem.new(
@@ -246,6 +249,9 @@ def test_operator_answer_rewires_pending_dependents(tmp_path: Path) -> None:
     )
 
     assert original is not None and continuation is not None
+    assert continuation.execution_workdir == "/private/framework"
+    assert continuation.authorization_id == "maintenance-auth"
+    assert continuation.authorization_action == "repair"
     stored_downstream = next(item for item in b.all() if item.id == downstream.id)
     assert stored_downstream.deps == [continuation.id]
     assert b.claim_next().id == continuation.id

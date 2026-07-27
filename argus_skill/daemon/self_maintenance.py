@@ -42,6 +42,12 @@ _PUBLICATION_PENDING = "pending"
 _PUBLICATION_UNAVAILABLE = "unavailable"
 _PUBLICATION_OPENED = "opened"
 _PUBLICATION_FAILED = "failed"
+_PUBLICATION_RETRY_SECONDS = 300.0
+_IDLE_CANARY_STABILITY_SECONDS = 30.0
+_PRIVATE_RUNTIME_PATHS = (
+    ".autors",
+    ".argus-self-maintenance-runtime",
+)
 _OBSERVED_EVENT_TYPES = frozenset({
     "life.supervisor.error",
     "life.planner.error",
@@ -142,8 +148,11 @@ def _frontend_dependency_links(source_root: Path, worktree: Path):
             Path("frontend/tui/node_modules"),
         ):
             target = worktree / relative
-            if target.is_dir():
-                continue
+            if target.exists() or target.is_symlink():
+                raise ValueError(
+                    "private maintenance worktree must not contain its own "
+                    f"dependency directory: {target}"
+                )
             source = source_root / relative
             if not source.is_dir():
                 raise ValueError(
@@ -298,6 +307,20 @@ class SelfMaintenanceState:
         approval that outlived its commit would authorise work the operator
         never saw.
         """
+        reason = self._publication_approval_reason(reviewed_commit)
+        if reason:
+            return reason
+        # Single-use: clear it before the push so a failed publish cannot be
+        # retried indefinitely on one approval.
+        self._write_state(
+            publication_approved_commit="",
+            publication_approved_at=0.0,
+            publication_approved_by="",
+        )
+        return ""
+
+    def _publication_approval_reason(self, reviewed_commit: str) -> str:
+        """Return the publication hold reason without consuming an approval."""
         commit = str(reviewed_commit or "").strip()
         if not commit:
             return "no reviewed commit to publish"
@@ -313,13 +336,6 @@ class SelfMaintenanceState:
         issued = float(state.get("publication_approved_at") or 0.0)
         if issued and time.time() - issued > _PUBLICATION_APPROVAL_TTL_SECONDS:
             return "operator approval expired; approve again to publish"
-        # Single-use: clear it before the push so a failed publish cannot be
-        # retried indefinitely on one approval.
-        self._write_state(
-            publication_approved_commit="",
-            publication_approved_at=0.0,
-            publication_approved_by="",
-        )
         return ""
 
     def approve_publication(self, commit: str, *, approved_by: str = "operator") -> str:
@@ -430,14 +446,41 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
     def _active_item(self) -> BacklogItem | None:
         active_id = str(self._state().get("active_item_id") or "")
         for item in self.memory.backlog.all():
-            if item.id == active_id and item.status in {"pending", "running"}:
+            operator_wait = bool(str(item.pending_question or "").strip())
+            if item.id == active_id and (
+                item.status in {"pending", "running"} or operator_wait
+            ):
                 return item
             if (
                 "framework_maintenance" in set(item.tags)
-                and item.status in {"pending", "running"}
+                and (
+                    item.status in {"pending", "running"}
+                    or operator_wait
+                )
             ):
                 return item
         return None
+
+    def _dependency_source_root(self, state: dict[str, Any]) -> Path:
+        """Stable trusted frontend dependency root across self-managed revisions."""
+        candidates = (
+            state.get("dependency_root"),
+            state.get("old_source_root"),
+            self.framework_root,
+        )
+        for value in candidates:
+            if not value:
+                continue
+            candidate = Path(str(value)).expanduser().resolve()
+            if all(
+                (candidate / relative).is_dir()
+                for relative in (
+                    Path("frontend/web/node_modules"),
+                    Path("frontend/tui/node_modules"),
+                )
+            ):
+                return candidate
+        return self.framework_root
 
     def _audit_interval(self) -> float:
         raw = os.environ.get("ARGUS_SKILL_SELF_MAINTENANCE_AUDIT_SECONDS", "1800")
@@ -503,11 +546,16 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
         if self._active_item() is not None:
             return ""
         state = self._state()
+        if str(state.get("handoff_error") or "").strip():
+            return ""
         if str(state.get("phase") or "") in {
             "queued",
             "handoff_requested",
             "canary_running",
+            "canary_failed",
             "publication_failed",
+            "local_active",
+            "pr_closed",
             "pr_open",
         }:
             return ""
@@ -567,6 +615,7 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
                 canary_kind="adoption",
                 canary_source_root=str(worktree),
                 old_source_root=str(self.framework_root),
+                dependency_root=str(self._dependency_source_root(state)),
                 worktree=str(worktree),
                 commit=candidate,
                 acceptance_check=decision.acceptance_check,
@@ -582,27 +631,37 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
             return f"adopt:{worktree}"
         if getattr(decision, "action", "") != "repair":
             return ""
+        affected_paths = tuple(getattr(decision, "affected_paths", ()))
         incident_id = hashlib.sha256(
             (
                 "\0".join(getattr(decision, "evidence_ids", ()))
                 + "\0"
                 + str(getattr(decision, "problem", ""))
+                + "\0"
+                + "\0".join(affected_paths)
             ).encode("utf-8")
         ).hexdigest()[:16]
         if incident_id == str(state.get("last_incident_id") or ""):
             return ""
-        affected_paths = tuple(getattr(decision, "affected_paths", ()))
         if not affected_paths or any(
             Path(path).is_absolute()
             or ".." in Path(path).parts
             or ".git" in Path(path).parts
             for path in affected_paths
         ):
+            error = "Manager returned unsafe affected paths"
             self._write_state(
                 last_incident_id=incident_id,
                 phase="preparation_failed",
-                error="Manager returned unsafe affected paths",
+                error=error,
             )
+            self._emit({
+                "type": "manager.self_maintenance.preparation_failed",
+                "incident_id": incident_id,
+                "error": error,
+                "affected_paths": list(affected_paths),
+                "agent_layer": "manager",
+            })
             return ""
         try:
             worktree, branch = self._prepare_worktree(incident_id)
@@ -612,7 +671,6 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
             ).stdout.strip()
         except (OSError, subprocess.SubprocessError, ValueError) as exc:
             self._write_state(
-                last_incident_id=incident_id,
                 phase="preparation_failed",
                 error=f"{type(exc).__name__}: {exc}"[:2000],
             )
@@ -688,6 +746,7 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
             worktree=str(worktree),
             branch=branch,
             base_revision=base_revision,
+            dependency_root=str(self._dependency_source_root(state)),
             evidence_packet=str(packet_path),
             problem=decision.problem,
             acceptance_check=decision.acceptance_check,
@@ -715,12 +774,45 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
         if repo != self.framework_root:
             raise ValueError("framework source root is not the git repository root")
         worktree = self.root / "worktrees" / incident_id
-        base_revision = _run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=repo,
-        ).stdout.strip()
+        fetch_succeeded = False
+        try:
+            fetched = _run(
+                [
+                    "git",
+                    "fetch",
+                    "origin",
+                    "+refs/heads/main:refs/remotes/origin/main",
+                ],
+                cwd=repo,
+                timeout=120.0,
+                check=False,
+            )
+            fetch_succeeded = fetched.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            pass
+        base_revision = ""
+        main_refs = (
+            (
+                "refs/remotes/origin/main^{commit}",
+                "refs/heads/main^{commit}",
+            )
+            if fetch_succeeded
+            else (
+                "refs/heads/main^{commit}",
+                "refs/remotes/origin/main^{commit}",
+            )
+        )
+        for main_ref in main_refs:
+            result = _run(
+                ["git", "rev-parse", "--verify", main_ref],
+                cwd=repo,
+                check=False,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                base_revision = result.stdout.strip()
+                break
         if not base_revision:
-            raise ValueError("framework source has no current revision")
+            raise ValueError("framework source has no main revision")
         branch = f"argus-self/{self.life_dir.name[:12]}/{incident_id}"
         if worktree.exists():
             status = _run(
@@ -917,8 +1009,29 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
 
     def prepare_reviewed_change(self, outcome: dict[str, Any]) -> Path | None:
         state = self._state()
-        if str(outcome.get("item_id") or "") != str(state.get("active_item_id") or ""):
-            return None
+        outcome_item_id = str(outcome.get("item_id") or "")
+        active_item_id = str(state.get("active_item_id") or "")
+        if outcome_item_id != active_item_id:
+            continuation = next(
+                (
+                    item
+                    for item in self.memory.backlog.all()
+                    if item.id == outcome_item_id
+                ),
+                None,
+            )
+            expected_worktree = Path(str(state.get("worktree") or "")).resolve()
+            is_authorized_continuation = bool(
+                continuation is not None
+                and "framework_maintenance" in set(continuation.tags)
+                and "operator-reply" in set(continuation.tags)
+                and continuation.notes == f"Continues blocked item {active_item_id}."
+                and Path(continuation.execution_workdir).resolve()
+                == expected_worktree
+            )
+            if not is_authorized_continuation:
+                return None
+            state = self._write_state(active_item_id=outcome_item_id)
         if (
             outcome.get("status") != "done"
             or not bool(outcome.get("success"))
@@ -942,6 +1055,43 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
             if not base_revision or head != base_revision:
                 raise ValueError(
                     "Engineer committed or moved HEAD before daemon publication"
+                )
+
+            # Role-local state is never part of a framework repair. Remove only
+            # these exact untracked paths before scope validation and staging.
+            _run(
+                ["git", "clean", "-fdx", "--", *_PRIVATE_RUNTIME_PATHS],
+                cwd=worktree,
+            )
+
+            def ignored_paths() -> list[str]:
+                raw = _run(
+                    [
+                        "git",
+                        "ls-files",
+                        "--others",
+                        "--ignored",
+                        "--exclude-standard",
+                        "--directory",
+                        "-z",
+                    ],
+                    cwd=worktree,
+                ).stdout
+                return [path for path in raw.split("\0") if path]
+
+            # Tests and role tooling can leave ignored caches behind. They are
+            # outside Manager authorization and must not survive into the
+            # daemon's unsandboxed release-build process. Git supplies exact
+            # paths; no wildcard or broad repository deletion is used.
+            ignored = ignored_paths()
+            if ignored:
+                _run(
+                    ["git", "clean", "-fdx", "--", *ignored],
+                    cwd=worktree,
+                )
+            if ignored_paths():
+                raise ValueError(
+                    "could not remove ignored maintenance worktree artifacts"
                 )
 
             def changed_paths() -> set[str]:
@@ -969,25 +1119,75 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
                 )
                 return paths
 
-            allowed = tuple(
+            authorized_paths = {
                 str(path).strip().rstrip("/")
                 for path in (state.get("affected_paths") or [])
                 if str(path).strip()
-            ) + (
+            }
+            generated_paths = {
                 "argus_skill/release_manifest.json",
                 "frontend/core/src/release.generated.ts",
                 "frontend/core/src/eventPayloads.generated.ts",
                 "frontend/tui/bundle/argus.mjs",
+            }
+            generated_prefixes = (
                 "frontend/web/dist",
             )
+
+            generated_files = (
+                "argus_skill/release_manifest.json",
+                "frontend/core/src/release.generated.ts",
+                "frontend/core/src/eventPayloads.generated.ts",
+                "frontend/tui/bundle/argus.mjs",
+            )
+
+            def validate_generated_outputs() -> None:
+                def validate_parents(path: Path) -> None:
+                    current = worktree
+                    for part in path.relative_to(worktree).parts[:-1]:
+                        current /= part
+                        if current.is_symlink() or (
+                            current.exists() and not current.is_dir()
+                        ):
+                            raise ValueError(
+                                "unsafe generated output parent: "
+                                f"{current.relative_to(worktree)}"
+                            )
+
+                for relative in generated_files:
+                    path = worktree / relative
+                    validate_parents(path)
+                    if path.is_symlink() or (
+                        path.exists() and not path.is_file()
+                    ):
+                        raise ValueError(
+                            f"unsafe generated output path: {relative}"
+                        )
+                dist = worktree / "frontend/web/dist"
+                validate_parents(dist)
+                if dist.is_symlink() or (
+                    dist.exists() and not dist.is_dir()
+                ):
+                    raise ValueError(
+                        "unsafe generated output path: frontend/web/dist"
+                    )
+                if dist.is_dir():
+                    for path in dist.rglob("*"):
+                        if path.is_symlink():
+                            raise ValueError(
+                                "unsafe generated output symlink: "
+                                f"{path.relative_to(worktree)}"
+                            )
 
             def unauthorized(paths: set[str]) -> list[str]:
                 return sorted(
                     path
                     for path in paths
-                    if not any(
+                    if path not in authorized_paths
+                    and path not in generated_paths
+                    and not any(
                         path == prefix or path.startswith(prefix + "/")
-                        for prefix in allowed
+                        for prefix in generated_prefixes
                     )
                 )
 
@@ -1002,16 +1202,19 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
                     "maintenance changed paths outside Manager authorization: "
                     + ", ".join(outside)
                 )
+            validate_generated_outputs()
             # Stage authorized source first so the release digest sees newly added
             # files through git ls-files. The generated manifest itself is excluded
             # from that digest.
             _run(["git", "add", "-A"], cwd=worktree)
-            with _frontend_dependency_links(self.framework_root, worktree):
+            dependency_root = self._dependency_source_root(state)
+            with _frontend_dependency_links(dependency_root, worktree):
                 _run(
                     [sys.executable, "scripts/build_release.py"],
                     cwd=worktree,
                     timeout=300.0,
                 )
+            validate_generated_outputs()
             _run(["git", "add", "-A"], cwd=worktree)
             outside = unauthorized(changed_paths())
             if outside:
@@ -1058,6 +1261,8 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
             _run(
                 [
                     "git",
+                    "-c",
+                    "core.hooksPath=/dev/null",
                     *identity_args,
                     "commit",
                     "-m",
@@ -1089,7 +1294,7 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
 
     def mark_canary_started(self, *, loaded_source_root: Path, revision: str) -> bool:
         state = self._state()
-        if state.get("phase") != "handoff_requested":
+        if state.get("phase") not in {"handoff_requested", "canary_running"}:
             return False
         expected_root = Path(str(state.get("canary_source_root") or "")).resolve()
         if loaded_source_root.resolve() != expected_root:
@@ -1102,10 +1307,23 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
                 error="loaded canary revision does not match reviewed commit",
             )
             return False
+        if (
+            str(state.get("handoff_error") or "").strip()
+            and not self._reviewed_source_is_valid(expected_root, state)
+        ):
+            self._write_state(
+                phase="canary_failed",
+                error="loaded canary worktree failed reviewed integrity checks",
+            )
+            return False
         self._write_state(
             phase="canary_running",
+            # This method runs once during every daemon-process startup. Reset
+            # the window so downtime never counts as healthy canary runtime.
             canary_started_at=time.time(),
             canary_pid=os.getpid(),
+            handoff_error="",
+            error="",
         )
         return True
 
@@ -1114,7 +1332,7 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
         *,
         loaded_source_root: Path,
     ) -> Path | None:
-        state = self._state()
+        state = self._normalize_legacy_rollback_state(self._state())
         if state.get("phase") not in {
             "handoff_requested",
             "canary_running",
@@ -1128,9 +1346,24 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
         candidate = Path(
             str(state.get("canary_source_root") or "")
         ).expanduser().resolve()
-        if candidate == loaded_source_root.resolve() or not candidate.is_dir():
+        if not candidate.is_dir():
             return None
-        expected_commit = str(state.get("commit") or "")
+        if not self._reviewed_source_is_valid(candidate, state):
+            return None
+        if candidate == loaded_source_root.resolve():
+            if str(state.get("handoff_error") or "").strip():
+                self._write_state(handoff_error="", error="")
+            return None
+        return candidate
+
+    def _reviewed_source_is_valid(
+        self,
+        candidate: Path,
+        state: dict[str, Any],
+    ) -> bool:
+        expected_commit = str(state.get("commit") or "").strip()
+        if not expected_commit:
+            return False
         try:
             actual_commit = _run(
                 ["git", "rev-parse", "HEAD"],
@@ -1140,34 +1373,68 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
                 ["git", "status", "--porcelain"],
                 cwd=candidate,
             ).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            return False
+        if actual_commit != expected_commit or clean:
+            return False
+        try:
             _run(
                 [sys.executable, "scripts/generate_release_manifest.py", "--check"],
                 cwd=candidate,
                 timeout=120.0,
             )
         except (OSError, subprocess.SubprocessError):
-            return None
-        if actual_commit != expected_commit or clean:
-            return None
-        return candidate
+            return False
+        return True
 
     def failed_start_rollback_candidate(
         self,
         *,
         loaded_source_root: Path,
     ) -> Path | None:
-        state = self._state()
-        if state.get("phase") != "canary_failed":
+        state = self._normalize_legacy_rollback_state(self._state())
+        if state.get("phase") not in {"canary_failed", "pr_closed"}:
+            return None
+        prior = Path(
+            str(state.get("old_source_root") or "")
+        ).expanduser().resolve()
+        if prior.is_dir() and loaded_source_root.resolve() == prior:
+            self._write_state(
+                phase="rolled_back",
+                rollback_completed_at=time.time(),
+                handoff_error="",
+                error="",
+            )
+            self._emit({
+                "type": "manager.self_maintenance.rolled_back",
+                "incident_id": state.get("incident_id"),
+                "source_root": str(prior),
+                "agent_layer": "manager",
+            })
             return None
         expected = Path(
             str(state.get("canary_source_root") or "")
         ).expanduser().resolve()
         if loaded_source_root.resolve() != expected:
             return None
-        prior = Path(
-            str(state.get("old_source_root") or "")
-        ).expanduser().resolve()
         return prior if prior.is_dir() else None
+
+    def _normalize_legacy_rollback_state(
+        self,
+        state: dict[str, Any],
+    ) -> dict[str, Any]:
+        if (
+            state.get("phase") == "local_active"
+            and state.get("publication_status") == "closed"
+        ):
+            return self._write_state(
+                phase="pr_closed",
+                publication_error=(
+                    str(state.get("publication_error") or "")
+                    or "self-maintenance PR closed without merge"
+                ),
+            )
+        return state
 
     def _publication_target(
         self,
@@ -1291,8 +1558,22 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
 
     def publish_after_canary(self, *, summary: dict[str, Any]) -> str:
         state = self._state()
+        if str(state.get("handoff_error") or "").strip():
+            return ""
         phase = str(state.get("phase") or "")
-        if phase not in {"canary_running", "publication_failed"}:
+        publication_status = str(state.get("publication_status") or "")
+        resuming_publication = (
+            phase == "local_active"
+            and publication_status in {
+                _PUBLICATION_AWAITING,
+                _PUBLICATION_PENDING,
+                _PUBLICATION_FAILED,
+                _PUBLICATION_UNAVAILABLE,
+            }
+        )
+        if phase not in {"canary_running", "publication_failed"} and not (
+            resuming_publication
+        ):
             return ""
         legacy_publication_failure = phase == "publication_failed"
         expected_root = Path(
@@ -1304,7 +1585,7 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
                 error="reviewed canary is no longer the loaded daemon source",
             )
             return ""
-        if not legacy_publication_failure:
+        if not legacy_publication_failure and not resuming_publication:
             stopped_by = str(summary.get("stopped_by") or "")
             if stopped_by in {"supervisor_error", "planner_error"}:
                 self._write_state(
@@ -1331,7 +1612,16 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
                     "project_done",
                 }
             )
-            if not made_progress:
+            stable_idle = (
+                stopped_by == "backlog_empty"
+                and (not isinstance(results, list) or not results)
+                and float(state.get("canary_started_at") or 0.0) > 0.0
+                and (
+                    time.time() - float(state.get("canary_started_at") or 0.0)
+                    >= _IDLE_CANARY_STABILITY_SECONDS
+                )
+            )
+            if not made_progress and not stable_idle:
                 return ""
             if state.get("canary_kind") == "adoption":
                 self._write_state(
@@ -1376,27 +1666,58 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
             )
             return f"rollback:{state.get('old_source_root') or ''}"
 
-        accepted_at = time.time()
-        self._write_state(
-            phase="local_active",
-            local_accepted_at=accepted_at,
-            active_item_id="",
-            publication_status=_PUBLICATION_PENDING,
-            publication_error=(
-                str(state.get("error") or "")[:2000]
-                if legacy_publication_failure
-                else ""
-            ),
-            error="",
-        )
-        self._emit({
-            "type": "manager.self_maintenance.local_active",
-            "incident_id": state.get("incident_id"),
-            "commit": reviewed_commit,
-            "worktree": str(worktree),
-            "agent_layer": "manager",
-        })
+        if resuming_publication and publication_status in {
+            _PUBLICATION_AWAITING,
+            _PUBLICATION_FAILED,
+        }:
+            approval_reason = self._publication_approval_reason(reviewed_commit)
+            if approval_reason:
+                if (
+                    publication_status != _PUBLICATION_AWAITING
+                    or str(state.get("publication_error") or "")
+                    != approval_reason
+                ):
+                    self._write_state(
+                        phase="local_active",
+                        publication_status=_PUBLICATION_AWAITING,
+                        publication_error=approval_reason,
+                        awaiting_commit=reviewed_commit,
+                    )
+                return reviewed_commit
+        if (
+            resuming_publication
+            and publication_status == _PUBLICATION_UNAVAILABLE
+            and (
+                time.time()
+                - float(state.get("publication_last_attempt_at") or 0.0)
+                < _PUBLICATION_RETRY_SECONDS
+            )
+        ):
+            return reviewed_commit
 
+        if not resuming_publication:
+            accepted_at = time.time()
+            self._write_state(
+                phase="local_active",
+                local_accepted_at=accepted_at,
+                active_item_id="",
+                publication_status=_PUBLICATION_PENDING,
+                publication_error=(
+                    str(state.get("error") or "")[:2000]
+                    if legacy_publication_failure
+                    else ""
+                ),
+                error="",
+            )
+            self._emit({
+                "type": "manager.self_maintenance.local_active",
+                "incident_id": state.get("incident_id"),
+                "commit": reviewed_commit,
+                "worktree": str(worktree),
+                "agent_layer": "manager",
+            })
+
+        self._write_state(publication_last_attempt_at=time.time())
         target, unavailable_reason = self._publication_target(worktree)
         if target is None:
             self._write_state(
@@ -1470,10 +1791,29 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
         return pr_url
 
     def mark_handoff_failed(self, error: str) -> None:
+        state = self._state()
+        if state.get("phase") in {
+            "handoff_requested",
+            "canary_running",
+            "canary_failed",
+            "publication_failed",
+            "local_active",
+            "pr_open",
+            "pr_closed",
+            "upstream_merged",
+            "adopted",
+        }:
+            self._write_state(
+                handoff_error=str(error)[:2000],
+                error=str(error)[:2000],
+            )
+            return
         self._write_state(phase="handoff_failed", error=str(error)[:2000])
 
     def reconcile_pull_request(self) -> str:
         state = self._state()
+        if str(state.get("handoff_error") or "").strip():
+            return ""
         if state.get("phase") != "pr_open":
             return ""
         pr_url = str(state.get("pr_url") or "")
@@ -1505,14 +1845,16 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
                 error="",
             )
         elif pr_state == "CLOSED":
+            rollback_root = str(state.get("old_source_root") or "")
             self._write_state(
-                phase="local_active",
+                phase="pr_closed",
                 closed_at=time.time(),
                 active_item_id="",
                 publication_status="closed",
                 publication_error="self-maintenance PR closed without merge",
                 error="",
             )
+            return f"rollback:{rollback_root}"
         return pr_state
 
     def prune_obsolete_worktrees(self) -> list[str]:

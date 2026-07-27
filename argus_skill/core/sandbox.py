@@ -197,6 +197,15 @@ def sandboxed_child_env(base: dict[str, str] | None = None) -> dict[str, str]:
     return env
 
 
+def _resolver_config_target() -> Path | None:
+    """Return the real resolver file when /etc/resolv.conf is a symlink."""
+    try:
+        target = Path("/etc/resolv.conf").resolve(strict=True)
+    except OSError:
+        return None
+    return target if target != Path("/etc/resolv.conf") else None
+
+
 def isolated_workdir_command(
     command: list[str],
     *,
@@ -303,8 +312,20 @@ def isolated_workdir_command(
         ensure_dir_chain(target.parent)
         wrapped.extend(["--ro-bind", str(source), str(target)])
 
+    # /etc/resolv.conf commonly points into /run, which is hidden above.
+    # Re-expose only that symlink target so isolated backends retain DNS.
+    resolver_target = _resolver_config_target()
+    if resolver_target is not None:
+        bind_file(resolver_target, resolver_target)
+
     worktree = Path(root)
     bind_dir(worktree, worktree, writable=True)
+    git_entry = worktree / ".git"
+    if git_entry.is_file():
+        # Linked worktrees store a writable `gitdir: ...` pointer here. Keep
+        # the pointer immutable so a confined role cannot redirect the daemon's
+        # later unsandboxed validation/commit commands to attacker metadata.
+        bind_file(git_entry, git_entry)
     bind_dir(Path(sys.prefix), Path(sys.prefix), writable=False)
     # Hidden roots such as /home are replaced with tmpfs above. Re-expose only
     # the selected backend executable so configured per-user CLI installs remain

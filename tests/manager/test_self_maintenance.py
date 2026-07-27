@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus_skill.manager import Manager
 from argus_skill.manager.self_maintenance import (
     build_maintenance_prompt,
     parse_maintenance_decision,
@@ -75,4 +77,44 @@ def test_prompt_forbids_make_work_and_requires_measured_prompt_evidence() -> Non
     assert "Do not invent cleanup, speculative refactors" in prompt
     assert "measured token or prompt-block evidence" in prompt
     assert "independent Reviewer" in prompt
+    assert "current read-only working directory" in prompt
+    assert "exact repository-relative path" in prompt
+    assert "never return an absolute path" in prompt
     assert "human-merged `framework.update_available`" in prompt
+
+
+def test_maintenance_manager_inspects_framework_root_read_only(tmp_path) -> None:
+    project = tmp_path / "project"
+    framework = tmp_path / "framework"
+    project.mkdir()
+    framework.mkdir()
+    backend = MemoryBackend()
+    backend.queue(
+        "manager-self-maintenance",
+        CannedResponse(message=json.dumps({
+            "action": "repair",
+            "reason": "planner error is reproducible",
+            "problem": "replan discards the operator question",
+            "title": "Preserve replan operator questions",
+            "objective": "Pause replanning until the operator answers.",
+            "acceptance_check": "pytest -q tests/life/test_supervisor.py",
+            "evidence_ids": ["event-1"],
+            "affected_paths": [
+                "argus_skill/life/supervisor/_core.py",
+                "tests/life/test_supervisor.py",
+            ],
+        })),
+    )
+    manager = Manager(project_root=project, runner=backend)
+
+    decision = manager.decide_self_maintenance(
+        [{"id": "event-1", "type": "life.planner.error", "details": {}}],
+        daemon_state={},
+        framework_root=framework,
+    )
+
+    assert decision.action == "repair"
+    label, _prompt, options = backend.history[-1]
+    assert label == "manager-self-maintenance"
+    assert options.working_dir == str(framework.resolve())
+    assert options.sandbox_mode == "read-only"

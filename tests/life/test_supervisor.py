@@ -481,10 +481,9 @@ def test_blocked_verdict_persists_operator_question_onto_backlog_item(
     sup.tick()
 
     rows = {row.id: row for row in mem.backlog.all()}
-    # Terminal like any other non-success outcome — "blocked" is not a
-    # separate backlog status; pending_question is what distinguishes
-    # "reviewer needs a decision" from a genuine crash/error.
-    assert rows[item.id].status == "failed"
+    # Operator-paused rather than terminal: a failed dependency would
+    # cascade-skip downstream DAG nodes before the answer can rewire them.
+    assert rows[item.id].status == "paused_operator"
     assert rows[item.id].pending_question == "fp16 精度损失可以接受吗，还是必须 fp32？"
     pending_events = [
         event
@@ -539,6 +538,101 @@ class _CountingReplanRunner:
         if self._stage_transition is not None:
             outcome.stage_transition = self._stage_transition
         return outcome
+
+
+class _ReplanQuestionRunner:
+    """Requests a replacement plan that requires an operator decision first."""
+
+    def execute(self, **kwargs: Any) -> _Outcome:
+        return _Outcome(
+            success=False,
+            status="replan_requested",
+            stop_reason="the approved trust boundary is ambiguous",
+            operator_question="May this function be added to the trusted boundary?",
+        )
+
+
+def test_replan_with_operator_question_uses_durable_answer_path(tmp_path) -> None:
+    mem = LifeMemory.open(tmp_path / "life")
+    sink = _RecordingSink(mem.root)
+    cfg = LifeSupervisorConfig(
+        budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=2),
+        poll_interval_seconds=0.01,
+    )
+    sup = LifeSupervisor(
+        memory=mem, runner=_ReplanQuestionRunner(), sink=sink, config=cfg,
+    )
+    item = mem.backlog.add(BacklogItem.new(
+        title="Resolve boundary", objective="verify the reachable call chain",
+    ))
+    dependent = mem.backlog.add(BacklogItem.new(
+        title="Continue proof",
+        objective="verify the caller",
+        deps=[item.id],
+    ))
+
+    result = sup.tick()
+
+    assert result is not None
+    assert result["status"] == "blocked"
+    assert not [
+        entry
+        for entry in mem.journal.all()
+        if entry.kind == "mission_replan_requested" and entry.id == item.id
+    ]
+
+    # The question survives a process restart and uses the existing atomic
+    # answer-to-continuation transition.
+    reopened = LifeMemory.open(tmp_path / "life")
+    blocked = next(row for row in reopened.backlog.all() if row.id == item.id)
+    assert blocked.status == "paused_operator"
+    assert blocked.pending_question == (
+        "May this function be added to the trusted boundary?"
+    )
+    assert reopened.backlog.resume_paused(item.id) is None
+    assert reopened.backlog.resume_all_paused() == []
+    assert reopened.backlog.next_pending() is None
+    waiting = next(row for row in reopened.backlog.all() if row.id == dependent.id)
+    assert waiting.status == "pending"
+    original, continuation = reopened.backlog.continue_with_operator_reply(
+        item.id,
+        "No. Keep the trusted boundary unchanged.",
+        manager_decision="Find a verified implementation without new assumptions.",
+    )
+    assert original is not None and original.status == "failed"
+    assert original.pending_question == ""
+    assert continuation is not None and continuation.status == "pending"
+    rewired = next(row for row in reopened.backlog.all() if row.id == dependent.id)
+    assert rewired.deps == [continuation.id]
+
+
+def test_replan_with_operator_question_never_invokes_planner(tmp_path) -> None:
+    mem = LifeMemory.open(tmp_path / "life")
+    cfg = LifeSupervisorConfig(
+        budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=2),
+        poll_interval_seconds=0.01,
+        continuous=True,
+        continuous_objective="verify the project",
+    )
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=_ReplanQuestionRunner(),
+        sink=_RecordingSink(mem.root),
+        config=cfg,
+    )
+    mem.backlog.add(BacklogItem.new(
+        title="Resolve boundary", objective="verify the reachable call chain",
+    ))
+
+    def _unexpected_plan(*args: Any, **kwargs: Any) -> bool:
+        raise AssertionError("Planner must wait for the operator answer")
+
+    sup._plan_next_work = _unexpected_plan  # type: ignore[method-assign]
+
+    result = sup.run()
+
+    assert result["stopped_by"] == "pending_operator_question"
+    assert result["results"][0]["status"] == "blocked"
 
 
 def test_consecutive_replans_are_bounded_and_escalated(tmp_path, monkeypatch) -> None:
@@ -612,6 +706,100 @@ def test_consecutive_replans_are_bounded_and_escalated(tmp_path, monkeypatch) ->
     assert fourth is None
     assert runner.calls == 3
     assert _row().status == "failed"
+
+
+def test_large_replan_threshold_uses_persisted_streak(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "ARGUS_SKILL_CONSECUTIVE_REPLAN_ESCALATION_THRESHOLD",
+        "60",
+    )
+    mem = LifeMemory.open(tmp_path / "life")
+    runner = _CountingReplanRunner()
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=runner,
+        sink=_RecordingSink(mem.root),
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=100),
+            poll_interval_seconds=0.01,
+        ),
+    )
+    item = mem.backlog.add(BacklogItem.new(
+        title="long replan streak",
+        objective="eventually hit the configured convergence threshold",
+    ))
+
+    for _ in range(59):
+        result = sup.tick()
+        assert result is not None and result["status"] == "replan_requested"
+    stored = next(row for row in mem.backlog.all() if row.id == item.id)
+    assert stored.consecutive_replans == 59
+
+    final = sup.tick()
+
+    assert final is not None and final["status"] == "no_progress"
+    stored = next(row for row in mem.backlog.all() if row.id == item.id)
+    assert stored.status == "failed"
+    assert runner.calls == 60
+
+
+def test_stage_progress_resets_persisted_replan_streak(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "ARGUS_SKILL_CONSECUTIVE_REPLAN_ESCALATION_THRESHOLD",
+        "2",
+    )
+
+    class _ReplanStageReplanRunner:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def execute(self, **kwargs: Any) -> _Outcome:
+            self.calls += 1
+            if self.calls == 2:
+                outcome = _Outcome(success=True, status="done")
+                outcome.stage_transition = {
+                    "action": "advance",
+                    "target_stage": "solve",
+                }
+                return outcome
+            return _Outcome(
+                success=False,
+                status="replan_requested",
+                stop_reason="revise this stage",
+            )
+
+    mem = LifeMemory.open(tmp_path / "life")
+    runner = _ReplanStageReplanRunner()
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=runner,
+        sink=_RecordingSink(mem.root),
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=10),
+            poll_interval_seconds=0.01,
+        ),
+    )
+    item = mem.backlog.add(BacklogItem.new(
+        title="progress between replans",
+        objective="advance before revising the next stage",
+    ))
+
+    assert sup.tick()["status"] == "replan_requested"
+    assert sup.tick()["status"] == "stage_continues"
+    after_progress = next(row for row in mem.backlog.all() if row.id == item.id)
+    assert after_progress.consecutive_replans == 0
+    assert after_progress.replan_streak_tracked is True
+
+    assert sup.tick()["status"] == "replan_requested"
+    stored = next(row for row in mem.backlog.all() if row.id == item.id)
+    assert stored.status == "pending"
+    assert stored.consecutive_replans == 1
 
 
 def test_stage_reconciled_replan_is_untouched_by_convergence_guard(
