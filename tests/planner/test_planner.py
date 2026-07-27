@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from argus_skill.core.models import RunnerResult
 from argus_skill.planner.planner import (
+    NO_CONCRETE_TASKS_ERROR,
     Planner,
     PlannerConfig,
     parse_planner_text,
@@ -71,6 +72,16 @@ class _Runner:
         )
 
 
+class _SequenceRunner:
+    def __init__(self, messages: list[str]) -> None:
+        self.messages = list(messages)
+        self.calls: list[dict] = []
+
+    def run_exec(self, **kwargs):  # noqa: ANN003
+        self.calls.append(kwargs)
+        return RunnerResult(exit_code=0, agent_messages=[self.messages.pop(0)])
+
+
 def test_plan_next_disables_schema_and_planner_timeouts(monkeypatch) -> None:
     runner = _Runner()
     monkeypatch.setattr(
@@ -95,3 +106,70 @@ def test_plan_next_disables_schema_and_planner_timeouts(monkeypatch) -> None:
     assert options.external_interrupt_reason_provider is None
     assert options.watchdog_hard_idle_seconds == 0
     assert options.dangerous_yolo is True
+
+
+def test_plan_next_repairs_not_done_empty_task_response(monkeypatch) -> None:
+    runner = _SequenceRunner([
+        "PROJECT_DONE=false\nREASON=implementation still needs a concrete follow-up",
+        "\n".join(
+            [
+                "PROJECT_DONE=false",
+                "REASON=queue the concrete verifier repair",
+                "TASK_KEY=verifier",
+                "TASK_TITLE=Repair verifier path",
+                (
+                    "TASK_OBJECTIVE=Update src/verifier.py and run pytest "
+                    "tests/test_verifier.py."
+                ),
+                "TASK_ACCEPTANCE_CHECK=pytest tests/test_verifier.py",
+            ]
+        ),
+    ])
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **kwargs: "original planner prompt"),
+    )
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective="fix the verifier",
+        planning_cycle=7,
+        config=PlannerConfig(working_dir="/tmp/project"),
+    )
+
+    assert verdict.error == ""
+    assert verdict.project_done is False
+    assert [task.title for task in verdict.new_tasks] == ["Repair verifier path"]
+    assert runner.calls[0]["run_label"] == "planner.cycle7"
+    assert runner.calls[1]["run_label"] == "planner.cycle7.repair1"
+    assert NO_CONCRETE_TASKS_ERROR in runner.calls[1]["prompt"]
+    assert (
+        "Never return `PROJECT_DONE=false` without either `WAITING=true`"
+        in runner.calls[1]["prompt"]
+    )
+    assert runner.calls[1]["options"].working_dir == "/tmp/project"
+
+
+def test_plan_next_reports_bounded_failure_after_empty_task_repair_exhaustion(
+    monkeypatch,
+) -> None:
+    runner = _SequenceRunner([
+        "PROJECT_DONE=false\nREASON=still not complete",
+        "PROJECT_DONE=false\nREASON=still no concrete task",
+    ])
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **kwargs: "original planner prompt"),
+    )
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective="fix the verifier",
+        config=PlannerConfig(working_dir="/tmp/project"),
+    )
+
+    assert verdict.project_done is False
+    assert verdict.new_tasks == []
+    assert verdict.error.startswith(NO_CONCRETE_TASKS_ERROR)
+    assert "repair exhausted after 1 attempt" in verdict.error
+    assert len(runner.calls) == 2

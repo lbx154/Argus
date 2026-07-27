@@ -236,6 +236,17 @@ def test_format_command_ack_plain_text_unchanged() -> None:
     assert "plan_mode → auto" in out
 
 
+def test_format_engineer_progress_redacts_raw_secret() -> None:
+    secret = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345678901"
+    out = format_event_message({
+        "type": "engineer.progress",
+        "kind": "message",
+        "text": f"using token {secret}",
+    })
+    assert secret not in out
+    assert "REDACTED" in out
+
+
 def test_format_status_report_preserves_multi_line() -> None:
     body = (
         "mission X running   round 3/5   phase=review\n"

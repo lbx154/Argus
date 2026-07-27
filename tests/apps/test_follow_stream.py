@@ -141,3 +141,20 @@ def test_follow_coalescer_commits_quiet_streamed_message() -> None:
         "replace": True,
         "text": "current complete fragment",
     }]
+
+
+def test_follow_progress_render_redacts_raw_secret() -> None:
+    secret = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345678901"
+    rendered = _follow._format_follow_event_body(
+        {
+            "type": "engineer.progress",
+            "kind": "agent_message",
+            "agent_layer": "engineer",
+            "text": f"using token {secret}",
+        },
+        "engineer",
+    )
+
+    assert rendered is not None
+    assert secret not in rendered
+    assert "REDACTED" in rendered

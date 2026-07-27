@@ -16,6 +16,7 @@ Two surfaces are exercised here:
 from __future__ import annotations
 
 import argparse
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
@@ -46,6 +47,7 @@ class _FakeBackend:
     fatal_error: str | None = None
     thread_id: str | None = "tid-chat-1"
     classify_answer: str = "SELF"
+    stream_message: str | None = None
     calls: list[dict[str, Any]] = field(default_factory=list)
     classify_calls: list[dict[str, Any]] = field(default_factory=list)
 
@@ -82,6 +84,10 @@ class _FakeBackend:
             "run_label": run_label,
             "resume_thread_id": resume_thread_id,
         })
+        if self.stream_message:
+            on_agent_message = getattr(options, "on_agent_message", None)
+            if callable(on_agent_message):
+                on_agent_message(self.stream_message)
         return RunnerResult(
             exit_code=self.exit_code,
             agent_messages=[self.response_message],
@@ -209,6 +215,30 @@ def test_execute_self_path_one_turn_no_reviewer(tmp_path: Path) -> None:
                for e in sink.events)
     assert "算 17*23" in backend.calls[0]["prompt"]
     assert "Daemon supervision and source maintenance" in backend.calls[0]["prompt"]
+
+
+def test_manager_self_progress_blocks_redacted_before_live_sink() -> None:
+    secret = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345678901"
+    backend = _FakeBackend(
+        response_message=f"final token {secret}",
+        stream_message=f"streamed token {secret}",
+        classify_answer="SELF",
+    )
+    runner = _make_runner(backend)
+    sink = _RecordingSink()
+
+    out = runner._maybe_chat_outcome(
+        objective="hello",
+        sink=sink,
+        route="simple",
+    )
+
+    payload = json.dumps({
+        "outcome": getattr(out, "last_message", ""),
+        "events": sink.events,
+    }, ensure_ascii=False)
+    assert secret not in payload
+    assert "REDACTED" in payload
 
 
 def test_self_prompt_projects_live_manager_maintenance_state(

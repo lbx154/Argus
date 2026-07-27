@@ -29,6 +29,8 @@ from argus_skill.life.supervisor import (
     LifeSupervisorConfig,
 )
 from argus_skill.life.supervisor._constants import PLAN_RETRY
+from argus_skill.planner import Planner
+from argus_skill.skills.vertical_select import persist_vertical
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -329,3 +331,113 @@ def test_stale_outbox_diagnostic_does_not_reemit_untrusted_reason(
     assert "reason" not in diagnostic
     assert foreign_reason not in json.dumps(sink.events)
     assert load_planner_verdict_outbox(mem.root) is None
+
+
+def test_stale_outbox_discard_resumes_planning_and_enqueues_recovery_task(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    mem = LifeMemory.open(tmp_path / "life")
+    project = tmp_path / "project"
+    project.mkdir()
+    persist_vertical(project, "software", workflow_mode="staged")
+    sink = _RecordingSink()
+    write_planner_verdict_outbox(
+        mem.root,
+        event={
+            "type": "life.planner.verdict",
+            "cycle": 4,
+            "status": "completed",
+            "reason": "stale completion from a prior semantic state",
+        },
+        outcome=False,
+        terminal_signature="old-semantic-state",
+        delivered=True,
+    )
+
+    class _PlannerRunner:
+        calls = 0
+
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+            self.calls += 1
+            assert run_label == "planner.cycle0"
+            return RunnerResult(
+                exit_code=0,
+                agent_messages=[
+                    "\n".join(
+                        [
+                            "PROJECT_DONE=false",
+                            "REASON=stale verdict was discarded; schedule concrete recovery",
+                            "TASK_KEY=recovery",
+                            "TASK_TITLE=Recover after stale planner verdict",
+                            (
+                                "TASK_OBJECTIVE=Inspect the changed semantic state and "
+                                "repair the planner recovery path."
+                            ),
+                            (
+                                "TASK_ACCEPTANCE_CHECK=pytest "
+                                "tests/life/test_planner_verdict_outbox_regression.py"
+                            ),
+                        ]
+                    )
+                ],
+                stdout_lines=[],
+                stderr_lines=[],
+                thread_id=None,
+                fatal_error=None,
+                input_tokens=0,
+                cached_input_tokens=0,
+                output_tokens=0,
+            )
+
+    planner_runner = _PlannerRunner()
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=_NeverCalledRunner(),
+        sink=sink,
+        config=LifeSupervisorConfig(
+            continuous=True,
+            continuous_objective="current project objective",
+            open_ended=True,
+            project_worktree=project,
+            artifact_root=project,
+            full_paper_gate=False,
+        ),
+        planner_runner=planner_runner,
+    )
+    monkeypatch.setattr(
+        sup,
+        "_open_ended_terminal_idle_signature",
+        lambda: "current-semantic-state",
+    )
+    monkeypatch.setattr(sup, "_wiki_collect_task_if_due_under_blocker", lambda: None)
+    monkeypatch.setattr(sup, "_render_journal_for_planner", lambda: "")
+    monkeypatch.setattr(sup, "_recent_no_progress_failures", lambda: {})
+    monkeypatch.setattr(sup, "_recent_subagent_family_failures", lambda: {})
+    monkeypatch.setattr(sup, "_planner_runtime_with_idle_note", lambda: "")
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **kwargs: "planner prompt"),
+    )
+
+    result = sup._plan_next_work()
+
+    assert result is True
+    assert planner_runner.calls == 1
+    assert load_planner_verdict_outbox(mem.root) is None
+    pending = mem.backlog.pending()
+    assert [item.title for item in pending] == ["Recover after stale planner verdict"]
+    assert pending[0].acceptance_check == (
+        "pytest tests/life/test_planner_verdict_outbox_regression.py"
+    )
+    stale_diagnostics = [
+        event
+        for event in sink.events
+        if event.get("type") == "life.planner.error"
+        and event.get("error") == "discarded stale planner verdict outbox after semantic state change"
+    ]
+    assert len(stale_diagnostics) == 1
+    verdict_event = next(event for event in sink.events if event.get("type") == "life.planner.verdict")
+    assert verdict_event["status"] == "planned"
+    assert verdict_event["enqueued_tasks"] == 1

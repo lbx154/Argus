@@ -46,10 +46,17 @@ and do not delegate the implementation to another role.
   a later Reviewer explicitly certifies a valuable project thesis with `done`.
 - Credentials, licensed access, irreversible external actions, and scope
   expansion require fresh operator authority; reversible project-local work does not.
+- If `PROJECT_DONE=false`, do not leave an empty plan. Either report an
+  intentional live wait with `WAITING=true` and a durable recheck contract, or
+  emit concrete `TASK_*` blocks (`TASK_KEY`, `TASK_TITLE`, `TASK_OBJECTIVE`, and
+  when known `TASK_ACCEPTANCE_CHECK`) for legal next work. Never fabricate work
+  merely to satisfy this shape.
 - Natural-language progress and a final summary are allowed. End the final response
-  with two plain key-value lines, not JSON or a Markdown fence:
+  with plain key-value lines, not JSON or a Markdown fence. Always include:
   `PROJECT_DONE=true|false`
   `REASON=<concise implementation and verification summary or blocker>`
+  When `PROJECT_DONE=false`, include the required `WAITING_*` or `TASK_*` lines
+  described above.
 """
 
 

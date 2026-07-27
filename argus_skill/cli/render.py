@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from ..core.secret_guard import redact_secrets_text
 from .event_format import _strip_shell_wrapper, _trunc, format_event_message
 from .theme import BOX, Theme
 
@@ -291,7 +292,7 @@ def _render_engineer_progress_terminal(event: dict[str, Any], *, theme: Theme) -
     (set ``ARGUS_SKILL_SHOW_REASONING=1`` to see it as faint italic).
     """
     kind = str(event.get("kind") or "").strip()
-    text = str(event.get("text") or "").strip()
+    text = redact_secrets_text(str(event.get("text") or "")).strip()
     if not text and kind not in ("file_change", "command_execution", "tool_use"):
         return ""
 
@@ -314,7 +315,7 @@ def _render_engineer_progress_terminal(event: dict[str, Any], *, theme: Theme) -
         return "\n".join(out)
 
     if kind == "command_execution":
-        action = str(event.get("action_summary") or "").strip()
+        action = redact_secrets_text(str(event.get("action_summary") or "")).strip()
         if action:
             return theme.dim("  ▸ " + _trunc(action, 200))
         # Strip the ``/bin/bash -lc 'cmd'`` wrapper codex always emits so

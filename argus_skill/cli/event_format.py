@@ -10,6 +10,7 @@ import re
 import shlex
 from typing import Any, Callable
 
+from ..core.secret_guard import redact_secrets_text
 from ..core.event_catalog import EventType
 from ..life.mission_outcome import outcome_dimension_summary
 
@@ -225,7 +226,7 @@ def _parse_simple_command(command: str) -> str:
 
 def format_progress_command(raw: str) -> str:
     """Render a shell command as one compact operator-facing action."""
-    command = _strip_shell_wrapper(raw)
+    command = _strip_shell_wrapper(redact_secrets_text(raw))
     steps = _split_shell_steps(command)
     rendered = [
         item for item in (_parse_simple_command(step) for step in steps) if item
@@ -499,7 +500,7 @@ _PROGRESS_KIND_BADGE = {
 def _render_engineer_progress(event: dict[str, Any]) -> str:
     """Live agent-CLI stream beat — one item per call."""
     kind = str(event.get("kind") or "message").strip()
-    text = str(event.get("text") or "").strip()
+    text = redact_secrets_text(str(event.get("text") or "")).strip()
     badge = _PROGRESS_KIND_BADGE.get(kind, "•")
     if not text:
         return f"{badge} {kind}"

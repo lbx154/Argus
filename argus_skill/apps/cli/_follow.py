@@ -12,6 +12,7 @@ from typing import Any, Callable, Sequence
 from urllib.parse import urlencode
 
 from ...core import paths as core_paths
+from ...core.secret_guard import known_secret_values, redact_secrets_text
 from .._inbox import format_inbox_event
 from . import _core
 
@@ -131,7 +132,10 @@ def _follow_layer_from_event(event: dict, current: str) -> str:
 
 def _clean_follow_text(text: str, *, limit: int | None = 220) -> str:
 
-    text = str(text or "")
+    text = redact_secrets_text(
+        str(text or ""),
+        known_values=known_secret_values(),
+    )
     text = re.sub(r"```[a-zA-Z0-9_-]*", " ", text)
     text = text.replace("```", " ")
     text = re.sub(r"\[([^\]]+)\]\(\(?[^)\n]+\)?\)", r"\1", text)
@@ -336,9 +340,16 @@ def _format_follow_command(event: dict) -> str:
     from ...cli.event_format import annotate_progress_result, format_progress_command
 
     event_for_render = dict(event)
-    cmd = str(event.get("text") or "")
+    cmd = redact_secrets_text(
+        str(event.get("text") or ""),
+        known_values=known_secret_values(),
+    )
+    event_for_render["text"] = cmd
     parsed = format_progress_command(cmd)
-    excerpt = str(event.get("output_excerpt") or "")
+    excerpt = redact_secrets_text(
+        str(event.get("output_excerpt") or ""),
+        known_values=known_secret_values(),
+    )
     compact = excerpt
     if "pytest" in cmd and "[100%]" in excerpt:
         compact = "pytest passed [100%]"

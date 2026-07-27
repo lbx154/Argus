@@ -122,6 +122,20 @@ def test_status_report_empty_returns_short_string() -> None:
     assert "no status" in out
 
 
+def test_engineer_progress_terminal_render_redacts_raw_secret() -> None:
+    secret = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345678901"
+    e = {
+        "type": "engineer.progress",
+        "kind": "command_execution",
+        "text": f"curl -H 'Authorization: token {secret}' https://api.github.com",
+    }
+
+    out = render_event_for_terminal(e, theme=_PLAIN)
+
+    assert secret not in out
+    assert "REDACTED" in out
+
+
 # ── /show responses ──────────────────────────────────────────────────────
 
 def test_show_ack_uses_left_box_with_show_kind_in_title() -> None:
