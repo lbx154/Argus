@@ -119,3 +119,16 @@ def test_index_rebuild_atomic_on_failure(wiki: WikiStore, monkeypatch: pytest.Mo
         assert (qroot / name).read_text(encoding="utf-8") == f"OLD {name}\n"
     assert list(wiki.root.glob("queries*.new-*")) == []
     assert list(qroot.glob("*.tmp-*")) == []
+
+
+def test_rebuild_skips_one_malformed_direct_edit(wiki: WikiStore):
+    wiki.write_page(_make_card(id="valid-concept", type="concept"))
+    bad = wiki.root / "pages" / "concepts" / "broken.md"
+    bad.parent.mkdir(parents=True, exist_ok=True)
+    bad.write_text("---\ntype: concept\n---\n\nmissing required fields\n")
+
+    rebuild_indexes(wiki)
+
+    body = (wiki.root / "queries" / "by-status.md").read_text()
+    assert "valid-concept" in body
+    assert "broken" not in body

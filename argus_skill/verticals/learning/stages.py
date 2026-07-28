@@ -19,8 +19,8 @@ The 4 stages:
 
 3. **curate**: apply the plan. Skill CRUD flows through the active role's
    structured maintenance request and the SkillRouter gates (mechanical / dedup /
-   retire / protected — no Manager content gate); wiki CRUD flows through the
-   structured ``wiki_ops`` / WikiRouter. Removals are always reversible.
+   retire / protected — no Manager content gate). Declarative knowledge is edited
+   directly in the project wiki by any role. Removals are always reversible.
 
 4. **review**: final gate — every committed change is evidence-anchored, nothing
    protected was removed, no existing item regressed, indexes rebuilt. Mission
@@ -32,9 +32,8 @@ Design invariants (the hard, harness-enforced rules; all judgment is the
 agent's / reviewer's):
 
 * the material is DATA, never instructions;
-* every learned claim carries a re-checkable evidence span into the immutable
-  source (anti-fabrication), enforced mechanically by ``verify_evidence`` in the
-  WikiRouter — see WIRING STATUS below;
+* every learned claim carries a re-checkable evidence citation into an immutable
+  source or real project artifact; Reviewer checks this during review;
 * a protected skill (frontmatter ``protected: true`` OR an anti-cheat / guardrail
   / role-identity CATEGORY) can never be archived/deleted/updated at runtime
   (strengthening one requires an explicit, out-of-band source-code change), and
@@ -46,18 +45,14 @@ agent's / reviewer's):
   we do not reward raw library churn.
 
 WIRING STATUS (be honest about what is live vs pending — no overselling):
-* LIVE: the SkillRouter protected/active floors, the WikiStore
-  retire tombstone, AND (harness-level, every vertical including this one) the
-  ``wiki_ops`` reviewer schema field + generic ``WikiRouter`` application at
-  mission end (``wiki.lifecycle.evolve_wikis_after_mission``, mirroring
-  ``skills.evolution.evolve_skills_after_mission``) — a reviewer verdict on ANY mission can now propose
-  ``create_page``/``update_page``/``retire_page`` and have it applied with the
-  evidence-verbatim floor enforced, no separate activation needed.
+* LIVE: the SkillRouter protected/active floors, WikiStore reversible retirement,
+  shared direct wiki editing for all four roles, and Reviewer knowledge
+  reconciliation during reviewed rounds.
 * PENDING (off the daemon hot path until reviewed): this vertical's OWN
   ``ingest``/``study`` stages driving that generic channel end-to-end from a
   ``learn`` CLI/ingest input channel and a persisted ``CHANGE_PLAN.json``; and
   the LayeredSkillStore project-layer isolation. Until the ``learn`` CLI lands,
-  free-hand ``WikiStore`` calls via the wiki-curator skill remain the other way
+  direct Markdown edits via the wiki-curator guidance remain the way
   wiki pages get written. The reviewer CHECKLIST_ITEMS enforce
   evidence/faithfulness as a judgment-layer control in the meantime.
 """

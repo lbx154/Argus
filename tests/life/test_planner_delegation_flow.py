@@ -69,10 +69,6 @@ def test_planner_delegates_to_engineer_and_continues_after_one_increment(
             "TASK_TITLE=Remove redundant snapshot prewarm",
             "TASK_OBJECTIVE=Change the prewarm scheduling and add a regression test.",
             "TASK_ACCEPTANCE_CHECK=pytest tests/webapi/test_index_cache.py",
-            "TASK_SCOPE=bounded",
-            "TASK_STAGE_CLOSING=false",
-            "TASK_REQUIRE_INDEPENDENT_REVIEW=false",
-            "TASK_SKIP_STAGE_TRANSITION=false",
         ]),
         "PROJECT_DONE=true\nREASON=finished one optimization",
         "\n".join([
@@ -82,10 +78,6 @@ def test_planner_delegates_to_engineer_and_continues_after_one_increment(
             "TASK_TITLE=Deduplicate Manager reply rows",
             "TASK_OBJECTIVE=Use one message identity for live and persisted replies.",
             "TASK_ACCEPTANCE_CHECK=npm test -- stream.test.ts",
-            "TASK_SCOPE=bounded",
-            "TASK_STAGE_CLOSING=false",
-            "TASK_REQUIRE_INDEPENDENT_REVIEW=false",
-            "TASK_SKIP_STAGE_TRANSITION=false",
         ]),
     ])
     supervisor = _supervisor(project, tmp_path / "life", planner)
@@ -100,7 +92,7 @@ def test_planner_delegates_to_engineer_and_continues_after_one_increment(
     assert [item.title for item in pending] == ["Deduplicate Manager reply rows"]
 
     assert len(planner.calls) == 3
-    assert all(call["options"].sandbox_mode == "read-only" for call in planner.calls)
+    assert all(call["options"].sandbox_mode == "workspace-write" for call in planner.calls)
     assert all(call["options"].dangerous_yolo is False for call in planner.calls)
     assert not list(project.glob("**/*.py")), "Planner must not create implementation files"
 

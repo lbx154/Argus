@@ -37,7 +37,7 @@ def test_planner_prompt_includes_wiki_block_when_present(
         runtime_change_summary="",
         mission=None,
     )
-    assert "Idea wiki" in prompt
+    assert "Shared project knowledge wiki" in prompt
     assert "stale-watchlist" in prompt or "overdue" in prompt
     assert "open-contradictions" in prompt or "c1" in prompt
 
@@ -68,7 +68,7 @@ def test_planner_prompt_surfaces_by_status_so_learned_pages_reach_planner(
     assert "grpo-async-clip" in prompt
 
 
-def test_planner_prompt_surfaces_recent_reviewed_run_sources(
+def test_planner_prompt_does_not_treat_run_history_as_knowledge(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -123,11 +123,10 @@ def test_planner_prompt_surfaces_recent_reviewed_run_sources(
         mission=None,
     )
 
-    assert "recent reviewed runs" in prompt
-    assert "m-reviewed" in prompt
-    assert prompt.count("`m-reviewed`") == 1
-    assert "latest round supersedes the earlier summary" in prompt
-    assert "Write the final corollary." in prompt
+    assert "Shared project knowledge wiki" in prompt
+    assert "recent reviewed runs" not in prompt
+    assert "latest round supersedes the earlier summary" not in prompt
+    assert "Write the final corollary." not in prompt
 
 
 def test_planner_prompt_does_not_duplicate_runs_already_in_journal(
@@ -169,13 +168,13 @@ def test_planner_prompt_does_not_duplicate_runs_already_in_journal(
         mission=None,
     )
 
-    assert "Idea wiki" in prompt
+    assert "Shared project knowledge wiki" in prompt
     assert "project knowledge" in prompt
     assert "recent reviewed runs" not in prompt
     assert "duplicate run summary" not in prompt
 
 
-def test_planner_prompt_omits_empty_generated_wiki_scaffold(
+def test_planner_prompt_exposes_empty_wiki_for_first_direct_page(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -200,8 +199,8 @@ def test_planner_prompt_omits_empty_generated_wiki_scaffold(
         mission=None,
     )
 
-    assert "Idea wiki" not in prompt
-    assert "wiki_collect suggestion" not in prompt
+    assert "Shared project knowledge wiki" in prompt
+    assert str(wiki) in prompt or "project: demo" in prompt
 
 
 def test_planner_prompt_omits_wiki_block_when_absent(
@@ -217,7 +216,7 @@ def test_planner_prompt_omits_wiki_block_when_absent(
         runtime_change_summary="",
         mission=None,
     )
-    assert "Idea wiki" not in prompt
+    assert "Shared project knowledge wiki" not in prompt
 
 
 def test_planner_prompt_does_not_warn_when_query_pack_diagnosis_refs_exist(
@@ -291,5 +290,5 @@ def test_planner_prompt_build_survives_corrupt_bot_state(
         mission=None,
     )
 
-    assert "Idea wiki" in prompt
+    assert "Shared project knowledge wiki" in prompt
     assert list((wiki / "data").glob("bot_state.json.corrupt-*"))

@@ -71,7 +71,6 @@ def parse_decision_text(
         next_action = parsed.get("next_action")
         operator_question = parsed.get("operator_question")
         raw_skill_ops = parsed.get("skill_ops")
-        raw_wiki_ops = parsed.get("wiki_ops")
         if status not in _STATUSES:
             continue
         if not isinstance(reason, str) or not reason.strip():
@@ -85,18 +84,12 @@ def parse_decision_text(
             if isinstance(raw_skill_ops, list)
             else []
         )
-        wiki_ops = (
-            [dict(op) for op in raw_wiki_ops if isinstance(op, dict)]
-            if isinstance(raw_wiki_ops, list)
-            else []
-        )
         return ReviewDecision(
             status=status,
             reason=reason.strip(),
             next_action=next_action.strip(),
             operator_question=str(operator_question or "").strip(),
             skill_ops=skill_ops,
-            wiki_ops=wiki_ops,
         )
     return None
 

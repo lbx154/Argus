@@ -1,4 +1,4 @@
-"""Per-project idea wiki -- KernelWiki-shaped persistent ledger.
+"""Per-project declarative knowledge wiki.
 
 See docs/IDEA_WIKI_DESIGN.md for the design. Module surface:
 

@@ -15,7 +15,9 @@ from .store import WikiStore, _atomic_write_text
 
 def rebuild_indexes(store: WikiStore, *, today: date | None = None) -> None:
     today = today or date.today()
-    pages = store.iter_pages()
+    # Direct role edits may leave one malformed draft. Keep the rest of the
+    # knowledge index usable; explicit validation remains strict.
+    pages = store.iter_pages(skip_invalid=True)
     qroot = store.root / "queries"
     rendered = {
         "by-status.md": _render_by_status(pages),
@@ -57,8 +59,7 @@ def _render_stale_watchlist(pages: Iterable[PageCard], today: date) -> str:
     stale = [
         p
         for p in pages
-        if p.type == "technique"
-        and p.status in ("candidate", "stable")
+        if p.status in ("candidate", "stable")
         and p.revisit_after is not None
         and p.revisit_after < today
     ]

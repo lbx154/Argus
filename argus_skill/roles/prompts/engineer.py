@@ -64,6 +64,7 @@ def build_mission_prompt(
     force_post_task_learning: bool = False,
     file_read_budget: int = 12,
     test_run_budget: int = 3,
+    project_root: Path | str | None = None,
 ) -> str:
     """Build the complete per-round Engineer mission prompt."""
     sections: list[str] = [EFFECTIVE_TASK_CONTRACT]
@@ -91,6 +92,15 @@ def build_mission_prompt(
     )
     if contract_block:
         sections.append(contract_block)
+    if project_root is not None:
+        from ...wiki.context import render_knowledge_wiki_block
+
+        knowledge_block = render_knowledge_wiki_block(
+            project_root,
+            role="Engineer",
+        )
+        if knowledge_block:
+            sections.append(knowledge_block)
     if next_action:
         delta_sections.append(
             "## Reviewer guidance from prior round\n"
@@ -110,7 +120,7 @@ def build_mission_prompt(
         "before editing and avoid rereads; run at most "
         f"{max(1, int(test_run_budget))} focused verification commands plus the "
         "decisive verifier. Exceed only after a concrete failure or code change. "
-        "Ignore `.autors` unless retaining durable learning."
+        "Use `.autors/*/wiki` only for durable declarative knowledge."
     )
     sections.append(
         "## Handoff\n"

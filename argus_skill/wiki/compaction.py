@@ -3,7 +3,7 @@ counterpart to ``skills.compaction``.
 
 Why: two missions that never see each other's work can each distill the SAME
 technique into the wiki under a different id/title (the create-time
-independence check in ``WikiRouter`` catches this for pages proposed AFTER a
+direct-edit review catches this for pages proposed AFTER a
 duplicate already exists, but not two pages that predate the check, nor a
 race between two concurrent missions each comparing against a library
 snapshot that doesn't yet contain the other's proposal). This module is the
@@ -277,7 +277,7 @@ def auto_compact_wiki(
     A no-op whenever ``judge_runner`` is not configured, or the wiki has
     fewer than 2 pages, or the LLM path finds nothing to do — there is no
     lexical/scored fallback. Retirement is the SAME reversible tombstone
-    move ``WikiRouter.apply_ops``'s ``retire_page`` uses (moves the page
+    same reversible tombstone move used for retiring a page (moves the page
     under ``pages/_retired/``, never a hard delete). Fail-soft: any error is
     caught and reported via the return value / ``on_event``, never raised
     into the mission.

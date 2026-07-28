@@ -149,7 +149,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_AUTOCOMMIT_SKILLS", "off", "compatibility gate for explicitly operator-approved source promotions such as generated data-domain verticals", "lifecycle"),
     Knob("ARGUS_SKILL_CROSS_PROJECT_PROPAGATION", "on", "Manager-promote changed reviewed Skills into shared global/vertical runtime layers after each successful mission", "lifecycle"),
     Knob("ARGUS_SKILL_SKILL_OPS", "on", "apply reviewer-proposed create/update/archive operations to project skills", "lifecycle"),
-    Knob("ARGUS_SKILL_WIKI_OPS", "on", "apply reviewer-proposed project wiki operations after each mission", "lifecycle"),
+    Knob("ARGUS_SKILL_WIKI", "on", "enable the shared direct-edit project knowledge wiki", "lifecycle"),
     Knob("ARGUS_SKILL_AUTO_INIT_WIKI", "on", "bootstrap a project wiki before the first SkillLoop mission", "lifecycle"),
     Knob("ARGUS_SKILL_AUTO_COMPACT", "off", "run LLM skill/wiki compaction after every mission (default OFF; use explicit maintenance)", "lifecycle"),
     Knob("ARGUS_SKILL_HISTORY_HOT_VERSIONS", "20", "uncompressed skill versions retained per skill before lossless gzip", "lifecycle"),
@@ -192,7 +192,7 @@ _TOGGLE_KNOBS = frozenset(
     {
         "ARGUS_SKILL_COST_CONTROL",
         "ARGUS_SKILL_SKILL_OPS",
-        "ARGUS_SKILL_WIKI_OPS",
+        "ARGUS_SKILL_WIKI",
         "ARGUS_SKILL_AUTO_INIT_WIKI",
         "ARGUS_SKILL_CROSS_PROJECT_PROPAGATION",
         "ARGUS_SKILL_NEAREST_TRANSFER_ENABLED",

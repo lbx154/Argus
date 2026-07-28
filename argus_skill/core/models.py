@@ -195,7 +195,6 @@ class ReviewDecision:
     # the retired JSON schema. New prompts do not request skill_ops; when an old
     # verdict supplies them, the opt-in legacy replay path may still apply them.
     skill_ops: list[dict[str, Any]] = field(default_factory=list)
-    wiki_ops: list[dict[str, Any]] = field(default_factory=list)
     review_source: str = "reviewer"
     prompt_block_stats: dict[str, dict[str, int]] = field(default_factory=dict)
     input_tokens: int = 0

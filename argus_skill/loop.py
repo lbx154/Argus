@@ -130,11 +130,9 @@ class SkillLoopConfig:
     # Legacy proposal compatibility only. Current Reviewers edit the injected
     # project skill path directly and their output schema has no skill_ops.
     skill_ops_enabled: bool = False
-    # Legacy proposal compatibility only. Current Reviewers edit injected wiki
-    # paths directly; deterministic post-mission hooks still maintain indexes.
-    wiki_ops_enabled: bool = False
-    # Bootstrap one project wiki before the first mission so every vertical can
-    # use reviewer-owned wiki_ops without a separate learning-only setup step.
+    # Shared declarative knowledge wiki. Roles edit pages directly.
+    wiki_enabled: bool = False
+    # Bootstrap one project wiki before the first mission.
     # Library callers remain opt-in; the daemon runtime enables this by default.
     auto_init_wiki: bool = False
     # Automatic library housekeeping (explicit opt-in). Finds near-duplicate
@@ -381,7 +379,7 @@ class SkillLoop(
                 vertical=active_vertical,
             )
         ).role_banner
-        if self.config.wiki_ops_enabled:
+        if self.config.wiki_enabled:
             from .wiki.lifecycle import ensure_project_wiki
 
             ensure_project_wiki(

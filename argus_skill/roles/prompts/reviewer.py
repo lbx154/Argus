@@ -67,8 +67,9 @@ def _load_wiki_curator_skill_if_present(
     if not _project_has_wiki(working_dir):
         return None
     return (
-        "wiki-curator: directly maintain durable technique/conflict/pattern pages "
-        "only when grounded in exact quotes from immutable wiki sources."
+        "knowledge curator: directly edit durable concepts, principles, facts, "
+        "hypotheses, relationships, and conflicts grounded in real evidence; "
+        "do not return page operations in the verdict."
     )
 
 
@@ -99,24 +100,26 @@ def _direct_memory_edit_block(
         wiki_roots = []
     if skill_dir is None and not wiki_roots:
         return ""
-    wiki_lines = "\n".join(f"- {path}" for path in wiki_roots) or "- none"
     skill_line = str(skill_dir) if skill_dir is not None else "none"
-    return (
+    skill_block = (
         "## Direct reusable-memory maintenance\n"
         "You are an executable Reviewer with file and shell tools. If this round "
         "contains durable, reusable learning, edit the project memory directly "
         "BEFORE your final verdict. Do not describe a proposed edit in final JSON.\n"
         f"Project skill directory (project layer only): {skill_line}\n"
-        "Project wiki directories:\n"
-        f"{wiki_lines}\n"
         "Skill rules: inspect the existing Markdown first; create or edit only in "
         "the project skill directory; preserve valid frontmatter; increment "
         "`version` on an update; never modify a skill with `protected: true`; never "
         "write the shared/global skill layer.\n"
-        "Wiki rules: directly edit durable pages under `pages/`; never rewrite "
-        "immutable `sources/`; include exact source IDs/quotes for factual learning.\n"
-        "If there is no durable reusable lesson, make no memory edit. The final "
-        "handoff schema intentionally has no `skill_ops` or `wiki_ops`.\n\n"
+        "If there is no durable reusable procedure, make no Skill edit.\n\n"
+    )
+    if not wiki_roots:
+        return skill_block
+    from ...wiki.context import render_knowledge_wiki_block
+
+    return skill_block + render_knowledge_wiki_block(
+        project_root,
+        role="Reviewer",
     )
 
 

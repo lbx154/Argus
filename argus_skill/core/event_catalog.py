@@ -140,9 +140,6 @@ class EventType(StrEnum):
     WIKI_HOOK_WARNING = "wiki.hook.warning"
     WIKI_COMPACTED = "wiki.compacted"
     WIKI_COMPACT_ERROR = "wiki.compact.error"
-    WIKI_OP_ERROR = "wiki.op.error"
-    WIKI_OP_REJECTED = "wiki.op.rejected"
-    WIKI_REVIEWER_DIRECT_WRITE_REVERTED = "wiki.reviewer_direct_write_reverted"
     WIKI_CREATED = "wiki.created"
     WIKI_UPDATED = "wiki.updated"
     WIKI_RETIRED = "wiki.retired"
@@ -206,9 +203,6 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.WIKI_HOOK_WARNING,
     EventType.WIKI_COMPACTED,
     EventType.WIKI_COMPACT_ERROR,
-    EventType.WIKI_OP_ERROR,
-    EventType.WIKI_OP_REJECTED,
-    EventType.WIKI_REVIEWER_DIRECT_WRITE_REVERTED,
     EventType.WIKI_CREATED,
     EventType.WIKI_UPDATED,
     EventType.WIKI_RETIRED,

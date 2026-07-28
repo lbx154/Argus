@@ -16,8 +16,12 @@ def wiki(tmp_path: Path) -> WikiStore:
     for sub in (
         "sources/papers",
         "sources/repos",
-        "sources/runs",
         "sources/notes",
+        "pages/concepts",
+        "pages/principles",
+        "pages/facts",
+        "pages/hypotheses",
+        "pages/relationships",
         "pages/techniques",
         "pages/conflicts",
         "pages/patterns",

@@ -1,11 +1,10 @@
 """Round-loop phase: Reviewer invocation and infra-only retry.
 
 Owns calling the independent Reviewer for the current round and retrying
-ONLY the reviewer leg on an infra flake (subprocess crash, missing verdict
-schema, a reviewer that wrote directly to a protected wiki card instead of
-using structured ``wiki_ops``) — never discarding the Engineer's already-valid
-output and never re-running the (expensive) Engineer turn just because the
-cheap Reviewer call hiccuped. Reviewer backend death must never be laundered
+ONLY the reviewer leg on an infra flake (subprocess crash or missing verdict
+schema) — never discarding the Engineer's already-valid output and never
+re-running the (expensive) Engineer turn just because the cheap Reviewer call
+hiccuped. Reviewer backend death must never be laundered
 into a silent ``continue``: it is routed through the same transient-backoff +
 escalate-to-error machinery the Engineer backend-failure path uses, so the
 harness can never run the sole completion gate blind. Once a real (non
@@ -15,9 +14,7 @@ to the round-settlement phase via ``RoundControl.payload``.
 from __future__ import annotations
 
 import logging
-import os
 import time
-import uuid
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
@@ -52,57 +49,6 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-def _snapshot_wiki_pages(workdir: Path) -> dict[Path, bytes]:
-    """Capture the reviewer-protected wiki card bytes under this project."""
-    from ..wiki.auto_hooks import discover_wikis
-
-    snapshot: dict[Path, bytes] = {}
-    for wiki_root in discover_wikis(workdir):
-        pages_root = wiki_root / "pages"
-        if not pages_root.exists():
-            continue
-        for path in sorted(pages_root.rglob("*.md")):
-            if path.is_file():
-                snapshot[path] = path.read_bytes()
-    return snapshot
-
-
-def _restore_reviewer_wiki_page_edits(
-    workdir: Path,
-    snapshot: dict[Path, bytes],
-) -> list[str]:
-    """Revert direct reviewer writes; WikiRouter is the sole card writer."""
-    from ..wiki.auto_hooks import discover_wikis
-
-    current: set[Path] = set()
-    for wiki_root in discover_wikis(workdir):
-        pages_root = wiki_root / "pages"
-        if pages_root.exists():
-            current.update(path for path in pages_root.rglob("*.md") if path.is_file())
-    changed = sorted(
-        path
-        for path in current | set(snapshot)
-        if path not in snapshot
-        or path not in current
-        or path.read_bytes() != snapshot[path]
-    )
-    if not changed:
-        return []
-    for path in changed:
-        original = snapshot.get(path)
-        if original is None:
-            path.unlink(missing_ok=True)
-            continue
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(f"{path.name}.reviewer-restore-{uuid.uuid4().hex}")
-        try:
-            tmp.write_bytes(original)
-            os.replace(tmp, path)
-        finally:
-            tmp.unlink(missing_ok=True)
-    return [str(path.relative_to(workdir)) for path in changed]
-
-
 class RoundReviewerMixin:
     """Mixin providing ``SupervisedEngineer``'s reviewer-invocation phase."""
 
@@ -125,117 +71,63 @@ class RoundReviewerMixin:
         state: RoundLoopState,
         on_event: Callable[[dict], None] | None,
     ) -> ReviewDecision:
-        """Call the Reviewer once, retrying only on a direct wiki-write
-        violation (up to 3 attempts) — a protected wiki card write must go
-        through structured ``wiki_ops``, so a caught direct edit is atomically
-        reverted and the same reviewer turn re-run rather than accepted.
-        """
-        reviewer_direct_write_violations = 0
-        while True:
-            wiki_pages_before_review = _snapshot_wiki_pages(workdir)
-            reviewer_background_context = ""
-            if supervised_config.background_subagent_advisory:
-                try:
-                    reviewer_background_context = render_external_work_advisory(
-                        workdir,
-                        include_subagents=True,
-                    )
-                except Exception:  # noqa: BLE001 — advisory is non-critical context
-                    log.debug(
-                        "reviewer subagent advisory refresh failed",
-                        exc_info=True,
-                    )
+        """Call the Reviewer once; direct project-wiki edits are durable output."""
+        reviewer_background_context = ""
+        if supervised_config.background_subagent_advisory:
             try:
-                review = self.reviewer.evaluate(
-                    objective=objective,
-                    original_objective=original_objective or objective,
-                    round_index=round_index,
-                    round_max=supervised_config.max_rounds,
-                    session_id=supervised_config.session_id,
-                    main_summary=(
-                        "\n\n".join(
-                            part
-                            for part in (
-                                engineer_message or "(no message)",
-                                *state.pending_secret_guard_notes,
-                                process_ownership_note,
-                            )
-                            if part
-                        )
-                    ),
-                    main_error=safe_fatal_error,
-                    config=replace(
-                        self.reviewer_config,
-                        working_dir=str(workdir),
-                    ),
-                    prev_review_summary="",
-                    scope=scope,
-                    checkpoint_path=str(checkpoint_path or ""),
-                    background_context=reviewer_background_context,
-                    escalate_hint=escalate_hint,
-                    engineer_log_path=supervised_config.engineer_log_path,
-                    engineer_call_id=(
-                        str(getattr(engineer_result, "call_id", "") or "")
-                        if bool(
-                            getattr(
-                                engineer_result,
-                                "call_id_log_correlated",
-                                False,
-                            )
-                        )
-                        else ""
-                    ),
-                    preselected_skill_block=reviewer_skill_block,
-                    resume_thread_id=None,
-                    prior_static_fingerprint="",
+                reviewer_background_context = render_external_work_advisory(
+                    workdir,
+                    include_subagents=True,
                 )
-            except Exception as exc:  # noqa: BLE001
-                msg = f"reviewer raised {type(exc).__name__}: {exc}"
-                log.exception("reviewer raised during supervised round")
-                review = ReviewDecision(
-                    status="blocked",
-                    reason=msg,
-                    next_action="Resolve the reviewer runner failure before retrying.",
-                    backend_unavailable=True,
-                    backend_stop_kind="backend_unavailable",
-                )
-            direct_wiki_edits = _restore_reviewer_wiki_page_edits(
-                workdir,
-                wiki_pages_before_review,
+            except Exception:  # noqa: BLE001 — advisory is non-critical context
+                log.debug("reviewer subagent advisory refresh failed", exc_info=True)
+        try:
+            return self.reviewer.evaluate(
+                objective=objective,
+                original_objective=original_objective or objective,
+                round_index=round_index,
+                round_max=supervised_config.max_rounds,
+                session_id=supervised_config.session_id,
+                main_summary=(
+                    "\n\n".join(
+                        part
+                        for part in (
+                            engineer_message or "(no message)",
+                            *state.pending_secret_guard_notes,
+                            process_ownership_note,
+                        )
+                        if part
+                    )
+                ),
+                main_error=safe_fatal_error,
+                config=replace(self.reviewer_config, working_dir=str(workdir)),
+                prev_review_summary="",
+                scope=scope,
+                checkpoint_path=str(checkpoint_path or ""),
+                background_context=reviewer_background_context,
+                escalate_hint=escalate_hint,
+                engineer_log_path=supervised_config.engineer_log_path,
+                engineer_call_id=(
+                    str(getattr(engineer_result, "call_id", "") or "")
+                    if bool(
+                        getattr(engineer_result, "call_id_log_correlated", False)
+                    )
+                    else ""
+                ),
+                preselected_skill_block=reviewer_skill_block,
+                resume_thread_id=None,
+                prior_static_fingerprint="",
             )
-            if direct_wiki_edits:
-                reviewer_direct_write_violations += 1
-                paths = ", ".join(direct_wiki_edits[:8])
-                violation = (
-                    "Reviewer directly modified protected wiki card files "
-                    f"({paths}). Those writes were atomically reverted. "
-                    "Return the intended changes only through structured "
-                    "`wiki_ops`; WikiRouter is the sole writer for wiki/pages."
-                )
-                if violation not in state.pending_secret_guard_notes:
-                    state.pending_secret_guard_notes.append(violation)
-                if on_event:
-                    on_event({
-                        "type": EventType.WIKI_REVIEWER_DIRECT_WRITE_REVERTED,
-                        "round_index": round_index,
-                        "paths": direct_wiki_edits,
-                        "operator_alert": True,
-                        "text": violation,
-                    })
-                if reviewer_direct_write_violations < 3:
-                    continue
-                review = ReviewDecision(
-                    status="blocked",
-                    reason=violation,
-                    next_action=(
-                        "Retry this Reviewer turn and express the same judgment "
-                        "through schema-valid wiki_ops."
-                    ),
-                    backend_unavailable=True,
-                    backend_stop_kind="transient_error",
-                    backend_fatal_error=violation,
-                )
-            return review
+        except Exception as exc:  # noqa: BLE001
+            msg = f"reviewer raised {type(exc).__name__}: {exc}"
+            log.exception("reviewer raised during supervised round")
+            return ReviewDecision(
+                status="blocked",
+                reason=msg,
+                next_action="Resolve the reviewer runner failure before retrying.",
+                backend_unavailable=True,
+                backend_stop_kind="backend_unavailable",
+            )
 
     def _invoke_reviewer_with_retry(
         self,

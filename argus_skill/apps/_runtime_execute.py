@@ -522,8 +522,8 @@ class SkillLoopExecuteMixin:
                 "ARGUS_SKILL_SKILL_OPS",
                 default=True,
             ),
-            "wiki_ops_enabled": _env_flag(
-                "ARGUS_SKILL_WIKI_OPS",
+            "wiki_enabled": _env_flag(
+                "ARGUS_SKILL_WIKI",
                 default=True,
             ),
             "auto_init_wiki": _env_flag(

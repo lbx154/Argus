@@ -128,7 +128,9 @@ def build_simple_prompt(
     prefix = f"{mission_status.strip()}\n\n" if mission_status.strip() else ""
     runtime = f"{runtime_context.strip()}\n\n" if runtime_context.strip() else ""
     workspace = ""
+    knowledge = ""
     if operator_workspace.strip():
+        workspace_root = Path(operator_workspace).expanduser()
         workspace = (
             "## Grounding workspace\n"
             f"Operator launch workspace: {operator_workspace.strip()}\n"
@@ -137,6 +139,12 @@ def build_simple_prompt(
             "answering. Do not substitute generic prior knowledge for current "
             "workspace evidence. You are the Manager and may modify state or use "
             "tools when that is required to carry out the operator's instruction.\n\n"
+        )
+        from ...wiki.context import render_knowledge_wiki_block
+
+        knowledge = render_knowledge_wiki_block(
+            workspace_root,
+            role="Manager",
         )
     return (
         f"{prefix}"
@@ -147,6 +155,7 @@ def build_simple_prompt(
         f"{_IDENTITY_GUARD}"
         f"{runtime}"
         f"{workspace}"
+        f"{knowledge}"
         f"Task:\n{objective.strip()}"
     )
 

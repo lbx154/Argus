@@ -40,12 +40,7 @@ class MissionSettlementMixin:
         # edited durable memory; a self-approved Engineer may instead have used
         # its same-session maintenance continuation. Here we record effectiveness
         # evidence and retain legacy proposal replay compatibility.
-        from .store import skill_content_digest
-
-        selected_skill_digest = (
-            skill_content_digest(state.skill) if state.skill is not None else ""
-        )
-        if state.allow_settlement_side_effects and state.skill is not None:
+        if state.skill is not None:
             try:
                 if status == "done":
                     self.skill_store.record_reuse(
@@ -65,30 +60,29 @@ class MissionSettlementMixin:
                 log.warning("skill use recording failed (%s: %s)",
                             type(exc).__name__, exc)
 
-        if state.allow_settlement_side_effects:
-            try:
-                from .evolution import evolve_skills_after_mission
+        try:
+            from .evolution import evolve_skills_after_mission
 
-                evolve_skills_after_mission(
-                    skill_store=self.skill_store,
-                    skill_router=self.skill_router,
-                    reviewer_runner=self.reviewer_runner,
-                    reviewer_model=self.config.resolved_reviewer_model(),
-                    reviewer_reasoning_effort=(
-                        self.config.matcher_reasoning_effort or "high"
-                    ),
-                    rounds=rounds,
-                    task=mission.skill_task,
-                    apply_ops_enabled=(
-                        self.config.skill_ops_enabled
-                        and self.config.require_post_task_learning
-                    ),
-                    auto_compact_enabled=self.config.auto_compact_enabled,
-                    fallback_skills_dir=self.skills_dir,
-                    on_event=self.on_event,
-                )
-            except Exception:  # noqa: BLE001 - evolution must never shadow the verdict
-                log.debug("skill evolution raised", exc_info=True)
+            evolve_skills_after_mission(
+                skill_store=self.skill_store,
+                skill_router=self.skill_router,
+                reviewer_runner=self.reviewer_runner,
+                reviewer_model=self.config.resolved_reviewer_model(),
+                reviewer_reasoning_effort=(
+                    self.config.matcher_reasoning_effort or "high"
+                ),
+                rounds=rounds,
+                task=mission.skill_task,
+                apply_ops_enabled=(
+                    self.config.skill_ops_enabled
+                    and self.config.require_post_task_learning
+                ),
+                auto_compact_enabled=self.config.auto_compact_enabled,
+                fallback_skills_dir=self.skills_dir,
+                on_event=self.on_event,
+            )
+        except Exception:  # noqa: BLE001 - evolution must never shadow the verdict
+            log.debug("skill evolution raised", exc_info=True)
 
         stop_kind = rounds[-1].stop_kind if rounds else None
         if status == "paused_budget" and stop_kind is None:
@@ -104,47 +98,23 @@ class MissionSettlementMixin:
             last_thread_id=last_thread_id,
             stop_kind=stop_kind,
             recoverable=stop_kind_is_recoverable(stop_kind),
-            extras={
-                "skill_match_strict": bool(state.strict_skill_hit),
-                "skill_nearest_transfer_fallback": bool(
-                    state.nearest_transfer_fallback
-                ),
-                "skill_path": str(getattr(state.skill, "path", "") or ""),
-                "skill_digest": selected_skill_digest,
-                "skill_category": str(
-                    getattr(state.skill, "category", "") or ""
-                ),
-                "skill_protected": bool(
-                    getattr(state.skill, "protected", False)
-                ),
-            },
         )
-        # Step 4c: project-wiki evolution. The lifecycle module owns mechanical
-        # source ingestion, scratch lift, reviewer wiki_ops, promotion and optional
-        # reversible compaction so this main loop stays orchestration-only.
-        if state.allow_settlement_side_effects:
+        if self.config.wiki_enabled or self.config.auto_compact_enabled:
             try:
-                from ..wiki.lifecycle import evolve_wikis_after_mission
+                from ..wiki.lifecycle import maintain_wikis_after_mission
 
-                evolve_wikis_after_mission(
-                    rounds=rounds,
+                maintain_wikis_after_mission(
                     workdir=mission.workdir,
-                    task=mission.skill_task,
-                    mission_id=mission.run_id,
-                    success=(status == "done"),
+                    auto_compact_enabled=self.config.auto_compact_enabled,
                     reviewer_runner=self.reviewer_runner,
                     reviewer_model=self.config.resolved_reviewer_model(),
                     reviewer_reasoning_effort=(
                         self.config.matcher_reasoning_effort or "high"
                     ),
-                    apply_ops_enabled=self.config.wiki_ops_enabled,
-                    auto_compact_enabled=self.config.auto_compact_enabled,
                     on_event=self.on_event,
-                    context_packet_path=self.config.context_packet_path,
-                    checkpoint_path=self.config.checkpoint_path,
                 )
-            except Exception:  # noqa: BLE001 - wiki evolution must never block
-                log.debug("wiki evolution raised", exc_info=True)
+            except Exception:  # noqa: BLE001 - wiki maintenance must never block
+                log.debug("wiki maintenance raised", exc_info=True)
         # Effectiveness telemetry — one structured event per mission so
         # operators can compute hit-rate, mean-rounds-with-skill, and
         # mean-rounds-without-skill from events.jsonl alone.

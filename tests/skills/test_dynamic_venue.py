@@ -269,7 +269,7 @@ def test_skill_loop_researches_venue_before_matcher_exclusion(
         config=SkillLoopConfig(
             paper_mission=True,
             skill_adapter_enabled=False,
-            wiki_ops_enabled=False,
+            wiki_enabled=False,
             auto_compact_enabled=False,
         ),
     )

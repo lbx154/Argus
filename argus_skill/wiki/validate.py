@@ -18,12 +18,8 @@ def validate_wiki_structure(store: WikiStore) -> None:
         "sources",
         "sources/papers",
         "sources/repos",
-        "sources/runs",
         "sources/notes",
         "pages",
-        "pages/techniques",
-        "pages/conflicts",
-        "pages/patterns",
         "queries",
         "data",
     )

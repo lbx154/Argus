@@ -143,24 +143,6 @@ def test_planner_enqueued_goal_gate_keeps_the_standing_objective(tmp_path: Path)
         def _item_iteration_cycles(self) -> int:
             return 1
 
-        def _project_workdir(self) -> Path:
-            return tmp_path
-
-        def _artifact_root(self) -> Path:
-            return tmp_path
-
-        def _normalize_planner_scope(self, scope: str) -> str:
-            return scope or "bounded"
-
-        def _effective_full_paper_gate(self, _root: Path) -> bool:
-            return False
-
-        def _item_is_stage_closing(self, item) -> bool:
-            return "stage_closing" in item.tags
-
-        def _item_skips_stage_transition(self, item) -> bool:
-            return "stage_transition:skip" in item.tags
-
     state = _PlanCycleState(None)
     state.verdict = PlannerVerdict(
         project_done=False,

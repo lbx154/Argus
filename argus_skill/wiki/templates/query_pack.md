@@ -1,20 +1,16 @@
 # Wiki query pack
 
-This file is consumed by the planner and engineer at the start of a
-mission as a compact summary of what the wiki knows. It is regenerated
-by `argus_skill.wiki.index.rebuild_indexes` plus any reviewer-authored
-top-of-file prose.
+This file is a compact entry point to shared project knowledge. Manager,
+Planner, Engineer, and Reviewer may all read and directly maintain the wiki.
 
 ## How to use
 
-- Start of mission: read `queries/by-status.md` for the full set of
-  stable + candidate cards.
-- If looking for an idle direction: read `queries/stale-watchlist.md`
-  and `queries/open-contradictions.md`.
-- If a mission's failure looks familiar: grep
-  `sources/runs/*.md` for matching `failure_signature`.
+- Read `queries/by-status.md` and `queries/by-tag.md` to locate relevant pages.
+- Read full pages only when they may affect the current work.
+- Store concepts, structures, mechanisms, principles, facts, hypotheses,
+  relationships, and contradictions.
+- Keep procedures in Skills and execution history in events/CHECKPOINT.md.
 
-## Notes from the reviewer
+## Knowledge overview
 
-_(empty -- reviewer appends a short paragraph here when the wiki
-accumulates enough material to summarize.)_
+_(Roles may maintain a short map of the most important knowledge areas here.)_

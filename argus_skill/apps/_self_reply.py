@@ -429,15 +429,6 @@ class SelfReplyMixin:
 
         self._current_sink = sink
         self._current_failure_ledger = None
-        prompt = build_simple_prompt(
-            objective=objective,
-            identity_card=self.manager.role_context(),
-            mission_status=self._live_mission_status_block(),
-            runtime_context=self._manager_reply_runtime_context("simple-1"),
-            operator_workspace=str(
-                getattr(args, "operator_workspace", "") or ""
-            ),
-        )
         configured_workspace = str(
             getattr(args, "operator_workspace", "") or ""
         ).strip()
@@ -445,6 +436,13 @@ class SelfReplyMixin:
             Path(configured_workspace).expanduser()
             if configured_workspace
             else Path(args.workdir).expanduser() if args.workdir else Path.cwd()
+        )
+        prompt = build_simple_prompt(
+            objective=objective,
+            identity_card=self.manager.role_context(),
+            mission_status=self._live_mission_status_block(),
+            runtime_context=self._manager_reply_runtime_context("simple-1"),
+            operator_workspace=str(workdir),
         )
         session_root = getattr(self, "_manager_session_root", None)
         read_dirs = (
@@ -489,10 +487,10 @@ class SelfReplyMixin:
                 "ARGUS_SKILL_SELF_REASONING_EFFORT",
                 default="xhigh",
             ),
-            full_auto=False,
+            full_auto=True,
             skip_git_repo_check=True,
             dangerous_yolo=False,
-            sandbox_mode="read-only",
+            sandbox_mode="workspace-write",
             working_dir=str(workdir),
             add_dirs=read_dirs,
             watchdog_hard_idle_seconds=env_int(

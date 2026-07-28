@@ -614,24 +614,6 @@ export interface WikiCompactErrorEvent extends EventMsg {
   "text"?: string;
 }
 
-export interface WikiOpErrorEvent extends EventMsg {
-  type: "wiki.op.error";
-  payload_schema_version?: 1;
-  "operation": string;
-  "page_id"?: string;
-  "card_type"?: string;
-  "error": string;
-  "text"?: string;
-}
-
-export interface WikiOpRejectedEvent extends EventMsg {
-  type: "wiki.op.rejected";
-  payload_schema_version?: 1;
-  "operation": string;
-  "reason": string;
-  "text"?: string;
-}
-
 export interface WikiCreatedEvent extends EventMsg {
   type: "wiki.created";
   payload_schema_version?: 1;
@@ -838,8 +820,6 @@ export interface EventPayloadByType {
   "wiki.hook.warning": WikiHookWarningEvent;
   "wiki.compacted": WikiCompactedEvent;
   "wiki.compact.error": WikiCompactErrorEvent;
-  "wiki.op.error": WikiOpErrorEvent;
-  "wiki.op.rejected": WikiOpRejectedEvent;
   "wiki.created": WikiCreatedEvent;
   "wiki.updated": WikiUpdatedEvent;
   "wiki.retired": WikiRetiredEvent;

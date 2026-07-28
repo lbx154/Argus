@@ -21,10 +21,29 @@ from typing import Any, Literal, TypeVar
 
 import yaml
 
-CardType = Literal["technique", "conflict", "pattern"]
+CardType = Literal[
+    "concept",
+    "principle",
+    "fact",
+    "hypothesis",
+    "relationship",
+    "conflict",
+    "technique",
+    "pattern",
+]
 CardStatus = Literal["scratch", "candidate", "stable"]
 
-_VALID_TYPES = {"technique", "conflict", "pattern"}
+_VALID_TYPES = {
+    "concept",
+    "principle",
+    "fact",
+    "hypothesis",
+    "relationship",
+    "conflict",
+    # Legacy page kinds remain readable during migration.
+    "technique",
+    "pattern",
+}
 _VALID_STATUSES = {"scratch", "candidate", "stable"}
 _VALID_OUTCOMES = {"success", "partial", "failure"}
 

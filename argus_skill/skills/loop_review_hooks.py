@@ -2,8 +2,8 @@
 ``SkillLoop.run``.
 
 Covers the three callbacks handed to ``SupervisedEngineer.run``:
-pre-review wiki-hook priming (``_prepare_review_context``), per-reviewed-
-round context-packet/wiki capture (``_capture_reviewed_round``), and the
+pre-review wiki source/index priming (``_prepare_review_context``), per-reviewed-
+round context-packet capture (``_capture_reviewed_round``), and the
 same-session Engineer skill create/update continuation invoked after a
 self-approved completion (``_maintain_skill_with_engineer``). Extracted
 verbatim from the historical nested closures in ``SkillLoop.run``.
@@ -22,14 +22,13 @@ class ReviewedRoundHooksMixin:
     """Reviewed-round hook + skill-maintenance phase methods for ``SkillLoop``."""
 
     def _prepare_review_context(self, mission: MissionContext) -> None:
-        if not self.config.wiki_ops_enabled:
+        if not self.config.wiki_enabled:
             return
-        from ..wiki.auto_hooks import run_post_mission_hooks
+        from ..wiki.auto_hooks import prepare_wikis_for_review
 
-        run_post_mission_hooks(
+        prepare_wikis_for_review(
             mission.workdir,
             mission_id=mission.run_id,
-            success=False,
             emit=self.on_event,
         )
 
@@ -47,16 +46,3 @@ class ReviewedRoundHooksMixin:
                 )
             except Exception:  # noqa: BLE001 - handoff persistence is fail-soft
                 log.exception("failed to persist reviewed context packet")
-        if not self.config.wiki_ops_enabled:
-            return
-        from ..wiki.lifecycle import capture_reviewed_round as _capture
-
-        _capture(
-            record=record,
-            workdir=mission.workdir,
-            task=mission.skill_task,
-            mission_id=mission.run_id,
-            on_event=self.on_event,
-            context_packet_path=self.config.context_packet_path,
-            checkpoint_path=self.config.checkpoint_path,
-        )

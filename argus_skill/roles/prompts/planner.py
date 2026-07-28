@@ -24,9 +24,16 @@ OPERATIONS = frozenset(
 
 _PLANNER_CORE_CONTRACT = """
 ## Planner read-only delegation contract
-Inspect current reality read-only and delegate implementation to Engineer through
-concrete `TASK_*` blocks. Do not edit project files or claim implementation.
-Engineer owns edits, state-changing commands, builds, and tests.
+You are the L4 Planner. Inspect current reality read-only, choose the next
+highest-value legal work, and delegate implementation to Engineer through
+concrete `TASK_*` blocks. Do not edit project files, run implementation work,
+or claim that you implemented a change yourself. The sole write exception is
+the shared declarative knowledge wiki under `.autors/*/wiki`: you may directly
+create or refine those knowledge pages under its own evidence rules.
+
+- Use read-only project tools to inspect relevant state, source, tests,
+  artifacts, Reviewer briefings, and CHECKPOINT.md. Engineer owns edits,
+  commands that change project state, builds, tests, and implementation evidence.
 - Work the active vertical's current stage. The Manager alone changes
   `current_stage`; Planner and Engineer never edit it.
 - Report `PROJECT_DONE=true` only when the operator objective and its hard success
@@ -42,35 +49,15 @@ Engineer owns edits, state-changing commands, builds, and tests.
   expansion require fresh operator authority; reversible project-local work does not.
 - If `PROJECT_DONE=false`, do not leave an empty plan. Either report an
   intentional live wait with `WAITING=true` and a durable recheck contract, or
-  emit concrete `TASK_*` blocks for legal next work. Never fabricate work merely
-  to satisfy this shape.
-- End with a plain key-value footer, not JSON or a Markdown fence. Always include:
+  emit concrete `TASK_*` blocks (`TASK_KEY`, `TASK_TITLE`, `TASK_OBJECTIVE`, and
+  when known `TASK_ACCEPTANCE_CHECK`) for legal next work. Never fabricate work
+  merely to satisfy this shape.
+- Natural-language progress and a final summary are allowed. End the final response
+  with plain key-value lines, not JSON or a Markdown fence. Always include:
   `PROJECT_DONE=true|false`
-  `REASON=<concise completion, delegation, or blocker summary>`
-  If concrete bounded work remains, set `PROJECT_DONE=false` and emit task blocks:
-  `TASK_KEY=...`
-  `TASK_DEPS=comma,separated,keys`
-  `TASK_TITLE=...`
-  `TASK_OBJECTIVE=...`
-  `TASK_ACCEPTANCE_CHECK=...`
-  `TASK_NON_GOALS=item|item`
-  `TASK_CONTEXT_REFS=kind::project/relative/path::why|...`
-  `TASK_SCOPE=bounded|final_submission`
-  `TASK_STAGE_CLOSING=true|false`
-  `TASK_REQUIRE_INDEPENDENT_REVIEW=true|false`
-  `TASK_SKIP_STAGE_TRANSITION=true|false`
-  The four control fields are mandatory for every task.
-  Use `TASK_REQUIRE_INDEPENDENT_REVIEW=true`,
-  `TASK_SKIP_STAGE_TRANSITION=true`, and `TASK_STAGE_CLOSING=false` only for
-  review-only bounded work that must not invoke the lifecycle stage writer.
-  `TASK_SKIP_STAGE_TRANSITION=true` is rejected in any other combination; when
-  unsure emit `TASK_SKIP_STAGE_TRANSITION=false`.
-  `TASK_CONTEXT_REFS` may only name files that already exist on disk right now.
-  A ref to an artifact a dependency task still has to produce is silently
-  dropped, so describe such artifacts in `TASK_OBJECTIVE` and
-  `TASK_ACCEPTANCE_CHECK` instead.
-  Never suppress stage transition for a stage-closing task. Omit task blocks
-  only for a genuine wait under the waiting contract.
+  `REASON=<concise implementation and verification summary or blocker>`
+  When `PROJECT_DONE=false`, include the required `WAITING_*` or `TASK_*` lines
+  described above.
 """
 
 
@@ -78,34 +65,6 @@ def _join_prompt_blocks(*blocks: str) -> str:
     """Join only applicable prompt modules with one stable separator."""
     rendered = [block.strip() for block in blocks if block and block.strip()]
     return "\n\n".join(rendered) + "\n"
-
-
-def _wiki_has_planner_content(
-    wiki_root: Path,
-    *,
-    journal_has_terminal_history: bool,
-) -> bool:
-    """Exclude generated empty wiki scaffolds from the Planner prompt."""
-    if any((wiki_root / "pages").glob("*/*.md")):
-        return True
-    for source_kind in ("notes", "papers", "repos"):
-        if any((wiki_root / "sources" / source_kind).glob("*")):
-            return True
-    if not journal_has_terminal_history and any((wiki_root / "sources" / "runs").glob("*.md")):
-        return True
-    query_pack = wiki_root / "query_pack.md"
-    try:
-        from importlib import resources
-
-        default_pack = (
-            resources.files("argus_skill.wiki")
-            .joinpath("templates/query_pack.md")
-            .read_text(encoding="utf-8")
-            .strip()
-        )
-        return query_pack.read_text(encoding="utf-8").strip() != default_pack
-    except (FileNotFoundError, OSError):
-        return query_pack.exists()
 
 
 def continuous_request(
@@ -158,10 +117,6 @@ def build_bounded_dag_prompt(objective: str) -> str:
         "- Every objective must name exact files it reads/writes and one decisive "
         "acceptance command or check. A dependent node explicitly reads upstream "
         "artifacts.\n"
-        "- Preserve bounded completion metadata separately from prose: one decisive "
-        "acceptance check, explicit non-goals, safe project-relative context references, "
-        "and whether independent review is required. Do not mark ordinary work as "
-        "stage-closing.\n"
         "- Nodes execute directly. Do not assign planning/spec/brief creation unless "
         "that document is itself the requested deliverable. Do not initialize Git, "
         "create worktrees/branches, commit, spawn subagents, or invoke meta-workflow "
@@ -173,16 +128,7 @@ def build_bounded_dag_prompt(objective: str) -> str:
         "- Return plain key-value text, not JSON. Start with `PLAN_REASON=...`, "
         "then emit one task block per node using `TASK_KEY=...`, "
         "`TASK_DEPS=comma,separated,keys` (empty when none), `TASK_TITLE=...`, "
-        "`TASK_OBJECTIVE=...`, `TASK_ACCEPTANCE_CHECK=...`, "
-        "`TASK_NON_GOALS=item|item`, "
-        "`TASK_CONTEXT_REFS=kind::project/relative/path::why|...`, "
-        "`TASK_SCOPE=bounded`, `TASK_STAGE_CLOSING=true|false`, "
-        "`TASK_REQUIRE_INDEPENDENT_REVIEW=true|false`, and "
-        "`TASK_SKIP_STAGE_TRANSITION=true|false`. All four control fields are "
-        "mandatory for every task. For review-only bounded work "
-        "whose verdict must not invoke the formal lifecycle stage writer, set "
-        "require-independent-review true, skip-stage-transition true, and "
-        "stage-closing false. Never suppress a stage-closing task.\n\n"
+        "and `TASK_OBJECTIVE=...`.\n\n"
         "Manager execution handoff:\n" + objective.strip()
     )
 
@@ -428,84 +374,40 @@ def build_continuous_prompt(
             )
 
     # ------------------------------------------------------------------
-    # Idea-wiki block. Surface only when the project actually has a wiki
-    # (parasitic auto-collection: no wiki means nothing has been written
-    # yet, and we do not want to nag). Pure read; planner never writes.
+    # Shared declarative knowledge. Planner may maintain pages directly; task
+    # history stays in events/handoffs and is intentionally not duplicated here.
     # ------------------------------------------------------------------
     wiki_block = ""
-    journal_has_terminal_history = bool(journal_tail.strip() and journal_tail.strip() != "(empty)")
     autors_root = _proot / ".autors"
     wiki_candidates = sorted(autors_root.glob("*/wiki")) if autors_root.exists() else []
     wiki_candidates = [
         w
         for w in wiki_candidates
         if (w / "query_pack.md").exists()
-        and _wiki_has_planner_content(
-            w,
-            journal_has_terminal_history=journal_has_terminal_history,
-        )
     ]
     if wiki_candidates:
-        parts: list[str] = ["## Idea wiki (read-only)\n"]
+        parts: list[str] = ["## Shared project knowledge wiki (direct read/write)\n"]
         for wiki_root in wiki_candidates:
             project_name = wiki_root.parent.name
             parts.append(f"### project: {project_name}\n")
             pack = (wiki_root / "query_pack.md").read_text(encoding="utf-8")
             parts.append("#### query_pack.md\n")
             parts.append(pack.strip() + "\n\n")
-            # by-status surfaces the CURRENT page inventory (incl. freshly
-            # learned technique pages), so knowledge distilled into the wiki
-            # actually reaches the planner instead of being write-only. It is
-            # regenerated by index.rebuild_indexes; a plain new page only shows
-            # up here (and in by-tag), never in the static query_pack.md.
+            # Derived indexes surface current declarative knowledge without
+            # copying full pages into every planning prompt.
             for name in ("by-status.md", "stale-watchlist.md", "open-contradictions.md"):
                 qf = wiki_root / "queries" / name
                 if qf.exists():
                     parts.append(f"#### queries/{name}\n")
                     parts.append(qf.read_text(encoding="utf-8").strip() + "\n\n")
-            if not journal_has_terminal_history:
-                runs_dir = wiki_root / "sources" / "runs"
-                run_cards: list[tuple[str, float, Any]] = []
-                if runs_dir.exists():
-                    from ...wiki.schema import SourceRun, parse_frontmatter
-
-                    for run_path in runs_dir.glob("*.md"):
-                        try:
-                            run = parse_frontmatter(
-                                run_path.read_text(encoding="utf-8"),
-                                SourceRun,
-                            )
-                            run_cards.append(
-                                (
-                                    run.closed_at,
-                                    run_path.stat().st_mtime,
-                                    run,
-                                )
-                            )
-                        except Exception:  # noqa: BLE001 - one bad card is isolated
-                            continue
-                    run_cards.sort(key=lambda row: (row[0], row[1]))
-                    latest_by_mission = {row[2].mission_id: row for row in run_cards}
-                    run_cards = sorted(
-                        latest_by_mission.values(),
-                        key=lambda row: (row[0], row[1]),
-                    )
-                if run_cards:
-                    parts.append("#### recent reviewed runs\n")
-                    for _closed_at, _mtime, run in reversed(run_cards[-3:]):
-                        excerpt = " ".join(run.body.split())[:500]
-                        parts.append(
-                            f"- `{run.mission_id}` outcome={run.outcome}; "
-                            f"next={run.next_action or '(none)'}\n"
-                        )
-                        if excerpt:
-                            parts.append(f"  {excerpt}\n")
-                    parts.append("\n")
         parts.append(
-            "You MAY use the stale watchlist or open contradictions to inform "
-            "the next direct project change. Read-only: "
-            "do not write to the wiki yourself; the reviewer's "
-            "`wiki-curator` skill handles all writes.\n"
+            "The wiki stores declarative concepts, structures, mechanisms, "
+            "principles, facts, hypotheses, relationships, and contradictions. "
+            "Skills store procedures; events and CHECKPOINT.md store execution "
+            "history and current state. You may directly create or refine wiki "
+            "pages when planning establishes durable knowledge. Cite real sources "
+            "or artifacts and preserve uncertainty; never copy mission summaries "
+            "or handoffs into the wiki.\n"
         )
         # M0.3: suggest a wiki_collect mission when cooldown has elapsed.
         # This is a suggestion in the planner prompt, not a harness-enforced
@@ -531,9 +433,9 @@ def build_continuous_prompt(
                     "When relevant, delegate one small train-free wiki "
                     "collection pass using the `wiki-collector` guidance; it "
                     "derives 5-10 queries from project state and ingests new "
-                    "arxiv / github hits into sources/*. The reviewer's "
-                    "wiki-curator handles promotion on the same mission's "
-                    "reviewer pass.\n"
+                    "arxiv / github hits into sources/*. Any role may synthesize "
+                    "durable declarative knowledge from those sources; Reviewer "
+                    "reconciles it against evidence during review.\n"
                 )
         wiki_block = "".join(parts)
 

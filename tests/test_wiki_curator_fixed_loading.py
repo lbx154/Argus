@@ -21,7 +21,7 @@ def test_returns_skill_text_when_wiki_present(
     init_wiki("demo", base=tmp_path)
     text = _load_wiki_curator_skill_if_present()
     assert text is not None
-    assert "wiki-curator" in text.lower() or "Wiki Curator" in text
+    assert "knowledge curator" in text.lower()
 
 
 def test_returns_none_when_no_wiki(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -79,10 +79,10 @@ def test_reviewer_prompt_includes_fixed_wiki_curator_when_wiki_present(
     )
 
     assert "Wiki curator (fixed when a wiki exists" in prompt
-    assert "wiki-curator" in prompt.lower() or "Wiki Curator" in prompt
+    assert "knowledge curator" in prompt.lower()
     assert str(tmp_path / ".autors" / "demo" / "wiki") in prompt
     assert "directly edit" in prompt
-    assert "no `skill_ops` or `wiki_ops`" in prompt
+    assert "Do not emit proposed wiki operations in JSON" in prompt
 
 
 def test_reviewer_prompt_uses_configured_workdir_for_wiki(
@@ -220,6 +220,5 @@ def test_reviewer_directly_edits_skill_and_wiki_before_final_verdict(
 
     assert decision.status == "continue"
     assert decision.skill_ops == []
-    assert decision.wiki_ops == []
     assert (skill_dir / "trajectory-lesson.md").is_file()
     assert (wiki_root / "pages" / "patterns" / "trajectory-lesson.md").is_file()

@@ -352,13 +352,11 @@ skill 是 markdown 文件，带 YAML-like frontmatter。
   `builtins.py` 的 `_VERTICAL_SKILL_INHERITANCE`，不要复制文件。
   `tests/skills/test_builtins_seeding.py::test_vertical_owned_skills_are_not_also_flat_builtins`
   守住这条。
-- Project wiki 在每个真实 Reviewer verdict 后立即机械写入
-  `.autors/<project>/wiki/sources/runs/<mission>-r<round>.md`：内容只来自
-  Reviewer verdict / planner_report / research_result，是 immutable、可引用的
-  RoundCard；mission close 仅在没有 RoundCard 时写 fallback RunCard。Planner
-  只读最近 3 条；Reviewer 后续可基于这些 source 自主提出
-  `wiki_ops` 合成 technique/conflict/pattern page。不要强制每轮造 page，也不要
-  绕过 evidence-verbatim gate。
+- Project wiki 是四个常驻角色共享、可直接读写的声明性知识层，保存概念、结构、机制、
+  原理、事实、假设、关系与矛盾；例如 Transformer 的结构或 RL 的原理。Skill 保存
+  “如何做”的流程，events/CHECKPOINT 保存历史与当前状态。禁止把 round/handoff 再抄进
+  wiki，也不再有结构化 wiki operation 通道。Reviewer 在真实验收时负责基于来源和
+  artifact 校正知识页；其余角色也可直接维护。
 
 初始化时：
 

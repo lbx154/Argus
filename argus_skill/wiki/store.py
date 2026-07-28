@@ -1,12 +1,15 @@
 """File I/O for sources/ (immutable) and pages/ (mutable)."""
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 from typing import Iterator, TypeVar
+
+import yaml
 
 from .schema import (
     PageCard,
@@ -19,6 +22,7 @@ from .schema import (
 )
 
 T = TypeVar("T", SourcePaper, SourceRepo, SourceRun, SourceNote)
+log = logging.getLogger(__name__)
 
 _SOURCE_SUBDIR = {
     SourcePaper: "papers",
@@ -27,6 +31,11 @@ _SOURCE_SUBDIR = {
     SourceNote: "notes",
 }
 _PAGE_SUBDIR = {
+    "concept": "concepts",
+    "principle": "principles",
+    "fact": "facts",
+    "hypothesis": "hypotheses",
+    "relationship": "relationships",
     "technique": "techniques",
     "conflict": "conflicts",
     "pattern": "patterns",
@@ -117,7 +126,7 @@ class WikiStore:
         path = self.root / "pages" / subdir / f"{stem}.md"
         return parse_frontmatter(path.read_text(encoding="utf-8"), PageCard)
 
-    def iter_pages(self) -> list[PageCard]:
+    def iter_pages(self, *, skip_invalid: bool = False) -> list[PageCard]:
         out: list[PageCard] = []
         pages_root = self.root / "pages"
         if not pages_root.exists():
@@ -129,7 +138,12 @@ class WikiStore:
             # every page.
             if "_retired" in md.relative_to(pages_root).parts:
                 continue
-            out.append(parse_frontmatter(md.read_text(encoding="utf-8"), PageCard))
+            try:
+                out.append(parse_frontmatter(md.read_text(encoding="utf-8"), PageCard))
+            except (OSError, TypeError, ValueError, yaml.YAMLError) as exc:
+                if not skip_invalid:
+                    raise
+                log.warning("skipping invalid wiki page %s: %s", md, exc)
         return out
 
     def retire_page(

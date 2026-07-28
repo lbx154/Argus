@@ -773,26 +773,6 @@
         "text": {"type": "string"}
       }
     },
-    "wiki.op.error": {
-      "version": 1,
-      "required": ["operation", "error"],
-      "properties": {
-        "operation": {"type": "string"},
-        "page_id": {"type": "string"},
-        "card_type": {"type": "string"},
-        "error": {"type": "string", "minLength": 1},
-        "text": {"type": "string"}
-      }
-    },
-    "wiki.op.rejected": {
-      "version": 1,
-      "required": ["operation", "reason"],
-      "properties": {
-        "operation": {"type": "string"},
-        "reason": {"type": "string", "minLength": 1},
-        "text": {"type": "string"}
-      }
-    },
     "wiki.created": {
       "version": 1,
       "required": ["page_id", "card_type", "path"],

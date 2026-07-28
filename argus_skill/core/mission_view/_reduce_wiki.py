@@ -1,10 +1,7 @@
 """Wiki (project knowledge base) mission-view event-family reducers.
 
-Covers wiki initialization/evolution storage counters, page create/update,
-retirement, retirement compaction, and promotion/demotion between wiki
-lifecycle statuses. Wiki content curation decisions themselves are made by
-the Reviewer via ``wiki_ops``; this module only projects the resulting
-structured event fields.
+Covers wiki initialization/evolution storage counters and legacy page lifecycle
+events. Current roles maintain declarative knowledge pages directly.
 """
 from __future__ import annotations
 

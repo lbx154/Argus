@@ -3,6 +3,27 @@
 # drift, fix the YAML to match the dataclasses.
 
 pages:
+  concept:
+    required: [id, type, status, title, sources,
+               created_at, last_reviewed_at]
+    optional: [tags, related_projects, revisit_after, reviewer_note]
+  principle:
+    required: [id, type, status, title, sources,
+               created_at, last_reviewed_at]
+    optional: [tags, related_projects, revisit_after, reviewer_note]
+  fact:
+    required: [id, type, status, title, sources,
+               created_at, last_reviewed_at]
+    optional: [tags, related_projects, revisit_after, reviewer_note]
+  hypothesis:
+    required: [id, type, status, title, sources,
+               created_at, last_reviewed_at]
+    optional: [tags, related_projects, revisit_after, reviewer_note]
+  relationship:
+    required: [id, type, status, title, sources,
+               created_at, last_reviewed_at]
+    optional: [tags, related_projects, revisit_after, reviewer_note]
+  # Legacy page kinds remain valid while existing wikis migrate.
   technique:
     required: [id, type, status, title, tags, sources,
                created_at, last_reviewed_at]
@@ -22,12 +43,7 @@ sources:
     required: [id, url, title, ingested_at, ingested_by, checksum]
   repo:
     required: [id, url, title, ingested_at, ingested_by, checksum]
-  run:
-    required: [id, mission_id, git_commit, project, config_path, dataset,
-               metrics, artifacts, outcome]
-    optional: [failure_signature, suspected_cause, next_action]
   note:
     required: [id, title, mission_id, created_at, tags]
 
 valid_status: [scratch, candidate, stable]
-valid_outcome: [success, partial, failure]

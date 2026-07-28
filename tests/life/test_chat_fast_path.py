@@ -205,9 +205,9 @@ def test_execute_self_path_one_turn_no_reviewer(tmp_path: Path) -> None:
     assert backend.calls[0]["options"].watchdog_hard_idle_seconds == 120
     assert backend.calls[0]["options"].watchdog_soft_idle_seconds == 5
     assert callable(backend.calls[0]["options"].inactivity_callback)
-    assert backend.calls[0]["options"].sandbox_mode == "read-only"
+    assert backend.calls[0]["options"].sandbox_mode == "workspace-write"
     assert backend.calls[0]["options"].dangerous_yolo is False
-    assert backend.calls[0]["options"].full_auto is False
+    assert backend.calls[0]["options"].full_auto is True
     types = [e.get("type") for e in sink.events]
     assert "round.review.completed" not in types  # NO reviewer
     assert "round.review.started" not in types
@@ -512,7 +512,7 @@ def test_execute_uses_full_pipeline_on_real_task(
         max_rounds: int = 1
         skill_writeback: bool = True
         skill_ops_enabled: bool = False
-        wiki_ops_enabled: bool = False
+        wiki_enabled: bool = False
         auto_init_wiki: bool = False
         session_id: str | None = None
         dangerous_yolo: bool = True
@@ -544,7 +544,7 @@ def test_execute_uses_full_pipeline_on_real_task(
     assert isinstance(layered, LayeredSkillStore)
     assert layered.project.skills_dir == tmp_path / "project-state" / "skills"
     assert layered.global_.skills_dir == tmp_path / "global-skills"
-    assert loop_kwargs[0]["config"].wiki_ops_enabled is True
+    assert loop_kwargs[0]["config"].wiki_enabled is True
     assert loop_kwargs[0]["config"].auto_init_wiki is True
     assert loop_kwargs[0]["config"].session_id == "mission-tree"
 
@@ -569,7 +569,7 @@ def test_execute_uses_full_pipeline_on_real_task(
     assert "## Planner execution plan" not in planned_tasks[0]
     assert loop_kwargs[0]["config"].workflow_mode == "direct"
     assert loop_kwargs[0]["config"].skill_ops_enabled is True
-    assert loop_kwargs[0]["config"].wiki_ops_enabled is True
+    assert loop_kwargs[0]["config"].wiki_enabled is True
     assert loop_kwargs[0]["config"].auto_init_wiki is True
 
     backend.calls.clear()

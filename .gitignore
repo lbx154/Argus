@@ -24,6 +24,7 @@ htmlcov/
 
 # user state
 /skills/
+.autors/
 .argus-skill/
 .argus_subagents/
 # per-round failing-check logs (give-access artifacts, never benchmark evidence)
@@ -98,6 +99,7 @@ docs/Argus_BP*
 /code/
 /data/
 /logs/
+/argus_glm_logs*.tar.gz
 /paper/
 
 # proprietary binary/npm release staging
