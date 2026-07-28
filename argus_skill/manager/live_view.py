@@ -596,7 +596,11 @@ def apply_manager_rendering_response(
     manifest_root: Path | str | None = None,
     null_means_clear: bool = False,
 ) -> LiveViewDecision | None:
-    """Confined writer for Manager-authored presentation content + manifest."""
+    """Confined writer for Manager-authored presentation content + manifest.
+
+    Keep this path independent of wiki maintenance locks: Manager rendering runs
+    at mission boundaries and must not re-enter a lock held by wiki maintenance.
+    """
     payload = _response_payload(raw_text)
     if payload is None:
         return load_live_view_decision(
