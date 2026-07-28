@@ -143,7 +143,7 @@ def _flat_verdict_kv(*tasks: tuple[str, str, str]) -> str:
     return "\n".join(lines)
 
 
-def test_invalid_parent_context_ref_rejects_entire_planner_batch(
+def test_missing_parent_context_ref_is_dropped_without_rejecting_batch(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -179,8 +179,11 @@ def test_invalid_parent_context_ref_rejects_entire_planner_batch(
         project_worktree=project_root,
     )
 
-    assert supervisor._plan_next_work() == PLAN_ERROR
-    assert supervisor.memory.backlog.all() == []
+    assert supervisor._plan_next_work() is True
+    titles = [item.title for item in supervisor.memory.backlog.all()]
+    assert titles == ["Run parent probe", "Summarize parent probe"]
+    parent = supervisor.memory.backlog.all()[0]
+    assert getattr(parent, "context_refs", []) == []
 
 
 def test_active_dedup_preserves_review_and_stage_transition_semantics(
