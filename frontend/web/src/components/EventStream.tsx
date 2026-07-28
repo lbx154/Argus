@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useGsapMotion } from '../lib/motion';
 import type { EventMsg } from '../api';
 import { renderEvent, toneColor, isReasoning, eventKey, mergeFragment, type Rendered } from '../lib/eventRender';
-import { eventMatchesView, type EventViewFilter } from '../../../core/src/events';
+import { eventMatchesView, fragmentMode, type EventViewFilter } from '../../../core/src/events';
 import { theme } from '../lib/theme';
 import { clockOf } from '../lib/format';
 import { rotate, IDLE_LINES } from '../lib/soul';
@@ -349,7 +349,15 @@ export function EventStream({
         const idx = msgRow.get(mid)!;
         // grow the streaming message (merge blocks) instead of dropping shorter
         // fragments — a multi-block reply must not look truncated.
-        out[idx] = { ...out[idx], r: { ...out[idx].r, text: mergeFragment(out[idx].r.text, r.text) } };
+        out[idx] = {
+          ...out[idx],
+          ev: { ...out[idx].ev, ...ev },
+          r: {
+            ...out[idx].r,
+            ...r,
+            text: mergeFragment(out[idx].r.text, r.text, fragmentMode(ev)),
+          },
+        };
         return;
       }
       const entry = { ev, r, key: eventKey(ev, i) };

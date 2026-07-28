@@ -34,6 +34,30 @@ describe('optimistic Manager conversation', () => {
     expect(second[1].text).toBe('你好！有什么可以帮你？');
   });
 
+  it('replaces a stale optimistic draft with an authoritative snapshot', () => {
+    const operator = optimisticOperatorEvent('s-fast', 1, '你好', 1_000);
+    const draft = mergeOptimisticManagerDelta(
+      [operator],
+      's-fast',
+      1,
+      'final answer with stale repeated tail',
+      'web-1-argus',
+      1_010,
+    );
+    const settled = mergeOptimisticManagerDelta(
+      draft,
+      's-fast',
+      1,
+      'final answer',
+      'web-1-argus',
+      1_020,
+      'snapshot',
+    );
+
+    expect(settled[1].text).toBe('final answer');
+    expect(settled[1].fragment_mode).toBe('snapshot');
+  });
+
   it('drops optimistic rows when live/transcript confirmation arrives', () => {
     let local = [optimisticOperatorEvent('s-fast', 1, '你好', 1_000)];
     local = mergeOptimisticManagerDelta(

@@ -53,12 +53,37 @@ export function isStructuredAgentPayload(event: EventMsg): boolean {
   return role === 'reviewer' || role === 'planner';
 }
 
-export function mergeFragment(accumulator: string, fragment: string): string {
+export type FragmentMode = 'append' | 'snapshot' | 'auto';
+
+export function fragmentMode(event: EventMsg): FragmentMode {
+  const explicit = String(event.fragment_mode ?? '');
+  if (explicit === 'append' || explicit === 'snapshot') return explicit;
+  return event.replace === true ? 'snapshot' : 'auto';
+}
+
+function suffixPrefixOverlap(left: string, right: string): number {
+  const limit = Math.min(left.length, right.length);
+  for (let length = limit; length >= 8; length -= 1) {
+    if (left.endsWith(right.slice(0, length))) return length;
+  }
+  return 0;
+}
+
+export function mergeFragment(
+  accumulator: string,
+  fragment: string,
+  mode: FragmentMode = 'auto',
+): string {
   const current = (accumulator || '').trim();
   const next = (fragment || '').trim();
   if (!current) return next;
-  if (!next || current.includes(next)) return current;
+  if (!next) return current;
+  if (mode === 'snapshot') return next;
+  if (current.includes(next)) return current;
+  if (mode === 'append') return `${current}\n${next}`;
   if (next.includes(current)) return next;
+  const overlap = suffixPrefixOverlap(current, next);
+  if (overlap) return `${current}${next.slice(overlap)}`;
   return `${current}\n${next}`;
 }
 

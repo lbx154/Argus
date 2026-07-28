@@ -260,9 +260,8 @@ class _FollowCoalescer:
 
     Commits the held message on: a new ``message_id``, any non-``replace``
     event, an idle gap (``>= idle_commit_after`` seconds of stream silence), or
-    :meth:`flush`. Within one message it keeps the LONGEST ``text`` seen (the
-    backend ends with a full copy), so it converges on the complete message and
-    never sprays the dozens of mid-stream fragments a naive tail would.
+    :meth:`flush`. Within one message the latest snapshot is authoritative, so
+    corrections that shorten the final copy do not leave stale text behind.
     """
 
     def __init__(self, emit: "Callable[[dict], None]", *,
@@ -283,10 +282,7 @@ class _FollowCoalescer:
         if bool(event.get("replace")) and mid:
             if self._mid is not None and mid != self._mid:
                 self._commit()
-            if self._ev is None or len(str(event.get("text") or "")) >= len(
-                str(self._ev.get("text") or "")
-            ):
-                self._ev = event
+            self._ev = event
             self._mid = mid
             self._at = time.monotonic()
             return

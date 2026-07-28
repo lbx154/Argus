@@ -1,6 +1,6 @@
 import type { EventMsg } from './api.js';
 import { renderEvent, messageId, mergeFragment, type Rendered } from './eventRender.js';
-import { eventKey } from '../../core/src/events.js';
+import { eventKey, fragmentMode } from '../../core/src/events.js';
 
 export interface EventLine {
   ev: EventMsg;
@@ -39,7 +39,12 @@ export function buildEventLines(events: EventMsg[]): EventLine[] {
       const index = idx.get(mid)!;
       list[index] = {
         ...list[index],
-        r: { ...list[index].r, text: mergeFragment(list[index].r.text, r.text) },
+        ev: { ...list[index].ev, ...ev },
+        r: {
+          ...list[index].r,
+          ...r,
+          text: mergeFragment(list[index].r.text, r.text, fragmentMode(ev)),
+        },
       };
       return;
     }

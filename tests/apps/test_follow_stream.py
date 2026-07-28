@@ -143,6 +143,27 @@ def test_follow_coalescer_commits_quiet_streamed_message() -> None:
     }]
 
 
+def test_follow_coalescer_uses_latest_snapshot_even_when_shorter() -> None:
+    emitted: list[dict] = []
+    coalescer = _follow._FollowCoalescer(emitted.append)
+    coalescer.feed({
+        "type": "engineer.progress",
+        "message_id": "message-1",
+        "replace": True,
+        "text": "draft answer with repeated repeated text",
+    })
+    coalescer.feed({
+        "type": "engineer.progress",
+        "message_id": "message-1",
+        "replace": True,
+        "text": "final answer",
+    })
+
+    coalescer.flush()
+
+    assert emitted[-1]["text"] == "final answer"
+
+
 def test_follow_progress_render_redacts_raw_secret() -> None:
     secret = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345678901"
     rendered = _follow._format_follow_event_body(

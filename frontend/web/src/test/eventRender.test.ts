@@ -207,6 +207,19 @@ describe('mergeFragment', () => {
     expect(mergeFragment('你好', '你好！需要帮忙吗')).toBe('你好！需要帮忙吗'); // cumulative
     expect(mergeFragment('full message here', 'message')).toBe('full message here'); // dup/substring
   });
+  it('uses protocol modes instead of guessing whether a block is cumulative', () => {
+    expect(mergeFragment('old paragraph', 'corrected answer', 'snapshot')).toBe('corrected answer');
+    expect(mergeFragment('final answer with stale tail', 'final answer', 'snapshot'))
+      .toBe('final answer');
+    expect(mergeFragment('same heading', 'same heading with details', 'append'))
+      .toBe('same heading\nsame heading with details');
+  });
+  it('removes overlap from legacy fragments', () => {
+    expect(mergeFragment(
+      'first paragraph\nrepeated transition',
+      'repeated transition\nfinal paragraph',
+    )).toBe('first paragraph\nrepeated transition\nfinal paragraph');
+  });
 });
 
 describe('eventKey', () => {

@@ -431,7 +431,7 @@ export const api = {
         role: string,
         meta: { heartbeat: boolean; quietS: number; kind: string; detail: string },
       ) => void;
-      onDelta?: (block: string, messageId: string) => void;
+      onDelta?: (block: string, messageId: string, fragmentMode: string) => void;
       onDone?: (result: StreamDone) => void;
       onError?: (err: Error) => void;
     },
@@ -460,7 +460,13 @@ export const api = {
           },
         );
       }
-      else if (f.type === 'delta') handlers.onDelta?.(String(f.text ?? ''), String(f.message_id ?? ''));
+      else if (f.type === 'delta') {
+        handlers.onDelta?.(
+          String(f.text ?? ''),
+          String(f.message_id ?? ''),
+          String(f.fragment_mode ?? 'auto'),
+        );
+      }
       else if (f.type === 'done') handlers.onDone?.((f.result ?? {}) as StreamDone);
       else if (f.type === 'error') handlers.onError?.(new Error(String(f.error ?? 'stream error')));
     };
