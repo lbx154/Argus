@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 ENV_NAME = "ARGUS_SKILL_EXTERNAL_COMPLETION_GATE"
+REWORK_STAGE_ENV_NAME = "ARGUS_SKILL_EXTERNAL_COMPLETION_REWORK_STAGE"
 
 
 def external_completion_gate_issue(
@@ -58,4 +59,14 @@ def external_completion_gate_issue(
     )
 
 
-__all__ = ["ENV_NAME", "external_completion_gate_issue"]
+def external_completion_rework_stage() -> str:
+    """Return the configured stage to reopen while the gate is unmet."""
+    return os.environ.get(REWORK_STAGE_ENV_NAME, "").strip().lower()
+
+
+__all__ = [
+    "ENV_NAME",
+    "REWORK_STAGE_ENV_NAME",
+    "external_completion_gate_issue",
+    "external_completion_rework_stage",
+]

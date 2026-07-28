@@ -224,6 +224,7 @@ class _StageDecisionMixin:
         """
         from .stage_decider import (
             completion_trigger_reason,
+            external_completion_gate_rework_decision,
             fallback_empty_stage_decision,
             final_stage_completion_decision,
             parse_stage_decision,
@@ -258,6 +259,14 @@ class _StageDecisionMixin:
                 not open_ended or decision.action == "hold"
             ):
                 decision = final_decision
+            rework_decision = external_completion_gate_rework_decision(
+                review,
+                current_stage=cur,
+                stage_order=order,
+                project_root=root,
+            )
+            if rework_decision is not None:
+                decision = rework_decision
             from .stage_decider import StageDecision
             if planner_wait_reconciliation and decision.action in {"advance", "complete"}:
                 decision = StageDecision(
@@ -340,6 +349,14 @@ class _StageDecisionMixin:
             not open_ended or decision.action == "hold"
         ):
             decision = final_decision
+        rework_decision = external_completion_gate_rework_decision(
+            review,
+            current_stage=cur,
+            stage_order=order,
+            project_root=root,
+        )
+        if rework_decision is not None:
+            decision = rework_decision
 
         from .stage_decider import StageDecision
 

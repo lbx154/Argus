@@ -92,6 +92,7 @@ timeout --signal=TERM --kill-after=300 "$TASK_TIMEOUT_SECONDS" \
     --setenv ARGUS_SKILL_MAX_ACTIVE_DAEMONS 2 \
     --setenv ARGUS_SKILL_REQUIRE_RELEASE_MATCH 1 \
     --setenv ARGUS_SKILL_EXTERNAL_COMPLETION_GATE "MLE_MEDAL_GATE.json:satisfied" \
+    --setenv ARGUS_SKILL_EXTERNAL_COMPLETION_REWORK_STAGE optimize \
     "$ARGUS_BIN" --daemon-fg --continuous --bounded --new --backend copilot \
       --objective "$(cat "$project/OBJECTIVE.md")" \
     >"$run_log" 2>&1
