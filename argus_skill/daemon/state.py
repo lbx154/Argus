@@ -372,6 +372,11 @@ class DaemonStatus:
     runtime: dict[str, Any] | None = None
     status_read_error: str = ""
     pid_path: Path | None = None
+    health_state: str = "unknown"
+    stalled: bool = False
+    last_progress_at: float | None = None
+    last_progress_event: str = ""
+    seconds_since_progress: float | None = None
 
 
 def _daemon_budget_from_project(
@@ -469,11 +474,14 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
         life_dir = core_paths.global_root()
     else:
         life_dir = Path(life_dir).expanduser()
+    from .health import read_daemon_health
+
     pid_path = _daemon_pid_path(life_dir)
     if not pid_path.exists():
         return DaemonStatus(
             alive=False, pid=None, started_at_iso=None,
             uptime_seconds=None, life_dir=life_dir, pid_path=pid_path,
+            health_state="stopped",
         )
     try:
         pid = int(pid_path.read_text().strip())
@@ -481,6 +489,7 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
         return DaemonStatus(
             alive=False, pid=None, started_at_iso=None,
             uptime_seconds=None, life_dir=life_dir, pid_path=pid_path,
+            health_state="stopped",
         )
     alive = _process_alive(pid)
     if alive and _daemon_pid_lock_held(pid_path) is False:
@@ -533,6 +542,11 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
                 uptime = (datetime.now(timezone.utc) - started_dt).total_seconds()
         except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
             status_read_error = f"{type(exc).__name__}: {exc}"[:500]
+    health = read_daemon_health(
+        life_dir,
+        pid=pid if alive else None,
+        alive=alive,
+    )
     return DaemonStatus(
         alive=alive,
         pid=pid if alive else None,
@@ -550,6 +564,11 @@ def read_daemon_status(life_dir: Path | None = None) -> DaemonStatus:
         runtime=runtime,
         status_read_error=status_read_error,
         pid_path=pid_path,
+        health_state=str(health["state"]),
+        stalled=bool(health["stalled"]),
+        last_progress_at=health["last_progress_at"],
+        last_progress_event=str(health["last_progress_event"]),
+        seconds_since_progress=health["seconds_since_progress"],
     )
 
 

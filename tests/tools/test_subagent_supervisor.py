@@ -1139,6 +1139,32 @@ def test_cmd_submit_reserves_disjoint_cpus_before_fork(
     assert record["cpu_count"] == 2
 
 
+def test_cmd_submit_normalizes_relative_cwd_and_run_dir(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.setattr(_sub._cli.os, "fork", lambda: 4242)
+
+    rc = _sub.cmd_submit(
+        _submit_args(
+            task_id="relative-paths",
+            cwd="project",
+            run_dir="experiments/run-1",
+        )
+    )
+    record = _sub._read_task("relative-paths")
+    capsys.readouterr()
+
+    assert rc == 0
+    assert record is not None
+    assert record["cwd"] == str(project)
+    assert record["run_dir"] == str(project / "experiments" / "run-1")
+
+
 def test_persist_experiment_record_writes_artifacts_and_dedups(monkeypatch, tmp_path) -> None:
     monkeypatch.chdir(tmp_path)
     tid = "exp1"

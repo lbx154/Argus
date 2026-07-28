@@ -727,6 +727,10 @@ class BacklogItem:
     plan_version: int = 0
     node_key: str = ""
     context_refs: list[dict[str, str]] = field(default_factory=list)
+    # Stable Planner-authored identity for a known blocker. It deliberately
+    # excludes display prose so terminal blockers cannot be retried by renaming
+    # the task.
+    blocker_fingerprint: str = ""
     # Canonical Planner→Engineer handoff fields. ``objective`` says what to do;
     # these fields bound completion and prevent a fresh session from reopening
     # unrelated project history.
@@ -770,6 +774,7 @@ class BacklogItem:
         plan_version: int = 0,
         node_key: str = "",
         context_refs: list[dict[str, str]] | None = None,
+        blocker_fingerprint: str = "",
         authorization_id: str = "",
         authorization_action: str = "",
         execution_workdir: str = "",
@@ -799,6 +804,7 @@ class BacklogItem:
                 for ref in (context_refs or [])
                 if isinstance(ref, dict)
             ],
+            blocker_fingerprint=str(blocker_fingerprint or "").strip(),
             authorization_id=str(authorization_id),
             authorization_action=str(authorization_action),
             execution_workdir=str(execution_workdir),
@@ -851,6 +857,7 @@ class BacklogItem:
                 for ref in (row.get("context_refs", []) or [])
                 if isinstance(ref, dict)
             ],
+            blocker_fingerprint=str(row.get("blocker_fingerprint", "")),
             acceptance_check=str(row.get("acceptance_check", "")),
             non_goals=[
                 str(item).strip()

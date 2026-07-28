@@ -16,12 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..core.file_lock import exclusive_file_lock
 from ..life.memory import BacklogItem
-
-try:
-    import fcntl
-except ImportError:  # pragma: no cover - Windows
-    fcntl = None  # type: ignore[assignment]
 
 _STATE_SCHEMA = 1
 _FALLBACK_GIT_NAME = "Argus Self-Maintenance"
@@ -274,15 +270,17 @@ class SelfMaintenanceState:
     @contextmanager
     def _state_lock(self):
         self.root.mkdir(parents=True, exist_ok=True)
-        with self._thread_lock:
+        if not self._thread_lock.acquire(timeout=30.0):
+            raise TimeoutError("timed out acquiring self-maintenance thread lock")
+        try:
             with self.state_lock_path.open("a+", encoding="utf-8") as handle:
-                if fcntl is not None:
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-                try:
+                with exclusive_file_lock(
+                    handle,
+                    lock_name=f"self-maintenance lock {self.state_lock_path}",
+                ):
                     yield
-                finally:
-                    if fcntl is not None:
-                        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            self._thread_lock.release()
 
     def _state(self) -> dict[str, Any]:
         with self._state_lock():

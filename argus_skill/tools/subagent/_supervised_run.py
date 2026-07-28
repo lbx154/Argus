@@ -30,6 +30,10 @@ from ._direct_run import (
 )
 from ._discuss_run import _run_discussion
 from ._discussion_log import _discussion_path, _reset_discussion
+from ._experiment_preflight import (
+    experiment_launch_preflight,
+    release_experiment_launch_claim,
+)
 from ._llm import _run_codex_with_usage
 from ._normalize import _clean_concern, _norm_decision, _norm_health
 from ._registry import (
@@ -494,15 +498,58 @@ def _run_supervised(
         (_read_task(task_id) or {}).get("run_id")
         or f"{task_id}-{time.time_ns()}"
     )
+    claim_owner = f"{run_id}:{os.getpid()}:{time.time_ns()}"
     supervisor_thread_id: str | None = None
     supervisor_usage_totals = _ZERO_USAGE_TUPLE
     # Resolve run_dir once relative to the task cwd so the supervisor reads the
     # right progress/status and writes STOP where RunWriter watches.
     resolved_run_dir: str | None = None
     if run_dir:
-        rp = Path(run_dir)
-        resolved_run_dir = str(rp if rp.is_absolute() else Path(cwd) / rp)
+        base = Path(cwd).expanduser().resolve()
+        rp = Path(run_dir).expanduser()
+        resolved_run_dir = str(
+            (rp if rp.is_absolute() else base / rp).resolve()
+        )
     try:
+        deterministic_reject, deterministic_concern = experiment_launch_preflight(
+            task_id=task_id,
+            command=command,
+            cwd=cwd,
+            run_dir=resolved_run_dir,
+            claim_owner=claim_owner,
+        )
+        if deterministic_reject:
+            td = {
+                "state": "error",
+                "task_id": task_id,
+                "run_id": run_id,
+                "description": description,
+                "command": command,
+                "error": deterministic_concern,
+                "preflight": True,
+                "worker_pid": os.getpid(),
+                "started_at": start_time,
+                "completed_at": time.time(),
+                "elapsed_seconds": 0.0,
+                "mode": "supervised",
+                "run_dir": resolved_run_dir,
+                "supervisor_log": str(supervisor_log),
+            }
+            _apply_supervisor_usage_fields(
+                td,
+                model=model,
+                totals=supervisor_usage_totals,
+            )
+            _write_task(task_id, td)
+            report = _alert_engineer(task_id, "PREFLIGHT-REJECTED", td)
+            _persist_experiment_record(
+                task_id,
+                "PREFLIGHT-REJECTED",
+                td,
+                cwd,
+                report,
+            )
+            return
         # Pre-launch config preflight: hard-block a mechanically-unlearnable RL
         # config BEFORE spending any GPU, and hand the engineer the exact fix via
         # the same stop+discussion machinery a metric-based early-stop uses. Gated
@@ -738,3 +785,10 @@ def _run_supervised(
         _write_task(task_id, td)
         report = _alert_engineer(task_id, "CRASHED", td)
         _persist_experiment_record(task_id, "CRASHED", td, cwd, report)
+    finally:
+        release_experiment_launch_claim(
+            task_id=task_id,
+            cwd=cwd,
+            run_dir=resolved_run_dir,
+            claim_owner=claim_owner,
+        )

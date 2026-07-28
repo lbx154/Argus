@@ -186,9 +186,13 @@ class LifeWorkerBootMixin:
         # poll_interval seconds and try again — items may have been
         # submitted from a coexisting cockpit.
         from ..life.event_log import JsonlEventSink
+        from .health import DaemonHealthTracker
 
         # events.jsonl is the single persistent timeline.
-        rf_state.daemon_sink = _DaemonSink(self)
+        rf_state.daemon_sink = _DaemonSink(
+            self,
+            health_tracker=DaemonHealthTracker(rf_state.cfg.life_dir),
+        )
         rf_state.sink = JsonlEventSink(
             rf_state.daemon_sink,
             life_dir=rf_state.runtime_root,

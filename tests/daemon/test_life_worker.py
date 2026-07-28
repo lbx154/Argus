@@ -2226,6 +2226,72 @@ def test_project_done_does_not_disable_newer_same_value_rearm(
     assert state.objective == "objective"
 
 
+def test_project_done_is_persisted_before_self_maintenance_handoff(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    write_continuous_config(
+        tmp_path,
+        enabled=True,
+        objective="objective",
+    )
+    before = read_continuous_state(tmp_path)
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    worker = LifeWorker(
+        LifeWorkerConfig(
+            life_dir=tmp_path,
+            backend="memory",
+            project_workdir=tmp_path,
+        )
+    )
+    worker._adopted_continuous_generation = before.generation
+
+    class FakeBudget:
+        def can_start(self, **_kwargs):
+            return True, ""
+
+    class FakeSupervisor:
+        config = SimpleNamespace(budget=FakeBudget())
+        _missions_started = 0
+        _planning_cycles = 0
+
+        def run(self):
+            return {"stopped_by": "project_done"}
+
+    class FakeMaintenance:
+        def reconcile_pull_request(self):
+            return ""
+
+        def audit_if_due(self, **_kwargs):
+            return f"adopt:{candidate}"
+
+        def publish_after_canary(self, **_kwargs):
+            return ""
+
+        def mark_handoff_failed(self, _reason):
+            pytest.fail("handoff should succeed")
+
+    monkeypatch.setattr(
+        life_worker_mod,
+        "_spawn_handoff_candidate",
+        lambda *_args, **_kwargs: True,
+    )
+    worker._self_maintenance = FakeMaintenance()
+    rf_state = SimpleNamespace(
+        runtime_root=tmp_path,
+        cfg=worker.config,
+        runner=SimpleNamespace(manager=None),
+        sup=FakeSupervisor(),
+    )
+
+    worker._rf_main_loop(rf_state)
+
+    after = read_continuous_state(tmp_path)
+    assert after.enabled is False
+    assert after.done_reason == "planner declared project done"
+
+
 def test_operator_stop_freezes_adopted_generation_before_reload(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

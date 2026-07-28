@@ -186,6 +186,11 @@ def _planner_task_signature(
     )
 
 
+def _normalize_blocker_fingerprint(value: object) -> str:
+    """Normalize a Planner-authored blocker identity without using task prose."""
+    return " ".join(str(value or "").strip().lower().split())[:500]
+
+
 def _entry_task_signature(entry: JournalEntry) -> tuple[str, str] | None:
     extra = getattr(entry, "extra", {}) or {}
     signature = extra.get("planner_task_signature")

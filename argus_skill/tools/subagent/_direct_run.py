@@ -13,6 +13,10 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ._experiment_preflight import (
+    experiment_launch_preflight,
+    release_experiment_launch_claim,
+)
 from ._registry import (
     _ZERO_USAGE_TUPLE,
     REGISTRY_DIR,
@@ -280,7 +284,34 @@ def _run_direct(
         (_read_task(task_id) or {}).get("run_id")
         or f"{task_id}-{time.time_ns()}"
     )
+    claim_owner = f"{run_id}:{os.getpid()}:{time.time_ns()}"
     try:
+        rejected, concern = experiment_launch_preflight(
+            task_id=task_id,
+            command=command,
+            cwd=cwd,
+            run_dir=run_dir,
+            claim_owner=claim_owner,
+        )
+        if rejected:
+            td = {
+                "state": "error",
+                "task_id": task_id,
+                "run_id": run_id,
+                "description": description,
+                "command": command,
+                "error": concern,
+                "preflight": True,
+                "elapsed_seconds": round(time.time() - start_time, 1),
+                "completed_at": time.time(),
+                "mode": "direct",
+                "worker_pid": os.getpid(),
+                "run_dir": run_dir,
+            }
+            _apply_supervisor_usage_fields(td, model="", totals=_ZERO_USAGE_TUPLE)
+            _write_task(task_id, td)
+            _alert_engineer(task_id, "PREFLIGHT-REJECTED", td)
+            return
         with stdout_path.open("w") as out, stderr_path.open("w") as err:
             proc = _launch_durable_command(
                 task_id=task_id,
@@ -356,3 +387,10 @@ def _run_direct(
         _apply_supervisor_usage_fields(td, model="", totals=_ZERO_USAGE_TUPLE)
         _write_task(task_id, td)
         _alert_engineer(task_id, "CRASHED", td)
+    finally:
+        release_experiment_launch_claim(
+            task_id=task_id,
+            cwd=cwd,
+            run_dir=run_dir,
+            claim_owner=claim_owner,
+        )
