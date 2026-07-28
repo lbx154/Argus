@@ -134,7 +134,11 @@ export function useManagerSession({
     setPending(true);
     setNotice('');
 
-    const say = (nextText: string, messageId = replyId) => {
+    const say = (
+      nextText: string,
+      messageId = replyId,
+      fragmentMode: 'append' | 'snapshot' | 'auto' = 'auto',
+    ) => {
       if (!isCurrent()) return;
       setEvents((events) => (
         isCurrent()
@@ -144,6 +148,7 @@ export function useManagerSession({
                 type: 'ui.argus',
                 text: nextText,
                 message_id: messageId,
+                fragment_mode: fragmentMode,
                 ts: Date.now() / 1000,
               } as EventMsg,
             ]
@@ -190,7 +195,7 @@ export function useManagerSession({
             });
             setSteps(trail);
           },
-          onDelta: (block, messageId) => {
+          onDelta: (block, messageId, fragmentMode) => {
             if (!isCurrent()) return;
             gotDelta = true;
             flushTrail();
@@ -200,7 +205,13 @@ export function useManagerSession({
             const activeMessageId = messageId || replyId;
             const request = managerRequestRef.current;
             if (request?.id === requestId) request.messageId = activeMessageId;
-            say(block, activeMessageId);
+            say(
+              block,
+              activeMessageId,
+              fragmentMode === 'append' || fragmentMode === 'snapshot'
+                ? fragmentMode
+                : 'auto',
+            );
           },
           onDone: (result) => {
             if (!isCurrent()) return;

@@ -332,7 +332,11 @@ def record_task_dispatch_ack(
     # SSE delta for streaming callers
     if callable(on_fragment):
         try:
-            on_fragment("delta", {"text": text, "message_id": "dispatch"})
+            on_fragment("delta", {
+                "text": text,
+                "message_id": "dispatch",
+                "fragment_mode": "snapshot",
+            })
         except Exception:  # noqa: BLE001 — UI progress must never break dispatch
             pass
 

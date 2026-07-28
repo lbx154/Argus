@@ -242,6 +242,7 @@ def test_manager_stream_and_persisted_reply_share_message_id(
     assert delta["message_id"] == reply["message_id"]
     assert delta["message_id"].startswith("web-")
     assert delta["message_id"].endswith("-argus")
+    assert delta["fragment_mode"] == "snapshot"
 
 
 def test_natural_language_abort_is_control_not_backlog_work(

@@ -267,7 +267,7 @@ class _TurnEmitter:
         self.fragment("phase", {"role": "manager", "label": label})
 
     def reply_fragment(self, text: str, *, message_id: str | None = None) -> None:
-        payload: dict[str, Any] = {"text": text}
+        payload: dict[str, Any] = {"text": text, "fragment_mode": "snapshot"}
         if message_id is not None:
             payload["message_id"] = message_id
         self.fragment("delta", payload)
@@ -683,7 +683,11 @@ def _maybe_apply_config_intent(
         return None
     if on_fragment is not None:
         for _ln in cfg_lines:
-            fragment("delta", {"text": _ln, "message_id": "config"})
+            fragment("delta", {
+                "text": _ln,
+                "message_id": "config",
+                "fragment_mode": "append",
+            })
     reply = "\n".join(cfg_lines).strip() or "Done — setting applied."
     _journal_argus_reply(life_dir, turn_id, reply)
     return {"kind": "chat", "reply": reply}
