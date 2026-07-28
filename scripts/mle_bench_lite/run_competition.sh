@@ -128,17 +128,7 @@ PY
 fi
 printf '%s\n' "$grade_rc" > "$project/grade.exit_code"
 
-python3 - "$project/run-result.json" "$comp" "$slot" "$argus_rc" "$grade_rc" "$submission" "$grade_log" "$elapsed_seconds" <<'PY'
-import json,sys,time,os
-path,comp,slot,argus_rc,grade_rc,submission,grade_log,elapsed=sys.argv[1:]
-elapsed=int(elapsed)
-benchmark_complete = int(argus_rc) in {0, 124} or elapsed >= 3600
-payload={
- "competition":comp,"slot":int(slot),"argus_exit_code":int(argus_rc),
- "grade_exit_code":int(grade_rc),"submission_exists":os.path.getsize(submission)>0 if os.path.exists(submission) else False,
- "grade_log":grade_log,"finished_at":time.time(),"elapsed_seconds":elapsed,
- "benchmark_complete":benchmark_complete,"retryable_infrastructure_failure":not benchmark_complete,
-}
-tmp=path+'.tmp'; open(tmp,'w').write(json.dumps(payload,indent=2,sort_keys=True)+'\n'); os.replace(tmp,path)
-PY
+python3 "$here/result_contract.py" \
+  "$project/run-result.json" "$comp" "$slot" "$argus_rc" "$grade_rc" \
+  "$submission" "$grade_log" "$elapsed_seconds"
 exit 0

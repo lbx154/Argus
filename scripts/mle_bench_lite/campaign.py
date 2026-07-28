@@ -9,8 +9,10 @@ module joins those contracts without inspecting project internals.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -39,6 +41,14 @@ LEDGER = ROOT / "waves.jsonl"
 GRADE_HISTORY = ROOT / "grades" / "reviewer-approved-history.jsonl"
 COMPETITION_LIST = Path(CFG.get("COMPETITION_LIST", str(HERE / "lite.txt")))
 RUN_SCRIPT = (HERE / "run_competition.sh").resolve()
+RUNNER_SNAPSHOT_ROOT = ROOT / ".controller-runners"
+RUNNER_FILES = (
+    "run_competition.sh",
+    "result_contract.py",
+    "config.env",
+    "objective.template.md",
+    "AGENTS.template.md",
+)
 
 
 def atomic(path: Path, payload: object) -> None:
@@ -112,6 +122,35 @@ def completed_result(comp: str) -> bool:
     return bool(run_result(comp).get("benchmark_complete")) and medal_report(comp) is not None
 
 
+def runner_snapshot() -> Path:
+    """Create an immutable runner bundle so deployments cannot corrupt live Bash."""
+    digest = hashlib.sha256()
+    for name in RUNNER_FILES:
+        source = HERE / name
+        digest.update(name.encode())
+        digest.update(b"\0")
+        digest.update(source.read_bytes())
+        digest.update(b"\0")
+    destination = RUNNER_SNAPSHOT_ROOT / digest.hexdigest()[:20]
+    runner = destination / "run_competition.sh"
+    if runner.is_file():
+        return runner
+
+    RUNNER_SNAPSHOT_ROOT.mkdir(parents=True, exist_ok=True)
+    temporary = RUNNER_SNAPSHOT_ROOT / f".{destination.name}.{os.getpid()}.tmp"
+    shutil.rmtree(temporary, ignore_errors=True)
+    temporary.mkdir()
+    for name in RUNNER_FILES:
+        shutil.copy2(HERE / name, temporary / name)
+    try:
+        os.replace(temporary, destination)
+    except OSError:
+        if not destination.is_dir():
+            raise
+        shutil.rmtree(temporary, ignore_errors=True)
+    return runner
+
+
 @dataclass
 class ActiveRun:
     slot: int
@@ -141,12 +180,21 @@ def _process_cmdline(pid: int) -> list[str]:
 def discover_running() -> dict[int, ActiveRun]:
     """Adopt surviving slot workers after a controller restart."""
     found: dict[int, ActiveRun] = {}
-    script = str(RUN_SCRIPT)
     for proc_dir in Path("/proc").glob("[0-9]*"):
         pid = int(proc_dir.name)
         parts = _process_cmdline(pid)
+        index = next(
+            (
+                i
+                for i, part in enumerate(parts)
+                if Path(part).name == "run_competition.sh"
+                and (Path(part) == RUN_SCRIPT or RUNNER_SNAPSHOT_ROOT in Path(part).parents)
+            ),
+            None,
+        )
+        if index is None:
+            continue
         try:
-            index = parts.index(script)
             slot = int(parts[index + 1])
             competition = parts[index + 2]
         except (ValueError, IndexError):
@@ -157,8 +205,9 @@ def discover_running() -> dict[int, ActiveRun]:
 
 
 def start_run(slot: int, competition: str) -> ActiveRun:
+    runner = runner_snapshot()
     proc = subprocess.Popen(
-        [str(RUN_SCRIPT), str(slot), competition],
+        [str(runner), str(slot), competition],
         stdin=subprocess.DEVNULL,
         start_new_session=True,
     )
