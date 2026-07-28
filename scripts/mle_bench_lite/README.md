@@ -26,6 +26,13 @@ still keep model weights and competition-specific artifacts in their own
 project roots. If the directory is absent, the runner remains compatible and
 starts without the shared layer.
 
+The shared layer is a default, not permission to erase runtime provenance. If a
+project's protected manifest pins a different heavy stack and a measured output
+changes across versions, keep the compatible stack in a read-only versioned or
+quarantined location outside the project root and use it only for the minimum
+reproduction proof. Record both identities; never copy multi-gigabyte runtime
+trees back into deliverables or label cross-version measurements as exact.
+
 The bubblewrap mount contract also hides the whole campaign root before
 re-binding the current project. Other project workspaces, submission snapshots,
 grade history, and controller state are therefore not merely forbidden by

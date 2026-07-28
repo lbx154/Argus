@@ -26,6 +26,12 @@ torchvision, NumPy, SciPy, Pillow, or scikit-learn copies when they are already
 available. Reviewer must reject unexplained project-local dependency trees over
 1 GiB. Store public pretrained weight files separately under
 `solution/artifacts/pretrained/` and record their provenance and checksums.
+Exact reproduction remains version-sensitive: if the manifest-pinned heavy
+stack differs from the shared layer and that changes measured output, use a
+read-only versioned or quarantined environment outside the project root for the
+minimum compatibility proof, record both runtime identities, and never describe
+cross-version results as exact reproduction. Do not copy the heavy environment
+back into the deliverable.
 
 Required deliverables in this project root:
 

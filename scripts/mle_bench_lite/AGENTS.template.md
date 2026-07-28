@@ -12,6 +12,11 @@
   Do not copy PyTorch, CUDA, torchvision, NumPy, SciPy, Pillow, or scikit-learn
   into the project when the shared layer already provides them. Reviewer should
   reject an unexplained project-local dependency tree larger than 1 GiB.
+- Exact reproduction is version-sensitive. If the manifest-pinned heavy stack
+  differs from the shared layer and a measured result changes, use a read-only
+  versioned/quarantined environment outside the project root for the minimum
+  compatibility proof. Record both runtime identities. Do not copy that heavy
+  environment back into the deliverable or call cross-version output "exact".
 - Keep downloaded public model weights under `solution/artifacts/pretrained/`
   with URL, version, and checksum provenance; do not mix weights with packages.
 - Never inspect Kaggle credentials, SSH files, MLE-Bench private/answers/gold
