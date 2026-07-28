@@ -38,12 +38,21 @@ class PlanningCycleIntakeMixin:
         immediately; returns ``None`` to continue the cycle.
         """
         revision_request = state.revision_request
-        state.operator_messages = (
+        from ...manager.directive import active_manager_directive_message
+
+        active_directive = active_manager_directive_message(self.memory.root)
+        transient_messages = (
             self._take_operator_guidance_carryover() + self._drain_user_inbox()
             if revision_request is None
             else []
         )
-        if state.operator_messages:
+        state.operator_messages = list(
+            dict.fromkeys(
+                ([active_directive] if active_directive else [])
+                + transient_messages
+            )
+        )
+        if transient_messages:
             self._deactivate_planner_waiting_contract()
             self._clear_manager_planner_feedback()
             self._reset_idle_backoff()

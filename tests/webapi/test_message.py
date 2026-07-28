@@ -535,6 +535,12 @@ def test_manager_steer_persists_high_priority_live_directive(
     assert "MANAGER STEERING" in inbox[-1]["text"]
     assert "检索最接近的前人研究" in inbox[-1]["text"]
     assert "发明新的数学工具" not in inbox[-1]["text"]
+    from argus_skill.manager.directive import load_active_manager_directive
+
+    active = load_active_manager_directive(life)
+    assert active is not None
+    assert "检索最接近的前人研究" in active.text
+    assert "发明新的数学工具" not in active.text
 
 
 def test_message_task_lazily_spawns_daemon(client: TestClient, monkeypatch) -> None:

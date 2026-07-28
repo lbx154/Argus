@@ -32,6 +32,30 @@ from ._runtime_helpers import (
 log = logging.getLogger(__name__)
 
 
+def _engineer_guidance(
+    state_root: Path | None,
+    workdir: Path,
+) -> list[str]:
+    """Combine persistent Manager policy with one-shot live inbox messages."""
+    if state_root is None:
+        return []
+    from ..manager.directive import active_manager_directive_message
+    from ..skills.stage_machine import current_stage
+    from ._inbox import drain_inbox_messages
+
+    messages: list[str] = []
+    active_directive = active_manager_directive_message(state_root)
+    if active_directive:
+        messages.append(active_directive)
+    messages.extend(
+        drain_inbox_messages(
+            state_root,
+            current_stage=current_stage(workdir),
+        )
+    )
+    return list(dict.fromkeys(messages))
+
+
 class SkillLoopExecuteMixin:
     """Mission-execution half of ``_SkillLoopRunner``."""
 
@@ -642,21 +666,10 @@ class SkillLoopExecuteMixin:
         inbox_life_dir = operator_state_dir
 
         def _inbox_guidance_provider() -> list[str]:
-            msgs: list[str] = []
-            if inbox_life_dir is not None:
-                try:
-                    from ..skills.stage_machine import current_stage
-                    from ._inbox import drain_inbox_messages
-
-                    msgs.extend(
-                        drain_inbox_messages(
-                            inbox_life_dir,
-                            current_stage=current_stage(workdir),
-                        )
-                    )
-                except Exception:  # noqa: BLE001 — never break a mission
-                    pass
-            return msgs
+            try:
+                return _engineer_guidance(inbox_life_dir, workdir)
+            except Exception:  # noqa: BLE001 — never break a mission
+                return []
 
         extra_guidance_provider = _inbox_guidance_provider if inbox_life_dir is not None else None
         engineer_backend = getattr(self, "engineer_backend", None) or self._backend

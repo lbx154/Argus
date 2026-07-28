@@ -593,9 +593,12 @@ def _handle_steer_control(
     life_dir: Path,
     emitter: _TurnEmitter,
 ) -> dict[str, Any]:
-    """Queue a steering directive for the running mission, or explain that no
-    directive could be extracted. Always terminal."""
+    """Persist steering and also wake the currently running mission."""
     from ..apps._inbox import queue_inbox_message
+    from ..manager.directive import (
+        active_manager_directive_message,
+        set_active_manager_directive,
+    )
 
     manager_directive = str(
         chat_state.pop("_frontdoor_steering_directive", "") or ""
@@ -610,10 +613,12 @@ def _handle_steer_control(
             {"kind": "chat", "control": "steer_unresolved"},
             message_id="steer",
         )
-    directive = (
-        "[MANAGER STEERING — highest priority for the current mission] "
-        + manager_directive
+    set_active_manager_directive(
+        life_dir,
+        manager_directive,
+        source="manager.steer",
     )
+    directive = active_manager_directive_message(life_dir)
     queue_inbox_message(
         life_dir,
         directive,
