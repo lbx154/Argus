@@ -42,9 +42,9 @@ def test_launcher_execs_node_with_bundled_ink(monkeypatch, tmp_path: Path) -> No
         lambda executable, argv: seen.update(executable=executable, argv=argv),
     )
 
-    assert tui_launcher.main(["--project", "s-test"]) == 0
+    assert tui_launcher.main(["--project", "wiki"]) == 0
     assert seen["executable"] == "/usr/bin/node"
-    assert seen["argv"] == ["/usr/bin/node", str(bundle), "--project", "s-test"]
+    assert seen["argv"] == ["/usr/bin/node", str(bundle), "--project", "wiki"]
     assert tui_launcher.os.environ["ARGUS_SKILL_BIN"] == str(backend)
     assert tui_launcher.os.environ["ARGUS_TUI_LOCAL_RELEASE_ID"] == "0.1.1+local"
     assert tui_launcher.os.environ["ARGUS_TUI_LOCAL_SOURCE_DIGEST"] == "abc123"
@@ -124,7 +124,7 @@ def test_launcher_rejects_unsupported_node(monkeypatch, tmp_path: Path, capsys) 
     assert "found 16" in capsys.readouterr().err
 
 
-def test_report_subcommand_stays_on_python_admin_path(monkeypatch) -> None:
+def test_public_admin_flags_stay_on_python_admin_path(monkeypatch) -> None:
     seen = []
     monkeypatch.setattr(
         tui_launcher,
@@ -136,5 +136,61 @@ def test_report_subcommand_stays_on_python_admin_path(monkeypatch) -> None:
         "_bundle_path",
         lambda: (_ for _ in ()).throw(AssertionError("TUI must not launch")),
     )
-    assert tui_launcher.main(["report", "metric", "--name", "score"]) == 7
-    assert seen == [["report", "metric", "--name", "score"]]
+    assert tui_launcher.main(["--setup", "--non-interactive"]) == 7
+    assert seen == [["--setup", "--non-interactive"]]
+
+
+def test_admin_subcommands_stay_on_python_admin_path(monkeypatch) -> None:
+    seen = []
+    monkeypatch.setattr(
+        tui_launcher,
+        "_run_python_admin",
+        lambda argv: seen.append(argv) or 7,
+    )
+    monkeypatch.setattr(
+        tui_launcher,
+        "_bundle_path",
+        lambda: (_ for _ in ()).throw(AssertionError("TUI must not launch")),
+    )
+    assert tui_launcher.main(["wiki", "init", "demo"]) == 7
+    assert seen == [["wiki", "init", "demo"]]
+
+
+def test_admin_flags_after_global_options_stay_on_python_admin_path(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    seen = []
+    life_dir = tmp_path / "life"
+    monkeypatch.setattr(
+        tui_launcher,
+        "_run_python_admin",
+        lambda argv: seen.append(argv) or 7,
+    )
+    monkeypatch.setattr(
+        tui_launcher,
+        "_bundle_path",
+        lambda: (_ for _ in ()).throw(AssertionError("TUI must not launch")),
+    )
+
+    assert tui_launcher.main(["--life-dir", str(life_dir), "--status"]) == 7
+    assert seen == [["--life-dir", str(life_dir), "--status"]]
+
+
+def test_admin_flags_after_capability_options_stay_on_python_admin_path(
+    monkeypatch,
+) -> None:
+    seen = []
+    monkeypatch.setattr(
+        tui_launcher,
+        "_run_python_admin",
+        lambda argv: seen.append(argv) or 7,
+    )
+    monkeypatch.setattr(
+        tui_launcher,
+        "_bundle_path",
+        lambda: (_ for _ in ()).throw(AssertionError("TUI must not launch")),
+    )
+
+    assert tui_launcher.main(["--backend", "codex", "--auth-mode", "model_api", "--doctor"]) == 7
+    assert seen == [["--backend", "codex", "--auth-mode", "model_api", "--doctor"]]

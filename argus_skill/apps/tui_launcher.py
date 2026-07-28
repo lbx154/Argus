@@ -8,6 +8,85 @@ import subprocess
 import sys
 from pathlib import Path
 
+_PYTHON_ADMIN_COMMANDS = frozenset({"wiki", "learn"})
+
+_PYTHON_ADMIN_FLAGS = frozenset(
+    {
+        "-h",
+        "--help",
+        "--version",
+        "--daemon",
+        "--daemon-fg",
+        "--daemon-stop",
+        "--status",
+        "--daemon-runbook",
+        "--config-help",
+        "--config-snapshot",
+        "--gc",
+        "--watch",
+        "--follow",
+        "--web",
+        "--notify",
+        "--init-identity",
+        "--setup",
+        "--doctor",
+        "--model-api-status",
+        "--init-model-api",
+        "--install-ppt-master",
+        "--ppt-master-status",
+        "--approve-publication",
+        "--list-pending-publications",
+        "--skill-stats",
+        "--skill-stats-json",
+        "--skill-cleanse",
+        "--export-builtin-skills",
+        "--evidence-chain-check",
+        "--anti-mediocrity-check",
+        "--lifecycle-status",
+        "--lifecycle-resume",
+        "--lifecycle-archive",
+    }
+)
+
+_PYTHON_PRE_ACTION_VALUE_OPTIONS = frozenset(
+    {
+        "--life-dir",
+        "--gc-days",
+        "--objective",
+        "--web-host",
+        "--web-port",
+        "--notify-stage",
+        "--backend",
+        "--auth-mode",
+        "--skills-dir",
+        "--project-root",
+        "--proposed-condition",
+        "--baseline-condition",
+    }
+)
+
+_PYTHON_PRE_ACTION_OPTIONAL_VALUE_OPTIONS = frozenset({"--resume"})
+
+_PYTHON_PRE_ACTION_BOOL_OPTIONS = frozenset(
+    {
+        "--drain",
+        "--force",
+        "--gc-dry-run",
+        "--no-daemon",
+        "--new",
+        "--continue",
+        "--continuous",
+        "--resume-continuous",
+        "--bounded",
+        "--non-interactive",
+        "--accept-house-rules",
+        "--allow-prerelease",
+        "--set-git-global",
+        "--configure-codex",
+        "--apply",
+    }
+)
+
 
 def _bundle_path() -> Path | None:
     explicit = os.environ.get("ARGUS_TUI_BUNDLE")
@@ -40,6 +119,31 @@ def _run_python_admin(argv: list[str]) -> int:
     from .cli._core import main as cli_main
 
     return cli_main(argv)
+
+
+def _uses_python_admin(argv: list[str]) -> bool:
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        option = arg.split("=", 1)[0] if arg.startswith("--") else arg
+        if option in _PYTHON_ADMIN_COMMANDS | _PYTHON_ADMIN_FLAGS:
+            return True
+        if option in _PYTHON_PRE_ACTION_VALUE_OPTIONS:
+            if "=" not in arg and (i + 1 >= len(argv) or argv[i + 1].startswith("-")):
+                return True
+            i += 1 if "=" in arg else 2
+            continue
+        if option in _PYTHON_PRE_ACTION_OPTIONAL_VALUE_OPTIONS:
+            if "=" not in arg and i + 1 < len(argv) and not argv[i + 1].startswith("-"):
+                i += 2
+            else:
+                i += 1
+            continue
+        if option in _PYTHON_PRE_ACTION_BOOL_OPTIONS:
+            i += 1
+            continue
+        return False
+    return False
 
 
 def _tui_local_identity() -> dict[str, object]:
@@ -76,7 +180,7 @@ def _configure_tui_backend_bin() -> None:
 
 def main(argv: list[str] | None = None) -> int:
     forwarded = list(sys.argv[1:] if argv is None else argv)
-    if forwarded[:1] == ["report"]:
+    if _uses_python_admin(forwarded):
         return _run_python_admin(forwarded)
     from ..life.special_prompts import describe_special_prompt_gate
 
