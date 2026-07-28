@@ -50,6 +50,9 @@ set +e
 timeout --signal=TERM --kill-after=300 "$TASK_TIMEOUT_SECONDS" \
   bwrap "${bwrap_args[@]}" \
     --tmpfs /tmp \
+    --tmpfs "$CAMPAIGN_ROOT" \
+    --dir "$CAMPAIGN_ROOT/projects" \
+    --dir "$project" \
     --bind "$project" "$project" \
     --ro-bind "$public" "$project/data" \
     --bind "$ARGUS_HOME" "$ARGUS_HOME" \

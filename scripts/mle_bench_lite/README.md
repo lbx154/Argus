@@ -14,6 +14,11 @@ not consume a submission. Aggregate leaderboard feedback is written back to the
 project and delivered through the Argus operator inbox, while labels and private
 files remain inaccessible.
 
+The bubblewrap mount contract also hides the whole campaign root before
+re-binding the current project. Other project workspaces, submission snapshots,
+grade history, and controller state are therefore not merely forbidden by
+prompt—they are absent from the agent filesystem.
+
 Completion is medal-gated: `campaign.py` counts a task complete only after its
 bounded run finishes and a Reviewer-approved submission earns bronze or better.
 Below-bronze tasks retain their artifacts and feedback and are automatically
