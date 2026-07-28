@@ -1,5 +1,7 @@
 {
   "current_stage": "delivery",
+  "research_target_level": "exploratory",
+  "research_target_set_at": 1785230222.4561203,
   "rollback_history": [
     {
       "at": "2026-07-27T11:34:58.482774Z",
@@ -65,6 +67,6 @@
       "status": "done"
     }
   },
-  "vertical": "software",
-  "workflow_mode": "staged"
+  "vertical": "research",
+  "workflow_mode": "direct"
 }

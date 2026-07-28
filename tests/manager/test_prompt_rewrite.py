@@ -14,6 +14,7 @@ from argus_skill.manager.prompt_rewrite import (
     rewrite_prompt,
 )
 from argus_skill.roles.prompts.manager import build_prompt_rewrite_prompt
+from argus_skill.webapi.manager_bridge import _rewrite_model_and_effort
 
 
 class _Backend:
@@ -159,6 +160,20 @@ def test_empty_draft_is_rejected_without_calling_the_model() -> None:
     result = rewrite_prompt(backend, "   ")
     assert result.error == "nothing to rewrite"
     assert backend.prompts == []
+
+
+def test_interactive_rewrite_defaults_to_gpt55_high(monkeypatch) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_REWRITE_MODEL", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_REWRITE_REASONING_EFFORT", raising=False)
+
+    assert _rewrite_model_and_effort() == ("gpt-5.5", "high")
+
+
+def test_interactive_rewrite_keeps_operator_overrides(monkeypatch) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_REWRITE_MODEL", "custom-rewrite-model")
+    monkeypatch.setenv("ARGUS_SKILL_REWRITE_REASONING_EFFORT", "xhigh")
+
+    assert _rewrite_model_and_effort() == ("custom-rewrite-model", "xhigh")
 
 
 # --- rendering -------------------------------------------------------------

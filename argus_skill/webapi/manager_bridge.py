@@ -416,6 +416,40 @@ def _rewrite_project_context(mem: Any, sid: str) -> str:
     return "\n".join(lines)
 
 
+def _rewrite_model_and_effort() -> tuple[str, str]:
+    """Resolve the interactive prompt-rewrite route independently of Manager chat."""
+    from ..agent_cli.runner_backend import normalize_runner_backend
+    from ..core.knobs import (
+        resolve_knob,
+        resolve_role_backend,
+        resolve_role_model,
+        resolve_role_reasoning_effort,
+    )
+
+    manager_model = resolve_role_model(
+        "manager",
+        role_env="ARGUS_SKILL_MANAGER_MODEL",
+    )
+    preview_model = resolve_knob(
+        "ARGUS_SKILL_REWRITE_MODEL",
+        "gpt-5.5",
+    ).value.strip()
+    if preview_model.lower() in {"", "auto", "inherit", "default"}:
+        manager_backend = normalize_runner_backend(resolve_role_backend("manager"))
+        model = (
+            "gpt-5.4-mini"
+            if manager_backend in {"codex", "copilot"}
+            else manager_model
+        )
+    else:
+        model = preview_model
+    effort = resolve_role_reasoning_effort(
+        "ARGUS_SKILL_REWRITE_REASONING_EFFORT",
+        default="high",
+    )
+    return model, effort
+
+
 def manager_rewrite(
     sid: str,
     text: str,
@@ -429,13 +463,6 @@ def manager_rewrite(
     caller keeps the operator's original text — see
     :func:`argus_skill.manager.prompt_rewrite.rewrite_prompt`.
     """
-    from ..agent_cli.runner_backend import normalize_runner_backend
-    from ..core.knobs import (
-        resolve_knob,
-        resolve_role_backend,
-        resolve_role_model,
-        resolve_role_reasoning_effort,
-    )
     from ..life.memory import MemoryBundle
     from ..manager.front_door import _ensure_manager_runner
     from ..manager.prompt_rewrite import rewrite_prompt
@@ -463,27 +490,7 @@ def manager_rewrite(
             }
         state = _chat_state_for(sid)
         runner = _ensure_manager_runner(state, mem)
-        manager_model = resolve_role_model(
-            "manager",
-            role_env="ARGUS_SKILL_MANAGER_MODEL",
-        )
-        preview_model = resolve_knob(
-            "ARGUS_SKILL_REWRITE_MODEL",
-            "auto",
-        ).value.strip()
-        if preview_model.lower() in {"", "auto", "inherit", "default"}:
-            manager_backend = normalize_runner_backend(resolve_role_backend("manager"))
-            model = (
-                "gpt-5.4-mini"
-                if manager_backend in {"codex", "copilot"}
-                else manager_model
-            )
-        else:
-            model = preview_model
-        effort = resolve_role_reasoning_effort(
-            "ARGUS_SKILL_REWRITE_REASONING_EFFORT",
-            default="low",
-        )
+        model, effort = _rewrite_model_and_effort()
         rewrite = rewrite_prompt(
             runner,
             body,
