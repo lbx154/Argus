@@ -238,6 +238,7 @@ class PlanningCycleIntakeMixin:
         self._resolve_vertical_once()
 
         artifact_root = self._artifact_root()
+        from ...core.external_completion_gate import external_completion_gate_issue
         from ...skills.vertical_select import (
             resolve_vertical,
             vertical_has_current_completion_certificate,
@@ -250,6 +251,7 @@ class PlanningCycleIntakeMixin:
             not getattr(self.config, "open_ended", False)
             and not self._effective_full_paper_gate(artifact_root)
             and vertical_has_current_completion_certificate(artifact_root, vertical)
+            and not external_completion_gate_issue(artifact_root)
             and not _research_project_done_issue(
                 artifact_root,
                 self.memory.journal.all(),

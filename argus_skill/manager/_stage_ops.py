@@ -236,6 +236,7 @@ class _StageDecisionMixin:
                 stage_order=order,
                 checklist_contract=checklist_contract,
             )
+            from ..core.external_completion_gate import external_completion_gate_issue
             from ..core.research_contract import resolve_research_target_level
             from ..skills.vertical_select import resolve_vertical
 
@@ -249,6 +250,7 @@ class _StageDecisionMixin:
                 mission_scope=mission_scope,
                 research_target_level=_research_target_level,
                 checklist_contract=checklist_contract,
+                completion_blocker=external_completion_gate_issue(root),
                 trigger_diagnostic=decision.diagnostic,
                 trigger_reason=decision.reason,
             )
@@ -306,6 +308,7 @@ class _StageDecisionMixin:
 
         decision = parse_stage_decision(raw, current_stage=cur, stage_order=order)
 
+        from ..core.external_completion_gate import external_completion_gate_issue
         from ..core.research_contract import resolve_research_target_level
         from ..skills.vertical_select import resolve_vertical
 
@@ -325,6 +328,7 @@ class _StageDecisionMixin:
             mission_scope=mission_scope,
             research_target_level=_research_target_level,
             checklist_contract=checklist_contract,
+            completion_blocker=external_completion_gate_issue(root),
             trigger_diagnostic=(
                 "" if decision.action == "hold" else decision.diagnostic
             ),

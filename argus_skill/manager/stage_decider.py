@@ -330,6 +330,7 @@ def final_stage_completion_decision(
     mission_scope: str = "",
     research_target_level: str | None = None,
     checklist_contract: Any | None = None,
+    completion_blocker: str = "",
     trigger_diagnostic: str = "",
     trigger_reason: str = "",
 ) -> StageDecision | None:
@@ -337,6 +338,8 @@ def final_stage_completion_decision(
     cur = (current_stage or "").strip().lower()
     order = [str(s).strip().lower() for s in stage_order]
     if not order or cur != order[-1]:
+        return None
+    if str(completion_blocker or "").strip():
         return None
     if not _mission_scope_can_complete(mission_scope, vertical):
         return None

@@ -214,6 +214,46 @@ class PlanningCycleCompletionMixin:
                     new_tasks=[],
                 )
 
+        if verdict.project_done:
+            from ...core.external_completion_gate import external_completion_gate_issue
+            from ...planner import TaskSpec
+
+            external_gate_issue = external_completion_gate_issue(self._artifact_root())
+            if external_gate_issue:
+                verdict = replace(
+                    verdict,
+                    project_done=False,
+                    reason=(
+                        f"Project completion held: {external_gate_issue}. "
+                        "Continue improving the operator-requested outcome; the "
+                        "external controller alone owns this gate."
+                    ),
+                    new_tasks=[
+                        TaskSpec(
+                            title="Continue work until the external completion gate passes",
+                            objective=(
+                                f"The project may not complete because {external_gate_issue}. "
+                                "Read the controller-provided aggregate feedback and continue "
+                                "the original operator objective with a new evidence-backed "
+                                "mechanism. Do not edit, synthesize, or bypass the gate file. "
+                                "Obtain independent Reviewer approval for any new candidate."
+                            ),
+                            impact_score=5,
+                            impact_area="requirement_gap",
+                            evidence=external_gate_issue,
+                            acceptance_check=(
+                                "The configured external completion gate is controller-written "
+                                "and reports its required boolean as true."
+                            ),
+                            non_goals=[
+                                "Edit or fabricate the external completion gate.",
+                                "Declare completion based only on an internal stage certificate.",
+                            ],
+                            scope="bounded",
+                        )
+                    ],
+                )
+
         staged_goal_candidate = bool(
             verdict.project_done
             or (not planner_declared_done and not verdict.waiting and not verdict.new_tasks)
