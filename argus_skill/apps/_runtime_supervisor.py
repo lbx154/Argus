@@ -43,12 +43,18 @@ def _paper_mission_for_project_root(project_root: Path | str) -> bool:
     is required here.
     """
     try:
-        from ..skills.vertical_select import _persisted_vertical
+        from ..skills.vertical_select import _persisted_vertical, resolve_workflow_mode
         from ..verticals._base import load_vertical, vertical_completion_gate
 
         root = Path(project_root).expanduser()
         persisted = _persisted_vertical(root)
         if persisted is None:
+            return False
+        # Direct orchestration is a bounded one-mission contract. A research
+        # vertical selected only for subject-matter context (for example,
+        # summarizing one supplied paper) must not inherit the long-horizon
+        # paper/venue pipeline.
+        if resolve_workflow_mode(root) == "direct":
             return False
         vertical = persisted
         return vertical_completion_gate(load_vertical(vertical, project_root=root)) == "full_paper"

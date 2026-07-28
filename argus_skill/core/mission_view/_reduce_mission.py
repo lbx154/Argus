@@ -84,6 +84,7 @@ def reduce_mission_lifecycle_event(
         # but operators and supervision tooling must not mistake it for current
         # evidence.
         view["review"] = {"status": "", "reason": "", "rejected_attempts": 0}
+        view["outcome"] = {}
         _set_role(view, "reviewer", "waiting", "Awaiting engineer handoff", ts)
         _set_role(view, "engineer", "active", "Starting mission", ts)
         _timeline(view, event, role="engineer", title="Mission started", detail=_text(event, "title"), tone="info")

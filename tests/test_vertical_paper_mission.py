@@ -36,6 +36,11 @@ def test_persisted_research_project_is_paper(tmp_path) -> None:
     assert _paper_mission_for_project_root(tmp_path) is True
 
 
+def test_direct_research_project_is_not_a_paper_mission(tmp_path) -> None:
+    persist_vertical(tmp_path, "research", workflow_mode="direct")
+    assert _paper_mission_for_project_root(tmp_path) is False
+
+
 def test_persisted_bounded_vertical_is_not_paper(tmp_path) -> None:
     persist_vertical(tmp_path, "kernelbench")
     assert _paper_mission_for_project_root(tmp_path) is False

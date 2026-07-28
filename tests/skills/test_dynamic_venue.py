@@ -12,6 +12,7 @@ import pytest
 
 from argus_skill.core.models import RunnerResult
 from argus_skill.loop import SkillLoop, SkillLoopConfig
+from argus_skill.skills.loop_skill_selection import SkillSelectionMixin
 from argus_skill.skills.venue_profiles import (
     AAAI_PROFILE,
     EMNLP_PROFILE,
@@ -42,6 +43,17 @@ def _neurips() -> VenueProfile:
         reviewer_persona="NeurIPS",
         figure_style_persona="NeurIPS",
         mandatory_end_sections=(),
+    )
+
+
+def test_direct_workflow_skips_venue_research(tmp_path: Path) -> None:
+    owner = SimpleNamespace(
+        config=SimpleNamespace(workflow_mode="direct", paper_mission=True),
+    )
+
+    SkillSelectionMixin._run_venue_research(
+        owner,
+        SimpleNamespace(workdir=tmp_path),
     )
 
 

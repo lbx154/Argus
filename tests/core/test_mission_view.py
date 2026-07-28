@@ -289,6 +289,22 @@ def test_new_mission_resets_prior_review_projection(tmp_path: Path) -> None:
         status="done",
         reason="First mission accepted.",
     )
+    prior = emit(
+        tmp_path,
+        "life.mission.completed",
+        2.5,
+        item_id="mission-1",
+        title="First mission",
+        status="failed",
+        success=False,
+        outcome={
+            "execution_status": "paused",
+            "review_status": "continue",
+            "interruption_kind": "backend_unavailable",
+            "resumable": True,
+        },
+    )
+    assert prior["outcome"]["interruption_kind"] == "backend_unavailable"
 
     view = emit(
         tmp_path,
@@ -302,6 +318,7 @@ def test_new_mission_resets_prior_review_projection(tmp_path: Path) -> None:
     roles = {role["role"]: role for role in view["roles"]}
     assert view["mission"]["id"] == "mission-2"
     assert view["review"] == {"status": "", "reason": "", "rejected_attempts": 0}
+    assert view["outcome"] == {}
     assert roles["reviewer"]["status"] == "waiting"
     assert roles["reviewer"]["label"] == "Awaiting engineer handoff"
     assert roles["engineer"]["status"] == "active"

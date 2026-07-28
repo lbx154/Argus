@@ -317,6 +317,8 @@ class SkillSelectionMixin:
         # Venue selection/format research must happen BEFORE skill matching. If a
         # missing/non-built-in venue is researched after matcher exclusion, the
         # same mission still hides the newly relevant venue-specific skills.
+        if self.config.workflow_mode == "direct":
+            return
         if os.environ.get("ARGUS_SKILL_VENUE_RESEARCH", "1").strip().lower() not in (
             "0",
             "false",
