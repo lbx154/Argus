@@ -10,6 +10,8 @@
   `PRIVATE_LEADERBOARD_FEEDBACK.json` is the only allowed private feedback.
 - Every new submission must pass Reviewer approval. Grading is external and may
   occur multiple times for distinct approved submission hashes.
+- Reviewer must not certify project completion until `MLE_MEDAL_GATE.json`
+  exists with `satisfied: true` (bronze medal or better).
 - Keep code and artifacts inside this project root.
 - Preserve failed approaches and produce reusable reviewed learning for later
   Lite tasks when warranted.

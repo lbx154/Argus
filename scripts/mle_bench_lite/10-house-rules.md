@@ -9,5 +9,7 @@
 - New submissions require independent Reviewer approval. External grading may
   occur multiple times for distinct approved hashes, and its aggregate feedback
   may guide later experiments just as in a human competition workflow.
+- A task is complete only when `MLE_MEDAL_GATE.json` reports `satisfied: true`;
+  Reviewer must keep the project open below the bronze threshold.
 - Preserve reproducible code, manifests, failed approaches and reusable
   reviewed learning for later Lite tasks.

@@ -14,6 +14,11 @@ not consume a submission. Aggregate leaderboard feedback is written back to the
 project and delivered through the Argus operator inbox, while labels and private
 files remain inaccessible.
 
+Completion is medal-gated: `campaign.py` counts a task complete only after its
+bounded run finishes and a Reviewer-approved submission earns bronze or better.
+Below-bronze tasks retain their artifacts and feedback and are automatically
+requeued for another bounded campaign.
+
 The official repository pins legacy `kaggle<1.7`, while this deployment uses a
 new-style `access_token`. A minimal local patch changes only MLE-Bench's raw
 download call to the authenticated Kaggle CLI 2.x. Official preparation,

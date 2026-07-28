@@ -167,6 +167,7 @@ def feedback_markdown(competition: str, entries: list[dict[str, Any]]) -> str:
                 f"- Valid submission: `{report.get('valid_submission')}`",
                 f"- Lower is better: `{report.get('is_lower_better')}`",
                 f"- Above median: `{report.get('above_median')}`",
+                f"- Minimum completion gate (bronze or better): `{report.get('any_medal')}`",
                 f"- Medal: gold=`{report.get('gold_medal')}`, silver=`{report.get('silver_medal')}`, bronze=`{report.get('bronze_medal')}`",
                 f"- Thresholds: gold=`{report.get('gold_threshold')}`, silver=`{report.get('silver_threshold')}`, bronze=`{report.get('bronze_threshold')}`, median=`{report.get('median_threshold')}`",
                 f"- Reviewer reason: {entry.get('review_reason', '').strip()}",
@@ -189,6 +190,22 @@ def write_feedback(project: Path, competition: str, history: list[dict[str, Any]
         "updated_at": time.time(),
     }
     atomic_json(project / "PRIVATE_LEADERBOARD_FEEDBACK.json", payload)
+    latest_report = entries[-1].get("report") or {}
+    atomic_json(
+        project / "MLE_MEDAL_GATE.json",
+        {
+            "schema_version": 1,
+            "competition": competition,
+            "minimum": "bronze",
+            "satisfied": bool(latest_report.get("any_medal")),
+            "score": latest_report.get("score"),
+            "is_lower_better": latest_report.get("is_lower_better"),
+            "bronze_threshold": latest_report.get("bronze_threshold"),
+            "submission_number": entries[-1].get("submission_number"),
+            "submission_sha256": entries[-1].get("submission_sha256"),
+            "updated_at": time.time(),
+        },
+    )
     md = project / "PRIVATE_LEADERBOARD_FEEDBACK.md"
     tmp = md.with_suffix(md.suffix + ".tmp")
     tmp.write_text(feedback_markdown(competition, entries))
@@ -202,10 +219,12 @@ def notify_agent(project: Path, entry: dict[str, Any]) -> dict[str, Any]:
         f"Submission #{entry['submission_number']} received private leaderboard score "
         f"{report.get('score')} (above_median={report.get('above_median')}, "
         f"gold={report.get('gold_medal')}, silver={report.get('silver_medal')}, "
-        f"bronze={report.get('bronze_medal')}). Read PRIVATE_LEADERBOARD_FEEDBACK.json. "
+        f"bronze={report.get('bronze_medal')}, minimum_gate={report.get('any_medal')}). "
+        "Read PRIVATE_LEADERBOARD_FEEDBACK.json and MLE_MEDAL_GATE.json. "
         "You may use this aggregate feedback for the next experiment, but private labels, "
         "answers, grader internals, and prepared/private remain forbidden. A new submission "
-        "must again pass independent Reviewer approval."
+        "must again pass independent Reviewer approval. The project must not complete until "
+        "MLE_MEDAL_GATE.json has satisfied=true (bronze or better)."
     )
     env = os.environ.copy()
     env["ARGUS_SKILL_HOME"] = str(ARGUS_HOME)
@@ -366,6 +385,10 @@ def main() -> int:
     except (OSError, json.JSONDecodeError):
         state = {}
     state.update({"pid": os.getpid(), "started_at": time.time(), "policy": "reviewer-approved"})
+    for competition in competitions:
+        project = CAMPAIGN_ROOT / "projects" / competition
+        if project.is_dir():
+            write_feedback(project, competition, history)
     atomic_json(STATE, state)
 
     while True:

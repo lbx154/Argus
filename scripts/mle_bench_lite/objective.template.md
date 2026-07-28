@@ -28,6 +28,12 @@ external controller grades it and returns aggregate private-leaderboard feedback
 Use that feedback like a human competitor, but every later submission must again
 pass independent Reviewer approval.
 
+Minimum completion contract: this project is not complete until the latest
+controller-generated `MLE_MEDAL_GATE.json` has `satisfied: true`, meaning a
+bronze medal or better. Reviewer may approve a candidate for grading before this
+gate is met, but must reject final project completion while the gate is absent
+or false.
+
 This run is part of a fixed-model self-evolution sequence. Reuse relevant shared
 Skills/Wiki knowledge from earlier competitions. When this task yields a
 genuinely reusable MLE procedure or failure diagnosis, maintain it in the

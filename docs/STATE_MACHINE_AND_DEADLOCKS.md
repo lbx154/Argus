@@ -18,6 +18,12 @@ Argus 常被当成"一个状态机"讨论,实际有四层各自独立演进的�
 | **项目完成层** | `lifecycle.json` / completion certificate | `core/project_api.py::complete_project` 是唯一 DONE 写入口 | `core/project_api.py`、`life/project_lifecycle*.py` |
 | **战役层** | `continuous.json` 的 `enabled`、objective 和 generation | operator/Manager dispatch；Planner 提供 `project_done` 建议 | `daemon/state.py`、`life/supervisor/` |
 
+战役终态还受 lifetime 合同约束：`LifeSupervisor` 返回
+`stopped_by=project_done` 后，daemon 必须先持久化 continuous generation 的完成状态并执行
+一次既有 self-maintenance handoff；随后 **bounded** daemon 立即 clean exit，
+**open-ended** daemon 才继续驻留等待新 operator 输入。外层 worker 不得忽略 bounded
+`project_done` 并重新进入 drain pass，否则会重复规划已完成项目、浪费 token，并占住调度槽。
+
 ---
 
 ## 2. 任务层:17 个状态

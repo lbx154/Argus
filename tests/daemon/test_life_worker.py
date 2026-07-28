@@ -2307,6 +2307,84 @@ def test_project_done_is_persisted_before_self_maintenance_handoff(
     assert after.done_reason == "planner declared project done"
 
 
+def test_bounded_daemon_exits_after_project_done(
+    tmp_path: Path,
+) -> None:
+    worker = LifeWorker(
+        LifeWorkerConfig(
+            life_dir=tmp_path,
+            backend="memory",
+            project_workdir=tmp_path,
+            poll_interval=0.0,
+            continuous_open_ended=False,
+        )
+    )
+    worker._self_maintenance = None
+    worker._curator = None
+    calls = 0
+
+    class FakeSupervisor:
+        config = SimpleNamespace(budget=SimpleNamespace(can_start=lambda **_kwargs: (True, "")))
+        _missions_started = 0
+        _planning_cycles = 0
+
+        def run(self):
+            nonlocal calls
+            calls += 1
+            return {"stopped_by": "project_done"}
+
+    rf_state = SimpleNamespace(
+        runtime_root=tmp_path,
+        cfg=worker.config,
+        runner=SimpleNamespace(manager=None),
+        sup=FakeSupervisor(),
+    )
+
+    worker._rf_main_loop(rf_state)
+
+    assert calls == 1
+
+
+def test_open_ended_daemon_stays_resident_after_project_done(
+    tmp_path: Path,
+) -> None:
+    worker = LifeWorker(
+        LifeWorkerConfig(
+            life_dir=tmp_path,
+            backend="memory",
+            project_workdir=tmp_path,
+            poll_interval=0.0,
+            continuous_open_ended=True,
+        )
+    )
+    worker._self_maintenance = None
+    worker._curator = None
+    calls = 0
+
+    class FakeSupervisor:
+        config = SimpleNamespace(budget=SimpleNamespace(can_start=lambda **_kwargs: (True, "")))
+        _missions_started = 0
+        _planning_cycles = 0
+
+        def run(self):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                worker._stop.set()
+            return {"stopped_by": "project_done"}
+
+    rf_state = SimpleNamespace(
+        runtime_root=tmp_path,
+        cfg=worker.config,
+        runner=SimpleNamespace(manager=None),
+        sup=FakeSupervisor(),
+    )
+
+    worker._rf_main_loop(rf_state)
+
+    assert calls == 2
+
+
 def test_operator_stop_freezes_adopted_generation_before_reload(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

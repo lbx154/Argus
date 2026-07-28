@@ -312,6 +312,18 @@ class LifeWorkerRunMixin:
                                 self._self_maintenance.mark_handoff_failed(
                                     "canary failed and rollback did not reach standby"
                                 )
+                    # A bounded campaign owns exactly one terminal objective.
+                    # The supervisor has already persisted project_done and the
+                    # maintenance hooks above have had their one clean handoff
+                    # opportunity, so another drain pass can only re-open a
+                    # completed project and waste tokens. Open-ended daemons keep
+                    # their resident behavior unchanged.
+                    if (
+                        summary.get("stopped_by") == "project_done"
+                        and not rf_state.cfg.continuous_open_ended
+                    ):
+                        log.info("daemon: bounded project completed; exiting cleanly")
+                        break
                     # Idle auto-exit: the supervisor judged the project idle past
                     # the cap. Exit the loop so the process shuts down cleanly
                     # (the shutdown distillation below runs) — the session model
