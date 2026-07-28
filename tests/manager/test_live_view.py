@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import fcntl
 import json
+import threading
 
 import pytest
 
@@ -214,6 +216,44 @@ def test_manager_presentation_is_written_by_confined_harness(tmp_path) -> None:
     assert (tmp_path / ".argus" / "live" / "current.md").read_text(
         encoding="utf-8"
     ).startswith("# Current result")
+
+
+def test_manager_rendering_does_not_reenter_wiki_lock(tmp_path) -> None:
+    wiki_lock = tmp_path / ".autors" / "demo" / "wiki" / "data" / ".wiki.lock"
+    wiki_lock.parent.mkdir(parents=True)
+    raw = json.dumps({
+        "live_view": {
+            "title": "Manager view",
+            "reason": "Must remain independent of wiki maintenance.",
+            "paths": [".argus/live/current.md"],
+        },
+        "presentations": [{
+            "path": ".argus/live/current.md",
+            "content": "# Current result\n",
+        }],
+    })
+    completed = threading.Event()
+    errors: list[BaseException] = []
+
+    def render() -> None:
+        try:
+            apply_manager_rendering_response(tmp_path, raw)
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            completed.set()
+
+    with wiki_lock.open("a+b") as holder:
+        fcntl.flock(holder.fileno(), fcntl.LOCK_EX)
+        worker = threading.Thread(target=render, daemon=True)
+        worker.start()
+        finished_while_locked = completed.wait(timeout=2.0)
+        fcntl.flock(holder.fileno(), fcntl.LOCK_UN)
+
+    worker.join(timeout=2.0)
+    assert finished_while_locked, "Manager rendering waited on the wiki lock"
+    assert not errors
+    assert not worker.is_alive()
 
 
 def test_missing_manager_markdown_presentation_gets_truthful_fallback(tmp_path) -> None:
