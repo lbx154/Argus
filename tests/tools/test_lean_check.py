@@ -267,7 +267,10 @@ def test_lean_audit_timeout_records_killed_exit(tmp_path: Path) -> None:
     result = run_lean_check(
         _source(tmp_path),
         lean_bin=str(_fake_lean(tmp_path, "audit-timeout")),
-        timeout_seconds=0.05,
+        # Leave enough time for the fake Python compiler to start and exit;
+        # only its ``--run`` audit path sleeps for five seconds. A 50 ms shared
+        # timeout flakes under host load by killing the compile phase instead.
+        timeout_seconds=0.5,
     )
 
     assert result["status"] == "timeout"

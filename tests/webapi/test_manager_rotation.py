@@ -335,6 +335,43 @@ def test_web_process_restart_seeds_one_startup_handoff(
     assert classified == ["new question", "next question"]
 
 
+def test_status_snapshot_preserves_warm_session_and_pending_handoff(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _make_project(tmp_path, "s-status001")
+    manager_bridge._STATES.clear()
+    state = manager_bridge._chat_state_for("s-status001")
+    state.update({
+        "turns": 4,
+        "last_thread_id": "warm-thread",
+        "needs_startup_handoff": True,
+    })
+    model_calls: list[str] = []
+    monkeypatch.setattr(
+        "argus_skill.manager.config_intent._front_door_classify",
+        lambda *_args, **_kwargs: model_calls.append("classify"),
+    )
+    monkeypatch.setattr(
+        "argus_skill.manager.front_door.manager_triage",
+        lambda *_args, **_kwargs: model_calls.append("triage"),
+    )
+
+    result = manager_bridge.manager_message(
+        "s-status001",
+        "What is the current status?",
+        global_root=tmp_path,
+    )
+
+    assert result["kind"] == "chat"
+    assert "Current live status:" in result["reply"]
+    assert model_calls == []
+    assert state["turns"] == 4
+    assert state["last_thread_id"] == "warm-thread"
+    assert state["needs_startup_handoff"] is True
+    assert int(state.get("rotations", 0)) == 0
+
+
 def test_natural_language_config_change_is_applied_inline(tmp_path: Path, monkeypatch) -> None:
     """The cockpit front-door is a full NL control surface: a hyperparameter
     request ("set the engineer to xhigh") is applied + confirmed inline, never
@@ -370,10 +407,11 @@ def test_natural_language_config_change_is_applied_inline(tmp_path: Path, monkey
     assert "xhigh" in r["reply"]
     assert triaged == []  # config short-circuits BEFORE triage — not enqueued
 
-    # A non-config message flows on to triage as normal (with the precomputed route).
+    # A pure status read bypasses both config classification and model triage.
     r2 = manager_bridge.manager_message("s-cfg00001", "how's it going?", global_root=tmp_path)
     assert r2["kind"] == "chat"
-    assert triaged == ["how's it going?"]
+    assert "Current live status:" in r2["reply"]
+    assert triaged == []
 
 
 def test_active_mission_config_change_is_still_applied_inline(
