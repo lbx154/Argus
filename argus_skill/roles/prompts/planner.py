@@ -63,6 +63,12 @@ Engineer owns edits, state-changing commands, builds, and tests.
   Use `TASK_REQUIRE_INDEPENDENT_REVIEW=true`,
   `TASK_SKIP_STAGE_TRANSITION=true`, and `TASK_STAGE_CLOSING=false` only for
   review-only bounded work that must not invoke the lifecycle stage writer.
+  `TASK_SKIP_STAGE_TRANSITION=true` is rejected in any other combination; when
+  unsure emit `TASK_SKIP_STAGE_TRANSITION=false`.
+  `TASK_CONTEXT_REFS` may only name files that already exist on disk right now.
+  A ref to an artifact a dependency task still has to produce is silently
+  dropped, so describe such artifacts in `TASK_OBJECTIVE` and
+  `TASK_ACCEPTANCE_CHECK` instead.
   Never suppress stage transition for a stage-closing task. Omit task blocks
   only for a genuine wait under the waiting contract.
 """

@@ -227,7 +227,11 @@ class Planner:
         open_ended_done = bool(cfg.open_ended and verdict.project_done)
         if open_ended_done:
             rejection = OPEN_ENDED_PROJECT_DONE_ERROR
-        if rejection == NO_CONCRETE_TASKS_ERROR or open_ended_done:
+        # Any host rejection that left us without usable tasks is repairable in
+        # place. Dropping the cycle instead would burn a full planning turn and
+        # replay the same mistake next cycle, because the next cycle starts from
+        # a fresh thread that never sees this rejection.
+        if rejection and (open_ended_done or not verdict.new_tasks):
             return self._repair_no_task_verdict(
                 original_prompt=prompt,
                 previous_raw_text=text,
@@ -494,7 +498,14 @@ def hydrate_task_context_refs(
     context_refs: list[dict[str, str]],
     project_root: Path | str,
 ) -> list[dict[str, str]]:
-    """Validate project-local file refs and attach host-only content hashes."""
+    """Validate project-local file refs and attach host-only content hashes.
+
+    Unsafe refs (non-objects, absolute paths, project-root escapes, unreadable
+    files) stay hard errors. A ref that simply does not exist yet is DROPPED
+    instead: a Planner legitimately points a downstream task at an artifact an
+    upstream task in the same batch is going to produce, and failing the whole
+    batch over that would stall planning without ever telling the model why.
+    """
     root = Path(project_root).expanduser().resolve()
     hydrated: list[dict[str, str]] = []
     for raw_ref in context_refs:
@@ -508,7 +519,7 @@ def hydrate_task_context_refs(
         if root not in resolved.parents:
             raise ValueError(f"Planner context ref escapes the project root: {target}")
         if not resolved.is_file():
-            raise ValueError(f"Planner context ref is not an existing file: {target}")
+            continue
         digest = hashlib.sha256()
         try:
             with resolved.open("rb") as handle:
@@ -568,6 +579,15 @@ def _build_no_task_repair_prompt(
         "`PROJECT_DONE=false`, `REASON=...`, and at least one concrete task block: "
         "`TASK_KEY=...`, `TASK_TITLE=...`, `TASK_OBJECTIVE=...`; include "
         "`TASK_ACCEPTANCE_CHECK=...` when a decisive check is known.\n"
+        "- Every task block must carry all four control fields: `TASK_SCOPE`, "
+        "`TASK_STAGE_CLOSING`, `TASK_REQUIRE_INDEPENDENT_REVIEW`, "
+        "`TASK_SKIP_STAGE_TRANSITION`. `TASK_SKIP_STAGE_TRANSITION=true` is only "
+        "legal together with `TASK_REQUIRE_INDEPENDENT_REVIEW=true`, "
+        "`TASK_STAGE_CLOSING=false` and `TASK_SCOPE=bounded`; when unsure emit "
+        "`TASK_SKIP_STAGE_TRANSITION=false`.\n"
+        "- `TASK_CONTEXT_REFS` may only name files that already exist right now. "
+        "Describe artifacts a dependency task still has to produce in "
+        "`TASK_OBJECTIVE`/`TASK_ACCEPTANCE_CHECK` instead.\n"
         "- If the project is intentionally blocked on a live external condition, "
         "use `WAITING=true` with a durable blocker fingerprint, recheck condition, "
         "and recheck token instead of emitting tasks.\n"
