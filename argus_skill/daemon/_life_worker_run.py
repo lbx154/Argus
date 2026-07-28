@@ -217,6 +217,26 @@ class LifeWorkerRunMixin:
                     pipeline_lock = lock_factory() if callable(lock_factory) else nullcontext()
                     with pipeline_lock:
                         summary = rf_state.sup.run()
+                        # Persist the planner's terminal decision before any
+                        # optional self-maintenance. A maintenance handoff may
+                        # rewrite stopped_by or raise; neither may resurrect a
+                        # campaign the Planner already completed.
+                        if summary.get("stopped_by") == "project_done":
+                            current = read_continuous_state(rf_state.runtime_root)
+                            if (
+                                current.enabled
+                                and self._adopted_continuous_generation is not None
+                                and current.generation
+                                == self._adopted_continuous_generation
+                                and compare_and_swap_continuous_config(
+                                    rf_state.runtime_root,
+                                    expected=current,
+                                    enabled=False,
+                                    objective=current.objective,
+                                    done_reason="planner declared project done",
+                                )
+                            ):
+                                self._adopted_continuous_generation = None
                         if self._self_maintenance is not None:
                             pr_result = self._self_maintenance.reconcile_pull_request()
                             if pr_result.startswith("rollback:"):
@@ -286,23 +306,6 @@ class LifeWorkerRunMixin:
                                 self._self_maintenance.mark_handoff_failed(
                                     "canary failed and rollback did not reach standby"
                                 )
-                    # When planner declares project done, persist to disk
-                    # so we don't re-plan the same objective next loop.
-                    if summary.get("stopped_by") == "project_done":
-                        current = read_continuous_state(rf_state.runtime_root)
-                        if (
-                            current.enabled
-                            and self._adopted_continuous_generation is not None
-                            and current.generation == self._adopted_continuous_generation
-                            and compare_and_swap_continuous_config(
-                                rf_state.runtime_root,
-                                expected=current,
-                                enabled=False,
-                                objective=current.objective,
-                                done_reason="planner declared project done",
-                            )
-                        ):
-                            self._adopted_continuous_generation = None
                     # Idle auto-exit: the supervisor judged the project idle past
                     # the cap. Exit the loop so the process shuts down cleanly
                     # (the shutdown distillation below runs) — the session model

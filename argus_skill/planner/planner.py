@@ -61,6 +61,9 @@ class TaskSpec:
     acceptance_check: str = ""
     non_goals: list[str] = field(default_factory=list)
     context_refs: list[dict[str, str]] = field(default_factory=list)
+    # Durable identity for a known blocking condition. Unlike title/objective,
+    # this must remain unchanged when the task is merely reworded.
+    blocker_fingerprint: str = ""
     scope: str = TASK_SCOPE_BOUNDED
     # A mission expected to satisfy the current-stage gate must receive an
     # independent Reviewer verdict so the Manager gets per-item evidence.
@@ -350,6 +353,7 @@ _KEY_VALUE_KEYS = (
     "TASK_IMPACT_AREA",
     "TASK_EVIDENCE",
     "TASK_ACCEPTANCE_CHECK",
+    "TASK_BLOCKER_FINGERPRINT",
     "TASK_NON_GOALS",
     "TASK_SCOPE",
     "TASK_STAGE_CLOSING",
@@ -489,7 +493,11 @@ def _build_no_task_repair_prompt(
         "- If work remains and is legal in the current stage, end with "
         "`PROJECT_DONE=false`, `REASON=...`, and at least one concrete task block: "
         "`TASK_KEY=...`, `TASK_TITLE=...`, `TASK_OBJECTIVE=...`; include "
-        "`TASK_ACCEPTANCE_CHECK=...` when a decisive check is known.\n"
+        "`TASK_ACCEPTANCE_CHECK=...` when a decisive check is known. For a task "
+        "that targets a known blocking condition, also include a stable "
+        "`TASK_BLOCKER_FINGERPRINT=...` and reuse it unchanged if the title or "
+        "wording changes. When revisiting a failed non-resumable backlog item, "
+        "use `item:<item_id>`; leave it blank for ordinary work.\n"
         "- If the project is intentionally blocked on a live external condition, "
         "use `WAITING=true` with a durable blocker fingerprint, recheck condition, "
         "and recheck token instead of emitting tasks.\n"
@@ -576,6 +584,9 @@ def parse_planner_text(text: str) -> PlannerVerdict:
                 impact_area=row.get("TASK_IMPACT_AREA", "").strip(),
                 evidence=row.get("TASK_EVIDENCE", "").strip(),
                 acceptance_check=row.get("TASK_ACCEPTANCE_CHECK", "").strip(),
+                blocker_fingerprint=row.get(
+                    "TASK_BLOCKER_FINGERPRINT", ""
+                ).strip(),
                 non_goals=[
                     item.strip()
                     for item in row.get("TASK_NON_GOALS", "").split("|")

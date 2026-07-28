@@ -29,6 +29,7 @@ from ._constants import (
 )
 from ._helpers import (
     _entry_task_signature,
+    _normalize_blocker_fingerprint,
     _planner_task_signature,
     _resolve_task_dep_ids,
     _sanitize_planner_task_text,
@@ -62,6 +63,7 @@ class PlanningCycleEnqueueMixin:
 
         seen_signatures: dict[tuple[str, ...], BacklogItem] = {}
         active_base_signatures: dict[tuple[str, ...], BacklogItem] = {}
+        terminal_blocker_fingerprints: dict[str, BacklogItem] = {}
         revision_active_ids = {item.id for item in state.revision_active_items}
         for existing in state.existing_items:
             if existing.id in revision_active_ids:
@@ -72,6 +74,19 @@ class PlanningCycleEnqueueMixin:
                 and not terminal_blocker
             ):
                 continue
+            if terminal_blocker:
+                terminal_blocker_fingerprints.setdefault(
+                    f"item:{existing.id.lower()}",
+                    existing,
+                )
+                blocker_fingerprint = _normalize_blocker_fingerprint(
+                    existing.blocker_fingerprint
+                )
+                if blocker_fingerprint:
+                    terminal_blocker_fingerprints.setdefault(
+                        blocker_fingerprint,
+                        existing,
+                    )
             signature = _planner_task_signature(
                 existing.title,
                 existing.objective,
@@ -96,6 +111,7 @@ class PlanningCycleEnqueueMixin:
 
         state.seen_signatures = seen_signatures
         state.active_base_signatures = active_base_signatures
+        state.terminal_blocker_fingerprints = terminal_blocker_fingerprints
         state.recent_failures = self._recent_no_progress_failures()
         state.new_plan_id = f"plan-{BacklogItem.new_id()}"
         state.new_plan_version = (
@@ -223,6 +239,9 @@ class PlanningCycleEnqueueMixin:
                 scope=canonical_scope,
                 acceptance_check=canonical_acceptance,
                 context_refs=canonical_context_refs,
+                blocker_fingerprint=_normalize_blocker_fingerprint(
+                    getattr(task, "blocker_fingerprint", "")
+                ),
                 require_independent_review=canonical_require_review,
             )
             signature = _planner_task_signature(
@@ -238,11 +257,19 @@ class PlanningCycleEnqueueMixin:
                 ),
             )
             base_signature = signature
-            duplicate_item = state.active_base_signatures.get(
+            terminal_duplicate = None
+            if task.blocker_fingerprint:
+                terminal_duplicate = state.terminal_blocker_fingerprints.get(
+                    task.blocker_fingerprint
+                )
+            duplicate_item = terminal_duplicate or state.active_base_signatures.get(
                 base_signature
             ) or state.seen_signatures.get(signature)
-            if duplicate_item is not None and self._gate_reproposal_is_not_a_duplicate(
-                task, duplicate_item
+            terminal_fingerprint_match = terminal_duplicate is not None
+            if (
+                duplicate_item is not None
+                and not terminal_fingerprint_match
+                and self._gate_reproposal_is_not_a_duplicate(task, duplicate_item)
             ):
                 duplicate_item = None
             if duplicate_item is not None:
@@ -366,6 +393,9 @@ class PlanningCycleEnqueueMixin:
                 plan_version=state.new_plan_version,
                 node_key=str(getattr(task, "key", "") or item_id),
                 context_refs=list(getattr(task, "context_refs", []) or []),
+                blocker_fingerprint=str(
+                    getattr(task, "blocker_fingerprint", "") or ""
+                ),
                 acceptance_check=str(getattr(task, "acceptance_check", "") or ""),
                 non_goals=list(getattr(task, "non_goals", []) or []),
                 original_objective=str(

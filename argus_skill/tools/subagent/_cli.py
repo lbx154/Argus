@@ -88,7 +88,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
         }))
         return 1
 
-    cwd = args.cwd or os.getcwd()
+    cwd = str(Path(args.cwd or os.getcwd()).expanduser().resolve())
     mode = getattr(args, "mode", "direct") or "direct"
     run_id = f"{task_id}-{time.time_ns()}"
 
@@ -99,8 +99,8 @@ def cmd_submit(args: argparse.Namespace) -> int:
     # observable instead of a black box.
     run_dir = getattr(args, "run_dir", None) or _run_dir_from_command(args.command)
     if run_dir:
-        rp = Path(run_dir)
-        run_dir = str(rp if rp.is_absolute() else Path(cwd) / rp)
+        rp = Path(run_dir).expanduser()
+        run_dir = str((rp if rp.is_absolute() else Path(cwd) / rp).resolve())
 
     # Forced-discussion gate: while a supervisor is parked on an OPEN discussion
     # (it stopped a run and is waiting on the engineer), block launching new runs

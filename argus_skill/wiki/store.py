@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 import os
-import time
 import uuid
 from contextlib import contextmanager
 from datetime import date
@@ -12,6 +11,7 @@ from typing import Iterator, TypeVar
 
 import yaml
 
+from ..core.file_lock import exclusive_file_lock
 from .schema import (
     PageCard,
     SourceNote,
@@ -86,27 +86,16 @@ class WikiStore:
 
     @contextmanager
     def _wiki_lock(self) -> Iterator[None]:
-        import fcntl
-
         lock_path = self.root / "data" / ".wiki.lock"
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         with lock_path.open("a+", encoding="utf-8") as fh:
-            deadline = time.monotonic() + _WIKI_LOCK_TIMEOUT_SECONDS
-            while True:
-                try:
-                    fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    break
-                except BlockingIOError:
-                    if time.monotonic() >= deadline:
-                        raise TimeoutError(
-                            f"timed out acquiring wiki lock after "
-                            f"{_WIKI_LOCK_TIMEOUT_SECONDS:g}s: {lock_path}"
-                        )
-                    time.sleep(_WIKI_LOCK_POLL_SECONDS)
-            try:
+            with exclusive_file_lock(
+                fh,
+                timeout_seconds=_WIKI_LOCK_TIMEOUT_SECONDS,
+                poll_seconds=_WIKI_LOCK_POLL_SECONDS,
+                lock_name=f"wiki lock {lock_path}",
+            ):
                 yield
-            finally:
-                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
 
     # ---- sources ---------------------------------------------------------
     def write_source(self, src: SourcePaper | SourceRepo | SourceRun | SourceNote) -> Path:

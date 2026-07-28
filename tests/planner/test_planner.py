@@ -34,6 +34,20 @@ def test_parse_status_summary_aliases() -> None:
     assert verdict.reason == "Implementation and verification finished."
 
 
+def test_parse_task_blocker_fingerprint() -> None:
+    verdict = parse_planner_text(
+        "PROJECT_DONE=false\n"
+        "REASON=The same external blocker remains.\n"
+        "TASK_KEY=retry\n"
+        "TASK_TITLE=Retry renamed task\n"
+        "TASK_OBJECTIVE=Verify whether the blocker changed.\n"
+        "TASK_BLOCKER_FINGERPRINT=dataset-license:benchmark-x"
+    )
+
+    assert verdict.error == ""
+    assert verdict.new_tasks[0].blocker_fingerprint == "dataset-license:benchmark-x"
+
+
 def test_incomplete_key_value_result_is_retryable() -> None:
     verdict = parse_planner_text(
         "PROJECT_DONE=false\nREASON=External credential is still required."
