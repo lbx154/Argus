@@ -2066,6 +2066,7 @@ def test_daemon_suppresses_rejected_objective_when_handoff_write_fails(
 def test_daemon_manager_decision_failure_preserves_persisted_campaign(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     LifeMemory.open(tmp_path).init()
     raw = "objective; Manager owns the sidebar"
@@ -2103,12 +2104,22 @@ def test_daemon_manager_decision_failure_preserves_persisted_campaign(
     )
     worker._install_signal_handlers = lambda: None  # type: ignore[method-assign]
 
+    caplog.set_level("INFO")
     assert worker.run_forever() == 0
     after = read_continuous_state(tmp_path)
     assert seen == {"enabled": False, "objective": raw}
     assert after.enabled is True
     assert after.objective == raw
     assert after.generation == before.generation
+    assert "daemon: degraded" in caplog.text
+    assert "daemon: ready" not in caplog.text
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    degraded = [event for event in events if event["type"] == "life.daemon.degraded"]
+    assert len(degraded) == 1
+    assert degraded[0]["objective_dispatched"] is False
 
 
 def test_daemon_boot_leaves_paused_objective_untouched(

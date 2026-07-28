@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 from concurrent.futures import ProcessPoolExecutor
 from datetime import date
 from pathlib import Path
@@ -78,6 +79,22 @@ def test_write_source_rejects_path_traversal(tmp_path: Path):
         store.write_source(_paper("papers/../../x"))
     assert not (root / "x.md").exists()
     assert list((root / "sources" / "papers").glob("*.md")) == []
+
+
+def test_wiki_lock_contention_fails_instead_of_waiting_forever(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _wiki_root(tmp_path)
+    lock_path = root / "data" / ".wiki.lock"
+    monkeypatch.setattr("argus_skill.wiki.store._WIKI_LOCK_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr("argus_skill.wiki.store._WIKI_LOCK_POLL_SECONDS", 0.005)
+
+    with lock_path.open("a+b") as holder:
+        fcntl.flock(holder.fileno(), fcntl.LOCK_EX)
+        with pytest.raises(TimeoutError, match="timed out acquiring wiki lock"):
+            WikiStore(root).write_page(_card())
+        fcntl.flock(holder.fileno(), fcntl.LOCK_UN)
 
 
 def test_write_page_rejects_path_traversal(tmp_path: Path):

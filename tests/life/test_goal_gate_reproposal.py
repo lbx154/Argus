@@ -27,7 +27,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus_skill.life.memory import BacklogItem
+from argus_skill.life.memory import Backlog, BacklogItem
 
 
 class _Filter:
@@ -86,6 +86,59 @@ def test_a_self_reviewed_prior_task_never_satisfies_a_certification() -> None:
     assert not _Filter().skipped_as_duplicate(
         duplicate=_gate_item("running", review_required=False),
         stage_closing=True,
+    )
+
+
+def test_terminal_unrecoverable_gate_is_indexed_as_duplicate(tmp_path) -> None:
+    from argus_skill.life.supervisor._helpers import _planner_task_signature
+    from argus_skill.life.supervisor._planning_cycle_enqueue import (
+        PlanningCycleEnqueueMixin,
+    )
+    from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
+
+    blocked = _gate_item("failed")
+    blocked.outcome = {
+        "execution_status": "blocked",
+        "review_status": "blocked",
+        "resumable": False,
+    }
+
+    class Harness(PlanningCycleEnqueueMixin):
+        def __init__(self) -> None:
+            backlog = Backlog(tmp_path / "backlog.jsonl")
+            backlog.add(blocked)
+            self.memory = SimpleNamespace(backlog=backlog)
+
+        def _planner_scope_from_item(self, _item) -> str:
+            return "bounded"
+
+        def _item_is_stage_closing(self, item) -> bool:
+            return "stage_closing" in item.tags
+
+        def _item_requires_independent_review(self, item) -> bool:
+            return "review:required" in item.tags
+
+        def _item_skips_stage_transition(self, _item) -> bool:
+            return False
+
+        def _recent_no_progress_failures(self) -> dict:
+            return {}
+
+    state = _PlanCycleState(None)
+    harness = Harness()
+    harness._pc_build_dedupe_index(state)
+    signature = _planner_task_signature(
+        blocked.title,
+        blocked.objective,
+        scope="bounded",
+        stage_closing=True,
+        require_independent_review=True,
+    )
+
+    assert state.seen_signatures[signature].id == blocked.id
+    assert not harness._gate_reproposal_is_not_a_duplicate(
+        SimpleNamespace(stage_closing=True),
+        blocked,
     )
 
 

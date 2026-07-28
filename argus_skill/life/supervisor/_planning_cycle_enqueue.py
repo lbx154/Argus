@@ -41,6 +41,18 @@ log = logging.getLogger(__name__)
 class PlanningCycleEnqueueMixin:
     """Dedupe index, pending-item construction, commit, and final emission."""
 
+    @staticmethod
+    def _terminal_blocker_is_dedupable(item: BacklogItem) -> bool:
+        """Return whether an unchanged failed task is known to be unrecoverable."""
+        outcome = item.outcome if isinstance(item.outcome, dict) else {}
+        return bool(
+            item.status == "failed"
+            and not item.pending_question
+            and outcome.get("execution_status") == "blocked"
+            and outcome.get("review_status") == "blocked"
+            and outcome.get("resumable") is False
+        )
+
     def _pc_build_dedupe_index(self, state: _PlanCycleState) -> Any | None:
         try:
             state.existing_items = self.memory.backlog.all()
@@ -54,7 +66,11 @@ class PlanningCycleEnqueueMixin:
         for existing in state.existing_items:
             if existing.id in revision_active_ids:
                 continue
-            if existing.status not in PLANNER_DEDUP_STATUSES:
+            terminal_blocker = self._terminal_blocker_is_dedupable(existing)
+            if (
+                existing.status not in PLANNER_DEDUP_STATUSES
+                and not terminal_blocker
+            ):
                 continue
             signature = _planner_task_signature(
                 existing.title,
@@ -72,7 +88,7 @@ class PlanningCycleEnqueueMixin:
                 skip_stage_transition=self._item_skips_stage_transition(existing),
             )
             base_signature = signature
-            if existing.status != "done":
+            if existing.status != "done" and not terminal_blocker:
                 active_base_signatures[base_signature] = existing
                 seen_signatures[signature] = existing
             elif signature not in seen_signatures:
@@ -236,6 +252,8 @@ class PlanningCycleEnqueueMixin:
                 duplicate_reason = (
                     "duplicate completed task"
                     if duplicate_item.status == "done"
+                    else "duplicate terminal blocker"
+                    if self._terminal_blocker_is_dedupable(duplicate_item)
                     else "duplicate pending/running task"
                 )
                 self._emit(

@@ -69,6 +69,7 @@ class _RunForeverState:
         self.init_objective: str = ""
         self.init_source_state: Any = None
         self.resume_has_manager_handoff: bool = False
+        self.handoff_failure: str = ""
 
         # Set by ``_rf_build_supervisor``.
         self.sup: Any = None
@@ -490,6 +491,9 @@ class LifeWorkerBootMixin:
                                 "text": "manager daemon objective handoff was not persisted",
                             }
                         )
+                        rf_state.handoff_failure = (
+                            "failed to persist Manager execution handoff"
+                        )
                     else:
                         rf_state.init_continuous, rf_state.init_objective = (
                             rf_state.continuous_provider()
@@ -523,6 +527,7 @@ class LifeWorkerBootMixin:
                     )
                 rf_state.cfg.continuous_objective = rf_state.init_objective
                 log.error("daemon Manager handoff failed; objective not dispatched: %s", exc)
+                rf_state.handoff_failure = f"{type(exc).__name__}: {exc}"
                 rf_state.sink.append(
                     {
                         "type": "life.manager.intent.failed",
