@@ -170,6 +170,60 @@ def test_plan_next_repairs_not_done_empty_task_response(monkeypatch) -> None:
     assert runner.calls[1]["options"].working_dir == "/tmp/project"
 
 
+def test_plan_next_repairs_malformed_context_ref_metadata(monkeypatch) -> None:
+    runner = _SequenceRunner([
+        "\n".join(
+            [
+                "PROJECT_DONE=false",
+                "REASON=summarize the supplied paper",
+                "TASK_KEY=paper-summary",
+                "TASK_TITLE=Summarize paper",
+                "TASK_OBJECTIVE=Read the supplied paper and summarize it.",
+                (
+                    "TASK_CONTEXT_REFS=research/PIPELINE_STATE.json; "
+                    "/tmp/runtime/events.jsonl"
+                ),
+            ]
+        ),
+        "\n".join(
+            [
+                "PROJECT_DONE=false",
+                "REASON=summarize the supplied paper",
+                "TASK_KEY=paper-summary",
+                "TASK_TITLE=Summarize paper",
+                "TASK_OBJECTIVE=Read the supplied paper and summarize it.",
+                (
+                    "TASK_CONTEXT_REFS=artifact::research/PIPELINE_STATE.json::"
+                    "current stage"
+                ),
+            ]
+        ),
+    ])
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **kwargs: "original planner prompt"),
+    )
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective="summarize the paper",
+        config=PlannerConfig(working_dir="/tmp/project"),
+    )
+
+    assert verdict.error == ""
+    assert verdict.new_tasks[0].context_refs == [
+        {
+            "kind": "artifact",
+            "ref": "research/PIPELINE_STATE.json",
+            "why": "current stage",
+            "content_hash": "",
+        }
+    ]
+    assert runner.calls[1]["run_label"] == "planner.cycle0.repair1"
+    assert "TASK_CONTEXT_REFS=kind::project/relative/path::why|..." in runner.calls[1]["prompt"]
+    assert "Never put URLs, absolute paths" in runner.calls[1]["prompt"]
+
+
 def test_plan_next_reports_bounded_failure_after_empty_task_repair_exhaustion(
     monkeypatch,
 ) -> None:

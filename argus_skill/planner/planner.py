@@ -227,7 +227,14 @@ class Planner:
         open_ended_done = bool(cfg.open_ended and verdict.project_done)
         if open_ended_done:
             rejection = OPEN_ENDED_PROJECT_DONE_ERROR
-        if rejection == NO_CONCRETE_TASKS_ERROR or open_ended_done:
+        repairable_metadata_error = str(rejection or "").startswith(
+            "invalid planner task metadata:"
+        )
+        if (
+            rejection == NO_CONCRETE_TASKS_ERROR
+            or repairable_metadata_error
+            or open_ended_done
+        ):
             return self._repair_no_task_verdict(
                 original_prompt=prompt,
                 previous_raw_text=text,
@@ -566,8 +573,11 @@ def _build_no_task_repair_prompt(
         "`TASK_STAGE_CLOSING=true|false`, "
         "`TASK_REQUIRE_INDEPENDENT_REVIEW=true|false`, and "
         "`TASK_SKIP_STAGE_TRANSITION=true|false`. A skipped transition requires "
-        "bounded scope, independent review, and a non-stage-closing task. "
-        "`TASK_CONTEXT_REFS` may name existing project-relative files.\n"
+        "bounded scope, independent review, and a non-stage-closing task.\n"
+        "- If used, format context refs exactly as "
+        "`TASK_CONTEXT_REFS=kind::project/relative/path::why|...`. Refs must be "
+        "existing project-relative files; omit the field when none exist. Never "
+        "put URLs, absolute paths, or semicolon-separated bare paths there.\n"
         "- If the project is intentionally blocked on a live external condition, "
         "use `WAITING=true` with a durable blocker fingerprint, recheck condition, "
         "and recheck token instead of emitting tasks.\n"

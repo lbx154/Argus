@@ -50,13 +50,12 @@ create or refine those knowledge pages under its own evidence rules.
 - If `PROJECT_DONE=false`, do not leave an empty plan. Either report an
   intentional live wait with `WAITING=true` and a durable recheck contract, or
   emit concrete `TASK_*` blocks (`TASK_KEY`, `TASK_TITLE`, `TASK_OBJECTIVE`, and
-  when known `TASK_ACCEPTANCE_CHECK`) for legal next work. Use
-  `TASK_CONTEXT_REFS`: files. `TASK_SKIP_STAGE_TRANSITION=true`:
-  bounded + reviewed + `TASK_STAGE_CLOSING=false`. When a task targets
-  a known blocking condition, include a stable `TASK_BLOCKER_FINGERPRINT` and
-  reuse it unchanged across reworded retries; leave it blank for ordinary work.
-  When revisiting a failed non-resumable backlog item, use `item:<item_id>` so
-  changing the title or objective cannot bypass the terminal blocker circuit.
+  when known `TASK_ACCEPTANCE_CHECK`) for legal next work. Refs use
+  `TASK_CONTEXT_REFS=kind::project/relative/path::why|...` (existing project
+  files; omit if none). `TASK_SKIP_STAGE_TRANSITION=true` requires bounded +
+  reviewed + `TASK_STAGE_CLOSING=false`. For a known blocker, keep one stable
+  `TASK_BLOCKER_FINGERPRINT` across retries; blank otherwise. Use
+  `item:<item_id>` for a failed non-resumable backlog item.
   Never fabricate work merely to satisfy this shape.
 - Natural-language progress and a final summary are allowed. End the final response
   with plain key-value lines, not JSON or a Markdown fence. Always include:
