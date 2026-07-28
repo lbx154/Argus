@@ -37,6 +37,7 @@ CAMPAIGN_ROOT = Path(CFG["CAMPAIGN_ROOT"])
 DATA_ROOT = Path(CFG["DATA_ROOT"])
 ARGUS_HOME = Path(CFG["ARGUS_HOME"])
 ARGUS_BIN = CFG["ARGUS_BIN"]
+ARGUS_PYTHON = str(Path(ARGUS_BIN).parent / "python")
 MLEBENCH_REPO = Path(CFG["MLEBENCH_REPO"])
 MLEBENCH_BIN = Path(CFG["MLEBENCH_BIN"])
 MLEBENCH_PYTHON = MLEBENCH_BIN.parent / "python"
@@ -226,11 +227,19 @@ def notify_agent(project: Path, entry: dict[str, Any]) -> dict[str, Any]:
         "must again pass independent Reviewer approval. The project must not complete until "
         "MLE_MEDAL_GATE.json has satisfied=true (bronze or better)."
     )
+    session = discover_session(str(entry.get("competition") or ""))
+    if session is None:
+        return {"exit_code": 2, "output": "active session not found"}
+    script = (
+        "import sys; "
+        "from argus_skill.apps._inbox import queue_inbox_message; "
+        "queue_inbox_message(sys.argv[1], sys.argv[2], source='mle.grade_watcher')"
+    )
     env = os.environ.copy()
     env["ARGUS_SKILL_HOME"] = str(ARGUS_HOME)
     env["ARGUS_SKILL_SOURCE_ROOT"] = CFG["ARGUS_REPO"]
     proc = subprocess.run(
-        [ARGUS_BIN, "--project-root", str(project), "--notify", message],
+        [ARGUS_PYTHON, "-c", script, str(session), message],
         cwd=project,
         env=env,
         text=True,
