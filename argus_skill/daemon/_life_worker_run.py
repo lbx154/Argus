@@ -143,12 +143,31 @@ class LifeWorkerRunMixin:
 
     def _rf_start_services(self, rf_state: _RunForeverState) -> None:
         """Log readiness, start the Telegram poller, and start the Curator."""
-        log.info(
-            "daemon: ready (life_dir=%s backend=%s pid=%d)",
-            rf_state.runtime_root,
-            _effective_runner_backend(rf_state.runner, rf_state.cfg.backend),
-            os.getpid(),
-        )
+        if rf_state.handoff_failure:
+            log.warning(
+                "daemon: degraded; Manager objective was not dispatched "
+                "(life_dir=%s backend=%s pid=%d error=%s)",
+                rf_state.runtime_root,
+                _effective_runner_backend(rf_state.runner, rf_state.cfg.backend),
+                os.getpid(),
+                rf_state.handoff_failure,
+            )
+            rf_state.sink.append(
+                {
+                    "type": "life.daemon.degraded",
+                    "health": "degraded",
+                    "objective_dispatched": False,
+                    "error": rf_state.handoff_failure,
+                    "text": "daemon started without dispatching the Manager objective",
+                }
+            )
+        else:
+            log.info(
+                "daemon: ready (life_dir=%s backend=%s pid=%d)",
+                rf_state.runtime_root,
+                _effective_runner_backend(rf_state.runner, rf_state.cfg.backend),
+                os.getpid(),
+            )
 
         # Start the Telegram inbound command poller only when explicitly enabled.
         try:

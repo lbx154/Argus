@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 import uuid
 from contextlib import contextmanager
 from datetime import date
@@ -23,6 +24,8 @@ from .schema import (
 
 T = TypeVar("T", SourcePaper, SourceRepo, SourceRun, SourceNote)
 log = logging.getLogger(__name__)
+_WIKI_LOCK_TIMEOUT_SECONDS = 30.0
+_WIKI_LOCK_POLL_SECONDS = 0.05
 
 _SOURCE_SUBDIR = {
     SourcePaper: "papers",
@@ -88,7 +91,18 @@ class WikiStore:
         lock_path = self.root / "data" / ".wiki.lock"
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         with lock_path.open("a+", encoding="utf-8") as fh:
-            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            deadline = time.monotonic() + _WIKI_LOCK_TIMEOUT_SECONDS
+            while True:
+                try:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(
+                            f"timed out acquiring wiki lock after "
+                            f"{_WIKI_LOCK_TIMEOUT_SECONDS:g}s: {lock_path}"
+                        )
+                    time.sleep(_WIKI_LOCK_POLL_SECONDS)
             try:
                 yield
             finally:
