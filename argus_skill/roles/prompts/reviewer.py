@@ -450,7 +450,10 @@ def render_reviewer_prompt(
     # for tokens like "main.pdf". `draft` is excluded so mid-production
     # drafting isn't held to final peer-review standards prematurely.
     paper_review_skill_block = _format_academic_paper_review_skill_block(
-        include=is_final_submission or stage in {"review", "submission"},
+        include=(
+            is_final_submission
+            or (_full_paper and stage in {"review", "submission"})
+        ),
     )
     wiki_curator_text = _load_wiki_curator_skill_if_present(working_dir)
     wiki_curator_skill_block = (

@@ -359,6 +359,55 @@ def test_isolated_workdir_rebinds_runner_hidden_under_home(
     assert command[-2:] == [str(runner), "--version"]
 
 
+def test_isolated_workdir_rebinds_vscode_codex_selected_by_wrapper(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    home = tmp_path / "home"
+    workdir = tmp_path / "worktree"
+    wrapper = home / "bin" / "codex"
+    real_codex = (
+        home
+        / ".vscode-server"
+        / "extensions"
+        / "openai.chatgpt-26.721.41059-linux-x64"
+        / "bin"
+        / "linux-x86_64"
+        / "codex"
+    )
+    workdir.mkdir()
+    wrapper.parent.mkdir(parents=True)
+    wrapper.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    wrapper.chmod(0o755)
+    real_codex.parent.mkdir(parents=True)
+    real_codex.write_bytes(b"codex")
+    real_codex.chmod(0o755)
+    monkeypatch.setattr(sandbox.Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr(
+        sandbox.shutil,
+        "which",
+        lambda name: "/usr/bin/bwrap" if name == "bwrap" else None,
+    )
+
+    command = sandbox.isolated_workdir_command(
+        [str(wrapper), "--version"],
+        working_dir=workdir,
+    )
+
+    wrapper_index = command.index(str(wrapper))
+    assert command[wrapper_index - 1 : wrapper_index + 2] == [
+        "--ro-bind",
+        str(wrapper),
+        str(wrapper),
+    ]
+    real_index = command.index(str(real_codex))
+    assert command[real_index - 1 : real_index + 2] == [
+        "--ro-bind",
+        str(real_codex),
+        str(real_codex),
+    ]
+
+
 def test_isolated_workdir_fails_closed_without_bubblewrap(
     tmp_path,
     monkeypatch,

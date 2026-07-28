@@ -206,6 +206,37 @@ def _resolver_config_target() -> Path | None:
     return target if target != Path("/etc/resolv.conf") else None
 
 
+def _backend_support_executables(executable: Path) -> list[Path]:
+    """Return narrowly scoped executables needed by a user-level CLI wrapper.
+
+    The local ``codex`` command may be a stable wrapper that selects the newest
+    VS Code extension binary at runtime. Bubblewrap hides ``$HOME`` and exposing
+    only the wrapper therefore makes a healthy backend fail with exit 127. Bind
+    only matching executable files, never the extension tree or user home.
+    """
+    if executable.name != "codex":
+        return []
+    roots = (
+        Path.home() / ".vscode-server" / "extensions",
+        Path.home() / ".vscode-server-insiders" / "extensions",
+        Path.home() / ".vscode" / "extensions",
+    )
+    executable_real = os.path.realpath(executable)
+    found: list[Path] = []
+    for root in roots:
+        for candidate in root.glob("openai.chatgpt-*/bin/*/codex"):
+            try:
+                if (
+                    candidate.is_file()
+                    and os.access(candidate, os.X_OK)
+                    and os.path.realpath(candidate) != executable_real
+                ):
+                    found.append(candidate.resolve())
+            except OSError:
+                continue
+    return sorted(set(found), key=str)
+
+
 def isolated_workdir_command(
     command: list[str],
     *,
@@ -331,6 +362,8 @@ def isolated_workdir_command(
     # the selected backend executable so configured per-user CLI installs remain
     # runnable without revealing the rest of their home directory.
     bind_file(executable, executable)
+    for support_executable in _backend_support_executables(executable):
+        bind_file(support_executable, support_executable)
     bind_dir(
         Path.home() / ".cache" / "copilot",
         Path.home() / ".cache" / "copilot",

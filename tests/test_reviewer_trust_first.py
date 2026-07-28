@@ -16,6 +16,8 @@ sharpened and explicitly overrides the generic demand-evidence rules.
 
 from __future__ import annotations
 
+import json
+
 from argus_skill.reviewer import Reviewer
 from argus_skill.reviewer._core import _verification_directive
 from argus_skill.roles.prompts.reviewer import _format_academic_paper_review_skill_block
@@ -60,6 +62,63 @@ def test_paper_review_requires_built_artifact_quality_checks():
     assert "overfull boxes" in block
     assert "PDF title/author metadata" in block
     assert "Render the relevant pages" in block
+
+
+def _persist_review_stage(tmp_path, vertical: str) -> None:
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    persist_vertical(tmp_path, vertical)
+    state_path = tmp_path / "research" / "PIPELINE_STATE.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["current_stage"] = "review"
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+
+def _project_reviewer_prompt(tmp_path, *, scope: str = "") -> tuple[str, Reviewer]:
+    reviewer = Reviewer(runner=None, skill_store=None)
+    prompt = reviewer._build_prompt(
+        objective="review the current result",
+        operator_messages=[],
+        planner_review_instruction="",
+        round_index=1,
+        session_id=None,
+        main_summary="RESULT: checked evidence",
+        main_error=None,
+        prior_checkpoint={},
+        working_dir=str(tmp_path),
+        scope=scope,
+    )
+    return prompt, reviewer
+
+
+def test_math_review_omits_paper_review_rubric(tmp_path) -> None:
+    _persist_review_stage(tmp_path, "math")
+
+    prompt, reviewer = _project_reviewer_prompt(tmp_path)
+
+    assert "## Near-complete paper review" not in prompt
+    assert reviewer.last_prompt_block_stats["paper_review"]["chars"] == 0
+
+
+def test_full_paper_review_keeps_paper_review_rubric(tmp_path) -> None:
+    _persist_review_stage(tmp_path, "research")
+
+    prompt, reviewer = _project_reviewer_prompt(tmp_path)
+
+    assert "## Near-complete paper review" in prompt
+    assert reviewer.last_prompt_block_stats["paper_review"]["chars"] > 0
+
+
+def test_final_submission_keeps_paper_review_rubric_for_any_vertical(tmp_path) -> None:
+    _persist_review_stage(tmp_path, "math")
+
+    prompt, reviewer = _project_reviewer_prompt(
+        tmp_path,
+        scope="final_submission",
+    )
+
+    assert "## Near-complete paper review" in prompt
+    assert reviewer.last_prompt_block_stats["paper_review"]["chars"] > 0
 
 
 def test_build_prompt_uses_trust_first_not_old_rerun(monkeypatch):
