@@ -4,6 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from argus_skill.core import runtime_identity as runtime_identity_module
 from argus_skill.release import (
     MANIFEST_SCHEMA_VERSION,
     compute_source_digest,
@@ -77,3 +78,30 @@ def test_untracked_runtime_skill_does_not_change_release_identity() -> None:
         assert compute_source_digest(root) == before
     finally:
         generated.unlink(missing_ok=True)
+
+
+def test_strict_release_preflight_rejects_manifest_source_mismatch(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_REQUIRE_RELEASE_MATCH", "1")
+    monkeypatch.setattr(
+        runtime_identity_module,
+        "runtime_identity",
+        lambda: {"release_matches_source": False},
+    )
+
+    error = runtime_identity_module.release_match_preflight_error()
+
+    assert "does not match" in error
+    assert "build_release.py" in error
+
+
+def test_release_preflight_is_permissive_unless_enabled(monkeypatch) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_REQUIRE_RELEASE_MATCH", raising=False)
+    monkeypatch.setattr(
+        runtime_identity_module,
+        "runtime_identity",
+        lambda: {"release_matches_source": False},
+    )
+
+    assert runtime_identity_module.release_match_preflight_error() == ""

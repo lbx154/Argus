@@ -97,6 +97,36 @@ def test_session_retries_fresh_when_persisted_resume_target_is_missing(tmp_path)
     )["thread_id"] == "fresh-thread"
 
 
+def test_session_retries_fresh_when_persisted_thread_cannot_be_decrypted(tmp_path):
+    (tmp_path / _SESSION_FILE).write_text(
+        json.dumps({"thread_id": "encrypted-stale-thread"}), encoding="utf-8"
+    )
+
+    class _EncryptedThenFreshRunner(_RecordingRunner):
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+            self.resumes.append(resume_thread_id)
+            if resume_thread_id:
+                result = _Result(thread_id=resume_thread_id)
+                result.exit_code = 1
+                result.fatal_error = (
+                    "invalid_request_body: encrypted content could not be verified; "
+                    "encrypted content could not be decrypted or parsed"
+                )
+                return result
+            return _Result(thread_id="fresh-after-encryption-failure")
+
+    fake = _EncryptedThenFreshRunner()
+    result = _ManagerSession(fake, tmp_path).run_exec(
+        prompt="a", options=None, run_label="manager-stage"
+    )
+
+    assert fake.resumes == ["encrypted-stale-thread", None]
+    assert result.thread_id == "fresh-after-encryption-failure"
+    assert json.loads(
+        (tmp_path / _SESSION_FILE).read_text(encoding="utf-8")
+    )["thread_id"] == "fresh-after-encryption-failure"
+
+
 def test_manager_session_root_is_independent_from_project_root(tmp_path):
     project_root = tmp_path / "same-workdir"
     session_root = tmp_path / "sessions" / "s-1"

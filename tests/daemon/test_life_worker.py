@@ -84,6 +84,21 @@ def test_max_active_daemons_defaults_to_64(
     assert life_worker_mod._max_active_daemons(LifeWorkerConfig(life_dir=tmp_path)) == 64
 
 
+def test_daemon_strict_release_preflight_fails_before_backend_probe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory"))
+    monkeypatch.setattr(
+        "argus_skill.core.runtime_identity.release_match_preflight_error",
+        lambda: "release mismatch",
+    )
+
+    result = worker._rf_vault_preflight(SimpleNamespace(cfg=worker.config))
+
+    assert result == 2
+
+
 def test_max_active_daemons_preserves_env_and_persisted_overrides(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

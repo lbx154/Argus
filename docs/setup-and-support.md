@@ -44,6 +44,11 @@ Both paths use the same setup, doctor, cockpit, and daemon commands.
 
 Codex prereleases are rejected unless the operator explicitly passes
 `--allow-prerelease` or sets `ARGUS_SKILL_ALLOW_BACKEND_PRERELEASE=1`.
+
+For supervised source deployments, set `ARGUS_SKILL_REQUIRE_RELEASE_MATCH=1`.
+The daemon and WebAPI will then refuse to start when the loaded source differs
+from the built release manifest/frontends. Run `python scripts/build_release.py`
+after every source upgrade before restarting the services.
 The tested recommendation is not an exact pin.
 
 Argus persists an explicit backend/auth profile only after readiness succeeds:

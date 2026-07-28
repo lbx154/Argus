@@ -87,4 +87,31 @@ def runtime_identity() -> dict[str, Any]:
     }
 
 
-__all__ = ["runtime_identity", "source_revision", "source_root", "source_worktree_state"]
+def release_match_preflight_error() -> str:
+    """Return a strict-startup error for a half-upgraded source release.
+
+    Editable development remains permissive by default. Supervised production
+    services opt in with ``ARGUS_SKILL_REQUIRE_RELEASE_MATCH=1`` so backend and
+    frontend artifacts cannot start from different source identities.
+    """
+    required = str(
+        os.environ.get("ARGUS_SKILL_REQUIRE_RELEASE_MATCH", "")
+    ).strip().lower()
+    if required not in {"1", "true", "yes", "on"}:
+        return ""
+    identity = runtime_identity()
+    if identity.get("release_matches_source") is False:
+        return (
+            "loaded source does not match the release manifest; run "
+            "`python scripts/build_release.py` before starting Argus"
+        )
+    return ""
+
+
+__all__ = [
+    "release_match_preflight_error",
+    "runtime_identity",
+    "source_revision",
+    "source_root",
+    "source_worktree_state",
+]

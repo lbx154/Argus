@@ -132,7 +132,10 @@ def _format_academic_paper_review_skill_block(*, include: bool) -> str:
         "credible comparisons, sufficient evidence/statistics, accurate citations, "
         "readable writing, and clean figures/layout. `done` requires the applicable "
         "final checklist with no critical blocker; do not reward polish without "
-        "substantive evidence.\n\n"
+        "substantive evidence. Rebuild the manuscript and inspect the generated "
+        "artifact: reject undefined citations, bibliography warnings, significant "
+        "overfull boxes or clipped pages, and missing PDF title/author metadata. "
+        "Render the relevant pages when layout matters.\n\n"
     )
 
 
@@ -141,7 +144,9 @@ def _verification_directive() -> str:
     return (
         "Trust consistent shown results. Re-open raw material only for a missing, "
         "stale, contradictory, or implausible material fact; otherwise judge the "
-        "work and its next step.\n\n"
+        "work and its next step. An empty git diff proves nothing for an untracked "
+        "or outside-repository artifact: check tracking first, then use direct "
+        "content, hashes, or another scoped observation.\n\n"
     )
 
 

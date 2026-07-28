@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from argus_skill.reviewer import Reviewer
 from argus_skill.reviewer._core import _verification_directive
+from argus_skill.roles.prompts.reviewer import _format_academic_paper_review_skill_block
 
 
 def _prompt(*, measured: bool, monkeypatch) -> str:
@@ -44,9 +45,21 @@ def test_directive_trusts_and_drops_reflexive_rerun():
     assert "missing" in d
     assert "contradictory" in d
     assert "next step" in d
-    assert len(d) < 220
+    assert "empty git diff" in d.lower()
+    assert "untracked" in d.lower()
+    assert len(d) < 420
     # the OLD reflexive "use your own output as ground truth" framing is gone
     assert "use *your own* output as ground truth" not in d
+
+
+def test_paper_review_requires_built_artifact_quality_checks():
+    block = _format_academic_paper_review_skill_block(include=True)
+
+    assert "undefined citations" in block
+    assert "bibliography warnings" in block
+    assert "overfull boxes" in block
+    assert "PDF title/author metadata" in block
+    assert "Render the relevant pages" in block
 
 
 def test_build_prompt_uses_trust_first_not_old_rerun(monkeypatch):
