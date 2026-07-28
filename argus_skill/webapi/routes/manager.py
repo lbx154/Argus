@@ -23,6 +23,12 @@ from .models import MessageIn
 
 
 def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
+    def _visible_daemon(sid: str) -> dict[str, Any]:
+        from ..project_state import daemon_dict
+
+        life_dir = ctx.resolve_or_404(sid)
+        return daemon_dict(server_mod.read_daemon_status(life_dir), life_dir=life_dir)
+
     @app.post("/api/projects/{sid}/message", dependencies=[Depends(ctx.require_auth)])
     async def _post_message(sid: str, body: MessageIn) -> dict[str, Any]:
         """The Manager front-door: route natural language through the SAME triage
@@ -46,6 +52,9 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
                 and bool(result.get("resolved"))
             )
         )
+        daemon_view = await run_in_threadpool(_visible_daemon, sid)
+        result["daemon_alive"] = daemon_view["alive"]
+        result["daemon_control_available"] = daemon_view["control_available"]
         if starts_executor and not result.get("daemon_alive"):
             result["daemon"] = await run_in_threadpool(
                 server_mod.start_project_daemon, sid, global_root=project_root,
@@ -103,6 +112,9 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
                         and bool(result.get("resolved"))
                     )
                 )
+                daemon_view = _visible_daemon(sid)
+                result["daemon_alive"] = daemon_view["alive"]
+                result["daemon_control_available"] = daemon_view["control_available"]
                 if (
                     not cancel_event.is_set()
                     and starts_executor

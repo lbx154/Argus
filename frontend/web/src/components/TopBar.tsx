@@ -47,6 +47,12 @@ export function TopBar({
   const activeItem = snap.backlog.find((item) => ACTIVE_STATUSES.has(item.status));
   const focus = missionRole?.label || activeItem?.title || activeItem?.objective || snap.session.objective || 'Ready';
   const degraded = Boolean(snap.partial || snap.observability?.slo.status === 'degraded');
+  const externalDaemon = snap.daemon.alive && snap.daemon.control_available === false;
+  const daemonActionLabel = externalDaemon
+    ? 'Externally managed'
+    : snap.daemon.alive
+    ? 'Pause daemon'
+    : 'Run daemon';
   const healthTitle = degraded
     ? [
         ...(snap.diagnostics ?? []).map((item) => `${item.section}: ${item.message}`),
@@ -117,14 +123,14 @@ export function TopBar({
         <>
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || externalDaemon}
             onClick={snap.daemon.alive ? onStop : onStart}
-            aria-label={snap.daemon.alive ? 'Pause daemon' : 'Run daemon'}
-            title={snap.daemon.alive ? 'Pause daemon' : 'Run daemon'}
+            aria-label={daemonActionLabel}
+            title={externalDaemon ? 'Daemon is live in an external PID namespace; use its supervisor to control it.' : daemonActionLabel}
             className="compact-control flex h-8 shrink-0 items-center gap-1 px-2 disabled:opacity-40"
           >
             <FontAwesomeIcon icon={snap.daemon.alive ? faPause : faPlay} className="h-3 w-3" />
-            <span className="hidden sm:inline">{snap.daemon.alive ? 'Pause' : 'Run'}</span>
+            <span className="hidden sm:inline">{externalDaemon ? 'External' : snap.daemon.alive ? 'Pause' : 'Run'}</span>
           </button>
           <button
             type="button"

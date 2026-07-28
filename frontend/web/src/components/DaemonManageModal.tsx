@@ -6,6 +6,7 @@ export function DaemonManageModal({
   sid,
   name,
   alive,
+  controlAvailable = true,
   busy,
   onClose,
   onRename,
@@ -17,6 +18,7 @@ export function DaemonManageModal({
   sid: string;
   name: string;
   alive: boolean;
+  controlAvailable?: boolean;
   busy: boolean;
   onClose: () => void;
   onRename: (name: string) => Promise<boolean>;
@@ -72,20 +74,24 @@ export function DaemonManageModal({
         <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Executor</div>
         <div className="mt-2 flex items-center justify-between rounded border border-line bg-bg/30 p-3">
           <div>
-            <div className="text-sm text-ink">{alive ? 'Running' : 'Paused'}</div>
+            <div className="text-sm text-ink">{alive ? (controlAvailable ? 'Running' : 'Running externally') : 'Paused'}</div>
             <p className="mt-0.5 text-[11px] text-ink-faint">
-              {alive ? 'Pause safely after the current operation.' : 'Resume queued research work.'}
+              {alive
+                ? controlAvailable
+                  ? 'Pause safely after the current operation.'
+                  : 'This daemon is supervised outside the Web host PID namespace.'
+                : 'Resume queued research work.'}
             </p>
           </div>
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || !controlAvailable}
             onClick={() => void (alive ? onPause() : onStart())}
             className={`rounded border px-3 py-1.5 text-xs disabled:cursor-wait disabled:opacity-50 ${
               alive ? 'border-warn/50 text-warn hover:bg-warn/10' : 'border-blue-deep bg-blue-deep text-white hover:bg-blue-deep/80'
             }`}
           >
-            {busy ? 'Working…' : alive ? 'Pause' : 'Resume'}
+            {busy ? 'Working…' : !controlAvailable ? 'External' : alive ? 'Pause' : 'Resume'}
           </button>
         </div>
       </div>

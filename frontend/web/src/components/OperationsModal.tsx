@@ -130,6 +130,7 @@ export function OperationsModal({
   };
 
   const incompatible = snap.daemon.alive && snap.daemon.protocol_compatible === false;
+  const externalDaemon = snap.daemon.alive && snap.daemon.control_available === false;
   const replacements = snap.daemon_admission?.running_daemons ?? [];
   const actionIcon = action === 'task' ? faListCheck : action === 'nudge' ? faPaperPlane : action === 'note' ? faNoteSticky : faDiagramProject;
   const searchTrash = async () => {
@@ -182,7 +183,7 @@ export function OperationsModal({
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <button type="button" onClick={() => void run('reset', () => api.resetManager(sid), 'Manager context reset.')} disabled={!!busy} title="Reset Manager context" aria-label="Reset Manager context" className="flex h-9 w-9 items-center justify-center rounded border border-line text-xs text-ink-dim disabled:opacity-40"><FontAwesomeIcon icon={faRotateLeft} /></button>
-            <button type="button" onClick={() => void run('upgrade', () => requireCommandSuccess(api.upgradeDaemon(sid, snap.daemon_commands?.revision)), 'Current-release daemon started after safely draining active work.')} disabled={!!busy} title={incompatible ? 'Upgrade incompatible daemon' : 'Restart on current release'} aria-label={incompatible ? 'Upgrade incompatible daemon' : 'Restart on current release'} className={`flex h-9 w-9 items-center justify-center rounded border text-xs disabled:opacity-40 ${incompatible ? 'border-err/60 bg-err/10 text-err' : 'border-line text-ink-dim'}`}><FontAwesomeIcon icon={faArrowRotateRight} /></button>
+            <button type="button" onClick={() => void run('upgrade', () => requireCommandSuccess(api.upgradeDaemon(sid, snap.daemon_commands?.revision)), 'Current-release daemon started after safely draining active work.')} disabled={!!busy || externalDaemon} title={externalDaemon ? 'Externally supervised daemon cannot be restarted from this Web host' : incompatible ? 'Upgrade incompatible daemon' : 'Restart on current release'} aria-label={externalDaemon ? 'Externally supervised daemon' : incompatible ? 'Upgrade incompatible daemon' : 'Restart on current release'} className={`flex h-9 w-9 items-center justify-center rounded border text-xs disabled:opacity-40 ${incompatible ? 'border-err/60 bg-err/10 text-err' : 'border-line text-ink-dim'}`}><FontAwesomeIcon icon={faArrowRotateRight} /></button>
           </div>
           {snap.daemon.protocol_error ? <p className="mt-2 text-xs text-err">{snap.daemon.protocol_error}</p> : null}
           {replacements.length ? (

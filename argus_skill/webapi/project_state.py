@@ -37,6 +37,7 @@ from ..daemon.protocol import (
 )
 from ..daemon.state import DAEMON_UPGRADE_REQUEST_FILE
 from ..life.memory import LifeMemory
+from .daemon_liveness import web_daemon_liveness
 from .protocol import SNAPSHOT_SCHEMA_VERSION
 
 DAEMON_ADMISSION_FILE = "daemon.admission.json"
@@ -236,20 +237,41 @@ def project_life_dir(
     return life_dir
 
 
-def daemon_dict(status: DaemonStatus) -> dict[str, Any]:
+def daemon_dict(status: DaemonStatus, *, life_dir: Path | None = None) -> dict[str, Any]:
     budget = resolve_effective_budget(status)
     protocol_compatible, protocol_error = daemon_protocol_compatibility(status)
+    liveness = web_daemon_liveness(life_dir, status) if life_dir is not None else None
+    alive = liveness.alive if liveness is not None else bool(status.alive)
     return {
-        "alive": bool(status.alive),
-        "pid": status.pid,
+        "alive": alive,
+        "pid": liveness.pid if liveness is not None else status.pid,
+        "control_available": (
+            liveness.control_available if liveness is not None else bool(status.alive)
+        ),
+        "liveness_source": liveness.source if liveness is not None else "pid_lock",
+        "heartbeat_age_seconds": (
+            liveness.heartbeat_age_seconds if liveness is not None else None
+        ),
         "started_at_iso": status.started_at_iso,
         "uptime_seconds": status.uptime_seconds,
         "health": {
-            "state": status.health_state,
+            "state": liveness.phase if liveness is not None and alive else status.health_state,
             "stalled": status.stalled,
-            "last_progress_at": status.last_progress_at,
-            "last_progress_event": status.last_progress_event,
-            "seconds_since_progress": status.seconds_since_progress,
+            "last_progress_at": (
+                liveness.last_progress_at
+                if liveness is not None and alive
+                else status.last_progress_at
+            ),
+            "last_progress_event": (
+                liveness.last_progress_event
+                if liveness is not None and alive
+                else status.last_progress_event
+            ),
+            "seconds_since_progress": (
+                liveness.seconds_since_progress
+                if liveness is not None and alive
+                else status.seconds_since_progress
+            ),
         },
         "backend": status.backend,
         "global_daily_cap_usd": budget.global_daily_cap_usd,
@@ -284,6 +306,9 @@ def daemon_error_dict(exc: BaseException) -> dict[str, Any]:
     return {
         "alive": False,
         "pid": None,
+        "control_available": False,
+        "liveness_source": "none",
+        "heartbeat_age_seconds": None,
         "started_at_iso": None,
         "uptime_seconds": None,
         "health": {
@@ -493,7 +518,7 @@ def build_snapshot(
 
     try:
         status = read_daemon_status(life_dir)
-        daemon = daemon_dict(status)
+        daemon = daemon_dict(status, life_dir=life_dir)
         if daemon["read_status"] == "error":
             diagnostics.append(
                 {
@@ -661,8 +686,12 @@ def list_projects(
         life_dir = core_paths.session_state_root(meta.id, root=root)
         try:
             status = read_daemon_status(life_dir)
-            item["daemon_alive"] = bool(status.alive)
-            item["daemon_pid"] = status.pid
+            daemon = daemon_dict(status, life_dir=life_dir)
+            item["daemon_alive"] = daemon["alive"]
+            item["daemon_pid"] = daemon["pid"]
+            item["daemon_control_available"] = daemon["control_available"]
+            item["daemon_liveness_source"] = daemon["liveness_source"]
+            item["daemon_heartbeat_age_seconds"] = daemon["heartbeat_age_seconds"]
             item["uptime_seconds"] = status.uptime_seconds
             compatible, protocol_error = daemon_protocol_compatibility(status)
             item["daemon_protocol_compatible"] = compatible
@@ -671,6 +700,9 @@ def list_projects(
         except Exception:  # noqa: BLE001 - picker remains available
             item["daemon_alive"] = False
             item["daemon_pid"] = None
+            item["daemon_control_available"] = False
+            item["daemon_liveness_source"] = "none"
+            item["daemon_heartbeat_age_seconds"] = None
             item["uptime_seconds"] = None
             item["daemon_protocol_compatible"] = None
             item["daemon_protocol_error"] = ""

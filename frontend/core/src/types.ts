@@ -27,6 +27,9 @@ export interface Role {
 export interface Daemon {
   alive: boolean;
   pid: number | null;
+  control_available?: boolean;
+  liveness_source?: 'pid_lock' | 'namespace_heartbeat' | 'none' | string;
+  heartbeat_age_seconds?: number | null;
   uptime_seconds: number | null;
   backend: string | null;
   backend_label?: string | null;
@@ -348,6 +351,9 @@ export interface ProjectRow {
   last_active: number;
   daemon_alive: boolean;
   daemon_pid: number | null;
+  daemon_control_available?: boolean;
+  daemon_liveness_source?: 'pid_lock' | 'namespace_heartbeat' | 'none' | string;
+  daemon_heartbeat_age_seconds?: number | null;
   uptime_seconds: number | null;
   daemon_protocol_compatible?: boolean | null;
   daemon_protocol_error?: string;

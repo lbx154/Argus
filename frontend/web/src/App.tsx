@@ -570,9 +570,13 @@ export default function App() {
                 },
               ]
             : []),
-          snap?.daemon.alive
-            ? { id: 'stop', label: 'Stop daemon', group: 'Action', run: requestStopDaemon }
-            : { id: 'start', label: 'Start daemon', group: 'Action', run: requestStartDaemon },
+          ...(snap?.daemon.control_available === false
+            ? []
+            : [
+                snap?.daemon.alive
+                  ? { id: 'stop', label: 'Stop daemon', group: 'Action', run: requestStopDaemon }
+                  : { id: 'start', label: 'Start daemon', group: 'Action', run: requestStartDaemon },
+              ]),
         ];
     const proj: PaletteItem[] = projects.map((p) => ({
       id: `p-${p.id}`,
@@ -846,6 +850,7 @@ export default function App() {
           sid={activeSid}
           name={snap.session.display_name || ''}
           alive={snap.daemon.alive}
+          controlAvailable={snap.daemon.control_available !== false}
           busy={daemonBusy}
           onClose={() => setDaemonManageOpen(false)}
           onRename={manageRenameProject}
