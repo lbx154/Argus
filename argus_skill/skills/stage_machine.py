@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -136,6 +137,39 @@ def current_stage(project_root: Path | str = ".") -> str:
     if stage in {_normalize_stage(s) for s in order}:
         return stage
     return fallback
+
+
+_STATUS_STAGE_LINE = re.compile(r"(?m)^Current stage:\s*[^\r\n]*$")
+
+
+def _sync_status_stage(project_root: Path | str, stage: str) -> bool:
+    """Best-effort projection of authoritative pipeline stage into STATUS.md.
+
+    ``research/PIPELINE_STATE.json`` remains the source of truth. Projects opt
+    into this human-readable projection by keeping one canonical
+    ``Current stage: ...`` line. Only that line is replaced; missing markers,
+    arbitrary status files, and symlinks are left untouched.
+    """
+    import os as _os
+
+    path = Path(project_root) / "STATUS.md"
+    try:
+        if not path.is_file() or path.is_symlink():
+            return False
+        original = path.read_text(encoding="utf-8")
+        rendered, count = _STATUS_STAGE_LINE.subn(
+            f"Current stage: {stage}.",
+            original,
+            count=1,
+        )
+        if count != 1 or rendered == original:
+            return False
+        tmp = path.with_name(f".{path.name}.stage-sync.{_os.getpid()}")
+        tmp.write_text(rendered, encoding="utf-8")
+        _os.replace(tmp, path)
+        return True
+    except (OSError, UnicodeError):
+        return False
 
 
 def _set_stage(
@@ -322,6 +356,7 @@ def _set_stage(
         encoding="utf-8",
     )
     _os.replace(_tmp, state_path)
+    _sync_status_stage(root, target)
     return str(state_path)
 
 

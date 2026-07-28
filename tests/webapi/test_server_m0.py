@@ -489,6 +489,16 @@ def test_api_meta_identifies_protocol_capabilities_and_loaded_checkout() -> None
     )
 
 
+def test_web_serve_refuses_strict_release_mismatch(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "argus_skill.core.runtime_identity.release_match_preflight_error",
+        lambda: "release mismatch",
+    )
+
+    with pytest.raises(RuntimeError, match="webapi refused inconsistent release"):
+        server.serve()
+
+
 def test_static_web_cache_policy_keeps_shell_fresh_and_hashes_immutable() -> None:
     assert server._web_cache_control("/") == "no-store"
     assert server._web_cache_control("/index.html") == "no-store"
@@ -1016,6 +1026,13 @@ def test_ws_stream_replays_then_tails_live(tmp_path: Path) -> None:
             e3 = ws.receive_json()
             assert e3["type"] == "engineer.progress"
             assert e3["text"] == "live!"
+            # Starlette's TestClient exit stack sends disconnect and then
+            # immediately cancels its task group.  Give the already-waiting
+            # server receive task a brief chance to consume the explicit
+            # disconnect so Python 3.13 does not surface the harness race as a
+            # cancelled application future.
+            ws.close()
+            time.sleep(0.05)
 
 
 def test_ws_unknown_project_closes(tmp_path: Path) -> None:

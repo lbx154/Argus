@@ -67,5 +67,13 @@ def test_engineer_must_not_spawn_a_subagent_to_impersonate_reviewer():
     assert "yield" in out.lower()
 
 
+def test_engineer_does_not_treat_empty_git_diff_as_untracked_evidence():
+    out = _prompt("Update an untracked research report and verify it.")
+
+    assert "git ls-files --error-unmatch" in out
+    assert "untracked" in out.lower()
+    assert "direct content or hashes" in out.lower()
+
+
 def test_engineer_fixed_prompt_stays_token_efficient():
-    assert len(_prompt("Refactor the data loader and add unit tests.")) < 2_000
+    assert len(_prompt("Refactor the data loader and add unit tests.")) < 2_300

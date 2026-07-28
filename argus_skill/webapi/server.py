@@ -587,6 +587,11 @@ def serve(
     auth_token: str | None = None,
 ) -> int:
     """Run the API with uvicorn (blocking). Defaults to a localhost bind."""
+    from ..core.runtime_identity import release_match_preflight_error
+
+    release_error = release_match_preflight_error()
+    if release_error:
+        raise RuntimeError(f"webapi refused inconsistent release: {release_error}")
     import uvicorn
 
     uvicorn.run(

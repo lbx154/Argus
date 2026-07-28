@@ -327,6 +327,10 @@ def test_advance_stage_moves_forward_and_marks_previous_done(tmp_path: Path) -> 
         "current_stage": "benchmark",
         "stages": {"benchmark": {"status": "in_progress"}},
     }), encoding="utf-8")
+    (tmp_path / "STATUS.md").write_text(
+        "# Status\n\nCurrent stage: stale-review.\n\nKeep this detail.\n",
+        encoding="utf-8",
+    )
 
     advance_stage(tmp_path, target_stage="run", reason="benchmark checklist satisfied")
 
@@ -345,6 +349,27 @@ def test_advance_stage_moves_forward_and_marks_previous_done(tmp_path: Path) -> 
     assert entry["by"] == "manager"
     # advance never touches the legacy rollback log
     assert "rollback_history" not in payload
+    assert (tmp_path / "STATUS.md").read_text(encoding="utf-8") == (
+        "# Status\n\nCurrent stage: run.\n\nKeep this detail.\n"
+    )
+
+
+def test_stage_transition_leaves_noncanonical_status_file_untouched(tmp_path: Path) -> None:
+    from argus_skill.skills.stage_machine import advance_stage
+
+    research_dir = tmp_path / "research"
+    research_dir.mkdir()
+    (research_dir / "PIPELINE_STATE.json").write_text(
+        json.dumps({"current_stage": "benchmark"}), encoding="utf-8"
+    )
+    status = tmp_path / "STATUS.md"
+    status.write_text("# Status\n\nStage is described in prose only.\n", encoding="utf-8")
+
+    advance_stage(tmp_path, target_stage="run", reason="benchmark complete")
+
+    assert status.read_text(encoding="utf-8") == (
+        "# Status\n\nStage is described in prose only.\n"
+    )
 
 
 def test_advance_stage_rejects_backward_or_skip(tmp_path: Path) -> None:

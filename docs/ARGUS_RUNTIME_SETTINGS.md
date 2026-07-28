@@ -82,6 +82,7 @@
 | lifecycle | `ARGUS_SKILL_ENGINEER_SANDBOX` | `off` | default | `off` |
 | lifecycle | `ARGUS_SKILL_MEASURED_MODE` | `off` | default | `off` |
 | lifecycle | `ARGUS_SKILL_SKIP_VAULT_PREFLIGHT` | `off` | default | `off` |
+| lifecycle | `ARGUS_SKILL_REQUIRE_RELEASE_MATCH` | `off` | default | `off` |
 | telemetry | `ARGUS_SKILL_ENABLE_TELEGRAM` | `off` | default | `off` |
 | telemetry | `ARGUS_SKILL_TELEGRAM_BOT_TOKEN` | `(unset)` | default | `(unset)` |
 | telemetry | `ARGUS_SKILL_TELEGRAM_CHAT_ID` | `(unset)` | default | `(unset)` |

@@ -213,5 +213,8 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
             for task in (event_task, receive_task):
                 task.cancel()
             await asyncio.gather(event_task, receive_task, return_exceptions=True)
-            with suppress(Exception):
+            # ``asyncio.CancelledError`` is a BaseException on supported
+            # Python versions, so ``suppress(Exception)`` does not cover the
+            # normal TestClient/server-shutdown cancellation path.
+            with suppress(asyncio.CancelledError, Exception):
                 await iterator.aclose()

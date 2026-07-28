@@ -27,7 +27,7 @@ except ImportError:  # pragma: no cover - non-POSIX fallback
     fcntl = None  # type: ignore[assignment]
 
 from ..core.run_gateway import run_exec as gateway_run_exec
-from ..core.runner_errors import result_has_missing_resume_target
+from ..core.runner_errors import result_has_unrecoverable_resume_state
 from ._helpers import _manager_backend_failure
 
 log = logging.getLogger(__name__)
@@ -301,7 +301,12 @@ class _ManagerSession:
                     resume_thread_id=tid,
                 )
                 failed, _detail = _manager_backend_failure(result)
-                if tid and failed and result_has_missing_resume_target(result):
+                if tid and failed and result_has_unrecoverable_resume_state(result):
+                    log.warning(
+                        "Manager persistent session %s is unrecoverable; "
+                        "rotating to a fresh thread",
+                        tid,
+                    )
                     try:
                         self._session_path.unlink(missing_ok=True)
                     except OSError:
