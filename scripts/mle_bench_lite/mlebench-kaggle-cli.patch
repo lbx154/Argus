@@ -1,0 +1,65 @@
+diff --git a/mlebench/data.py b/mlebench/data.py
+index 63e2ad5..1c7ad3a 100644
+--- a/mlebench/data.py
++++ b/mlebench/data.py
+@@ -3,6 +3,7 @@ import hashlib
+ import inspect
+ import os
+ import shutil
++import subprocess
+ import webbrowser
+ from datetime import datetime
+ from pathlib import Path
+@@ -173,7 +174,10 @@ def is_dataset_prepared(competition: Competition, grading_only: bool = False) -
+ 
+ def is_api_exception(exception: Exception) -> bool:
+     # only import when necessary; otherwise kaggle asks for API key on import
+-    from kaggle.rest import ApiException
++    try:
++        from kaggle.rest import ApiException
++    except ImportError:
++        return False
+ 
+     return isinstance(exception, ApiException)
+ 
+@@ -197,6 +201,40 @@ def download_dataset(
+ 
+     logger.info(f"Downloading the dataset for `{competition_id}` to `{download_dir}`...")
+ 
++    kaggle_cli = os.environ.get("MLEBENCH_KAGGLE_CLI", "").strip()
++    if kaggle_cli:
++        result = subprocess.run(
++            [
++                kaggle_cli,
++                "competitions",
++                "download",
++                competition_id,
++                "--path",
++                str(download_dir),
++                "--quiet",
++            ],
++            stdin=subprocess.DEVNULL,
++            stdout=subprocess.PIPE,
++            stderr=subprocess.STDOUT,
++            text=True,
++            check=False,
++        )
++        if result.returncode != 0:
++            output = (result.stdout or "").strip()
++            if _need_to_accept_rules(output):
++                raise RuntimeError(
++                    f"You must accept the Kaggle competition rules for {competition_id}."
++                )
++            raise RuntimeError(
++                f"Kaggle CLI download failed for {competition_id} "
++                f"(exit={result.returncode}): {output[-1000:]}"
++            )
++        zip_files = list(download_dir.glob("*.zip"))
++        assert len(zip_files) == 1, (
++            f"Expected to download a single zip file, but found {len(zip_files)} zip files."
++        )
++        return zip_files[0]
++
+     api = authenticate_kaggle_api()
+ 
+     # only import when necessary; otherwise kaggle asks for API key on import
