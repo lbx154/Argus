@@ -166,14 +166,20 @@ class Planner:
             mission=self.mission,
             open_ended=cfg.open_ended,
         )
+        dangerous_yolo = bool(cfg.dangerous_yolo)
         planner_options = RunnerOptions(
             model=cfg.model,
             reasoning_effort=cfg.reasoning_effort or "xhigh",
             working_dir=cfg.working_dir,
             add_dirs=list(cfg.add_dirs) if cfg.add_dirs else None,
-            dangerous_yolo=False,
-            full_auto=True,
-            sandbox_mode="workspace-write",
+            # Permission policy belongs to the composition root. Overwriting a
+            # production ``dangerous_yolo=True`` here downgraded Copilot to
+            # ``--allow-all-tools``, which still asks interactive shell
+            # permission and fails in a headless daemon. Safe/default callers
+            # retain the prior workspace-write/full-auto behavior.
+            dangerous_yolo=dangerous_yolo,
+            full_auto=False if dangerous_yolo else True,
+            sandbox_mode=None if dangerous_yolo else "workspace-write",
             skip_git_repo_check=cfg.skip_git_repo_check,
             extra_args=list(cfg.extra_args) if cfg.extra_args else None,
             # No Planner-specific wall-clock deadline, but a newer operator

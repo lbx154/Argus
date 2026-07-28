@@ -122,10 +122,29 @@ def test_plan_next_disables_schema_and_planner_timeouts(monkeypatch) -> None:
     assert options.output_schema_path is None
     assert options.external_interrupt_reason_provider is None
     assert options.watchdog_hard_idle_seconds == 0
+    assert options.dangerous_yolo is True
+    assert options.full_auto is False
+    assert options.sandbox_mode is None
+    assert options.add_dirs == ["/tmp/project-state"]
+
+
+def test_plan_next_defaults_to_workspace_write_full_auto(monkeypatch) -> None:
+    runner = _Runner()
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **kwargs: "direct execution prompt"),
+    )
+
+    Planner(runner).plan_next(
+        continuous_objective="inspect safely",
+        config=PlannerConfig(working_dir="/tmp/project"),
+    )
+
+    options = runner.calls[0]["options"]
     assert options.dangerous_yolo is False
     assert options.full_auto is True
     assert options.sandbox_mode == "workspace-write"
-    assert options.add_dirs == ["/tmp/project-state"]
 
 
 def test_plan_next_repairs_not_done_empty_task_response(monkeypatch) -> None:

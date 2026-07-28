@@ -52,6 +52,10 @@ argus-skill / python -m argus_skill
 | Reviewer (L2) | 独立检查当前 artifact、必要日志和 checklist；返回 `done`、`continue`、`blocked` 或 `replan_requested`；最后编辑 `CHECKPOINT.md` | 不写 stage，不扩大 mission 范围，不替 Planner 创建新计划 |
 | Curator（可选） | 团队/teammate 模式下维护 pool、leaderboard 和策略蒸馏 | 不参与普通单 mission 主链路 |
 
+角色权限模式由 composition root 决定并结构化传入各 role config；角色实现不得静默
+覆盖该值。特别是 headless daemon 的 Copilot Planner 必须保留已授权的非交互模式，
+否则 `--allow-all-tools` 仍会请求终端确认，造成只读探测失败、重复规划和 token 浪费。
+
 当前主链路没有 Engineer `review=skip` 自审旁路。代码中与
 `engineer_self_review` 有关的历史事件值、兼容解析或旧测试数据不代表当前生产行为。
 
