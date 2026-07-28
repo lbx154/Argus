@@ -44,6 +44,16 @@ for device in /dev/nvidiactl /dev/nvidia-uvm /dev/nvidia-uvm-tools /dev/nvidia-m
 done
 [[ -e /dev/nvidia-caps ]] && bwrap_args+=(--dev-bind /dev/nvidia-caps /dev/nvidia-caps)
 
+runtime_args=()
+if [[ -n "${MLE_RUNTIME_PYDEPS:-}" && -d "$MLE_RUNTIME_PYDEPS" ]]; then
+  bwrap_args+=(--ro-bind "$MLE_RUNTIME_PYDEPS" "$MLE_RUNTIME_PYDEPS")
+  runtime_args+=(
+    --setenv PYTHONPATH "$MLE_RUNTIME_PYDEPS"
+    --setenv ARGUS_MLE_PYDEPS "$MLE_RUNTIME_PYDEPS"
+    --setenv PYTHONDONTWRITEBYTECODE 1
+  )
+fi
+
 run_log="$project/logs/argus.log"
 started_epoch=$(date +%s)
 set +e
@@ -66,6 +76,7 @@ timeout --signal=TERM --kill-after=300 "$TASK_TIMEOUT_SECONDS" \
     --setenv CUDA_VISIBLE_DEVICES 0 \
     --setenv NVIDIA_VISIBLE_DEVICES 0 \
     --setenv PATH "/root/argus-mle-lite/argus-venv/bin:/usr/local/bin:/usr/bin:/bin" \
+    "${runtime_args[@]}" \
     --setenv ARGUS_SKILL_HOME "$ARGUS_HOME" \
     --setenv ARGUS_SKILL_SPECIAL_PROMPTS_DIR "$ARGUS_HOME/special_prompts" \
     --setenv ARGUS_SKILL_SOURCE_ROOT "$ARGUS_REPO" \

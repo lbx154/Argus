@@ -19,6 +19,14 @@ them. They are general representations, not competition predictions. Imported
 competition labels, predictions, gold submissions, or private feedback beyond
 the controller summary remain forbidden.
 
+The sandbox may expose a read-only shared ML dependency layer through
+`PYTHONPATH` and `ARGUS_MLE_PYDEPS`. Test imports before installing packages and
+reuse that layer for heavy frameworks. Do not vendor duplicate PyTorch, CUDA,
+torchvision, NumPy, SciPy, Pillow, or scikit-learn copies when they are already
+available. Reviewer must reject unexplained project-local dependency trees over
+1 GiB. Store public pretrained weight files separately under
+`solution/artifacts/pretrained/` and record their provenance and checksums.
+
 Required deliverables in this project root:
 
 - `submission.csv` in the exact sample-submission schema and row order;

@@ -18,6 +18,14 @@ General public pretrained representations are permitted with provenance when a
 competition allows them. The controller never permits imported competition
 predictions, labels, gold submissions, or direct private-data access.
 
+`MLE_RUNTIME_PYDEPS` may point at one pre-populated, read-only Python dependency
+directory shared by all slots. The runner exposes it through `PYTHONPATH`, so
+heavy packages such as PyTorch/CUDA, torchvision, NumPy, SciPy, Pillow and
+scikit-learn are installed once rather than copied into every project. Agents
+still keep model weights and competition-specific artifacts in their own
+project roots. If the directory is absent, the runner remains compatible and
+starts without the shared layer.
+
 The bubblewrap mount contract also hides the whole campaign root before
 re-binding the current project. Other project workspaces, submission snapshots,
 grade history, and controller state are therefore not merely forbidden by
