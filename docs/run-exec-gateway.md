@@ -1,5 +1,8 @@
 # RunExec Gateway
 
+> Current backend invocation boundary. See
+> [`DESIGN_AUTHORITY.md`](DESIGN_AUTHORITY.md).
+
 Application code must invoke model backends through
 `argus_skill.core.run_gateway.run_exec`.
 

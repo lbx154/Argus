@@ -18,21 +18,20 @@ Argus 是一个自主科研运行时，在长周期里让判断、执行与验�
 ## 持续密集智能与长周期研究
 
 强模型通常只在一次调用内保持连续，而长周期研究跨越数小时到数天。Argus 在持久项目状态上
-运行四个模型角色：Manager 固定意图与 lifetime，Planner 调度，Engineer 构建和实验；任务、
-vertical 或 Engineer 要求时，Reviewer 做独立审查。允许的低风险 bounded 工作可以由
-Engineer 显式自审。
+运行四个模型角色：Manager 固定意图与 lifetime，Planner 调度，Engineer 构建和实验；
+每个正常 mission round 之后都由 Reviewer 做独立审查。
 
 这种让判断、执行与验证持续耦合的机制称为**持续密集智能**。`rho_DI(T)` 只是对该设计目标的
 概念性描述，不是可上报 benchmark，也不是普适优越性分数。
 
 ## 从工作到证据再到运行时演化
 
-每次 run 都保存核验证据及完成来源：允许的低风险 bounded 工作可由 Engineer 自审；
-vertical 策略、`stage_closing` / `review:required` 或 Engineer 主动请求会调用独立 Reviewer。
-结果更新记忆、skill、工具、verifier、路由与评测：
+每次 run 都保存核验证据及完成来源。每个正常 Engineer round 后都会启动 fresh 独立
+Reviewer，并返回 `done`、`continue`、`blocked` 或 `replan_requested`。结果更新记忆、
+skill、工具、verifier、路由与评测：
 `H(t+1) = U(H(t), trajectory, evidence)`。
 
-所有权按组件划分。独立审查时由 **Reviewer 认证**未亲自产出的记忆与 skill；工具由
+所有权按组件划分。由 **Reviewer 认证**未亲自产出的记忆与 skill；工具由
 **operator 拥有**；verifier 由 **Planner 拥有**且 Reviewer **仅提供反馈**；路由由
 Manager 提交，评测由 Planner 编写、scheduler 提交。
 
@@ -76,24 +75,24 @@ baseline 定义、命令、退出状态、适用时的重复测量统计，以�
 
 运行时被组织为三个协作的平面：负责意图、规划、调度、预算与 daemon 生命周期的**控制
 平面**；负责搜索、代码、实验与独立审查的**执行平面**；以及由持久状态构成的**证据
-平面**（`events.jsonl`、`checkpoint.json`、journal、evidence bundle 与 figure
+平面**（`events.jsonl`、`CHECKPOINT.md`、EventJournal 投影、evidence bundle 与 figure
 manifest）。四个由模型驱动的角色通过明确接口在这些平面上协作：
 
 | 角色 · 平面 | 系统职责 | 决策边界 |
 |---|---|---|
 | **Manager** · 控制 | operator 意图的前门；决定 lifetime 与 vertical；独占 pipeline stage 迁移 | 其他角色可建议 stage 变更，但无权执行 |
 | **Planner（L4）** · 控制 | 构建并修订工作 backlog；必要时排定认证任务 | 产出结构化任务与项目级规划裁决 |
-| **Engineer（L1）** · 执行 | 用真实文件、工具、搜索与硬件执行一个有边界的回合 | 产出 artifact 并选择 `review=skip|required`；只有启用自审且任务不强制独立审查时才接受 `skip` |
-| **Reviewer（L2）** · 执行 → 证据 | 在任务要求或 Engineer 请求时独立核查 artifact 与日志 | 返回 `done`、`continue` 或 `blocked`；stage-closing 与 vertical 强制审查路径必须经过 Reviewer |
+| **Engineer（L1）** · 执行 | 用真实文件、工具、搜索与硬件执行一个有边界的回合 | 产出 artifact、测量结果和带证据的审查交接 |
+| **Reviewer（L2）** · 执行 → 证据 | 独立核查当前 artifact，并在必要时检查执行日志 | 返回 `done`、`continue`、`blocked` 或 `replan_requested` |
 
 append-only 事件流是规范时间线，operator 因此可以从一个公开数字追溯到它的 mission、
 round、review verdict、命令记录与 artifact 集合，而不必依赖总结性文字。一个 mission
 沿着持久生命周期推进——operator 请求被解释、规划为 backlog item、原子 claim、经
-Engineer 自审或 Engineer–Reviewer 路径执行，最终返回完成、阻塞、暂停或继续规划——
+Engineer–Reviewer 路径执行，最终返回完成、阻塞、暂停、请求重规划或继续规划——
 受控重启后，只有当
 持久化 identity 与当前 objective、vertical 和 lineage 一致时，daemon 才会续接原
 campaign。运行时把可靠性作为一等问题处理：有界的 mission/每日/provider call/主机并发
-预算；对 backend 失败使用有界重试与退避，而不是伪装成成功的兜底；一份由 Engineer 编辑、在 Reviewer 被调用时由其纠正的共享
+预算；对 backend 失败使用有界重试与退避，而不是伪装成成功的兜底；一份由 Engineer 编辑、随后由 Reviewer 纠正的共享
 `CHECKPOINT.md`，在 fresh role session 之间传递当前工作状态；以及在
 证据与 artifact 进入审查前对凭据脱敏。当固定的已知输入分布会允许硬编码优化时，评测
 输入可被随机化。这些机制只约束执行；它们从不给新颖性打分、不替 agent 选题、也不用
@@ -143,13 +142,14 @@ argus --daemon --continuous \
 与 `--follow` 查看。Argus 也可交给用户级 service manager 长期托管；受控替换会保留
 campaign identity，绝不在升级时静默重规划正在执行的目标。
 
-Argus 面向三种可互换的 agent CLI backend：
+Argus 面向四种可互换的 agent CLI backend：
 
 | Backend | 配置值 | 安装 | 鉴权 |
 |---|---|---|---|
 | GitHub Copilot CLI | `copilot` | `npm install -g @github/copilot`（Node.js ≥ 22） | GitHub device authorization |
 | OpenAI Codex CLI | `codex`（默认） | `npm install -g @openai/codex@latest` | `subscription_cli` 或显式 `model_api`；稳定版 `>=0.128.0` |
 | Claude Code | `claude` | `npm install -g @anthropic-ai/claude-code` | 交互式登录 |
+| OpenCode | `opencode` | `curl -fsSL https://opencode.ai/install \| bash` | `opencode auth login` 或 provider 环境变量 |
 
 可设置 `ARGUS_SKILL_RUNNER_BACKEND`，也可直接在 cockpit 中切换 backend 与 model。
 完整支持矩阵、鉴权模式、非交互 setup 与退出码见
@@ -167,8 +167,8 @@ LaTeX 源码位于 [`technical_report/`](technical_report/)，使用
 `make -C technical_report clean all` 构建。
 
 Argus 仍在快速开发，其保证是刻意有边界的。研究质量受底层模型、工具、数据与算力限制；
-完成判定仍是可能犯错的模型判断：允许的低风险 bounded mission 可由 Engineer 显式自审，
-要求或请求独立审查的路径则由 Reviewer 裁决；六项公开结果中有四项尚无 artifact digest 佐证，
+完成判定仍是可能犯错的模型判断：正常 mission 由独立 Reviewer 裁决，stage/project 状态再由
+Manager 与 completion gate 机制提交；六项公开结果中有四项尚无 artifact digest 佐证，
 另两项也只在本仓库保存外部项目 artifact 的 ID 与 hash，而非本体；每个 benchmark 的
 完整性仍需按其协议单独设计；持续运行会产生真实的 GPU 与 provider 成本；当前证据系统
 提供内容 hash 与 provenance manifest，不提供密码学结果签名。所有性能数字都应按其明确
@@ -179,3 +179,7 @@ Argus 仍在快速开发，其保证是刻意有边界的。研究质量受底�
 [ArgusBot](https://github.com/waltstephen/ArgusBot)（Reviewer loop 与 CLI runner，
 vendored provenance 与 license 位于
 [`argus_skill/agent_cli/`](argus_skill/agent_cli/)）。
+
+当前设计文档的权威层级见
+[`docs/DESIGN_AUTHORITY.md`](docs/DESIGN_AUTHORITY.md)。历史计划和技术报告只描述其标注的
+版本，不能覆盖当前运行架构。

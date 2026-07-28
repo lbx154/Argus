@@ -2,20 +2,21 @@
 
 这份说明给后续接手的 agent 看。目标不是替代代码阅读，而是让你先知道“哪里管哪里”，避免在 EMNLP 论文 pipeline 或 7x24 harness 里乱改错层。
 
+设计文档的权威层级和历史材料边界见 `docs/DESIGN_AUTHORITY.md`。
+
 ## Git 发布边界
 
-`docs/Argus_项目介绍.md`、`docs/Argus_一页纸概览.md`、
-`docs/Argus_商业计划书.md` 是冻结的非代码材料。除非 operator 再次明确授权，
-不要修改、重新生成或把这些文件的变更提交到 GitHub。
+融资、BP、VC deck、路演文案及其配图不得进入主分支。它们应保存在仓库外的私有工作区；
+`.gitignore` 钉住已知路径，避免被 `git add -A` 重新带回。
 
 ## 一句话架构
 
-`argus-skill` 是一个长期运行的 agent harness：外层 `LifeSupervisor` 管 backlog、预算、daemon、L4 planner（forward scheduling）；内层 `SkillLoop` 管单个任务的 skill 匹配、L1 engineer 执行、L2 reviewer 验收和选择性 Skill maintenance。任务内先写 project-layer Skill；成功 mission 边界由 Manager 判断 stay / shared-global / shared-vertical，默认把可迁移经验传播给其他项目。历史上独立的 L3 critic 逐轮打磨循环已经移除。完成来源现在由结构化 `review_source` 明确记录：允许自审的低风险 bounded mission 可由 Engineer 显式 `review=skip` 完成；要求独立审查的 vertical、`stage_closing` / `review:required` 任务，以及 Engineer 主动选择 `review=required` 的任务，仍交给 L2 Reviewer。论文 pipeline 是 built-in skill + vertical-owned checklist + Reviewer 裁决 + Planner fallback 共同实现的，不是机器 validator 工具链。
+`argus-skill` 是一个长期运行的 agent harness：外层 `LifeSupervisor` 管 backlog、预算、daemon、L4 planner（forward scheduling）；内层 `SkillLoop` 管单个任务的 skill 匹配、L1 Engineer 执行、L2 Reviewer 验收和选择性 Skill maintenance。当前每个正常 mission round 都走 `Engineer -> independent Reviewer`；历史 Engineer self-review 旁路已退出生产链路，旧事件/兼容字段中的 `engineer_self_review` 只代表历史数据。成功 mission 边界由 Manager 判断 stay / shared-global / shared-vertical，默认把可迁移经验传播给其他项目。历史上的 L3 critic 逐轮打磨循环已经移除。论文 pipeline 是 built-in skill + vertical-owned checklist + Reviewer 裁决 + Planner fallback 共同实现的，不是机器 validator 工具链。
 
 **角色限制责任，不限制能力。** L4 Planner 持续负责 forward planning，但使用完整
 Agent 工具主动读代码、跑有界探针/测试，并可在形成或验证计划所必需时直接编辑代码或规划
 artifact；不能把它降级成只读摘要后输出 JSON 的生成器。持续实现仍由 Engineer 主责，
-Reviewer 负责需要独立验收的结果。
+Reviewer 负责每个正常 mission round 的独立验收。
 
 **科研以价值为目标，诚信是硬约束。** 可复现、反造假、完整保留负结果都是准入条件，
 但它们本身不构成科研完成。一个 bounded 实验可以诚实地以 `redirect` / `stop` 结束；
@@ -62,9 +63,9 @@ argus-skill / python -m argus_skill
 | 层 | 角色 | 主要文件 | 改什么时看这里 |
 | --- | --- | --- | --- |
 | L0 | CLI / daemon / cockpit | `argus_skill/apps/cli/_core.py`, `argus_skill/webapi/`, `frontend/tui/`, `argus_skill/daemon/life_worker.py`, `argus_skill/apps/_watch.py` | 命令行参数、Ink/Web cockpit、daemon 启停、`--status`、`--follow`、Telegram/事件展示 |
-| Manager | 前门 + stage 权威 | `argus_skill/manager/_core.py`, `argus_skill/manager/front_door.py`, `argus_skill/manager/dispatch.py`, `argus_skill/webapi/manager_bridge.py` | 操作员自由文本的 chat-vs-task 分流（模型判断，非关键词）、vertical 选择、pipeline stage 转移的**唯一**权威（其余角色只能建议）。不在 L1/L2/L4 的编号序列里——它跨越整条流水线，不是流水线上的一站；有自己独立的 backend/model 配置（`ARGUS_SKILL_MANAGER_BACKEND`/`_MODEL`），在 `/roles` 和 cockpit 面板里与其余三个角色平级展示 |
+| Manager | 前门 + stage 权威 | `argus_skill/manager/_core.py`, `argus_skill/manager/front_door.py`, `argus_skill/manager/dispatch.py`, `argus_skill/webapi/manager_bridge.py` | 操作员自由文本的 chat-vs-task 分流（模型判断，非关键词）、vertical 选择、pipeline stage 转移的**唯一语义权威**（其余角色只能建议；Supervisor 仅可机械撤销 unfinished-DAG 的提前推进）。不在 L1/L2/L4 的编号序列里——它跨越整条流水线，不是流水线上的一站；有自己独立的 backend/model 配置（`ARGUS_SKILL_MANAGER_BACKEND`/`_MODEL`），在 `/roles` 和 cockpit 面板里与其余三个角色平级展示 |
 | L1 | Engineer | `argus_skill/loop.py`, `argus_skill/engineer/runner.py` | 单轮执行 prompt、失败重试、session 续接、进度 watchdog |
-| L2 | Reviewer | `argus_skill/reviewer/_core.py`, `argus_skill/reviewer/reviewer_schema.json` | 对要求或请求独立审查的任务给出 done/continue/blocked，维护 reviewer JSON schema，并承担论文任务的强制 peer-review gate |
+| L2 | Reviewer | `argus_skill/reviewer/_core.py`, `argus_skill/reviewer/reviewer_schema.json` | 独立检查每个正常 mission round，给出 done/continue/blocked/replan_requested，维护 reviewer JSON schema，并承担论文任务的 peer-review gate |
 | L4 | Planner | `argus_skill/planner/planner.py`, `argus_skill/life/supervisor/_core.py` | 持续读取真实项目并用完整 Agent 工具调查、运行有界探针/测试、必要时编辑代码或规划 artifact，以维护 forward plan 和自动排新任务；也负责 EMNLP final gate 失败后的自动分流。历史的 L3 critic 逐轮打磨层已移除；Planner 不负责 mission 验收 |
 | Skill | 横向能力复用 | `argus_skill/skills/store.py`, `argus_skill/skills/layered.py`, `argus_skill/manager/skill_tidy.py` | project / shared-vertical / shared-global 匹配，Engineer/Reviewer 选择性 maintenance，成功 mission 后 Manager 跨项目传播 |
 | Stage | 通用状态机 + vertical checklist | `argus_skill/skills/stage_machine.py`, `argus_skill/verticals/*/stages.py`, `argus_skill/skills/checklist_store.py` | 通用 stage 状态转移/渲染在 `stage_machine`；stage 顺序、seed checklist 和领域渲染归各 vertical |
@@ -89,6 +90,10 @@ argus-skill / python -m argus_skill
 checklist seed 的数据源是各 `verticals/*/stages.py`；`skills/stage_machine.py`
 只负责通用状态转移、active-vertical 解析和渲染。
 
+`builtin_skills/*/argus-*-role.md` 是受保护的兼容/方法 playbook，不是第二套控制平面
+Prompt。它们不得重新定义 Reviewer 是否运行、completion status、stage authority 或
+等待协议；这些字段必须跟随 `roles/prompts/` 和 runtime 实现。
+
 ## 入口和运行面
 
 - `pyproject.toml`: console script 是 `argus-skill = "argus_skill.__main__:main"`。
@@ -99,7 +104,7 @@ checklist seed 的数据源是各 `verticals/*/stages.py`；`skills/stage_machin
 - `argus_skill/webapi/manager_bridge.py`: Ink/Web cockpit 的统一 Manager 接口；`manager/front_door.py` 管分类与 handoff，`manager/dispatch.py` 管 lifetime 与持久化入队。Python line REPL 已删除。
 - Manager front-door 的一次模型调用同时输出 `CONFIG` / `CONTROL` / `ROUTE` 三个结构化轴。`CONTROL: NO_DISPATCH` 是 Manager 对 operator 明确“只读 / 不派任务 / 不启动 daemon”约束的权威裁决：bridge 强制走 SELF，inline 回复失败也 fail-closed，不得入 backlog。harness 不扫 operator prose 关键词来改判。SELF 回合用 read-only sandbox。session 明确区分两根目录：持久化 `workdir` 是四个角色唯一的项目执行目录；project state root 只保存 backlog/events/budget/skills 等内部状态。`launch_cwd` 仅记录 UI 从哪里打开，不能被运行时另行猜成 workspace。旧 session 没有 `workdir` 时继续使用其旧 `cwd`，禁止升级时自动切到 `launch_cwd`。恢复 session 不得重绑 workdir；切换只能在 daemon 停止且 Manager 空闲时完成。daemon 全生命周期持有 canonical-workdir lease，同一主机上任何 session/state root 都不能并发写同一目录。
 - Operator 永远只与 Manager 交互。活跃 mission 的方向调整由 front-door Manager 生成专业 `STEER_DIRECTIVE` 后写入团队 inbox，禁止把 operator 原话直接透传成 Engineer 微操。Front-door classify 使用轻量模型/low；真正的 Manager SELF 回复继承当前最强 Manager 模型并使用 xhigh。Web/TUI 通过 SSE 流式显示 classify、steer、assistant block 和 5s 静默 heartbeat。SELF 默认 120s hard-idle fail-visible，不在超时后再追加一次长等待。
-- Manager 判定为 `BOUNDED` 的 TEAM 请求不会直接入队成一个巨型 mission：先经过紧凑的 bounded-DAG Planner，原子写入带真实 `key/deps/plan_id` 的 backlog 节点；节点数量和任务大小由 Planner 判断，harness 不按数量、artifact、context、文本长度或关键词阶段做硬限制。每个节点强制 direct workflow、最多一次 Engineer→Reviewer round；不得在节点内重新写计划、初始化 Git/worktree、commit 或拉 subagent。`STANDING` 请求仍走 L4 continuous Planner。
+- Manager 判定为 `BOUNDED` 的 TEAM 请求不会直接入队成一个巨型 mission：先经过紧凑的 bounded-DAG Planner，原子写入带真实 `key/deps/plan_id` 的 backlog 节点；节点数量和任务大小由 Planner 判断，harness 不按数量、artifact、context、文本长度或关键词阶段做硬限制。普通 bounded-DAG 节点默认最多 3 个 Engineer→Reviewer round（内部兼容 knob `ARGUS_SKILL_BOUNDED_DAG_NODE_MAX_ROUNDS` clamp 为 2–8；progressive experiment matrix 例外），并跳过二次规划；不得在节点内重新写计划、初始化 Git/worktree、commit 或无必要地拉 subagent。`STANDING` 请求仍走 L4 continuous Planner。
 - `argus_skill/life/router.py`: operator 自由文本的 chat-vs-task 路由。**不再用关键词/正则分类**（历史的 `is_conversational` 用 60 字符上限 + 中英文正则猜“这是闲聊吗”，harness 比 agent 聪明）。现在 `classify_is_conversational(text, *, run_exec)` 做一次低 reasoning 的模型调用，只有模型精确回答 `CHAT` 才返回 True，其余（TASK / 模糊 / 空 / 非零退出 / 异常）一律按 task 走完整 pipeline——bias 向 task，宁可多跑也不误吞任务。只有 operator 通过 Manager front-door 发送的自由文本才会被分类；planner / backlog / daemon 的任务都不分类，否则就是 harness 二次猜 planner。
 - `argus_skill/daemon/life_worker.py`: detached daemon 版本的同一套逻辑。这里管 `continuous.json` 热加载、pid lock、daemon status、预算环境变量，以及 Reviewer 通过的私有 self-maintenance canary/rollback handoff。普通 checkout 更新统一由 TUI/WebAPI 在启动时识别并调度 source-owned daemon 升级；daemon 不再轮询当前 checkout 自重启。
   - `--resume-continuous` 只采用与 Manager handoff identity（objective hash +
@@ -143,7 +148,7 @@ checklist seed 的数据源是各 `verticals/*/stages.py`；`skills/stage_machin
 - `SkillLoopConfig`: engineer/reviewer/matcher model、max rounds、writeback、distill-on-miss、runner flags、`paper_mission`。
 - `SkillLoop.run(...)`: 主流程。
 - `_build_engineer_prompt(..., paper_mission)`: 拼 L1 engineer prompt。长 horizon 论文 contract 仅在 `paper_mission=True` 时注入。
-- 论文任务的识别**不再用关键词猜 objective 文本**，改由已解析 vertical 的结构化 completion gate 决定：只有 `completion_gate == "full_emnlp"` 才会把 `SkillLoopConfig.paper_mission` 置 True；缺失/损坏/未决状态一律按 False 处理。已删除旧的 `argus_skill/core/paper_objective.py` 与 `_looks_like_paper_objective`。
+- 论文任务的识别**不再用关键词猜 objective 文本**，改由已解析 vertical 的结构化 completion gate 决定：只有 `completion_gate == "full_paper"` 才会把 `SkillLoopConfig.paper_mission` 置 True；缺失/损坏/未决状态一律按 False 处理。`full_emnlp` 只在旧持久化数据迁移中兼容。
 
 主流程：
 
@@ -152,7 +157,8 @@ objective_for_skill -> SkillStore.find_relevant(...)
   miss -> SkillScientist.distill(...) -> SkillStore.save_distilled(...)
 skill_text + task -> SupervisedEngineer.run(...)
   round k: engineer -> Reviewer.evaluate(...)
-  outcome -> record distinct skill use; reviewer skill_ops may update/archive
+  outcome -> record distinct skill use; Reviewer may directly maintain project Skill/wiki
+             (legacy skill_ops replay remains compatibility-only)
   continue -> next_action 注入下一轮
   blocked/max_rounds -> 返回 outcome
 ```
@@ -189,21 +195,15 @@ Engineer 和 Reviewer 不再继承上一轮 raw transcript。每个角色每轮�
 - checkpoint 是当前状态便签，不是追加日志。没有 patch、commit、revision、JSON schema、
   机械压缩或硬大小限制；Agent 使用普通文件工具原地维护。
 - Reviewer 的结构化 verdict 不再要求输出 `checkpoint` JSON。
-- **一一映射契约**：`CHECKPOINT.md` 只存长期状态/证据引用/开放问题；
-  Reviewer `reason` 只存 verdict 理由，`next_action` 只存下一轮指令；
-  `planner_report` 只存 `forward_progress`、`plan_signal` 和 `evidence_files`。
-  不再生成 `round_summary_markdown`、`completion_summary_markdown` 或
-  `step_back`；旧事件仍由 parser 兼容读取。
-- Engineer 把 `review`、`skill_action`、`skill_name` 三个控制字段写到
-  mission-scoped `engineer-controls/<scope>/round-NNNN-engineer-control.json`，
-  普通回复只写自然语言结果；旧
-  `ARGUS_ENGINEER_DECISION` 仅作为运行中老 agent 的兼容 fallback，新 prompt
-  不再出现 marker/template。
+- **一一映射契约**：`CHECKPOINT.md` 只存长期状态、证据引用和开放问题；Reviewer
+  `reason` 只存 verdict 理由，`next_action` 只存下一轮指令。旧研究 schema 中的
+  `planner_report` / `plan_signal` 仅作兼容，不是当前 reviewer 输出协议。
 - `handoffs/latest.json` v2 只引用最新 round handoff 和 mission 文件；round
-  handoff 再以 path/hash 引用 CHECKPOINT/control file，不复制 Engineer summary
+  handoff 再以 path 引用 CHECKPOINT，不复制 Engineer summary
   或 CHECKPOINT 正文。event/journal/wiki 只做同名字段投影或路径引用，不要求
   agent 重写第二份摘要。
-- 每个 Engineer round 都必须写结构化 control。Prompt 要求只在低风险 bounded 工作且 verifier 通过时写 `review=skip`；只要自审已启用且任务未强制独立审查，runner 就接受这个显式判断（不再加第二套 heuristic/validator），生成 `review_source=engineer_self_review` 的 `done`，不会调用 Reviewer。若 vertical 声明 `REQUIRE_INDEPENDENT_REVIEW=True`、backlog item 带 `stage_closing` / `review:required`，或 Engineer 写 `review=required`，则禁用/放弃自审并调用独立 Reviewer。`CONTINUE_WORK` 跳审仍已移除。
+- 每个正常 Engineer round 后都调用独立 Reviewer。`round_self_review.py` 目前只保留
+  历史模块名并做进展 bookkeeping，不提供自审完成旁路。
 - `ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS` 默认 0，不用绝对墙钟时间截断正常工作。
 - 测试：`tests/test_checkpoint_loop.py`、`tests/test_session_resume.py`。
 
@@ -236,9 +236,9 @@ Engineer 和 Reviewer 不再继承上一轮 raw transcript。每个角色每轮�
   文本 artifact。
 - 脱敏不裁决科研质量；若改写了 artifact，会通过 `round.secret_redacted` 告知
   Reviewer 重建相关 hash/provenance。扫描错误或大文本未覆盖也会显式阻止无条件认证。
-- 新 Engineer 通过 mission-scoped control file 的 `wait_for` / `wait_id` 请求等待；
-  raw 文本 sentinel 只为运行中老 session 兼容。进入事件、usage、Reviewer prompt 的
-  Engineer 文本副本必须已脱敏。
+- 新 Engineer 通过最终回复最后一个非空行的精确 JSON
+  `{"wait_for":"subagent|external_work","wait_id":"..."}` 请求等待；进入事件、
+  usage、Reviewer prompt 的 Engineer 文本副本必须已脱敏。
 - Engineer runtime 不再从 shell command、Codex 私有 session JSONL 或项目文件 mtime
   猜长任务/有效进度/重复失败。每个 provider turn 使用独立 process group；provider
   退出后只清理仍留在该精确 PGID 的无主后代，durable subagent 使用自己独立的
@@ -253,15 +253,13 @@ Engineer 和 Reviewer 不再继承上一轮 raw transcript。每个角色每轮�
 一个健康 run（实测 RL pilot 出现过几百轮只在重读 `status.json` + 写 `MONITOR_*.md`），
 被长程 GPU 实验阻塞，而不是去推进不依赖它的独立工作。
 
-实现（`argus_skill/engineer/background_subagents.py` + `runner.py`）：
+实现（`argus_skill/engineer/external_work.py` + `round_waits.py` + `runner.py`）：
 
-- `background_subagents.py`：读
-  `<workdir>/.argus_subagents/*.json` 注册表，把在跑的 job 分成 `self_watched`
-  （supervised + 健康 + registry mtime 新鲜 + 无 concern + decision≠early_stop）和
-  `needs_attention`（direct 模式 / discussing / degrading|stuck|diverging / 有
-  concern / supervisor 心跳过期 / worker pid 已死）。
+- `external_work.py` 统一读取 `.argus_subagents` 和其他 external-work registry，把 job
+  分类为 waitable 或需关注；`background_subagents.py` 现在只负责折算 subagent
+  supervisor token 成本。
 - **Agent 主导的 cadence 等待**（"只按 supervisor 节奏复查"）：若 engineer 在
-  control file 写入 `wait_for=subagent` 和 `wait_id=<task_id>`，runner 检测到且命中一个
+  最终回复最后一行写入精确 JSON wait request，runner 检测到且命中一个
   self-watched in-flight job 时，**跳过昂贵的 reviewer 轮**，按该 job 的
   supervisor 节奏（`monitor_interval`，clamp 到 30–900s）休眠，job 到终态会提前唤醒。
   是 **agent 显式选择**等待，不是 harness 替它决定。目标命中不到自看护 job 时被
@@ -312,11 +310,10 @@ L2 reviewer 在 `argus_skill/reviewer/_core.py`。
 
 - `LifeSupervisor.run()`: 主循环。
 - `LifeSupervisor.tick()`: 处理一个 backlog item。
-- `_plan_next_work(...)`: L4 planner，continuous mode 下 backlog 空了就调用；论文 objective 的 `final_submission` 改派也在这里（约 `supervisor.py:1776` 一带）。
-- `LifeSupervisorConfig.paper_mission` / `full_emnlp_gate` / `open_ended`: 显式信号（前两个默认 False，只有 Manager 已解析出 `completion_gate == "full_emnlp"` 的 vertical 才开启）。`paper_mission` 决定 planner 给 bounded item 的论文/通用指导语；`full_emnlp_gate` 决定 `project_done` 前是否必须拿到一次 reviewer 认证的 full-pipeline 通过；`open_ended` 决定 planner 认证 `project_done` 后是“硬停”还是“继续生成新工作”。**已删除**旧的关键词判断 `_objective_requires_full_emnlp_gate` / `_objective_is_paper_long_horizon` / `_objective_is_open_ended`，全部改用 config flag。`open_ended` dataclass 默认 False，但 daemon/REPL 入口路径默认置 True（除非 `--bounded`），并随 `LifeWorkerConfig.continuous_open_ended` 一起做 blue/green handoff 序列化（`_config_payload` / `_config_from_payload`）。
-- `_is_emnlp_finalization_objective(...)`: 识别一个任务是否就是项目级 `final_submission` 认证任务（看 `scope: final_submission` 标记，不再看 retired 的 `validate-*` 命令）。
-- `_journal_has_full_emnlp_gate_success(...)`: 从 journal 里查是否已有一次被 reviewer 认证（`final_submission_certified=True`）的 full-pipeline 通过记录——这才是项目完成的唯一判据。
-- 标量：`_PLANNER_SCOPE_FINAL_SUBMISSION = "final_submission"`，`_FULL_EMNLP_GATE_DESCRIPTION` 现在就是“L2 reviewer 的 full pipeline checklist（research → submission）”这句话，不是任何 shell 命令。
+- `_plan_next_work(...)`: L4 planner，continuous mode 下 backlog 空了就调用；实现拆在 `life/supervisor/_planning_cycle*.py`，论文 objective 的 `final_submission` 改派在 completion phase。
+- `LifeSupervisorConfig.paper_mission` / `full_paper_gate` / `open_ended`: 显式信号（前两个默认 False，只有 Manager 已解析出 `completion_gate == "full_paper"` 的 vertical 才开启）。`paper_mission` 决定 planner 给 bounded item 的论文/通用指导语；`full_paper_gate` 决定 `project_done` 前是否必须拿到一次 reviewer 认证的 full-pipeline 通过；`open_ended` 决定 planner 认证 `project_done` 后是“硬停”还是“继续生成新工作”。`open_ended` dataclass 默认 False，但 daemon/cockpit 入口默认置 True（除非 `--bounded`），并随 `LifeWorkerConfig.continuous_open_ended` 做 blue/green handoff 序列化。
+- `_journal_has_full_paper_gate_success(...)`: 从 EventJournal 投影中查是否已有一次被 reviewer 认证（`final_submission_certified=True`）且 signature 匹配的 full-pipeline 通过记录。
+- 标量：`PLANNER_SCOPE_FINAL_SUBMISSION = "final_submission"`，`FULL_PAPER_GATE_DESCRIPTION` 描述 L2 Reviewer 的 full pipeline checklist，不是 shell validator。
 
 > 注意：历史上的 `_EMNLP_*_CODES` issue-code 分组、`_select_emnlp_finalization_repair_task`、
 > `_automatic_emnlp_finalization_task_for_current_gate`、`_build_emnlp_finalization_objective`、
@@ -336,7 +333,7 @@ skill 是 markdown 文件，带 YAML-like frontmatter。
 - `argus_skill/skills/layered.py`: project > active shared-vertical > shared-global 的匹配层；共享 Skill 被修改或记录复用时先 fork 回项目层。
 - `argus_skill/manager/skill_tidy.py`: 成功 mission 边界的 Manager placement；内容 hash ledger 避免重复判断，shared-global 立即对所有项目可见，shared-vertical 只对同 vertical 可见。
 - 不设 Skill 文本质量门、candidate/provisional 或 confirm 晋升状态。新建和更新先在项目层生效；跨项目传播需要成功 mission 后的 Manager placement，保留版本历史和可逆 archive。
-- `argus_skill/skills/lifecycle.py`: reinforce/distill/revise/retire 决策。
+- `argus_skill/skills/lifecycle.py`: 低层 archive helper；旧 lifecycle dispatcher 已删除。
 - `argus_skill/skills/builtins.py`: packaged built-in skill seed/export。
 - `argus_skill/builtin_skills/*.md`: 内置 skill 源文件。
 - `argus_skill/builtin_skills/domains/**`: domain skill 包。
@@ -465,7 +462,7 @@ python -c "from argus_skill.skills.stage_machine import format_full_pipeline_che
 改 validator 时注意：
 
 - `ContractIssue(code, path, message)` 的 `code` 仍是有用的诊断标识，重命名前先 grep 引用（tests、reviewer 文案）。
-- full-pipeline 完成判定现在走 L2 Reviewer 对 active vertical checklist 的整链裁决，不再有 `supervisor.py` 里的 EMNLP issue-code 分组；新增检查项时改对应 `verticals/*/stages.py` 的 seed，而不是通用状态机或已删除的 issue-code lane。
+- full-pipeline 完成判定现在走 L2 Reviewer 对 active vertical checklist 的整链裁决，不再有 supervisor 里的 EMNLP issue-code 分组；新增检查项时改对应 `verticals/*/stages.py` 的 seed，而不是通用状态机或已删除的 issue-code lane。
 - 新增 artifact 后，通常还要更新 manifest/freshness/validation priority 相关逻辑。
 - 先改 narrow validator，再考虑是否需要在 checklist 里新增一项。
 
@@ -530,18 +527,18 @@ image-2 metadata，也不得仅因此阻塞整篇论文；应由 agent 选择语
 确定性路线。任何本地 SVG/HTML/PPT 输出都必须以真实 renderer 名义登记，不能冒充
 image-2。
 
-## Planner 的 EMNLP 完成判定
+## Planner 的 full-paper 完成判定
 
-当 `LifeSupervisorConfig.full_emnlp_gate=True`（默认）时，L4 planner 有额外保护：
+当 `LifeSupervisorConfig.full_paper_gate=True` 时，L4 planner 有额外保护：
 
-- `full_emnlp_gate` 这个**显式 config flag**（不再从 objective 文本猜）决定：`project_done` 前必须有一次被 reviewer 认证的 full-pipeline gate 通过记录。非论文的 continuous mission 可把它置 False。
-- `_journal_has_full_emnlp_gate_success(...)`: 在 journal 里查这条认证记录（`final_submission_certified=True`）。
+- `full_paper_gate` 这个**显式 config flag**（不再从 objective 文本猜）决定：`project_done` 前必须有一次被 reviewer 认证的 full-pipeline gate 通过记录。只有 active vertical 的 completion gate 也是 `full_paper` 时才生效。
+- `_journal_has_full_paper_gate_success(...)`: 在 EventJournal 投影里查当前 signature 的认证记录。
 - `_plan_next_work(...)`: 若 planner 在尚未认证时就报 `project_done`，这里把它的裁决**替换**成一个 `scope=final_submission` 的 “Prove final submission readiness” 任务，交回 L2 reviewer 做整链认证。
 - **scope 是结构化透传的，不再从 prose 里二次解析。** backlog item 的 `scope`（`final_submission` / `bounded` / 空）由 `_planner_scope_from_item(item)`（读 `item.tags`）算出，经 `MissionExecutor.execute(..., scope=...)` 一路传到 `_SkillLoopRunner` 和 reviewer。runner 不再从 objective prose 猜 `mission_scope`，reviewer 也只认结构化 scope(prose fallback 已删)。planner 去重里“`done` 的 final-submission 任务不挡新任务入队”这条豁免,也改走结构化的 `_item_is_final_submission(item)`(读 tag);`_legacy_final_submission_marker(text)` 只作为**老 backlog 迁移**兜底——给“tag 出现前持久化、只在 objective prose 里带 marker”的旧 item 用,保证 resume 的 daemon 不回归,新 item 一律带 tag。
 
 所以：
 
-- 改“项目什么时候算完成 / 还差认证时下一步派什么”，改 `supervisor.py` 的 `_plan_next_work` 改派分支和 `_journal_has_full_emnlp_gate_success`。
+- 改“项目什么时候算完成 / 还差认证时下一步派什么”，改 `life/supervisor/` 的 planning/lifecycle phase 和 `_journal_has_full_paper_gate_success`。
 - 改“full-pipeline checklist 里某一项该不该判过”，改对应 `verticals/*/stages.py` 的 checklist seed；通用状态转移/渲染才改 `skills/stage_machine.py`。
 - 改“agent 读到任务后应该怎么做”，改 `builtin_skills/*.md` 或 `SkillLoop._build_engineer_prompt`。
 
@@ -675,7 +672,7 @@ pytest tests/tools/test_image_api.py tests/skills/test_figure_tool.py
 pytest
 ```
 
-只改文档通常不用全跑。改 `stage_machine.py` 或 vertical checklist 至少跑 stage/vertical/Manager/Reviewer 相关 tests。改 `supervisor.py` 至少跑 life/daemon/planner 相关 tests。
+只改文档通常不用全跑。改 `stage_machine.py` 或 vertical checklist 至少跑 stage/vertical/Manager/Reviewer 相关 tests。改 `life/supervisor/` 至少跑 life/daemon/planner 相关 tests。
 
 ## 修改时的层级规则
 
@@ -686,7 +683,7 @@ pytest
 5. L4 调度策略改 `life/supervisor/_core.py` / `planner/planner.py`。
 6. Skill 匹配、蒸馏、writeback 改 `skills/store.py` / `scientist/*`。
 7. Vertical 质量标准改对应 `verticals/*/stages.py` 的 checklist；通用状态转移和 checklist 渲染改 `skills/stage_machine.py`。
-8. EMNLP 项目何时算完成 / 还差认证时改派什么，改 `life/supervisor/_core.py` 的 `_plan_next_work` 与 `_journal_has_full_emnlp_gate_success`。
+8. full-paper 项目何时算完成 / 还差认证时改派什么，改 `life/supervisor/` 的 planning/lifecycle phase 与 `_journal_has_full_paper_gate_success`。
 9. Agent 读到 paper 任务后的操作手册改 `argus_skill/builtin_skills/*.md`。
 10. 生成 evidence/review JSON 的工具改 `skills/*_review.py`、`tools/image_api.py`
     或 `verticals/research/figure_tool.py`，不要只改 validator 放宽。
@@ -695,7 +692,7 @@ pytest
 
 - 不要把 runtime prelude、daemon 路径、Codex route、capability vault、local cache/device 写进论文正文。
 - 不要手改 review JSON、manifest 或 freshness 来制造 PASS。优先修源 artifact 后重跑生成器。
-- 不要假设还存在 `supervisor.py` 里的 EMNLP issue-code 分组 / `_select_emnlp_finalization_repair_task`：它们已删除，完成判定走 L2 reviewer 的 full-pipeline checklist 认证。
+- 不要假设还存在 supervisor 里的 EMNLP issue-code 分组 / `_select_emnlp_finalization_repair_task`：它们已删除，完成判定走 L2 reviewer 的 full-pipeline checklist 认证。
 - 不要只在 built-in skill 文案里改规则，却忘了 reviewer 的 stage checklist（底层 `validate_*` 函数）仍然会判红。
 - 不要只让单个 stage 的 paper-contract 检查过就说 EMNLP ready；最终看 `format_full_pipeline_checklist` 的整链裁决。
 - 不要在 full-scale evidence gate 红的时候继续 polish `paper/main.tex`，先补实验/benchmark/source matrix。

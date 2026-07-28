@@ -24,8 +24,7 @@ Strong models are episodic; long-horizon research spans thousands of coupled
 decisions across hours or days. Argus keeps that work connected by running four
 model-driven roles over persistent project state: Manager fixes intent and
 lifetime, Planner schedules, Engineer builds and experiments, and Reviewer
-independently checks work when required or requested. Allowed low-risk bounded
-work may instead use explicit Engineer self-review.
+independently checks every normal mission round.
 
 This persistent coupling of judgment, execution, and verification is what we
 call **dense intelligence**. `rho_DI(T)` is only a conceptual description of
@@ -33,14 +32,14 @@ that design goal, not a reported benchmark or a universal superiority score.
 
 ## From Work to Evidence to Runtime Evolution
 
-Each run records checked evidence and its completion source. Engineer self-review
-is allowed for low-risk bounded work; vertical policy, `stage_closing` /
-`review:required`, or an Engineer request invokes an independent Reviewer. The
-result updates persistent memory, skills, tools, verifiers, routing, and
-evaluations: `H(t+1) = U(H(t), trajectory, evidence)`.
+Each run records checked evidence and its completion source. A fresh independent
+Reviewer follows every normal Engineer round and returns `done`, `continue`,
+`blocked`, or `replan_requested`. The result updates persistent memory, skills,
+tools, verifiers, routing, and evaluations:
+`H(t+1) = U(H(t), trajectory, evidence)`.
 
-Ownership is scoped. On independently reviewed missions, the **Reviewer
-certifies** memory and skill work it did not author. Tools are **operator-owned**;
+Ownership is scoped. The **Reviewer certifies** memory and skill work it did not
+author. Tools are **operator-owned**;
 verifiers are **Planner-owned** with the Reviewer **feedback-only**; routing is
 Manager-committed; evaluations are Planner-authored and scheduler-committed.
 
@@ -93,7 +92,8 @@ applicable, and the hashes of the artifacts that support it.
 The runtime is organized into three cooperating planes: a **control plane** for
 intent, planning, scheduling, budgets, and daemon lifecycle; an **execution
 plane** for search, code, experiments, and independent review; and an **evidence
-plane** of durable state (`events.jsonl`, `checkpoint.json`, the journal,
+plane** of durable state (`events.jsonl`, `CHECKPOINT.md`, the EventJournal
+projection,
 evidence bundles, and figure manifests). Four model-driven roles act across those
 planes through explicit interfaces:
 
@@ -101,22 +101,22 @@ planes through explicit interfaces:
 |---|---|---|
 | **Manager** · control | Front door for operator intent; selects lifetime and vertical; owns pipeline-stage transitions | Other roles may recommend a stage change but cannot apply it |
 | **Planner (L4)** · control | Builds and revises the work backlog; schedules certification work when required | Produces structured tasks and project-level planning verdicts |
-| **Engineer (L1)** · execution | Executes one bounded round using real files, tools, searches, and hardware | Produces artifacts and selects `review=skip|required`; `skip` is accepted only when self-review is enabled and independent review is not mandatory |
-| **Reviewer (L2)** · execution → evidence | Independently inspects artifacts and logs when required or requested | Returns `done`, `continue`, or `blocked`; mandatory for stage-closing and vertical-required review |
+| **Engineer (L1)** · execution | Executes one bounded round using real files, tools, searches, and hardware | Produces artifacts, measurements, and an evidence-bearing handoff for review |
+| **Reviewer (L2)** · execution → evidence | Independently inspects the current artifacts and, when material, execution logs | Returns `done`, `continue`, `blocked`, or `replan_requested` |
 
 The append-only event tape is the canonical timeline, so an operator can move
 from a published number to its mission, round, review verdict, command record,
 and artifact set without trusting a prose summary. A mission moves through a
 durable lifecycle — an operator request is interpreted, planned into backlog
-items, atomically claimed, executed through an Engineer self-review or
-Engineer–Reviewer path, and returned as complete, blocked, paused, or ready for
-more planning — and after a controlled
+items, atomically claimed, executed through the Engineer–Reviewer loop, and
+returned as complete, blocked, paused, replan-requested, or ready for more
+planning — and after a controlled
 restart the daemon resumes the same campaign only when its persisted identity
 matches the current objective, vertical, and lineage. The runtime treats
 reliability as a first-class concern: one host-global daily USD cap with atomic
 call reservations, plus host-concurrency limits; bounded retry and backoff for backend failures
 instead of success-looking fallbacks; a shared `CHECKPOINT.md` edited by the
-Engineer and, when invoked, corrected by the Reviewer between fresh role
+Engineer and corrected by the Reviewer between fresh role
 sessions; and credential redaction before events and artifacts enter review.
 Evaluation inputs may be randomized when a fixed known input distribution would
 otherwise permit hard-coded optimization. These mechanisms govern execution; they
@@ -229,9 +229,9 @@ with `make -C technical_report clean all`.
 
 Argus is under active development, and its guarantees are deliberately bounded.
 Research quality remains limited by the underlying models, tools, data, and
-compute. Completion is a fallible model judgment: either explicit Engineer
-self-review on an allowed low-risk bounded mission or an independent Reviewer
-verdict on required/requested paths. Four of the six
+compute. Completion is a fallible model judgment made by the independent
+Reviewer and, for stage/project state, committed through Manager and
+completion-gate mechanisms. Four of the six
 public arena results do not yet have artifact-digest corroboration, and even the
 two corroborated rows reference external project artifacts rather than storing
 their bytes here. Benchmark integrity must be engineered separately for each
@@ -245,3 +245,8 @@ Package metadata declares the project under the MIT license. It builds on
 distillation, and on [ArgusBot](https://github.com/waltstephen/ArgusBot) for the
 reviewer loop and CLI runner, with vendored provenance and license material under
 [`argus_skill/agent_cli/`](argus_skill/agent_cli/).
+
+Current design-document precedence is defined in
+[`docs/DESIGN_AUTHORITY.md`](docs/DESIGN_AUTHORITY.md). Historical plans and the
+technical report describe the evaluated revisions they name; they do not
+override the live architecture contract.

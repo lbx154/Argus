@@ -14,7 +14,7 @@
 ## 工作流（每次改动顺序执行）
 
 1. **Step 0 · 对照哲学** — 读 README 的"设计哲学"段 + skill 04，问自己"我要加的这段代码是科研判断还是笨管道？"。是判断 → 不写代码，写 checklist 给 reviewer。是管道 → 继续。
-2. **Step 0.5 · 读 review** — 按 [`skills/05-read-review-first.md`](skills/05-read-review-first.md)。`ls docs/reviews/` 看是否有针对你前一次提交的裁决；维护方在 `docs/reviews/` 写的判定是有约束力的法律，不是建议。漏读 = 重犯。
+2. **Step 0.5 · 读当前设计 + 相关历史** — 按 [`skills/05-read-design-history-first.md`](skills/05-read-design-history-first.md)。当前契约从 `DESIGN_AUTHORITY`/`ARCHITECTURE` 读；旧裁决和事故从 Git 历史按需读取。
 3. **Step 1 · pull** — 按 [`skills/00-pull-first.md`](skills/00-pull-first.md)。
 4. **Step 2 · 写测试 + 实现** — 按 [`skills/01-test-driven-additions.md`](skills/01-test-driven-additions.md)。
 5. **Step 3 · 接入现有钩子** — 按 [`skills/02-integration-via-existing-hooks.md`](skills/02-integration-via-existing-hooks.md)。绝不新建并行 daemon / supervisor。
@@ -29,7 +29,7 @@
 | 02 | [`integration-via-existing-hooks`](skills/02-integration-via-existing-hooks.md) | 把新模块接进 runtime 时 |
 | 03 | [`push-after`](skills/03-push-after.md) | 一块工作完成后 |
 | **04** | [`harness-vs-agent-boundary`](skills/04-harness-vs-agent-boundary.md) | **Step 0 必读** — 决定一段逻辑该在 harness 还是 agent prompt 里 |
-| **05** | [`read-review-first`](skills/05-read-review-first.md) | **Step 0.5 必读** — session 开头 + 任何看起来"做过类似事"的功能前，必须 `ls docs/reviews/` |
+| **05** | [`read-design-history-first`](skills/05-read-design-history-first.md) | **Step 0.5 必读** — 先读当前权威，再用 `git log -S` 检查同一机制的历史 |
 | **06** | [`keep-files-small`](skills/06-keep-files-small.md) | **Step 2/3 必读** — 加 50+ 行新逻辑前先问"该不该新建模块"，>1000 行的文件追加必须在 commit 里解释 |
 
 ## 例外
@@ -43,4 +43,3 @@
 | 日期 | commit | 违规 | 修复 commit |
 |---|---|---|---|
 | 2026-06-01 | `c6b11d3` | F3 anti_mediocrity 把 `min_delta=0.02` / `min_families=3` 当 hard gate 计入 stage_check 退出码 | 见后续 commit |
-

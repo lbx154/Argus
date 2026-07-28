@@ -1,5 +1,8 @@
 # Metrics and SLOs
 
+> Current observability contract. See
+> [`DESIGN_AUTHORITY.md`](DESIGN_AUTHORITY.md).
+
 Argus appends durable operational measurements to `metrics.jsonl` under the
 shared runtime root. Metrics cover:
 

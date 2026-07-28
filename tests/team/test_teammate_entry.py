@@ -115,7 +115,7 @@ def test_teammate_forces_checkpoint_persist_off(tmp_path: Path, monkeypatch) -> 
     # A teammate writes its events to its own life_dir, not <global_root>/projects/<fp>/.
     # The reviewer's engineer-log audit greps the latter, so it must be disabled for a
     # teammate (else it audits a co-located daemon's shared log → wrong verdicts). Forcing
-    # it off also stops teammates sharing one checkpoint.json.
+    # it off also stops teammates sharing one CHECKPOINT.md.
     import argus_skill.apps._runtime as rt
     for var in ("ENGINEER", "REVIEWER"):
         monkeypatch.setenv(f"ARGUS_SKILL_{var}_MODEL", "m")

@@ -1,5 +1,8 @@
 # Product
 
+> Product/UX contract only. Runtime architecture and state authority are defined
+> by [`docs/DESIGN_AUTHORITY.md`](docs/DESIGN_AUTHORITY.md).
+
 ## Register
 
 product

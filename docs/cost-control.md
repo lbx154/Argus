@@ -1,5 +1,8 @@
 # Host-Global Cost Control
 
+> Current monetary-admission contract. See
+> [`DESIGN_AUTHORITY.md`](DESIGN_AUTHORITY.md).
+
 Argus has one monetary limit: the host-global daily USD cap. It uses two
 durable accounting layers:
 

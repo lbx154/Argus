@@ -109,6 +109,31 @@ def test_payload_schema_validates_types_and_payload_versions() -> None:
     assert "event_validation" not in unknown_resumed_premium
 
 
+def test_project_completion_events_are_typed_cross_component_signals() -> None:
+    completed = new_event(
+        EventType.PROJECT_COMPLETED,
+        vertical="software",
+        source="vertical_completion_certificate",
+        required_gate="metric",
+        evidence_refs=["certificate:delivery"],
+        from_state="active",
+    )
+    assert completed["type"] == "project.completed"
+    assert "event_validation" not in completed
+    assert EventType.PROJECT_COMPLETED.value in SIGNAL_EVENT_TYPES
+
+    refused = new_event(
+        EventType.PROJECT_COMPLETION_REFUSED,
+        vertical="research",
+        source="planner_verdict",
+        required_gate="full_paper",
+        reason="source is weaker than the declared gate",
+    )
+    assert refused["type"] == "project.completion_refused"
+    assert "event_validation" not in refused
+    assert EventType.PROJECT_COMPLETION_REFUSED.value in SIGNAL_EVENT_TYPES
+
+
 def test_unknown_vertical_events_remain_extensible_and_legacy_aliases_are_explicit() -> None:
     unknown = validate_event_envelope({"type": "research.custom_evidence.ready"})
     assert unknown.valid is True

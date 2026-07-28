@@ -31,6 +31,7 @@ class EventCategory(StrEnum):
     OPERATOR = "operator"
     PLANNER = "planner"
     PROVIDER = "provider"
+    PROJECT = "project"
     RESEARCH = "research"
     SKILL = "skill"
     USAGE = "usage"
@@ -105,6 +106,8 @@ class EventType(StrEnum):
     LIFE_OPERATOR_QUESTION_PENDING = "life.operator_question.pending"
     LIFE_OPERATOR_QUESTION_ANSWERED = "life.operator_question.answered"
     LIFE_DAEMON_IDLE_TIMEOUT = "life.daemon.idle_timeout"
+    PROJECT_COMPLETED = "project.completed"
+    PROJECT_COMPLETION_REFUSED = "project.completion_refused"
     DAEMON_PARKED = "daemon.parked"
     DAEMON_COMMAND_SUBMITTED = "daemon.command.submitted"
     DAEMON_COMMAND_COMPLETED = "daemon.command.completed"
@@ -244,6 +247,8 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.LIFE_INBOX_QUEUED,
     EventType.LIFE_INBOX_DRAINED,
     EventType.LIFE_DAEMON_IDLE_TIMEOUT,
+    EventType.PROJECT_COMPLETED,
+    EventType.PROJECT_COMPLETION_REFUSED,
     EventType.DAEMON_PARKED,
     EventType.DAEMON_COMMAND_COMPLETED,
     EventType.DAEMON_COMMAND_REJECTED,
@@ -299,6 +304,8 @@ def _category(event_type: EventType) -> EventCategory:
         return EventCategory.IDEA
     if value.startswith("research."):
         return EventCategory.RESEARCH
+    if value.startswith("project."):
+        return EventCategory.PROJECT
     if value.startswith("daemon.") or value.startswith("life.daemon."):
         return EventCategory.DAEMON
     if value == EventType.OPERATOR_ALERT:

@@ -1,5 +1,8 @@
 # Unified API Configuration
 
+> Current backend/auth configuration contract. See
+> [`DESIGN_AUTHORITY.md`](DESIGN_AUTHORITY.md).
+
 argus-skill keeps model and image API credentials in one private file, but the
 file is **route-based** rather than "one URL/key for everything":
 

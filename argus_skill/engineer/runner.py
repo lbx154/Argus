@@ -5,8 +5,7 @@ This is the heart of the argus-skill v0.1 integration:
   * Each round, run the engineer with the current task prompt
     (initial task + optional skill block + optional reviewer next_action
     from prior round).
-  * Accept an explicit, decisively verified Engineer self-review waiver for a
-    bounded task; otherwise call the Reviewer for a structured verdict.
+  * Call an independent Reviewer after every normal Engineer round.
   * If ``done``, stop. If ``continue``, capture ``next_action`` and loop.
     If ``blocked``, stop and surface the reason.
 
@@ -90,7 +89,7 @@ class SupervisedEngineer(
     RoundReviewerMixin,
     RoundSettlementMixin,
 ):
-    """Run the Engineer with self-verification or Reviewer-gated retries.
+    """Run the Engineer with Reviewer-gated retries.
 
     Stateless across calls. Construct once with backends, call ``run``
     per task.

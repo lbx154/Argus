@@ -98,7 +98,7 @@ would have accepted.
 `c6b11d3` (the original F3 anti-mediocrity gate) violated this rule with
 `DEFAULT_MIN_DELTA = 0.02` and `DEFAULT_MIN_FAMILIES = 3` baked into Python
 and counted into stage_check exit code. It was rejected in review
-`docs/reviews/research-factory-gates.md`. The post-rewrite
+the historical research-factory-gates review (available in Git history). The post-rewrite
 version (`<commit>`) surfaces the same facts as a structured advisory
 finding without any threshold logic and never affects exit code; F4
 evidence_chain (structural / anti-fraud) was kept as a hard block, which

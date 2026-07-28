@@ -1,99 +1,210 @@
-# Architecture
+# Argus Architecture
 
-> **What Argus is:** an autonomous agent that drives a real public benchmark to
-> a target, 7×24, judged by a reviewer. One CLI, one loop, one verticalized
-> task shape. The harness is a domain-agnostic dumb pipe (budget, persistence,
-> scheduling, structured I/O, anti-cheat guardrails); all research judgment
-> lives with the agent (manager / planner / engineer / reviewer — see the
-> Manager row below for why it isn't "just" a fourth pipeline stage).
+> 本文是当前运行架构图。文档权威层级见
+> [`DESIGN_AUTHORITY.md`](DESIGN_AUTHORITY.md)。若本文与当前实现或行为测试冲突，
+> 以实现和测试为准，并在同一变更中修正文档。
 
-This map covers the **live tree**. It is kept in sync with the code — if a path
-here is wrong, fix it (a stale map mis-routes the next maintainer).
+Argus 是一个长期运行的 agent harness。Harness 只负责预算、持久化、调度、结构化 I/O、
+进程隔离和反造假边界；任务价值、方案选择和证据是否足够由模型角色判断。
 
-## The spine (one path, end to end)
+## 1. 端到端主链路
 
-```
-argus-skill (CLI)                         apps/cli/_parser.py + apps/cli/_core.py
-  └─ __main__.py / entry                  argus_skill/__main__.py
-  └─ Manager.divide                       argus_skill/manager/_core.py
-       picks ONE vertical (chat vs task, vertical select)
-  └─ runtime wiring                       argus_skill/apps/_runtime.py
-  └─ LifeSupervisor (mission scheduler)   argus_skill/life/supervisor/_core.py
-       └─ SkillLoop                        argus_skill/loop.py
-            └─ SupervisedEngineer          engineer/runner.py
-                 ├─ allowed low-risk work: Engineer self-review → done
-                 └─ required/requested review: Reviewer-until-done
-                                              reviewer/_core.py (+ reviewer_schema.json)
-  sits on:
-    core/  (budget, persistence, structured I/O, paths, locks)
-    verticals/<name>/  (the task-specific shape + reviewer gate)
-    backend: agent_cli/ + adapters/  (codex / claude / copilot / opencode CLI runners)
+```text
+operator
+  -> CLI / Ink / Web cockpit
+  -> Manager front door
+       CHAT/SELF -> 直接回复，不入 backlog
+       TEAM + BOUNDED -> bounded DAG Planner -> backlog
+       TEAM + STANDING -> continuous objective -> L4 Planner -> backlog
+  -> LifeSupervisor
+       claim backlog item
+       -> MissionExecutor / SkillLoop
+            match/adapt Skill
+            -> Engineer executes one round
+            -> independent Reviewer verdict
+                 done | continue | blocked | replan_requested
+       -> Manager stage decision when eligible
+       -> persist events / outcome / next planning state
 ```
 
-## Module map (live)
+入口和装配路径：
 
-| Area | File(s) | Role |
-|---|---|---|
-| Entry / CLI | `argus_skill/__main__.py`, `apps/cli/_parser.py`, `apps/cli/_core.py` | argument parsing + one-shot action dispatch (`--daemon`, `--daemon-stop [--drain]`, `--status`, …) |
-| Manager | `manager/_core.py`, `manager/front_door.py`, `manager/dispatch.py`, `webapi/manager_bridge.py` | model-judged chat-vs-task decision, vertical selection, durable dispatch, and the **sole authority for pipeline stage transitions** (`current_stage`) — Planner/Engineer/Reviewer may only advise, never write it themselves |
-| Cockpit | `frontend/tui/`, `frontend/web/`, `webapi/server.py` | Ink/Web operator surfaces; there is no Python line REPL |
-| Runtime wiring | `apps/_runtime.py` | builds the live runner / supervisor from config |
-| Mission scheduler | `life/supervisor/_core.py` | the 7×24 outer loop: claim backlog → run mission → plan next; budget, lifecycle, drain |
-| Skill loop | `loop.py` | per-mission glue: build engineer prompt → run → select self-review or independent review |
-| Engineer | `engineer/runner.py` | `SupervisedEngineer` round-loop control flow; may explicitly self-verify allowed low-risk bounded work |
-| Reviewer | `reviewer/_core.py`, `reviewer/reviewer_schema.json` | independent `done` / `continue` / `blocked` verdict when required by the vertical/task or requested by Engineer |
-| Planner | `planner/planner.py` | L4 continuous planner: next tasks |
-| Core (dumb pipe) | `core/models.py`, `core/ports.py`, `core/paths.py`, `core/pricing.py`, `core/daemon_lock.py` | budget, persistence, structured I/O, paths, locks |
-| Verticals | `verticals/_base.py` + `verticals/{research,math,physics,materials,quant,speedrun,nanochat,nanogpt_speedrun,kernelbench,learning,ale_last_exam,...}/` | workflow/deliverable shape via a plugin contract (`stage order`, `role_banner`, `completion_gate`, `search_altitude`); `research` owns the full paper lifecycle and `ale_last_exam` is the single-stage hidden-reference artifact-delivery shape |
-| Domains | `domains/_base.py` + `domains/{chemistry,...}/` | optional specialization composed with `research`; a domain may add role context, mandatory checklist floors, and matchable Skills, but never replace research stages or completion |
-| Daemon | `daemon/life_worker.py` | detached 7×24 worker around `LifeSupervisor`; SIGTERM/drain, pid lock |
-| Backend | `agent_cli/agent_cli_runner.py`, `adapters/agent_cli_backend.py`, `adapters/memory_backend.py` | the CLI runner (codex/claude/copilot/opencode) + a deterministic memory backend for tests |
+```text
+argus-skill / python -m argus_skill
+  -> argus_skill/apps/cli/_parser.py
+  -> argus_skill/apps/cli/_core.py
+  -> argus_skill/webapi/manager_bridge.py 或 argus_skill/daemon/life_worker.py
+  -> argus_skill/apps/_runtime.py
+  -> argus_skill/life/supervisor/_core.py
+  -> argus_skill/apps/_runtime_execute.py
+  -> argus_skill/loop.py
+  -> argus_skill/engineer/runner.py
+  -> argus_skill/reviewer/_core.py
+```
 
-> **Optional, not the spine:** the `research` vertical (paper-from-idea-to-
-> submission) and its `skills/` paper machinery are an OPTIONAL mode, lazy-loaded
-> only when the project's vertical is `research`. They are not part of the
-> metric-speedrun product and must not be on its default import/identity surface.
+## 2. 角色与权威边界
 
-## On-disk layout
+| 角色 | 当前职责 | 无权做什么 |
+| --- | --- | --- |
+| Manager | operator 唯一前门；解析任务/lifetime/vertical/domain；维护 GoalContract；独占 stage 的语义决策；处理 operator-only 决策 | 不代替 Engineer 实现，不代替 Reviewer 验收 |
+| Planner (L4) | 读取真实项目状态；生成 bounded DAG 或 continuous 后续任务；在 `replan_requested` 后替换剩余计划 | 不把 mission 判为完成，不直接写 stage |
+| Engineer (L1) | 使用真实文件、工具、搜索、实验和硬件执行任务；更新 `CHECKPOINT.md`；交付可检查证据 | 不跳过 Reviewer，不写 stage，不静默放宽 GoalContract |
+| Reviewer (L2) | 独立检查当前 artifact、必要日志和 checklist；返回 `done`、`continue`、`blocked` 或 `replan_requested`；最后编辑 `CHECKPOINT.md` | 不写 stage，不扩大 mission 范围，不替 Planner 创建新计划 |
+| Curator（可选） | 团队/teammate 模式下维护 pool、leaderboard 和策略蒸馏 | 不参与普通单 mission 主链路 |
 
-Global identity / journal / skill state lives at `~/.argus-skill/`. Per-project
-state (project card, memory journal, backlog, event log, inbox, daemon pid +
-`continuous.json`) lives under `~/.argus-skill/projects/<fingerprint>/`.
-Continuous mode is coordinated through each project's `continuous.json` via
-`read_continuous_config()` / `write_continuous_config()`; `--status` reports the
-current project state alongside the shared global journal.
+当前主链路没有 Engineer `review=skip` 自审旁路。代码中与
+`engineer_self_review` 有关的历史事件值、兼容解析或旧测试数据不代表当前生产行为。
 
-## How a mission flows
+## 3. 控制平面
 
-1. **Select.** `Manager.divide` routes the objective to ONE vertical.
-2. **Round k.** `SupervisedEngineer.run` builds the Engineer prompt and executes
-   the work. The Engineer writes structured control with `review=skip|required`.
-3. **Classify.** If self-review is enabled, the task/vertical does not require
-   independent review, and the Engineer explicitly selects `skip`, the runtime
-   records `review_source=engineer_self_review` and ends `done`. The prompt limits
-   `skip` to low-risk work with a passing verifier; the harness intentionally does
-   not add a second heuristic or validator to overrule that agent judgment.
-   Otherwise a fresh Reviewer returns `done`, `continue`, or `blocked`;
-   `continue` iterates up to `max_rounds`. `stage_closing`, `review:required`, and
-   vertical-wide independent-review policy disable the self-review path. The
-   harness records the selected authority and never infers completion from prose.
-4. **Plan next.** Between missions the planner proposes a persisted backlog DAG.
-   Every batch receives an opaque `plan_id`, `plan_version`, and stable node
-   keys. By default Dynamic Plan is off. In `shadow` mode the Reviewer can emit
-   a structured `reconsider` signal without changing execution. In `active`
-   mode, consecutive signals end the current mission as `replan_requested`;
-   the existing planner gate runs L4, and one locked backlog rewrite preserves
-   completed nodes, marks the old active nodes `superseded`, and installs the
-   replacement DAG. Any planner, validation, conflict, or write failure keeps
-   the old plan runnable.
-5. **Disclose context progressively.** Replacement nodes carry only bounded
-   `context_refs` (artifact path, reason, optional content hash). The Engineer
-   decides which referenced artifacts to open; the harness never injects their
-   full contents or guesses scientific relevance.
+### 3.1 Manager front door
 
-## Tests as living docs
+`manager/front_door.py`、`manager/_vertical_ops.py`、`manager/dispatch.py` 和
+`webapi/manager_bridge.py` 共同完成：
 
-`tests/test_loop_smoke.py` documents the core behaviour contract (distill on
-miss then converge, blocked short-circuits, max-rounds stays bounded). The
-daemon lifecycle (drain-stop, signal handling) is covered in
-`tests/daemon/test_life_worker.py`.
+- 模型判断 CHAT/SELF/TEAM，而不是关键词正则；
+- 选择 BOUNDED 或 STANDING lifetime；
+- 选择或创建 vertical/domain；
+- 把 operator 约束记录到 GoalContract；
+- 将任务持久化为 backlog 或 continuous objective；
+- 将活跃任务的 operator steering 写入 inbox，而不是直接把原话当成 Engineer 微操。
+
+普通 bounded-DAG 节点使用小型修复预算：默认最多 3 个 Engineer→Reviewer round，内部
+兼容 knob 可在 2–8 间调整；progressive experiment matrix 不受该小预算强行截断。
+
+### 3.2 GoalContract
+
+`core/project_contract.py` 的 `goal_contract.json` 区分：
+
+- `precise`：数值目标、硬件预算、命名 baseline、deadline 等；改变它会改变“done”的
+  含义，必须有覆盖该变更的 operator confirmation。
+- `semantic`：需要角色结合 artifact 判断的意图说明；Manager 可以澄清，但不能借此
+  偷换 precise 约束。
+
+Planner、Engineer、Reviewer 均会收到有效任务契约。GoalContract 当前约束目标漂移，
+项目完成本身仍由 `core/project_api.py` 的 completion source/gate 机制裁决。
+
+### 3.3 Planner 与计划替换
+
+Backlog 节点持久化 `plan_id`、`plan_version`、`node_key`、依赖和有界
+`context_refs`。Reviewer 若判断当前方向在既定 mission 内不可修复，返回
+`replan_requested`：
+
+```text
+Reviewer replan_requested
+  -> 当前 item 结算为 replan 请求
+  -> LifeSupervisor 调用 L4 Planner
+  -> compare-and-swap 替换剩余 active nodes
+  -> 已完成节点不变，旧 active nodes 进入 superseded
+  -> 失败则保留旧计划可运行
+```
+
+不存在 `ARGUS_SKILL_DYNAMIC_PLAN_MODE=off|shadow|active`、连续
+`plan_signal` 确认或 `plan_reconsider_streak`。`life.plan.signal` 仅作为遗留协议名保留，
+当前没有生产者。
+
+### 3.4 Stage 与 Project completion
+
+- Stage 顺序和 checklist 由 `verticals/*/stages.py` 定义。
+- 通用 stage 读写和证书在 `skills/stage_machine.py`。
+- Manager 的 `_stage_ops.py` 是 `current_stage` 的唯一语义决策路径。
+- Supervisor 有一个机械补偿写路径：同一 bounded DAG 尚有未完成节点时，
+  `_apply_dynamic_plan_stage_guard` 可撤销提前发生的 `advance`，恢复到本 mission 起始 stage。
+  它不能选择任意 target，也不能替代 Manager 的科研判断。
+- `core/project_api.py::complete_project` 是 Project DONE 的统一写入口，并按照 vertical 的
+  `completion_gate` 比较 completion source 强度。
+- 论文型 gate 的当前名称为 `full_paper` / `full_paper_gate`。
+
+## 4. 执行平面
+
+### 4.1 SkillLoop
+
+`loop.py` 负责单个 mission 的胶水：
+
+```text
+objective
+  -> SkillStore / matcher
+  -> miss 时 Scientist distill/adapt
+  -> SupervisedEngineer.run
+       Engineer round
+       Reviewer.evaluate
+       continue -> Reviewer next_action 进入下一轮
+       done/blocked/replan_requested -> 返回 LifeSupervisor
+  -> skill/wiki maintenance 与 outcome 结算
+```
+
+每个 Engineer 和 Reviewer 回合使用新的 provider session。跨回合连续性由普通 Markdown
+文件 `CHECKPOINT.md` 承担，不继承 provider 私有 transcript。
+
+### 4.2 长任务和等待
+
+长实验由 `argus_skill.tools.subagent` 或统一 external-work registry 托管。Engineer 可在
+最终回复的最后一个非空行输出精确 JSON：
+
+```json
+{"wait_for":"subagent","wait_id":"<registry-id>"}
+```
+
+Runner 验证 registry id 和健康状态后，只按 supervisor cadence 等待；不存在另一个
+mission-scoped control file 作为等待事实源。
+
+### 4.3 Backend 边界
+
+应用层统一通过 `core/run_gateway.py` 调用 backend。实际 CLI 适配位于：
+
+- `adapters/agent_cli_backend/`
+- `agent_cli/`
+- `adapters/memory_backend.py`（测试）
+
+Provider 进程、事件解析、usage 提取、硬空闲终止和进程组清理由 adapter 层负责。
+
+## 5. 证据与持久化平面
+
+### 5.1 两个根目录
+
+- **project workdir**：四个角色实际读写项目 artifact 的目录。
+- **project state root**：`~/.argus-skill/projects/<fingerprint>/`，保存 Argus 内部状态。
+
+恢复 session 不得把 `launch_cwd` 猜成新的 workdir。一个 daemon 在全生命周期持有
+canonical-workdir lease，防止多个 session 同时写同一工作目录。
+
+### 5.2 主要状态文件
+
+```text
+~/.argus-skill/
+  identity.md
+  config.json
+  skills/
+  cost-control.json
+  projects/<fingerprint>/
+    session.json
+    goal_contract.json
+    backlog.jsonl
+    events.jsonl
+    usage.jsonl
+    continuous.json
+    inbox.jsonl
+    transcript.jsonl
+    daemon.status.json       # 仅运行时存在
+    daemon.pid               # 仅运行时存在
+```
+
+`events.jsonl` 是唯一历史事实源；`EventJournal` 只是从该文件投影短历史，不存在独立的
+global journal 或 `journal.jsonl` 真相源。
+
+## 6. 运行和发布身份
+
+不同 daemon 可以从不同 source root 启动，因此 package version 相同不代表行为相同。
+`daemon.status.json` 和 WebAPI meta 同时暴露 source root、revision、release id、manifest
+digest 和 runtime digest。协议兼容见 `protocols.md`，release identity 见
+`release-identity.md`。
+
+开发部署可设置 `ARGUS_SKILL_REQUIRE_RELEASE_MATCH=1`，让 source 与已构建 release 不一致时
+拒绝启动。默认关闭该门禁意味着允许 editable checkout 快速开发，也意味着 operator 必须
+主动管理不同 daemon 的 source/revision 漂移。
+
+## 7. 模块边界
+
+完整维护边界见 `orchestration-modules.md`。核心原则：入口模块只编排，状态读模型、进程
+适配、prompt、计划周期和 mission 结算分别位于专用模块；不要重新把职责堆回
+`_core.py`、`server.py` 或 `life_worker.py`。

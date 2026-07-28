@@ -1,5 +1,8 @@
 # Daemon Command Protocol
 
+> Current durable command contract. See
+> [`DESIGN_AUTHORITY.md`](DESIGN_AUTHORITY.md).
+
 Lifecycle commands are durable and idempotent. WebAPI and CLI operations write
 to `daemon.commands.jsonl` and maintain authoritative state in
 `daemon.command-state.json` under a cross-process lock.
@@ -7,7 +10,8 @@ to `daemon.commands.jsonl` and maintain authoritative state in
 Each command contains:
 
 - `command_id`: client-generated idempotency key.
-- `operation`: `create`, `start`, `stop`, `drain`, `kill`, or `replace`.
+- `operation`: `create`, `start`, `stop`, `drain`, `kill`, `replace`, or
+  `upgrade`.
 - `expected_revision`: optional optimistic-concurrency fence.
 - `args`: operation parameters.
 - `status`: `accepted`, `running`, `applied`, `failed`, or `rejected`.

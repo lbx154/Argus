@@ -1,5 +1,8 @@
 # Project Knowledge Wiki
 
+> Current Wiki/Skill boundary. See
+> [`DESIGN_AUTHORITY.md`](DESIGN_AUTHORITY.md).
+
 ## Purpose
 
 The project wiki is Argus's durable declarative knowledge layer. It preserves

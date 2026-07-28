@@ -1,7 +1,7 @@
-"""SkillRouter — the single front door to the skill library.
+"""SkillRouter — validated programmatic CRUD for the skill library.
 
-In the new architecture no role mutates skills directly. The Reviewer (or any
-role) only PROPOSES changes via ``skill_ops``; SkillRouter owns:
+Current roles may edit project-layer Skill Markdown directly. SkillRouter owns
+the legacy structured ``skill_ops`` replay path and programmatic callers:
 
   * selection — "which skill fits this task?" (delegates to the existing role
     matcher so this adds no new matching logic);
@@ -22,7 +22,10 @@ duplicates asynchronously.
 ``delete`` / ``archive`` apply directly to ordinary project-layer skills;
 protected and shared-global skills require explicit maintenance authority.
 
-This is a storage/routing component, not a standalone process or judge.
+This is a storage/routing component, not a standalone process or judge. Its
+protected-skill checks do not intercept ordinary file-tool edits; the operator
+has selected direct project-layer editing with role-policy protection for that
+path.
 """
 from __future__ import annotations
 

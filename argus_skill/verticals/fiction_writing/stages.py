@@ -65,7 +65,7 @@ STAGE_ORDER = ["intake", "plan", "draft", "state_update", "review", "revise"]
 
 #: This vertical's success is reviewer-certified narrative prose + a consistent
 #: story_state, NOT a numeric metric and NOT a paper. ``"none"`` suppresses both
-#: the paper (``full_emnlp``) and the metric prompt-framing regimes.
+#: the paper (``full_paper``) and the metric prompt-framing regimes.
 completion_gate = "none"
 
 # Generic across verticals; a private copy (mirrors learning/speedrun).

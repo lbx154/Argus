@@ -186,8 +186,8 @@ class PlanningContextMixin:
             lines.append(f"- planner_scope: {scope}")
         if self._item_requires_independent_review(item):
             lines.append(
-                "- independent_review: REQUIRED; Engineer self-review cannot close "
-                "this reviewed mission."
+                "- independent_review: REQUIRED; this mission must close through "
+                "the normal independent Reviewer path."
             )
         if self._item_skips_stage_transition(item):
             lines.append(

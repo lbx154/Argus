@@ -122,8 +122,8 @@ class PlanningCycleEnqueueMixin:
     def _gate_reproposal_is_not_a_duplicate(self, task: Any, duplicate_item: Any) -> bool:
         """Whether a stage-closing proposal escapes the duplicate filter.
 
-        Review semantics are part of task identity. A prior ordinary
-        or self-reviewed task cannot satisfy a later stage-closing
+        Review semantics are part of task identity. A prior ordinary task
+        cannot satisfy a later stage-closing
         certification request, even when its prose is identical.
 
         Nor can a COMPLETED one. `done` means the mission finished,

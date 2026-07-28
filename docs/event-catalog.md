@@ -1,9 +1,19 @@
 # Event Catalog
 
-Cross-component event names are protocol. Define them in
-`argus_skill/core/event_catalog.py` and mirror them in
-`frontend/core/src/eventCatalog.ts`. A golden test requires both catalogs and
+> Current protocol documentation. See
+> [`DESIGN_AUTHORITY.md`](DESIGN_AUTHORITY.md) for precedence and historical
+> document rules.
+
+The catalog is the canonical **typed/frontend-semantic subset** of the event
+stream. Define events here when a frontend branches on their meaning, when they
+belong to the default signal trajectory, or when their payload needs validation.
+Python definitions live in `argus_skill/core/event_catalog.py` and are mirrored
+in `frontend/core/src/eventCatalog.ts`; a golden test requires both catalogs and
 their signal/call-scoped groups to match.
+
+Other diagnostic/vertical events may use the validated event-name grammar and
+remain uncatalogued; frontends render them generically. Catalog membership must
+not be used as an allowlist that drops otherwise valid history.
 
 Typed payloads live in `argus_skill/core/event_payload_schemas.json`.
 `scripts/generate_event_payload_types.py` generates the frontend discriminated
@@ -41,7 +51,8 @@ or crashing a daemon. Frontend guardian logic surfaces these rows as warnings.
 
 ## Extension rules
 
-1. Add cross-process or frontend-visible events to both catalogs.
+1. Add events with frontend-specific semantics, signal membership, or typed
+   payloads to both catalogs.
 2. Use the catalog constant at production and consumption sites.
 3. Add required fields only when every valid producer can provide them.
 4. Keep vertical-local events extensible. Unknown names that follow the event
@@ -51,13 +62,25 @@ or crashing a daemon. Frontend guardian logic surfaces these rows as warnings.
 6. Mark an event as signal only when it is useful in the default durable
    trajectory. Debug chatter belongs in full verbosity.
 
-## Dynamic Plan lifecycle
+## Project completion lifecycle
 
-Dynamic Plan uses correlated durable events:
+- `project.completed`: `core/project_api.py::complete_project` accepted a
+  completion source whose strength satisfies the active vertical's declared
+  gate and atomically moved the Project lifecycle to DONE.
+- `project.completion_refused`: the proposed source, evidence, or gate was
+  insufficient, so no DONE write occurred.
 
-- `life.plan.signal`: Reviewer-authored `reconsider` observation, including
-  mode, consecutive-signal count, confirmation threshold, reason, and bounded
-  evidence-file references.
+Both are typed cross-component signal events. A Planner `project_done` verdict
+by itself is not `project.completed`.
+
+## Plan revision lifecycle
+
+The current plan-revision trigger is a Reviewer verdict with
+`status=replan_requested`, persisted in `round.review.completed` and the mission
+outcome. LifeSupervisor then asks L4 to replace the remaining active plan nodes.
+
+The correlated durable events are:
+
 - `life.plan.revision.proposed`: L4 was asked to replace one active plan
   revision.
 - `life.plan.revision.rejected`: no replacement was committed; the event
@@ -68,5 +91,7 @@ Dynamic Plan uses correlated durable events:
   with old/new plan identity and exact superseded/added item IDs.
 
 Every `proposed` event must resolve to either `rejected` or `committed`.
-`shadow` mode emits only `life.plan.signal` and cannot change mission or backlog
-state.
+
+`life.plan.signal` remains in the cross-version catalog so historical rows and
+older frontends can name it, but current code has no producer. There is no
+`off|shadow|active` Dynamic Plan mode, signal streak, or confirmation threshold.

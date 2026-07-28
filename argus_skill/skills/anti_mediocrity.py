@@ -6,9 +6,8 @@ The earlier version of this module hard-coded research-quality thresholds
 (``min_delta = 0.02``, ``min_benchmark_families = 3``) and counted gate
 failures into the per-round exit code. That violated argus-skill's core
 rule — *the harness must not make research-quality judgments; that's the
-reviewer agent's job* (see ``README.md`` "设计哲学" +
-``docs/edit-principle/skills/04-harness-vs-agent-boundary.md``). Review
-``docs/reviews/research-factory-gates.md`` rejected the hard-gate form.
+reviewer agent's job* (see ``README.md``, ``docs/VALUE_VS_HONESTY.md`` and
+``docs/edit-principle/skills/04-harness-vs-agent-boundary.md``).
 
 This module is now a **pure fact extractor**. It loads aggregate rows
 from ``benchmarks/evidence/*/summary.tsv`` and surfaces structured facts:

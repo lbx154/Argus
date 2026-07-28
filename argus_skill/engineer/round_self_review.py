@@ -1,4 +1,8 @@
-"""Round-loop progress bookkeeping before independent review."""
+"""Round-loop progress bookkeeping before independent review.
+
+The filename is retained for import compatibility. It no longer implements an
+Engineer self-review completion path.
+"""
 
 from __future__ import annotations
 

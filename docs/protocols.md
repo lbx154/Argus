@@ -1,5 +1,8 @@
 # Argus Runtime Protocols
 
+> Current wire/runtime contract. See
+> [`DESIGN_AUTHORITY.md`](DESIGN_AUTHORITY.md).
+
 Argus components can run from different checkouts. Compatibility is explicit;
 clients must not infer it from an HTTP 200 response or from the package version.
 

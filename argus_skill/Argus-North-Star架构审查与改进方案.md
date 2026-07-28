@@ -1,5 +1,14 @@
 # Argus North-Star 架构审查与改进方案
 
+> **历史设计评审，不是当前运行规范。** 本文以文中标注的旧提交为审查基线，保留当时的
+> 判断和待决问题作为设计 provenance。当前权威层级见
+> `docs/DESIGN_AUTHORITY.md`，当前架构见 `docs/ARCHITECTURE.md`。后续 main 已实现
+> `core/project_contract.py` 的 GoalContract、`core/project_api.py` 的统一完成写入口，
+> 将论文 gate 统一为 `full_paper`，删除未生效的 Dynamic Plan mode/signal/streak，并把
+> 正常 mission round 收敛为固定 `Engineer -> independent Reviewer`。因此本文关于
+> “GoalContract 尚未统一”“保留低风险 Engineer self-review”及末尾待决问题的表述只代表
+> 当时状态，不能用于指导当前代码。
+
 ## 0. 文档目的与审查基线
 
 本文总结并校正
@@ -839,4 +848,3 @@ Canonical Project
 - protected constraints/gates 不可被普通任务削弱；
 - 高风险完成必须有独立证据；
 - self-improvement 必须可审计、可回滚、永不自动 merge。
-

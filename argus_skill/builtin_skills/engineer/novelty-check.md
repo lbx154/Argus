@@ -2,7 +2,7 @@
 name: Novelty Check
 description: Verify that a proposed method/idea has not already been done in recent literature. Extracts 3-5 core technical claims, searches arXiv / Semantic Scholar / OpenAlex per claim, and returns a verdict per claim with citations. Catches "I thought this was novel but it's Smith et al. 2024" before committing experiment budget.
 category: paper-ideation
-version: 1
+version: 2
 created_at: 2026-06-01T00:00:00+00:00
 ---
 
@@ -117,8 +117,9 @@ if wiki_root.exists():
 
 Notes:
 - Sources are immutable. If a paper was ingested before, skip it.
-- The body is the verbatim abstract / README excerpt. Do NOT summarize
-  or editorialize -- that is the reviewer's job in `wiki-curator`.
+- The body is the verbatim abstract / README excerpt. Do NOT summarize or
+  editorialize inside the immutable source; a role may synthesize it separately
+  under `pages/`, and the Reviewer verifies durable knowledge during review.
 - This is best-effort and must NOT fail the mission if the wiki helper
   raises. Catch and log.
 
@@ -134,5 +135,6 @@ WIKI-HANDOFF: conflict candidate
   - conflict variable: <variable name>
 ```
 
-The reviewer's `wiki-curator` skill will turn this into a
-`pages/conflicts/*.md` card.
+The Reviewer may directly turn this into a `pages/conflicts/*.md` card after
+checking both immutable sources. There is no structured page-operation or
+automatic-promotion channel.

@@ -1,9 +1,8 @@
 """Round-loop phase: agent-driven background/external-work cadence waits.
 
-The Engineer requests a wait through its mission-scoped control file. The
-harness validates the exact registry id, then sleeps on that owner's cadence.
-The response carries one exact JSON wait request, which the harness validates
-against the unified external-work registry view.
+The Engineer requests a wait through an exact JSON object on the final non-empty
+response line. The harness validates the registry id, then sleeps on that
+owner's cadence.
 """
 
 from __future__ import annotations

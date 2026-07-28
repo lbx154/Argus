@@ -1,5 +1,8 @@
 # Release Identity
 
+> Current release/source identity contract. See
+> [`DESIGN_AUTHORITY.md`](DESIGN_AUTHORITY.md).
+
 Protocol compatibility is necessary but not sufficient: two checkouts can
 implement the same protocol version with different code. Argus therefore builds
 one deterministic release identity from shipped backend, frontend, contract,

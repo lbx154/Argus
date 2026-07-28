@@ -4,9 +4,8 @@ Historically this module also held a mission-completion → skill-lifecycle
 dispatcher (``decide_action`` / ``apply_action``). That dispatcher is gone:
 skill memory is now authored by the active role path and applied by
 ``SkillRouter`` (storage structure + protected-skill safeguards — no Manager
-content gate). An allowed Engineer self-review may author same-session
-maintenance; an invoked Reviewer may revise retained state. The only thing that
-survives here is the low-level
+content gate). The Reviewer may author or revise retained project-layer state
+during the reviewed round. The only thing that survives here is the low-level
 ``archive_skill`` move, reused by ``SkillStore.archive`` and ``compaction``.
 """
 

@@ -2,7 +2,7 @@
 name: semantic-scholar-search
 description: "Search published venue papers (IEEE, ACM, Springer, etc.) via Semantic Scholar API. Provides citation counts, venue metadata, and TLDR. Complements arXiv (preprints) with published literature. Use for literature search, citation finding, or venue-specific paper discovery."
 category: literature
-version: "1.0"
+version: "1.1"
 created_at: "2025-07-27"
 ---
 
@@ -162,7 +162,8 @@ if wiki_root.exists():
 
 Notes:
 - Sources are immutable. If a paper was ingested before, skip it.
-- The body is the verbatim abstract / README excerpt. Do NOT summarize
-  or editorialize -- that is the reviewer's job in `wiki-curator`.
+- The body is the verbatim abstract / README excerpt. Do NOT summarize or
+  editorialize inside the immutable source; a role may synthesize it separately
+  under `pages/`, and the Reviewer verifies durable knowledge during review.
 - This is best-effort and must NOT fail the mission if the wiki helper
   raises. Catch and log.

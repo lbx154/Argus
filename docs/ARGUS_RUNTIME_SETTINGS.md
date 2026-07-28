@@ -1,112 +1,116 @@
-# Argus Runtime Settings Snapshot
+# Argus Runtime Settings Contract
 
-- Generated: `2026-07-07T08:17:59Z`
-- Schema: `1`
+> 本文描述配置接口，不保存某台机器的当前值。文档权威层级见
+> [`DESIGN_AUTHORITY.md`](DESIGN_AUTHORITY.md)。
 
-## Role Hyperparameters
+## 权威来源
 
-| Role | Backend | Model | Effort | Sources |
-| --- | --- | --- | --- | --- |
-| manager | Codex | `gpt-5.5` | `xhigh` | backend: default: codex; model: capability vault / default: gpt-5.5; effort: default: xhigh |
-| planner | Codex | `gpt-5.5` | `xhigh` | backend: default: codex; model: capability vault / default: gpt-5.5; effort: default: xhigh |
-| engineer | Codex | `gpt-5.5` | `xhigh` | backend: default: codex; model: capability vault / default: gpt-5.5; effort: default: xhigh |
-| reviewer | Codex | `gpt-5.5` | `xhigh` | backend: default: codex; model: capability vault / default: gpt-5.5; effort: default: xhigh |
+- Operator 可调参数目录：`argus_skill/core/knobs.py::KNOBS`
+- 默认值事实源：每个参数的实际读取点；`KNOBS` 必须与其保持一致
+- 持久化设置：global root 下的 `config.json`
+- 当前有效值：`argus-skill --config-help`
+- 可分享的诊断快照：`argus-skill --config-snapshot <path>`
 
-## Operator Knobs
+`--config-snapshot` 会包含当前环境、持久化配置和运行路由，因此是**机器状态快照**，不是
+仓库设计规范。不要把真实机器生成的 snapshot 覆盖到本文件，也不要提交 token、chat id、
+本地路径或其他机器身份信息。
 
-| Group | Name | Value | Source | Default |
-| --- | --- | --- | --- | --- |
-| backend | `ARGUS_SKILL_LIFE_BACKEND` | `codex` | default | `codex` |
-| backend | `ARGUS_SKILL_RUNNER_BIN` | `(agent CLI on PATH)` | default | `(agent CLI on PATH)` |
-| backend | `ARGUS_SKILL_ENGINEER_BACKEND` | `(=LIFE_BACKEND)` | default | `(=LIFE_BACKEND)` |
-| backend | `ARGUS_SKILL_REVIEWER_BACKEND` | `(=LIFE_BACKEND)` | default | `(=LIFE_BACKEND)` |
-| backend | `ARGUS_SKILL_PLANNER_BACKEND` | `(=LIFE_BACKEND)` | default | `(=LIFE_BACKEND)` |
-| backend | `ARGUS_SKILL_MANAGER_BACKEND` | `(=LIFE_BACKEND)` | default | `(=LIFE_BACKEND)` |
-| backend | `ARGUS_SKILL_ENGINEER_RUNNER_BIN` | `(=RUNNER_BIN)` | default | `(=RUNNER_BIN)` |
-| backend | `ARGUS_SKILL_REVIEWER_RUNNER_BIN` | `(=RUNNER_BIN)` | default | `(=RUNNER_BIN)` |
-| backend | `ARGUS_SKILL_PLANNER_RUNNER_BIN` | `(=RUNNER_BIN)` | default | `(=RUNNER_BIN)` |
-| backend | `ARGUS_SKILL_MANAGER_RUNNER_BIN` | `(=RUNNER_BIN)` | default | `(=RUNNER_BIN)` |
-| backend | `ARGUS_SKILL_CURATOR_BACKEND` | `(=LIFE_BACKEND)` | default | `(=LIFE_BACKEND)` |
-| backend | `ARGUS_SKILL_CURATOR_RUNNER_BIN` | `(=RUNNER_BIN)` | default | `(=RUNNER_BIN)` |
-| models | `ARGUS_SKILL_CURATOR_MODEL` | `gpt-5.5` | default | `gpt-5.5` |
-| reasoning | `ARGUS_SKILL_CURATOR_REASONING_EFFORT` | `high` | default | `high` |
-| mission | `ARGUS_SKILL_CURATOR_DISTILL_INTERVAL_S` | `1260` | default | `1260` |
-| team | `ARGUS_TEAMMATE_FORCE_RESEARCH` | `off` | default | `off` |
-| team | `ARGUS_TEAMMATE_RESEARCH_PROMPT` | `(built-in, domain-neutral)` | default | `(built-in, domain-neutral)` |
-| team | `ARGUS_TEAMMATE_FORCE_PROFILE` | `off` | default | `off` |
-| team | `ARGUS_TEAMMATE_PROFILE_CMD` | `(unset)` | default | `(unset)` |
-| team | `ARGUS_TEAMMATE_PROFILE_HEADER` | `(built-in, domain-neutral)` | default | `(built-in, domain-neutral)` |
-| team | `ARGUS_TEAMMATE_PROFILE_REQUIRE_SUBSTR` | `(unset → accept any non-empty)` | default | `(unset → accept any non-empty)` |
-| team | `ARGUS_TEAMMATE_PAPER_MISSION` | `(inherit lead default)` | default | `(inherit lead default)` |
-| team | `ARGUS_TEAMMATE_TIMEOUT_S` | `5400` | default | `5400` |
-| team | `ARGUS_TEAMMATE_MAX_ROUNDS` | `200` | default | `200` |
-| team | `ARGUS_TEAMMATE_RESULT_FILE` | `(unset)` | default | `(unset)` |
-| team | `ARGUS_LEADERBOARD_LOWER_IS_BETTER` | `off (higher-is-better)` | default | `off (higher-is-better)` |
-| models | `ARGUS_SKILL_MODEL` | `gpt-5.5` | default | `gpt-5.5` |
-| models | `ARGUS_SKILL_ENGINEER_MODEL` | `gpt-5.5` | default | `gpt-5.5` |
-| models | `ARGUS_SKILL_REVIEWER_MODEL` | `gpt-5.5` | default | `gpt-5.5` |
-| models | `ARGUS_SKILL_PLAN_MODEL` | `gpt-5.5` | default | `gpt-5.5` |
-| models | `ARGUS_SKILL_PLAN_PREVIEW_MODEL` | `auto` | default | `auto` |
-| models | `ARGUS_SKILL_MATCHER_MODEL` | `gpt-5.5` | default | `gpt-5.5` |
-| reasoning | `ARGUS_SKILL_MANAGER_REASONING_EFFORT` | `xhigh` | default | `xhigh` |
-| reasoning | `ARGUS_SKILL_MANAGER_VERTICAL_REASONING_EFFORT` | `low` | default | `low` |
-| reasoning | `ARGUS_SKILL_PLANNER_REASONING_EFFORT` | `xhigh` | default | `xhigh` |
-| reasoning | `ARGUS_SKILL_SELF_REASONING_EFFORT` | `medium` | default | `medium` |
-| reasoning | `ARGUS_SKILL_PLAN_PREVIEW_REASONING_EFFORT` | `low` | default | `low` |
-| reasoning | `ARGUS_SKILL_ENGINEER_REASONING_EFFORT` | `xhigh` | default | `xhigh` |
-| reasoning | `ARGUS_SKILL_REVIEWER_REASONING_EFFORT` | `xhigh` | default | `xhigh` |
-| budget | `ARGUS_SKILL_GLOBAL_DAILY_CAP_USD` | `20000.0` | config.json (live, single source) | `config.json` |
-| budget | `ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP` | `10000` | default | `10000` |
-| budget | `ARGUS_SKILL_COPILOT_DAILY_CALL_CAP` | `10000` | default | `10000` |
-| budget | `ARGUS_SKILL_COPILOT_HOURLY_CALL_CAP` | `10000` | default | `10000` |
-| budget | `ARGUS_SKILL_COPILOT_MAX_CONCURRENCY` | `10000` | default | `10000` |
-| mission | `ARGUS_SKILL_VERTICAL` | `(unset → research; see LANES #1)` | default | `(unset → research; see LANES #1)` |
-| mission | `ARGUS_SKILL_MAX_ROUNDS` | `500` | default | `500` |
-| mission | `ARGUS_SKILL_ENGINEER_SELF_REVIEW` | `1` | default | `1` |
-| mission | `ARGUS_SKILL_NEAREST_TRANSFER_ENABLED` | `0` | default | `0` |
-| mission | `ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING` | `1` | default | `1` |
-| mission | `ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS` | `0` | default | `0` |
-| mission | `ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS` | `600` | default | `600` |
-| mission | `ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS` | `1800` | default | `1800` |
-| mission | `ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS` | `2700` | default | `2700` |
-| mission | `ARGUS_SKILL_SHIFT_ROUND_LIMIT` | `1` | default | `1` |
-| mission | `ARGUS_SKILL_BOUNDED_DAG_NODE_MAX_ROUNDS` | `3` | default | `3` |
-| mission | `ARGUS_SKILL_THREAD_TOKEN_LIMIT` | `0` | default | `0` |
-| mission | `ARGUS_SKILL_DYNAMIC_PLAN_MODE` | `off` | default | `off` |
-| mission | `ARGUS_SKILL_DYNAMIC_PLAN_CONFIRM_ROUNDS` | `2` | default | `2` |
-| mission | `ARGUS_SKILL_MANAGER_LOCK_TIMEOUT_S` | `120` | default | `120` |
-| mission | `ARGUS_SKILL_CHECKPOINT_PERSIST` | `true` | default | `true` |
-| lifecycle | `ARGUS_SKILL_AUTOCOMMIT_SKILLS` | `off` | default | `off` |
-| lifecycle | `ARGUS_SKILL_CROSS_PROJECT_PROPAGATION` | `on` | default | `on` |
-| lifecycle | `ARGUS_SKILL_SAFE_MODE` | `off` | default | `off` |
-| lifecycle | `ARGUS_SKILL_ENGINEER_SANDBOX` | `off` | default | `off` |
-| lifecycle | `ARGUS_SKILL_MEASURED_MODE` | `off` | default | `off` |
-| lifecycle | `ARGUS_SKILL_SKIP_VAULT_PREFLIGHT` | `off` | default | `off` |
-| lifecycle | `ARGUS_SKILL_REQUIRE_RELEASE_MATCH` | `off` | default | `off` |
-| telemetry | `ARGUS_SKILL_ENABLE_TELEGRAM` | `off` | default | `off` |
-| telemetry | `ARGUS_SKILL_TELEGRAM_BOT_TOKEN` | `(unset)` | default | `(unset)` |
-| telemetry | `ARGUS_SKILL_TELEGRAM_CHAT_ID` | `(unset)` | default | `(unset)` |
-| telemetry | `ARGUS_SKILL_SHOW_REASONING` | `0` | default | `0` |
-| telemetry | `ARGUS_SKILL_AGENT_IO_MODE` | `full` | default | `full` |
+## 解析优先级
 
-`ARGUS_SKILL_ENGINEER_SELF_REVIEW=1` allows an Engineer to select
-`review=skip` for low-risk bounded work. It does not override vertical-wide
-`REQUIRE_INDEPENDENT_REVIEW`, `stage_closing` / `review:required` backlog tags,
-or any other call-site requirement for independent review; those paths always
-invoke a fresh Reviewer. Completion events retain the selected `review_source`.
+普通 operator knob 的优先级为：
 
-`ARGUS_SKILL_DYNAMIC_PLAN_MODE=shadow` records Reviewer-authored
-`reconsider` signals without changing control flow. `active` ends the current
-mission only after `ARGUS_SKILL_DYNAMIC_PLAN_CONFIRM_ROUNDS` consecutive
-reviewed signals, then routes the replacement through the existing Planner
-budget/rate gate and atomically replaces the remaining plan. `off` preserves
-the legacy scheduler behavior.
+```text
+显式进程环境变量
+  > cockpit 持久化配置
+  > KNOBS 中记录的默认值
+```
 
-## Change From Argus
+Runner binary、role backend/model 和少数兼容参数有专用 resolver，但仍遵守“显式配置优先，
+不从任务 prose 猜配置”的原则。
 
-- `switch the model to <name>`
-- `把模型换成 <name>`
-- `把backend换成 <name>`
-- `effort 设为 <low|medium|high|xhigh>`
-- `/backend`
-- `/config`
+## 配置组
+
+`--config-help` 按下列组列出当前参数：
+
+- `backend`：共享 backend、role backend 和 runner binary
+- `models`：Manager/Planner/Engineer/Reviewer/Curator/matcher 等模型
+- `reasoning`：各角色和辅助调用的 reasoning effort
+- `budget`：host-global USD cap、provider call guard、daemon cap
+- `mission`：round、idle、bounded DAG、continuation、等待和任务级软预算
+- `team`：teammate/Curator pool
+- `lifecycle`：Skill/Wiki、sandbox、release match、compaction
+- `telemetry`：metrics、agent I/O、Telegram 和 reasoning display
+
+完整名称、默认值和一行说明不在本文复制；请运行：
+
+```bash
+argus-skill --config-help
+```
+
+这样新增或删除 knob 时只有 `core/knobs.py` 和读取点需要同步，不会再维护一份很快过期的
+手写表格。
+
+## 关键当前语义
+
+### Backend 与模型
+
+- `ARGUS_SKILL_LIFE_BACKEND` 是共享默认 backend。
+- `ARGUS_SKILL_{MANAGER,PLANNER,ENGINEER,REVIEWER}_BACKEND` 可覆盖单个角色。
+- `ARGUS_SKILL_MODEL` 是共享默认模型，role-specific model 再覆盖它。
+- Provider CLI 路由只能由配置 resolver 决定，任务文本不能偷偷切 backend。
+
+### 预算
+
+- 唯一货币预算是 `ARGUS_SKILL_GLOBAL_DAILY_CAP_USD`。
+- 所有项目共享 host-global settled usage 和 in-flight admission。
+- 未定价调用的默认策略由 `ARGUS_SKILL_UNPRICED_COST_POLICY=block` 控制；设为 `allow`
+  表示 operator 明确接受未知成本暴露。
+
+### Reviewer
+
+当前生产路径每个 Engineer round 都调用独立 Reviewer。不存在
+`ARGUS_SKILL_ENGINEER_SELF_REVIEW`，也不存在 `review=skip` 运行开关。旧事件或旧项目中
+可能仍保留 `engineer_self_review` 作为历史来源值。
+
+### Replan
+
+当前 replan 由 Reviewer 返回 `status=replan_requested` 直接触发。不存在以下已退役配置：
+
+- `ARGUS_SKILL_DYNAMIC_PLAN_MODE`
+- `ARGUS_SKILL_DYNAMIC_PLAN_CONFIRM_ROUNDS`
+
+计划替换仍使用 `plan_id` / `plan_version` / compare-and-swap，但不经过
+`off|shadow|active` 模式或连续 signal 计数。
+
+### Paper completion
+
+- 当前 vertical completion gate 名称为 `full_paper`。
+- `LifeSupervisorConfig` 字段为 `full_paper_gate`。
+- `full_emnlp` 只用于旧数据迁移或历史文档，不是当前配置名。
+
+### Session continuity
+
+- `ARGUS_SKILL_CHECKPOINT_PERSIST` 控制跨 mission/restart 的 `CHECKPOINT.md` 连续性。
+- Engineer/Reviewer provider session 始终 fresh；`ARGUS_SKILL_SHIFT_ROUND_LIMIT` 和
+  `ARGUS_SKILL_THREAD_TOKEN_LIMIT` 仅为兼容参数，不恢复旧 thread resume 行为。
+
+### Skill ops compatibility
+
+`ARGUS_SKILL_SKILL_OPS` 只控制旧 Reviewer `skill_ops` 的兼容 replay。当前角色通过普通
+文件工具直接维护 project-layer Skill；该路径不经过 SkillRouter 的 protected 检查。
+这是 operator 接受的边界，`protected` 在直接编辑路径上由角色政策约束。
+
+### Release match
+
+`ARGUS_SKILL_REQUIRE_RELEASE_MATCH=1` 会在 loaded source 与构建 release 不一致时拒绝
+daemon/WebAPI 启动。开发默认关闭；生产或受监督部署建议开启。
+
+## 修改规则
+
+新增一个 operator 会合理设置的 knob 时：
+
+1. 在实际读取点实现并测试默认值；
+2. 添加到 `core/knobs.py::KNOBS`；
+3. 若允许 cockpit 修改，设置 `cockpit=True` 并补解析/校验；
+4. 添加或更新配置测试；
+5. 若改变系统语义，再更新对应设计文档，而不是在本文复制完整 knob 表。

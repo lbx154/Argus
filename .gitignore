@@ -87,8 +87,34 @@ credentials.json
 credentials.yaml
 credentials.yml
 
-# 商业计划书 — 绝不入库
+# 融资 / BP / VC / 私有对外介绍 — 绝不进入主分支
+/vc_materials/
+/docs/bp_figures/
+/docs/Argus_VC_Deck.pdf
+/docs/Argus_商业计划书.md
+/docs/Argus_商业计划书.pdf
+/docs/Argus_项目介绍.md
+/docs/Argus_一页纸概览.md
+/docs/Argus_微信文案.md
+/docs/argus_skill_auto_research_pitch.md
+/docs/argus_skill_auto_research_pitch.pptx
 docs/Argus_BP*
+
+# 日期化计划 / 评审 / 事故 / 展示快照只留本地或 Git 历史，不回流 main
+/ARGUS_BUG_*.md
+/LANES.md
+/UX_BEFORE_AFTER.md
+/docs/analysis/
+/docs/experiment/
+/docs/goals/
+/docs/incidents/
+/docs/reviews/
+/docs/showcase/
+/docs/superpowers/*
+!/docs/superpowers/specs/
+/docs/superpowers/specs/*
+!/docs/superpowers/specs/2026-07-15-ai-redraw-structural-report-figures-design.md
+/docs/test-health/
 .manager_session.json
 .manager_session.lock
 

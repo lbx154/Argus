@@ -891,6 +891,29 @@
         "text": {"type": "string"}
       }
     },
+    "project.completed": {
+      "version": 1,
+      "required": ["vertical", "source", "required_gate", "evidence_refs", "from_state"],
+      "properties": {
+        "vertical": {"type": "string", "minLength": 1},
+        "source": {"type": "string", "minLength": 1},
+        "required_gate": {"type": "string", "minLength": 1},
+        "evidence_refs": {"type": "array", "items": {"type": "string"}},
+        "from_state": {"type": "string", "minLength": 1},
+        "agent_layer": {"type": "string"}
+      }
+    },
+    "project.completion_refused": {
+      "version": 1,
+      "required": ["vertical", "source", "required_gate", "reason"],
+      "properties": {
+        "vertical": {"type": "string", "minLength": 1},
+        "source": {"type": "string"},
+        "required_gate": {"type": "string"},
+        "reason": {"type": "string", "minLength": 1},
+        "agent_layer": {"type": "string"}
+      }
+    },
     "research.achievement.certified": {
       "version": 1,
       "required": ["achievement_id", "title", "goal", "reviewer_certified"],

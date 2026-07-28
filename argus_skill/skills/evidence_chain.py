@@ -6,9 +6,10 @@ trace down to (1) an existing evidence file, (2) a bundle directory with
 ``BUILD_INFO.md``, and (3) no tainted-bundle citation unless the claim
 explicitly marks itself as ``historical_only`` or ``broken_current_evidence``.
 
-This is the F4 hard contract from
-``docs/analysis/strategy_research_factory.html``: claim ↔ evidence ↔
-bundle ↔ BUILD_INFO must all line up, or the project's ``review`` stage
+This is the integrity side of the harness/agent boundary documented in
+``AGENTS.md`` and
+``docs/edit-principle/skills/04-harness-vs-agent-boundary.md``: claim ↔
+evidence ↔ bundle ↔ BUILD_INFO must line up, or the project's ``review`` stage
 fails and the draft cannot advance to ``submission``.
 
 CLI:

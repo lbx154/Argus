@@ -96,6 +96,11 @@ components:
 
 # Design System: Argus Research Workbench
 
+> **Scope:** this file is the UI visual design system only. Runtime architecture,
+> role authority, state machines, and protocol ownership live under
+> [`docs/DESIGN_AUTHORITY.md`](docs/DESIGN_AUTHORITY.md) and
+> [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
 ## Overview
 
 **Creative North Star: "The Vigilant Workbench"**

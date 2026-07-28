@@ -178,7 +178,7 @@ def decide_next_state(
     #    spent in a stage (incubating>7d, running>14d no new evidence,
     #    writing>21d). Those constants were research-tempo judgments
     #    ("21 days writing without submission is too long") which the
-    #    review at docs/reviews/research-factory-gates.md
+    #    boundary documented in docs/VALUE_VS_HONESTY.md
     #    correctly flagged as harness-side science verdicts. They were
     #    removed; ``advisory_time_signals`` below surfaces the same
     #    numbers as informational signals the planner/reviewer can read,

@@ -232,7 +232,7 @@ def run_one_engineer_mission(objective: str, *, cwd: str, life_dir: Path,
     # co-located daemon's shared log and mis-attribute other missions' commands.
     # Disable checkpoint persistence: the audit is then omitted, and a single-shot
     # teammate (no cross-mission continuity) won't collide with sibling teammates
-    # on a shared checkpoint.json.
+    # on a shared CHECKPOINT.md.
     with _temporary_env("ARGUS_SKILL_CHECKPOINT_PERSIST", "0"):
         watchdog: threading.Timer | None = None
         try:

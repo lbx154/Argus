@@ -1086,8 +1086,8 @@ class SkillLoopExecuteMixin:
         stage authority when this round is eligible to move the pipeline stage.
 
         STAGE AUTHORITY: the Manager is the SOLE writer of the
-        pipeline stage. After this round's Engineer-self-review or independent
-        Reviewer verdict, the Manager makes
+        pipeline stage. After this round's independent Reviewer verdict, the
+        Manager makes
         its OWN judgment (advance / hold / rollback) and writes
         PIPELINE_STATE.json. See ``_decide_stage_transition``.
         """

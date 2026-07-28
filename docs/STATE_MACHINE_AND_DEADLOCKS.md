@@ -3,24 +3,27 @@
 这份文档刻画 Argus 真实运行的状态机——不是设计意图,是从代码里读出来的。目的有两个:让接手的人能判断"这个状态会不会卡住",以及给死锁排查一个可重复的方法。
 
 所有状态名、集合、转移都标了出处。**文档与代码不一致时以代码为准,并请修正本文。**
+文档权威层级见 [`DESIGN_AUTHORITY.md`](DESIGN_AUTHORITY.md)。
 
 ---
 
-## 1. 三层状态,不是一层
+## 1. 四层状态,不是一层
 
-Argus 常被当成"一个状态机"讨论,实际有三层各自独立演进的状态,死锁往往出在**层与层之间**,而不是某一层内部。
+Argus 常被当成"一个状态机"讨论,实际有四层各自独立演进的状态,死锁往往出在**层与层之间**,而不是某一层内部。
 
 | 层 | 状态载体 | 权威角色 | 出处 |
 | --- | --- | --- | --- |
-| **任务层** | `BacklogItem.status` | 无单一权威;由 mission 结算写入 | `life/memory.py:614` |
-| **阶段层** | `research/PIPELINE_STATE.json` 的 `current_stage` | **Manager 是唯一写者** | `manager/_stage_ops.py:408` |
-| **战役层** | `continuous.json` 的 `enabled` | operator 与 Planner 的 `project_done` | `daemon/_life_worker_run.py:271` |
+| **任务层** | `BacklogItem.status` | mission settlement | `life/memory.py`、`life/supervisor/_mission_execution_settlement.py` |
+| **阶段层** | artifact root 下 `research/PIPELINE_STATE.json` 的 `current_stage` | **Manager 是唯一语义决策者**；Supervisor 只可机械撤销 unfinished-DAG 的提前推进 | `manager/_stage_ops.py`、`life/supervisor/_mission_execution_settlement.py`、`skills/stage_machine.py` |
+| **项目完成层** | `lifecycle.json` / completion certificate | `core/project_api.py::complete_project` 是唯一 DONE 写入口 | `core/project_api.py`、`life/project_lifecycle*.py` |
+| **战役层** | `continuous.json` 的 `enabled`、objective 和 generation | operator/Manager dispatch；Planner 提供 `project_done` 建议 | `daemon/state.py`、`life/supervisor/` |
 
 ---
 
 ## 2. 任务层:17 个状态
 
-出处 `life/memory.py:614-648`。
+出处：`life/memory.py` 的 `_ALL_STATUSES`、`_RECOVERABLE_PAUSE_STATUSES` 和
+`_TERMINAL_STATUSES`。
 
 **活跃(2)** — `pending`、`running`
 
@@ -39,8 +42,8 @@ Argus 常被当成"一个状态机"讨论,实际有三层各自独立演进的�
 
 | 入口 | 调用者 | 覆盖范围 |
 | --- | --- | --- |
-| `resume_paused_statuses` | `supervisor/_core.py:416` — **唯一自动路径** | 4 个 |
-| `resume_all_paused` | `apps/cli/_core.py:1318` — operator 命令 | 全部 10 个 |
+| `resume_paused_statuses` | `LifeSupervisor._resume_automatic_pauses` — **唯一自动路径** | 4 个 |
+| `resume_all_paused` | CLI operator resume 命令 | 全部 10 个 |
 | `resume_paused` | **无生产调用者** | — |
 
 自动恢复只覆盖:`paused_provider_cooldown`、`paused_provider_fence`、
@@ -48,7 +51,9 @@ Argus 常被当成"一个状态机"讨论,实际有三层各自独立演进的�
 
 **其余 6 个只能靠 operator 手动唤醒。** 其中 `paused_operator` 和 `infra_blocked` 是有意为之(代码注释明确说明)。但 `research_incomplete`、`paused_no_breakthrough`、`exhausted_current_methods` 是 **agent 自己**根据 Reviewer 裁决进入的科研状态。
 
-这**不构成死锁**,原因是:Planner 的触发条件是 `next_pending() is None`(`supervisor/_core.py:588`),暂停项不参与该判断。所以只剩暂停项时 Planner 照样被唤起,可以排全新的工作。被暂停的 item 是一条记录,不是一道闸。
+这**不构成死锁**,原因是 Planner 在没有 pending item 时仍可进入下一轮规划；暂停项不等于
+pending item。所以只剩暂停项时 Planner 仍可排全新的工作。被暂停的 item 是一条记录,
+不是一道闸。
 
 > 前提是 Planner 真的能产出任务。第 4 节的死锁正是打破这个前提的那一类。
 
@@ -56,12 +61,31 @@ Argus 常被当成"一个状态机"讨论,实际有三层各自独立演进的�
 
 ## 3. 阶段层
 
-Manager 是 `current_stage` 的**唯一写者**(`manager/_stage_ops.py:422` 的 docstring 明确声明)。Reviewer 和 Planner 只能建议。
+Manager 是 `current_stage` 的**唯一语义决策者**（`manager/_stage_ops.py` 的
+`_StageDecisionMixin`）。Reviewer 和 Planner 只能建议。
 
 转移动作:`advance` / `hold` / `rollback` / `complete`,写盘在
-`_apply_stage_decision_to_disk`(`_stage_ops.py:340`)。
+`_apply_stage_decision_to_disk`。
 
-**该函数签名是 `(decision, cur, root)` —— 拿不到 reviewer verdict。** 这是刻意的:没有第二道机器闸能藏在写盘路径里二次改判 Manager。曾有一个 `enforce_scientific_stage_guard` 名义上做这件事,实际被削成了恒等函数,已删除;这条性质现在由测试按签名钉住。
+**该函数签名是 `(decision, cur, root)` —— 拿不到 reviewer verdict。** 这是刻意的：
+Manager 写盘路径里没有第二道科研质量闸。唯一额外写路径是 Supervisor 的
+`_apply_dynamic_plan_stage_guard`：如果 bounded DAG 仍有同计划未完成节点，却已发生
+`advance`，它只能恢复到 mission 开始时的 stage，并记录
+`source=supervisor_dynamic_plan_guard`。这是事务补偿，不是第二个 stage 决策者。
+
+### 3.1 项目完成层
+
+历史上 `Planner project_done`、final-stage certificate、`continuous.json` 和
+`lifecycle.json` 曾各自表达“完成”。当前写侧统一经过
+`core/project_api.py::complete_project`：
+
+1. vertical 声明 `completion_gate`（`none` / `metric` / `full_paper`）；
+2. caller 提供带 evidence refs 的 completion source；
+3. API 机械比较 source strength 与 gate；
+4. 只有通过后才原子写 `ProjectState.DONE`。
+
+这不是科研质量判断器；质量仍来自 Reviewer/vertical evidence。它只防止较弱来源把较强
+completion gate 偷偷写成 DONE。
 
 ---
 

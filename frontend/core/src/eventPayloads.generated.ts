@@ -723,6 +723,27 @@ export interface WikiEvolutionCompletedEvent extends EventMsg {
   "text"?: string;
 }
 
+export interface ProjectCompletedEvent extends EventMsg {
+  type: "project.completed";
+  payload_schema_version?: 1;
+  "vertical": string;
+  "source": string;
+  "required_gate": string;
+  "evidence_refs": Array<string>;
+  "from_state": string;
+  "agent_layer"?: string;
+}
+
+export interface ProjectCompletionRefusedEvent extends EventMsg {
+  type: "project.completion_refused";
+  payload_schema_version?: 1;
+  "vertical": string;
+  "source": string;
+  "required_gate": string;
+  "reason": string;
+  "agent_layer"?: string;
+}
+
 export interface ResearchAchievementCertifiedEvent extends EventMsg {
   type: "research.achievement.certified";
   payload_schema_version?: 1;
@@ -829,6 +850,8 @@ export interface EventPayloadByType {
   "wiki.promotion.demoted": WikiPromotionDemotedEvent;
   "wiki.retired.compressed": WikiRetiredCompressedEvent;
   "wiki.evolution.completed": WikiEvolutionCompletedEvent;
+  "project.completed": ProjectCompletedEvent;
+  "project.completion_refused": ProjectCompletionRefusedEvent;
   "research.achievement.certified": ResearchAchievementCertifiedEvent;
   "daemon.command.submitted": DaemonCommandSubmittedEvent;
   "daemon.command.completed": DaemonCommandCompletedEvent;

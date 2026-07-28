@@ -1,5 +1,8 @@
 # Learning Vertical Design
 
+> Current learning-vertical contract. See
+> [`DESIGN_AUTHORITY.md`](DESIGN_AUTHORITY.md).
+
 The learning vertical turns operator-supplied material into durable project
 memory while preserving the boundary between declarative knowledge and
 procedural Skills.
@@ -35,5 +38,8 @@ single-writer router.
 - Separate sourced fact, inference, uncertainty, and contradiction.
 - Prefer updating an existing page over creating a synonym.
 - Move obsolete pages to `pages/_retired/`; never erase source evidence.
-- Protected Skills remain subject to SkillRouter's existing protection floor.
+- Never edit a protected Skill. SkillRouter mechanically rejects protected
+  mutations on the legacy structured-op path; direct project-file edits are
+  policy-enforced by the role contract, per the operator's chosen direct-edit
+  model.
 - Do not manufacture writes merely to make a learning mission appear productive.

@@ -1,8 +1,8 @@
 ---
 name: Wiki Collector
-description: Autonomously refresh the project wiki by deriving 5-10 search queries from project state, running them against arxiv/semantic-scholar/github, and writing new findings to sources/papers/ and sources/repos/. Run only when planner has explicitly scheduled a wiki_collect mission. Engineer-only; reviewer's wiki-curator handles promotion.
+description: Autonomously refresh immutable project-wiki sources by deriving 5-10 search queries from project state and searching arxiv/semantic-scholar/github. Run only when Planner explicitly schedules a wiki_collect mission; Reviewer may directly synthesize durable pages from accepted sources.
 category: wiki
-version: 1
+version: 2
 created_at: 2026-06-05T00:00:00+00:00
 ---
 
@@ -125,11 +125,12 @@ Output a short note in your final mission summary:
 - N new papers ingested / M skipped as duplicates
 - K new repos ingested
 - any noteworthy hits, in 1-2 sentences each, the reviewer might want
-  to consider promoting to candidate
+  to consider synthesizing into a durable page
 
-Do NOT write any `pages/*` cards yourself. Promotion is the reviewer's
-wiki-curator's job. Step 2 mechanical lift will turn each new source
-into a scratch page on this same mission's reviewer pass.
+This collector mission is intentionally source-focused: do not manufacture a
+`pages/*` card for every hit. The independent Reviewer may directly create or
+update a durable page when the accepted source supports a useful concept, fact,
+hypothesis, relationship or conflict. There is no automatic mechanical lift.
 
 ## Hard rules
 

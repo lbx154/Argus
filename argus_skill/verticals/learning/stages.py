@@ -13,9 +13,8 @@ The 4 stages:
 2. **study**: read the material AND inventory the current skill + wiki libraries,
    then produce ``learning/CHANGE_PLAN.json`` — the create/update/archive/retire
    decisions, each with EVIDENCE SPANS ``{source_id, locator, quote}``. This is
-   the judgment stage; when independent review is required or requested, the
-   Reviewer gates the plan for faithfulness / redundancy / scope before anything
-   is written.
+   the judgment stage; the Reviewer gates the plan for faithfulness / redundancy /
+   scope before it is accepted.
 
 3. **curate**: apply the plan. Skill CRUD flows through the active role's
    structured maintenance request and the SkillRouter gates (mechanical / dedup /
@@ -24,9 +23,8 @@ The 4 stages:
 
 4. **review**: final gate — every committed change is evidence-anchored, nothing
    protected was removed, no existing item regressed, indexes rebuilt. Mission
-   completion records either an allowed Engineer self-review or, when required /
-   requested, an independent Reviewer verdict (``completion_gate="none"`` — no
-   numeric metric, no paper submission).
+   completion records the independent Reviewer verdict
+   (``completion_gate="none"`` — no numeric metric, no paper submission).
 
 Design invariants (the hard, harness-enforced rules; all judgment is the
 agent's / reviewer's):
@@ -35,12 +33,12 @@ agent's / reviewer's):
 * every learned claim carries a re-checkable evidence citation into an immutable
   source or real project artifact; Reviewer checks this during review;
 * a protected skill (frontmatter ``protected: true`` OR an anti-cheat / guardrail
-  / role-identity CATEGORY) can never be archived/deleted/updated at runtime
-  (strengthening one requires an explicit, out-of-band source-code change), and
-  a ``create`` cannot shadow one by reusing its name. This floor is enforced
-  today in SkillRouter (see ``skill_router._PROTECTED_CATEGORIES``). Ordinary
-  skills a mission merely used stay retirable — retiring a wrong/harmful skill
-  is the flywheel working;
+  / role-identity CATEGORY) must never be archived/deleted/updated by a mission.
+  SkillRouter enforces this mechanically for structured/programmatic ops (see
+  ``skill_router._PROTECTED_CATEGORIES``); current direct file-tool edits rely on
+  the role contract and Reviewer, which is the operator-selected direct-edit
+  boundary. Ordinary skills a mission merely used stay retirable —
+  retiring a wrong/harmful skill is the flywheel working;
 * a justified no-op ("the material added nothing, here is why") is a success —
   we do not reward raw library churn.
 

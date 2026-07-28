@@ -191,7 +191,8 @@ class SupervisedConfig:
     # Surface in-flight SUPERVISED subagents (read from
     # ``<workdir>/.argus_subagents``) in the engineer prompt each round so the
     # agent does not burn rounds babysitting a self-watched long job, and can
-    # yield through its structured control file instead of busy-polling. Env
+    # yield through the exact final-line JSON wait request instead of
+    # busy-polling. Env
     # override: ARGUS_SKILL_BG_SUBAGENT_ADVISORY (0 disables).
     background_subagent_advisory: bool = field(
         default_factory=lambda: _env_bool(_BG_SUBAGENT_ADVISORY_ENV, True)

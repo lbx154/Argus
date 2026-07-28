@@ -1,4 +1,4 @@
-"""Post-mission skill evolution after Engineer self-review or independent review."""
+"""Post-mission skill evolution after independent review."""
 
 from __future__ import annotations
 

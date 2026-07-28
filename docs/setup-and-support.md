@@ -1,5 +1,8 @@
 # Setup and support contract
 
+> Current installation and support matrix. See
+> [`DESIGN_AUTHORITY.md`](DESIGN_AUTHORITY.md).
+
 ## Canonical installation
 
 The public beta path is npm:

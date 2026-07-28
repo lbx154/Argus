@@ -38,6 +38,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from .event_catalog import EventType
+
 # Completion sources, weakest to strongest. The ordering is mechanical — it
 # says which source *outranks* which, not which work is worth more. A source
 # may satisfy any requirement at or below its own rank, so certifying a full
@@ -198,7 +200,7 @@ def complete_project(
         _emit(
             on_event,
             {
-                "type": "project.completion_refused",
+                "type": EventType.PROJECT_COMPLETION_REFUSED,
                 "vertical": vertical,
                 "source": source.kind,
                 "required_gate": outcome.required_gate,
@@ -254,7 +256,7 @@ def complete_project(
     _emit(
         on_event,
         {
-            "type": "project.completed",
+            "type": EventType.PROJECT_COMPLETED,
             "vertical": vertical,
             "source": source.kind,
             "required_gate": outcome.required_gate,

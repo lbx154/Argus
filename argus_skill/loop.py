@@ -14,7 +14,7 @@ create/update candidate, which still passes through SkillRouter safeguards.
 
 End-to-end shape:
 
-    task → matcher/Scientist → engineer round-loop (engineer → self-review|reviewer)
+    task → matcher/Scientist → engineer round-loop (engineer → reviewer)
             outcome → record skill use and preserve validated memory edits
             continue → inject next_action, next round
             blocked → stop with reason; direct memory edits remain persisted
