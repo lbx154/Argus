@@ -126,18 +126,16 @@ def manager_message(
 
         active_mission = mission_is_running(mem)
 
-        # A web-process restart necessarily loses the live ACP process. Resume
-        # seamlessly by opening one new warm conversation session with a
-        # structured handoff built from the transcript that existed BEFORE this
-        # operator turn. This is a restart seam only; ordinary turns remain on
-        # the same live process + session.
+        # Build the restart handoff before journaling this turn so the current
+        # message appears exactly once. Do not consume it until a model-backed
+        # path actually needs it.
         startup_handoff = ""
-        if chat_state.pop("needs_startup_handoff", False):
+        startup_handoff_pending = bool(chat_state.get("needs_startup_handoff", False))
+        if startup_handoff_pending:
             try:
                 transcript = Path(life_dir) / "transcript.jsonl"
                 if transcript.exists() and transcript.stat().st_size > 0:
                     startup_handoff = _build_handoff(life_dir)
-                    chat_state["startup_handoffs"] = int(chat_state.get("startup_handoffs", 0)) + 1
             except Exception:  # noqa: BLE001 — continuity is best-effort
                 pass
 
@@ -159,6 +157,27 @@ def manager_message(
         )
         if pending_result is not None:
             return pending_result
+
+        from ..apps._self_reply import (
+            build_status_snapshot_reply,
+            looks_like_status_query,
+        )
+
+        if looks_like_status_query(body):
+            reply = build_status_snapshot_reply(life_dir, body)
+            if reply:
+                return emitter.respond(reply, {"kind": "chat"})
+
+        # A web-process restart necessarily loses the live ACP process. Resume
+        # seamlessly by opening one new warm conversation session with a
+        # structured handoff built from the transcript that existed BEFORE this
+        # operator turn. A deterministic status read must not consume this seam.
+        if startup_handoff_pending:
+            chat_state.pop("needs_startup_handoff", None)
+            if startup_handoff:
+                chat_state["startup_handoffs"] = int(
+                    chat_state.get("startup_handoffs", 0)
+                ) + 1
 
         classify = _classify_operator_turn(
             mem,

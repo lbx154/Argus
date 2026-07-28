@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import re
 import time
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +24,68 @@ _SELF_RETRYABLE_ACP_ERRORS = (
     "stopreason=cancelled",
 )
 
+_STATUS_MUTATION_MARKERS = (
+    "修改",
+    "修复",
+    "实现",
+    "优化",
+    "重启",
+    "停止",
+    "继续",
+    "取消",
+    "提交",
+    "创建",
+    "删除",
+    "更新文件",
+    "改进",
+    "总结",
+    "建议",
+    "分析",
+    "解释",
+    "fix ",
+    "change ",
+    "implement ",
+    "optimize ",
+    "restart",
+    "stop ",
+    "continue",
+    "cancel",
+    "commit",
+    "create ",
+    "delete ",
+    "update file",
+    "summarize",
+    "recommend",
+    "analyze",
+    "explain",
+)
+_ZH_STATUS_QUERY = re.compile(
+    r"^(?:请|麻烦)?(?:你)?(?:帮我)?"
+    r"(?:看|查看|检查|告诉我|汇报)?(?:一下)?"
+    r"(?:(?:项目|任务|研究|运行|当前|现在|目前)的?)*"
+    r"(?:运行)?(?:进度|状态|运行情况)"
+    r"(?:如何|怎么样|怎样|到哪(?:了)?|是什么|呢|吗)?[？?。]*$"
+)
+_EN_STATUS_QUERY = re.compile(
+    r"^(?:please )?(?:(?:show(?: me)?|check|tell me|what is|what's)\s+)?(?:the )?"
+    r"(?:current )?(?:project |run |mission )?"
+    r"(?:status|progress)(?: please)?[?.]*$"
+)
+_EN_STATUS_PHRASES = frozenset({
+    "how is it going",
+    "how's it going",
+    "how is the project going",
+    "how's the project going",
+    "how is the mission going",
+    "how's the mission going",
+    "how far along are we",
+    "are we done yet",
+    "what's the current status",
+    "what's the current progress",
+    "what is running",
+    "what are you doing now",
+})
+
 
 def _redact_live_event(event: dict[str, Any]) -> dict[str, Any]:
     safe = redact_secrets_record(event, known_values=known_secret_values())
@@ -40,6 +104,189 @@ def self_retryable_transport_failure(result: Any) -> bool:
     if fatal.startswith(("external interrupt:", "refused before start:")):
         return False
     return any(marker in fatal for marker in _SELF_RETRYABLE_ACP_ERRORS)
+
+
+def looks_like_status_query(text: str) -> bool:
+    """Return true only for read-only requests for the current runtime state."""
+    normalized = re.sub(r"\s+", " ", str(text or "").strip()).casefold()
+    if not normalized or len(normalized) > 120:
+        return False
+    if any(marker in normalized for marker in _STATUS_MUTATION_MARKERS):
+        return False
+    punctuation_stripped = normalized.rstrip("?.! ")
+    return bool(
+        _ZH_STATUS_QUERY.fullmatch(normalized)
+        or _EN_STATUS_QUERY.fullmatch(normalized)
+        or punctuation_stripped in _EN_STATUS_PHRASES
+    )
+
+
+def build_status_snapshot_reply(root: Path | str, objective: str) -> str:
+    """Render a live, bounded status snapshot without invoking a model."""
+    try:
+        from ..cli.roles_status import role_activity
+        from ..core.mission_view import snapshot_mission_view
+        from ..daemon.life_worker import read_continuous_state, read_daemon_status
+        from ..life.memory import Backlog
+
+        path = Path(root).expanduser()
+        daemon = read_daemon_status(path)
+        continuous_state = read_continuous_state(path)
+        continuous = {
+            "enabled": continuous_state.enabled,
+            "objective": continuous_state.objective,
+            "done_reason": continuous_state.done_reason,
+            "done_at": continuous_state.done_at,
+        }
+        backlog_items = Backlog(path / "backlog.jsonl").all()
+        activity = role_activity(path)
+        roles = [
+            {
+                "role": name,
+                "active": state.active,
+                "status": state.status,
+                "label": state.label,
+                "age_s": state.age_s,
+                "backend": getattr(state, "backend", ""),
+                "model": getattr(state, "model", ""),
+                "effort": getattr(state, "effort", None),
+            }
+            for name, state in activity.items()
+        ]
+        view = snapshot_mission_view(
+            path,
+            session={},
+            daemon={"alive": daemon.alive},
+            roles=roles,
+            backlog=[asdict(item) for item in backlog_items],
+            continuous=continuous,
+            enrich_skill_content=False,
+        )
+        mission = view.get("mission")
+        mission = mission if isinstance(mission, dict) else {}
+        stage = view.get("stage")
+        stage = stage if isinstance(stage, dict) else {}
+        review = view.get("review")
+        review = review if isinstance(review, dict) else {}
+        role_rows = view.get("roles")
+        role_rows = role_rows if isinstance(role_rows, list) else []
+        timeline_rows = view.get("timeline")
+        timeline_rows = timeline_rows if isinstance(timeline_rows, list) else []
+        roles = [row for row in role_rows if isinstance(row, dict)]
+        timeline = [row for row in timeline_rows if isinstance(row, dict)]
+    except Exception:  # noqa: BLE001 - caller falls back to the Manager model
+        return ""
+
+    chinese = bool(re.search(r"[\u3400-\u9fff]", objective))
+    health = str(getattr(daemon, "health_state", "") or "unknown")
+    mission_status = str(mission.get("status") or "idle")
+    if not daemon.alive and mission_status == "working":
+        mission_status = "interrupted"
+    title = " ".join(str(mission.get("title") or "").split())[:180]
+    queued_campaign = bool(
+        mission_status == "queued"
+        and continuous.get("enabled")
+        and str(continuous.get("objective") or "").strip()
+    )
+    if queued_campaign:
+        title = " ".join(str(continuous["objective"]).split())[:180]
+    stage_label = " ".join(
+        str(stage.get("label") or stage.get("id") or "").split()
+    )[:120]
+    active_role = str(view.get("active_role") or "").strip()
+    role_row = next(
+        (row for row in roles if str(row.get("role") or "") == active_role),
+        None,
+    )
+    role_is_active = role_row is not None
+    if role_row is None:
+        role_row = next(
+            (
+                row for row in reversed(roles)
+                if str(row.get("status") or "") not in {"", "idle", "waiting"}
+            ),
+            None,
+        )
+        if role_row is not None:
+            active_role = str(role_row.get("role") or "").strip()
+    role_label = (
+        " ".join(str(role_row.get("label") or "").split())[:160]
+        if role_row is not None
+        else ""
+    )
+    review_status = str(review.get("status") or "").strip()
+    review_reason = " ".join(str(review.get("reason") or "").split())[:360]
+    if queued_campaign:
+        review_status = ""
+        review_reason = ""
+    try:
+        last_event_ts = float(view.get("last_event_ts") or 0.0)
+    except (TypeError, ValueError):
+        last_event_ts = 0.0
+    age_s = max(0, int(time.time() - last_event_ts)) if last_event_ts else None
+    recent = [
+        row for row in timeline
+        if str(row.get("title") or "").strip()
+    ][-2:]
+
+    if chinese:
+        lines = [
+            "当前即时状态：",
+            (
+                f"- daemon：{'运行中' if daemon.alive else '已停止'}"
+                f"（健康状态：{health}）"
+            ),
+            f"- 任务：{title or '当前没有活动任务'}（{mission_status}）",
+        ]
+        if stage_label:
+            lines.append(f"- 阶段：{stage_label}")
+        if active_role:
+            lines.append(
+                f"- {'当前' if role_is_active else '最近'}角色：{active_role}"
+                + (f" — {role_label}" if role_label else "")
+            )
+        if review_status:
+            lines.append(
+                f"- 最近审查：{review_status}"
+                + (f" — {review_reason}" if review_reason else "")
+            )
+        if recent:
+            lines.append("- 最近事件：" + "；".join(
+                " ".join(str(row.get("title") or "").split())[:160]
+                for row in recent
+            ))
+        if age_s is not None:
+            lines.append(f"- 快照事件距今：{age_s} 秒")
+        return "\n".join(lines)
+
+    lines = [
+        "Current live status:",
+        (
+            f"- daemon: {'running' if daemon.alive else 'stopped'} "
+            f"(health: {health})"
+        ),
+        f"- mission: {title or 'no active mission'} ({mission_status})",
+    ]
+    if stage_label:
+        lines.append(f"- stage: {stage_label}")
+    if active_role:
+        lines.append(
+            f"- {'active' if role_is_active else 'last'} role: {active_role}"
+            + (f" — {role_label}" if role_label else "")
+        )
+    if review_status:
+        lines.append(
+            f"- latest review: {review_status}"
+            + (f" — {review_reason}" if review_reason else "")
+        )
+    if recent:
+        lines.append("- recent events: " + "; ".join(
+            " ".join(str(row.get("title") or "").split())[:160]
+            for row in recent
+        ))
+    if age_s is not None:
+        lines.append(f"- snapshot event age: {age_s}s")
+    return "\n".join(lines)
 
 
 class SelfReplyMixin:
@@ -143,6 +390,17 @@ class SelfReplyMixin:
                     root_task_id=root_task_id,
                 )
         if route == "simple":
+            if looks_like_status_query(objective):
+                _phase(
+                    "Reading the current bounded status snapshot…",
+                    kind="status_snapshot",
+                )
+                status_outcome = self._status_quick_reply(
+                    objective=objective,
+                    sink=_PhaseSink(sink),
+                )
+                if status_outcome is not None:
+                    return status_outcome
             _phase(f"{backend_label} handling it solo…")
             return self._simple_quick_reply(
                 objective=objective,
@@ -409,6 +667,58 @@ class SelfReplyMixin:
         except Exception:  # noqa: BLE001 - history context is optional
             return ""
 
+    def _status_snapshot_reply(self, objective: str) -> str:
+        session_root = getattr(self, "_manager_session_root", None)
+        if not session_root:
+            return ""
+        return build_status_snapshot_reply(session_root, objective)
+
+    def _status_quick_reply(
+        self,
+        *,
+        objective: str,
+        sink: EventSink,
+    ) -> _Outcome | None:
+        reply = self._status_snapshot_reply(objective)
+        if not reply:
+            return None
+        sink.handle_event({
+            "type": "loop.start",
+            "text": "SELF: reading bounded runtime status",
+            "transient": True,
+        })
+        sink.handle_event({
+            "type": "round.main.completed",
+            "round_index": 1,
+            "exit_code": 0,
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_output_tokens": 0,
+            "premium_requests": 0.0,
+            "model": "deterministic-status-snapshot",
+            "usage_scope": "delta",
+            "last_message": reply,
+            "session_id": None,
+            "turn_completed": True,
+            "attempt_count": 0,
+            "transient": True,
+        })
+        sink.handle_event({
+            "type": "loop.done",
+            "text": "status=done rounds=0 (status snapshot)",
+            "transient": True,
+        })
+        return _Outcome(
+            success=True,
+            status="done",
+            stop_reason="",
+            rounds=0,
+            last_thread_id=None,
+            chat_mode=False,
+            auth_failure=False,
+        )
+
     def _simple_quick_reply(
         self,
         *,
@@ -614,4 +924,9 @@ class SelfReplyMixin:
         )
 
 
-__all__ = ["SelfReplyMixin", "self_retryable_transport_failure"]
+__all__ = [
+    "SelfReplyMixin",
+    "build_status_snapshot_reply",
+    "looks_like_status_query",
+    "self_retryable_transport_failure",
+]

@@ -30,6 +30,10 @@ from argus_skill.life.supervisor import (
     LifeSupervisor,
     LifeSupervisorConfig,
 )
+from argus_skill.apps._self_reply import (
+    build_status_snapshot_reply,
+    looks_like_status_query,
+)
 
 # ---------- fakes for the runner unit test --------------------------------
 
@@ -187,6 +191,160 @@ def test_manager_self_effort_can_be_overridden(monkeypatch) -> None:
     )
 
     assert backend.calls[-1]["options"].reasoning_effort == "high"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "你现在的进度如何",
+        "目前运行情况怎么样？",
+        "检查一下当前状态",
+        "status",
+        "what is the current progress?",
+        "how is it going?",
+        "How far along are we?",
+        "Are we done yet?",
+        "What's the current status?",
+        "How is the project going?",
+        "当前项目状态怎么样？",
+        "当前任务进度如何？",
+        "please show current status",
+        "show me the current status",
+    ],
+)
+def test_status_query_detector_accepts_read_only_status_requests(text: str) -> None:
+    assert looks_like_status_query(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "帮我优化项目进度",
+        "修复状态查询没有反馈的问题",
+        "停止当前任务",
+        "继续运行实验",
+        "请总结当前进度并给出下一步建议",
+        "implement a progress dashboard",
+        "What is blocking progress?",
+        "How does current progress compare to the plan?",
+        "Show status, then start the experiment",
+    ],
+)
+def test_status_query_detector_rejects_actions_and_analysis(text: str) -> None:
+    assert not looks_like_status_query(text)
+
+
+def test_status_query_uses_bounded_snapshot_without_model_call(tmp_path: Path) -> None:
+    from argus_skill.core.mission_view import empty_mission_view
+
+    view = empty_mission_view()
+    view.update({
+        "bootstrapped": True,
+        "last_event_ts": 100.0,
+        "active_role": "reviewer",
+        "mission": {
+            **view["mission"],
+            "title": "Certify the G-set result",
+            "status": "working",
+        },
+        "stage": {"id": "research", "label": "Research"},
+        "roles": [
+            {
+                "role": "reviewer",
+                "status": "running",
+                "label": "reviewing the evidence",
+                "updated_at": 100.0,
+            },
+        ],
+        "review": {
+            "status": "continue",
+            "reason": "One reporting ordinal needs correction.",
+            "rejected_attempts": 0,
+        },
+        "timeline": [
+            {
+                "id": "e1",
+                "ts": 99.0,
+                "type": "round.review.completed",
+                "role": "reviewer",
+                "title": "Research review completed",
+                "detail": "",
+                "tone": "neutral",
+            },
+        ],
+    })
+    (tmp_path / "mission-view.json").write_text(
+        json.dumps(view),
+        encoding="utf-8",
+    )
+    backend = _FakeBackend(response_message="model must not be called")
+    runner = _make_runner(backend)
+    runner._manager_session_root = tmp_path
+    sink = _RecordingSink()
+    phases: list[tuple[str, str]] = []
+
+    out = runner._maybe_chat_outcome(
+        objective="你现在的进度如何",
+        sink=sink,
+        route="simple",
+        phase_cb=lambda label, **meta: phases.append(
+            (label, str(meta.get("kind") or ""))
+        ),
+    )
+
+    assert out is not None and out.success is True and out.rounds == 0
+    assert backend.calls == []
+    completed = next(
+        event for event in sink.events
+        if event.get("type") == "round.main.completed"
+    )
+    assert completed["input_tokens"] == 0
+    assert completed["model"] == "deterministic-status-snapshot"
+    assert all(event.get("transient") is True for event in sink.events)
+    assert "Certify the G-set result" in completed["last_message"]
+    assert "reviewing the evidence" in completed["last_message"]
+    assert "One reporting ordinal needs correction." in completed["last_message"]
+    assert any(kind == "status_snapshot" for _, kind in phases)
+
+
+def test_status_snapshot_merges_continuous_campaign_state(tmp_path: Path) -> None:
+    from argus_skill.core.mission_view import empty_mission_view
+
+    view = empty_mission_view()
+    view.update({
+        "bootstrapped": True,
+        "mission": {
+            **view["mission"],
+            "title": "Previous mission",
+            "objective": "Old objective",
+            "status": "complete",
+        },
+        "review": {
+            "status": "done",
+            "reason": "Previous mission was accepted.",
+            "rejected_attempts": 0,
+        },
+    })
+    (tmp_path / "mission-view.json").write_text(
+        json.dumps(view),
+        encoding="utf-8",
+    )
+    (tmp_path / "continuous.json").write_text(
+        json.dumps({
+            "enabled": True,
+            "objective": "Finish the campaign",
+            "done_reason": "",
+            "done_at": "",
+        }),
+        encoding="utf-8",
+    )
+
+    reply = build_status_snapshot_reply(tmp_path, "What is the current status?")
+
+    assert "Finish the campaign" in reply
+    assert "(queued)" in reply
+    assert "Previous mission" not in reply
+    assert "Previous mission was accepted." not in reply
 
 
 def test_execute_self_path_one_turn_no_reviewer(tmp_path: Path) -> None:

@@ -279,7 +279,12 @@ def _enrich_skill_content(
         skill["content_truncated"] = truncated
 
 
-def snapshot_mission_view(root: Path | str, **kwargs: Any) -> dict[str, Any]:
+def snapshot_mission_view(
+    root: Path | str,
+    *,
+    enrich_skill_content: bool = True,
+    **kwargs: Any,
+) -> dict[str, Any]:
     path = Path(root).expanduser()
     with _locked(path):
         view = _read_unlocked(path)
@@ -288,9 +293,10 @@ def snapshot_mission_view(root: Path | str, **kwargs: Any) -> dict[str, Any]:
         view = merge_mission_view_snapshot(view, **kwargs)
         _write_unlocked(path, view)
         response = json.loads(json.dumps(view))
-        _enrich_skill_content(
-            path,
-            response,
-            list(kwargs.get("backlog") or []),
-        )
+        if enrich_skill_content:
+            _enrich_skill_content(
+                path,
+                response,
+                list(kwargs.get("backlog") or []),
+            )
         return response
