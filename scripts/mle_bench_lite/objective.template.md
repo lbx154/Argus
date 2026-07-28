@@ -13,6 +13,12 @@ the competition's exact metric. Search public papers, Kaggle discussions and
 public code when useful, but record source provenance and never import
 predictions or labels.
 
+Provenance-recorded public pretrained model weights (for example ImageNet
+checkpoints from torchvision/timm) are allowed when the competition rules permit
+them. They are general representations, not competition predictions. Imported
+competition labels, predictions, gold submissions, or private feedback beyond
+the controller summary remain forbidden.
+
 Required deliverables in this project root:
 
 - `submission.csv` in the exact sample-submission schema and row order;

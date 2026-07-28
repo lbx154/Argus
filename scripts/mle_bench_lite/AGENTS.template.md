@@ -5,6 +5,8 @@
   the only permitted CUDA device. Use logical CUDA device 0 and do not alter
   the visibility variables.
 - `data/` is the only benchmark-data path available to the agent.
+- Public pretrained representation weights are allowed with recorded provenance
+  when competition rules permit; imported competition predictions/labels are not.
 - Never inspect Kaggle credentials, SSH files, MLE-Bench private/answers/gold
   files, or another competition. Controller-generated aggregate feedback in
   `PRIVATE_LEADERBOARD_FEEDBACK.json` is the only allowed private feedback.

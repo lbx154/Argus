@@ -14,6 +14,10 @@ not consume a submission. Aggregate leaderboard feedback is written back to the
 project and delivered through the Argus operator inbox, while labels and private
 files remain inaccessible.
 
+General public pretrained representations are permitted with provenance when a
+competition allows them. The controller never permits imported competition
+predictions, labels, gold submissions, or direct private-data access.
+
 The bubblewrap mount contract also hides the whole campaign root before
 re-binding the current project. Other project workspaces, submission snapshots,
 grade history, and controller state are therefore not merely forbidden by

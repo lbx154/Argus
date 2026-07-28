@@ -2,6 +2,8 @@
 
 - Use only official Kaggle data prepared by MLE-Bench.
 - Agent work may read only the mounted competition `prepared/public` view.
+- Provenance-recorded public pretrained model weights are allowed when the
+  competition rules permit them; competition-specific predictions/labels are not.
 - Never access MLE-Bench private answers, gold submissions, Kaggle credentials,
   SSH material, or another competition's data. Only aggregate feedback written
   by the controller to `PRIVATE_LEADERBOARD_FEEDBACK.json` is allowed.
