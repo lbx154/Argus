@@ -18,6 +18,7 @@ gbdt keeps NaN. GPU is used for the MLP when available.
 
 from __future__ import annotations
 
+import os
 from typing import Any, Protocol
 
 import numpy as np
@@ -66,7 +67,11 @@ class GBDTTrainer:
             "objective": "regression",
             "metric": "l2",
             "verbosity": -1,
-            "num_threads": 0,
+            # LightGBM interprets 0 as "all available cores". On a shared
+            # many-core Argus host that lets one small candidate or unit test
+            # monopolize the machine. Keep the default bounded; an experiment
+            # can still request a different value explicitly in its config.
+            "num_threads": min(8, os.cpu_count() or 1),
             **self.config,
         }
         dtr = lgb.Dataset(X_tr, label=y_tr)

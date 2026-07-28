@@ -355,8 +355,11 @@ _KEY_VALUE_KEYS = (
     "TASK_ACCEPTANCE_CHECK",
     "TASK_BLOCKER_FINGERPRINT",
     "TASK_NON_GOALS",
+    "TASK_CONTEXT_REFS",
     "TASK_SCOPE",
     "TASK_STAGE_CLOSING",
+    "TASK_REQUIRE_INDEPENDENT_REVIEW",
+    "TASK_SKIP_STAGE_TRANSITION",
     "TASK_AUTHORIZATION_ID",
     "TASK_AUTHORIZATION_ACTION",
 )
@@ -414,6 +417,67 @@ def _key_value_float(raw: str, default: float = 0.0) -> float:
         return float(str(raw or "").strip())
     except ValueError:
         return default
+
+
+def parse_task_context_refs(raw: str) -> list[dict[str, str]]:
+    """Parse ``kind::ref::why`` entries separated by ``|``."""
+    refs: list[dict[str, str]] = []
+    for entry in str(raw or "").split("|"):
+        if not entry.strip():
+            continue
+        parts = [part.strip() for part in entry.split("::", 2)]
+        if len(parts) < 2 or not parts[0] or not parts[1]:
+            raise ValueError(
+                "TASK_CONTEXT_REFS entries must use "
+                "kind::project/relative/path::why"
+            )
+        refs.append(
+            {
+                "kind": parts[0],
+                "ref": parts[1],
+                "why": parts[2] if len(parts) > 2 else "",
+                "content_hash": "",
+            }
+        )
+    return refs
+
+
+def _parse_optional_task_boolean(raw: str, field: str) -> bool:
+    normalized = str(raw or "").strip().casefold()
+    if not normalized:
+        return False
+    if normalized in {"true", "yes", "1"}:
+        return True
+    if normalized in {"false", "no", "0"}:
+        return False
+    raise ValueError(f"{field} must be true or false")
+
+
+def _validate_task_graph(tasks: list[TaskSpec]) -> None:
+    keyed = [task for task in tasks if task.key]
+    keys = [task.key for task in keyed]
+    if len(keys) != len(set(keys)):
+        raise ValueError("TASK_KEY values must be unique within one Planner batch")
+    known = set(keys)
+    for task in tasks:
+        if task.deps and not task.key:
+            raise ValueError("a task with TASK_DEPS must also define TASK_KEY")
+        unknown = [dep for dep in task.deps if dep not in known]
+        if unknown:
+            raise ValueError(
+                f"task {task.key or task.title!r} has unknown TASK_DEPS: {unknown}"
+            )
+        if task.key and task.key in task.deps:
+            raise ValueError(f"task {task.key!r} depends on itself")
+    remaining = {task.key: set(task.deps) for task in keyed}
+    resolved: set[str] = set()
+    while remaining:
+        ready = [key for key, deps in remaining.items() if deps <= resolved]
+        if not ready:
+            raise ValueError("Planner task graph contains a cycle")
+        for key in ready:
+            resolved.add(key)
+            remaining.pop(key)
 
 
 def hydrate_task_context_refs(
@@ -498,6 +562,12 @@ def _build_no_task_repair_prompt(
         "`TASK_BLOCKER_FINGERPRINT=...` and reuse it unchanged if the title or "
         "wording changes. When revisiting a failed non-resumable backlog item, "
         "use `item:<item_id>`; leave it blank for ordinary work.\n"
+        "- Preserve task review semantics explicitly when needed: "
+        "`TASK_STAGE_CLOSING=true|false`, "
+        "`TASK_REQUIRE_INDEPENDENT_REVIEW=true|false`, and "
+        "`TASK_SKIP_STAGE_TRANSITION=true|false`. A skipped transition requires "
+        "bounded scope, independent review, and a non-stage-closing task. "
+        "`TASK_CONTEXT_REFS` may name existing project-relative files.\n"
         "- If the project is intentionally blocked on a live external condition, "
         "use `WAITING=true` with a durable blocker fingerprint, recheck condition, "
         "and recheck token instead of emitting tasks.\n"
@@ -576,6 +646,47 @@ def parse_planner_text(text: str) -> PlannerVerdict:
         objective = row.get("TASK_OBJECTIVE", "").strip()
         if not title or not objective:
             continue
+        try:
+            context_refs = parse_task_context_refs(
+                row.get("TASK_CONTEXT_REFS", "")
+            )
+            stage_closing = _parse_optional_task_boolean(
+                row.get("TASK_STAGE_CLOSING", ""),
+                "TASK_STAGE_CLOSING",
+            )
+            require_independent_review = _parse_optional_task_boolean(
+                row.get("TASK_REQUIRE_INDEPENDENT_REVIEW", ""),
+                "TASK_REQUIRE_INDEPENDENT_REVIEW",
+            )
+            skip_stage_transition = _parse_optional_task_boolean(
+                row.get("TASK_SKIP_STAGE_TRANSITION", ""),
+                "TASK_SKIP_STAGE_TRANSITION",
+            )
+            scope = row.get("TASK_SCOPE", "").strip() or TASK_SCOPE_BOUNDED
+            normalized_scope = scope.casefold().replace("-", "_")
+            if normalized_scope not in {
+                TASK_SCOPE_BOUNDED,
+                TASK_SCOPE_FINAL_SUBMISSION,
+            }:
+                raise ValueError("TASK_SCOPE must be bounded or final_submission")
+            if skip_stage_transition and (
+                stage_closing
+                or not require_independent_review
+                or normalized_scope != TASK_SCOPE_BOUNDED
+            ):
+                raise ValueError(
+                    "TASK_SKIP_STAGE_TRANSITION=true requires "
+                    "TASK_REQUIRE_INDEPENDENT_REVIEW=true and "
+                    "TASK_STAGE_CLOSING=false with TASK_SCOPE=bounded"
+                )
+        except ValueError as exc:
+            return PlannerVerdict(
+                project_done=False,
+                reason="planner task metadata is invalid",
+                new_tasks=[],
+                raw_text=text,
+                error=f"invalid planner task metadata: {exc}",
+            )
         new_tasks.append(
             TaskSpec(
                 title=title,
@@ -592,15 +703,37 @@ def parse_planner_text(text: str) -> PlannerVerdict:
                     for item in row.get("TASK_NON_GOALS", "").split("|")
                     if item.strip()
                 ],
-                scope=row.get("TASK_SCOPE", "").strip() or TASK_SCOPE_BOUNDED,
-                stage_closing=_key_value_bool(row.get("TASK_STAGE_CLOSING", "")),
+                context_refs=context_refs,
+                scope=scope,
+                stage_closing=stage_closing,
                 key=row.get("TASK_KEY", "").strip(),
                 deps=[item.strip() for item in row.get("TASK_DEPS", "").split(",") if item.strip()],
                 authorization_id=row.get("TASK_AUTHORIZATION_ID", "").strip(),
                 authorization_action=row.get("TASK_AUTHORIZATION_ACTION", "").strip(),
+                require_independent_review=require_independent_review,
+                skip_stage_transition=skip_stage_transition,
             )
         )
 
+    try:
+        _validate_task_graph(new_tasks)
+    except ValueError as exc:
+        return PlannerVerdict(
+            project_done=False,
+            reason="planner task graph is invalid",
+            new_tasks=[],
+            raw_text=text,
+            error=f"invalid planner task graph: {exc}",
+        )
+
+    if waiting and (project_done or new_tasks):
+        return PlannerVerdict(
+            project_done=False,
+            reason="planner waiting marker conflicts with completion or task blocks",
+            new_tasks=[],
+            raw_text=text,
+            error="planner waiting marker conflicts with completion or task blocks",
+        )
     if project_done and new_tasks:
         return PlannerVerdict(
             project_done=False,

@@ -1652,12 +1652,17 @@ def _cmd_status(args: argparse.Namespace) -> int:
             "memory (test)" if status.backend == "memory" else "live — see /roles"
         )
         print(f"  daemon   : alive (pid {status.pid}, up {uptime}, backend {backend_label})")
-        health_detail = (
-            f", no progress for {_format_short_duration(status.seconds_since_progress or 0.0)}"
-            if status.stalled
-            else ""
-        )
-        print(f"  health   : {status.health_state}{health_detail}")
+        health_state = getattr(status, "health_state", None)
+        if health_state is not None:
+            health_detail = (
+                ", no progress for "
+                + _format_short_duration(
+                    getattr(status, "seconds_since_progress", 0.0) or 0.0
+                )
+                if bool(getattr(status, "stalled", False))
+                else ""
+            )
+            print(f"  health   : {health_state}{health_detail}")
     else:
         print("  daemon   : not running   (start with `argus-skill --daemon`)")
     print(f"  {format_budget_status(bundle.journal, status=status)}")

@@ -50,7 +50,9 @@ create or refine those knowledge pages under its own evidence rules.
 - If `PROJECT_DONE=false`, do not leave an empty plan. Either report an
   intentional live wait with `WAITING=true` and a durable recheck contract, or
   emit concrete `TASK_*` blocks (`TASK_KEY`, `TASK_TITLE`, `TASK_OBJECTIVE`, and
-  when known `TASK_ACCEPTANCE_CHECK`) for legal next work. When a task targets
+  when known `TASK_ACCEPTANCE_CHECK`) for legal next work. Use
+  `TASK_CONTEXT_REFS`: files. `TASK_SKIP_STAGE_TRANSITION=true`:
+  bounded + reviewed + `TASK_STAGE_CLOSING=false`. When a task targets
   a known blocking condition, include a stable `TASK_BLOCKER_FINGERPRINT` and
   reuse it unchanged across reworded retries; leave it blank for ordinary work.
   When revisiting a failed non-resumable backlog item, use `item:<item_id>` so
@@ -121,6 +123,10 @@ def build_bounded_dag_prompt(objective: str) -> str:
         "- Every objective must name exact files it reads/writes and one decisive "
         "acceptance command or check. A dependent node explicitly reads upstream "
         "artifacts.\n"
+        "- Preserve bounded completion metadata separately from prose: one decisive "
+        "acceptance check, explicit non-goals, safe project-relative context "
+        "references, and whether independent review is required. Do not mark "
+        "ordinary work as stage-closing.\n"
         "- Nodes execute directly. Do not assign planning/spec/brief creation unless "
         "that document is itself the requested deliverable. Do not initialize Git, "
         "create worktrees/branches, commit, spawn subagents, or invoke meta-workflow "
@@ -132,7 +138,16 @@ def build_bounded_dag_prompt(objective: str) -> str:
         "- Return plain key-value text, not JSON. Start with `PLAN_REASON=...`, "
         "then emit one task block per node using `TASK_KEY=...`, "
         "`TASK_DEPS=comma,separated,keys` (empty when none), `TASK_TITLE=...`, "
-        "and `TASK_OBJECTIVE=...`.\n\n"
+        "`TASK_OBJECTIVE=...`, `TASK_ACCEPTANCE_CHECK=...`, "
+        "`TASK_NON_GOALS=item|item`, "
+        "`TASK_CONTEXT_REFS=kind::project/relative/path::why|...`, "
+        "`TASK_SCOPE=bounded`, `TASK_STAGE_CLOSING=true|false`, "
+        "`TASK_REQUIRE_INDEPENDENT_REVIEW=true|false`, and "
+        "`TASK_SKIP_STAGE_TRANSITION=true|false`. All four control fields are "
+        "mandatory for every task. For review-only bounded work whose verdict "
+        "must not invoke the formal lifecycle stage writer, set "
+        "require-independent-review true, skip-stage-transition true, and "
+        "stage-closing false. Never suppress a stage-closing task.\n\n"
         "Manager execution handoff:\n" + objective.strip()
     )
 

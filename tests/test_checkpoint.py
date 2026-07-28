@@ -33,6 +33,11 @@ def test_engineer_and_reviewer_receive_direct_edit_instructions(tmp_path: Path) 
     reviewer = shared_checkpoint_instructions(path, role="reviewer")
 
     assert str(path.resolve()) in engineer
+    assert "If its `kind` is `mission_context`" in engineer
+    assert "If its `kind` is `handoff_ref`" in engineer
+    assert "no role handoff exists yet" in engineer
+    assert "open `handoff.path`" in reviewer
+    assert "`mission.path`" in reviewer
     assert "previous Reviewer edited it last" in engineer
     assert "Engineer already edited it this round" in reviewer
     assert "the final editor" in reviewer

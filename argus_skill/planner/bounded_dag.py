@@ -9,13 +9,7 @@ from typing import Any
 
 from ..core.models import RunnerOptions
 from ..core.run_gateway import run_exec as gateway_run_exec
-from .planner import (
-    TASK_SCOPE_BOUNDED,
-    parse_task_context_refs,
-    parse_task_require_independent_review,
-    parse_task_skip_stage_transition,
-    parse_task_stage_closing,
-)
+from .planner import TASK_SCOPE_BOUNDED
 
 
 @dataclass(frozen=True)
@@ -68,6 +62,38 @@ _PLAN_LINE = re.compile(
 )
 
 
+def _parse_task_context_refs(raw: str) -> list[dict[str, str]]:
+    """Parse ``kind::ref::why`` entries separated by ``|``."""
+    refs: list[dict[str, str]] = []
+    for entry in str(raw or "").split("|"):
+        if not entry.strip():
+            continue
+        parts = [part.strip() for part in entry.split("::", 2)]
+        if len(parts) < 2 or not parts[0] or not parts[1]:
+            raise ValueError(
+                "TASK_CONTEXT_REFS entries must use "
+                "kind::project/relative/path::why"
+            )
+        refs.append(
+            {
+                "kind": parts[0],
+                "ref": parts[1],
+                "why": parts[2] if len(parts) > 2 else "",
+                "content_hash": "",
+            }
+        )
+    return refs
+
+
+def _parse_task_boolean(raw: str, field: str) -> bool:
+    normalized = str(raw or "").strip().casefold()
+    if normalized in {"true", "yes", "1"}:
+        return True
+    if normalized in {"false", "no", "0"}:
+        return False
+    raise ValueError(f"{field} must be explicitly true or false")
+
+
 def _parse_key_value_plan(text: str) -> dict[str, Any]:
     reason = ""
     tasks: list[dict[str, Any]] = []
@@ -103,15 +129,19 @@ def _parse_key_value_plan(text: str) -> dict[str, Any]:
                 item.strip() for item in value.split("|") if item.strip()
             ]
         elif key == "TASK_CONTEXT_REFS":
-            current["context_refs"] = parse_task_context_refs(value)
+            current["context_refs"] = _parse_task_context_refs(value)
         elif key == "TASK_STAGE_CLOSING":
-            current["stage_closing"] = parse_task_stage_closing(value)
+            current["stage_closing"] = _parse_task_boolean(
+                value, "TASK_STAGE_CLOSING"
+            )
         elif key == "TASK_REQUIRE_INDEPENDENT_REVIEW":
-            current["require_independent_review"] = (
-                parse_task_require_independent_review(value)
+            current["require_independent_review"] = _parse_task_boolean(
+                value, "TASK_REQUIRE_INDEPENDENT_REVIEW"
             )
         elif key == "TASK_SKIP_STAGE_TRANSITION":
-            current["skip_stage_transition"] = parse_task_skip_stage_transition(value)
+            current["skip_stage_transition"] = _parse_task_boolean(
+                value, "TASK_SKIP_STAGE_TRANSITION"
+            )
         else:
             current[field_map[key]] = value
     if current is not None:

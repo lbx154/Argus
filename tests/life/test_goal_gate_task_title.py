@@ -143,6 +143,18 @@ def test_planner_enqueued_goal_gate_keeps_the_standing_objective(tmp_path: Path)
         def _item_iteration_cycles(self) -> int:
             return 1
 
+        def _project_workdir(self) -> Path:
+            return tmp_path
+
+        def _artifact_root(self) -> Path:
+            return tmp_path
+
+        def _effective_full_paper_gate(self, _root: Path) -> bool:
+            return False
+
+        def _normalize_planner_scope(self, scope: str) -> str:
+            return str(scope or "bounded").strip().lower().replace("-", "_")
+
     state = _PlanCycleState(None)
     state.verdict = PlannerVerdict(
         project_done=False,

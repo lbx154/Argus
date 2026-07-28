@@ -142,8 +142,9 @@ def test_public_results_contains_the_current_task_native_values(monkeypatch) -> 
         assert expected in text
 
 
-def test_public_results_reproducible_digests() -> None:
+def test_public_results_reproducible_digests(tmp_path: Path) -> None:
     builder = _load_figure_builder()
+    builder.HERE = tmp_path
     first = builder.build_public_results()
     second = builder.build_public_results()
 
@@ -151,8 +152,9 @@ def test_public_results_reproducible_digests() -> None:
     assert first["pdf_sha256"] == second["pdf_sha256"]
 
 
-def test_paper_portfolio_reproducible_digests() -> None:
+def test_paper_portfolio_reproducible_digests(tmp_path: Path) -> None:
     builder = _load_figure_builder()
+    builder.HERE = tmp_path
     first = builder.build_paper_portfolio()
     second = builder.build_paper_portfolio()
 

@@ -73,7 +73,7 @@ def test_pre_settlement_guard_blocks_success_learning(tmp_path: Path) -> None:
         config=SkillLoopConfig(
             max_rounds=1,
             skill_adapter_enabled=False,
-            wiki_ops_enabled=False,
+            wiki_enabled=False,
         ),
     )
 
