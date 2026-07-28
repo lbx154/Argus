@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from campaign_policy import choose_competitions
+
 HERE = Path(__file__).resolve().parent
 
 
@@ -301,18 +303,17 @@ def main() -> int:
                 retry_after[active.competition] = now + max(5.0, args.retry_seconds)
 
         running_competitions = {active.competition for active in running.values()}
-        candidates = [
-            comp
-            for comp in competitions
-            if comp not in completed
-            and comp not in running_competitions
-            and retry_after.get(comp, 0) <= now
-            and prepared(comp)
-        ]
-        for slot in range(workers):
-            if slot in running or not candidates:
-                continue
-            competition = candidates.pop(0)
+        free_slots = [slot for slot in range(workers) if slot not in running]
+        candidates = choose_competitions(
+            competitions=competitions,
+            completed=completed,
+            running=running_competitions,
+            retry_after=retry_after,
+            now=now,
+            free_slots=len(free_slots),
+            is_prepared=prepared,
+        )
+        for slot, competition in zip(free_slots, candidates):
             running[slot] = start_run(slot, competition)
 
         running_competitions = {active.competition for active in running.values()}
