@@ -57,7 +57,18 @@ def _source_files(root: Path) -> Iterable[Path]:
             ):
                 continue
             relative = path.resolve().relative_to(root.resolve()).as_posix()
-            if tracked is not None and relative not in tracked:
+            if (
+                tracked is not None
+                and relative not in tracked
+                and relative.startswith("argus_skill/builtin_skills/")
+            ):
+                # Builtin-skill evolution may materialize runtime-only files in
+                # an editable checkout. Those are deliberately outside the
+                # shipped release identity. Other untracked source files are
+                # release candidates (for example a newly added Python module
+                # before its first commit) and must participate now; excluding
+                # them makes build_release produce a digest that changes as soon
+                # as the exact same files are committed.
                 continue
             resolved = path.resolve()
             if resolved in seen:

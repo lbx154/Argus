@@ -80,6 +80,17 @@ def test_untracked_runtime_skill_does_not_change_release_identity() -> None:
         generated.unlink(missing_ok=True)
 
 
+def test_untracked_new_source_participates_before_first_commit() -> None:
+    root = Path(__file__).parents[2]
+    source = root / "argus_skill" / "_release_test_untracked_source.py"
+    before = compute_source_digest(root)
+    try:
+        source.write_text("VALUE = 1\n", encoding="utf-8")
+        assert compute_source_digest(root) != before
+    finally:
+        source.unlink(missing_ok=True)
+
+
 def test_strict_release_preflight_rejects_manifest_source_mismatch(
     monkeypatch,
 ) -> None:
