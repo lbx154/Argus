@@ -387,6 +387,48 @@ def external_completion_gate_rework_decision(
     )
 
 
+def external_completion_gate_stage_guard_decision(
+    review: Any,
+    proposed: StageDecision,
+    *,
+    current_stage: str,
+    stage_order: Sequence[str],
+    project_root: Any,
+) -> StageDecision:
+    """Keep work at/below the configured rework stage until the gate passes."""
+    status = str(getattr(review, "status", "") or "").strip().lower()
+    cur = (current_stage or "").strip().lower()
+    order = [str(stage).strip().lower() for stage in stage_order]
+    if status != "done" or cur not in order:
+        return proposed
+    from ..core.external_completion_gate import (
+        external_completion_gate_issue,
+        external_completion_rework_stage,
+    )
+
+    issue = external_completion_gate_issue(project_root)
+    target = external_completion_rework_stage()
+    if not issue or target not in order:
+        return proposed
+    cur_idx = order.index(cur)
+    target_idx = order.index(target)
+    if cur_idx > target_idx:
+        return StageDecision(
+            "rollback",
+            target,
+            f"{issue}; reopen {target} for additional work",
+            "external_completion_gate_rework",
+        )
+    if cur_idx == target_idx and proposed.action in {"advance", "complete"}:
+        return StageDecision(
+            "hold",
+            cur,
+            f"{issue}; remain in {target} until the external outcome passes",
+            "external_completion_gate_stage_ceiling",
+        )
+    return proposed
+
+
 def _mission_scope_can_complete(mission_scope: str, vertical: str) -> bool:
     """Whether a mission with this scope is allowed to close the project.
 
@@ -429,6 +471,7 @@ __all__ = [
     "extract_answer",
     "fallback_empty_stage_decision",
     "external_completion_gate_rework_decision",
+    "external_completion_gate_stage_guard_decision",
     "final_stage_completion_decision",
     "build_stage_decision_prompt",
     "parse_stage_decision",
