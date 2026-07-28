@@ -14,12 +14,8 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Literal
 
 from ..core.event_catalog import EventType
+from ..core.file_lock import exclusive_file_lock
 from ..core.metrics import metrics_root_for_project, record_metric
-
-try:  # pragma: no cover - production daemons are POSIX
-    import fcntl
-except ImportError:  # pragma: no cover
-    fcntl = None
 
 COMMAND_LOG_FILE = "daemon.commands.jsonl"
 COMMAND_STATE_FILE = "daemon.command-state.json"
@@ -34,6 +30,7 @@ CommandStatus = Literal["accepted", "running", "applied", "failed", "rejected"]
 _THREAD_LOCKS: dict[str, threading.Lock] = {}
 _THREAD_LOCKS_GUARD = threading.Lock()
 _MAX_COMMAND_HISTORY = 1_000
+_COMMAND_LOCK_TIMEOUT_SECONDS = 30.0
 
 
 class DaemonCommandStateError(RuntimeError):
@@ -83,19 +80,22 @@ def _locked(root: Path) -> Iterator[None]:
     key = str(path.resolve())
     with _THREAD_LOCKS_GUARD:
         lock = _THREAD_LOCKS.setdefault(key, threading.Lock())
-    with lock:
+    if not lock.acquire(timeout=_COMMAND_LOCK_TIMEOUT_SECONDS):
+        raise TimeoutError("timed out acquiring daemon command state thread lock")
+    fd: int | None = None
+    try:
         fd = os.open(str(path), os.O_CREAT | os.O_RDWR, 0o600)
-        try:
-            if fcntl is not None:
-                fcntl.flock(fd, fcntl.LOCK_EX)
-            yield
-        finally:
-            if fcntl is not None:
-                try:
-                    fcntl.flock(fd, fcntl.LOCK_UN)
-                except OSError:
-                    pass
+        with os.fdopen(fd, "a+", encoding="utf-8", closefd=False) as handle:
+            with exclusive_file_lock(
+                handle,
+                timeout_seconds=_COMMAND_LOCK_TIMEOUT_SECONDS,
+                lock_name=f"daemon command state lock {path}",
+            ):
+                yield
+    finally:
+        if fd is not None:
             os.close(fd)
+        lock.release()
 
 
 @contextmanager
@@ -104,26 +104,36 @@ def _execution_lock(root: Path, *, blocking: bool) -> Iterator[bool]:
     key = str(path.resolve())
     with _THREAD_LOCKS_GUARD:
         lock = _THREAD_LOCKS.setdefault(key, threading.Lock())
-    if not lock.acquire(blocking=blocking):
+    acquired_thread = lock.acquire(
+        blocking=blocking,
+        timeout=_COMMAND_LOCK_TIMEOUT_SECONDS if blocking else -1,
+    ) if blocking else lock.acquire(blocking=False)
+    if not acquired_thread:
         yield False
         return
-    fd = os.open(str(path), os.O_CREAT | os.O_RDWR, 0o600)
-    acquired = True
+    fd: int | None = None
     try:
-        if fcntl is not None:
+        fd = os.open(str(path), os.O_CREAT | os.O_RDWR, 0o600)
+        with os.fdopen(fd, "a+", encoding="utf-8", closefd=False) as handle:
+            file_lock = exclusive_file_lock(
+                handle,
+                timeout_seconds=(
+                    _COMMAND_LOCK_TIMEOUT_SECONDS if blocking else 0.0
+                ),
+                lock_name=f"daemon command execution lock {path}",
+            )
             try:
-                flags = fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB)
-                fcntl.flock(fd, flags)
-            except BlockingIOError:
-                acquired = False
-        yield acquired
+                file_lock.__enter__()
+            except TimeoutError:
+                yield False
+                return
+            try:
+                yield True
+            finally:
+                file_lock.__exit__(None, None, None)
     finally:
-        if acquired and fcntl is not None:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_UN)
-            except OSError:
-                pass
-        os.close(fd)
+        if fd is not None:
+            os.close(fd)
         lock.release()
 
 

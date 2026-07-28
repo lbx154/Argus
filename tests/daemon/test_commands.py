@@ -11,6 +11,7 @@ from argus_skill.daemon.commands import (
     COMMAND_STATE_FILE,
     DaemonCommandStateError,
     claim_daemon_command,
+    daemon_command_execution_lock,
     daemon_command_snapshot,
     execute_daemon_command,
     submit_daemon_command,
@@ -157,6 +158,58 @@ def test_different_lifecycle_commands_execute_serially(tmp_path: Path) -> None:
 
     assert second_entered.is_set()
     assert [receipt.status for receipt in receipts] == ["applied", "applied"]
+
+
+def test_blocking_execution_lock_has_bounded_wait(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "argus_skill.daemon.commands._COMMAND_LOCK_TIMEOUT_SECONDS",
+        0.02,
+    )
+    entered = threading.Event()
+    release = threading.Event()
+
+    def hold_lock() -> None:
+        with daemon_command_execution_lock(tmp_path) as acquired:
+            assert acquired
+            entered.set()
+            release.wait(timeout=2)
+
+    owner = threading.Thread(target=hold_lock)
+    owner.start()
+    assert entered.wait(timeout=1)
+    with daemon_command_execution_lock(tmp_path) as acquired:
+        assert acquired is False
+    release.set()
+    owner.join(timeout=1)
+
+
+def test_execution_lock_does_not_swallow_caller_timeout(tmp_path: Path) -> None:
+    with pytest.raises(TimeoutError, match="caller timed out"):
+        with daemon_command_execution_lock(tmp_path) as acquired:
+            assert acquired
+            raise TimeoutError("caller timed out")
+
+
+def test_execution_lock_releases_thread_lock_when_lock_file_open_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            "argus_skill.daemon.commands.os.open",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                PermissionError("denied")
+            ),
+        )
+        with pytest.raises(PermissionError, match="denied"):
+            with daemon_command_execution_lock(tmp_path):
+                pytest.fail("lock body must not run")
+
+    with daemon_command_execution_lock(tmp_path, blocking=False) as acquired:
+        assert acquired
 
 
 def test_handler_failure_is_persisted_and_replayed(tmp_path: Path) -> None:

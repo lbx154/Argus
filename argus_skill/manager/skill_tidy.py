@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from ..core.event_catalog import EventType
+from ..core.file_lock import exclusive_file_lock
 
 log = logging.getLogger(__name__)
 
@@ -33,15 +34,6 @@ _ZERO_SHARED = {
 _PATH_LOCKS: dict[str, threading.Lock] = {}
 _PATH_LOCKS_GUARD = threading.Lock()
 
-fcntl: Any
-try:  # pragma: no cover - production promotion runs on POSIX
-    import fcntl as _fcntl
-except ImportError:  # pragma: no cover
-    fcntl = None
-else:  # pragma: no cover
-    fcntl = _fcntl
-
-
 @contextmanager
 def _path_write_lock(root: Path, label: str) -> Iterator[None]:
     """Serialize Skill writes for one shared root across processes."""
@@ -52,19 +44,21 @@ def _path_write_lock(root: Path, label: str) -> Iterator[None]:
     lock_path = (
         Path(tempfile.gettempdir()) / f"argus-skill-{label}-{digest}.lock"
     )
-    with thread_lock:
+    if not thread_lock.acquire(timeout=30.0):
+        raise TimeoutError(f"timed out acquiring {label} Skill thread lock")
+    try:
         fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
         try:
-            if fcntl is not None:
-                fcntl.flock(fd, fcntl.LOCK_EX)
-            yield
+            with os.fdopen(fd, "a+", encoding="utf-8", closefd=False) as handle:
+                with exclusive_file_lock(
+                    handle,
+                    lock_name=f"{label} Skill lock {lock_path}",
+                ):
+                    yield
         finally:
-            if fcntl is not None:
-                try:
-                    fcntl.flock(fd, fcntl.LOCK_UN)
-                except OSError:
-                    pass
             os.close(fd)
+    finally:
+        thread_lock.release()
 
 
 def _shared_write_lock(shared_root: Path) -> Iterator[None]:

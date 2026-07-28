@@ -136,10 +136,193 @@ def test_terminal_unrecoverable_gate_is_indexed_as_duplicate(tmp_path) -> None:
     )
 
     assert state.seen_signatures[signature].id == blocked.id
+    assert state.terminal_blocker_fingerprints[f"item:{blocked.id}"].id == blocked.id
     assert not harness._gate_reproposal_is_not_a_duplicate(
         SimpleNamespace(stage_closing=True),
         blocked,
     )
+
+
+def test_reworded_terminal_blocker_is_filtered_by_stable_fingerprint(
+    tmp_path,
+) -> None:
+    from argus_skill.life.supervisor._planning_cycle_enqueue import (
+        PlanningCycleEnqueueMixin,
+    )
+    from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
+    from argus_skill.planner import PlannerVerdict, TaskSpec
+
+    blocked = _gate_item("failed", review_required=False)
+    blocked.outcome = {
+        "execution_status": "blocked",
+        "review_status": "blocked",
+        "resumable": False,
+    }
+
+    class Harness(PlanningCycleEnqueueMixin):
+        def __init__(self) -> None:
+            backlog = Backlog(tmp_path / "backlog.jsonl")
+            backlog.add(blocked)
+            self.memory = SimpleNamespace(backlog=backlog)
+            self.config = SimpleNamespace(continuous_objective="finish project")
+            self._planning_cycles = 1
+            self.events: list[dict] = []
+
+        def _emit(self, event: dict) -> bool:
+            self.events.append(event)
+            return True
+
+        def _emit_status(self, _text: str) -> None:
+            return None
+
+        def _project_workdir(self):
+            return tmp_path
+
+        def _normalize_planner_scope(self, value: str) -> str:
+            return value or "bounded"
+
+        def _planner_scope_from_item(self, _item) -> str:
+            return "bounded"
+
+        def _item_is_stage_closing(self, item) -> bool:
+            return "stage_closing" in item.tags
+
+        def _item_requires_independent_review(self, item) -> bool:
+            return "review:required" in item.tags
+
+        def _item_skips_stage_transition(self, _item) -> bool:
+            return False
+
+        def _recent_no_progress_failures(self) -> dict:
+            return {}
+
+        def _task_mentions_family(self, _task, _family: str) -> bool:
+            return False
+
+        def _validated_task_authorization(self, _task) -> tuple[str, str]:
+            return "", ""
+
+        def _planner_task_tags(self, _task) -> list[str]:
+            return ["planner", "scope:bounded", "stage_closing", "review:required"]
+
+        def _item_iteration_cycles(self) -> int:
+            return 1
+
+    state = _PlanCycleState(None)
+    state.verdict = PlannerVerdict(
+        project_done=False,
+        reason="try the same impossible boundary again",
+        new_tasks=[
+            TaskSpec(
+                title="A completely different title",
+                objective="Rephrased instructions that still target the same boundary.",
+                evidence="Reworded evidence.",
+                blocker_fingerprint=f"  ITEM:{blocked.id.upper()}  ",
+                stage_closing=True,
+            )
+        ],
+    )
+    harness = Harness()
+
+    harness._pc_build_dedupe_index(state)
+    harness._pc_build_pending_items(state)
+
+    assert state.pending_items == []
+    assert harness.events[-1]["matched_item_id"] == blocked.id
+    assert harness.events[-1]["reason"] == "duplicate terminal blocker"
+
+
+def test_terminal_fingerprint_takes_priority_over_completed_signature(
+    tmp_path,
+) -> None:
+    from argus_skill.life.supervisor._planning_cycle_enqueue import (
+        PlanningCycleEnqueueMixin,
+    )
+    from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
+    from argus_skill.planner import PlannerVerdict, TaskSpec
+
+    blocked = _gate_item("failed", review_required=False)
+    blocked.outcome = {
+        "execution_status": "blocked",
+        "review_status": "blocked",
+        "resumable": False,
+    }
+    completed = _gate_item("done")
+    completed.id = "completed-copy"
+    completed.title = "Reused title"
+    completed.objective = "Reused objective"
+
+    class Harness(PlanningCycleEnqueueMixin):
+        def __init__(self) -> None:
+            backlog = Backlog(tmp_path / "backlog.jsonl")
+            backlog.add(blocked)
+            backlog.add(completed)
+            self.memory = SimpleNamespace(backlog=backlog)
+            self.config = SimpleNamespace(continuous_objective="finish project")
+            self._planning_cycles = 1
+            self.events: list[dict] = []
+
+        def _emit(self, event: dict) -> bool:
+            self.events.append(event)
+            return True
+
+        def _emit_status(self, _text: str) -> None:
+            return None
+
+        def _project_workdir(self):
+            return tmp_path
+
+        def _normalize_planner_scope(self, value: str) -> str:
+            return value or "bounded"
+
+        def _planner_scope_from_item(self, _item) -> str:
+            return "bounded"
+
+        def _item_is_stage_closing(self, item) -> bool:
+            return "stage_closing" in item.tags
+
+        def _item_requires_independent_review(self, item) -> bool:
+            return "review:required" in item.tags
+
+        def _item_skips_stage_transition(self, _item) -> bool:
+            return False
+
+        def _recent_no_progress_failures(self) -> dict:
+            return {}
+
+        def _task_mentions_family(self, _task, _family: str) -> bool:
+            return False
+
+        def _validated_task_authorization(self, _task) -> tuple[str, str]:
+            return "", ""
+
+        def _planner_task_tags(self, _task) -> list[str]:
+            return ["planner", "scope:bounded", "stage_closing", "review:required"]
+
+        def _item_iteration_cycles(self) -> int:
+            return 1
+
+    state = _PlanCycleState(None)
+    state.verdict = PlannerVerdict(
+        project_done=False,
+        reason="retry blocked work under completed prose",
+        new_tasks=[
+            TaskSpec(
+                title=completed.title,
+                objective=completed.objective,
+                blocker_fingerprint=f"item:{blocked.id}",
+                stage_closing=True,
+            )
+        ],
+    )
+    harness = Harness()
+
+    harness._pc_build_dedupe_index(state)
+    harness._pc_build_pending_items(state)
+
+    assert state.pending_items == []
+    assert harness.events[-1]["matched_item_id"] == blocked.id
+    assert harness.events[-1]["reason"] == "duplicate terminal blocker"
 
 
 @pytest.mark.parametrize("status", ["done", "pending", "running"])
