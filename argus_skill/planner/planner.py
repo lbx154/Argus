@@ -8,8 +8,10 @@ project directory read-only, chooses the next work, and ends with a small
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from ..core.models import RunnerOptions
@@ -74,6 +76,8 @@ class TaskSpec:
     deps: list[str] = field(default_factory=list)
     authorization_id: str = ""
     authorization_action: str = ""
+    require_independent_review: bool = False
+    skip_stage_transition: bool = False
 
 
 @dataclass(frozen=True)
@@ -406,6 +410,37 @@ def _key_value_float(raw: str, default: float = 0.0) -> float:
         return float(str(raw or "").strip())
     except ValueError:
         return default
+
+
+def hydrate_task_context_refs(
+    context_refs: list[dict[str, str]],
+    project_root: Path | str,
+) -> list[dict[str, str]]:
+    """Validate project-local refs and attach hashes for existing files."""
+    root = Path(project_root).expanduser().resolve()
+    hydrated: list[dict[str, str]] = []
+    for raw_ref in context_refs:
+        if not isinstance(raw_ref, dict):
+            raise ValueError("Planner context refs must be objects")
+        ref = {str(key): str(value) for key, value in raw_ref.items()}
+        target = str(ref.get("ref") or "").strip()
+        if not target or Path(target).is_absolute():
+            raise ValueError("Planner context refs must be project-relative file paths")
+        resolved = (root / target).resolve()
+        if root not in resolved.parents:
+            raise ValueError(f"Planner context ref escapes the project root: {target}")
+        if not resolved.is_file():
+            continue
+        digest = hashlib.sha256()
+        try:
+            with resolved.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+        except OSError as exc:
+            raise ValueError(f"Planner context ref cannot be read: {target}") from exc
+        ref["content_hash"] = f"sha256:{digest.hexdigest()}"
+        hydrated.append(ref)
+    return hydrated
 
 
 def _parse_completion_bool(values: dict[str, str]) -> bool | None:
