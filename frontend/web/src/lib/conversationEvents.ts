@@ -1,5 +1,6 @@
 import type { EventMsg } from '../api';
 import { mergeFragment } from './eventRender';
+import type { FragmentMode } from '../../../core/src/events';
 
 interface TranscriptTurn {
   ts: number;
@@ -34,6 +35,7 @@ export function mergeOptimisticManagerDelta(
   fragment: string,
   messageId: string,
   nowMs = Date.now(),
+  mode: FragmentMode = 'auto',
 ): EventMsg[] {
   const text = fragment.trim();
   if (!text) return localEvents;
@@ -69,6 +71,7 @@ export function mergeOptimisticManagerDelta(
         ts: nowMs / 1_000,
         event_id: `local-${sid}-${requestId}-argus`,
         message_id: messageId || `local-${requestId}-argus`,
+        fragment_mode: mode,
         response_latency_ms: responseLatencyMs,
         [LOCAL_REQUEST_FIELD]: requestId,
       },
@@ -78,8 +81,9 @@ export function mergeOptimisticManagerDelta(
   const next = [...withConfirmedOperator];
   next[index] = {
     ...current,
-    text: mergeFragment(String(current.text ?? ''), text),
+    text: mergeFragment(String(current.text ?? ''), text, mode),
     message_id: messageId || current.message_id,
+    fragment_mode: mode,
   };
   return next;
 }

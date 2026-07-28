@@ -53,6 +53,28 @@ test('mergeFragment grows a multi-block Manager reply (nothing dropped)', () => 
   assert.equal(mergeFragment('full reply here', 'reply'), 'full reply here');
 });
 
+test('mergeFragment honors snapshot and append protocol modes', () => {
+  assert.equal(
+    mergeFragment('old paragraph', 'corrected answer', 'snapshot'),
+    'corrected answer',
+  );
+  assert.equal(
+    mergeFragment('final answer with stale tail', 'final answer', 'snapshot'),
+    'final answer',
+  );
+  assert.equal(
+    mergeFragment('same heading', 'same heading with details', 'append'),
+    'same heading\nsame heading with details',
+  );
+  assert.equal(
+    mergeFragment(
+      'first paragraph\nrepeated transition',
+      'repeated transition\nfinal paragraph',
+    ),
+    'first paragraph\nrepeated transition\nfinal paragraph',
+  );
+});
+
 test('a Manager message_id stays live only for the active request', () => {
   const lines = buildEventLines([
     { type: 'ui.argus', text: 'partial', message_id: 'reply-1' },
@@ -66,6 +88,38 @@ test('a Manager message_id stays live only for the active request', () => {
   const settled = partitionEventLines(lines);
   assert.equal(settled.live, null);
   assert.equal(settled.committed[0]?.r.text, 'partial answer');
+});
+
+test('event lines replace authoritative snapshots and append explicit blocks', () => {
+  const snapshot = buildEventLines([
+    {
+      type: 'ui.argus',
+      text: 'final answer with stale repeated tail',
+      message_id: 'reply-1',
+    },
+    {
+      type: 'ui.argus',
+      text: 'final answer',
+      message_id: 'reply-1',
+      fragment_mode: 'snapshot',
+    },
+  ] as never);
+  assert.equal(snapshot[0].r.text, 'final answer');
+
+  const blocks = buildEventLines([
+    {
+      type: 'ui.argus',
+      text: 'same heading',
+      message_id: 'reply-2',
+    },
+    {
+      type: 'ui.argus',
+      text: 'same heading with details',
+      message_id: 'reply-2',
+      fragment_mode: 'append',
+    },
+  ] as never);
+  assert.equal(blocks[0].r.text, 'same heading\nsame heading with details');
 });
 
 test('recovered final delivery hides the superseded truncated row', () => {

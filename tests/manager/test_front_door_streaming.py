@@ -106,7 +106,11 @@ def test_manager_triage_streams_all_reply_progress_kinds(reply_kind: str) -> Non
     assert fragments == [
         (
             "delta",
-            {"text": "streamed Manager reply", "message_id": "reply-1"},
+            {
+                "text": "streamed Manager reply",
+                "message_id": "reply-1",
+                "fragment_mode": "snapshot",
+            },
         )
     ]
 
@@ -142,7 +146,11 @@ def test_manager_triage_streams_only_the_authoritative_final_answer() -> None:
     assert reply == "The final answer is concise."
     assert fragments == [(
         "delta",
-        {"text": reply, "message_id": "reply-final"},
+        {
+            "text": reply,
+            "message_id": "reply-final",
+            "fragment_mode": "snapshot",
+        },
     )]
 
 

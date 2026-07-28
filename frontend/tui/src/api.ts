@@ -428,7 +428,7 @@ export class ApiClient {
     text: string,
     handlers: {
       onPhase?: (label: string, role: string, meta: ManagerPhaseMeta) => void;
-      onDelta?: (block: string, messageId: string) => void;
+      onDelta?: (block: string, messageId: string, fragmentMode: string) => void;
       onDone?: (result: StreamDone) => void;
       onError?: (err: Error) => void;
     },
@@ -457,7 +457,13 @@ export class ApiClient {
           },
         );
       }
-      else if (frame.type === 'delta') handlers.onDelta?.(String(frame.text ?? ''), String(frame.message_id ?? ''));
+      else if (frame.type === 'delta') {
+        handlers.onDelta?.(
+          String(frame.text ?? ''),
+          String(frame.message_id ?? ''),
+          String(frame.fragment_mode ?? 'auto'),
+        );
+      }
       else if (frame.type === 'done') handlers.onDone?.((frame.result ?? {}) as StreamDone);
       else if (frame.type === 'error') handlers.onError?.(new Error(String(frame.error ?? 'stream error')));
     };

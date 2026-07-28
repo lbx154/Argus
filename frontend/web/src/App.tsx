@@ -386,7 +386,11 @@ export default function App() {
       optimisticOperatorEvent(requestSid, requestId, text),
     ]);
 
-    const showManagerText = (reply: unknown, messageId = '') => {
+    const showManagerText = (
+      reply: unknown,
+      messageId = '',
+      fragmentMode: 'append' | 'snapshot' | 'auto' = 'auto',
+    ) => {
       if (!isCurrent() || typeof reply !== 'string' || !reply.trim()) return;
       setLocalConversationEvents((current) => mergeOptimisticManagerDelta(
         current,
@@ -394,6 +398,8 @@ export default function App() {
         requestId,
         reply,
         messageId,
+        Date.now(),
+        fragmentMode,
       ));
     };
 
@@ -456,7 +462,7 @@ export default function App() {
               });
               setManagerSteps(trail);
             },
-            onDelta: (block, messageId) => {
+            onDelta: (block, messageId, fragmentMode) => {
               if (!isCurrent()) return;
               gotDelta = true;
               trail = closePhaseTrail(trail);
@@ -464,11 +470,17 @@ export default function App() {
               setManagerPhase('');
               setManagerPhaseHeartbeat(false);
               setManagerPhaseQuietS(0);
-              showManagerText(block, messageId);
+              showManagerText(
+                block,
+                messageId,
+                fragmentMode === 'append' || fragmentMode === 'snapshot'
+                  ? fragmentMode
+                  : 'auto',
+              );
             },
             onDone: (result) => {
               if (!isCurrent()) return;
-              showManagerText(result.reply);
+              showManagerText(result.reply, '', 'snapshot');
               finishMessage(result);
             },
             onError: (err) => {

@@ -94,7 +94,11 @@ def manager_message(
         if not callable(on_fragment):
             return
         if kind == "delta":
-            payload = {**payload, "message_id": f"{turn_id}-argus"}
+            payload = {
+                "fragment_mode": "snapshot",
+                **payload,
+                "message_id": f"{turn_id}-argus",
+            }
         try:
             on_fragment(kind, payload)
         except Exception:  # noqa: BLE001 — UI progress must never break a turn

@@ -1041,6 +1041,7 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
                     _fragment("delta", {
                         "text": text,
                         "message_id": self._last_reply_message_id,
+                        "fragment_mode": "snapshot",
                     })
             except Exception:  # noqa: BLE001
                 pass
