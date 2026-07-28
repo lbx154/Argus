@@ -40,9 +40,11 @@ def test_request_then_consume_round_trips_reason_and_consumes_file(
         requested_by="manager",
     )
     path = tmp_path / "running_item_abort.json"
+    legacy_path = tmp_path / "mission_abort_request.json"
     assert requested is True
     assert item_id == item.id
     assert path.exists()
+    assert legacy_path.exists()
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["reason"] == "operator asked to stop"
     assert payload["requested_by"] == "manager"
@@ -51,6 +53,7 @@ def test_request_then_consume_round_trips_reason_and_consumes_file(
     assert reason == "operator asked to stop"
     # One-shot: consumed (deleted), so a second pop sees nothing pending.
     assert not path.exists()
+    assert not legacy_path.exists()
     assert consume_running_item_abort(tmp_path) is None
 
 
@@ -70,6 +73,23 @@ def test_targetless_legacy_request_is_discarded(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     assert consume_running_item_abort(tmp_path) is None
+    assert not path.exists()
+
+
+def test_consume_accepts_targeted_legacy_mailbox(tmp_path: Path) -> None:
+    item = _running_item(tmp_path)
+    path = tmp_path / "mission_abort_request.json"
+    path.write_text(
+        json.dumps(
+            {
+                "target_item_id": item.id,
+                "reason": "old manager request",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert consume_running_item_abort(tmp_path) == "old manager request"
     assert not path.exists()
 
 

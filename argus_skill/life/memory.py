@@ -1920,29 +1920,21 @@ class LifeMemory:
 # ---------------------------------------------------------------------------
 
 _RUNNING_ITEM_ABORT_FILENAME = "running_item_abort.json"
+_LEGACY_RUNNING_ITEM_ABORT_FILENAME = "mission_abort_request.json"
 
 
 def _running_item_abort_path(life_dir: Path | str) -> Path:
     return Path(life_dir) / _RUNNING_ITEM_ABORT_FILENAME
 
 
-def _write_running_item_abort(
-    life_dir: Path,
-    *,
-    item_id: str,
-    reason: str,
-    requested_by: str,
-) -> bool:
-    path = _running_item_abort_path(life_dir)
+def _legacy_running_item_abort_path(life_dir: Path | str) -> Path:
+    return Path(life_dir) / _LEGACY_RUNNING_ITEM_ABORT_FILENAME
+
+
+def _write_abort_payload(path: Path, payload: dict[str, Any]) -> bool:
     temporary = path.with_name(
         f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
     )
-    payload = {
-        "target_item_id": item_id,
-        "reason": str(reason or "").strip() or "operator requested abort",
-        "requested_by": requested_by,
-        "requested_at": time.time(),
-    }
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary.write_text(
@@ -1957,6 +1949,29 @@ def _write_running_item_abort(
             pass
         return False
     return True
+
+
+def _write_running_item_abort(
+    life_dir: Path,
+    *,
+    item_id: str,
+    reason: str,
+    requested_by: str,
+) -> bool:
+    payload = {
+        "target_item_id": item_id,
+        "reason": str(reason or "").strip() or "operator requested abort",
+        "requested_by": requested_by,
+        "requested_at": time.time(),
+    }
+    if not _write_abort_payload(_running_item_abort_path(life_dir), payload):
+        return False
+    # Long-lived daemons before the mailbox consolidation poll the legacy
+    # filename. Dual-write until all supported daemons use the new path.
+    return _write_abort_payload(
+        _legacy_running_item_abort_path(life_dir),
+        payload,
+    )
 
 
 def request_running_item_abort(
@@ -1990,21 +2005,39 @@ def consume_running_item_abort(life_dir: Path | str | None) -> str | None:
     """Consume a valid abort request while its exact target remains running."""
     if not life_dir:
         return None
-    path = _running_item_abort_path(life_dir)
-    claimed = path.with_name(
-        f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.claimed"
+    root = Path(life_dir)
+    paths = (
+        _running_item_abort_path(root),
+        _legacy_running_item_abort_path(root),
     )
-    try:
-        os.replace(path, claimed)
-    except OSError:
-        return None
-    try:
-        raw = claimed.read_text(encoding="utf-8")
-    except OSError:
-        return None
-    finally:
+    raw = ""
+    consumed_path: Path | None = None
+    for path in paths:
+        claimed = path.with_name(
+            f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.claimed"
+        )
         try:
-            claimed.unlink()
+            os.replace(path, claimed)
+        except OSError:
+            continue
+        consumed_path = path
+        try:
+            raw = claimed.read_text(encoding="utf-8")
+        except OSError:
+            return None
+        finally:
+            try:
+                claimed.unlink()
+            except OSError:
+                pass
+        break
+    if consumed_path is None:
+        return None
+    for path in paths:
+        if path == consumed_path:
+            continue
+        try:
+            path.unlink()
         except OSError:
             pass
     try:

@@ -14,6 +14,8 @@ DAEMON_PROTOCOL_MINOR = 1
 DAEMON_CAPABILITIES = (
     "budget.status.v1",
     "events.jsonl.v1",
+    "manager.directive.v1",
+    "mission.abort.v2",
     "release.identity.v1",
     "usage.ledger.v1",
 )
