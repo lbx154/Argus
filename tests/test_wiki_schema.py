@@ -102,6 +102,33 @@ def test_page_card_parses_legacy_minimal_fields():
     assert parsed.reviewer_note == ""
 
 
+def test_page_card_context_defaults_do_not_override_explicit_metadata():
+    text = (
+        "---\n"
+        "type: technique\n"
+        "status: candidate\n"
+        "title: Explicit title\n"
+        "---\n\n"
+        "Body.\n"
+    )
+
+    parsed = parse_frontmatter(
+        text,
+        PageCard,
+        defaults={
+            "id": "from-path",
+            "type": "fact",
+            "status": "scratch",
+            "title": "Derived title",
+        },
+    )
+
+    assert parsed.id == "from-path"
+    assert parsed.type == "technique"
+    assert parsed.status == "candidate"
+    assert parsed.title == "Explicit title"
+
+
 @pytest.mark.parametrize(
     "timestamp",
     [

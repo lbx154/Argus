@@ -98,6 +98,32 @@ def test_write_and_overwrite_page(tmp_wiki: Path):
     assert loaded.body == "v2"
 
 
+def test_iter_pages_infers_missing_structural_metadata(tmp_wiki: Path):
+    root_page = tmp_wiki / "pages" / "gpu-cnn-invariance.md"
+    root_page.write_text(
+        "---\n"
+        "sources: []\n"
+        "---\n\n"
+        "# GPU CNN invariance\n\n"
+        "Measured project evidence.\n"
+    )
+    nested_page = tmp_wiki / "pages" / "techniques" / "loop-fusion.md"
+    nested_page.write_text(
+        "---\n"
+        "sources: []\n"
+        "---\n\n"
+        "# Feature extraction loop fusion\n"
+    )
+
+    cards = {card.id: card for card in WikiStore(tmp_wiki).iter_pages()}
+
+    assert cards["gpu-cnn-invariance"].type == "fact"
+    assert cards["gpu-cnn-invariance"].status == "scratch"
+    assert cards["gpu-cnn-invariance"].title == "GPU CNN invariance"
+    assert cards["loop-fusion"].type == "technique"
+    assert cards["loop-fusion"].title == "Feature extraction loop fusion"
+
+
 def test_write_and_iter_note_sources(tmp_wiki: Path):
     store = WikiStore(tmp_wiki)
     note = SourceNote(

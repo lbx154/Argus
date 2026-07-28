@@ -15,6 +15,7 @@ and back. Nothing else in the package should touch YAML directly.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, fields
 from datetime import date, datetime
 from typing import Any, Literal, TypeVar
@@ -136,14 +137,23 @@ def serialize_frontmatter(card: PageCard | SourcePaper | SourceRepo | SourceRun 
     return f"---\n{front}\n---\n\n{body}\n"
 
 
-def parse_frontmatter(text: str, cls: type[T]) -> T:
+def parse_frontmatter(
+    text: str,
+    cls: type[T],
+    *,
+    defaults: Mapping[str, Any] | None = None,
+) -> T:
     if not text.startswith("---\n"):
         raise ValueError("expected frontmatter to start with '---\\n'")
     _, _, rest = text.partition("---\n")
     front_text, sep, body = rest.partition("\n---\n")
     if not sep:
         raise ValueError("expected closing frontmatter delimiter")
-    data: dict[str, Any] = yaml.safe_load(front_text) or {}
+    loaded = yaml.safe_load(front_text) or {}
+    if not isinstance(loaded, dict):
+        raise ValueError("frontmatter must be a mapping")
+    data: dict[str, Any] = dict(defaults or {})
+    data.update(loaded)
     data["body"] = body.lstrip("\n").rstrip("\n")
     # Coerce ISO date strings back to date objects when a dumper/producer quoted them.
     for f in fields(cls):

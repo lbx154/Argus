@@ -125,7 +125,7 @@ def test_rebuild_skips_one_malformed_direct_edit(wiki: WikiStore):
     wiki.write_page(_make_card(id="valid-concept", type="concept"))
     bad = wiki.root / "pages" / "concepts" / "broken.md"
     bad.parent.mkdir(parents=True, exist_ok=True)
-    bad.write_text("---\ntype: concept\n---\n\nmissing required fields\n")
+    bad.write_text("---\ntype: executable\n---\n\ninvalid explicit type\n")
 
     rebuild_indexes(wiki)
 

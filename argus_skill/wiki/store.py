@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import uuid
 from contextlib import contextmanager
 from datetime import date
@@ -43,6 +44,8 @@ _PAGE_SUBDIR = {
     "conflict": "conflicts",
     "pattern": "patterns",
 }
+_PAGE_TYPE_BY_SUBDIR = {subdir: card_type for card_type, subdir in _PAGE_SUBDIR.items()}
+_MARKDOWN_TITLE_RE = re.compile(r"^#\s+(.+?)\s*$", flags=re.MULTILINE)
 
 
 def wiki_root_for_project(project: str, *, base: Path | None = None) -> Path:
@@ -78,6 +81,30 @@ def _atomic_write_text(path: Path, text: str) -> None:
             tmp.unlink()
         except FileNotFoundError:
             pass
+
+
+def _page_read_defaults(path: Path, pages_root: Path, text: str) -> dict[str, str]:
+    """Infer structural metadata omitted by concise agent-authored pages."""
+    relative = path.relative_to(pages_root)
+    subdir = relative.parts[0] if len(relative.parts) > 1 else ""
+    card_type = _PAGE_TYPE_BY_SUBDIR.get(subdir, "fact")
+    heading = _MARKDOWN_TITLE_RE.search(text)
+    title = heading.group(1).strip() if heading else path.stem.replace("-", " ")
+    return {
+        "id": path.stem,
+        "type": card_type,
+        "status": "scratch",
+        "title": title,
+    }
+
+
+def _parse_page(path: Path, pages_root: Path) -> PageCard:
+    text = path.read_text(encoding="utf-8")
+    return parse_frontmatter(
+        text,
+        PageCard,
+        defaults=_page_read_defaults(path, pages_root, text),
+    )
 
 
 class WikiStore:
@@ -127,7 +154,7 @@ class WikiStore:
         subdir = _PAGE_SUBDIR[card_type]
         stem = _validate_stem(card_id)
         path = self.root / "pages" / subdir / f"{stem}.md"
-        return parse_frontmatter(path.read_text(encoding="utf-8"), PageCard)
+        return _parse_page(path, self.root / "pages")
 
     def iter_pages(self, *, skip_invalid: bool = False) -> list[PageCard]:
         out: list[PageCard] = []
@@ -142,7 +169,7 @@ class WikiStore:
             if "_retired" in md.relative_to(pages_root).parts:
                 continue
             try:
-                out.append(parse_frontmatter(md.read_text(encoding="utf-8"), PageCard))
+                out.append(_parse_page(md, pages_root))
             except (OSError, TypeError, ValueError, yaml.YAMLError) as exc:
                 if not skip_invalid:
                     raise
