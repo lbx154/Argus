@@ -43,6 +43,11 @@ bounded run finishes and a Reviewer-approved submission earns bronze or better.
 Below-bronze tasks retain their artifacts and feedback and are automatically
 requeued for another bounded campaign.
 
+When the controller-written medal gate certifies the exact current root
+`submission.csv` hash, `campaign.py` terminates only the descendant Argus daemon.
+The competition wrapper remains alive to write `run-result.json`; the controller
+then records completion and releases the slot without measure/report tail work.
+
 The official repository pins legacy `kaggle<1.7`, while this deployment uses a
 new-style `access_token`. A minimal local patch changes only MLE-Bench's raw
 download call to the authenticated Kaggle CLI 2.x. Official preparation,

@@ -21,6 +21,8 @@ from pathlib import Path
 from typing import Any
 
 from campaign_policy import choose_competitions
+from campaign_lifecycle import process_cmdline, stop_descendant_argus_daemon
+from result_contract import matching_medal_gate
 
 HERE = Path(__file__).resolve().parent
 
@@ -124,6 +126,12 @@ def completed_result(comp: str) -> bool:
     return bool(run_result(comp).get("benchmark_complete")) and medal_report(comp) is not None
 
 
+def current_submission_medal_gate(comp: str) -> dict[str, Any] | None:
+    """Return a medal gate only when it binds the live root submission."""
+    project = ROOT / "projects" / comp
+    return matching_medal_gate(project, comp, project / "submission.csv")
+
+
 def runner_snapshot() -> Path:
     """Create an immutable runner bundle so deployments cannot corrupt live Bash."""
     digest = hashlib.sha256()
@@ -160,6 +168,7 @@ class ActiveRun:
     pid: int
     started_at: float
     owned: subprocess.Popen[bytes] | None = None
+    stop_requested: bool = False
 
     def alive(self) -> bool:
         if self.owned is not None:
@@ -170,13 +179,11 @@ class ActiveRun:
             return False
         return True
 
-
-def _process_cmdline(pid: int) -> list[str]:
-    try:
-        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
-    except OSError:
-        return []
-    return [part.decode(errors="replace") for part in raw.split(b"\0") if part]
+    def request_daemon_stop(self) -> bool:
+        stopped = stop_descendant_argus_daemon(self.pid)
+        if stopped:
+            self.stop_requested = True
+        return stopped
 
 
 def discover_running() -> dict[int, ActiveRun]:
@@ -184,7 +191,7 @@ def discover_running() -> dict[int, ActiveRun]:
     found: dict[int, ActiveRun] = {}
     for proc_dir in Path("/proc").glob("[0-9]*"):
         pid = int(proc_dir.name)
-        parts = _process_cmdline(pid)
+        parts = process_cmdline(pid)
         index = next(
             (
                 i
@@ -281,6 +288,11 @@ def main() -> int:
         now = time.time()
         for slot, active in list(running.items()):
             if active.alive():
+                if (
+                    not active.stop_requested
+                    and current_submission_medal_gate(active.competition) is not None
+                ):
+                    active.request_daemon_stop()
                 continue
             running.pop(slot)
             result = run_result(active.competition)
@@ -325,6 +337,7 @@ def main() -> int:
                         "competition": active.competition,
                         "pid": active.pid,
                         "adopted": active.owned is None,
+                        "stop_requested": active.stop_requested,
                     }
                     for slot, active in running.items()
                 },
