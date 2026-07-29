@@ -704,7 +704,7 @@ export interface WikiEvolutionCompletedEvent extends EventMsg {
   type: "wiki.evolution.completed";
   payload_schema_version?: 1;
   "wiki_count": number;
-  "ops_proposed": number;
+  "ops_proposed"?: number;
   "sources"?: number;
   "scratch_pages"?: number;
   "created"?: number;

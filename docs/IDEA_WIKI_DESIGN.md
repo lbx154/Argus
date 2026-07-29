@@ -120,3 +120,8 @@ The harness remains a domain-neutral pipe:
 The harness does not decide what a fact means, create placeholder knowledge
 pages, promote claims based on string matching, or copy round history. Semantic
 judgment belongs to the roles.
+
+`wiki.evolution.completed` reports mechanical maintenance such as discovered
+wiki count, index refresh, compaction, and cold-storage totals. The legacy
+`ops_proposed` field remains readable but is optional because direct role edits,
+not a structured operation proposal channel, are the current write contract.

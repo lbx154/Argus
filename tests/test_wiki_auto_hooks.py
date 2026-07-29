@@ -8,6 +8,7 @@ from argus_skill.wiki.bootstrap import init_wiki
 from argus_skill.wiki.lifecycle import maintain_wikis_after_mission
 from argus_skill.wiki.schema import PageCard
 from argus_skill.wiki.store import WikiStore
+from argus_skill.core.event_catalog import validate_event_envelope
 
 SAMPLE_BIB = """
 @article{vaswani2017attention,
@@ -66,17 +67,24 @@ def test_direct_knowledge_page_is_indexed_after_mission(tmp_path: Path) -> None:
         body="Self-attention and feed-forward blocks form the core stack.",
     ))
 
+    events: list[dict] = []
     summary = maintain_wikis_after_mission(
         workdir=tmp_path,
         auto_compact_enabled=False,
         reviewer_runner=None,
         reviewer_model="",
         reviewer_reasoning_effort="high",
+        on_event=events.append,
     )
 
     assert summary["wiki_count"] == 1
     by_status = (wiki / "queries" / "by-status.md").read_text(encoding="utf-8")
     assert "concept/transformer-architecture" in by_status
+    completed = next(
+        event for event in events if event["type"] == "wiki.evolution.completed"
+    )
+    assert "ops_proposed" not in completed
+    assert validate_event_envelope(completed, require_known=True).valid is True
 
 
 def test_discover_skips_uninitialized_tree(tmp_path: Path) -> None:

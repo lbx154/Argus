@@ -869,7 +869,7 @@
     },
     "wiki.evolution.completed": {
       "version": 1,
-      "required": ["wiki_count", "ops_proposed"],
+      "required": ["wiki_count"],
       "properties": {
         "wiki_count": {"type": "integer", "minimum": 0},
         "ops_proposed": {"type": "integer", "minimum": 0},
