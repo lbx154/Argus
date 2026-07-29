@@ -58,6 +58,7 @@ class SkillSelectionState:
     skill_distilled: bool = False
     distill_result: Any = None
     skill_text: str = ""
+    adaptive_round_text: str = ""
     skill_name: str | None = None
     learning_target_name: str = ""
     allow_settlement_side_effects: bool = True

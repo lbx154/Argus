@@ -803,6 +803,7 @@ class SkillSelectionMixin:
         state.skill = distilled
         state.primary_skills = [distilled]
         state.skill_text = adaptive_text
+        state.adaptive_round_text = adaptive_text
         state.skill_name = distilled.name
         state.learning_target_name = distilled.name
         state.skill_distilled = True
@@ -836,7 +837,7 @@ class SkillSelectionMixin:
                 ),
             }
         )
-        return adaptive_text
+        return ""
 
     def _maybe_seed_idea_candidates(self, mission: MissionContext) -> None:
         # Candidate SOURCE augmentation: on the "research" VERTICAL's research

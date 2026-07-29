@@ -157,7 +157,10 @@ class RoundSettlementMixin:
                 )
             )
 
-        if continue_adaptor is not None:
+        if (
+            continue_adaptor is not None
+            and round_index < supervised_config.max_rounds
+        ):
             try:
                 adapted = str(continue_adaptor(state.rounds) or "").strip()
                 if adapted:

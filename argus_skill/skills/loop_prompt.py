@@ -34,6 +34,17 @@ class PromptContextMixin:
     """Prompt-assembly phase methods for ``SkillLoop``."""
 
     def _build_round_prompt(self, mission: MissionContext, state: SkillSelectionState, next_action: str | None, include_static: bool = True) -> str:
+        if state.adaptive_round_text and not include_static:
+            reviewer_guidance = str(next_action or "").strip()
+            next_action = (
+                "## Scientist alternative playbook for this round\n"
+                + state.adaptive_round_text
+                + (
+                    "\n\n## Reviewer guidance\n" + reviewer_guidance
+                    if reviewer_guidance
+                    else ""
+                )
+            )
         prompt = self._build_engineer_prompt(
             task=mission.task,
             skill_text=state.skill_text,

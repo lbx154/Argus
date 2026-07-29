@@ -681,6 +681,44 @@ def test_reviewer_rejection_activates_alternative_skill_for_next_round(
     ).is_dir()
 
 
+def test_terminal_rejection_does_not_spawn_unused_scientist(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_REPEATED_FAILURE_THRESHOLD", "0")
+    skills_dir = tmp_path / "skills"
+    _seed_skill(skills_dir)
+    backend = MemoryBackend()
+    backend.queue("matcher", _match_hello())
+    for round_index in (1, 2):
+        backend.queue(
+            f"engineer-r{round_index}",
+            CannedResponse(message=f"attempt {round_index}"),
+        )
+        backend.queue("reviewer", CannedResponse(message=_continue_review()))
+
+    loop = SkillLoop(
+        skills_dir=skills_dir,
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(
+            max_rounds=2,
+            skill_adapter_enabled=False,
+            session_id="mission-1",
+            checkpoint_path=tmp_path / "CHECKPOINT.md",
+            adaptive_rejection_threshold=2,
+            adaptive_skill_max_triggers=1,
+        ),
+    )
+    outcome = loop.run("say hi to the user", workdir=tmp_path)
+
+    assert outcome.status == "max_rounds"
+    assert not any(
+        label == "scientist.skill_distill"
+        for label, _prompt, _options in backend.history
+    )
+
+
 def test_skill_loop_matcher_miss_defers_creation_to_engineer(tmp_path: Path) -> None:
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
