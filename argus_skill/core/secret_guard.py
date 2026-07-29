@@ -6,6 +6,7 @@ import json
 import os
 import re
 import stat
+import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -219,6 +220,47 @@ class SecretScrubReport:
 
 class ArtifactChangedDuringScrubError(OSError):
     pass
+
+
+def _git_changed_paths(root: Path) -> set[str] | None:
+    """Return Git-visible worktree changes, or ``None`` outside a usable repo."""
+    result = subprocess.run(
+        [
+            "git",
+            "-c",
+            f"safe.directory={root}",
+            "-C",
+            str(root),
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    records = result.stdout.split(b"\0")
+    changed: set[str] = set()
+    index = 0
+    while index < len(records):
+        record = records[index]
+        index += 1
+        if not record:
+            continue
+        text = record.decode("utf-8", errors="surrogateescape")
+        if len(text) < 4:
+            continue
+        status = text[:2]
+        relative = text[3:]
+        path = Path(relative)
+        if not path.is_absolute() and ".." not in path.parts:
+            changed.add(path.as_posix())
+        if "R" in status or "C" in status:
+            index += 1
+    return changed
 
 
 def _is_non_artifact_tree(parts: tuple[str, ...]) -> bool:
@@ -497,6 +539,7 @@ def scrub_recent_text_artifacts(
     replacement_count = 0
     scanned_files = 0
     truncated = False
+    git_changed_paths = _git_changed_paths(root)
     def _walk_error(exc: OSError) -> None:
         filename = str(getattr(exc, "filename", "") or ".")
         errors.append(f"{filename}: {type(exc).__name__}")
@@ -519,8 +562,18 @@ def scrub_recent_text_artifacts(
             try:
                 if path.is_symlink():
                     continue
+                relative_path = path.relative_to(root)
+                if (
+                    git_changed_paths is not None
+                    and relative_path.as_posix() not in git_changed_paths
+                ):
+                    continue
                 metadata = path.stat()
-                if max(metadata.st_mtime, metadata.st_ctime) < modified_since - 1.0:
+                if (
+                    git_changed_paths is None
+                    and max(metadata.st_mtime, metadata.st_ctime)
+                    < modified_since - 1.0
+                ):
                     continue
                 if metadata.st_size > _MAX_ARTIFACT_BYTES:
                     if (
@@ -544,7 +597,7 @@ def scrub_recent_text_artifacts(
                 continue
             except OSError as exc:
                 try:
-                    relative = str(path.relative_to(root))
+                    relative = str(relative_path)
                 except ValueError:
                     relative = path.name
                 errors.append(f"{relative}: {type(exc).__name__}")

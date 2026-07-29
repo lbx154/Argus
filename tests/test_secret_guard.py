@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import time
 from pathlib import Path
 
@@ -127,6 +128,49 @@ def test_scrub_does_not_mutate_tokenizer_config_file(tmp_path: Path) -> None:
 
     assert report.redacted_paths == ()
     assert path.read_text(encoding="utf-8") == original
+
+
+def test_git_scrub_ignores_recent_but_unchanged_fixture(tmp_path: Path) -> None:
+    fixture = tmp_path / "examples" / "config.yml"
+    changed = tmp_path / "artifact.yml"
+    fixture.parent.mkdir(parents=True)
+    fixture.write_text(
+        "client_secret: benchmark-fixture-secret\n",
+        encoding="utf-8",
+    )
+    changed.write_text("status: clean\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.email", "test@example.com"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.name", "Test"],
+        check=True,
+    )
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "commit", "-qm", "base"],
+        check=True,
+    )
+
+    now = time.time()
+    fixture.touch()
+    changed.write_text(
+        "client_secret: newly-written-secret\n",
+        encoding="utf-8",
+    )
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=now - 5,
+    )
+
+    assert report.redacted_paths == ("artifact.yml",)
+    assert fixture.read_text(encoding="utf-8") == (
+        "client_secret: benchmark-fixture-secret\n"
+    )
+    assert "<REDACTED:secret>" in changed.read_text(encoding="utf-8")
 
 
 def test_still_redacts_explicit_provider_token_keys() -> None:
