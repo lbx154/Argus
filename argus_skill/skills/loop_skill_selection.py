@@ -24,6 +24,7 @@ from ..core.models import RunnerOptions
 from ..core.run_gateway import run_exec as gateway_run_exec
 from .adaptation import (
     adaptation_state_path,
+    append_method_ledger,
     load_adaptation_state,
     save_adaptation_state,
 )
@@ -633,6 +634,209 @@ class SkillSelectionMixin:
             rejection_streak=state.rejection_streak,
             method_records=state.method_records,
         )
+
+    def _adapt_after_rejections(
+        self,
+        mission: MissionContext,
+        state: SkillSelectionState,
+        rounds: list[Any],
+    ) -> str:
+        """Replace a repeatedly rejected playbook before the next round."""
+        if not rounds or state.adaptation_disabled:
+            return ""
+        latest = rounds[-1]
+        persistent = state.adaptation_file is not None
+        qualifies = (
+            latest.review.status == "continue"
+            and not latest.review.backend_unavailable
+            and not bool(latest.fatal_error)
+        )
+        if persistent:
+            threshold = max(
+                1,
+                int(self.config.adaptive_rejection_threshold or 1),
+            )
+            if qualifies:
+                state.rejection_streak.append(
+                    {
+                        "round_index": latest.round_index,
+                        "reason": latest.review.reason,
+                        "next_action": latest.review.next_action,
+                    }
+                )
+                del state.rejection_streak[:-threshold]
+            else:
+                state.rejection_streak.clear()
+            self._persist_adaptation_state(mission, state)
+            if len(state.rejection_streak) < threshold:
+                return ""
+            max_triggers = max(
+                0,
+                int(self.config.adaptive_skill_max_triggers or 0),
+            )
+            if state.adaptation_triggers >= max_triggers:
+                state.rejection_streak.clear()
+                self._persist_adaptation_state(mission, state)
+                return ""
+            rejected = [dict(item) for item in state.rejection_streak[-threshold:]]
+        else:
+            interval = max(0, int(self.config.adaptive_skill_interval or 0))
+            if (
+                not qualifies
+                or state.skill is None
+                or interval == 0
+                or len(rounds) % interval
+            ):
+                return ""
+            rejected = [
+                {
+                    "round_index": record.round_index,
+                    "reason": record.review.reason,
+                    "next_action": record.review.next_action,
+                }
+                for record in rounds[-interval:]
+            ]
+            threshold = interval
+        if not state.skill_text:
+            return ""
+
+        from .scientist import SkillScientist, parse_mechanism_change
+
+        review_rounds = [int(item["round_index"]) for item in rejected]
+        failure_reasons = [str(item["reason"]) for item in rejected]
+        evidence = "\n".join(
+            f"- Round {item['round_index']}: {item['reason']}; "
+            f"next: {item['next_action']}"
+            for item in rejected
+        )
+        if persistent:
+            state.adaptation_triggers += 1
+            state.rejection_streak.clear()
+            self._persist_adaptation_state(mission, state)
+        trigger_index = state.adaptation_triggers if persistent else 0
+        self._emit(
+            {
+                "type": EventType.SKILL_SCIENTIST_ADAPTATION_STARTED,
+                "text": (
+                    f"{threshold} reviewer rejection(s); "
+                    "seeking a different playbook"
+                ),
+                "vertical": mission.active_vertical,
+                "trigger_index": trigger_index,
+                "failure_reasons": failure_reasons,
+            }
+        )
+        scientist = SkillScientist(
+            self.engineer_runner,
+            model=self.config.engineer_model or "",
+            reasoning_effort=self.config.engineer_reasoning_effort or "high",
+            role_banner=mission.scientist_adaptation_banner,
+        )
+        raw_skill = scientist.distill_alternative(
+            mission.skill_task,
+            evidence,
+            current_skill=state.skill_text,
+            method_history="\n".join(
+                str(record) for record in state.method_records
+            ),
+        )
+        state.distill_result = scientist.last_result
+        raw_cost = getattr(state.distill_result, "cost_usd", None)
+        try:
+            normalized_cost = float(raw_cost)
+        except (OverflowError, TypeError, ValueError):
+            normalized_cost = float("nan")
+        result_cost = (
+            normalized_cost
+            if math.isfinite(normalized_cost) and normalized_cost >= 0
+            else None
+        )
+        if persistent and result_cost is not None:
+            state.adaptation_spent += result_cost
+            self._persist_adaptation_state(mission, state)
+
+        status = ""
+        mechanism_change = None
+        distilled = None
+        if not raw_skill:
+            status = "no_alternative"
+        else:
+            mechanism_change = parse_mechanism_change(raw_skill)
+            if persistent and mechanism_change is None:
+                status = "mechanism_change_rejected"
+            elif (
+                "".join(raw_skill.split()).casefold()
+                == "".join(state.skill_text.split()).casefold()
+            ):
+                status = "duplicate_mechanism_rejected"
+            else:
+                distilled = self.skill_router.create_from_scientist(
+                    raw_skill,
+                    task=mission.skill_task,
+                    on_event=self._emit,
+                )
+                if distilled is None:
+                    status = "invalid_alternative"
+
+        ledger_path = None
+        if distilled is None:
+            if persistent:
+                record = {
+                    "status": status,
+                    "trigger_index": trigger_index,
+                    "review_rounds": review_rounds,
+                    "failure_reasons": failure_reasons,
+                    "prior_skill": state.skill_name or "",
+                    "scientist_cost_usd": result_cost,
+                }
+                append_method_ledger(mission.workdir, record)
+                state.method_records.append(record)
+                self._persist_adaptation_state(mission, state)
+            return ""
+
+        adaptive_text = render_skill_playbook(
+            self.skill_store,
+            [distilled],
+            [],
+        )
+        prior_skill_name = state.skill_name or ""
+        state.skill = distilled
+        state.primary_skills = [distilled]
+        state.skill_text = adaptive_text
+        state.skill_name = distilled.name
+        state.learning_target_name = distilled.name
+        state.skill_distilled = True
+        if persistent:
+            record = {
+                "status": "created",
+                "trigger_index": trigger_index,
+                "review_rounds": review_rounds,
+                "failure_reasons": failure_reasons,
+                "prior_skill": prior_skill_name,
+                "new_skill": distilled.name,
+                "mechanism_change_required": True,
+                "mechanism_change": mechanism_change,
+                "scientist_cost_usd": result_cost,
+            }
+            ledger_path = append_method_ledger(mission.workdir, record)
+            state.method_records.append(record)
+            self._persist_adaptation_state(mission, state)
+        self._emit(
+            {
+                "type": EventType.SKILL_SCIENTIST_ADAPTATION_CREATED,
+                "text": (
+                    f"Scientist created alternative skill {distilled.name}"
+                ),
+                "vertical": mission.active_vertical,
+                "trigger_index": trigger_index,
+                "method_ledger": (
+                    str(ledger_path.relative_to(mission.workdir))
+                    if ledger_path is not None
+                    else ""
+                ),
+            }
+        )
+        return adaptive_text
 
     def _maybe_seed_idea_candidates(self, mission: MissionContext) -> None:
         # Candidate SOURCE augmentation: on the "research" VERTICAL's research

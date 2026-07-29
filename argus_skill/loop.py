@@ -121,12 +121,27 @@ class SkillLoopConfig:
     # Repeated reviewer rejection is evidence that a matched playbook is not
     # enough. Ask the Scientist for a genuinely different strategy every N
     # non-terminal rounds; 0 disables.
-    adaptive_skill_interval: int = 4
+    adaptive_skill_interval: int = field(
+        default_factory=lambda: _env_int_setting(
+            "ARGUS_SKILL_ADAPTIVE_SKILL_INTERVAL",
+            4,
+        )
+    )
     # Restart-safe Scientist adaptation after Reviewer-classified method/skill
     # failures. Bounded calls prevent rejection loops from becoming unbounded
     # strategy generation.
-    adaptive_rejection_threshold: int = 2
-    adaptive_skill_max_triggers: int = 2
+    adaptive_rejection_threshold: int = field(
+        default_factory=lambda: _env_int_setting(
+            "ARGUS_SKILL_ADAPTIVE_REJECTION_THRESHOLD",
+            2,
+        )
+    )
+    adaptive_skill_max_triggers: int = field(
+        default_factory=lambda: _env_int_setting(
+            "ARGUS_SKILL_ADAPTIVE_SKILL_MAX_TRIGGERS",
+            2,
+        )
+    )
     # Legacy proposal compatibility only. Current Reviewers edit the injected
     # project skill path directly and their output schema has no skill_ops.
     skill_ops_enabled: bool = False
@@ -424,6 +439,9 @@ class SkillLoop(
         def capture_reviewed_round(record: RoundRecord) -> None:
             return self._capture_reviewed_round(mission, record)
 
+        def adapt_after_rejections(rounds: list[RoundRecord]) -> str:
+            return self._adapt_after_rejections(mission, state, rounds)
+
         status, rounds, final_message, reason, last_thread_id = self.supervised.run(
             objective=task,
             original_objective=request_anchor,
@@ -446,7 +464,7 @@ class SkillLoop(
             scope=scope,
             prepare_review_context=prepare_review_context,
             review_completed_hook=capture_reviewed_round,
-            continue_adaptor=None,
+            continue_adaptor=adapt_after_rejections,
             reviewer_skill_block=state.reviewer_skill_block,
         )
         if self.pre_settlement_guard is not None:

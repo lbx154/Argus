@@ -613,7 +613,7 @@ def test_skill_loop_max_rounds_hit(tmp_path: Path, monkeypatch) -> None:
     assert outcome.round_count == 3
 
 
-def test_repeated_rejections_do_not_spawn_separate_scientist(
+def test_reviewer_rejection_activates_alternative_skill_for_next_round(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -622,10 +622,28 @@ def test_repeated_rejections_do_not_spawn_separate_scientist(
     _seed_skill(skills_dir)
     backend = MemoryBackend()
     backend.queue("matcher", _match_hello())
-    for i in range(1, 5):
-        backend.queue(f"engineer-r{i}", CannedResponse(message=f"attempt {i}"))
-        backend.queue("reviewer", CannedResponse(message=_continue_review()))
-    backend.queue("engineer-r5", CannedResponse(message="new strategy succeeded"))
+    backend.queue("engineer-r1", CannedResponse(message="attempt 1"))
+    backend.queue("reviewer", CannedResponse(message=_continue_review()))
+    backend.queue(
+        "scientist.skill_distill",
+        CannedResponse(
+            message=(
+                "# Context-aware greeting strategy\n"
+                "## Description\nUse context rather than a fixed greeting.\n"
+                "## Category\ncommunication\n"
+                "## When to use\n- A fixed greeting failed review.\n"
+                "## When NOT to use\n- No greeting is requested.\n"
+                "## Mechanism change\n"
+                "Previous mechanism: emit one fixed greeting\n"
+                "Replacement mechanism: derive the greeting from audience context\n"
+                "Structural difference: the replacement conditions content on "
+                "the audience instead of tuning the fixed message.\n"
+                "## How to solve\n- Identify the audience and requested tone.\n"
+                "## Pitfalls\n- Do not add unrelated detail.\n"
+            )
+        ),
+    )
+    backend.queue("engineer-r2", CannedResponse(message="new strategy succeeded"))
     backend.queue("reviewer", CannedResponse(message=_done_review()))
 
     events: list[dict] = []
@@ -633,15 +651,34 @@ def test_repeated_rejections_do_not_spawn_separate_scientist(
         skills_dir=skills_dir,
         engineer_runner=backend,
         reviewer_runner=backend,
-        config=SkillLoopConfig(max_rounds=5, adaptive_skill_interval=4),
+        config=SkillLoopConfig(
+            max_rounds=2,
+            skill_adapter_enabled=False,
+            session_id="mission-1",
+            checkpoint_path=tmp_path / "CHECKPOINT.md",
+            adaptive_rejection_threshold=1,
+            adaptive_skill_max_triggers=1,
+        ),
         on_event=events.append,
     )
     outcome = loop.run("say hi to the user", workdir=tmp_path)
 
     assert outcome.successful
     labels = [label for label, _prompt, _options in backend.history]
-    assert "scientist.skill_distill" not in labels
-    assert not any(e.get("type") == "skill.scientist.adaptation_created" for e in events)
+    assert "scientist.skill_distill" in labels
+    second_prompt = next(
+        prompt
+        for label, prompt, _options in backend.history
+        if label == "engineer-r2"
+    )
+    assert "Context-aware greeting strategy" in second_prompt
+    assert any(
+        e.get("type") == "skill.scientist.adaptation_created"
+        for e in events
+    )
+    assert (
+        tmp_path / "skill_adaptation"
+    ).is_dir()
 
 
 def test_skill_loop_matcher_miss_defers_creation_to_engineer(tmp_path: Path) -> None:

@@ -159,7 +159,18 @@ class RoundSettlementMixin:
 
         if continue_adaptor is not None:
             try:
-                continue_adaptor(state.rounds)
+                adapted = str(continue_adaptor(state.rounds) or "").strip()
+                if adapted:
+                    prior = str(state.reviewer_next_action or "").strip()
+                    state.reviewer_next_action = (
+                        "## Scientist alternative playbook for the next round\n"
+                        + adapted
+                        + (
+                            "\n\n## Reviewer guidance\n" + prior
+                            if prior
+                            else ""
+                        )
+                    )
             except Exception:  # noqa: BLE001 — adaptation is advisory
                 log.debug("continue adaptor failed", exc_info=True)
         return control_proceed()
