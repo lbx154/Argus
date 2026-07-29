@@ -14,7 +14,7 @@ Use this skill when a paper may contain local execution details that do not belo
 
 ## When to use
 - After editing Method, Experimental Setup, captions, tables, reproducibility appendix, or any configuration prose.
-- When validator output mentions `paper_infrastructure_*`, stale infrastructure review hashes, or final readiness is blocked by missing infrastructure review.
+- When validator output mentions `paper_infrastructure_*`, an infrastructure review generated before current sources, or final readiness is blocked by missing infrastructure review.
 - When the reviewer suspects environment, device, cache, local path, Argus/Codex daemon, route, or paper-generation details entered the paper.
 
 ## What to reject

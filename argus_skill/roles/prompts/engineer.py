@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ...core.model_visible_text import sanitize_model_visible_text
 from ..task_contract import EFFECTIVE_TASK_CONTRACT
 from .types import RoleName, RolePromptRequest
 
@@ -23,8 +24,8 @@ _LONG_EXPERIMENT_RULE = (
 
 def append_live_guidance(prompt: str, guidance: list[str]) -> str:
     if not guidance:
-        return prompt
-    return (
+        return sanitize_model_visible_text(prompt)
+    return sanitize_model_visible_text(
         prompt
         + "\n\n## LIVE MANAGER / OPERATOR DIRECTIVES — HIGHEST PRIORITY\n"
         + "These directives may stop, narrow, or correct the current mission. "
@@ -54,8 +55,8 @@ def assemble_round_prompt(
         if block
     ]
     if not tail:
-        return prompt
-    return prompt + "\n\n" + "\n\n".join(tail)
+        return sanitize_model_visible_text(prompt)
+    return sanitize_model_visible_text(prompt + "\n\n" + "\n\n".join(tail))
 
 
 def build_mission_prompt(
@@ -84,8 +85,7 @@ def build_mission_prompt(
         sections.append(
             "## Original operator request\n"
             "Higher-priority live operator instructions may update this; "
-            "lower-authority guidance may not silently change it.\n\n"
-            + original_request.strip()
+            "lower-authority guidance may not silently change it.\n\n" + original_request.strip()
         )
     sections.append("## Current mission task\n" + task)
     # The Engineer is the role that can most easily satisfy a task while
@@ -112,8 +112,7 @@ def build_mission_prompt(
         delta_sections.append(
             "## Reviewer guidance from prior round\n"
             "The previous round was judged incomplete. Address the\n"
-            "following before declaring done:\n\n"
-            + next_action
+            "following before declaring done:\n\n" + next_action
         )
     sections.append(
         "## This turn\n"
@@ -127,8 +126,7 @@ def build_mission_prompt(
         "before editing and avoid rereads; run at most "
         f"{max(1, int(test_run_budget))} focused verification commands plus the "
         "decisive verifier. Exceed only after a concrete failure or code change. "
-        "Use `.autors/*/wiki` only for durable declarative knowledge.\n"
-        + _LONG_EXPERIMENT_RULE
+        "Use `.autors/*/wiki` only for durable declarative knowledge.\n" + _LONG_EXPERIMENT_RULE
     )
     sections.append(
         "## Handoff\n"
@@ -141,7 +139,7 @@ def build_mission_prompt(
         "independent Reviewer examines the round.\n"
         "An empty `git diff` is evidence only for tracked paths: check with "
         "`git ls-files --error-unmatch -- <path>` first. For untracked or "
-        "outside-repository artifacts, verify direct content or hashes instead.\n"
+        "outside-repository artifacts, verify their direct content instead.\n"
         "End with a short, natural account of what changed and the decisive "
         "check or observation. Do not recite a checklist or build an evidence "
         "packet; include only details the next researcher needs. A fresh Reviewer "
@@ -155,7 +153,9 @@ def build_mission_prompt(
     static_text = "\n\n".join(sections)
     delta_text = "\n\n".join(delta_sections)
     if include_static:
-        return static_text + ("\n\n" + delta_text if delta_text else "")
+        return sanitize_model_visible_text(
+            static_text + ("\n\n" + delta_text if delta_text else "")
+        )
     compact = (
         "## Continuation turn\n"
         "Read the shared CHECKPOINT.md first. Execute its current Next Action "
@@ -168,7 +168,7 @@ def build_mission_prompt(
         "End with a concise natural summary and decisive check. If you changed "
         "code, build the packages you touched before calling it done."
     )
-    return compact + ("\n\n" + delta_text if delta_text else "")
+    return sanitize_model_visible_text(compact + ("\n\n" + delta_text if delta_text else ""))
 
 
 def mission_request(project_root: Path | str) -> RolePromptRequest:

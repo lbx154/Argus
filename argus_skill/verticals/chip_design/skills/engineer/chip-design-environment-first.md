@@ -179,7 +179,7 @@ tokens/s, watts, and joules/token. Preserve distributions and regressions.
 ### 9. Sign off without overstating
 
 Write `signoff/ARTIFACT_MANIFEST.json`, `signoff/SIGNOFF.json`, and `RESULTS.md`.
-Hash-bind source and decisive artifacts, record reproduction commands, licenses,
+Record source revisions and decisive artifact paths, reproduction commands, licenses,
 known limitations, failed attempts, Argus role trajectories, and operator
 interventions. State exactly which delivery level is certified.
 
@@ -214,4 +214,4 @@ workload, a complete model/system demonstration, or an operator-requested
 release. Intermediate operator groups are checkpoints, not release milestones.
 Reference
 prior certified artifacts by hash instead of rewriting them, and never reuse a
-verification/PPA/benchmark result whose recorded RTL-manifest hash is stale.
+verification/PPA/benchmark result whose recorded RTL-manifest source binding is stale.

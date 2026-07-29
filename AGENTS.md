@@ -27,6 +27,12 @@ Manager 和 Planner 必须把其余负结果用于诊断与重规划，不能把
 角色规则；优先用文件状态、按需 checklist 和一个权威短契约。必须保留关键证据/gate，
 但新增长文案前先测 prompt 大小，并为常见路径设置回归预算。
 
+**Model evidence boundary:** checksum / content digest / commit id 只允许作为宿主机内部的
+缓存、去重、损坏检测和原子身份元数据。四个角色的模型不得读取、复述、比较这些不透明值，
+也不得用它们判断 freshness、correctness、provenance、completion 或 contradiction；纯 hash
+差异永远不能触发 `continue` / `blocked` / `replan_requested`。语义裁决必须基于直接内容、
+结构化字段、时间、命令/测试输出、指标和人类可读 provenance。
+
 **Checklist ownership:** vertical/framework 提供 seed；Planner 通过
 `checklist_ops` 独占项目 checklist 写权限；Reviewer 只有 `checklist_feedback`；Engineer
 不得用 harness overlay 增删 checklist。`research/CHECKLISTS.json` 必须带 vertical，和当前

@@ -116,7 +116,7 @@ Optionally record renderer/source metadata in `FIGURE_PROVENANCE.json` when it
 helps later repair. This metadata is not a paper-readiness gate. Image-2 outputs
 may additionally retain `IMAGE2_FIGURES.json`.
 
-Each figure needs a stable ID/filename, claim binding, source/input hashes,
+Each figure needs a stable ID/filename, claim binding, source/input paths and versions,
 renderer, regeneration command, dimensions, review artifact, caption plan,
 LaTeX label, and in-text reference plan.
 

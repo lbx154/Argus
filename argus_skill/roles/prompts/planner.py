@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from ...core.model_visible_text import sanitize_model_visible_text
 from .types import ChecklistMode, RoleName, RolePromptRequest
 
 CONTINUOUS = "continuous"
@@ -39,7 +40,8 @@ create or refine those knowledge pages under its own evidence rules.
   `current_stage`; Planner and Engineer never edit it.
 - Report `PROJECT_DONE=true` only when the operator objective and its hard success
   criteria are actually satisfied and no independent high-impact work remains.
-  Integrity and reproducibility are admission constraints, not value by themselves.
+  Integrity and reproducibility are admission constraints, not value by themselves;
+  opaque checksum/digest values are never evidence or blockers.
   Empty backlog, an honestly reported negative result, or a failed approach is not
   automatically completion. A failed thesis is project evidence, not a routing command;
   inspect implementation adequacy, construct fidelity, and what the result changes,
@@ -90,7 +92,7 @@ _EXTERNAL_TARGET_CONTRACT = (
 def _join_prompt_blocks(*blocks: str) -> str:
     """Join only applicable prompt modules with one stable separator."""
     rendered = [block.strip() for block in blocks if block and block.strip()]
-    return "\n\n".join(rendered) + "\n"
+    return sanitize_model_visible_text("\n\n".join(rendered) + "\n")
 
 
 def continuous_request(
@@ -119,7 +121,7 @@ def preview_request(project_root: Path | str) -> RolePromptRequest:
 
 
 def build_bounded_dag_prompt(objective: str) -> str:
-    return (
+    return sanitize_model_visible_text(
         "You are the bounded-task Planner. Decompose the Manager handoff into a "
         "small executable backlog DAG; do not solve the task and do not create files.\n\n"
         "Rules:\n"
@@ -425,11 +427,7 @@ def build_continuous_prompt(
     wiki_block = ""
     autors_root = _proot / ".autors"
     wiki_candidates = sorted(autors_root.glob("*/wiki")) if autors_root.exists() else []
-    wiki_candidates = [
-        w
-        for w in wiki_candidates
-        if (w / "query_pack.md").exists()
-    ]
+    wiki_candidates = [w for w in wiki_candidates if (w / "query_pack.md").exists()]
     if wiki_candidates:
         parts: list[str] = ["## Shared project knowledge wiki (direct read/write)\n"]
         for wiki_root in wiki_candidates:

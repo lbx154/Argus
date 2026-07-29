@@ -6,6 +6,7 @@ important test in argus-skill — if it fails, the loop is broken at the
 top level. On a matcher miss the Scientist may author an immediately active
 project-layer skill, and the loop records the reviewed use for later evolution.
 """
+
 from __future__ import annotations
 
 import json
@@ -168,32 +169,38 @@ def test_nearest_transfer_ignores_self_reinforcing_task_history() -> None:
 
 
 def _continue_review() -> str:
-    return json.dumps({
-        "status": "continue",
-        "reason": "Engineer started but did not yet meet the criterion.",
-        "next_action": "Print the actual greeting and confirm.",
-        "round_summary_markdown": "# Review Summary\n\n- Round 1 incomplete.\n",
-        "completion_summary_markdown": "",
-    })
+    return json.dumps(
+        {
+            "status": "continue",
+            "reason": "Engineer started but did not yet meet the criterion.",
+            "next_action": "Print the actual greeting and confirm.",
+            "round_summary_markdown": "# Review Summary\n\n- Round 1 incomplete.\n",
+            "completion_summary_markdown": "",
+        }
+    )
 
 
 def _done_review() -> str:
-    return json.dumps({
-        "status": "done",
-        "reason": "Greeting was produced as required.",
-        "next_action": "No further action needed.",
-        "round_summary_markdown": "# Review Summary\n\n- Greeting printed.\n",
-        "completion_summary_markdown": "Done.",
-    })
+    return json.dumps(
+        {
+            "status": "done",
+            "reason": "Greeting was produced as required.",
+            "next_action": "No further action needed.",
+            "round_summary_markdown": "# Review Summary\n\n- Greeting printed.\n",
+            "completion_summary_markdown": "Done.",
+        }
+    )
 
 
 def _scope_change_review() -> str:
-    return json.dumps({
-        "status": "replan_requested",
-        "reason": "The baseline exposed a defect outside this mission's non-goals.",
-        "next_action": "Authorize a scoped correctness-repair mission before rerunning the baseline.",
-        "operator_question": None,
-    })
+    return json.dumps(
+        {
+            "status": "replan_requested",
+            "reason": "The baseline exposed a defect outside this mission's non-goals.",
+            "next_action": "Authorize a scoped correctness-repair mission before rerunning the baseline.",
+            "operator_question": None,
+        }
+    )
 
 
 def _seed_skill(skills_dir: Path) -> None:
@@ -205,10 +212,15 @@ def _seed_skill(skills_dir: Path) -> None:
 
 
 def _match_hello() -> CannedResponse:
-    return CannedResponse(message=json.dumps({
-        "matched": [{"name": "Write a hello message", "fit": "high",
-                     "why": "greeting task"}],
-    }))
+    return CannedResponse(
+        message=json.dumps(
+            {
+                "matched": [
+                    {"name": "Write a hello message", "fit": "high", "why": "greeting task"}
+                ],
+            }
+        )
+    )
 
 
 def test_skill_loop_matched_then_two_rounds_to_done(tmp_path: Path) -> None:
@@ -222,9 +234,12 @@ def test_skill_loop_matched_then_two_rounds_to_done(tmp_path: Path) -> None:
     backend.queue("engineer-r1", CannedResponse(message="Read the task. Will print greeting next."))
     backend.queue("reviewer", CannedResponse(message=_continue_review()))
     # Round 2: engineer finishes; reviewer says done
-    backend.queue("engineer-r2", CannedResponse(
-        message="Done: printed 'hello world'. Verified output. Remaining: none.",
-    ))
+    backend.queue(
+        "engineer-r2",
+        CannedResponse(
+            message="Done: printed 'hello world'. Verified output. Remaining: none.",
+        ),
+    )
     backend.queue("reviewer", CannedResponse(message=_done_review()))
 
     mission_context = create_mission_context(
@@ -234,12 +249,14 @@ def test_skill_loop_matched_then_two_rounds_to_done(tmp_path: Path) -> None:
         scope="bounded",
         objective="say hi to the user",
         acceptance_check="the greeting is printed",
-        context_refs=[{
-            "kind": "artifact",
-            "ref": "request.txt",
-            "why": "requested wording",
-            "content_hash": "",
-        }],
+        context_refs=[
+            {
+                "kind": "artifact",
+                "ref": "request.txt",
+                "why": "requested wording",
+                "content_hash": "",
+            }
+        ],
     )
     loop = SkillLoop(
         skills_dir=skills_dir,
@@ -263,9 +280,7 @@ def test_skill_loop_matched_then_two_rounds_to_done(tmp_path: Path) -> None:
 
     # Continuation rounds omit the large static contract but retain the short
     # concrete Reviewer instruction alongside CHECKPOINT.md.
-    r2_prompt = next(
-        prompt for label, prompt, _ in backend.history if label == "engineer-r2"
-    )
+    r2_prompt = next(prompt for label, prompt, _ in backend.history if label == "engineer-r2")
     assert "Print the actual greeting" in r2_prompt
     assert "## Continuation turn" in r2_prompt
     assert "## Current mission task" not in r2_prompt
@@ -374,9 +389,7 @@ def test_matched_skill_is_adapted_with_one_low_effort_call(tmp_path: Path) -> No
 
     assert outcome.successful
     adapter_prompt, adapter_options = next(
-        (prompt, options)
-        for label, prompt, options in backend.history
-        if label == "skill-adapter"
+        (prompt, options) for label, prompt, options in backend.history if label == "skill-adapter"
     )
     assert "Closest reusable skill" in adapter_prompt
     assert "at most 8 short bullets" in adapter_prompt
@@ -391,8 +404,9 @@ def test_matched_skill_is_adapted_with_one_low_effort_call(tmp_path: Path) -> No
     )
     assert "Engineer skill pointer (on demand)" in reviewer_prompt
     assert "Write a hello message" in reviewer_prompt
-    assert "Expected version/hash" in reviewer_prompt
-    assert "sha256:" in reviewer_prompt
+    assert "Expected version:" in reviewer_prompt
+    assert "Expected version/hash" not in reviewer_prompt
+    assert "sha256:" not in reviewer_prompt
     assert "Do not read it by default" in reviewer_prompt
     assert "## Examples" not in reviewer_prompt
     pointer = reviewer_prompt.split("## Engineer skill pointer (on demand)", 1)[1]
@@ -462,14 +476,10 @@ def test_skill_adapter_reasoning_effort_honors_operator_env(
 
     assert outcome.successful
     adapter_options = next(
-        options
-        for label, _prompt, options in backend.history
-        if label == "skill-adapter"
+        options for label, _prompt, options in backend.history if label == "skill-adapter"
     )
     assert adapter_options.reasoning_effort == "xhigh"
-    started = next(
-        event for event in events if event.get("type") == "skill.transfer.started"
-    )
+    started = next(event for event in events if event.get("type") == "skill.transfer.started")
     assert started["reasoning_effort"] == "xhigh"
 
 
@@ -499,9 +509,7 @@ def test_low_confidence_transfer_uses_compact_hint_without_adapter(
     labels = [label for label, _prompt, _options in backend.history]
     assert labels.count("matcher") == 1
     assert "skill-adapter" not in labels
-    prompt = next(
-        prompt for label, prompt, _options in backend.history if label == "engineer-r1"
-    )
+    prompt = next(prompt for label, prompt, _options in backend.history if label == "engineer-r1")
     assert "Low-confidence transfer hint" in prompt
     assert "Treat this only as an analogy" in prompt
 
@@ -525,9 +533,7 @@ def test_live_manager_guidance_is_injected_at_next_engineer_round(tmp_path: Path
     )
     loop.run("say hi to the user", workdir=tmp_path)
 
-    prompt = next(
-        prompt for label, prompt, _ in backend.history if label == "engineer-r1"
-    )
+    prompt = next(prompt for label, prompt, _ in backend.history if label == "engineer-r1")
     assert "LIVE MANAGER / OPERATOR DIRECTIVES" in prompt
     assert "invent a mathematical tool" in prompt
 
@@ -549,9 +555,7 @@ def test_live_guidance_cannot_silently_broaden_bounded_task(tmp_path: Path) -> N
     )
     loop.run("certify baseline only", workdir=tmp_path, scope="bounded")
 
-    prompt = next(
-        prompt for label, prompt, _ in backend.history if label == "engineer-r1"
-    )
+    prompt = next(prompt for label, prompt, _ in backend.history if label == "engineer-r1")
     assert "do not silently broaden a structured bounded task" in prompt
     assert "request Reviewer/Planner replanning" in prompt
 
@@ -561,13 +565,20 @@ def test_skill_loop_blocked_short_circuits(tmp_path: Path) -> None:
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
     backend.queue("distiller", CannedResponse(message=SKILL_MD))
     backend.queue("engineer-r1", CannedResponse(message="Cannot proceed: missing API key."))
-    backend.queue("reviewer", CannedResponse(message=json.dumps({
-        "status": "blocked",
-        "reason": "Missing required credential.",
-        "next_action": "Provide API key.",
-        "round_summary_markdown": "# Review\n\n- blocked on credential\n",
-        "completion_summary_markdown": "",
-    })))
+    backend.queue(
+        "reviewer",
+        CannedResponse(
+            message=json.dumps(
+                {
+                    "status": "blocked",
+                    "reason": "Missing required credential.",
+                    "next_action": "Provide API key.",
+                    "round_summary_markdown": "# Review\n\n- blocked on credential\n",
+                    "completion_summary_markdown": "",
+                }
+            )
+        ),
+    )
 
     loop = SkillLoop(
         skills_dir=tmp_path / "skills",
@@ -636,9 +647,12 @@ def test_repeated_rejections_do_not_spawn_separate_scientist(
 def test_skill_loop_matcher_miss_defers_creation_to_engineer(tmp_path: Path) -> None:
     backend = MemoryBackend()
     backend.queue("matcher", CannedResponse(message='{"matched": []}'))
-    backend.queue("engineer-r1", CannedResponse(
-        message="Done: solved with the scientist skill. Remaining: none.",
-    ))
+    backend.queue(
+        "engineer-r1",
+        CannedResponse(
+            message="Done: solved with the scientist skill. Remaining: none.",
+        ),
+    )
     backend.queue("reviewer", CannedResponse(message=_done_review()))
 
     loop_events: list[dict] = []

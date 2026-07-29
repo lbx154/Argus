@@ -255,7 +255,7 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 3. Locate all source surfaces that can generate or invalidate the blocker.
 4. Apply the minimal complete fix in source/generator/raw evidence.
 5. Regenerate affected artifacts in dependency order.
-6. Refresh manifests, reviews, and preflight artifacts whose source/PDF hashes changed.
+6. Refresh manifests, reviews, and preflight artifacts after their source or PDF changes.
 7. Run targeted validation for the blocker.
 8. Run broader validation if the change affects shared source, public behavior, paper readiness, experiment claims, figure provenance, or review hashes.
 9. Stop only when the blocker is gone or when a new operator decision is required.

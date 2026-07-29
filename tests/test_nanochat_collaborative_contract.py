@@ -46,6 +46,8 @@ def test_engineer_and_reviewer_preserve_real_fa4_and_scrubbed_provenance():
     assert "exact pinned upstream FA-4 source/revision" in engineer
     assert "result + insight" in engineer
     assert "ONE-run/1-seed screen first" in engineer
-    assert "source_log_sha256" in reviewer
-    assert "stale digest needs record repair" in reviewer
+    assert "source-log metadata" in reviewer
+    assert "source_log_sha256" not in reviewer
+    assert "stale provenance metadata needs record repair" in reviewer
+    assert "stale digest" not in reviewer
     assert "Do NOT demand multi-seed repeats" in reviewer

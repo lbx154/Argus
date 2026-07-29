@@ -32,7 +32,7 @@ dependency to satisfy the checklist.
 - Confirm dependencies import or execute from the project environment rather
   than the Argus framework environment.
 - For Python projects, prefer `./.venv/bin/python` when the project uses a venv.
-- Record package lock/config hashes when they are claim-relevant.
+- Record package-lock and configuration versions when they are claim-relevant.
 
 Example:
 

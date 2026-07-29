@@ -89,7 +89,8 @@ def test_engineer_does_not_treat_empty_git_diff_as_untracked_evidence():
 
     assert "git ls-files --error-unmatch" in out
     assert "untracked" in out.lower()
-    assert "direct content or hashes" in out.lower()
+    assert "verify their direct content" in out.lower()
+    assert "hashes" not in out.lower()
 
 
 def test_engineer_fixed_prompt_stays_token_efficient():

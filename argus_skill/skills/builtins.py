@@ -150,6 +150,7 @@ _RETIRED_BUILTIN_DIGESTS: dict[str, set[str]] = {
     },
     "engineer/nanochat-autoresearch-hands-on-trace.md": {
         "5e21060a1674314e0d48d9c38d37fcfcf9614764405160e0d2d66eee94dc5c69",
+        "453a1fda46d46f40b24f7e21ba828514ab9f81f984737d20eb9ad4b8e92735fa",
     },
     "engineer/nanochat-autoresearch-sota-optimization.md": {
         "98a4b6735a6f017ad0d2887409729e02827c1a5637a39c08abb0c0675a4604af",

@@ -7,6 +7,10 @@ import sys
 from pathlib import Path
 from typing import Any, Mapping
 
+from ...core.model_visible_text import (
+    MODEL_INTEGRITY_BOUNDARY,
+    sanitize_model_visible_text,
+)
 from .types import ChecklistMode, RoleName, RolePromptRequest
 
 EVALUATE = "evaluate"
@@ -55,9 +59,7 @@ def _project_has_wiki(
         return False
     from ...wiki.bootstrap import is_initialized_wiki
 
-    return any(
-        is_initialized_wiki(p / "wiki") for p in autors.iterdir() if p.is_dir()
-    )
+    return any(is_initialized_wiki(p / "wiki") for p in autors.iterdir() if p.is_dir())
 
 
 def _load_wiki_curator_skill_if_present(
@@ -82,15 +84,9 @@ def _direct_memory_edit_block(
     if skill_dir_value is None:
         skill_dir_value = getattr(skill_store, "skills_dir", None)
     skill_dir = (
-        Path(skill_dir_value).expanduser().resolve()
-        if skill_dir_value is not None
-        else None
+        Path(skill_dir_value).expanduser().resolve() if skill_dir_value is not None else None
     )
-    project_root = (
-        Path(working_dir).expanduser().resolve()
-        if working_dir
-        else Path.cwd().resolve()
-    )
+    project_root = Path(working_dir).expanduser().resolve() if working_dir else Path.cwd().resolve()
     wiki_roots: list[Path] = []
     try:
         from ...wiki.auto_hooks import discover_wikis
@@ -146,7 +142,7 @@ def _verification_directive() -> str:
         "stale, contradictory, or implausible material fact; otherwise judge the "
         "work and its next step. An empty git diff proves nothing for an untracked "
         "or outside-repository artifact: check tracking first, then use direct "
-        "content, hashes, or another scoped observation.\n\n"
+        "content, schema, command output, or another scoped observation.\n\n"
     )
 
 
@@ -177,11 +173,7 @@ def _engineer_log_audit_block(
         return ""
     call_id = (engineer_call_id or "").strip()
     if compact:
-        scope = (
-            f"current engineer call id `{call_id}`"
-            if call_id
-            else "the current engineer round"
-        )
+        scope = f"current engineer call id `{call_id}`" if call_id else "the current engineer round"
         return (
             "## Engineer execution log (on-demand)\n"
             f"Log: `{path}`; scope: {scope}. Do not read or grep it routinely. "
@@ -323,9 +315,7 @@ def render_reviewer_prompt(
     # is already hard-wired into this prompt.
     _proot = resolve_project_root(working_dir)
     scope_normalized = (scope or "").strip().lower().replace("-", "_")
-    prompt_context = resolve_role_prompt(
-        evaluate_request(_proot, scope=scope_normalized)
-    )
+    prompt_context = resolve_role_prompt(evaluate_request(_proot, scope=scope_normalized))
     _persisted = _persisted_vertical(_proot)
     persisted_prompt_context = (
         resolve_role_prompt(
@@ -366,11 +356,9 @@ def render_reviewer_prompt(
             )
 
     stage = prompt_context.stage
-    _measured = (
-        not _requires_engineering_audit
-        and os.environ.get("ARGUS_SKILL_MEASURED_MODE", "").strip().lower()
-        in ("1", "true", "yes", "on")
-    )
+    _measured = not _requires_engineering_audit and os.environ.get(
+        "ARGUS_SKILL_MEASURED_MODE", ""
+    ).strip().lower() in ("1", "true", "yes", "on")
     # Vertical-native prompt framing: resolve the active vertical and let it
     # supply the top-of-prompt role banner. The rollback / final-submission
     # framing below applies ONLY to a paper vertical (completion_gate ==
@@ -379,10 +367,7 @@ def render_reviewer_prompt(
     # only that vertical's metric instead of paper-pipeline artifacts.
     _full_paper = prompt_context.full_paper
     optimize_banner = prompt_context.role_banner
-    if (
-        prompt_context.requires_independent_review
-        and not _requires_engineering_audit
-    ):
+    if prompt_context.requires_independent_review and not _requires_engineering_audit:
         optimize_banner = ""
     research_target_instruction = ""
     _research_target_level = resolve_research_target_level(_proot)
@@ -450,15 +435,11 @@ def render_reviewer_prompt(
     # for tokens like "main.pdf". `draft` is excluded so mid-production
     # drafting isn't held to final peer-review standards prematurely.
     paper_review_skill_block = _format_academic_paper_review_skill_block(
-        include=(
-            is_final_submission
-            or (_full_paper and stage in {"review", "submission"})
-        ),
+        include=(is_final_submission or (_full_paper and stage in {"review", "submission"})),
     )
     wiki_curator_text = _load_wiki_curator_skill_if_present(working_dir)
     wiki_curator_skill_block = (
-        "## Wiki curator (fixed when a wiki exists)\n"
-        f"{wiki_curator_text}\n\n"
+        f"## Wiki curator (fixed when a wiki exists)\n{wiki_curator_text}\n\n"
         if wiki_curator_text
         else ""
     )
@@ -480,11 +461,7 @@ def render_reviewer_prompt(
     # the stage back — the reviewer does NOT edit the pipeline state machine
     # itself (stage authority is the Manager's). The instruction lives here
     # (not in the individual checklist items) so it applies uniformly.
-    stage_idx = (
-        CANONICAL_STAGE_ORDER.index(stage)
-        if stage in CANONICAL_STAGE_ORDER
-        else 0
-    )
+    stage_idx = CANONICAL_STAGE_ORDER.index(stage) if stage in CANONICAL_STAGE_ORDER else 0
     earlier_stages = ", ".join(CANONICAL_STAGE_ORDER[:stage_idx]) or "(none)"
     rollback_block = (
         "## Upstream defects\n"
@@ -496,9 +473,7 @@ def render_reviewer_prompt(
         "Never edit `research/PIPELINE_STATE.json`."
     )
     operator_text = (
-        "\n".join(f"- {line}" for line in operator_messages)
-        if operator_messages
-        else "- none"
+        "\n".join(f"- {line}" for line in operator_messages) if operator_messages else "- none"
     )
     original_text = (original_objective or objective).strip()
     current_text = objective.strip()
@@ -532,9 +507,7 @@ def render_reviewer_prompt(
     # signal grounded in actual container state, not just the engineer's
     # prose. Empty string → legacy v3 behaviour.
     evidence_block = (
-        f"\nRaw verification evidence:\n{raw_evidence.rstrip()}\n"
-        if raw_evidence.strip()
-        else ""
+        f"\nRaw verification evidence:\n{raw_evidence.rstrip()}\n" if raw_evidence.strip() else ""
     )
     # Background-subagent context (rendered by the engineer/runner from the
     # live ``.argus_subagents`` registry). Present only when this mission has
@@ -570,8 +543,7 @@ def render_reviewer_prompt(
     escalate_block = ""
     if escalate_hint:
         escalate_block = (
-            "## Escalation directive (operator harness — IMPORTANT)\n"
-            f"{escalate_hint}\n\n"
+            f"## Escalation directive (operator harness — IMPORTANT)\n{escalate_hint}\n\n"
         )
     # Engineer execution-log audit (process correctness). The reviewer runs
     # in the project work-tree and only receives the engineer's final
@@ -615,16 +587,14 @@ def render_reviewer_prompt(
         optimize_banner
         + research_target_instruction
         + EFFECTIVE_TASK_CONTRACT
+        + "\n\n"
+        + MODEL_INTEGRITY_BOUNDARY
         + "\n\n## Reviewer role\n"
         "Judge the objective against real evidence and its checklist. Bounded "
         "work may finish before the project; final-submission work may not. Use "
         "`done` for verified completion, `continue` for agent-fixable gaps, and "
         "`blocked` only for operator/external dependencies.\n\n"
-        + (
-            ""
-            if _requires_engineering_audit
-            else _verification_directive()
-        )
+        + ("" if _requires_engineering_audit else _verification_directive())
         + "## Output protocol\n"
         "Reason and use tools normally, and write your review however is "
         "clearest. End the final message with these lines; only they are read, "
@@ -704,11 +674,7 @@ def render_reviewer_prompt(
         + f"{checkpoint_block}"
         + f"{escalate_block}"
         + f"{engineer_log_audit_block}"
-        + (
-            f"Round: {round_index}/{round_max}\n"
-            if round_max > 0
-            else f"Round: {round_index}\n"
-        )
+        + (f"Round: {round_index}/{round_max}\n" if round_max > 0 else f"Round: {round_index}\n")
         + f"Session ID: {session_id or 'none'}\n"
         + f"{shared_context_block}"
         + f"{background_block}"
@@ -717,10 +683,9 @@ def render_reviewer_prompt(
         + f"{main_summary}\n\n"
         + f"{evidence_block}"
     )
-    objective_context = (
-        f"{objective_block}{operator_text}\n"
-        f"{planner_review_instruction or 'none'}"
-    )
+    objective_context = f"{objective_block}{operator_text}\n{planner_review_instruction or 'none'}"
+    static = sanitize_model_visible_text(static)
+    delta = sanitize_model_visible_text(delta)
     owner._last_prompt_block_stats = _prompt_block_stats(
         {
             "static_total": static,
@@ -746,7 +711,7 @@ def render_reviewer_prompt(
 
 def assemble_reviewer_prompt(static: str, delta: str) -> str:
     """Form the exact prompt sent to a fresh Reviewer session."""
-    return static + delta
+    return sanitize_model_visible_text(static + delta)
 
 
 __all__ = [

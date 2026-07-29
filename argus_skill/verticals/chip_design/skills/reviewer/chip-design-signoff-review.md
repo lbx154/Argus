@@ -123,7 +123,7 @@ candidate arithmetic with unmatched INT8 resources without quality/resource acco
 ## Autonomy and artifact provenance
 
 Require role/DAG/event/checkpoint history, git commits, candidate and rejected attempts,
-raw evaluator/PPA logs, hashes, tool identities, and intervention records. The
+raw evaluator/PPA logs, tool identities, source/artifact paths, and intervention records. The
 controller may prepare public inputs and run sealed evaluation, but controller-authored
 RTL, repaired outputs, or hidden-oracle feedback invalidate an autonomous-design claim.
 

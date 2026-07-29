@@ -46,7 +46,7 @@ information density, whitespace, column balance, and figure/table readability.
 Never adjust content merely to match an exemplar's counts, and never edit the
 facts file by hand.
 
-If a candidate exemplar does not pass suitability, fetch a better one — do not draft from a bad template. Hand-typed EXEMPLAR entries without an actual local PDF are detected (path-exists check + sha256 floor).
+If a candidate exemplar does not pass suitability, fetch a better one — do not draft from a bad template. Hand-typed EXEMPLAR entries without an actual readable local PDF are rejected.
 
 ## When to use
 - Before EMNLP/ACL paper drafting begins.
@@ -107,7 +107,7 @@ After the manuscript exists, write `paper/style_ref/STRUCTURE_CONFORMANCE.md` an
 1. Find official sources first: ACL Anthology paper page, official EMNLP/ACL awards page, arXiv only when conference PDF metadata is unavailable.
 2. Download the PDF into `paper/style_ref/exemplars/<slug>/paper.pdf`.
 3. Extract text into `paper/style_ref/exemplars/<slug>/paper.txt`.
-4. Compute `sha256sum paper/style_ref/exemplars/<slug>/paper.pdf` and record it as `pdf_sha256`.
+4. Record the local PDF path, source URL, retrieval date, and license/storage policy.
 5. Write or update `paper/style_ref/EXEMPLAR.json`.
 6. Read the PDFs/text extracts and write `paper/style_ref/STYLE_PROFILE.md` from structural observations only.
 7. Write `paper/style_ref/EXEMPLAR_SUITABILITY.json`; do not lock the primary exemplar until the candidate passes the suitability dimensions and matches a downloaded slug in `EXEMPLAR.json`.

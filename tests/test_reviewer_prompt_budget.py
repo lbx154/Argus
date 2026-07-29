@@ -10,6 +10,7 @@ This test pins a CHARACTER BUDGET on the built non-measured prompt so fixed
 policy prose cannot silently regrow. Task-specific checklists remain allowed;
 role/routing/schema explanations must stay compact.
 """
+
 from __future__ import annotations
 
 import json
@@ -109,9 +110,7 @@ def test_reviewer_does_not_duplicate_identical_objective(monkeypatch):
     assert prompt.count(objective.strip()) == 1
     assert "Task objective:" in prompt
     assert "Original operator request:" not in prompt
-    assert reviewer.last_prompt_block_stats["objective_context"]["chars"] < (
-        len(objective) + 64
-    )
+    assert reviewer.last_prompt_block_stats["objective_context"]["chars"] < (len(objective) + 64)
 
 
 def test_reviewer_keeps_distinct_original_and_mission_objectives(monkeypatch):

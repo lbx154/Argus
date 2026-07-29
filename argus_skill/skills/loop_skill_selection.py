@@ -11,7 +11,6 @@ references were rewritten to ``mission.``/``state.`` attribute access
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import math
 import os
@@ -57,9 +56,7 @@ def _required_playground_reviewer_skill() -> Skill:
     try:
         skill = Skill.parse(path.read_text(encoding="utf-8"), str(path))
     except OSError as exc:
-        raise RuntimeError(
-            "required Chemistry Playground Reviewer skill is unavailable"
-        ) from exc
+        raise RuntimeError("required Chemistry Playground Reviewer skill is unavailable") from exc
     if (
         skill.name != "Chemistry Playground Promotion Gate"
         or skill.category != "chemistry-playground-review"
@@ -83,9 +80,7 @@ def _required_playground_engineer_skill() -> Skill:
     try:
         skill = Skill.parse(path.read_text(encoding="utf-8"), str(path))
     except OSError as exc:
-        raise RuntimeError(
-            "required Chemistry Playground Engineer skill is unavailable"
-        ) from exc
+        raise RuntimeError("required Chemistry Playground Engineer skill is unavailable") from exc
     if (
         skill.name != "Chemistry Playground Bounded Hypothesis Probe"
         or skill.category != "chemistry-playground"
@@ -155,19 +150,18 @@ def _reviewer_engineer_skill_pointer(
     """
     description = " ".join(str(skill.description or "").split())[:80]
     path = str(skill.path or "").replace("`", "'")
-    digest = hashlib.sha256(rendered_skill.encode("utf-8")).hexdigest()[:16]
     lines = [
         "## Engineer skill pointer (on demand)",
         f"- Used by Engineer: `{skill.name}`",
-        f"- Expected version/hash: `{skill.version}` / `sha256:{digest}`",
+        f"- Expected version: `{skill.version}`",
     ]
     if description:
         lines.append(f"- Purpose: {description}")
     if path:
         lines.append(f"- Source: `{path}`")
     lines.append(
-        "- Do not read it by default. If needed for a material claim, verify this "
-        "hash first; current objective/artifacts remain authoritative."
+        "- Do not read it by default. If needed for a material claim, inspect the "
+        "current source directly; current objective/artifacts remain authoritative."
     )
     return "\n".join(lines)
 
@@ -391,9 +385,7 @@ class SkillSelectionMixin:
             ),
         )
         state.reference_skills: list[Skill] = list(state.match.reference_skills)
-        state.skill: Skill | None = (
-            state.primary_skills[0] if state.primary_skills else None
-        )
+        state.skill: Skill | None = state.primary_skills[0] if state.primary_skills else None
         state.strict_skill_hit = state.skill is not None
         state.reference_skills = _ensure_playground_reviewer_reference(
             state.skill,

@@ -15,7 +15,7 @@ version: 2
    - clock domains and reset polarity, synchrony, values, and release behavior;
    - cycle-level protocol timing, backpressure, latency, and throughput;
    - behavior for stalls, boundaries, overflow, illegal inputs, and recovery.
-3. Inspect the available tools instead of assuming them. Prefer project-native commands; then inspect host `PATH`, declared project environments, and already-local container images before reporting a blocker. Never pull an undeclared image or access the network merely to obtain a tool. Record exact versions and image digests; serialize shared Docker/EDA resources with the project lock.
+3. Inspect the available tools instead of assuming them. Prefer project-native commands; then inspect host `PATH`, declared project environments, and already-local container images before reporting a blocker. Never pull an undeclared image or access the network merely to obtain a tool. Record exact human-readable versions and image identities; serialize shared Docker/EDA resources with the project lock.
 4. Keep synthesizable RTL separate from testbench, formal, generated, and report artifacts.
 5. Use `always_comb`/complete combinational assignments and `always_ff`/nonblocking sequential assignments where SystemVerilog is available. Make width casts and signedness explicit.
 6. Build an independent verification oracle. Do not copy the RTL algorithm into the scoreboard and call agreement proof.

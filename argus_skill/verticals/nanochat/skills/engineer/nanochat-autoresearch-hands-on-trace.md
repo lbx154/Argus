@@ -163,7 +163,7 @@ locally measured gate appropriate to the claim.
 Security scrubbing can rewrite completed text logs. If that changes file digests after the run,
 update the manifest's `source_log_sha256` values from the scrubbed artifacts and rerun the
 consistency check. Do not waste another 300-second scorer run when the numeric evidence is already
-valid and only the provenance digest is stale.
+valid and only the provenance metadata is stale.
 
 ### Throughput bought more steps but deleted quality-per-token
 

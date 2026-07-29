@@ -105,7 +105,7 @@ figure in renderer-neutral `FIGURE_PROVENANCE.json`.
 - The output contains no unsupported result, hidden infrastructure detail,
   watermark, stock-logo wall, or accidental code identifier.
 - Caption and figure divide explanatory work cleanly.
-- The accepted raster hash matches generation, inspect, review, provenance, and
+- The accepted raster path and dimensions match generation, inspect, review, provenance, and
   both manifests.
 
 Generate additional layout variants only when the current frozen context needs

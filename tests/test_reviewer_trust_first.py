@@ -49,6 +49,7 @@ def test_directive_trusts_and_drops_reflexive_rerun():
     assert "next step" in d
     assert "empty git diff" in d.lower()
     assert "untracked" in d.lower()
+    assert "hashes" not in d.lower()
     assert len(d) < 420
     # the OLD reflexive "use your own output as ground truth" framing is gone
     assert "use *your own* output as ground truth" not in d

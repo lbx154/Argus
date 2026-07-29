@@ -509,7 +509,8 @@ def test_chip_design_banners_distinguish_delivery_levels() -> None:
     assert "roll back directly to rtl" in manager
     assert "Do not rewrite, rehash, or recertify stable" in manager
     assert "fast capability loop" in manager
-    assert "current design/RTL_MANIFEST.json hash" in manager
+    assert "current design/RTL_MANIFEST.json source revision" in manager
+    assert "RTL_MANIFEST.json hash" not in manager
     assert "Intermediate operator groups" in manager
     assert "complete model/system demonstration" in manager
     assert "freeze that family once" in manager

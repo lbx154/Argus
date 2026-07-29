@@ -178,7 +178,7 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
     ),
     "signoff": (
         _REVIEWER_SKILL,
-        "Perform final clean-room sign-off. Verify source and generated-artifact hashes, license/IP "
+        "Perform final clean-room sign-off. Verify source and generated-artifact content, license/IP "
         "provenance, verification/PPA/prototype/benchmark bindings, reproducible commands, known "
         "limitations, unsupported levels, security/safety findings, intervention history, and claim scope. "
         "For tapeout readiness, require independent DRC/LVS/STA closure and foundry/package checklist "
@@ -406,7 +406,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="signoff.artifact-integrity",
             statement=(
-                "The final manifest hash-binds source, generated artifacts, verification, PPA, prototype, "
+                "The final manifest links source, generated artifacts, verification, PPA, prototype, "
                 "benchmark, tool versions, git identity, and reproduction entry points."
             ),
             evidence_hint="signoff/ARTIFACT_MANIFEST.json and signoff/SIGNOFF.json",
@@ -477,7 +477,7 @@ def role_banner(role: str) -> str:
             "Reviewer-certified, or the operator explicitly requests a release. Intermediate "
             "operator groups such as QKV, RoPE+KV, Attention, or MLP are checkpoints, not release "
             "milestones. Every reused result must still "
-            "bind the current design/RTL_MANIFEST.json hash; stale bindings are never reusable."
+            "bind the current design/RTL_MANIFEST.json source revision; stale bindings are never reusable."
         )
     if normalized == "planner":
         return common + (

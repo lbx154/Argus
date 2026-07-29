@@ -7,6 +7,10 @@ import shlex
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
+from ...core.model_visible_text import (
+    MODEL_INTEGRITY_BOUNDARY,
+    sanitize_model_visible_text,
+)
 from .types import ChecklistMode, RoleName, RolePromptRequest
 
 FRONT_DOOR = "front_door"
@@ -91,8 +95,6 @@ def build_classify_prompt(text: str) -> str:
         f"Message:\n{(text or '').strip()}\n\n"
         "Answer:\n"
     )
-
-
 
 
 def build_chat_prompt(
@@ -350,18 +352,18 @@ def build_fast_vertical_decision_prompt(
     research_target_verticals: Sequence[str] = (),
 ) -> str:
     """Render the compact, tool-free first-pass vertical router prompt."""
-    menu = "\n".join(
-        f"  - `{name}`: {purpose}" for name, purpose in verticals_with_purpose.items()
-    ) or "  (none)"
-    domain_menu = "\n".join(
-        f"  - `{name}`: {purpose}"
-        for name, purpose in (domains_with_purpose or {}).items()
-    ) or "  (none)"
-    existing = ", ".join(f"`{v}`" for v in existing_data_domains) or "(none)"
-    target_verticals = (
-        ", ".join(f"`{name}`" for name in research_target_verticals)
-        or "(none)"
+    menu = (
+        "\n".join(f"  - `{name}`: {purpose}" for name, purpose in verticals_with_purpose.items())
+        or "  (none)"
     )
+    domain_menu = (
+        "\n".join(
+            f"  - `{name}`: {purpose}" for name, purpose in (domains_with_purpose or {}).items()
+        )
+        or "  (none)"
+    )
+    existing = ", ".join(f"`{v}`" for v in existing_data_domains) or "(none)"
+    target_verticals = ", ".join(f"`{name}`" for name in research_target_verticals) or "(none)"
     return (
         "You are the MANAGER performing your fast, tool-free classification pass. "
         "Choose an existing vertical only when the operator's task text makes the "
@@ -420,18 +422,18 @@ def build_vertical_decision_prompt(
     research_target_verticals: Sequence[str] = (),
 ) -> str:
     """Render the grounded vertical and workflow decision prompt."""
-    menu = "\n".join(
-        f"  - `{name}`: {purpose}" for name, purpose in verticals_with_purpose.items()
-    ) or "  (none)"
-    domain_menu = "\n".join(
-        f"  - `{name}`: {purpose}"
-        for name, purpose in (domains_with_purpose or {}).items()
-    ) or "  (none)"
-    existing = ", ".join(f"`{v}`" for v in existing_data_domains) or "(none)"
-    target_verticals = (
-        ", ".join(f"`{name}`" for name in research_target_verticals)
-        or "(none)"
+    menu = (
+        "\n".join(f"  - `{name}`: {purpose}" for name, purpose in verticals_with_purpose.items())
+        or "  (none)"
     )
+    domain_menu = (
+        "\n".join(
+            f"  - `{name}`: {purpose}" for name, purpose in (domains_with_purpose or {}).items()
+        )
+        or "  (none)"
+    )
+    existing = ", ".join(f"`{v}`" for v in existing_data_domains) or "(none)"
+    target_verticals = ", ".join(f"`{name}`" for name in research_target_verticals) or "(none)"
     return (
         "You are the MANAGER of an automated research/engineering pipeline. "
         "Decide which capability VERTICAL and execution WORKFLOW should run the "
@@ -651,8 +653,8 @@ def build_prompt_rewrite_prompt(
         "you can and put the unknowns in `questions`.\n"
         "7. Keep `questions` worth answering: each one should change how the "
         "work is done. Prefer a concrete proposal the operator can accept or "
-        "correct (\"cover the public API, target ~80% line coverage — ok?\") "
-        "over an open prompt (\"what coverage do you want?\").\n\n"
+        'correct ("cover the public API, target ~80% line coverage — ok?") '
+        'over an open prompt ("what coverage do you want?").\n\n'
         "Keep it compact — a short paragraph or a few bullet lines a teammate "
         "can act on, not a specification document.\n\n"
     )
@@ -743,11 +745,7 @@ def build_skill_placement_prompt(
     task: str,
     candidate_verticals: Sequence[str],
 ) -> str:
-    candidates = [
-        value
-        for value in candidate_verticals
-        if isinstance(value, str) and value
-    ]
+    candidates = [value for value in candidate_verticals if isinstance(value, str) and value]
     return (
         "You are the Manager tidying the skill library after a project finished. "
         "A reviewer distilled the playbook below while working this project. "
@@ -773,11 +771,7 @@ def build_skill_placements_prompt(
     skills: Sequence[dict[str, str]],
     candidate_verticals: Sequence[str],
 ) -> str:
-    candidates = [
-        value
-        for value in candidate_verticals
-        if isinstance(value, str) and value
-    ]
+    candidates = [value for value in candidate_verticals if isinstance(value, str) and value]
     return (
         "You are the Manager tidying several project-distilled skills after a "
         "mission. Classify every row independently.\n\n"
@@ -947,7 +941,9 @@ def assemble_manager_prompt(
 ) -> str:
     """Apply all dynamic Manager prompt prefixes in their authoritative order."""
     with_vertical = prepend_manager_vertical_context(prompt, role_banner)
-    return str(role_skill_block or "") + with_vertical
+    return sanitize_model_visible_text(
+        MODEL_INTEGRITY_BOUNDARY + "\n\n" + str(role_skill_block or "") + with_vertical
+    )
 
 
 def _advisory_planner(planner_verdict: Any) -> str:
@@ -959,9 +955,7 @@ def _advisory_planner(planner_verdict: Any) -> str:
             return str(value)
     if isinstance(planner_verdict, dict):
         return str(
-            planner_verdict.get("reason")
-            or planner_verdict.get("headline")
-            or planner_verdict
+            planner_verdict.get("reason") or planner_verdict.get("headline") or planner_verdict
         )
     return str(planner_verdict)
 
@@ -988,14 +982,10 @@ def build_stage_decision_prompt(
     earlier = ", ".join(f"`{stage}`" for stage in stages if str(stage).strip()) or (
         "(none — already first)"
     )
-    advance_target = (
-        f"`{next_stage}`" if next_stage else "(none — already the final stage)"
-    )
+    advance_target = f"`{next_stage}`" if next_stage else "(none — already the final stage)"
     status = str(getattr(review, "status", "") or "")
     reason = str(getattr(review, "reason", "") or "")
-    review_source = str(
-        getattr(review, "review_source", "reviewer") or "reviewer"
-    ).strip()
+    review_source = str(getattr(review, "review_source", "reviewer") or "reviewer").strip()
     planner_waiting = bool(getattr(planner_verdict, "waiting", False))
     waiting_contract = getattr(planner_verdict, "waiting_contract", None)
     waiting_reason = str(
@@ -1003,12 +993,8 @@ def build_stage_decision_prompt(
         or getattr(planner_verdict, "reason", "")
         or ""
     ).strip()
-    recheck_condition = str(
-        getattr(waiting_contract, "recheck_condition", "") or ""
-    ).strip()
-    operator_action_required = bool(
-        getattr(waiting_contract, "operator_action_required", False)
-    )
+    recheck_condition = str(getattr(waiting_contract, "recheck_condition", "") or "").strip()
+    operator_action_required = bool(getattr(waiting_contract, "operator_action_required", False))
 
     source_instructions = ""
     if review_source == "engineer_self_review":
@@ -1060,8 +1046,7 @@ def build_stage_decision_prompt(
             "This blocker requires fresh OPERATOR action. You cannot create or "
             "expand operator authorization; set `resolves_wait=false`. "
             if operator_action_required
-            else
-            "You may set `resolves_wait=true` only when PRE-EXISTING operator "
+            else "You may set `resolves_wait=true` only when PRE-EXISTING operator "
             "authority already shown below or concrete changed evidence satisfies "
             "the recheck condition. Inside an open-ended standing objective, a new "
             "mechanism, benchmark, or evidence-supported framing is an ordinary "
@@ -1101,7 +1086,7 @@ def build_stage_decision_prompt(
         f"Current stage: `{current_stage}`\n"
         f"The ONLY legal ADVANCE target (the immediate next stage): {advance_target}\n"
         f"Legal ROLLBACK targets (earlier stages): {earlier}\n\n"
-        "## Current-stage checklist (what \"done\" requires)\n"
+        '## Current-stage checklist (what "done" requires)\n'
         f"{checklist_md}\n\n"
         "## Latest completion evidence\n"
         f"source: {review_source}\n"

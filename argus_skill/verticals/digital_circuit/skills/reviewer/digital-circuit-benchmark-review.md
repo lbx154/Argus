@@ -9,7 +9,7 @@ version: 1
 
 ## Review protocol
 
-1. Verify the dataset hash, task selection, score definition, evaluator/tool versions, model/backend, budget, and repair cap were frozen before results.
+1. Verify the dataset revision/source, selected task IDs, score definition, evaluator/tool versions, model/backend, budget, and repair cap were frozen before results.
 2. Confirm each task used a unique workspace and that concurrent agents never wrote the same workspace.
 3. Confirm the agent received only allowed prompt/context: no golden patch/output, hidden harness source, other task solution, or network-derived answer.
 4. Confirm every prompt-referenced pre-existing public file was present before generation. Reject and label the task as a packaging defect when a referenced specification/context file is absent; do not allow repeated oracle failures to reconstruct that missing contract.
