@@ -45,7 +45,7 @@ def _line_pattern(keys: Iterable[str]) -> re.Pattern[str]:
     # so the pattern absorbs the decoration rather than the harness rejecting
     # an answer that was perfectly clear to a reader.
     return re.compile(
-        r"^(?:[-*+]\s*)?[`*_]*(?:ARGUS_)?(?P<key>"
+        r"^(?:[-*+]\s*)?(?:[^\w`*]+\s*)?[`*_]*(?:ARGUS_)?(?P<key>"
         + joined
         + r")[`*_]*\s*[:=]\s*(?P<value>.*)$",
         re.IGNORECASE,

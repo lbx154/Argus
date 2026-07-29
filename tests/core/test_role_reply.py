@@ -59,6 +59,18 @@ def test_the_shapes_a_model_actually_writes_are_all_accepted() -> None:
     assert read_float(values, "CONFIDENCE") == 0.9
 
 
+def test_a_leading_status_emoji_does_not_hide_the_decision() -> None:
+    values = read_key_values(
+        "📢 CHOICE=existing\nVERTICAL=software",
+        ("CHOICE", "VERTICAL"),
+    )
+
+    assert values == {
+        "CHOICE": "existing",
+        "VERTICAL": "software",
+    }
+
+
 def test_a_code_fence_around_the_answer_does_not_break_it() -> None:
     reply = "```\nVERTICAL=research\nWORKFLOW_MODE=staged\n```"
 
