@@ -1174,6 +1174,9 @@ class SkillLoopExecuteMixin:
             stage_transition_skipped=ex_state.stage_transition_skipped,
             operator_question=ex_state.operator_question,
             final_review_status=ex_state.final_review_status,
+            final_review_reason=str(
+                getattr(outcome, "final_review_reason", "") or ""
+            ),
         )
 
     @staticmethod
