@@ -49,6 +49,34 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+def _active_manager_directive_for_reviewer(
+    supervised_config: "SupervisedConfig",
+) -> list[str]:
+    """Load the same persistent operator override used by Planner/Engineer."""
+    candidates: list[Path] = []
+    if supervised_config.engineer_log_path:
+        candidates.append(Path(supervised_config.engineer_log_path).expanduser().parent)
+    if supervised_config.context_packet_path:
+        packet = Path(supervised_config.context_packet_path).expanduser()
+        if len(packet.parents) >= 3:
+            candidates.append(packet.parents[2])
+    from ..manager.directive import active_manager_directive_message
+
+    seen: set[Path] = set()
+    for candidate in candidates:
+        try:
+            root = candidate.resolve()
+        except OSError:
+            root = candidate
+        if root in seen:
+            continue
+        seen.add(root)
+        message = active_manager_directive_message(root)
+        if message:
+            return [message]
+    return []
+
+
 class RoundReviewerMixin:
     """Mixin providing ``SupervisedEngineer``'s reviewer-invocation phase."""
 
@@ -85,6 +113,9 @@ class RoundReviewerMixin:
             return self.reviewer.evaluate(
                 objective=objective,
                 original_objective=original_objective or objective,
+                operator_messages=_active_manager_directive_for_reviewer(
+                    supervised_config
+                ),
                 round_index=round_index,
                 round_max=supervised_config.max_rounds,
                 session_id=supervised_config.session_id,

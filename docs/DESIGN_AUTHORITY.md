@@ -66,6 +66,9 @@
   bounded DAG 尚有同计划未完成节点时，可把被提前推进的 stage 恢复到本 mission 的起始
   stage；它不能选择新的科研阶段。
 - Planner 负责 forward planning 和 DAG 替换，不负责 mission 验收。
+- 持久化 active Manager directive 是 operator 级覆盖，必须进入每个 Planner cycle、每个
+  Engineer round 和对应 Reviewer verdict；Reviewer 不能只按已过期的 immutable bounded
+  objective 驳回一个已被该 directive 合法替换的目标。
 - 当前 mission round 固定走 `Engineer -> Reviewer`；不存在活跃的
   `review=skip` Engineer 自审旁路。历史事件和兼容字段可能仍出现
   `engineer_self_review`，但不是当前生产路径。

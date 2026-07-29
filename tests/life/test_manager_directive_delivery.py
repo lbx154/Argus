@@ -4,6 +4,10 @@ import json
 from pathlib import Path
 
 from argus_skill.apps._runtime_execute import _engineer_guidance
+from argus_skill.core.models import ReviewDecision, RunnerResult
+from argus_skill.engineer.round_config import SupervisedConfig
+from argus_skill.engineer.round_reviewer import RoundReviewerMixin
+from argus_skill.engineer.round_state import RoundLoopState
 from argus_skill.life.memory import LifeMemory
 from argus_skill.life.supervisor._constants import PLAN_ERROR
 from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
@@ -80,3 +84,48 @@ def test_active_directive_reaches_each_engineer_round(tmp_path: Path) -> None:
     )
     assert first == [expected]
     assert second == [expected]
+
+
+def test_active_directive_reaches_reviewer(tmp_path: Path) -> None:
+    set_active_manager_directive(tmp_path, "review the replacement target")
+
+    class CaptureReviewer:
+        def __init__(self) -> None:
+            self.kwargs = None
+
+        def evaluate(self, **kwargs):
+            self.kwargs = kwargs
+            return ReviewDecision(status="done", reason="verified", next_action="")
+
+    class Harness(RoundReviewerMixin):
+        def __init__(self) -> None:
+            from argus_skill.reviewer import ReviewerConfig
+
+            self.reviewer = CaptureReviewer()
+            self.reviewer_config = ReviewerConfig(model="test")
+
+    harness = Harness()
+    result = harness._call_reviewer_once(
+        objective="stale bounded task",
+        original_objective="operator objective",
+        round_index=1,
+        supervised_config=SupervisedConfig(
+            engineer_log_path=str(tmp_path / "events.jsonl"),
+        ),
+        workdir=tmp_path,
+        scope="bounded",
+        checkpoint_path=None,
+        reviewer_skill_block=None,
+        escalate_hint="",
+        engineer_result=RunnerResult(exit_code=0, agent_messages=["done"]),
+        engineer_message="implemented replacement",
+        safe_fatal_error=None,
+        process_ownership_note="",
+        state=RoundLoopState(),
+        on_event=None,
+    )
+
+    assert result.status == "done"
+    assert harness.reviewer.kwargs["operator_messages"] == [
+        ACTIVE_MANAGER_DIRECTIVE_PREFIX + "review the replacement target"
+    ]
