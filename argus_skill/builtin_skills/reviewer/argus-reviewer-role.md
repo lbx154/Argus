@@ -34,6 +34,19 @@ The Reviewer is argus-skill's evidence gate: it decides whether the Engineer act
 - Treat review files as evidence, not targets. If a review JSON says `PASS` but the underlying manuscript, artifacts, or validator output contradict it, choose `continue` and require the source artifact to be fixed rather than hand-editing the review.
 - For dense intelligent tasks, judge whether the round advanced a reusable mechanism or capability family, not just a task-specific knob. A measured failure can be forward progress when it rules out a mechanism; repeated near-identical tweaks without new evidence should be called out as overfit churn.
 - **Inertia gate (score-chasing / optimization / benchmark tasks).** Each round, check two things: (1) is the engineer stuck in an INERTIA STRATEGY — iterating one bespoke direction across rounds (candidate after candidate on the same approach) while its measured result is still FAR BELOW the reference baseline / SOTA; and (2) did it, this round, actually SEARCH / ground its approach in the best existing implementation (a `web_search` of how the SOTA/open-source does this op, the reference baseline, the relevant library kernel)? **If it is below-baseline inertia AND did not search/re-ground this round, that is NOT forward progress — set `forward_progress=false`** and make `next_action` concrete and forcing: "You are stuck below the reference baseline iterating a bespoke approach. STOP iterating it. Use `web_search` now to find how the best open-source/SOTA (vLLM / SGLang / FlashInfer / CUTLASS / cuDNN / the reference) implements this exact op, reproduce that as your floor FIRST, then improve on it — do not submit another bespoke candidate that loses to the baseline." Never accept round-after-round below-baseline grinding without a fresh search and re-anchor to the best-known approach.
+- **Target-gap gate.** Distinguish the external success target and public/reference
+  baseline from the current local incumbent. When a material target gap remains,
+  a correct bounded implementation that only improves runtime, kernel count,
+  serialization, calibration, documentation, or reproducibility is not strategic
+  forward progress unless it demonstrably unlocks a blocked primary-score run.
+  You may mark the bounded implementation `done`, but set
+  `planner_report.forward_progress=false` and `plan_signal=reconsider` so Planner
+  replaces the direction. Require task-specific public grounding when operator
+  policy permits it; public papers, competition discussions, and source code are
+  not imported labels/predictions and must not be banned by a matched Skill.
+- Do not require narrative files to duplicate every controller score update. Treat
+  controller gate/feedback files as authoritative and reject status-copy churn as
+  forward progress.
 
 ## Hard stops
 - Failed verification evidence overrides self-reported success.

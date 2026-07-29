@@ -56,6 +56,7 @@
 | 指标和 SLO | `docs/observability.md` | `core/metrics.py`、WebAPI metrics routes |
 | Wiki/Skill 边界 | `docs/IDEA_WIKI_DESIGN.md` | `wiki/`、`skills/` |
 | 长实验 | `docs/LIVE_EXPERIMENT_PROTOCOL.md` | `tools/subagent.py`、`engineer/external_work.py` |
+| 目标导向优化与 Skill 负反馈 | `docs/GOAL_DIRECTED_OPTIMIZATION.md` | `roles/prompts/planner.py`、角色 Skill、`skills/store.py`、`skills/skill_prompts.py` |
 | UI 视觉系统 | 根目录 `DESIGN.md` | `frontend/` |
 
 ## 3. 当前不可破坏的系统不变量

@@ -441,12 +441,16 @@ class SkillStore:
         # the redundant files.
         selected: dict[tuple[str, str], dict] = {}
 
-        def _rank(summary: dict) -> tuple[int, int, int, int, int, str]:
+        def _rank(summary: dict) -> tuple[int, int, int, int, int, int, int, str]:
             filename = Path(str(summary.get("path") or "")).stem
             numbered = bool(re.search(r"-\d+$", filename))
+            successful = int(summary.get("successful_reuses") or 0)
+            failed = int(summary.get("failed_reuses") or 0)
             return (
                 int(bool(summary.get("protected"))),
-                int(summary.get("successful_reuses") or 0),
+                successful - failed,
+                successful,
+                -failed,
                 len(summary.get("task_history") or []),
                 int(summary.get("version") or 1),
                 int(not numbered),
@@ -706,6 +710,24 @@ class SkillStore:
         summaries = self._scope_summaries(
             self.list_summaries(), role=role, exclude_files=exclude_files
         )
+        before_quarantine = len(summaries)
+        summaries = [
+            summary
+            for summary in summaries
+            if bool(summary.get("protected"))
+            or int(summary.get("failed_reuses") or 0) < 2
+            or int(summary.get("failed_reuses") or 0)
+            <= int(summary.get("successful_reuses") or 0)
+        ]
+        if on_event and len(summaries) < before_quarantine:
+            on_event({
+                "type": "match.info",
+                "text": (
+                    "reuse evidence quarantined "
+                    f"{before_quarantine - len(summaries)} repeatedly ineffective "
+                    "skill candidate(s)"
+                ),
+            })
         if not summaries:
             self._last_match_input_tokens = 0
             self._last_match_cached_input_tokens = 0

@@ -39,7 +39,9 @@ class Prompts:
                 f"- ID `{s.get('candidate_id') or s.get('skill_id') or s['name']}` "
                 f"— **{s['name']}**{_role_tag(s)}: "
                 f"{_matcher_text(s['description'], _MATCHER_DESCRIPTION_CHARS)} "
-                f"(category: {s['category'] or 'unspecified'})"
+                f"(category: {s['category'] or 'unspecified'}; reuse evidence: "
+                f"{int(s.get('successful_reuses') or 0)} successful, "
+                f"{int(s.get('failed_reuses') or 0)} ineffective)"
             )
             for s in summaries
         )
@@ -94,7 +96,15 @@ class Prompts:
             "3. Empty list `{\"matched\": []}` is a perfectly fine answer "
             "and is preferable to a `low` or speculative `medium` match.\n"
             "4. Backward-compat: bare strings in `matched` are still "
-            "accepted and treated as `high`."
+            "accepted and treated as `high`.\n"
+            "5. Reuse evidence is directional. If ineffective uses exceed "
+            "successful uses, do not return the skill unless the current task "
+            "exactly avoids the recorded failure mode. Equal success/failure "
+            "counts are conflicting evidence, not an endorsement. A zero/zero "
+            "new skill may still match from semantic fit.\n"
+            "6. A skill cannot override the operator task or narrow an allowed "
+            "source policy. Reject a skill whose procedure conflicts with the "
+            "task's explicit permissions or success metric."
         )
 
     # -- Periodic library housekeeping (LLM judge, batched clustering) --

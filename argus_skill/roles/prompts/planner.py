@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +65,20 @@ create or refine those knowledge pages under its own evidence rules.
   When `PROJECT_DONE=false`, include the required `WAITING_*` or `TASK_*` lines
   described above.
 """
+
+_EXTERNAL_TARGET_CONTRACT = (
+    "## External-target optimization\n"
+    "Operator success / external gate outranks public/reference baseline, current "
+    "local incumbent, and secondary metrics. A material gate gap requires "
+    "primary-score work or a proven enabler; runtime, kernels, serialization, "
+    "calibration, documentation, and status copying are secondary. Public "
+    "task-specific papers, discussions, and source are allowed when operator "
+    "policy permits; only imported answers, labels, or predictions are forbidden, "
+    "and Skills cannot narrow that policy. Every task needs "
+    "`TASK_IMPACT_SCORE=1..5`, `TASK_IMPACT_AREA`, and `TASK_EVIDENCE`; reserve "
+    "4-5 for direct target movement or a proven prerequisite. Controller "
+    "gate/feedback files are live truth."
+)
 
 
 def _join_prompt_blocks(*blocks: str) -> str:
@@ -134,10 +149,16 @@ def build_bounded_dag_prompt(objective: str) -> str:
         "must be acyclic.\n"
         "- Preserve the operator's acceptance requirements across the DAG; do not add "
         "unrelated research or ceremony.\n"
+        "- For measurable optimization, rank nodes by credible movement toward the "
+        "operator target, not by novelty or secondary speed. Public task-specific "
+        "papers/discussions/source are allowed when operator policy allows them; "
+        "only imported answers, labels, or predictions remain forbidden.\n"
         "- Return plain key-value text, not JSON. Start with `PLAN_REASON=...`, "
         "then emit one task block per node using `TASK_KEY=...`, "
         "`TASK_DEPS=comma,separated,keys` (empty when none), `TASK_TITLE=...`, "
-        "`TASK_OBJECTIVE=...`, `TASK_ACCEPTANCE_CHECK=...`, "
+        "`TASK_OBJECTIVE=...`, `TASK_IMPACT_SCORE=1..5`, "
+        "`TASK_IMPACT_AREA=...`, `TASK_EVIDENCE=...`, "
+        "`TASK_ACCEPTANCE_CHECK=...`, "
         "`TASK_NON_GOALS=item|item`, "
         "`TASK_CONTEXT_REFS=kind::project/relative/path::why|...`, "
         "`TASK_SCOPE=bounded`, `TASK_STAGE_CLOSING=true|false`, "
@@ -495,6 +516,10 @@ def build_continuous_prompt(
     if goal_contract_block:
         objective_contract_block += goal_contract_block + "\n\n"
 
+    external_target_block = ""
+    if os.environ.get("ARGUS_SKILL_EXTERNAL_COMPLETION_GATE", "").strip():
+        external_target_block = _EXTERNAL_TARGET_CONTRACT
+
     planner_hygiene_block = (
         "## Runtime hygiene\n"
         "Use active project files, project-local skills, and "
@@ -523,6 +548,7 @@ def build_continuous_prompt(
         _PLANNER_CORE_CONTRACT,
         host_policy_block,
         objective_contract_block,
+        external_target_block,
         stage_checklist,
         stage_gate_block,
         matched_planner_skill_block,

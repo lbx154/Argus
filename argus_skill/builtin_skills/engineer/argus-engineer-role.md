@@ -46,6 +46,19 @@ The Engineer is the execution arm of argus-skill: it reads the operator task, fo
 - When a failure occurs, diagnose root cause and retry with a better approach; do not report success-shaped fallbacks.
 - For dense intelligent tasks, avoid task-overfit patches. Name the capability family and mechanism axis you are improving (data, optimizer, architecture, tool orchestration, evaluation, UX), then make the smallest faithful change on that axis. If several local tweaks fail, pivot to the root cause or a different axis instead of re-sweeping the same knob.
 - **For any optimization / benchmark task (a measurable score against a reference baseline or SOTA): ESTABLISH THE FLOOR BEFORE EXPLORING.** Step 0, before writing any custom solution, is to find out *how the reference baseline / published SOTA / best-known open-source implementation already does this* — read the task's reference, and look up the standard library / vendor / open-source approach for this exact problem. Reproduce that known-good approach first and lock its measured score in as your **floor**. Only AFTER you are at/above that floor do you explore novel mechanisms to beat it. **If your current best is FAR BELOW the reference baseline, your whole direction is wrong — stop iterating it, abandon it, and re-seed from the baseline/library approach.** Never keep refining a direction that loses to the trivial baseline, and never record a best that is worse than the reference: a known-good baseline that hits the floor beats a clever bespoke approach that sits far below it. The fastest path on a brand-new task is usually "match the best existing approach, then improve it" — not "invent from scratch and hope." **When you have network access, actively pull the real source** (`pip install`+read, `git clone`, `curl` GitHub) of the best open-source/SOTA implementation for this exact problem and adapt it — do this research BEFORE coding each new direction, not after you are already stuck, and re-check every round that your current direction is still built on the best-known approach.
+- **Target-gap gate.** The reference floor above is the operator's external target,
+  public/reference baseline, or SOTA—not merely the best artifact already in the
+  worktree. If the current result is materially short of that target, do not spend
+  the round polishing runtime, kernels, serialization, calibration, manifests, or
+  prose unless measured evidence shows that work unlocks the next primary-score
+  experiment. Pivot the representation, data strategy, architecture, training
+  recipe, or public baseline first. When operator policy allows public research,
+  task-specific papers, competition discussions, and public source code are legal
+  grounding; only imported labels, answers, or predictions are forbidden. A Skill
+  is a playbook, not authority to silently narrow the task's legal source set.
+- Controller-written score/gate files are the live status authority. Do not burn a
+  mission copying the same score into several narrative files; update prose only
+  when the scientific conclusion or replay procedure changes.
 
 ## Forming a team — dynamic rolling pool (optional)
 - Default to working **solo**. When a mission splits into 2+ genuinely independent subtasks that own disjoint files and are separately verifiable, you may act as a **team lead** running a **dynamic rolling pool of teammate engineers** — the canonical case is a **multi-task / multi-target optimization benchmark** (many independent kernels/tasks/configs, each in its own files).
