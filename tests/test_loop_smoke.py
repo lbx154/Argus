@@ -125,6 +125,23 @@ def test_selective_post_task_learning_can_be_disabled(monkeypatch) -> None:
     assert SkillLoopConfig().require_post_task_learning is False
 
 
+def test_forced_learning_requires_skill_and_wiki_memory() -> None:
+    from argus_skill.roles.prompts.engineer import build_mission_prompt
+
+    prompt = build_mission_prompt(
+        task="repair the config loader",
+        skill_text="",
+        next_action=None,
+        require_post_task_learning=True,
+        force_post_task_learning=True,
+        project_skill_dir="/tmp/skills",
+    )
+
+    assert "one reusable Engineer skill" in prompt
+    assert "exactly one concise declarative knowledge page" in prompt
+    assert "`status: scratch`" in prompt
+
+
 def test_selective_post_task_learning_honors_persisted_disable(
     tmp_path: Path,
     monkeypatch,

@@ -93,7 +93,16 @@ def _post_task_learning_section(
             "You have file and shell tools. After verification and before you "
             f"hand off, {action} {target} directly in the project skill "
             "directory. Record the reusable mechanism, the approach that "
-            "failed, and the decisive verification.\n"
+            "failed, and the decisive verification. Also create or update exactly "
+            "one concise declarative knowledge page under the initialized project "
+            "wiki `pages/` tree: retain a durable repository fact, structure, or "
+            "mechanism learned here, not the procedure already stored in the Skill. "
+            "Prefer refining a related page over creating a duplicate. Follow a "
+            "neighboring page's frontmatter; if none exists, provide `id`, `type` "
+            "(fact/concept/principle/relationship), `status: scratch`, `title`, "
+            "`tags`, `sources`, `related_runs`, `related_projects`, "
+            "`revisit_after`, `created_at`, `last_reviewed_at`, and "
+            "`reviewer_note`.\n"
             + rules
         )
     return (
