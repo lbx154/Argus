@@ -14,6 +14,9 @@
 
 本地指标变好但没有缩小第 1 层差距，不自动构成 forward progress。只有当次级指标被
 实测证明会阻塞下一次主指标实验时，它才是高影响 prerequisite。
+存在 controller-owned external completion gate 时，框架保留 vertical 的 stage/checklist，
+但不注入可能重定义目标的 vertical role banner；例如 accuracy 竞赛不得被 speedrun banner
+改写成“必须发明 kernel、禁止 task-specific 公开资料”。
 
 ## 2. 公开资料边界
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from . import engineer, manager, planner, reviewer
@@ -80,6 +81,12 @@ class RolePromptCatalog:
 
         vertical_module = load_vertical(vertical, project_root=root)
         vertical_banner = vertical_role_banner(vertical_module, banner_role)
+        # A controller-owned external gate is a stronger objective contract than
+        # a generic vertical's optimization style. Keep the stage/checklist state,
+        # but suppress a vertical banner that can otherwise redefine the task
+        # (for example speedrun's kernel-invention mandate on an accuracy contest).
+        if os.environ.get("ARGUS_SKILL_EXTERNAL_COMPLETION_GATE", "").strip():
+            vertical_banner = ""
         role_banner = vertical_banner
         domain = ""
         domain_banner = ""
