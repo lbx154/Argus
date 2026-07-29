@@ -105,6 +105,17 @@ argus-skill --config-help
 `ARGUS_SKILL_REQUIRE_RELEASE_MATCH=1` 会在 loaded source 与构建 release 不一致时拒绝
 daemon/WebAPI 启动。开发默认关闭；生产或受监督部署建议开启。
 
+### WebAPI session roots
+
+- WebAPI 的 primary root 仍由 `ARGUS_SKILL_HOME`（或默认 global root）决定。
+- `ARGUS_SKILL_WEB_SESSION_ROOTS` 是仅在 WebAPI 启动时读取的附加 root 列表，使用操作系统
+  path separator 分隔；服务会解析、去重，并把这些 root 中的 session 一起加入项目列表和
+  命令路由。
+- 该变量适合一个 cockpit 同时观察默认会话和隔离 campaign（例如 MLE）会话。写操作仍按
+  session 实际所属 root 解析，不会把项目迁移到 primary root。
+- 它不是普通 cockpit knob，也不写入 `config.json`；部署脚本必须在每次 WebAPI 重启时显式
+  保留该环境变量。
+
 ## 修改规则
 
 新增一个 operator 会合理设置的 knob 时：
