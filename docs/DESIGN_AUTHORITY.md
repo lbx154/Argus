@@ -72,6 +72,8 @@
 - Reviewer 的有效状态是 `done`、`continue`、`blocked`、
   `replan_requested`。后者直接请求 Planner 替换剩余计划；不存在
   `off|shadow|active` Dynamic Plan 模式或连续 signal 确认机制。
+- `replan_requested` 的原子 plan revision 必须始终携带非空原因。优先使用最终 Reviewer
+  reason；旧事件缺失该字段时使用稳定默认原因，不能因空字符串拒绝替换后重新执行已否定节点。
 - `events.jsonl` 是项目历史事实源；`EventJournal` 是它的投影，不是第二份日志。
 - 项目工作目录与 Argus project state root 是两个不同目录，恢复 session 不得偷偷重绑
   工作目录。

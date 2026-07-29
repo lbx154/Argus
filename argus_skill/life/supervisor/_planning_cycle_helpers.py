@@ -19,7 +19,14 @@ from ..memory import BacklogItem
 
 
 def _revision_reason(revision_request: dict[str, Any]) -> str:
-    return str(revision_request.get("review_reason") or "").strip()
+    for key in ("review_reason", "reason", "stop_reason", "summary"):
+        value = str(revision_request.get(key) or "").strip()
+        if value:
+            return value
+    # A replan request is itself a durable reason to replace the active plan.
+    # Returning an empty string makes the atomic revision reject after Planner
+    # already produced a valid replacement, then reruns the refuted item.
+    return "Reviewer requested replacement of the active plan"
 
 
 def _render_revision_request(

@@ -293,3 +293,9 @@ class LoopOutcome:
         if not self.rounds:
             return {}
         return dict(self.rounds[-1].review.planner_report or {})
+
+    @property
+    def final_review_reason(self) -> str:
+        if not self.rounds:
+            return ""
+        return str(self.rounds[-1].review.reason or "").strip()

@@ -686,7 +686,11 @@ class MissionExecutionSettlementMixin:
             "pricing_status": state.usage_summary.pricing_status,
             "iteration": None,
             "auth_failure": state.auth_failure,
-            "review_reason": str(getattr(outcome, "reason", "") or ""),
+            "review_reason": str(
+                getattr(outcome, "final_review_reason", "")
+                or getattr(outcome, "reason", "")
+                or ""
+            ),
             "expected_plan_id": item.plan_id,
             "expected_plan_version": item.plan_version,
             "context_packet": (
