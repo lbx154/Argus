@@ -41,6 +41,9 @@ Reviewer 分开判断两件事：
 
 前者可以是 `done`，后者仍可为 `planner_report.forward_progress=false` 与
 `plan_signal=reconsider`。这会保留真实工程结果，同时要求 Planner 更换低杠杆路线。
+该字段必须贯通 `ReviewDecision` 与 mission settlement；它是一次 mission 内部的控制
+信号，不扩张公开 review event。Supervisor 只统计 Reviewer 明确给出的布尔判断，不从
+分数或文本关键词自行推断。
 
 ## 5. 状态与上下文
 

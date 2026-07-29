@@ -633,6 +633,10 @@ def render_reviewer_prompt(
         "REASON=<the verdict rationale>\n"
         "NEXT_ACTION=<the Engineer instruction; empty for done>\n"
         "OPERATOR_QUESTION=<operator-only blocker, or none>\n"
+        "FORWARD_PROGRESS=true|false\n"
+        "PLAN_SIGNAL=continue|reconsider\n"
+        "Judge FORWARD_PROGRESS against the operator objective, separately from "
+        "whether this bounded implementation is correctly done.\n"
         "Edit CHECKPOINT.md first as instructed.\n\n"
         + paper_review_skill_block
         + wiki_curator_skill_block

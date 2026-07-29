@@ -566,7 +566,8 @@ class MissionExecutionSettlementMixin:
         )
 
         self._update_no_progress_streak(
-            kind=kind, report={}
+            kind=kind,
+            report=getattr(outcome, "final_planner_report", {}) or {},
         )
 
         cost_sink = state.cost_sink

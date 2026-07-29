@@ -191,6 +191,10 @@ class ReviewDecision:
     reason: str
     next_action: str
     operator_question: str = ""
+    # Strategic judgment is separate from bounded implementation acceptance.
+    # A round may be correctly ``done`` yet still fail to move the operator's
+    # objective; LifeSupervisor uses this signal to surface repeated hollow work.
+    planner_report: dict[str, Any] = field(default_factory=dict)
     # Read-only compatibility for Reviewer verdicts already in flight against
     # the retired JSON schema. New prompts do not request skill_ops; when an old
     # verdict supplies them, the opt-in legacy replay path may still apply them.
@@ -283,3 +287,9 @@ class LoopOutcome:
     @property
     def round_count(self) -> int:
         return len(self.rounds)
+
+    @property
+    def final_planner_report(self) -> dict[str, Any]:
+        if not self.rounds:
+            return {}
+        return dict(self.rounds[-1].review.planner_report or {})

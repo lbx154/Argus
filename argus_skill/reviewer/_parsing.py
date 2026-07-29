@@ -8,6 +8,21 @@ from typing import Any
 from ..core.models import ReviewDecision
 
 _STATUSES = {"done", "continue", "blocked", "replan_requested"}
+_PLAN_SIGNALS = {"continue", "reconsider"}
+
+
+def _planner_report(
+    *,
+    forward_progress: Any = None,
+    plan_signal: Any = None,
+) -> dict[str, Any]:
+    report: dict[str, Any] = {}
+    if isinstance(forward_progress, bool):
+        report["forward_progress"] = forward_progress
+    signal = str(plan_signal or "").strip().lower()
+    if signal in _PLAN_SIGNALS:
+        report["plan_signal"] = signal
+    return report
 
 
 def _strip_markdown_fences(text: str) -> str:
@@ -71,6 +86,7 @@ def parse_decision_text(
         next_action = parsed.get("next_action")
         operator_question = parsed.get("operator_question")
         raw_skill_ops = parsed.get("skill_ops")
+        raw_planner_report = parsed.get("planner_report")
         if status not in _STATUSES:
             continue
         if not isinstance(reason, str) or not reason.strip():
@@ -89,12 +105,27 @@ def parse_decision_text(
             reason=reason.strip(),
             next_action=next_action.strip(),
             operator_question=str(operator_question or "").strip(),
+            planner_report=(
+                _planner_report(
+                    forward_progress=raw_planner_report.get("forward_progress"),
+                    plan_signal=raw_planner_report.get("plan_signal"),
+                )
+                if isinstance(raw_planner_report, dict)
+                else {}
+            ),
             skill_ops=skill_ops,
         )
     return None
 
 
-_VERDICT_KEYS = ("STATUS", "REASON", "NEXT_ACTION", "OPERATOR_QUESTION")
+_VERDICT_KEYS = (
+    "STATUS",
+    "REASON",
+    "NEXT_ACTION",
+    "OPERATOR_QUESTION",
+    "FORWARD_PROGRESS",
+    "PLAN_SIGNAL",
+)
 
 
 def _parse_named_verdict(text: str) -> ReviewDecision | None:
@@ -119,6 +150,16 @@ def _parse_named_verdict(text: str) -> ReviewDecision | None:
         reason=reason.strip()[:5000],
         next_action=read_block(text, "NEXT_ACTION", _VERDICT_KEYS).strip()[:1500],
         operator_question=read_optional(values, "OPERATOR_QUESTION")[:500],
+        planner_report=_planner_report(
+            forward_progress=(
+                True
+                if read_optional(values, "FORWARD_PROGRESS").casefold() == "true"
+                else False
+                if read_optional(values, "FORWARD_PROGRESS").casefold() == "false"
+                else None
+            ),
+            plan_signal=read_optional(values, "PLAN_SIGNAL"),
+        ),
     )
 
 
