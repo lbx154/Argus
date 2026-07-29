@@ -55,6 +55,23 @@ def test_turn_discipline_present_even_for_nonpaper_task():
     assert "spawn subagents" in out.lower()
 
 
+def test_long_experiment_protocol_is_in_every_engineer_turn():
+    full = _prompt("Run one bounded GPU experiment.")
+    compact = SkillLoop._build_engineer_prompt(
+        task="Run one bounded GPU experiment.",
+        skill_text="",
+        next_action="Collect the pending run.",
+        include_static=False,
+    )
+
+    for out in (full, compact):
+        assert "docs/LIVE_EXPERIMENT_PROTOCOL.md" in out
+        assert "supervised subagent" in out.lower()
+        assert "foreground bash" in out.lower()
+        assert "`read_bash`" in out
+        assert "polling" in out.lower()
+
+
 def test_engineer_must_not_spawn_a_subagent_to_impersonate_reviewer():
     out = SkillLoop._build_engineer_prompt(
         task="Repair the run contract and request independent review.",

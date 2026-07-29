@@ -13,6 +13,13 @@ SKILL_ADAPT = "skill_adapt"
 
 OPERATIONS = frozenset({MISSION, SKILL_CREATE, SKILL_ADAPT})
 
+_LONG_EXPERIMENT_RULE = (
+    "Commands expected to run over two minutes must follow "
+    "`docs/LIVE_EXPERIMENT_PROTOCOL.md`: launch the supervised subagent, "
+    "record its run id, and yield or do independent work. Never hold this "
+    "provider turn open with foreground bash, `read_bash`, or polling."
+)
+
 
 def append_live_guidance(prompt: str, guidance: list[str]) -> str:
     if not guidance:
@@ -120,7 +127,8 @@ def build_mission_prompt(
         "before editing and avoid rereads; run at most "
         f"{max(1, int(test_run_budget))} focused verification commands plus the "
         "decisive verifier. Exceed only after a concrete failure or code change. "
-        "Use `.autors/*/wiki` only for durable declarative knowledge."
+        "Use `.autors/*/wiki` only for durable declarative knowledge.\n"
+        + _LONG_EXPERIMENT_RULE
     )
     sections.append(
         "## Handoff\n"
@@ -153,7 +161,9 @@ def build_mission_prompt(
         "Read the shared CHECKPOINT.md first. Execute its current Next Action "
         "and the Reviewer guidance below. Do not repeat an unchanged failing "
         "command; reduce it to the cheapest decisive diagnostic. The original "
-        "task, active vertical, and repository instructions remain binding.\n\n"
+        "task, active vertical, and repository instructions remain binding.\n"
+        + _LONG_EXPERIMENT_RULE
+        + "\n\n"
         "## Handoff\n"
         "End with a concise natural summary and decisive check. If you changed "
         "code, build the packages you touched before calling it done."

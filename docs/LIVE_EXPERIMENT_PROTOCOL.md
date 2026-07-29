@@ -32,7 +32,9 @@ jobs must also declare `--cpu-count N` or `--cpu-ids i,j`.
 
 Do not keep an Engineer turn alive with raw `bash`, a shell `while/sleep` loop,
 or repeated polling. Do not create a second ad-hoc PID registry beside
-`.argus_subagents/`.
+`.argus_subagents/`. A productive worker does not make the surrounding provider
+context cheap: foreground waits and polling retain the entire tool transcript,
+so later model calls repeatedly pay for stale code views and earlier output.
 
 ## 2. Run-directory contract
 
@@ -115,4 +117,3 @@ python -m argus_skill.tools.subagent wait --task-id <task-id>
 Status and reports must be based on durable registry/run files, not private
 process memory. This lets the cockpit, Reviewer and another shell inspect the
 same facts after the launching Engineer turn has ended.
-
