@@ -7,6 +7,8 @@ from typing import Any
 
 import pytest
 
+from argus_skill.apps._runtime import _ExecuteState, _SkillLoopRunner
+from argus_skill.core.models import LoopOutcome, ReviewDecision, RoundRecord
 from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.life.mission_outcome import (
     mission_outcome_class,
@@ -146,6 +148,45 @@ def test_pause_completion_event_includes_outcome_class(tmp_path) -> None:
 
     assert result is not None
     assert _completed_event(sink)["outcome_class"] == "ended"
+
+
+def test_replan_reason_survives_runtime_and_supervisor_adapters(tmp_path) -> None:
+    review_reason = "Reviewer certified that the active node is refuted."
+    loop_outcome = LoopOutcome(
+        status="replan_requested",
+        rounds=[
+            RoundRecord(
+                round_index=1,
+                engineer_message="",
+                engineer_exit_code=0,
+                review=ReviewDecision(
+                    status="replan_requested",
+                    reason=review_reason,
+                    next_action="replace the active plan",
+                ),
+            )
+        ],
+        skill_used=None,
+        skill_distilled=False,
+        final_message="",
+        reason="",
+        workdir=str(tmp_path),
+    )
+    execute_state = _ExecuteState()
+    execute_state.outcome = loop_outcome
+    execute_state.effective_status = "replan_requested"
+    runner = _SkillLoopRunner.__new__(_SkillLoopRunner)
+    runtime_outcome = runner._build_execute_outcome(execute_state)
+    supervisor, _sink = _make_supervisor(tmp_path, runtime_outcome)
+    supervisor.memory.backlog.add(
+        BacklogItem.new(title="replan mission", objective="replace the active plan")
+    )
+
+    result = supervisor.tick()
+
+    assert runtime_outcome.final_review_reason == review_reason
+    assert result is not None
+    assert result["review_reason"] == review_reason
 
 
 def test_daemon_shutdown_is_persisted_as_recoverable_pause(tmp_path) -> None:

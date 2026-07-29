@@ -56,6 +56,7 @@ class _Outcome:
     # cockpit process happened to be tailing events.jsonl at that instant.
     operator_question: str = ""
     final_review_status: str = ""
+    final_review_reason: str = ""
 
 
 # ---------------------------------------------------------------------------
