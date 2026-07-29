@@ -130,6 +130,35 @@ def test_page_card_context_defaults_do_not_override_explicit_metadata():
 
 
 @pytest.mark.parametrize(
+    ("legacy_status", "canonical_status"),
+    [
+        ("observed", "scratch"),
+        ("verified", "candidate"),
+        (" Verified ", "candidate"),
+    ],
+)
+def test_page_card_normalizes_legacy_evidence_statuses(
+    legacy_status: str,
+    canonical_status: str,
+) -> None:
+    legacy = (
+        "---\n"
+        "id: legacy-evidence-status\n"
+        "type: fact\n"
+        f"status: {legacy_status}\n"
+        "title: Legacy evidence status\n"
+        "created_at: 2026-07-29\n"
+        "last_reviewed_at: 2026-07-29\n"
+        "---\n\n"
+        "Body.\n"
+    )
+
+    parsed = parse_frontmatter(legacy, PageCard)
+
+    assert parsed.status == canonical_status
+
+
+@pytest.mark.parametrize(
     "timestamp",
     [
         "'2026-07-18T11:35:16.646+00:00'",

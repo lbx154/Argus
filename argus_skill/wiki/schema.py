@@ -46,6 +46,12 @@ _VALID_TYPES = {
     "pattern",
 }
 _VALID_STATUSES = {"scratch", "candidate", "stable"}
+_LEGACY_STATUS_ALIASES = {
+    # Some agent-authored pages used evidence words where the schema expects a
+    # maturity state.  Keep those pages readable without overstating maturity.
+    "observed": "scratch",
+    "verified": "candidate",
+}
 _VALID_OUTCOMES = {"success", "partial", "failure"}
 
 
@@ -178,6 +184,13 @@ def parse_frontmatter(
     if cls is PageCard:
         # Runtime Engineers may write concise wiki pages while the schema grows.
         # Fill only structural defaults so legacy/minimal cards remain indexable.
+        status = data.get("status")
+        if isinstance(status, str):
+            normalized_status = status.strip().lower()
+            data["status"] = _LEGACY_STATUS_ALIASES.get(
+                normalized_status,
+                normalized_status,
+            )
         data.setdefault("tags", [])
         data.setdefault("sources", [])
         data.setdefault("related_runs", [])

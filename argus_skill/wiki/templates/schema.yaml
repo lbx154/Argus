@@ -46,4 +46,6 @@ sources:
   note:
     required: [id, title, mission_id, created_at, tags]
 
+# Page status is a maturity state, not an evidence-result label. Producers must
+# not write values such as `observed` or `verified` here.
 valid_status: [scratch, candidate, stable]

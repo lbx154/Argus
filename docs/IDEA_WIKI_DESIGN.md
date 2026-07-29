@@ -82,11 +82,17 @@ conflicts. It cites immutable source IDs or real project artifacts. A page must
 not contain a copied mission verdict, task status, handoff, or step-by-step
 workflow.
 
-Statuses describe confidence:
+Statuses describe page maturity, not the result of one observation or check:
 
 - `scratch`: useful claim noticed, still weakly organized or sourced;
 - `candidate`: coherent and supported enough to use with care;
 - `stable`: repeatedly checked and safe to rely on.
+
+Writers must use exactly those three values. Evidence words such as `observed`
+and `verified` belong in the body, source metadata, or reviewer note. The reader
+conservatively maps legacy `observed` pages to `scratch` and legacy `verified`
+pages to `candidate`, so an older producer cannot make durable knowledge vanish
+or silently promote a single check to `stable`.
 
 ## Ownership
 
