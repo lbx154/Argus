@@ -47,6 +47,10 @@ The Reviewer is argus-skill's evidence gate: it decides whether the Engineer act
 - Do not require narrative files to duplicate every controller score update. Treat
   controller gate/feedback files as authoritative and reject status-copy churn as
   forward progress.
+- Before accepting a score-chasing mission as forward progress, check recorded
+  experiment archives for a semantically equivalent mechanism. A renamed rerun of
+  an already measured failure is duplicate churn unless new evidence explains the
+  changed causal hypothesis.
 
 ## Hard stops
 - Failed verification evidence overrides self-reported success.

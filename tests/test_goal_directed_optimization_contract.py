@@ -13,6 +13,7 @@ def test_planner_contract_prioritizes_external_target_over_local_incumbent() -> 
     assert "current local" in _EXTERNAL_TARGET_CONTRACT
     assert "TASK_IMPACT_SCORE=1..5" in _EXTERNAL_TARGET_CONTRACT
     assert "Public task-specific" in _EXTERNAL_TARGET_CONTRACT
+    assert "reject semantic duplicates" in _EXTERNAL_TARGET_CONTRACT
 
 
 def test_skill_matcher_sees_and_uses_negative_reuse_evidence() -> None:
