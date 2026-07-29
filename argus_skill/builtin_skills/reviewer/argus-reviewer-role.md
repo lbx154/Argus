@@ -51,6 +51,11 @@ The Reviewer is argus-skill's evidence gate: it decides whether the Engineer act
   experiment archives for a semantically equivalent mechanism. A renamed rerun of
   an already measured failure is duplicate churn unless new evidence explains the
   changed causal hypothesis.
+- Reject leakage-shaped validation evidence. Every holdout/OOF prediction used for
+  scoring, calibration, candidate selection, or blend-weight selection must come
+  from a model fitted without that row's label. A final all-train refit is valid for
+  test inference only; scoring its train-row predictions is not honest validation,
+  even when the artifact verifier and hashes pass.
 
 ## Hard stops
 - Failed verification evidence overrides self-reported success.

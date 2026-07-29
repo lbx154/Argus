@@ -18,6 +18,7 @@ def test_planner_contract_prioritizes_external_target_over_local_incumbent() -> 
     assert "Public task-specific" in _EXTERNAL_TARGET_CONTRACT
     assert "reject semantic duplicates" in _EXTERNAL_TARGET_CONTRACT
     assert "overrides incompatible vertical" in _EXTERNAL_TARGET_CONTRACT
+    assert "final all-train refit is test-only" in _EXTERNAL_TARGET_CONTRACT
 
 
 def test_external_gate_suppresses_incompatible_speedrun_banner(

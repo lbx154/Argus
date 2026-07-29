@@ -78,6 +78,8 @@ _EXTERNAL_TARGET_CONTRACT = (
     "experiment outcomes and reject semantic duplicates, including renamed variants. "
     "This external-target contract overrides incompatible vertical style mandates "
     "such as compulsory kernel invention, profiling, or task-specific-source bans. "
+    "Validation, OOF, calibration, and blend selection must use models fitted without "
+    "the scored row labels; a final all-train refit is test-only evidence. "
     "Every task needs "
     "`TASK_IMPACT_SCORE=1..5`, `TASK_IMPACT_AREA`, and `TASK_EVIDENCE`; reserve "
     "4-5 for direct target movement or a proven prerequisite. Controller "

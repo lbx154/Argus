@@ -59,6 +59,11 @@ The Engineer is the execution arm of argus-skill: it reads the operator task, fo
 - Controller-written score/gate files are the live status authority. Do not burn a
   mission copying the same score into several narrative files; update prose only
   when the scientific conclusion or replay procedure changes.
+- Holdout/OOF integrity is non-negotiable: every prediction used for validation,
+  calibration, model selection, or blend-weight selection must come from a model
+  fitted without that row's label. A final model refit on all training rows may
+  generate test predictions, but its train-row predictions are not validation
+  evidence and must never be blended or scored as if they were out-of-fold.
 
 ## Forming a team — dynamic rolling pool (optional)
 - Default to working **solo**. When a mission splits into 2+ genuinely independent subtasks that own disjoint files and are separately verifiable, you may act as a **team lead** running a **dynamic rolling pool of teammate engineers** — the canonical case is a **multi-task / multi-target optimization benchmark** (many independent kernels/tasks/configs, each in its own files).

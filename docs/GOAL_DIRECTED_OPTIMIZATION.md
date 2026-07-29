@@ -35,6 +35,8 @@ operator 允许公开研究时，task-specific 论文、竞赛 discussion、公�
 主目标差距较大时，Planner 优先复现更强公开基线或切换数据、表示、架构、训练策略，
 不得用 profiling、kernel、校准、状态抄写或“新颖机制”填满 backlog。
 提议新任务前必须索引已有实验结果并做语义去重；改名、换目录或轻微参数变化不构成新机制。
+所有 validation、OOF、校准和 blend 选择预测必须由未见该行标签的模型产生；全量训练后的
+final refit 只能用于 test inference，不能回头充当 holdout 证据。
 
 ## 4. Reviewer 合同
 
