@@ -16,6 +16,20 @@ from .loop_state import MissionContext, SkillSelectionState
 log = logging.getLogger(__name__)
 
 
+def _resolve_project_skill_dir(skill_store: object) -> str | None:
+    """Return the project-layer skill directory the Engineer may write.
+
+    Mirrors the Reviewer's resolution so both roles are handed the same path:
+    the layered store exposes it on ``.project``, while a flat store carries
+    ``skills_dir`` directly.
+    """
+    project_store = getattr(skill_store, "project", None)
+    value = getattr(project_store, "skills_dir", None)
+    if value is None:
+        value = getattr(skill_store, "skills_dir", None)
+    return str(value) if value is not None else None
+
+
 class PromptContextMixin:
     """Prompt-assembly phase methods for ``SkillLoop``."""
 
@@ -33,6 +47,7 @@ class PromptContextMixin:
             file_read_budget=self.config.engineer_file_read_budget,
             test_run_budget=self.config.engineer_test_run_budget,
             project_root=mission.workdir,
+            project_skill_dir=_resolve_project_skill_dir(self.skill_store),
         )
         guidance: list[str] = []
         if self.extra_guidance_provider is not None:
@@ -71,6 +86,7 @@ class PromptContextMixin:
         file_read_budget: int = 12,
         test_run_budget: int = 3,
         project_root=None,
+        project_skill_dir: str | None = None,
     ) -> str:
         from ..roles.prompts.engineer import build_mission_prompt
 
@@ -87,4 +103,5 @@ class PromptContextMixin:
             file_read_budget=file_read_budget,
             test_run_budget=test_run_budget,
             project_root=project_root,
+            project_skill_dir=project_skill_dir,
         )

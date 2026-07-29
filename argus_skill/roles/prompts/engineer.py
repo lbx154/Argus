@@ -59,6 +59,54 @@ def assemble_round_prompt(
     return sanitize_model_visible_text(prompt + "\n\n" + "\n\n".join(tail))
 
 
+def _post_task_learning_section(
+    *,
+    require_post_task_learning: bool,
+    force_post_task_learning: bool,
+    matched_skill_name: str,
+    project_skill_dir: Path | str | None,
+) -> str:
+    """Render the Engineer's own durable-learning contract.
+
+    The Engineer ends the task holding the full execution context, so it is the
+    cheapest place to retain a reusable procedure. Roles edit the project skill
+    layer directly with their file tools; the legacy ``skill_action`` control
+    channel no longer exists, so the contract must name the directory.
+    """
+    if not require_post_task_learning or project_skill_dir is None:
+        return ""
+    rules = (
+        f"Project skill directory (project layer only): {project_skill_dir}\n"
+        "Inspect the existing Markdown first; preserve valid frontmatter; "
+        "increment `version` on an update; never modify a skill marked "
+        "`protected: true`; never write the shared/global skill layer."
+    )
+    if force_post_task_learning:
+        action = "update" if matched_skill_name else "create"
+        target = (
+            f"the matched skill `{matched_skill_name}`"
+            if matched_skill_name
+            else "one reusable Engineer skill"
+        )
+        return (
+            "## Required self-evolution\n"
+            "You have file and shell tools. After verification and before you "
+            f"hand off, {action} {target} directly in the project skill "
+            "directory. Record the reusable mechanism, the approach that "
+            "failed, and the decisive verification.\n"
+            + rules
+        )
+    return (
+        "## Durable learning\n"
+        "You have file and shell tools. After verification, if this task "
+        "produced a durable procedure that would change how a future task is "
+        "done, create or update one skill directly in the project skill "
+        "directory before you hand off.\n"
+        + rules
+        + "\nIf there is no durable reusable procedure, make no Skill edit."
+    )
+
+
 def build_mission_prompt(
     *,
     task: str,
@@ -73,6 +121,7 @@ def build_mission_prompt(
     file_read_budget: int = 12,
     test_run_budget: int = 3,
     project_root: Path | str | None = None,
+    project_skill_dir: Path | str | None = None,
 ) -> str:
     """Build the complete per-round Engineer mission prompt."""
     sections: list[str] = [EFFECTIVE_TASK_CONTRACT]
@@ -128,6 +177,14 @@ def build_mission_prompt(
         "decisive verifier. Exceed only after a concrete failure or code change. "
         "Use `.autors/*/wiki` only for durable declarative knowledge.\n" + _LONG_EXPERIMENT_RULE
     )
+    learning_block = _post_task_learning_section(
+        require_post_task_learning=require_post_task_learning,
+        force_post_task_learning=force_post_task_learning,
+        matched_skill_name=matched_skill_name,
+        project_skill_dir=project_skill_dir,
+    )
+    if learning_block:
+        sections.append(learning_block)
     sections.append(
         "## Handoff\n"
         "If you changed code, build it before you call the work finished: "
@@ -144,11 +201,6 @@ def build_mission_prompt(
         "check or observation. Do not recite a checklist or build an evidence "
         "packet; include only details the next researcher needs. A fresh Reviewer "
         "handles acceptance; do not spawn a Reviewer subagent.\n"
-    )
-    _ = (
-        require_post_task_learning,
-        force_post_task_learning,
-        matched_skill_name,
     )
     static_text = "\n\n".join(sections)
     delta_text = "\n\n".join(delta_sections)
@@ -168,7 +220,11 @@ def build_mission_prompt(
         "End with a concise natural summary and decisive check. If you changed "
         "code, build the packages you touched before calling it done."
     )
-    return sanitize_model_visible_text(compact + ("\n\n" + delta_text if delta_text else ""))
+    if learning_block:
+        compact += "\n\n" + learning_block
+    return sanitize_model_visible_text(
+        compact + ("\n\n" + delta_text if delta_text else "")
+    )
 
 
 def mission_request(project_root: Path | str) -> RolePromptRequest:
