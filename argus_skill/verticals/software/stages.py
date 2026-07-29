@@ -58,7 +58,11 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "The tests claimed to pass were actually executed this round and "
                 "reported passing, not merely asserted. A test target that failed "
                 "to build, collected zero tests, or was never run does not count "
-                "as a passing test."
+                "as a passing test. When official acceptance tests are held back, "
+                "passing repository tests is not sufficient: derive a temporary "
+                "compile/behaviour probe from every requested public signature and "
+                "boundary case in the task specification, run it, then remove only "
+                "that temporary probe before handoff."
             ),
             evidence_hint=(
                 "the test command and the result line showing tests ran "
