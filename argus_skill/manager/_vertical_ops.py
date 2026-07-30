@@ -101,7 +101,7 @@ class _VerticalDecisionMixin:
         try:
             with (
                 self._task_usage_scope(root_task_id),
-                role_call_slot("manager_grounding"),
+                role_call_slot("project_grounding"),
             ):
                 grounding_deadline = time.monotonic() + max_seconds
                 if deadline is not None and deadline > time.monotonic():

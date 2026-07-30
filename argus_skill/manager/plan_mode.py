@@ -395,7 +395,7 @@ def draft_plan(
     try:
         from ..core.role_slots import role_call_slot
 
-        with role_call_slot("planner"):
+        with role_call_slot("project_grounding"):
             result = run_exec(
                 build_plan_prompt(
                     objective,
