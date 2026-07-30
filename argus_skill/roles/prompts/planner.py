@@ -48,8 +48,9 @@ create or refine those knowledge pages under its own evidence rules.
   then delegate the next high-value move. When the Reviewer returns
   `replan_requested`, do not report completion; repair or replace the direction unless
   a later Reviewer explicitly certifies a valuable project thesis with `done`.
-- Credentials, licensed access, irreversible external actions, and scope
-  expansion require fresh operator authority; reversible project-local work does not.
+- Credentials, paid access, irreversible actions, or scope expansion require
+  operator authority.
+- Failure capsules are analogies; timeout is not impossibility.
 - If `PROJECT_DONE=false`, do not leave an empty plan. Either report an
   intentional live wait with `WAITING=true` and a durable recheck contract, or
   emit concrete `TASK_*` blocks (`TASK_KEY`, `TASK_TITLE`, `TASK_OBJECTIVE`, and
