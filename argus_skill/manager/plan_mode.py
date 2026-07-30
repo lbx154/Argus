@@ -258,6 +258,7 @@ def _resolve_run_exec(
     working_dir: str | None = None,
     dangerous_yolo: bool = True,
     max_seconds: int | None = None,
+    resume_thread_id: str | None = None,
 ):  # noqa: ANN202 — returns a callable or None
     """Find a ``run_exec``-capable backend on ``runner`` and wrap it.
 
@@ -307,6 +308,7 @@ def _resolve_run_exec(
                     ),
                 ),
                 run_label=run_label,
+                resume_thread_id=resume_thread_id,
             )
 
         return _call
@@ -363,6 +365,7 @@ def draft_plan(
     dangerous_yolo: bool = True,
     max_seconds: int | None = None,
     allow_repository_inspection: bool = False,
+    resume_thread_id: str | None = None,
 ) -> Plan:
     """Ask the model for an ordered preview plan for ``objective``.
 
@@ -387,6 +390,7 @@ def draft_plan(
         working_dir=working_dir,
         dangerous_yolo=dangerous_yolo,
         max_seconds=max_seconds,
+        resume_thread_id=resume_thread_id,
     )
     if run_exec is None:
         _emit(sink, "plan.draft.failed", reason="no runner backend")

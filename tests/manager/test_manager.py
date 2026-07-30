@@ -79,7 +79,7 @@ def test_software_grounding_brief_is_appended_to_execution_handoff(
     )
 
 
-def test_software_grounding_keeps_usable_budget_interrupt_output(
+def test_software_grounding_keeps_interrupt_thread_not_partial_brief(
     tmp_path,
 ) -> None:
     class InterruptedResult(_DecisionResult):
@@ -97,17 +97,18 @@ def test_software_grounding_keeps_usable_budget_interrupt_output(
                 "ordering, exception type, and valid input behavior."
             )
 
-    handoff = Manager(
+    manager = Manager(
         project_root=tmp_path,
         runner=GroundingRunner(),
-    )._ground_software_execution_task(
+    )
+    handoff = manager._ground_software_execution_task(
         "Repair parser behavior.",
         workflow_mode="staged",
         root_task_id="route-1",
     )
 
-    assert "## Manager project grounding" in handoff
-    assert "Closest analogue" in handoff
+    assert handoff == "Repair parser behavior."
+    assert manager._last_software_grounding_thread_id == "t1"
 
 
 def _existing(vertical: str) -> _DecisionRunner:
@@ -822,4 +823,3 @@ def test_is_conversational_does_not_fire_matcher(tmp_path):
     out = mgr.is_conversational("hi there", run_exec=lambda p: _FakeResult("CHAT"))
     assert mgr.mission.calls == 0
     assert out is True
-

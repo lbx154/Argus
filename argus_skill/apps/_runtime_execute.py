@@ -805,6 +805,17 @@ class SkillLoopExecuteMixin:
                 dangerous_yolo=True,
                 max_seconds=planner_max_seconds,
                 allow_repository_inspection=True,
+                resume_thread_id=(
+                    str(
+                        getattr(
+                            self.manager,
+                            "_last_software_grounding_thread_id",
+                            "",
+                        )
+                        or ""
+                    )
+                    or None
+                ),
             )
             if plan.steps:
                 lines = ["## Planner execution plan (advisory)"]

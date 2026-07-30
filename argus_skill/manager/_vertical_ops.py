@@ -129,9 +129,12 @@ class _VerticalDecisionMixin:
         except Exception:  # noqa: BLE001 - grounding is evidence, not admission
             log.debug("Manager software grounding call failed", exc_info=True)
             return task.strip()
+        self._last_software_grounding_thread_id = str(
+            getattr(result, "thread_id", "") or ""
+        )
         failed, _detail = _manager_backend_failure(result)
         brief = extract_answer(result).strip()
-        if failed and not brief:
+        if failed:
             return task.strip()
         if not brief:
             return task.strip()

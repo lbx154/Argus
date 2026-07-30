@@ -41,12 +41,14 @@ class _StubRunner:
         self.calls = 0
         self.last_prompt = ""
         self.last_options = None
+        self.last_resume_thread_id = None
 
     def run_exec(self, *, prompt: str, options, run_label: str,  # noqa: ANN001
                  resume_thread_id=None):
         self.calls += 1
         self.last_prompt = prompt
         self.last_options = options
+        self.last_resume_thread_id = resume_thread_id
         return _Result(self._text, self._exit)
 
 
@@ -330,6 +332,7 @@ def test_grounded_plan_gets_full_repository_tools() -> None:
         dangerous_yolo=True,
         max_seconds=60,
         allow_repository_inspection=True,
+        resume_thread_id="manager-thread-1",
     )
 
     assert "Manager project grounding" in runner.last_prompt
@@ -340,6 +343,7 @@ def test_grounded_plan_gets_full_repository_tools() -> None:
     assert callable(
         runner.last_options.external_interrupt_reason_provider
     )
+    assert runner.last_resume_thread_id == "manager-thread-1"
 
 
 def test_draft_plan_resolves_backend_wrapper() -> None:
