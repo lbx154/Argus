@@ -74,8 +74,11 @@ class _VerticalDecisionMixin:
         prompt = (
             f"{skill}\n\n"
             "Apply this grounding skill now with repository tools. "
-            "Use at most twelve focused file/search operations. Return only a "
-            "compact human-readable grounding brief (maximum 1600 words) with: "
+            "The tool working directory is already the repository root: use "
+            "relative paths, never guess another checkout path, and never search "
+            "the filesystem root. Use at most four focused file/search operations. "
+            "Return only a compact human-readable grounding brief (maximum 800 "
+            "words) with: "
             "architecture/call path, closest unchanged analogue, affected "
             "callers and compatibility surfaces, exact build/test commands, "
             "held-back acceptance risks, and recommended decomposition for "

@@ -569,7 +569,9 @@ def build_plan_prompt(
     obj = (objective or "").strip()
     first_rule = (
         "1. Inspect the repository with tools as needed to ground the plan, but "
-        "do NOT implement the fix or modify production artifacts."
+        "do NOT implement the fix or modify production artifacts. The tool "
+        "working directory is already the repository root; use at most two "
+        "focused relative-path reads/searches and never search the filesystem root."
         if allow_repository_inspection
         else (
             "1. Do NOT do the work. Do NOT run any shell command, inspect the "
