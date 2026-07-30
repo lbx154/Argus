@@ -77,9 +77,8 @@ class _VerticalDecisionMixin:
             "Apply this grounding skill now with repository tools. "
             "The tool working directory is already the repository root: use "
             "relative paths, never guess another checkout path, and never search "
-            "the filesystem root. Use at most four focused file/search operations. "
-            "Return only a compact human-readable grounding brief (maximum 800 "
-            "words) with: "
+            "the filesystem root. Return only a compact human-readable grounding "
+            "brief with: "
             "architecture/call path, closest unchanged analogue, affected "
             "callers and compatibility surfaces, exact build/test commands, "
             "held-back acceptance risks, and recommended decomposition for "
@@ -132,22 +131,7 @@ class _VerticalDecisionMixin:
             return task.strip()
         failed, _detail = _manager_backend_failure(result)
         brief = extract_answer(result).strip()
-        brief_lower = brief.casefold()
-        usable_interrupted_brief = (
-            len(brief) >= 200
-            and sum(
-                marker in brief_lower
-                for marker in (
-                    "architecture",
-                    "closest analogue",
-                    "test",
-                    "verification",
-                    "acceptance risk",
-                )
-            )
-            >= 2
-        )
-        if failed and not usable_interrupted_brief:
+        if failed and not brief:
             return task.strip()
         if not brief:
             return task.strip()
