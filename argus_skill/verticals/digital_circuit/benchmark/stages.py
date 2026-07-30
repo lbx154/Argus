@@ -23,6 +23,7 @@ STAGE_ORDER = ("execute",)
 CHECKLIST_STAGE_ORDER = STAGE_ORDER
 WORKFLOW_MODE = "direct"
 completion_gate = "none"
+REQUIRE_INDEPENDENT_REVIEW = True
 
 _PIPELINE_CHECK = (
     "Pipeline state present",
@@ -38,9 +39,12 @@ STAGE_CHECKS = {
             "benchmark-interface --project-root .",
         ),
         (
-            "Non-empty generated RTL present",
+            "Non-empty generated candidate present",
             "{python} -m argus_skill.verticals.path_evidence --project-root . "
-            "--glob 'rtl/*.v' --glob 'rtl/*.sv'",
+            "--glob 'rtl/*.v' --glob 'rtl/*.sv' "
+            "--glob 'dut.py' "
+            "--glob 'reference/*.py' --glob 'reference/*.cc' "
+            "--glob 'reference/*.cpp'",
         ),
         (
             "Pre-score interface/elaboration gate passed",
@@ -211,7 +215,8 @@ CHECKLIST_ITEMS = {
         ChecklistItem(
             id="benchmark.rtl-local-gate",
             statement=(
-                "Generated RTL is non-empty and prompt-derived local tests cover the "
+                "Generated RTL or reference-model source is non-empty and prompt-derived "
+                "local tests cover the "
                 "visible contract without using evaluator-only inputs: exact width/signing, "
                 "combinational versus prior-state sequential behavior, reset polarity/"
                 "synchronicity, latency, initialization uncertainty, and exhaustive or "
@@ -232,6 +237,9 @@ CHECKLIST_ITEMS = {
             statement=(
                 "The attempt handoff preserves backend/model provenance, hidden/golden "
                 "non-exposure, iteration identity, and append-only scoring semantics. "
+                "Manager, Planner, Engineer, and independent Reviewer execution is "
+                "recorded for the attempt. Evaluator infrastructure/no-execution records "
+                "do not consume a model attempt number or enter Pass@k denominators. "
                 "A repair additionally proves fresh preflight/regression evidence and "
                 "a mechanically verified answer hash for its current generation. "
                 "No-execution infrastructure failures imply no RTL verdict; an unchanged "
@@ -260,7 +268,9 @@ def role_banner(role: str) -> str:
         "categorical official_failure_signature_status (never vectors). Set "
         "failure_classification to exactly the string `answer_change_required` or "
         "`infrastructure_only`; do not use an object. Compute current_answer_hash "
-        "with `python -c \"from pathlib import Path; from "
+        "with a trusted controller-provided `controller/hash_answer.py` when its "
+        "SHA-256 is frozen in controller provenance; otherwise use "
+        "`python -c \"from pathlib import Path; from "
         "argus_skill.core.repair_freshness import hash_project_files, "
         "load_freshness_expectation; e=load_freshness_expectation(Path('.')); "
         "print(hash_project_files(Path('.'), e.answer_paths))\"`; do not substitute "
@@ -282,6 +292,7 @@ __all__ = [
     "STAGE_CHECKS",
     "STAGE_ORDER",
     "WORKFLOW_MODE",
+    "REQUIRE_INDEPENDENT_REVIEW",
     "completion_gate",
     "prepare_repair_expectation",
     "role_banner",

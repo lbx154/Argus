@@ -13,6 +13,7 @@ from argus_skill.verticals.digital_circuit.benchmark.stages import (
     prepare_repair_expectation,
     validate_external_scoring_handoff,
 )
+from argus_skill.verticals.digital_circuit.evidence import validate_preflight
 
 
 def test_benchmark_subvertical_is_registered_and_direct() -> None:
@@ -22,8 +23,13 @@ def test_benchmark_subvertical_is_registered_and_direct() -> None:
     assert mod.STAGE_ORDER == ("execute",)
     assert mod.CHECKLIST_STAGE_ORDER == ("execute",)
     assert mod.WORKFLOW_MODE == "direct"
+    assert mod.REQUIRE_INDEPENDENT_REVIEW is True
     assert tuple(mod.STAGE_CHECKS) == ("execute",)
     assert tuple(mod.REVIEWER_CHECKLISTS) == ("execute",)
+    candidate_check = dict(mod.STAGE_CHECKS["execute"])[
+        "Non-empty generated candidate present"
+    ]
+    assert "--glob 'dut.py'" in candidate_check
     assert Manager._kind_for("digital_circuit_benchmark") == "custom"
     assert mod.__name__ == "argus_skill.verticals.digital_circuit.benchmark.stages"
 
@@ -58,6 +64,8 @@ def test_benchmark_checklist_preserves_public_contract_and_local_semantics() -> 
     assert "metamorphic" in rendered
     assert "No-execution infrastructure failures imply no RTL verdict" in rendered
     assert "changed public-only hypothesis and test" in rendered
+    assert "do not consume a model attempt number" in rendered
+    assert "Manager, Planner, Engineer, and independent Reviewer" in rendered
 
 
 def test_second_attempt_requires_signed_freshness_expectation(tmp_path) -> None:
@@ -104,3 +112,25 @@ def test_controller_can_prepare_signed_repair_expectation(
     assert expectation.iteration == 2
     assert expectation.mission_id == "repair-2"
     assert expectation.answer_paths == ("rtl/dut.sv",)
+
+
+def test_reference_model_artifact_can_pass_public_preflight(tmp_path) -> None:
+    artifact = tmp_path / "reference" / "candidate.py"
+    artifact.parent.mkdir()
+    artifact.write_text("class TopModule: pass\n", encoding="utf-8")
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    (evidence / "preflight.json").write_text(
+        json.dumps(
+            {
+                "status": "pass",
+                "top_modules": ["TopModule"],
+                "artifact_files": ["reference/candidate.py"],
+                "output_paths": ["reference/candidate.py"],
+                "compile_results": [{"returncode": 0}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert validate_preflight(tmp_path) == evidence / "preflight.json"

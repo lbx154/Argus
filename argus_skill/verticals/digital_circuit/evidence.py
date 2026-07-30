@@ -106,6 +106,19 @@ def benchmark_output_paths(payload: Mapping[str, Any]) -> tuple[str, ...]:
     return compatible_string_values(payload, "output_path", "output_paths")
 
 
+def benchmark_artifact_paths(payload: Mapping[str, Any]) -> tuple[str, ...]:
+    """Return RTL or heterogeneous reference-model source paths."""
+    rtl = compatible_string_values(payload, "rtl_file", "rtl_files")
+    artifact = compatible_string_values(
+        payload,
+        "artifact_file",
+        "artifact_files",
+    )
+    if rtl and artifact and rtl != artifact:
+        raise EvidenceError("rtl_files and artifact_files disagree")
+    return artifact or rtl
+
+
 def _validate_interface_ports(
     path: Path,
     ports: object,
@@ -293,11 +306,11 @@ def validate_preflight(project_root: Path) -> Path:
         raise EvidenceError(f"{path}: passing preflight contains failure evidence")
 
     top_modules = compatible_string_values(payload, "top_module", "top_modules")
-    rtl_files = compatible_string_values(payload, "rtl_file", "rtl_files")
+    artifact_files = benchmark_artifact_paths(payload)
     output_paths = benchmark_output_paths(payload)
-    if not top_modules or not rtl_files or not output_paths:
+    if not top_modules or not artifact_files or not output_paths:
         raise EvidenceError(
-            f"{path}: top_modules, rtl_files, and output_paths must all be non-empty"
+            f"{path}: top_modules, artifact_files, and output_paths must all be non-empty"
         )
     compile_results = payload.get("compile_results")
     if not isinstance(compile_results, list) or not compile_results:
@@ -310,7 +323,7 @@ def validate_preflight(project_root: Path) -> Path:
     ):
         raise EvidenceError(f"{path}: every compile result must have integer returncode 0")
 
-    _require_project_files(project_root, list(rtl_files), "rtl_files")
+    _require_project_files(project_root, list(artifact_files), "artifact_files")
     _require_project_files(project_root, list(output_paths), "output_paths")
     return path
 
