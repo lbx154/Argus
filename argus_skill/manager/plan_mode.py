@@ -393,13 +393,16 @@ def draft_plan(
         return _draft_failed(objective, reason="could not draft plan: no runner backend")
 
     try:
-        result = run_exec(
-            build_plan_prompt(
-                objective,
-                role_banner=role_banner,
-                allow_repository_inspection=allow_repository_inspection,
+        from ..core.role_slots import role_call_slot
+
+        with role_call_slot("planner"):
+            result = run_exec(
+                build_plan_prompt(
+                    objective,
+                    role_banner=role_banner,
+                    allow_repository_inspection=allow_repository_inspection,
+                )
             )
-        )
     except Exception:  # noqa: BLE001 — keep the cockpit alive but surface failure
         _emit(sink, "plan.draft.failed", reason="backend error")
         return _draft_failed(objective, reason="could not draft plan: backend error")
