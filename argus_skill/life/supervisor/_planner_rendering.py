@@ -101,6 +101,14 @@ class PlannerRenderingMixin:
                 line = line[: _PLANNER_HISTORY_ENTRY_CHARS - 1].rstrip() + "…"
             lines.append(line)
         body = "\n".join(lines) or "(empty)"
+        try:
+            failure_context = self.memory.render_failure_experience_context(
+                self.config.continuous_objective,
+            ).strip()
+        except (AttributeError, OSError, TypeError, ValueError):
+            failure_context = ""
+        if failure_context:
+            body += "\n\n" + failure_context
         tally = self._render_campaign_tally()
         return f"{tally}\n{body}" if tally else body
 

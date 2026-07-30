@@ -234,6 +234,10 @@ def test_research_incomplete_mission_is_paused_and_resumable(tmp_path) -> None:
     )
     assert event["success"] is False
     assert event["resumable"] is True
+    (experience,) = mem.failure_experiences.recent()
+    assert experience.mission_id == item.id
+    assert experience.status == "research_incomplete"
+    assert "not a general impossibility" in experience.claim_boundaries[0]
 
     resumed = mem.backlog.resume_paused(item.id)
     assert resumed is not None

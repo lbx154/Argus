@@ -573,6 +573,7 @@ class MissionExecutionSettlementMixin:
         cost_sink = state.cost_sink
         scientist_totals = cost_sink.scientist_totals()
         scientist_usage_by_model = cost_sink.scientist_usage_by_model_snapshot()
+        self._capture_failure_experience(state)
         self._emit({
             "type": EventType.LIFE_MISSION_COMPLETED,
             "item_id": item.id,
@@ -699,6 +700,48 @@ class MissionExecutionSettlementMixin:
                 else ""
             ),
         }
+
+    def _capture_failure_experience(self, state: _MissionRunState) -> None:
+        """Persist one compact capsule without reading referenced artifacts."""
+        if state.success or state.intentional_abort:
+            return
+        store = getattr(self.memory, "failure_experiences", None)
+        if store is None:
+            return
+        try:
+            from ..failure_experience import experience_from_settled_mission
+
+            item = state.item
+            outcome = state.outcome
+            refs = [
+                str(ref.get("path") or ref.get("ref") or "").strip()
+                for ref in (getattr(item, "context_refs", []) or [])
+                if isinstance(ref, dict)
+            ]
+            if state.context_packet_path is not None:
+                refs.append(str(state.context_packet_path.parent / "latest.json"))
+            experience = experience_from_settled_mission(
+                mission_id=item.id,
+                title=item.title,
+                objective=item.objective,
+                status=state.status,
+                factual_outcome=state.stop_reason or state.err or state.status,
+                final_message=str(getattr(outcome, "final_message", "") or ""),
+                review_reason=str(
+                    getattr(outcome, "final_review_reason", "")
+                    or getattr(outcome, "reason", "")
+                    or ""
+                ),
+                planner_report=getattr(outcome, "final_planner_report", {}) or {},
+                stop_kind=str(state.stop_kind or ""),
+                recoverable=state.resumable,
+                concepts=list(item.tags),
+                artifact_refs=[ref for ref in refs if ref],
+                non_goals=list(getattr(item, "non_goals", []) or []),
+            )
+            store.append(experience)
+        except (OSError, TypeError, ValueError):
+            log.exception("life supervisor: failed to persist failure experience")
 
 
 __all__ = ["MissionExecutionSettlementMixin"]

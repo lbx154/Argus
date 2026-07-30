@@ -1867,6 +1867,25 @@ class LifeMemory:
             recency_n=recency_n,
         )
 
+    @property
+    def failure_experiences(self):
+        from .failure_experience import FailureExperienceStore
+
+        return FailureExperienceStore(self.root / "failure_experiences.jsonl")
+
+    def render_failure_experience_context(
+        self,
+        objective: str,
+        *,
+        max_entries: int = 4,
+        max_chars: int = 6_000,
+    ) -> str:
+        return self.failure_experiences.render_context(
+            objective,
+            max_entries=max_entries,
+            max_chars=max_chars,
+        )
+
     # ------------------------------------------------------------------
     # Prompt rendering
     # ------------------------------------------------------------------
@@ -1874,6 +1893,7 @@ class LifeMemory:
     def render_prelude(
         self,
         *,
+        objective: str = "",
         identity_chars: int = 600,
         max_journal_entries: int = 3,
     ) -> str:
@@ -1888,7 +1908,9 @@ class LifeMemory:
             identity = identity[:identity_chars]
         relevant = self.recent_journal(max_entries=max_journal_entries)
 
-        if not identity and not relevant:
+        failure_context = self.render_failure_experience_context(objective)
+
+        if not identity and not relevant and not failure_context:
             return ""
 
         lines: list[str] = []
@@ -1912,7 +1934,10 @@ class LifeMemory:
                     f"- **{ts_iso} · {entry.title}** ({entry.kind}): "
                     f"{entry.summary}"
                 )
-        return "\n".join(lines).strip() + "\n"
+        rendered = "\n".join(lines).strip() + "\n"
+        if failure_context:
+            rendered += "\n" + failure_context
+        return rendered
 
 
 # ---------------------------------------------------------------------------
@@ -2207,6 +2232,12 @@ class ProjectMemory:
             recency_n=recency_n,
         )
 
+    @property
+    def failure_experiences(self):
+        from .failure_experience import FailureExperienceStore
+
+        return FailureExperienceStore(self.root / "failure_experiences.jsonl")
+
 @dataclass
 class MemoryBundle:
     """Bundles one :class:`GlobalMemory` plus one :class:`ProjectMemory`.
@@ -2292,6 +2323,7 @@ class MemoryBundle:
     def render_prelude(
         self,
         *,
+        objective: str = "",
         identity_chars: int = 600,
         max_project_entries: int = 3,
     ) -> str:
@@ -2308,7 +2340,9 @@ class MemoryBundle:
 
         project_hits = self.project.recent_journal(max_entries=max_project_entries)
 
-        if not (identity or project_hits):
+        failure_context = self.render_failure_experience_context(objective)
+
+        if not (identity or project_hits or failure_context):
             return ""
 
         lines: list[str] = []
@@ -2332,7 +2366,27 @@ class MemoryBundle:
                     f"- **{ts_iso} · {entry.title}** ({entry.kind}): "
                     f"{entry.summary}"
                 )
-        return "\n".join(lines).strip() + "\n"
+        rendered = "\n".join(lines).strip() + "\n"
+        if failure_context:
+            rendered += "\n" + failure_context
+        return rendered
+
+    @property
+    def failure_experiences(self):
+        return self.project.failure_experiences
+
+    def render_failure_experience_context(
+        self,
+        objective: str,
+        *,
+        max_entries: int = 4,
+        max_chars: int = 6_000,
+    ) -> str:
+        return self.failure_experiences.render_context(
+            objective,
+            max_entries=max_entries,
+            max_chars=max_chars,
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -26,6 +26,12 @@ Notes:
 """
 from __future__ import annotations
 
+from .failure_experience import (
+    FailureAnnotation,
+    FailureExperience,
+    FailureExperienceHit,
+    FailureExperienceStore,
+)
 from .memory import (
     Backlog,
     BacklogItem,
@@ -45,6 +51,10 @@ __all__ = [
     "Backlog",
     "BacklogItem",
     "EventJournal",
+    "FailureAnnotation",
+    "FailureExperience",
+    "FailureExperienceHit",
+    "FailureExperienceStore",
     "GlobalMemory",
     "IdentityCard",
     "JournalEntry",

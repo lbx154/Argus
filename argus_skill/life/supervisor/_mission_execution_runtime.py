@@ -39,7 +39,11 @@ class MissionExecutionRuntimeMixin:
     # ------------------------------------------------------------------
 
     def _build_mission_prelude(self, item: BacklogItem) -> str:
-        prelude = self.memory.render_prelude()
+        try:
+            prelude = self.memory.render_prelude(objective=item.objective)
+        except TypeError:
+            # Compatibility with narrow host-provided memory views.
+            prelude = self.memory.render_prelude()
         item_metadata = self._render_backlog_item_metadata(item)
         if item_metadata:
             prelude = (
