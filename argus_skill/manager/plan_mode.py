@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -254,6 +255,9 @@ def _resolve_run_exec(
     model: str | None = None,
     reasoning_effort: str = "low",
     run_label: str = "manager-plan",
+    working_dir: str | None = None,
+    dangerous_yolo: bool = True,
+    max_seconds: int | None = None,
 ):  # noqa: ANN202 — returns a callable or None
     """Find a ``run_exec``-capable backend on ``runner`` and wrap it.
 
@@ -275,12 +279,32 @@ def _resolve_run_exec(
         def _call(prompt: str, _run_exec=run_exec):  # noqa: ANN001
             from ..core.models import RunnerOptions
 
+            deadline = (
+                time.monotonic() + max_seconds
+                if max_seconds is not None and max_seconds > 0
+                else None
+            )
             return _run_exec(
                 prompt=prompt,
                 options=RunnerOptions(
                     model=model,
                     reasoning_effort=reasoning_effort,
+                    working_dir=working_dir,
+                    dangerous_yolo=dangerous_yolo,
+                    full_auto=not dangerous_yolo,
                     skip_git_repo_check=True,
+                    external_interrupt_reason_provider=(
+                        (
+                            lambda: (
+                                "Planner grounding time budget reached"
+                                if deadline is not None
+                                and time.monotonic() >= deadline
+                                else None
+                            )
+                        )
+                        if deadline is not None
+                        else None
+                    ),
                 ),
                 run_label=run_label,
             )
@@ -335,6 +359,10 @@ def draft_plan(
     reasoning_effort: str = "low",
     run_label: str = "manager-plan",
     role_banner: str = "",
+    working_dir: str | None = None,
+    dangerous_yolo: bool = True,
+    max_seconds: int | None = None,
+    allow_repository_inspection: bool = False,
 ) -> Plan:
     """Ask the model for an ordered preview plan for ``objective``.
 
@@ -356,6 +384,9 @@ def draft_plan(
         model=model,
         reasoning_effort=reasoning_effort,
         run_label=run_label,
+        working_dir=working_dir,
+        dangerous_yolo=dangerous_yolo,
+        max_seconds=max_seconds,
     )
     if run_exec is None:
         _emit(sink, "plan.draft.failed", reason="no runner backend")
@@ -366,6 +397,7 @@ def draft_plan(
             build_plan_prompt(
                 objective,
                 role_banner=role_banner,
+                allow_repository_inspection=allow_repository_inspection,
             )
         )
     except Exception:  # noqa: BLE001 — keep the cockpit alive but surface failure

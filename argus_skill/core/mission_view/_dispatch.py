@@ -41,7 +41,9 @@ def _handlers_for(reducer: _FamilyReducer, *event_types: str) -> dict[str, _Fami
 _EVENT_HANDLERS: dict[str, _FamilyReducer] = {
     **_handlers_for(
         reduce_manager_event,
+        EventType.LIFE_MANAGER_INTENT_STARTED,
         EventType.LIFE_MANAGER_INTENT_COMPLETED,
+        EventType.LIFE_MANAGER_INTENT_FAILED,
         EventType.LIFE_MANAGER_STAGE_DECISION,
     ),
     **_handlers_for(

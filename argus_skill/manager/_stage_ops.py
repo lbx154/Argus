@@ -119,7 +119,7 @@ class _StageDecisionMixin:
                     model=_manager_model(),
                     reasoning_effort=_manager_reasoning_effort(),
                     working_dir=str(root),
-                    sandbox_mode="read-only",
+                    dangerous_yolo=True,
                     skip_git_repo_check=True,
                 ),
                 run_label="manager-stage",

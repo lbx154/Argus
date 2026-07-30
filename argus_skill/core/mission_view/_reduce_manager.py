@@ -23,7 +23,34 @@ def reduce_manager_event(
     ts: float,
     mission: dict[str, Any],
 ) -> None:
-    if event_type == EventType.LIFE_MANAGER_INTENT_COMPLETED:
+    if event_type == EventType.LIFE_MANAGER_INTENT_STARTED:
+        item_id = _text(event, "item_id") or _text(event, "intent_id")
+        objective = _text(event, "objective", 2000)
+        mission.update({
+            "id": item_id,
+            "title": objective[:180],
+            "objective": objective,
+            "status": "grounding",
+        })
+        _set_role(view, "manager", "active", "Grounding project", ts)
+        _timeline(
+            view,
+            event,
+            role="manager",
+            title="Project grounding started",
+            detail=objective[:500],
+        )
+        _role_work(
+            view,
+            event,
+            role="manager",
+            kind="grounding",
+            title="Grounding project",
+            detail=objective,
+            status="active",
+        )
+
+    elif event_type == EventType.LIFE_MANAGER_INTENT_COMPLETED:
         item_id = _text(event, "item_id") or _text(event, "intent_id")
         objective = _text(event, "objective", 2000) or _text(event, "execution_task", 2000)
         mission.update({
@@ -57,6 +84,28 @@ def reduce_manager_event(
             detail=_text(event, "reason", 4000)
             or _text(event, "execution_task", 4000),
             status="done",
+        )
+
+    elif event_type == EventType.LIFE_MANAGER_INTENT_FAILED:
+        mission["status"] = "failed"
+        _set_role(view, "manager", "error", "Grounding failed", ts)
+        _timeline(
+            view,
+            event,
+            role="manager",
+            title="Project grounding failed",
+            detail=_text(event, "error") or _text(event, "reason"),
+            tone="error",
+        )
+        _role_work(
+            view,
+            event,
+            role="manager",
+            kind="grounding",
+            title="Project grounding failed",
+            detail=_text(event, "error", 4000)
+            or _text(event, "reason", 4000),
+            status="error",
         )
 
     elif event_type == EventType.LIFE_MANAGER_STAGE_DECISION:

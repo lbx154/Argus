@@ -77,13 +77,13 @@ def test_prompt_forbids_make_work_and_requires_measured_prompt_evidence() -> Non
     assert "Do not invent cleanup, speculative refactors" in prompt
     assert "measured token or prompt-block evidence" in prompt
     assert "independent Reviewer" in prompt
-    assert "current read-only working directory" in prompt
+    assert "current working directory" in prompt
     assert "exact repository-relative path" in prompt
     assert "never return an absolute path" in prompt
     assert "human-merged `framework.update_available`" in prompt
 
 
-def test_maintenance_manager_inspects_framework_root_read_only(tmp_path) -> None:
+def test_maintenance_manager_gets_full_framework_tools(tmp_path) -> None:
     project = tmp_path / "project"
     framework = tmp_path / "framework"
     project.mkdir()
@@ -117,4 +117,5 @@ def test_maintenance_manager_inspects_framework_root_read_only(tmp_path) -> None
     label, _prompt, options = backend.history[-1]
     assert label == "manager-self-maintenance"
     assert options.working_dir == str(framework.resolve())
-    assert options.sandbox_mode == "read-only"
+    assert options.sandbox_mode is None
+    assert options.dangerous_yolo is True

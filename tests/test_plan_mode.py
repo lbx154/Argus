@@ -39,10 +39,14 @@ class _StubRunner:
         self._text = text
         self._exit = exit_code
         self.calls = 0
+        self.last_prompt = ""
+        self.last_options = None
 
     def run_exec(self, *, prompt: str, options, run_label: str,  # noqa: ANN001
                  resume_thread_id=None):
         self.calls += 1
+        self.last_prompt = prompt
+        self.last_options = options
         return _Result(self._text, self._exit)
 
 
@@ -314,6 +318,28 @@ def test_draft_plan_parses_stub_reply() -> None:
     assert plan.objective == "do the thing"
     assert [s.title for s in plan.steps] == ["Read", "Write"]
     assert plan.notes == ["caveat"]
+
+
+def test_grounded_plan_gets_full_repository_tools() -> None:
+    runner = _StubRunner(json.dumps([{"title": "Inspect sibling"}]))
+
+    draft_plan(
+        runner,
+        "task\n\n## Manager project grounding\nInspect parser.py",
+        working_dir="/tmp/project",
+        dangerous_yolo=True,
+        max_seconds=60,
+        allow_repository_inspection=True,
+    )
+
+    assert "Manager project grounding" in runner.last_prompt
+    assert "Inspect the repository with tools" in runner.last_prompt
+    assert runner.last_options.working_dir == "/tmp/project"
+    assert runner.last_options.dangerous_yolo is True
+    assert runner.last_options.sandbox_mode is None
+    assert callable(
+        runner.last_options.external_interrupt_reason_provider
+    )
 
 
 def test_draft_plan_resolves_backend_wrapper() -> None:

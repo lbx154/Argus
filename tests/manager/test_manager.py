@@ -71,7 +71,8 @@ def test_software_grounding_brief_is_appended_to_execution_handoff(
     assert "## Manager project grounding" in handoff
     assert "Closest analogue" in handoff
     assert runner.calls[0]["run_label"] == "manager-project-grounding"
-    assert runner.calls[0]["options"].sandbox_mode == "read-only"
+    assert runner.calls[0]["options"].sandbox_mode is None
+    assert runner.calls[0]["options"].dangerous_yolo is True
     assert runner.calls[0]["options"].reasoning_effort == "low"
     assert callable(
         runner.calls[0]["options"].external_interrupt_reason_provider
@@ -499,6 +500,25 @@ def test_vertical_decision_pins_manager_model(tmp_path, monkeypatch) -> None:
     assert decision.vertical == "software"
     assert decision.workflow_mode == "direct"
     assert runner.last_options.model == "gpt-5.5"
+    assert callable(
+        runner.calls[0]["options"].external_interrupt_reason_provider
+    )
+
+
+def test_software_planner_requirement_overrides_direct_route(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_SOFTWARE_REQUIRE_PLANNER", "1")
+    runner = _existing("direct")
+
+    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
+        "Fix one failing repository test and return the patch."
+    )
+
+    assert decision.vertical == "software"
+    assert decision.workflow_mode == "staged"
+    assert "workflow_mode=staged" in runner.calls[-1]["prompt"]
 
 
 def test_low_confidence_fast_route_escalates_once_and_preserves_original_task(
@@ -548,7 +568,8 @@ def test_low_confidence_fast_route_escalates_once_and_preserves_original_task(
     ]
     assert "--available-tools=" in runner.calls[0]["options"].extra_args
     assert runner.calls[0]["options"].sandbox_mode is None
-    assert runner.calls[1]["options"].sandbox_mode == "read-only"
+    assert runner.calls[1]["options"].sandbox_mode is None
+    assert runner.calls[1]["options"].dangerous_yolo is True
     assert "ONE focused inspection batch" in runner.calls[1]["prompt"]
 
 
@@ -770,7 +791,5 @@ def test_is_conversational_does_not_fire_matcher(tmp_path):
     out = mgr.is_conversational("hi there", run_exec=lambda p: _FakeResult("CHAT"))
     assert mgr.mission.calls == 0
     assert out is True
-
-
 
 

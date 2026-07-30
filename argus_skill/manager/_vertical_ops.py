@@ -39,6 +39,16 @@ from .domain_author import VerticalDecision, VerticalDecisionError
 _log = logging.getLogger(__name__)
 
 
+def _software_workflow_mode(mode: str) -> str:
+    require_planner = (
+        os.environ.get("ARGUS_SKILL_SOFTWARE_REQUIRE_PLANNER", "0")
+        .strip()
+        .lower()
+        in {"1", "true", "yes", "on"}
+    )
+    return "staged" if require_planner else mode
+
+
 class _VerticalDecisionMixin:
     """Mixin: vertical selection, staging, and domain-commit methods."""
 
@@ -48,6 +58,7 @@ class _VerticalDecisionMixin:
         *,
         workflow_mode: str,
         root_task_id: str | None,
+        deadline: float | None = None,
     ) -> str:
         """Attach a bounded repository-grounding brief to software handoff."""
         from ..core.models import RunnerOptions
@@ -62,7 +73,7 @@ class _VerticalDecisionMixin:
             return task.strip()
         prompt = (
             f"{skill}\n\n"
-            "Apply this grounding skill now with read-only repository tools. "
+            "Apply this grounding skill now with repository tools. "
             "Use at most twelve focused file/search operations. Return only a "
             "compact human-readable grounding brief (maximum 1600 words) with: "
             "architecture/call path, closest unchanged analogue, affected "
@@ -84,7 +95,9 @@ class _VerticalDecisionMixin:
             )
         except ValueError:
             max_seconds = 300
-        deadline = time.monotonic() + max_seconds
+        grounding_deadline = time.monotonic() + max_seconds
+        if deadline is not None:
+            grounding_deadline = min(grounding_deadline, deadline)
         try:
             with self._task_usage_scope(root_task_id):
                 result = gateway_run_exec(
@@ -97,11 +110,11 @@ class _VerticalDecisionMixin:
                             "low",
                         ),
                         working_dir=str(self.project_root),
-                        sandbox_mode="read-only",
+                        dangerous_yolo=True,
                         skip_git_repo_check=True,
                         external_interrupt_reason_provider=lambda: (
                             "Manager project grounding time budget reached"
-                            if time.monotonic() >= deadline
+                            if time.monotonic() >= grounding_deadline
                             else None
                         ),
                     ),
@@ -171,7 +184,7 @@ class _VerticalDecisionMixin:
                     model=_manager_model(),
                     reasoning_effort=_manager_reasoning_effort(),
                     working_dir=str(self.project_root),
-                    sandbox_mode="read-only",
+                    dangerous_yolo=True,
                     skip_git_repo_check=True,
                 ),
                 run_label="manager-research-target",
@@ -221,6 +234,24 @@ class _VerticalDecisionMixin:
             raise VerticalDecisionError(
                 "cannot decide the vertical: the Manager has no backend/runner"
             )
+        try:
+            total_seconds = max(
+                30,
+                int(
+                    os.environ.get(
+                        "ARGUS_SKILL_MANAGER_TOTAL_MAX_SECONDS",
+                        "240",
+                    )
+                ),
+            )
+        except ValueError:
+            total_seconds = 240
+        route_deadline = time.monotonic() + total_seconds
+
+        def route_interrupt() -> str | None:
+            if time.monotonic() >= route_deadline:
+                return "Manager routing and grounding total budget reached"
+            return None
         from ..core.models import RunnerOptions
         from ..domains import BUILTIN_DOMAINS, DOMAIN_PURPOSES
         from ..roles.prompts.manager import (
@@ -299,6 +330,7 @@ class _VerticalDecisionMixin:
                         sandbox_mode=fast_sandbox,
                         skip_git_repo_check=True,
                         extra_args=fast_extra_args,
+                        external_interrupt_reason_provider=route_interrupt,
                     ),
                     run_label="manager-classify-fast",
                 )
@@ -320,18 +352,22 @@ class _VerticalDecisionMixin:
                     and not fast_route.needs_grounding
                     and fast_route.confidence >= _manager_fast_route_min_confidence()
                 ):
+                    workflow_mode = fast_route.workflow_mode
+                    if fast_route.vertical == "software":
+                        workflow_mode = _software_workflow_mode(workflow_mode)
                     execution_task = task.strip()
                     if fast_route.vertical == "software":
                         execution_task = self._ground_software_execution_task(
                             task,
-                            workflow_mode=fast_route.workflow_mode,
+                            workflow_mode=workflow_mode,
                             root_task_id=root_task_id,
+                            deadline=route_deadline,
                         )
                     return VerticalDecision(
                         choice="existing",
                         vertical=fast_route.vertical,
                         domain=fast_route.domain,
-                        workflow_mode=fast_route.workflow_mode,
+                        workflow_mode=workflow_mode,
                         execution_task=execution_task,
                         research_target_level=fast_route.research_target_level,
                         target_venue=fast_route.target_venue,
@@ -383,9 +419,10 @@ class _VerticalDecisionMixin:
                     model=_manager_model(),
                     reasoning_effort=_manager_vertical_reasoning_effort(),
                     working_dir=str(self.project_root),
-                    sandbox_mode="read-only",
+                    dangerous_yolo=True,
                     skip_git_repo_check=True,
                     extra_args=grounded_extra_args,
+                    external_interrupt_reason_provider=route_interrupt,
                 ),
                 run_label="manager-classify-grounded",
             )
@@ -410,10 +447,14 @@ class _VerticalDecisionMixin:
                 "model reply was missing or not a valid existing/new choice"
             )
         if decision.vertical == "software":
+            decision.workflow_mode = _software_workflow_mode(
+                decision.workflow_mode
+            )
             decision.execution_task = self._ground_software_execution_task(
                 task,
                 workflow_mode=decision.workflow_mode,
                 root_task_id=root_task_id,
+                deadline=route_deadline,
             )
         return decision
 

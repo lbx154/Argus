@@ -128,7 +128,7 @@ def test_plan_next_disables_schema_and_planner_timeouts(monkeypatch) -> None:
     assert options.add_dirs == ["/tmp/project-state"]
 
 
-def test_plan_next_defaults_to_workspace_write_full_auto(monkeypatch) -> None:
+def test_plan_next_defaults_to_full_tool_access(monkeypatch) -> None:
     runner = _Runner()
     monkeypatch.setattr(
         Planner,
@@ -142,9 +142,9 @@ def test_plan_next_defaults_to_workspace_write_full_auto(monkeypatch) -> None:
     )
 
     options = runner.calls[0]["options"]
-    assert options.dangerous_yolo is False
-    assert options.full_auto is True
-    assert options.sandbox_mode == "workspace-write"
+    assert options.dangerous_yolo is True
+    assert options.full_auto is False
+    assert options.sandbox_mode is None
 
 
 def test_plan_next_repairs_not_done_empty_task_response(monkeypatch) -> None:

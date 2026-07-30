@@ -363,9 +363,9 @@ def test_execute_self_path_one_turn_no_reviewer(tmp_path: Path) -> None:
     assert backend.calls[0]["options"].watchdog_hard_idle_seconds == 120
     assert backend.calls[0]["options"].watchdog_soft_idle_seconds == 5
     assert callable(backend.calls[0]["options"].inactivity_callback)
-    assert backend.calls[0]["options"].sandbox_mode == "workspace-write"
-    assert backend.calls[0]["options"].dangerous_yolo is False
-    assert backend.calls[0]["options"].full_auto is True
+    assert backend.calls[0]["options"].sandbox_mode is None
+    assert backend.calls[0]["options"].dangerous_yolo is True
+    assert backend.calls[0]["options"].full_auto is False
     types = [e.get("type") for e in sink.events]
     assert "round.review.completed" not in types  # NO reviewer
     assert "round.review.started" not in types
@@ -685,7 +685,12 @@ def test_execute_uses_full_pipeline_on_real_task(
     runner._SkillLoopConfig = _StubConfig
 
     out = runner.execute(
-        objective="implement a binary tree in src/tree.py",
+        objective=(
+            "implement a binary tree in src/tree.py\n\n"
+            "## Manager project grounding (advisory evidence)\n"
+            "Closest analogue: src/ordered_tree.py"
+        ),
+        original_objective="implement a binary tree in src/tree.py",
         sink=sink,
         mission_id="mission-tree",
     )
@@ -693,9 +698,19 @@ def test_execute_uses_full_pipeline_on_real_task(
     assert sentinel_calls == [], "real task wrongly routed into chat fast-path"
     assert out.chat_mode is False
     assert any(call["run_label"] == "planner-bounded-plan" for call in backend.calls)
+    planner_call = next(
+        call
+        for call in backend.calls
+        if call["run_label"] == "planner-bounded-plan"
+    )
+    assert "Closest analogue: src/ordered_tree.py" in planner_call["prompt"]
+    assert planner_call["options"].dangerous_yolo is True
+    assert planner_call["options"].working_dir == str(Path.cwd())
     assert planned_tasks and "## Planner execution plan (advisory)" in planned_tasks[0]
     assert "Check the premise" in planned_tasks[0]
     assert any(event.get("type") == "plan.completed" for event in sink.events)
+    assert any(event.get("type") == "life.planner.start" for event in sink.events)
+    assert any(event.get("type") == "life.planner.verdict" for event in sink.events)
     from argus_skill.skills.layered import LayeredSkillStore
 
     layered = loop_kwargs[0]["skill_store"]

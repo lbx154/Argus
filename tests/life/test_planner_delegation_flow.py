@@ -92,8 +92,8 @@ def test_planner_delegates_to_engineer_and_continues_after_one_increment(
     assert [item.title for item in pending] == ["Deduplicate Manager reply rows"]
 
     assert len(planner.calls) == 3
-    assert all(call["options"].sandbox_mode == "workspace-write" for call in planner.calls)
-    assert all(call["options"].dangerous_yolo is False for call in planner.calls)
+    assert all(call["options"].sandbox_mode is None for call in planner.calls)
+    assert all(call["options"].dangerous_yolo is True for call in planner.calls)
     assert not list(project.glob("**/*.py")), "Planner must not create implementation files"
 
 

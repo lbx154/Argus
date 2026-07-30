@@ -186,7 +186,9 @@ def _write_unlocked(root: Path, view: dict[str, Any]) -> None:
 
 
 _PROJECTED_EVENT_TYPES = frozenset({
+    EventType.LIFE_MANAGER_INTENT_STARTED,
     EventType.LIFE_MANAGER_INTENT_COMPLETED,
+    EventType.LIFE_MANAGER_INTENT_FAILED,
     EventType.LIFE_MANAGER_STAGE_DECISION,
     EventType.LIFE_PLANNER_START,
     EventType.LIFE_PLANNER_TASK_ADDED,

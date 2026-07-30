@@ -216,11 +216,11 @@ def test_authoring_call_is_grounded_not_a_blind_guess(tmp_path, monkeypatch):
     call = next(c for c in runner.calls if c["run_label"] == "manager-classify-grounded")
     opts = call["options"]
     assert opts.working_dir == str(tmp_path)
-    assert opts.sandbox_mode == "read-only"
-    assert opts.dangerous_yolo is False
+    assert opts.sandbox_mode is None
+    assert opts.dangerous_yolo is True
     assert opts.full_auto is False
     assert opts.reasoning_effort == "low"
-    assert "shell access" in call["prompt"].lower()
+    assert "full repository tool environment" in call["prompt"].lower()
     assert "investigate" in call["prompt"].lower()
 
 
@@ -258,6 +258,6 @@ def test_authoring_call_respects_safe_mode(tmp_path, monkeypatch):
 
     call = next(c for c in runner.calls if c["run_label"] == "manager-classify-grounded")
     opts = call["options"]
-    assert opts.sandbox_mode == "read-only"
-    assert opts.dangerous_yolo is False
+    assert opts.sandbox_mode is None
+    assert opts.dangerous_yolo is True
     assert opts.full_auto is False

@@ -37,6 +37,37 @@ def test_manager_handoff_refreshes_stage_after_objective_update(tmp_path: Path) 
     assert view["stage"] == {"id": "research", "label": "Research"}
 
 
+def test_manager_grounding_lifecycle_is_visible(tmp_path: Path) -> None:
+    view = emit(
+        tmp_path,
+        "life.manager.intent.started",
+        1,
+        item_id="instance-owner__repo-abc",
+        objective="Repair parser behavior",
+    )
+
+    roles = {role["role"]: role for role in view["roles"]}
+    assert view["mission"]["status"] == "grounding"
+    assert view["mission"]["objective"] == "Repair parser behavior"
+    assert view["active_role"] == "manager"
+    assert roles["manager"]["label"] == "Grounding project"
+
+    view = emit(
+        tmp_path,
+        "life.manager.intent.completed",
+        2,
+        item_id="instance-owner__repo-abc",
+        objective="Repair parser behavior",
+        execution_task="Repair parser behavior\n\nManager grounding",
+        vertical="software",
+        workflow_mode="staged",
+        reason="grounded",
+    )
+    roles = {role["role"]: role for role in view["roles"]}
+    assert view["mission"]["status"] == "framed"
+    assert roles["manager"]["status"] == "done"
+
+
 def test_planner_terminal_event_clears_active_role(tmp_path: Path) -> None:
     view = emit(tmp_path, "life.planner.start", 1)
     assert view["active_role"] == "planner"

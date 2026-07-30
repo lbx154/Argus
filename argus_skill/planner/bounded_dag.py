@@ -254,7 +254,7 @@ def plan_bounded_dag(
                 model=model,
                 reasoning_effort=reasoning_effort,
                 working_dir=str(Path(workdir).expanduser().resolve()),
-                sandbox_mode="read-only",
+                dangerous_yolo=True,
                 skip_git_repo_check=True,
             ),
             run_label="planner.bounded_dag",

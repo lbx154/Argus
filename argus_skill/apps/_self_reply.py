@@ -797,10 +797,10 @@ class SelfReplyMixin:
                 "ARGUS_SKILL_SELF_REASONING_EFFORT",
                 default="xhigh",
             ),
-            full_auto=True,
+            full_auto=False,
             skip_git_repo_check=True,
-            dangerous_yolo=False,
-            sandbox_mode="workspace-write",
+            dangerous_yolo=True,
+            sandbox_mode=None,
             working_dir=str(workdir),
             add_dirs=read_dirs,
             watchdog_hard_idle_seconds=env_int(

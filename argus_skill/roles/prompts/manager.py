@@ -443,7 +443,7 @@ def build_vertical_decision_prompt(
         "task-specific route or DAG of literature, experiment, proof, and review "
         "work that the Planner may create inside one mission.\n\n"
         "Your tool-free classification pass requested grounded context. INVESTIGATE with "
-        "read-only shell access in this repository. Use ONE focused inspection batch of at "
+        "the full repository tool environment. Use ONE focused inspection batch of at "
         "most four file/search operations, then decide. Avoid broad recursive "
         "searches and do not read unrelated UI, generated, vendor, or build-output "
         "trees. Read `AGENTS.md`/`README` only when they are directly useful, and "
@@ -563,17 +563,26 @@ def build_plan_prompt(
     objective: str,
     *,
     role_banner: str = "",
+    allow_repository_inspection: bool = False,
 ) -> str:
     """Render the prompt asking the model for a preview plan."""
     obj = (objective or "").strip()
+    first_rule = (
+        "1. Inspect the repository with tools as needed to ground the plan, but "
+        "do NOT implement the fix or modify production artifacts."
+        if allow_repository_inspection
+        else (
+            "1. Do NOT do the work. Do NOT run any shell command, inspect the "
+            "repo, or write code. This is an outline only."
+        )
+    )
     prompt = (
         "You are the planning front-end of an autonomous coding/research agent. "
         "The operator wants to PREVIEW a plan BEFORE any work begins. "
         f"Produce an ordered plan ({_MIN_PLAN_STEPS}-{_MAX_PLAN_STEPS} steps) of how "
         "you WOULD approach the objective.\n\n"
         "Hard rules:\n"
-        "1. Do NOT do the work. Do NOT run any shell command, inspect the repo, "
-        "or write code. This is an outline only.\n"
+        f"{first_rule}\n"
         "2. Each step is one concrete action with an imperative title.\n"
         f"3. Keep it to {_MIN_PLAN_STEPS}-{_MAX_PLAN_STEPS} steps, but include enough detail "
         "for the operator to understand the approach.\n"
@@ -707,7 +716,7 @@ def build_maintenance_prompt(
         "check that compares real behavior before/after. The daemon will execute the "
         "repair in its private framework worktree and require an independent "
         "Reviewer. Before authorizing repair, inspect only the relevant framework "
-        "source in the current read-only working directory to confirm the causal "
+        "source in the current working directory to confirm the causal "
         "defect and exact paths; do not write or modify anything. Every "
         "AFFECTED_PATHS entry must be an exact repository-relative path such as "
         "`argus_skill/life/supervisor/_core.py`; never return an absolute path, "

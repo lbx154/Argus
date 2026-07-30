@@ -742,6 +742,7 @@ class SkillLoopExecuteMixin:
         objective: str,
         original_objective: str,
         preplanned: bool,
+        mission_id: str | None,
     ) -> None:
         """Draft the advisory Planner execution plan for bounded (non-direct,
         non-preplanned) work and fold it into ``ex_state.full_task``.
@@ -758,6 +759,10 @@ class SkillLoopExecuteMixin:
         if preplanned or getattr(config, "workflow_mode", "staged") == "direct":
             return
         try:
+            from ..core.planner_verdict import (
+                PlannerVerdictStatus,
+                build_planner_verdict_event,
+            )
             from ..manager.plan_mode import draft_plan
             from ..roles.prompts import resolve_role_prompt
             from ..roles.prompts.planner import preview_request
@@ -765,9 +770,30 @@ class SkillLoopExecuteMixin:
             planner_role_banner = resolve_role_prompt(
                 preview_request(workdir)
             ).role_banner
+            try:
+                planner_max_seconds = max(
+                    30,
+                    int(
+                        os.environ.get(
+                            "ARGUS_SKILL_PLANNER_MAX_SECONDS",
+                            "60",
+                        )
+                    ),
+                )
+            except ValueError:
+                planner_max_seconds = 60
+            sink.handle_event(
+                {
+                    "type": "life.planner.start",
+                    "agent_layer": "planner",
+                    "objective": objective,
+                    "max_seconds": planner_max_seconds,
+                    "text": "Planner project grounding and decomposition started",
+                }
+            )
             plan = draft_plan(
                 getattr(self, "planner_backend", None) or self._backend,
-                original_objective or objective,
+                objective,
                 sink=sink,
                 model=getattr(args, "plan_model", None),
                 reasoning_effort=resolve_role_reasoning_effort(
@@ -775,6 +801,10 @@ class SkillLoopExecuteMixin:
                 ),
                 run_label="planner-bounded-plan",
                 role_banner=planner_role_banner,
+                working_dir=str(workdir),
+                dangerous_yolo=True,
+                max_seconds=planner_max_seconds,
+                allow_repository_inspection=True,
             )
             if plan.steps:
                 lines = ["## Planner execution plan (advisory)"]
@@ -792,6 +822,21 @@ class SkillLoopExecuteMixin:
                         "steps": len(plan.steps),
                         "text": f"bounded execution plan · {len(plan.steps)} steps",
                     }
+                )
+                sink.handle_event(
+                    build_planner_verdict_event(
+                        status=PlannerVerdictStatus.PLANNED,
+                        reason=(
+                            "Grounded bounded plan completed with "
+                            f"{len(plan.steps)} step(s)"
+                        ),
+                        project_id=str(workdir),
+                        mission_id=str(mission_id or ""),
+                        agent_layer="planner",
+                        project_done=False,
+                        steps=len(plan.steps),
+                        text="Planner grounding and decomposition completed",
+                    )
                 )
             else:
                 sink.handle_event(
@@ -864,6 +909,7 @@ class SkillLoopExecuteMixin:
                 objective=objective,
                 original_objective=original_objective,
                 preplanned=preplanned,
+                mission_id=mission_id,
             )
 
             def _pre_settlement_guard(

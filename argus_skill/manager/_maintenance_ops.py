@@ -67,7 +67,7 @@ class _MaintenanceMixin:
             model=_manager_model(),
             reasoning_effort=_manager_reasoning_effort(),
             working_dir=str(Path(framework_root).resolve()),
-            sandbox_mode="read-only",
+            dangerous_yolo=True,
             skip_git_repo_check=True,
         )
 

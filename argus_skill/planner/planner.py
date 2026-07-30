@@ -41,7 +41,7 @@ class PlannerConfig:
     extra_args: list[str] = field(default_factory=list)
     skip_git_repo_check: bool = True
     full_auto: bool = False
-    dangerous_yolo: bool = False
+    dangerous_yolo: bool = True
     open_ended: bool = False
     external_interrupt_reason_provider: Any = None
 
