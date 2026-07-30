@@ -9,6 +9,8 @@ to avoid circular imports with ``_core``.
 from __future__ import annotations
 
 import logging
+import os
+import time
 from contextlib import nullcontext
 from typing import Any
 
@@ -71,16 +73,37 @@ class _VerticalDecisionMixin:
             f"## Operator task\n{task.strip()}"
         )
         try:
+            max_seconds = max(
+                30,
+                int(
+                    os.environ.get(
+                        "ARGUS_SKILL_MANAGER_GROUNDING_MAX_SECONDS",
+                        "300",
+                    )
+                ),
+            )
+        except ValueError:
+            max_seconds = 300
+        deadline = time.monotonic() + max_seconds
+        try:
             with self._task_usage_scope(root_task_id):
                 result = gateway_run_exec(
                     self.runner,
                     prompt=prompt,
                     options=RunnerOptions(
                         model=_manager_model(),
-                        reasoning_effort=_manager_reasoning_effort(),
+                        reasoning_effort=os.environ.get(
+                            "ARGUS_SKILL_MANAGER_GROUNDING_REASONING_EFFORT",
+                            "low",
+                        ),
                         working_dir=str(self.project_root),
                         sandbox_mode="read-only",
                         skip_git_repo_check=True,
+                        external_interrupt_reason_provider=lambda: (
+                            "Manager project grounding time budget reached"
+                            if time.monotonic() >= deadline
+                            else None
+                        ),
                     ),
                     run_label="manager-project-grounding",
                 )

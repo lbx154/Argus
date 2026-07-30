@@ -72,6 +72,10 @@ def test_software_grounding_brief_is_appended_to_execution_handoff(
     assert "Closest analogue" in handoff
     assert runner.calls[0]["run_label"] == "manager-project-grounding"
     assert runner.calls[0]["options"].sandbox_mode == "read-only"
+    assert runner.calls[0]["options"].reasoning_effort == "low"
+    assert callable(
+        runner.calls[0]["options"].external_interrupt_reason_provider
+    )
 
 
 def _existing(vertical: str) -> _DecisionRunner:
@@ -766,7 +770,6 @@ def test_is_conversational_does_not_fire_matcher(tmp_path):
     out = mgr.is_conversational("hi there", run_exec=lambda p: _FakeResult("CHAT"))
     assert mgr.mission.calls == 0
     assert out is True
-
 
 
 
