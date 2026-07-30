@@ -294,6 +294,34 @@ def _nearest_transfer_scores(
     return scores
 
 
+def _parse_skill_adapter_response(
+    text: str,
+) -> tuple[bool | None, str, str]:
+    """Return ``(accepted, guideline, reason)`` from the adapter verdict."""
+    raw = str(text or "").strip()
+    fit = re.search(
+        r"(?im)^[^\w]*FIT\s*[:=]\s*(use|reject)\b",
+        raw,
+    )
+    reason = re.search(
+        r"(?im)^[^\w]*REASON\s*[:=]\s*(.+)$",
+        raw,
+    )
+    reason_text = reason.group(1).strip() if reason is not None else ""
+    if fit is None:
+        return None, "", "adapter omitted FIT verdict"
+    if fit.group(1).casefold() == "reject":
+        return False, "", reason_text or "mechanism does not fit current task"
+    guideline = re.sub(
+        r"(?im)^[^\w]*(?:FIT|REASON)\s*[:=].*$",
+        "",
+        raw,
+    ).strip()
+    if not guideline:
+        return None, "", "adapter accepted without a usable guideline"
+    return True, guideline, reason_text
+
+
 class SkillSelectionMixin:
     """Skill selection + Scientist adaptation phase methods for ``SkillLoop``."""
 
@@ -509,8 +537,13 @@ class SkillSelectionMixin:
                 else self.config.skill_adapter_max_bullets
             )
             adapter_prompt = (
-                "You are a low-cost Skill Adapter. Rewrite the reusable skill below "
-                "into a concise guideline for the CURRENT task. Do not solve the "
+                "You are a low-cost Skill Adapter and transfer gate. First decide "
+                "whether the reusable skill's core mechanism genuinely fits the "
+                "CURRENT task. Output `FIT=reject` and one `REASON=` line when the "
+                "repository, objective, mechanism, artifact type, or verification "
+                "contract differs materially; do not force an analogy. Otherwise "
+                "output `FIT=use`, one `REASON=` line, then rewrite the reusable "
+                "skill into a concise guideline for the CURRENT task. Do not solve the "
                 "task, use tools, inspect files, create artifacts, or discuss the "
                 "adaptation process. Preserve the skill's valid mechanism, replace "
                 "generic placeholders with task-relevant abstractions, remove "
@@ -561,19 +594,69 @@ class SkillSelectionMixin:
                     and not getattr(transfer_result, "fatal_error", None)
                     and adapted
                 ):
-                    state.skill_text = (
-                        "## Task-adapted skill guideline\n"
-                        f"Source skill: {state.skill.name}\n\n{adapted}"
-                    )
                     state.distill_result = transfer_result
-                    self._emit(
-                        {
-                            "type": EventType.SKILL_TRANSFER_COMPLETED,
-                            "skill_name": state.skill.name,
-                            "success": True,
-                            "text": f"adapted skill {state.skill.name} for current task",
-                        }
+                    accepted, guideline, reason = _parse_skill_adapter_response(
+                        adapted
                     )
+                    matched_name = state.skill.name
+                    if accepted is True:
+                        state.skill_text = (
+                            "## Task-adapted skill guideline\n"
+                            f"Source skill: {matched_name}\n\n{guideline}"
+                        )
+                        self._emit(
+                            {
+                                "type": EventType.SKILL_TRANSFER_COMPLETED,
+                                "skill_name": matched_name,
+                                "success": True,
+                                "accepted": True,
+                                "reason": reason,
+                                "text": (
+                                    f"adapted skill {matched_name} "
+                                    "for current task"
+                                ),
+                            }
+                        )
+                    elif accepted is False:
+                        state.skill = None
+                        state.primary_skills = []
+                        state.strict_skill_hit = False
+                        state.nearest_transfer_fallback = False
+                        state.skill_text = ""
+                        state.skill_name = None
+                        state.learning_target_name = ""
+                        state.reviewer_skill_block = render_skill_playbook(
+                            self.skill_store,
+                            state.reference_skills[:1],
+                            [],
+                        )
+                        self._emit(
+                            {
+                                "type": EventType.SKILL_TRANSFER_COMPLETED,
+                                "skill_name": matched_name,
+                                "success": True,
+                                "accepted": False,
+                                "reason": reason,
+                                "text": (
+                                    f"adapter rejected matched skill "
+                                    f"{matched_name}: {reason}"
+                                ),
+                            }
+                        )
+                    else:
+                        self._emit(
+                            {
+                                "type": EventType.SKILL_TRANSFER_COMPLETED,
+                                "skill_name": matched_name,
+                                "success": False,
+                                "accepted": None,
+                                "reason": reason,
+                                "text": (
+                                    "skill adapter returned no usable FIT "
+                                    "verdict; using original skill"
+                                ),
+                            }
+                        )
                 else:
                     self._emit(
                         {

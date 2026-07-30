@@ -386,7 +386,12 @@ def test_matched_skill_is_adapted_with_one_low_effort_call(tmp_path: Path) -> No
     backend.queue(
         "skill-adapter",
         CannedResponse(
-            message="- Emit exactly one concise greeting.\n- Preserve the requested tone.",
+            message=(
+                "FIT=use\n"
+                "REASON=The greeting mechanism directly fits the current request.\n"
+                "- Emit exactly one concise greeting.\n"
+                "- Preserve the requested tone."
+            ),
             input_tokens=40,
             output_tokens=12,
         ),
@@ -429,6 +434,101 @@ def test_matched_skill_is_adapted_with_one_low_effort_call(tmp_path: Path) -> No
     pointer = reviewer_prompt.split("## Engineer skill pointer (on demand)", 1)[1]
     assert len(pointer.split("## Stage checklist", 1)[0]) < 500
     assert any(event.get("type") == "skill.transfer.completed" for event in events)
+
+
+def test_skill_adapter_can_reject_a_semantic_mismatch(tmp_path: Path) -> None:
+    skills_dir = tmp_path / "skills"
+    _seed_skill(skills_dir)
+    backend = MemoryBackend()
+    backend.queue("matcher", _match_hello())
+    backend.queue(
+        "skill-adapter",
+        CannedResponse(
+            message=(
+                "FIT=reject\n"
+                "REASON=The current task changes a database schema, not a greeting."
+            )
+        ),
+    )
+    backend.queue("engineer-r1", CannedResponse(message="done"))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+    events: list[dict] = []
+
+    outcome = SkillLoop(
+        skills_dir=skills_dir,
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(max_rounds=1),
+        on_event=events.append,
+    ).run("change the database schema", workdir=tmp_path)
+
+    engineer_prompt = next(
+        prompt
+        for label, prompt, _options in backend.history
+        if label == "engineer-r1"
+    )
+    reviewer_prompt = next(
+        prompt
+        for label, prompt, _options in backend.history
+        if label == "reviewer"
+    )
+    assert outcome.skill_used is None
+    assert "Task-adapted skill guideline" not in engineer_prompt
+    assert "Engineer skill pointer (on demand)" not in reviewer_prompt
+    rejected = next(
+        event
+        for event in events
+        if event.get("type") == "skill.transfer.completed"
+    )
+    assert rejected["accepted"] is False
+    assert "database schema" in rejected["reason"]
+
+
+@pytest.mark.parametrize(
+    "adapter_reply",
+    [
+        "- Use the original mechanism carefully.",
+        "FIT=use\nREASON=The mechanism fits but no guideline was emitted.",
+    ],
+)
+def test_skill_adapter_protocol_failure_keeps_original_skill(
+    tmp_path: Path,
+    adapter_reply: str,
+) -> None:
+    skills_dir = tmp_path / "skills"
+    _seed_skill(skills_dir)
+    backend = MemoryBackend()
+    backend.queue("matcher", _match_hello())
+    backend.queue(
+        "skill-adapter",
+        CannedResponse(message=adapter_reply),
+    )
+    backend.queue("engineer-r1", CannedResponse(message="done"))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+    events: list[dict] = []
+
+    outcome = SkillLoop(
+        skills_dir=skills_dir,
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(max_rounds=1),
+        on_event=events.append,
+    ).run("say hi warmly", workdir=tmp_path)
+
+    engineer_prompt = next(
+        prompt
+        for label, prompt, _options in backend.history
+        if label == "engineer-r1"
+    )
+    assert outcome.skill_used == "Write a hello message"
+    assert "Skill playbook (read first)" in engineer_prompt
+    completion = next(
+        event
+        for event in events
+        if event.get("type") == "skill.transfer.completed"
+    )
+    assert completion["success"] is False
+    assert completion["accepted"] is None
 
 
 @pytest.mark.parametrize(

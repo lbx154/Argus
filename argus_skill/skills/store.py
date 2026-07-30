@@ -715,9 +715,9 @@ class SkillStore:
             summary
             for summary in summaries
             if bool(summary.get("protected"))
-            or int(summary.get("failed_reuses") or 0) < 2
-            or int(summary.get("failed_reuses") or 0)
-            <= int(summary.get("successful_reuses") or 0)
+            or int(summary.get("failed_reuses") or 0) == 0
+            or int(summary.get("successful_reuses") or 0)
+            > int(summary.get("failed_reuses") or 0)
         ]
         if on_event and len(summaries) < before_quarantine:
             on_event({

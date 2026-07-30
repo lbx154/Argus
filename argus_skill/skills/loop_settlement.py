@@ -127,7 +127,10 @@ class MissionSettlementMixin:
                 )
                 or self.config.resolved_matcher_model()
             )
-            transfer_used = bool(state.distill_result is not None and state.skill is not None)
+            transfer_used = bool(
+                state.distill_result is not None
+                and not state.skill_distilled
+            )
             distiller_model = str(
                 self.config.resolved_skill_adapter_model()
                 if transfer_used and not state.skill_distilled

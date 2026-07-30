@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus_skill.roles.prompts.planner import _EXTERNAL_TARGET_CONTRACT
 from argus_skill.roles.prompts.engineer import MISSION, mission_request
@@ -85,4 +87,38 @@ def test_repeatedly_ineffective_skill_is_quarantined_before_matching(tmp_path) -
     )
 
     assert matched is None
+    assert any("quarantined 1" in event.get("text", "") for event in events)
+
+
+@pytest.mark.parametrize(
+    ("successful_reuses", "failed_reuses"),
+    [(0, 1), (1, 1)],
+)
+def test_nonpositive_reuse_evidence_is_quarantined_before_matching(
+    tmp_path,
+    successful_reuses,
+    failed_reuses,
+) -> None:
+    skill = Skill(
+        name="Unproven transfer",
+        description="may not generalize",
+        category="software",
+        content="# Unproven transfer\n",
+        successful_reuses=successful_reuses,
+        failed_reuses=failed_reuses,
+    )
+    backend = MemoryBackend()
+    store = SkillStore(tmp_path / "skills", runner=backend, matcher_model="test")
+    store.save(skill)
+    events = []
+
+    matched, _tokens = store.find_relevant(
+        "repair a different subsystem",
+        on_event=events.append,
+        force_empty_match=True,
+    )
+
+    assert matched is None
+    assert len(backend.history) == 1
+    assert "Unproven transfer" not in backend.history[0][1]
     assert any("quarantined 1" in event.get("text", "") for event in events)
