@@ -79,6 +79,37 @@ def test_software_grounding_brief_is_appended_to_execution_handoff(
     )
 
 
+def test_software_grounding_keeps_usable_budget_interrupt_output(
+    tmp_path,
+) -> None:
+    class InterruptedResult(_DecisionResult):
+        exit_code = 143
+        fatal_error = "External interrupt: grounding budget reached"
+
+    class GroundingRunner:
+        def run_exec(self, **kwargs):
+            return InterruptedResult(
+                "Architecture: parser -> loader -> caller. "
+                "Closest analogue: sibling_parser.py preserves the public "
+                "dictionary return contract. Affected callers include the CLI "
+                "and configuration loader. Verification: run the focused parser "
+                "tests and probe invalid input. Acceptance risk: preserve key "
+                "ordering, exception type, and valid input behavior."
+            )
+
+    handoff = Manager(
+        project_root=tmp_path,
+        runner=GroundingRunner(),
+    )._ground_software_execution_task(
+        "Repair parser behavior.",
+        workflow_mode="staged",
+        root_task_id="route-1",
+    )
+
+    assert "## Manager project grounding" in handoff
+    assert "Closest analogue" in handoff
+
+
 def _existing(vertical: str) -> _DecisionRunner:
     normalized = "software" if vertical == "direct" else vertical
     decision = {
@@ -791,5 +822,4 @@ def test_is_conversational_does_not_fire_matcher(tmp_path):
     out = mgr.is_conversational("hi there", run_exec=lambda p: _FakeResult("CHAT"))
     assert mgr.mission.calls == 0
     assert out is True
-
 

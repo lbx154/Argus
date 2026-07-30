@@ -127,9 +127,24 @@ class _VerticalDecisionMixin:
             log.debug("Manager software grounding call failed", exc_info=True)
             return task.strip()
         failed, _detail = _manager_backend_failure(result)
-        if failed:
-            return task.strip()
         brief = extract_answer(result).strip()
+        brief_lower = brief.casefold()
+        usable_interrupted_brief = (
+            len(brief) >= 200
+            and sum(
+                marker in brief_lower
+                for marker in (
+                    "architecture",
+                    "closest analogue",
+                    "test",
+                    "verification",
+                    "acceptance risk",
+                )
+            )
+            >= 2
+        )
+        if failed and not usable_interrupted_brief:
+            return task.strip()
         if not brief:
             return task.strip()
         if len(brief) > 8_000:
