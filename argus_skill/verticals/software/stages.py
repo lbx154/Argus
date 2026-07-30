@@ -62,7 +62,14 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "passing repository tests is not sufficient: derive a temporary "
                 "compile/behaviour probe from every requested public signature and "
                 "boundary case in the task specification, run it, then remove only "
-                "that temporary probe before handoff."
+                "that temporary probe before handoff. A probe is valid only when "
+                "its expected value is independent of the patch: derive it from "
+                "the issue text, unchanged callers, the closest sibling "
+                "implementation, or an established repository convention. Never "
+                "copy the patch's own return shape, ordering, defaults, or field "
+                "mapping into the assertion. Explicitly falsify exact return types, "
+                "argument/command ordering, zero/default values, complete field "
+                "mapping, invalid inputs, and boundary values before `done`."
             ),
             evidence_hint=(
                 "the test command and the result line showing tests ran "
@@ -74,7 +81,10 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "The requested behaviour change is actually implemented in "
                 "production code, and unrelated existing work in the checkout is "
-                "preserved."
+                "preserved. Compare the complete patch with the closest unchanged "
+                "analogue and every existing call site; missing branches, fields, "
+                "aliases, or ordering constraints are objective failures even when "
+                "the happy-path probe passes."
             ),
             evidence_hint="the changed files and the behaviour they now implement",
         ),
