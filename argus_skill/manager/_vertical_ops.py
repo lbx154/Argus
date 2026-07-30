@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 import os
-import time
 from contextlib import nullcontext
 from typing import Any
 
@@ -58,7 +57,6 @@ class _VerticalDecisionMixin:
         *,
         workflow_mode: str,
         root_task_id: str | None,
-        deadline: float | None = None,
     ) -> str:
         """Attach a bounded repository-grounding brief to software handoff."""
         from ..core.models import RunnerOptions
@@ -87,25 +85,10 @@ class _VerticalDecisionMixin:
             f"## Operator task\n{task.strip()}"
         )
         try:
-            max_seconds = max(
-                30,
-                int(
-                    os.environ.get(
-                        "ARGUS_SKILL_MANAGER_GROUNDING_MAX_SECONDS",
-                        "300",
-                    )
-                ),
-            )
-        except ValueError:
-            max_seconds = 300
-        try:
             with (
                 self._task_usage_scope(root_task_id),
                 role_call_slot("project_grounding"),
             ):
-                grounding_deadline = time.monotonic() + max_seconds
-                if deadline is not None and deadline > time.monotonic():
-                    grounding_deadline = min(grounding_deadline, deadline)
                 result = gateway_run_exec(
                     self.runner,
                     prompt=prompt,
@@ -118,20 +101,12 @@ class _VerticalDecisionMixin:
                         working_dir=str(self.project_root),
                         dangerous_yolo=True,
                         skip_git_repo_check=True,
-                        external_interrupt_reason_provider=lambda: (
-                            "Manager project grounding time budget reached"
-                            if time.monotonic() >= grounding_deadline
-                            else None
-                        ),
                     ),
                     run_label="manager-project-grounding",
                 )
         except Exception:  # noqa: BLE001 - grounding is evidence, not admission
             log.debug("Manager software grounding call failed", exc_info=True)
             return task.strip()
-        self._last_software_grounding_thread_id = str(
-            getattr(result, "thread_id", "") or ""
-        )
         failed, _detail = _manager_backend_failure(result)
         brief = extract_answer(result).strip()
         if failed:
@@ -243,24 +218,6 @@ class _VerticalDecisionMixin:
             raise VerticalDecisionError(
                 "cannot decide the vertical: the Manager has no backend/runner"
             )
-        try:
-            total_seconds = max(
-                30,
-                int(
-                    os.environ.get(
-                        "ARGUS_SKILL_MANAGER_TOTAL_MAX_SECONDS",
-                        "240",
-                    )
-                ),
-            )
-        except ValueError:
-            total_seconds = 240
-        route_deadline = time.monotonic() + total_seconds
-
-        def route_interrupt() -> str | None:
-            if time.monotonic() >= route_deadline:
-                return "Manager routing and grounding total budget reached"
-            return None
         from ..core.models import RunnerOptions
         from ..domains import BUILTIN_DOMAINS, DOMAIN_PURPOSES
         from ..roles.prompts.manager import (
@@ -339,7 +296,6 @@ class _VerticalDecisionMixin:
                         sandbox_mode=fast_sandbox,
                         skip_git_repo_check=True,
                         extra_args=fast_extra_args,
-                        external_interrupt_reason_provider=route_interrupt,
                     ),
                     run_label="manager-classify-fast",
                 )
@@ -370,7 +326,6 @@ class _VerticalDecisionMixin:
                             task,
                             workflow_mode=workflow_mode,
                             root_task_id=root_task_id,
-                            deadline=route_deadline,
                         )
                     return VerticalDecision(
                         choice="existing",
@@ -431,7 +386,6 @@ class _VerticalDecisionMixin:
                     dangerous_yolo=True,
                     skip_git_repo_check=True,
                     extra_args=grounded_extra_args,
-                    external_interrupt_reason_provider=route_interrupt,
                 ),
                 run_label="manager-classify-grounded",
             )
@@ -463,7 +417,6 @@ class _VerticalDecisionMixin:
                 task,
                 workflow_mode=decision.workflow_mode,
                 root_task_id=root_task_id,
-                deadline=route_deadline,
             )
         return decision
 

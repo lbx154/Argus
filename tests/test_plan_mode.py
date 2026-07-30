@@ -332,7 +332,6 @@ def test_grounded_plan_gets_full_repository_tools() -> None:
         dangerous_yolo=True,
         max_seconds=60,
         allow_repository_inspection=True,
-        resume_thread_id="manager-thread-1",
     )
 
     assert "Manager project grounding" in runner.last_prompt
@@ -343,7 +342,7 @@ def test_grounded_plan_gets_full_repository_tools() -> None:
     assert callable(
         runner.last_options.external_interrupt_reason_provider
     )
-    assert runner.last_resume_thread_id == "manager-thread-1"
+    assert runner.last_resume_thread_id is None
 
 
 def test_draft_plan_resolves_backend_wrapper() -> None:

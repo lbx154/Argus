@@ -770,24 +770,12 @@ class SkillLoopExecuteMixin:
             planner_role_banner = resolve_role_prompt(
                 preview_request(workdir)
             ).role_banner
-            try:
-                planner_max_seconds = max(
-                    30,
-                    int(
-                        os.environ.get(
-                            "ARGUS_SKILL_PLANNER_MAX_SECONDS",
-                            "60",
-                        )
-                    ),
-                )
-            except ValueError:
-                planner_max_seconds = 60
             sink.handle_event(
                 {
                     "type": "life.planner.start",
                     "agent_layer": "planner",
                     "objective": objective,
-                    "max_seconds": planner_max_seconds,
+                    "completion_required": True,
                     "text": "Planner project grounding and decomposition started",
                 }
             )
@@ -803,19 +791,7 @@ class SkillLoopExecuteMixin:
                 role_banner=planner_role_banner,
                 working_dir=str(workdir),
                 dangerous_yolo=True,
-                max_seconds=planner_max_seconds,
                 allow_repository_inspection=True,
-                resume_thread_id=(
-                    str(
-                        getattr(
-                            self.manager,
-                            "_last_software_grounding_thread_id",
-                            "",
-                        )
-                        or ""
-                    )
-                    or None
-                ),
             )
             if plan.steps:
                 lines = ["## Planner execution plan (advisory)"]

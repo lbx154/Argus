@@ -74,12 +74,10 @@ def test_software_grounding_brief_is_appended_to_execution_handoff(
     assert runner.calls[0]["options"].sandbox_mode is None
     assert runner.calls[0]["options"].dangerous_yolo is True
     assert runner.calls[0]["options"].reasoning_effort == "low"
-    assert callable(
-        runner.calls[0]["options"].external_interrupt_reason_provider
-    )
+    assert runner.calls[0]["options"].external_interrupt_reason_provider is None
 
 
-def test_software_grounding_keeps_interrupt_thread_not_partial_brief(
+def test_software_grounding_rejects_interrupted_partial_brief(
     tmp_path,
 ) -> None:
     class InterruptedResult(_DecisionResult):
@@ -108,7 +106,7 @@ def test_software_grounding_keeps_interrupt_thread_not_partial_brief(
     )
 
     assert handoff == "Repair parser behavior."
-    assert manager._last_software_grounding_thread_id == "t1"
+    assert not hasattr(manager, "_last_software_grounding_thread_id")
 
 
 def _existing(vertical: str) -> _DecisionRunner:
@@ -532,9 +530,7 @@ def test_vertical_decision_pins_manager_model(tmp_path, monkeypatch) -> None:
     assert decision.vertical == "software"
     assert decision.workflow_mode == "direct"
     assert runner.last_options.model == "gpt-5.5"
-    assert callable(
-        runner.calls[0]["options"].external_interrupt_reason_provider
-    )
+    assert runner.calls[0]["options"].external_interrupt_reason_provider is None
 
 
 def test_software_planner_requirement_overrides_direct_route(
