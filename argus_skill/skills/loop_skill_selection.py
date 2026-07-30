@@ -231,6 +231,27 @@ _TRANSFER_TOKEN_ALIASES: dict[str, str] = {
 }
 
 
+def _repository_scope(text: object) -> str:
+    """Extract an explicit repository identity without guessing from keywords."""
+    raw = str(text or "")
+    repository = re.search(
+        r"(?im)^\s*repository\s*:\s*"
+        r"([a-z0-9_.-]+/[a-z0-9_.-]+)\s*$",
+        raw,
+    )
+    if repository is not None:
+        return repository.group(1).casefold()
+    instance = re.search(
+        r"\binstance_([a-z0-9_.-]+)__"
+        r"([a-z0-9_.-]+?)-[0-9a-f]{7,}(?:-|$)",
+        raw,
+        re.IGNORECASE,
+    )
+    if instance is not None:
+        return f"{instance.group(1)}/{instance.group(2)}".casefold()
+    return ""
+
+
 def _transfer_terms(text: object) -> list[str]:
     """Return normalized, discriminative terms for cheap Skill retrieval."""
     terms: list[str] = []
@@ -692,6 +713,8 @@ class SkillSelectionMixin:
     ) -> None:
         """Retrieve negative Skill evidence without making it executable."""
         loaded: list[tuple[dict[str, Any], Skill]] = []
+        rejected_scope: list[tuple[str, str]] = []
+        task_repository = _repository_scope(mission.skill_task)
         for summary in self.skill_store.list_summaries():
             successful = int(summary.get("successful_reuses") or 0)
             failed = int(summary.get("failed_reuses") or 0)
@@ -708,7 +731,34 @@ class SkillSelectionMixin:
                 continue
             if self.skill_store.role_for(candidate) not in {"engineer", "general"}:
                 continue
+            candidate_repository = _repository_scope(
+                candidate.created_for_task
+            ) or _repository_scope(candidate.content)
+            if (
+                task_repository
+                and candidate_repository
+                and candidate_repository != task_repository
+            ):
+                rejected_scope.append((candidate.name, candidate_repository))
+                continue
             loaded.append((summary, candidate))
+        if rejected_scope:
+            self._emit(
+                {
+                    "type": "skill.failure_reference.rejected",
+                    "reason": "repository_scope_mismatch",
+                    "current_repository": task_repository,
+                    "candidate_repositories": sorted(
+                        {repository for _name, repository in rejected_scope}
+                    ),
+                    "skill_names": [name for name, _repository in rejected_scope],
+                    "count": len(rejected_scope),
+                    "text": (
+                        "rejected failed Skill experience(s) from explicit "
+                        "different repository scope"
+                    ),
+                }
+            )
         if not loaded:
             return
         scores = _nearest_transfer_scores(

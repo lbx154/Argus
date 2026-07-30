@@ -549,6 +549,10 @@ def test_failed_skill_experience_is_advisory_not_primary(
                 "The implementation was unresolved because it copied its own "
                 "return shape into the probe."
             ),
+            created_for_task=(
+                "instance_ansible__ansible-"
+                "d62496fe416623e88b90139dc7917080cb04ce70"
+            ),
             successful_reuses=0,
             failed_reuses=1,
         )
@@ -568,7 +572,10 @@ def test_failed_skill_experience_is_advisory_not_primary(
             nearest_transfer_enabled=True,
         ),
         on_event=events.append,
-    ).run("repair parser return type", workdir=tmp_path)
+    ).run(
+        "Repository: ansible/ansible\n\nRepair parser return type",
+        workdir=tmp_path,
+    )
 
     engineer_prompt = next(
         prompt
@@ -583,6 +590,60 @@ def test_failed_skill_experience_is_advisory_not_primary(
         event.get("type") == "skill.failure_reference.injected"
         for event in events
     )
+
+
+def test_failed_skill_experience_rejects_explicit_cross_repository_noise(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_FAILURE_REFERENCE_MIN_SCORE", "0")
+    skills_dir = tmp_path / "skills"
+    store = SkillStore(skills_dir)
+    store.save(
+        Skill(
+            name="CORS whitespace parsing failure",
+            description="Whitespace-separated origins were parsed incorrectly.",
+            category="software-experience",
+            content="# CORS whitespace parsing failure\n",
+            created_for_task=(
+                "instance_flipt-io__flipt-"
+                "518ec324b66a07fdd95464a5e9ca5fe7681ad8f9"
+            ),
+            successful_reuses=0,
+            failed_reuses=1,
+        )
+    )
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend.queue("engineer-r1", CannedResponse(message="done"))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+    events: list[dict] = []
+
+    SkillLoop(
+        skills_dir=skills_dir,
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(max_rounds=1),
+        on_event=events.append,
+    ).run(
+        "Repository: ansible/ansible\n\nRepair parser return type",
+        workdir=tmp_path,
+    )
+
+    engineer_prompt = next(
+        prompt
+        for label, prompt, _options in backend.history
+        if label == "engineer-r1"
+    )
+    assert "Prior failed Skill experiences" not in engineer_prompt
+    rejection = next(
+        event
+        for event in events
+        if event.get("type") == "skill.failure_reference.rejected"
+    )
+    assert rejection["reason"] == "repository_scope_mismatch"
+    assert rejection["current_repository"] == "ansible/ansible"
+    assert rejection["candidate_repositories"] == ["flipt-io/flipt"]
 
 
 @pytest.mark.parametrize(
