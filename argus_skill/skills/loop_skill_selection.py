@@ -462,6 +462,13 @@ class SkillSelectionMixin:
                     continue
                 if self.skill_store.role_for(candidate) not in {"engineer", "general"}:
                     continue
+                if (
+                    not candidate.protected
+                    and candidate.failed_reuses > 0
+                    and candidate.successful_reuses
+                    <= candidate.failed_reuses
+                ):
+                    continue
                 loaded.append((summary, candidate))
             scores = _nearest_transfer_scores(
                 mission.skill_task,
@@ -676,6 +683,109 @@ class SkillSelectionMixin:
                         "text": "skill adapter raised; using original skill",
                     }
                 )
+        self._inject_failed_skill_experiences(mission, state)
+
+    def _inject_failed_skill_experiences(
+        self,
+        mission: MissionContext,
+        state: SkillSelectionState,
+    ) -> None:
+        """Retrieve negative Skill evidence without making it executable."""
+        loaded: list[tuple[dict[str, Any], Skill]] = []
+        for summary in self.skill_store.list_summaries():
+            successful = int(summary.get("successful_reuses") or 0)
+            failed = int(summary.get("failed_reuses") or 0)
+            if (
+                failed == 0
+                or failed < successful
+                or bool(summary.get("protected"))
+                or not str(summary.get("path") or "").strip()
+            ):
+                continue
+            try:
+                candidate = self.skill_store.load(str(summary["path"]))
+            except (OSError, ValueError):
+                continue
+            if self.skill_store.role_for(candidate) not in {"engineer", "general"}:
+                continue
+            loaded.append((summary, candidate))
+        if not loaded:
+            return
+        scores = _nearest_transfer_scores(
+            mission.skill_task,
+            [summary for summary, _candidate in loaded],
+        )
+        ranked = sorted(
+            [
+                (
+                score,
+                candidate.name.casefold(),
+                summary,
+                candidate,
+                )
+                for score, (summary, candidate) in zip(scores, loaded)
+            ],
+            key=lambda item: (-item[0], item[1]),
+        )
+        try:
+            minimum = float(
+                os.environ.get(
+                    "ARGUS_SKILL_FAILURE_REFERENCE_MIN_SCORE",
+                    "0.08",
+                )
+            )
+        except ValueError:
+            minimum = 0.08
+        selected = [item for item in ranked if item[0] >= max(0.0, minimum)][:2]
+        if not selected:
+            return
+        parts = [
+            "## Prior failed Skill experiences (advisory only)",
+            (
+                "These are negative outcome records from related tasks. Do not "
+                "execute them as playbooks and do not infer impossibility. Use "
+                "them to identify assumptions and verification gaps that must be "
+                "changed or independently falsified."
+            ),
+        ]
+        names: list[str] = []
+        for score, _key, summary, skill in selected:
+            names.append(skill.name)
+            excerpt = self.skill_store.render_skill(skill)
+            if len(excerpt) > 1_200:
+                excerpt = excerpt[:1_199].rstrip() + "…"
+            parts.extend(
+                [
+                    f"### {skill.name} (similarity={score:.3f})",
+                    (
+                        f"Summary: {skill.description or '(none)'}; official "
+                        f"reuse evidence: "
+                        f"{int(summary.get('successful_reuses') or 0)} resolved, "
+                        f"{int(summary.get('failed_reuses') or 0)} unresolved."
+                    ),
+                    excerpt,
+                ]
+            )
+        block = "\n\n".join(parts)
+        state.skill_text = (
+            f"{state.skill_text}\n\n{block}" if state.skill_text else block
+        )
+        state.reviewer_skill_block = (
+            f"{state.reviewer_skill_block}\n\n{block}"
+            if state.reviewer_skill_block
+            else block
+        )
+        self._emit(
+            {
+                "type": "skill.failure_reference.injected",
+                "skill_names": names,
+                "count": len(names),
+                "text": (
+                    "injected advisory failed Skill experience(s): "
+                    + ", ".join(names)
+                ),
+            }
+        )
 
     def _load_adaptation_state(self, mission: MissionContext, state: SkillSelectionState) -> None:
         state.adaptation_file: Path | None = None

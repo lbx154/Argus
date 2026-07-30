@@ -44,6 +44,36 @@ class _DecisionRunner:
         return _DecisionResult(json.dumps(self._decision))
 
 
+def test_software_grounding_brief_is_appended_to_execution_handoff(
+    tmp_path,
+) -> None:
+    class GroundingRunner:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def run_exec(self, **kwargs):
+            self.calls.append(kwargs)
+            return _DecisionResult(
+                "Architecture: parser -> loader. Closest analogue: sibling loader. "
+                "Verify exact return type and boundary behavior."
+            )
+
+    runner = GroundingRunner()
+    manager = Manager(project_root=tmp_path, runner=runner)
+
+    handoff = manager._ground_software_execution_task(
+        "Repair parser behavior.",
+        workflow_mode="direct",
+        root_task_id="route-1",
+    )
+
+    assert handoff.startswith("Repair parser behavior.")
+    assert "## Manager project grounding" in handoff
+    assert "Closest analogue" in handoff
+    assert runner.calls[0]["run_label"] == "manager-project-grounding"
+    assert runner.calls[0]["options"].sandbox_mode == "read-only"
+
+
 def _existing(vertical: str) -> _DecisionRunner:
     normalized = "software" if vertical == "direct" else vertical
     decision = {
@@ -510,6 +540,7 @@ def test_low_confidence_fast_route_escalates_once_and_preserves_original_task(
     assert [call["run_label"] for call in runner.calls] == [
         "manager-classify-fast",
         "manager-classify-grounded",
+        "manager-project-grounding",
     ]
     assert "--available-tools=" in runner.calls[0]["options"].extra_args
     assert runner.calls[0]["options"].sandbox_mode is None
@@ -531,7 +562,8 @@ def test_fast_route_prompt_cap_skips_directly_to_one_grounded_call(
     assert decision.vertical == "software"
     assert decision.workflow_mode == "direct"
     assert [call["run_label"] for call in runner.calls] == [
-        "manager-classify-grounded"
+        "manager-classify-grounded",
+        "manager-project-grounding",
     ]
 
 
@@ -734,8 +766,6 @@ def test_is_conversational_does_not_fire_matcher(tmp_path):
     out = mgr.is_conversational("hi there", run_exec=lambda p: _FakeResult("CHAT"))
     assert mgr.mission.calls == 0
     assert out is True
-
-
 
 
 

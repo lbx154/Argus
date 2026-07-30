@@ -531,6 +531,60 @@ def test_skill_adapter_protocol_failure_keeps_original_skill(
     assert completion["accepted"] is None
 
 
+def test_failed_skill_experience_is_advisory_not_primary(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_FAILURE_REFERENCE_MIN_SCORE", "0")
+    skills_dir = tmp_path / "skills"
+    store = SkillStore(skills_dir)
+    store.save(
+        Skill(
+            name="Parser tuple return failure",
+            description="Returning a tuple violated the caller's epoch contract.",
+            category="software-experience",
+            content=(
+                "# Parser tuple return failure\n\n"
+                "## Official outcome\n"
+                "The implementation was unresolved because it copied its own "
+                "return shape into the probe."
+            ),
+            successful_reuses=0,
+            failed_reuses=1,
+        )
+    )
+    backend = MemoryBackend()
+    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
+    backend.queue("engineer-r1", CannedResponse(message="done"))
+    backend.queue("reviewer", CannedResponse(message=_done_review()))
+    events: list[dict] = []
+
+    outcome = SkillLoop(
+        skills_dir=skills_dir,
+        engineer_runner=backend,
+        reviewer_runner=backend,
+        config=SkillLoopConfig(
+            max_rounds=1,
+            nearest_transfer_enabled=True,
+        ),
+        on_event=events.append,
+    ).run("repair parser return type", workdir=tmp_path)
+
+    engineer_prompt = next(
+        prompt
+        for label, prompt, _options in backend.history
+        if label == "engineer-r1"
+    )
+    assert outcome.skill_used is None
+    assert "Prior failed Skill experiences (advisory only)" in engineer_prompt
+    assert "Parser tuple return failure" in engineer_prompt
+    assert "Do not execute them as playbooks" in engineer_prompt
+    assert any(
+        event.get("type") == "skill.failure_reference.injected"
+        for event in events
+    )
+
+
 @pytest.mark.parametrize(
     ("explicit_protection", "category"),
     [(True, "hello"), (False, "anti-cheat")],

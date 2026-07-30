@@ -59,7 +59,9 @@ def test_manager_can_commit_software_with_direct_workflow(tmp_path) -> None:
     assert division.vertical == "software"
     assert division.workflow_mode == "direct"
     assert division.stages == ["delivery"]
-    assert division.execution_task == "创作一篇《秋江赋》，语言典雅但可读。"
+    assert division.execution_task.startswith(
+        "创作一篇《秋江赋》，语言典雅但可读。"
+    )
 
 
 def test_manager_prompt_separates_capability_from_execution_mode() -> None:

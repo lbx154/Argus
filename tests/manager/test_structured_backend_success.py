@@ -73,7 +73,10 @@ def test_success_with_stderr_proceeds_once_and_retains_diagnostic(
     )
 
     assert decision.vertical == "software"
-    assert len(runner.calls) == 1
+    assert [call["run_label"] for call in runner.calls] == [
+        "manager-classify-fast",
+        "manager-project-grounding",
+    ]
     assert result.stderr_lines == [diagnostic]
 
 

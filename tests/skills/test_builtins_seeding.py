@@ -57,7 +57,11 @@ def test_iter_vertical_skill_texts_math() -> None:
 
 def test_iter_vertical_skill_texts_unknown_or_skill_less_is_empty() -> None:
     assert list(iter_vertical_skill_texts("nope")) == []
-    assert list(iter_vertical_skill_texts("software")) == []
+    software = dict(iter_vertical_skill_texts("software"))
+    assert set(software) == {
+        "manager/software-project-grounding.md",
+        "planner/software-project-grounding.md",
+    }
 
 
 def test_iter_vertical_skill_texts_research_visual_router() -> None:

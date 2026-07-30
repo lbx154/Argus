@@ -40,6 +40,67 @@ _log = logging.getLogger(__name__)
 class _VerticalDecisionMixin:
     """Mixin: vertical selection, staging, and domain-commit methods."""
 
+    def _ground_software_execution_task(
+        self,
+        task: str,
+        *,
+        workflow_mode: str,
+        root_task_id: str | None,
+    ) -> str:
+        """Attach a bounded repository-grounding brief to software handoff."""
+        from ..core.models import RunnerOptions
+        from ..skills.builtins import iter_vertical_skill_texts
+        from .stage_decider import extract_answer
+
+        skill = dict(iter_vertical_skill_texts("software")).get(
+            "manager/software-project-grounding.md",
+            "",
+        )
+        if not skill or self.runner is None:
+            return task.strip()
+        prompt = (
+            f"{skill}\n\n"
+            "Apply this grounding skill now with read-only repository tools. "
+            "Use at most twelve focused file/search operations. Return only a "
+            "compact human-readable grounding brief (maximum 1600 words) with: "
+            "architecture/call path, closest unchanged analogue, affected "
+            "callers and compatibility surfaces, exact build/test commands, "
+            "held-back acceptance risks, and recommended decomposition for "
+            f"workflow_mode={workflow_mode}. Do not modify files, solve the task, "
+            "or invent requirements.\n\n"
+            f"## Operator task\n{task.strip()}"
+        )
+        try:
+            with self._task_usage_scope(root_task_id):
+                result = gateway_run_exec(
+                    self.runner,
+                    prompt=prompt,
+                    options=RunnerOptions(
+                        model=_manager_model(),
+                        reasoning_effort=_manager_reasoning_effort(),
+                        working_dir=str(self.project_root),
+                        sandbox_mode="read-only",
+                        skip_git_repo_check=True,
+                    ),
+                    run_label="manager-project-grounding",
+                )
+        except Exception:  # noqa: BLE001 - grounding is evidence, not admission
+            log.debug("Manager software grounding call failed", exc_info=True)
+            return task.strip()
+        failed, _detail = _manager_backend_failure(result)
+        if failed:
+            return task.strip()
+        brief = extract_answer(result).strip()
+        if not brief:
+            return task.strip()
+        if len(brief) > 8_000:
+            brief = brief[:7_999].rstrip() + "…"
+        return (
+            task.strip()
+            + "\n\n## Manager project grounding (advisory evidence)\n"
+            + brief
+        )
+
     # ---- the Manager's grounded vertical decision (agent, not keywords) ----
     def _decide_research_target(
         self,
@@ -236,12 +297,19 @@ class _VerticalDecisionMixin:
                     and not fast_route.needs_grounding
                     and fast_route.confidence >= _manager_fast_route_min_confidence()
                 ):
+                    execution_task = task.strip()
+                    if fast_route.vertical == "software":
+                        execution_task = self._ground_software_execution_task(
+                            task,
+                            workflow_mode=fast_route.workflow_mode,
+                            root_task_id=root_task_id,
+                        )
                     return VerticalDecision(
                         choice="existing",
                         vertical=fast_route.vertical,
                         domain=fast_route.domain,
                         workflow_mode=fast_route.workflow_mode,
-                        execution_task=task.strip(),
+                        execution_task=execution_task,
                         research_target_level=fast_route.research_target_level,
                         target_venue=fast_route.target_venue,
                     )
@@ -317,6 +385,12 @@ class _VerticalDecisionMixin:
             raise VerticalDecisionError(
                 f"Manager could not decide a vertical for task {task!r}: the "
                 "model reply was missing or not a valid existing/new choice"
+            )
+        if decision.vertical == "software":
+            decision.execution_task = self._ground_software_execution_task(
+                task,
+                workflow_mode=decision.workflow_mode,
+                root_task_id=root_task_id,
             )
         return decision
 
