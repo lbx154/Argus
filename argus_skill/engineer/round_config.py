@@ -112,6 +112,23 @@ def _engineer_live_search(workdir: Any, stages: "frozenset[str]") -> bool:
         return False
 
 
+def _fit_guard(threshold: int, reachable_max: int) -> int:
+    """Clamp one absolute round guard into a budget it can still fire in.
+
+    ``0`` means "explicitly disabled" for every guard that uses this, so it is
+    returned untouched. A guard that already fits is returned unchanged, which
+    keeps the default 500-round budget byte-for-byte identical. Anything larger
+    is pulled down to ``reachable_max`` but never below 1, because a guard at 0
+    would read as "disabled" rather than "fires immediately".
+    """
+    value = int(threshold)
+    if value <= 0:
+        return value
+    if value <= reachable_max:
+        return value
+    return max(1, reachable_max)
+
+
 @dataclass
 class SupervisedConfig:
     """Knobs for the round-loop control."""
@@ -199,3 +216,45 @@ class SupervisedConfig:
     )
     # Retained only for source compatibility with older callers.
     review_deferral_limit: int = 0
+
+    def __post_init__(self) -> None:
+        """Keep the round-budget guards reachable when ``max_rounds`` shrinks.
+
+        ``stall_threshold`` / ``soft_round_limit`` / ``hard_escalate_rounds``
+        are ABSOLUTE round counts sized for the default ``max_rounds`` (500).
+        A caller may lower the budget far below them for one mission —
+        ``bounded_dag_node_max_rounds()`` yields 3 — and a guard whose
+        threshold is not strictly reachable within the budget can then never
+        fire. Nothing reports this: the value stays in the config, is passed
+        to the classifier, and evaluates to ``False`` on every round, so the
+        loop silently degrades to the single coarsest guard
+        (``no_progress_threshold``, which only counts EMPTY rounds and cannot
+        tell a converging mission from a spinning one).
+
+        ``_runtime_execute`` already performs the mirror-image coordination in
+        the unbounded direction (a progressive experiment matrix raises
+        ``max_rounds`` and explicitly zeroes both escalation guards). This does
+        the same for the bounded direction, generically.
+
+        Rescaling preserves each guard's MEANING ("stop after this much
+        fruitless work") expressed in the budget actually available:
+
+        * ``stall_threshold`` needs ``streak >= threshold`` while
+          ``round_index < max_rounds``; a streak cannot exceed the round
+          index, so it must be ``<= max_rounds - 1``.
+        * ``soft_round_limit`` advises the Reviewer partway through, so it
+          must also land strictly inside the budget.
+        * ``hard_escalate_rounds`` force-ends the loop with a planner-readable
+          reason; firing on the final round is still better than the generic
+          ``Hit max_rounds`` path, so ``<= max_rounds`` is enough.
+
+        A guard explicitly disabled with ``0`` stays disabled, and a budget
+        large enough for the configured values is left byte-for-byte
+        unchanged.
+        """
+        budget = int(self.max_rounds)
+        if budget <= 0:
+            return
+        self.stall_threshold = _fit_guard(self.stall_threshold, budget - 1)
+        self.soft_round_limit = _fit_guard(self.soft_round_limit, budget - 1)
+        self.hard_escalate_rounds = _fit_guard(self.hard_escalate_rounds, budget)
