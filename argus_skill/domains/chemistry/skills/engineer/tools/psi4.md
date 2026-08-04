@@ -1,8 +1,6 @@
 ---
-name: Psi4 Quantum Chemistry
-description: Use Psi4 for molecular electronic-structure calculations with explicit molecular state, method, basis, options, convergence, units, and primary-output provenance.
-category: chemistry-tool-computational
-version: 2
+name: "Psi4 Quantum Chemistry"
+description: "Use Psi4 for molecular electronic-structure calculations with explicit molecular state, method, basis, options, convergence, units, and primary-output provenance."
 ---
 
 ## When to use

@@ -1,43 +1,25 @@
 ---
-name: Knowledge Wiki Curator
-description: Reconcile durable declarative knowledge against real evidence during review.
-category: research-wiki
-version: 2
-created_at: 2026-06-04T00:00:00+00:00
+name: "Semantic Wiki Review"
+description: "Review declarative Wiki edits for evidence, semantic naming, minimal format, non-duplication, and useful progressive disclosure."
 ---
 
-# Knowledge Wiki Curator
+# Semantic Wiki Review
 
-The project wiki is shared declarative knowledge, not a mission journal and not
-a procedure library.
+The Wiki is shared declarative knowledge, not a task journal or procedure library.
 
-## Boundary
+## Review contract
 
-- Wiki: concepts, structures, mechanisms, principles, empirical facts,
-  hypotheses, relationships, and contradictions.
-- Skills: reusable procedures and workflows.
-- Events and `CHECKPOINT.md`: historical facts and current task state.
+1. Read the Wiki root and `INDEX.md` yourself.
+2. Inspect the edited semantic pages and relevant project evidence.
+3. Require exactly `title` and `description` frontmatter plus Markdown content.
+4. Reject opaque IDs, generated suffixes, metadata accumulation, and synonym pages.
+5. Prefer refining the existing semantic path when it already represents the same
+   knowledge.
+6. Keep uncertainty and contradictory evidence explicit in ordinary prose.
+7. Ensure `INDEX.md` gives a concise path and description for progressive
+   disclosure.
+8. Do not copy task status, handoffs, evaluator results, counters, or procedures.
+9. Do not manufacture a Wiki edit merely because a mission occurred.
 
-Examples of wiki knowledge include the structure of a Transformer, the principle
-behind policy-gradient reinforcement learning, a measured scaling relationship,
-or conflicting evidence about an optimizer.
-
-## Reviewer responsibility
-
-When a reviewed round changes durable knowledge:
-
-1. Read relevant existing pages and the real sources or artifacts.
-2. Directly create or refine Markdown under `.autors/<project>/wiki/pages/`.
-3. Cite source IDs or artifact paths, separate evidence from inference, and keep
-   uncertainty or disagreement explicit.
-4. Prefer updating an existing page over creating a synonym.
-5. Move obsolete pages reversibly under `pages/_retired/`; never erase evidence.
-6. Let the mission-settlement hook rebuild the derived indexes after your
-   verdict; do not duplicate that mechanical work.
-
-Do not write a page merely because a round happened. Do not copy verdicts,
-handoffs, task status, or step-by-step instructions into the wiki. Do not emit
-page operations in the final verdict; the file edit itself is the durable change.
-
-All four roles may directly maintain the same pages. Reviewer is responsible for
-correcting unsupported or stale knowledge encountered during independent review.
+All roles may maintain the Wiki directly. The file edit, not a structured page
+operation or post-mission merge, is the durable change.

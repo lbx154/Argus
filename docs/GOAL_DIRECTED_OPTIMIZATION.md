@@ -57,8 +57,8 @@ controller 写入的 gate/feedback 文件是动态成绩的权威事实源。`CH
 `RESULTS.md`、`GROUND_TRUTH.md` 等文档只保存结论、失败机理和重放方法，不为每一次成绩
 变化重复抄写相同状态。这样可以减少 stale-fact 修复任务和长线程上下文腐烂。
 
-## 6. Skill 负反馈
+## 6. Skill 使用
 
-Skill matcher 必须看到成功与无效 reuse 计数。失败多于成功时不得把该 Skill 当作默认
-高匹配；至少两次失败且失败多于成功的非 protected Skill 不进入正常匹配池。修订或人工
-维护仍可恢复它。Skill 的复用证据不能覆盖 operator 目标和合法来源政策。
+各 Agent 只接收 Skill 库路径，并使用文件工具独立搜索和阅读。Skill 文件不保存成功/
+失败计数，也不由 matcher 预先选择或注入正文。Agent 必须结合当前任务、仓库和可见证据
+自行判断是否采用；Skill 永远不能覆盖 operator 目标和合法来源政策。

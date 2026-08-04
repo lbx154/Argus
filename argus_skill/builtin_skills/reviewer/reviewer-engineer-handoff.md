@@ -1,9 +1,6 @@
 ---
-name: Reviewer Engineer Handoff
-description: Teach reviewer agents to translate validation failures into concise, actionable prompts for smaller engineer agents.
-category: review-loop
-version: 2
-created_at: 2026-05-25T00:00:00+00:00
+name: "Reviewer Engineer Handoff"
+description: "Teach reviewer agents to translate validation failures into concise, actionable prompts for smaller engineer agents."
 ---
 
 # Reviewer-to-engineer handoff

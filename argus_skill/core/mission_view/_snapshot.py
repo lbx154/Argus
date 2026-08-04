@@ -201,8 +201,6 @@ def _discover_project_skills(
     skill_root = root / "skills"
     if not skill_root.is_dir():
         return
-    from ...skills.store import Skill
-
     rows = view.setdefault("learned_skills", [])
     known_paths = {
         str(row.get("path") or "")
@@ -213,18 +211,16 @@ def _discover_project_skills(
         if "_history" in path.parts or path.name.startswith("."):
             continue
         try:
-            text = path.read_text(encoding="utf-8")
-            parsed = Skill.parse(text, str(path))
             modified = path.stat().st_mtime
-        except (OSError, ValueError):
+        except OSError:
             continue
-        if parsed.protected or str(path) in known_paths:
+        if str(path) in known_paths:
             continue
+        semantic_name = path.relative_to(skill_root).with_suffix("").as_posix()
         mission_id, mission_title = _mission_for_timestamp(backlog, modified)
         rows.append({
-            "id": parsed.skill_id or path.stem,
-            "name": parsed.name or path.stem,
-            "version": parsed.version,
+            "id": semantic_name,
+            "name": semantic_name,
             "scope": "project",
             "path": str(path),
             "status": "active",

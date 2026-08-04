@@ -1,9 +1,6 @@
 ---
-name: Academic Paper Peer Review Benchmark
-description: Simulate a strict, venue-aware reviewer for a nearly complete AI research paper, judging contribution value, evidence, reproducibility, writing, format, and readiness without requiring a positive result or a fixed benchmark scale.
-category: paper-review
-version: 2
-created_at: 2026-07-17T00:00:00+00:00
+name: "Academic Paper Peer Review Benchmark"
+description: "Simulate a strict, venue-aware reviewer for a nearly complete AI research paper, judging contribution value, evidence, reproducibility, writing, format, and readiness without requiring a positive result or a fixed benchmark scale."
 ---
 
 # Academic Paper Peer Review Benchmark

@@ -33,7 +33,7 @@ Runner binary、role backend/model 和少数兼容参数有专用 resolver，但
 `--config-help` 按下列组列出当前参数：
 
 - `backend`：共享 backend、role backend 和 runner binary
-- `models`：Manager/Planner/Engineer/Reviewer/Curator/matcher 等模型
+- `models`：Manager/Planner/Engineer/Reviewer 等模型
 - `reasoning`：各角色和辅助调用的 reasoning effort
 - `budget`：host-global USD cap、provider call guard、daemon cap
 - `mission`：round、idle、bounded DAG、continuation、等待和任务级软预算

@@ -1,97 +1,67 @@
-from __future__ import annotations
-
 from pathlib import Path
 
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
+import yaml
+
 from argus_skill.skills.builtins import (
     iter_vertical_skill_texts,
     seed_builtin_skills,
     seed_vertical_skills,
 )
 from argus_skill.skills.layered import LayeredSkillStore
-from argus_skill.skills.store import Skill
 
 ROOT = Path(__file__).resolve().parents[2] / "argus_skill" / "builtin_skills"
 
 
-def test_research_vertical_bundles_one_visual_router_and_renderer() -> None:
-    texts = dict(iter_vertical_skill_texts("research"))
+def _front_and_body(text: str) -> tuple[dict, str]:
+    front, body = text[4:].split("\n---\n", 1)
+    return yaml.safe_load(front), body
 
-    skill_text = texts["engineer/research-visualization-router.md"]
-    skill = Skill.parse(skill_text)
-    assert skill.name == "Research Visualization Router"
-    assert skill.protected is True
-    assert "FIGURE_PROVENANCE.json" in skill.content
-    assert "image-2" in skill.content
-    assert "ECharts" in skill.content
-    assert "Recharts" in skill.content
-    assert "PPT Master" in skill.content
-    assert "Prefer PPT Master" in skill.description
-    assert "image-2 is not required" in skill.description
+
+def test_research_vertical_bundles_visual_router_and_renderer() -> None:
+    texts = dict(iter_vertical_skill_texts("research"))
+    front, body = _front_and_body(texts["engineer/research-visualization-router.md"])
+    assert set(front) == {"name", "description"}
+    assert front["name"] == "Research Visualization Router"
+    assert "FIGURE_PROVENANCE.json" in body
+    assert "image-2" in body
+    assert "ECharts" in body
+    assert "Recharts" in body
+    assert "PPT Master" in body
     assert "engineer/research_visual_scripts/browser_render.py" in texts
 
 
 def test_router_makes_image2_capability_conditional() -> None:
     texts = dict(iter_vertical_skill_texts("research"))
-    content = Skill.parse(texts["engineer/research-visualization-router.md"]).content.lower()
-
+    _front, body = _front_and_body(texts["engineer/research-visualization-router.md"])
+    content = body.lower()
     assert "when configured" in content
     assert "unavailable image route is\nnot a project blocker" in content
     assert "never fake image-2 provenance" in content
     assert "--ppt-master-status" in content
     assert "independent of model api status" in content
-    assert "dependencies recorded for the\nactive python" in content
-    assert "do not default to matplotlib for a non-data conceptual" in content
 
 
 def test_results_figures_keep_claim_checks_agent_owned_and_risk_based() -> None:
-    content = (
-        (ROOT / "engineer" / "research-results-analysis-and-figures.md")
-        .read_text(encoding="utf-8")
-        .lower()
+    text = (ROOT / "engineer" / "research-results-analysis-and-figures.md").read_text(
+        encoding="utf-8"
     )
-
+    front, body = _front_and_body(text)
+    content = body.lower()
+    assert set(front) == {"name", "description"}
     assert "never hard-code an expected" in content
     assert "prefer a small counterfactual regression" in content
-    assert "not a required project artifact or\ncompletion gate" in content
     assert "reviewer decides" in content
-    assert "reviewer should inspect the actual rendered figure" in content
-    assert "rather than creating a separate mandatory review artifact" in content
-    assert "not merely lists the output path" in content
-
-    skill = Skill.parse(
-        (ROOT / "engineer" / "research-results-analysis-and-figures.md").read_text(encoding="utf-8")
-    )
     for renderer in ("PPT Master", "HTML/SVG", "ECharts", "Recharts", "FigureSpec"):
-        assert renderer in skill.description
-    assert "Do not default to matplotlib for a non-data conceptual" in skill.content
+        assert renderer in front["description"]
 
 
-def test_engineer_matcher_sees_ppt_master_as_a_paper_figure_route(
-    tmp_path: Path,
-) -> None:
+def test_agents_receive_visual_library_paths_without_matcher(tmp_path: Path) -> None:
     global_dir = tmp_path / "global"
     project_dir = tmp_path / "project"
     seed_builtin_skills(global_dir, overwrite=True)
     seed_vertical_skills(project_dir, "research", overwrite=True)
-    backend = MemoryBackend()
-    backend.queue("matcher", CannedResponse(message='{"matched": []}'))
-    store = LayeredSkillStore(
-        project_dir=project_dir,
-        global_dir=global_dir,
-        runner=backend,
-        matcher_model="matcher-model",
-    )
+    store = LayeredSkillStore(project_dir=project_dir, global_dir=global_dir)
 
-    store.find_relevant(
-        "Create a polished editable conceptual method figure for a research "
-        "paper without a generative image model.",
-        role="engineer",
-    )
-
-    matcher_prompt = backend.history[0][1]
-    assert "Research Visualization Router" in matcher_prompt
-    assert "PPT Master for Presentations and Paper Figures" in matcher_prompt
-    assert "research-paper conceptual" in matcher_prompt
-    assert "optional image-2" in matcher_prompt
-    assert "Do not select FigureSpec directly" in matcher_prompt
+    paths = store.list_paths()
+    assert any(path.endswith("engineer/research-visualization-router.md") for path in paths)
+    assert any(path.endswith("engineer/presentation-master.md") for path in paths)

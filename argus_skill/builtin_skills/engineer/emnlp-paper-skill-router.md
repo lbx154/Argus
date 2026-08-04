@@ -1,9 +1,6 @@
 ---
-name: EMNLP Paper Skill Router
-description: Choose the smallest relevant skill for EMNLP/ACL paper work without loading the whole paper pipeline.
-category: skill-routing
-version: 2
-created_at: 2026-07-21T00:00:00+00:00
+name: "EMNLP Paper Skill Router"
+description: "Choose the smallest relevant skill for EMNLP/ACL paper work without loading the whole paper pipeline."
 ---
 
 # EMNLP Paper Skill Router

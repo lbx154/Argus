@@ -1,10 +1,6 @@
 ---
-name: Quant-Factor Report Review Benchmark
-description: Simulate a strict quant-research referee for a nearly complete factor-research report, scoring economic interpretability, search breadth and multiple-testing, out-of-sample discipline, no-look-ahead and point-in-time data, costs, incremental value, evidence grounding, and reproducibility before reviewer agents accept factor-mining tasks as done.
-category: factor-report-review
-version: 1
-scientist_model: gpt-5.5
-created_at: 2026-05-25T00:00:00+00:00
+name: "Quant-Factor Report Review Benchmark"
+description: "Simulate a strict quant-research referee for a nearly complete factor-research report, scoring economic interpretability, search breadth and multiple-testing, out-of-sample discipline, no-look-ahead and point-in-time data, costs, incremental value, evidence grounding, and reproducibility before reviewer agents accept factor-mining tasks as done."
 ---
 
 ## Title

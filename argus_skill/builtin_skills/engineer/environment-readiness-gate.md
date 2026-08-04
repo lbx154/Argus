@@ -1,10 +1,6 @@
 ---
-name: Environment Readiness Gate
-description: Verify the project environment, public data/evaluator, dependencies, storage, and only the compute/API resources an experiment actually uses before producing evidence.
-category: engineering
-priority: high
-version: 2
-created_at: 2026-07-17T00:00:00+00:00
+name: "Environment Readiness Gate"
+description: "Verify the project environment, public data/evaluator, dependencies, storage, and only the compute/API resources an experiment actually uses before producing evidence."
 ---
 
 # Environment Readiness Gate

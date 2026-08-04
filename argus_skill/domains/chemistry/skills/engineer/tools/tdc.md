@@ -1,8 +1,6 @@
 ---
-name: Therapeutics Data Commons Benchmarking
-description: Use TDC datasets, splits, evaluators, and oracles with exact task, version, license, identity, metric, contamination, and evidence-boundary provenance.
-category: chemistry-tool-benchmark
-version: 2
+name: "Therapeutics Data Commons Benchmarking"
+description: "Use TDC datasets, splits, evaluators, and oracles with exact task, version, license, identity, metric, contamination, and evidence-boundary provenance."
 ---
 
 ## When to use

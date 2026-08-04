@@ -1,8 +1,6 @@
 ---
-name: PubChem PUG REST Retrieval
-description: Retrieve public compound, substance, assay, property, and safety records through PubChem interfaces using resolved identifiers, dated queries, raw responses, and source-aware evidence limits.
-category: chemistry-tool-database
-version: 2
+name: "PubChem PUG REST Retrieval"
+description: "Retrieve public compound, substance, assay, property, and safety records through PubChem interfaces using resolved identifiers, dated queries, raw responses, and source-aware evidence limits."
 ---
 
 ## When to use

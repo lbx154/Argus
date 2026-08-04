@@ -1,8 +1,6 @@
 ---
-name: Organic Route Validation and Experiment Design
-description: Convert a proposed organic synthesis route into bounded validation experiments with controls, analytical readouts, failure diagnosis, and evidence ceilings; excludes autonomous physical execution and routine assay design.
-category: chemistry-organic-route-validation
-version: 1
+name: "Organic Route Validation and Experiment Design"
+description: "Convert a proposed organic synthesis route into bounded validation experiments with controls, analytical readouts, failure diagnosis, and evidence ceilings; excludes autonomous physical execution and routine assay design."
 ---
 
 ## When to use

@@ -178,8 +178,7 @@ class RunnerResult:
 
     @property
     def message(self) -> str:
-        """Concatenated agent message text (skill_store.find_relevant uses
-        this name to read the matcher response)."""
+        """Concatenated agent message text for backend compatibility."""
         return "\n".join(self.agent_messages)
 
 
@@ -261,17 +260,10 @@ class RoundRecord:
 
 @dataclass
 class LoopOutcome:
-    """What SkillLoop.run returns.
-
-    Captures both the final verdict and the round-by-round trail so the
-    caller can render a report, persist a decision log, or write the
-    successful trajectory back into the skill store.
-    """
+    """Final verdict and round-by-round mission trail."""
 
     status: LoopStatus
     rounds: list[RoundRecord]
-    skill_used: str | None
-    skill_distilled: bool
     final_message: str
     reason: str
     workdir: str

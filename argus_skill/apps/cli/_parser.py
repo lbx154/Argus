@@ -338,8 +338,7 @@ def build_parser() -> argparse.ArgumentParser:
     skills_grp.add_argument(
         "--skill-stats",
         action="store_true",
-        help="print empirical skill effectiveness report (hit-rate, "
-             "mean rounds with/without skill) and exit",
+        help="legacy option; Skill files no longer carry effectiveness counters",
     )
     skills_grp.add_argument(
         "--skill-stats-json",
@@ -349,8 +348,7 @@ def build_parser() -> argparse.ArgumentParser:
     skills_grp.add_argument(
         "--skill-cleanse",
         action="store_true",
-        help="strip historic 'Memory context' boilerplate from existing skill "
-             "task_history entries (idempotent migration)",
+        help="legacy no-op; Skill files contain only name and description metadata",
     )
     skills_grp.add_argument(
         "--export-builtin-skills",

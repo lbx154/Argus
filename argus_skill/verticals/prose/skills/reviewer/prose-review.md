@@ -1,3 +1,8 @@
+---
+name: "Prose Review"
+description: "Review prose structure, declared constraints, and live literary craft."
+---
+
 # 散文审阅 · Prose (Lyric / Narrative / Memoir) Review
 
 Reuses the framework Reviewer role. Prose has no meter, so the split is honest: a

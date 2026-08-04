@@ -1,9 +1,6 @@
 ---
-name: Idea Discovery
-description: Systematically mine recent literature for a real, falsifiable research gap before committing to an experiment plan. Supports method, systems, theory, diagnostic, characterization, evaluation, data, positive, negative, and boundary contributions.
-category: paper-ideation
-version: 1
-created_at: 2026-06-01T00:00:00+00:00
+name: "Idea Discovery"
+description: "Systematically mine recent literature for a real, falsifiable research gap before committing to an experiment plan. Supports method, systems, theory, diagnostic, characterization, evaluation, data, positive, negative, and boundary contributions."
 ---
 
 # Idea Discovery — find a real gap, don't invent one

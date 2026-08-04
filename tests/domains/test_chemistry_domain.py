@@ -23,13 +23,8 @@ from argus_skill.skills.builtins import (
     seed_context_skills,
 )
 from argus_skill.skills.layered import LayeredSkillStore, shared_skill_scope_dir
-from argus_skill.skills.loop_skill_selection import (
-    _ensure_playground_reviewer_reference,
-    _prepare_playground_primary_skills,
-)
-from argus_skill.skills.role_match import match_role_skills
 from argus_skill.skills.stage_machine import resolve_stage_checklist_contract
-from argus_skill.skills.store import Skill, SkillStore
+from argus_skill.skills.store import SkillStore
 from argus_skill.skills.vertical_select import (
     VERTICALS,
     UnknownVerticalError,
@@ -258,20 +253,18 @@ def test_chemistry_package_contains_foundations_tools_and_eight_domains() -> Non
     assert {name for name in names if "playground" in name.casefold()} == PLAYGROUND_SKILLS
 
 
-def test_all_chemistry_markdown_has_parseable_matcher_metadata() -> None:
-    parsed = {
-        name: Skill.parse(text, name)
+def test_all_chemistry_skills_use_minimal_agent_readable_metadata() -> None:
+    import yaml
+
+    documents = [
+        text
         for name, text in iter_domain_skill_texts("chemistry")
         if name.endswith(".md")
-    }
-
-    assert parsed
-    assert all(skill.name for skill in parsed.values())
-    assert all(skill.description for skill in parsed.values())
-    assert all(skill.category for skill in parsed.values())
-    assert all(skill.version >= 1 for skill in parsed.values())
-    assert all(len(skill.description) <= 240 for skill in parsed.values())
-    assert len({skill.name for skill in parsed.values()}) == len(parsed)
+    ]
+    assert documents
+    for text in documents:
+        front = yaml.safe_load(text[4:].split("\n---\n", 1)[0])
+        assert set(front) == {"name", "description"}
 
 
 def test_domain_workflows_have_executable_contract_and_boundaries() -> None:
@@ -308,280 +301,6 @@ def test_tool_profiles_are_capability_profiles_not_install_scripts() -> None:
         assert "conda install" not in text.casefold()
 
 
-def test_nested_domain_skills_are_discovered_as_engineer_role(tmp_path: Path) -> None:
-    seed_context_skills(
-        tmp_path,
-        "research",
-        domain="chemistry",
-        overwrite=True,
-    )
-
-    summaries = SkillStore(tmp_path).list_summaries()
-    by_name = {row["name"]: row for row in summaries}
-
-    assert by_name["Materials Discovery and Optimization Workflow"]["role"] == "engineer"
-    assert by_name["MOF Framework Identity Node Linker and Topology"]["role"] == "engineer"
-    assert by_name["Biochemistry and Chemical Biology Evidence Review"]["role"] == "reviewer"
-
-
-def test_context_skill_seeding_combines_research_and_chemistry(
-    tmp_path: Path,
-) -> None:
-    context_names = {
-        name for name, _ in iter_context_skill_texts("research", "chemistry")
-    }
-    result = seed_builtin_skills_for_context(
-        tmp_path,
-        "research",
-        domain="chemistry",
-        overwrite=True,
-    )
-
-    assert ALL_REQUIRED_SKILLS <= context_names
-    assert ALL_REQUIRED_SKILLS <= set(result)
-    for name in ALL_REQUIRED_SKILLS:
-        assert (tmp_path / name).is_file()
-
-
-def test_tool_skills_are_matchable_but_not_role_banner(tmp_path: Path) -> None:
-    persist_vertical(tmp_path, "research", domain="chemistry")
-    seed_context_skills(
-        tmp_path / "skills",
-        "research",
-        domain="chemistry",
-        overwrite=True,
-    )
-
-    summaries = SkillStore(tmp_path / "skills").list_summaries()
-    tool_names = {
-        summary["name"]
-        for summary in summaries
-        if "/tools/" in str(summary["path"]).replace("\\", "/")
-    }
-    context = resolve_role_prompt(mission_request(tmp_path))
-
-    assert len(tool_names) == len(CHEMISTRY_TOOL_SKILLS)
-    assert "RDKit Molecular Integrity" in tool_names
-    assert "RDKit Molecular Integrity" not in context.role_banner
-
-
-def test_matcher_supports_positive_adjacent_and_cross_domain_scenarios(
-    tmp_path: Path,
-) -> None:
-    seed_context_skills(
-        tmp_path,
-        "research",
-        domain="chemistry",
-        overwrite=True,
-    )
-    backend = MemoryBackend()
-    backend.queue(
-        "matcher",
-        CannedResponse(
-            message=json.dumps(
-                {
-                    "matched": [
-                        {
-                            "name": "Organic Retrosynthesis and Route Design",
-                            "fit": "high",
-                            "why": "small-molecule route design",
-                        }
-                    ]
-                }
-            )
-        ),
-    )
-    backend.queue(
-        "matcher",
-        CannedResponse(message=json.dumps({"matched": []})),
-    )
-    backend.queue(
-        "matcher",
-        CannedResponse(
-            message=json.dumps(
-                {
-                    "matched": [
-                        {
-                            "name": "CIF and Crystal Structure Validation",
-                            "fit": "high",
-                            "why": "validate source CIF",
-                        },
-                        {
-                            "name": "MOF Porosity Adsorption and Structure Property Workflow",
-                            "fit": "high",
-                            "why": "analyze activated framework porosity",
-                        },
-                    ]
-                }
-            )
-        ),
-    )
-    store = SkillStore(tmp_path, runner=backend, matcher_model="matcher")
-
-    organic = match_role_skills(
-        store,
-        role="engineer",
-        task="Design and validate a retrosynthetic route for a chiral small molecule.",
-    )
-    adjacent_negative = match_role_skills(
-        store,
-        role="engineer",
-        task="Fit a battery capacity-fade forecast from repeated cell cycling.",
-    )
-    cross_domain = match_role_skills(
-        store,
-        role="engineer",
-        task=(
-            "Validate a deposited MOF CIF, then analyze geometric porosity and compare "
-            "the activated sample with a nitrogen adsorption isotherm."
-        ),
-    )
-
-    assert [skill.name for skill in organic.primary_skills] == [
-        "Organic Retrosynthesis and Route Design"
-    ]
-    assert adjacent_negative.skills == []
-    assert {skill.name for skill in cross_domain.primary_skills} == {
-        "CIF and Crystal Structure Validation",
-        "MOF Porosity Adsorption and Structure Property Workflow",
-    }
-
-
-def test_reviewer_match_keeps_domain_review_primary_and_workflow_reference(
-    tmp_path: Path,
-) -> None:
-    seed_context_skills(
-        tmp_path,
-        "research",
-        domain="chemistry",
-        overwrite=True,
-    )
-    backend = MemoryBackend()
-    backend.queue(
-        "matcher",
-        CannedResponse(
-            message=json.dumps(
-                {
-                    "matched": [
-                        {
-                            "name": "MOF and Reticular Chemistry Evidence Review",
-                            "fit": "high",
-                            "why": "MOF evidence review",
-                        },
-                        {
-                            "name": "MOF Framework Identity Node Linker and Topology",
-                            "fit": "high",
-                            "why": "engineer workflow context",
-                        },
-                    ]
-                }
-            )
-        ),
-    )
-    store = SkillStore(tmp_path, runner=backend, matcher_model="matcher")
-
-    match = match_role_skills(
-        store,
-        role="reviewer",
-        task="Review node-linker decomposition and topology assignment for this MOF.",
-    )
-
-    assert [skill.name for skill in match.primary_skills] == [
-        "MOF and Reticular Chemistry Evidence Review"
-    ]
-    assert [skill.name for skill in match.reference_skills] == [
-        "MOF Framework Identity Node Linker and Topology"
-    ]
-
-
-def test_playground_match_is_explicit_and_keeps_reviewer_gate_reference(
-    tmp_path: Path,
-) -> None:
-    seed_context_skills(
-        tmp_path,
-        "research",
-        domain="chemistry",
-        overwrite=True,
-    )
-    backend = MemoryBackend()
-    backend.queue(
-        "matcher",
-        CannedResponse(
-            message=json.dumps(
-                {
-                    "matched": [
-                        {
-                            "name": "Chemistry Playground Bounded Hypothesis Probe",
-                            "fit": "high",
-                            "why": "explicit bounded Chem Playground request",
-                        },
-                        {
-                            "name": "Chemistry Playground Promotion Gate",
-                            "fit": "high",
-                            "why": "mandatory independent promotion boundary",
-                        },
-                    ]
-                }
-            )
-        ),
-    )
-    backend.queue("matcher", CannedResponse(message=json.dumps({"matched": []})))
-    store = SkillStore(tmp_path, runner=backend, matcher_model="matcher")
-
-    explicit = match_role_skills(
-        store,
-        role="engineer",
-        task=(
-            "Create a Chem Playground candidate to computationally probe a speculative "
-            "electrolyte decomposition hypothesis under a bounded budget."
-        ),
-    )
-    ordinary = match_role_skills(
-        store,
-        role="engineer",
-        task="Analyze routine battery cycling data and report capacity fade.",
-    )
-
-    assert [skill.name for skill in explicit.primary_skills] == [
-        "Chemistry Playground Bounded Hypothesis Probe"
-    ]
-    assert [skill.name for skill in explicit.reference_skills] == [
-        "Chemistry Playground Promotion Gate"
-    ]
-    assert explicit.primary_skills[0].protected is True
-    assert explicit.reference_skills[0].protected is True
-    ordinary_primary = Skill(
-        name="RDKit Molecular Operations",
-        description="ordinary chemistry tool",
-        category="chemistry-tool",
-        content="Use RDKit for deterministic molecular operations.",
-    )
-    required_references = _ensure_playground_reviewer_reference(
-        explicit.primary,
-        [ordinary_primary],
-    )
-    assert [skill.name for skill in required_references] == [
-        "Chemistry Playground Promotion Gate"
-    ]
-    assert required_references[0].protected is True
-    reordered = _prepare_playground_primary_skills(
-        [ordinary_primary, explicit.primary_skills[0]]
-    )
-    assert reordered[0].name == "Chemistry Playground Bounded Hypothesis Probe"
-    assert len(reordered) == 1
-    unprotected = Skill(
-        name=explicit.primary.name,
-        description=explicit.primary.description,
-        category=explicit.primary.category,
-        content=explicit.primary.content,
-        version=explicit.primary.version,
-        protected=False,
-    )
-    with pytest.raises(RuntimeError, match="untrusted"):
-        _prepare_playground_primary_skills([unprotected])
-    assert ordinary.skills == []
-
-
 def test_runtime_shared_scope_uses_domain_namespace(tmp_path: Path) -> None:
     project_root = tmp_path / "project"
     global_root = tmp_path / "global"
@@ -608,7 +327,8 @@ def test_runtime_shared_scope_uses_domain_namespace(tmp_path: Path) -> None:
 
     assert scope_dir.name == "chemistry"
     assert any(
-        row["name"] == "RDKit Molecular Integrity" and row["layer"] == "vertical"
+        row["name"].endswith("engineer/tools/rdkit")
+        and row["layer"] == "vertical"
         for row in summaries
     )
 

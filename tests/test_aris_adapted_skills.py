@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 BUILTIN_ROOT = Path(__file__).resolve().parents[1] / "argus_skill" / "builtin_skills"
 
@@ -33,23 +34,10 @@ def _iter_skill_md_files() -> list[Path]:
 
 
 def _parse_frontmatter(text: str) -> dict[str, str] | None:
-    """Cheap YAML frontmatter parser — accepts the subset our skills use
-    (``key: value`` lines between two ``---`` delimiters)."""
-    if not text.startswith("---\n"):
+    if not text.startswith("---\n") or "\n---\n" not in text[4:]:
         return None
-    end = text.find("\n---", 4)
-    if end == -1:
-        return None
-    block = text[4:end]
-    out: dict[str, str] = {}
-    for line in block.splitlines():
-        if not line or line.startswith("#"):
-            continue
-        if ":" not in line:
-            continue
-        key, _, value = line.partition(":")
-        out[key.strip()] = value.strip()
-    return out
+    loaded = yaml.safe_load(text[4:].split("\n---\n", 1)[0])
+    return loaded if isinstance(loaded, dict) else None
 
 
 def test_every_builtin_skill_has_frontmatter() -> None:
@@ -64,6 +52,8 @@ def test_every_builtin_skill_has_frontmatter() -> None:
             failures.append(f"{md.relative_to(BUILTIN_ROOT)}: missing name")
         if not fm.get("description"):
             failures.append(f"{md.relative_to(BUILTIN_ROOT)}: missing description")
+        if set(fm) != {"name", "description"}:
+            failures.append(f"{md.relative_to(BUILTIN_ROOT)}: extra fields {set(fm) - {'name', 'description'}}")
     assert failures == [], "Skills with invalid frontmatter:\n  " + "\n  ".join(failures)
 
 

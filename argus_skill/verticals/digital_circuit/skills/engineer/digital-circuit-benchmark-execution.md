@@ -1,8 +1,6 @@
 ---
-name: Digital Circuit Benchmark Execution
-description: Run fixed-harness RTL benchmarks with isolated workspaces, immutable first-attempt evidence, bounded oracle-guided repair, and reproducible official scoring.
-category: anti-cheat
-version: 1
+name: "Digital Circuit Benchmark Execution"
+description: "Run fixed-harness RTL benchmarks with isolated workspaces, immutable first-attempt evidence, bounded oracle-guided repair, and reproducible official scoring."
 ---
 
 # Digital Circuit Benchmark Execution

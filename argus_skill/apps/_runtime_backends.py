@@ -23,8 +23,6 @@ class _Outcome:
     stop_kind: str | None = None
     recoverable: bool = False
     rounds: int = 1
-    matched_skill_name: str | None = None
-    skill_distilled: bool = False
     had_follow_up: bool = False
     last_thread_id: str | None = None
     # Chat fast-path: when True, the supervisor skips iteration / critic

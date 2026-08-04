@@ -1,8 +1,6 @@
 ---
-name: Materials Experiment Loop
-description: Design or operate a materials experiment loop with explicit samples, instruments, controls, safety boundaries, provenance, calibration, and simulation-to-experiment comparison.
-category: materials-experimentation
-version: 1
+name: "Materials Experiment Loop"
+description: "Design or operate a materials experiment loop with explicit samples, instruments, controls, safety boundaries, provenance, calibration, and simulation-to-experiment comparison."
 ---
 
 # Materials Experiment Loop

@@ -1,9 +1,6 @@
 ---
-name: Benchmark Paper Figure Checklist
-description: When drafting a benchmark / evaluation paper (introducing a new dataset, leaderboard, or evaluation protocol), enforce the canonical 5-6 figure types that benchmark papers must include — observed gap on v1 multimodal-bench shipped 0 figures despite mission requiring >=6. Use BEFORE entering draft stage, not after structural_minimums gate fires.
-category: paper-figures
-version: 1
-created_at: 2026-06-09T00:00:00+00:00
+name: "Benchmark Paper Figure Checklist"
+description: "When drafting a benchmark / evaluation paper (introducing a new dataset, leaderboard, or evaluation protocol), enforce the canonical 5-6 figure types that benchmark papers must include — observed gap on v1 multimodal-bench shipped 0 figures despite mission requiring >=6. Use BEFORE entering draft stage, not after structural_minimums gate fires."
 ---
 
 # Benchmark Paper Figure Checklist — canonical 5-6 figure types

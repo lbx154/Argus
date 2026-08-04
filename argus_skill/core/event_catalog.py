@@ -116,6 +116,7 @@ class EventType(StrEnum):
     IDEA_SEARCH_COMPLETED = "idea.search.completed"
     IDEA_SEARCH_SKIPPED = "idea.search.skipped"
     RESEARCH_ACHIEVEMENT_CERTIFIED = "research.achievement.certified"
+    SKILL_LIBRARY_AVAILABLE = "skill.library.available"
     SKILL_CREATED = "skill.created"
     SKILL_UPDATED = "skill.updated"
     SKILL_ARCHIVED = "skill.archived"
@@ -179,6 +180,7 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.ENGINEER_SELF_REVIEW_REJECTED,
     EventType.ENGINEER_SKILL_MAINTENANCE_STARTED,
     EventType.ENGINEER_SKILL_MAINTENANCE_COMPLETED,
+    EventType.SKILL_LIBRARY_AVAILABLE,
     EventType.SKILL_CREATED,
     EventType.SKILL_UPDATED,
     EventType.SKILL_ARCHIVED,

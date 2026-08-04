@@ -1,8 +1,6 @@
 ---
-name: ChemCrow Integration Reference
-description: Evaluate or reuse documented public ChemCrow tool-integration patterns as architecture references under version, dependency, service, safety, and evidence controls; not as a drop-in reproduction of published results.
-category: chemistry-tool-agent-reference
-version: 2
+name: "ChemCrow Integration Reference"
+description: "Evaluate or reuse documented public ChemCrow tool-integration patterns as architecture references under version, dependency, service, safety, and evidence controls; not as a drop-in reproduction of published results."
 ---
 
 ## When to use

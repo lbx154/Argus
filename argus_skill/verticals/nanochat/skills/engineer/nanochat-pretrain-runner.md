@@ -1,9 +1,6 @@
 ---
-name: NanoChat Pretrain Runner
-description: Run the NANOCHAT pretraining task reproducibly on an A100 — train one self-contained solution.py under a 300s budget, evaluate mean val bpb across N seeds via run_with_shim.py on ds, beat the re-measured optimized_from_karpathy baseline, with manifest + background-launch + health-monitoring discipline and the verifier-rerun anti-cheat rule.
-category: research-experiments
-version: 1
-created_at: 2026-06-16T00:00:00+00:00
+name: "NanoChat Pretrain Runner"
+description: "Run the NANOCHAT pretraining task reproducibly on an A100 — train one self-contained solution.py under a 300s budget, evaluate mean val bpb across N seeds via run_with_shim.py on ds, beat the re-measured optimized_from_karpathy baseline, with manifest + background-launch + health-monitoring discipline and the verifier-rerun anti-cheat rule."
 ---
 
 ## Title

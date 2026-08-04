@@ -1,8 +1,6 @@
 ---
-name: Math Research Planning
-description: Plan dynamic mathematical research inside scope, solve, and review without creating Math-specific role or lifecycle machinery.
-category: math-research-planning
-version: 6
+name: "Math Research Planning"
+description: "Plan dynamic mathematical research inside scope, solve, and review without creating Math-specific role or lifecycle machinery."
 ---
 
 Plan from the mathematical structure of the problem, not from a fixed research

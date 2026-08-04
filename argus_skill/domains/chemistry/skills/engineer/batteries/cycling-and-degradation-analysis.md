@@ -1,8 +1,6 @@
 ---
-name: Battery Cycling and Degradation Analysis Workflow
-description: Analyze cycling, rate, impedance, and degradation trajectories with cell/protocol controls and leakage-safe evaluation; excludes materials discovery, quantum chemistry, and generic peak fitting.
-category: chemistry-batteries
-version: 1
+name: "Battery Cycling and Degradation Analysis Workflow"
+description: "Analyze cycling, rate, impedance, and degradation trajectories with cell/protocol controls and leakage-safe evaluation; excludes materials discovery, quantum chemistry, and generic peak fitting."
 ---
 
 ## When to use

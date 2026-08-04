@@ -1,9 +1,6 @@
 ---
-name: Final Paper Review
-description: Read the current paper and its claim-critical sources as an independent venue reviewer, then make the substantive repairs needed for submission.
-category: paper-review
-version: 3
-created_at: 2026-07-21T00:00:00+00:00
+name: "Final Paper Review"
+description: "Read the current paper and its claim-critical sources as an independent venue reviewer, then make the substantive repairs needed for submission."
 ---
 
 # Final Paper Review

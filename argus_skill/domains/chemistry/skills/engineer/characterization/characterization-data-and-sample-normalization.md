@@ -1,8 +1,6 @@
 ---
-name: Characterization Sample, Instrument Data, and Metadata Normalization
-description: Preserve and normalize raw diffraction, spectroscopy, MS, NMR, or microscopy data and modality metadata; excludes generic peak fitting, battery cycling, and calculation input preparation.
-category: chemistry-characterization
-version: 1
+name: "Characterization Sample, Instrument Data, and Metadata Normalization"
+description: "Preserve and normalize raw diffraction, spectroscopy, MS, NMR, or microscopy data and modality metadata; excludes generic peak fitting, battery cycling, and calculation input preparation."
 ---
 
 ## When to use

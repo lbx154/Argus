@@ -1,8 +1,6 @@
 ---
-name: Biochemistry and Chemical Biology Evidence Review
-description: Review biochemical construct, structure, assay, cofactor, state, kinetics, docking, MD, controls, and functional claims; excludes organic synthesis and generic characterization or computation review.
-category: chemistry-review
-version: 1
+name: "Biochemistry and Chemical Biology Evidence Review"
+description: "Review biochemical construct, structure, assay, cofactor, state, kinetics, docking, MD, controls, and functional claims; excludes organic synthesis and generic characterization or computation review."
 ---
 
 Inspect the source sequence/accession, construct map, mutations/tags, ligand/cofactor

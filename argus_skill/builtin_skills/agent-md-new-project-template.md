@@ -1,8 +1,6 @@
 ---
-name: AGENTS.md New Project Template
-description: Copy-ready AGENTS.md template for starting a clean-slate, venue-aware AI research paper project without inheriting prior assumptions.
-category: project-agent-template
-version: 2
+name: "AGENTS.md New Project Template"
+description: "Copy-ready AGENTS.md template for starting a clean-slate, venue-aware AI research paper project without inheriting prior assumptions."
 ---
 
 ## Title

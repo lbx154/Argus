@@ -1,9 +1,6 @@
 ---
-name: project-environment-management
+name: "project-environment-management"
 description: "Manage per-project Python virtual environments for ML/training workloads. Each research project gets its own venv with domain-specific dependencies (torch, diffusers, transformers, etc.), separate from the argus-skill system venv."
-category: infrastructure
-version: "1.0"
-created_at: "2026-05-28"
 ---
 
 # Project Environment Management

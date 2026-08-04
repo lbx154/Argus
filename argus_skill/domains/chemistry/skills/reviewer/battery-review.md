@@ -1,8 +1,6 @@
 ---
-name: Battery and Electrochemistry Evidence Review
-description: Independently review cell identity, protocol comparability, unit normalization, cycling/degradation evidence, and leakage-safe battery models; excludes molecular computation, general characterization, and biochemical review.
-category: chemistry-review
-version: 1
+name: "Battery and Electrochemistry Evidence Review"
+description: "Independently review cell identity, protocol comparability, unit normalization, cycling/degradation evidence, and leakage-safe battery models; excludes molecular computation, general characterization, and biochemical review."
 ---
 
 Inspect native cycler/potentiostat records, cell and protocol metadata, normalization

@@ -1,10 +1,6 @@
 ---
-name: Chip Design Sign-Off Review
-description: Independently review digital chip and accelerator projects for workload and architecture closure, EDA/PDK/IP readiness, RTL correctness, verification independence, PPA integrity, prototype evidence, benchmark fairness, claim scope, and tapeout readiness.
-category: chip-design-review
-priority: high
-version: 1
-created_at: 2026-07-20T00:00:00+00:00
+name: "Chip Design Sign-Off Review"
+description: "Independently review digital chip and accelerator projects for workload and architecture closure, EDA/PDK/IP readiness, RTL correctness, verification independence, PPA integrity, prototype evidence, benchmark fairness, claim scope, and tapeout readiness."
 ---
 
 # Chip Design Sign-Off Review

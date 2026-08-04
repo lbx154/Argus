@@ -1,10 +1,6 @@
 ---
-name: Kernel Optimization Process — Worked Trace (019 decoder layer)
-description: A complete, honest research trace of optimizing a hard, already-good kernel — roofline diagnosis, reading the tolerance, testing the obvious lever (bf16) and letting the OFFICIAL scorer reject it, profiling to LOCATE the cost, then WRITING a custom TF32-tensor-core flash kernel that clears the rtol=1e-5 tolerance and wins 1.85× on the official harness. This is high-quality PROCESS DATA: a weaker model that follows this method reaches an expert's diagnosis and an expert's kernel. Optimize from measurement and physics, not vibes.
-category: benchmark-kernel-method
-priority: high
-version: 1
-created_at: 2026-06-27T00:00:00+00:00
+name: "Kernel Optimization Process — Worked Trace (019 decoder layer)"
+description: "{'A complete, honest research trace of optimizing a hard, already-good kernel — roofline diagnosis, reading the tolerance, testing the obvious lever (bf16) and letting the OFFICIAL scorer reject it, profiling to LOCATE the cost, then WRITING a custom TF32-tensor-core flash kernel that clears the rtol=1e-5 tolerance and wins 1.85× on the official harness. This is high-quality PROCESS DATA': \"a weaker model that follows this method reaches an expert's diagnosis and an expert's kernel. Optimize from measurement and physics, not vibes.\"}"
 ---
 
 # Kernel Optimization Process — Worked Trace

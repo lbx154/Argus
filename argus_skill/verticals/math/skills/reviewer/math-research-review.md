@@ -1,8 +1,6 @@
 ---
-name: Math Research Review
-description: Independently review mathematical correctness, novelty, significance, statement fidelity, and real Lean evidence against the requested research target.
-category: math-research-review
-version: 6
+name: "Math Research Review"
+description: "Independently review mathematical correctness, novelty, significance, statement fidelity, and real Lean evidence against the requested research target."
 ---
 
 Review the mathematics, not the paperwork. Missing scope documents, ledgers,

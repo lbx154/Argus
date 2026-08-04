@@ -1,9 +1,6 @@
 ---
-name: Software Project Grounding Before Decomposition
-description: Inspect the repository before handing software work to Planner or Engineer; identify architecture, exact analogues, verification commands, and contract risks without changing the task.
-category: software-grounding
-version: 1
-created_at: 2026-07-30T00:00:00+00:00
+name: "Software Project Grounding Before Decomposition"
+description: "Inspect the repository before handing software work to Planner or Engineer; identify architecture, exact analogues, verification commands, and contract risks without changing the task."
 ---
 
 # Software Project Grounding Before Decomposition

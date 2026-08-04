@@ -49,8 +49,6 @@ def test_loop_outcome_exposes_final_reviewer_planner_report() -> None:
                 review=decision,
             )
         ],
-        skill_used=None,
-        skill_distilled=False,
         final_message="done",
         reason="complete",
         workdir="/tmp",

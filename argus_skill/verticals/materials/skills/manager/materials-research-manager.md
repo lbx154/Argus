@@ -1,8 +1,6 @@
 ---
-name: Materials Research Manager Context
-description: Route materials-science and materials-processing work through the four-role Argus system while preserving the real material, scale, and requested research outcome.
-category: materials-research-management
-version: 1
+name: "Materials Research Manager Context"
+description: "Route materials-science and materials-processing work through the four-role Argus system while preserving the real material, scale, and requested research outcome."
 ---
 
 # Materials Research Manager Context

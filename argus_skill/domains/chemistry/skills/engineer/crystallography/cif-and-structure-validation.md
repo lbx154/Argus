@@ -1,8 +1,6 @@
 ---
-name: CIF and Crystal Structure Validation
-description: Validate CIF syntax, symmetry, composition, geometry, occupancies, displacement parameters, refinement evidence, and provenance; excludes de novo refinement and MOF topology or activation.
-category: chemistry-crystallography-validation
-version: 1
+name: "CIF and Crystal Structure Validation"
+description: "Validate CIF syntax, symmetry, composition, geometry, occupancies, displacement parameters, refinement evidence, and provenance; excludes de novo refinement and MOF topology or activation."
 ---
 
 ## When to use

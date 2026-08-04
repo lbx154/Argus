@@ -104,9 +104,10 @@ def _direct_memory_edit_block(
         "BEFORE your final verdict. Do not describe a proposed edit in final JSON.\n"
         f"Project skill directory (project layer only): {skill_line}\n"
         "Skill rules: inspect the existing Markdown first; create or edit only in "
-        "the project skill directory; preserve valid frontmatter; increment "
-        "`version` on an update; never modify a skill with `protected: true`; never "
-        "write the shared/global skill layer.\n"
+        "the project Skill directory; use an explicit semantic path; keep exactly "
+        "`name` and `description` frontmatter followed by Markdown; never invent "
+        "IDs, versions, counters, fingerprints, or numeric fallback names; never "
+        "write the shared/global Skill layer.\n"
         "If there is no durable reusable procedure, make no Skill edit.\n\n"
     )
     if not wiki_roots:
@@ -307,12 +308,8 @@ def render_reviewer_prompt(
     from .registry import resolve_role_prompt
 
     error_text = main_error or "none"
-    # Role-mission matcher (same primitive engineer/planner use). It
-    # surfaces ADAPTIVE reviewer skills (stage-specific review playbooks)
-    # plus cross-role engineer references on top of the fixed
-    # role/handoff/academic blocks above. The three fixed reviewer skills
-    # are excluded by ReviewerMission so the matcher never re-injects what
-    # is already hard-wired into this prompt.
+    # Reviewer receives Skill-library paths and searches independently; no
+    # Skill body is selected or injected by the runtime.
     _proot = resolve_project_root(working_dir)
     scope_normalized = (scope or "").strip().lower().replace("-", "_")
     prompt_context = resolve_role_prompt(evaluate_request(_proot, scope=scope_normalized))
@@ -336,23 +333,17 @@ def render_reviewer_prompt(
     if preselected_skill_block is not None:
         if preselected_skill_block.strip():
             matched_review_skill_block = (
-                "Preselected mission skill context from the single matcher pass "
-                "(apply what is relevant; follow any on-demand read instruction "
-                "inside):\n"
+                "Skill-library paths shared with the mission. Search them "
+                "independently when prior knowledge may help:\n"
                 f"{preselected_skill_block.strip()}\n\n"
             )
     elif owner.skill_store is not None:
-        from ...skills.venue_profiles import venue_excluded_skill_files
-
-        review_match = owner.mission.match(
-            objective,
-            extra_exclude=venue_excluded_skill_files(_proot),
-        )
-        if review_match.block:
+        review_libraries = owner.mission.libraries()
+        if review_libraries.block:
             matched_review_skill_block = (
-                "Matched reviewer skill(s) for this objective "
-                "(read first; apply the relevant one(s)):\n"
-                f"{review_match.block}\n\n"
+                "Reviewer-accessible Skill-library paths. Search and read them "
+                "independently as needed:\n"
+                f"{review_libraries.block}\n\n"
             )
 
     stage = prompt_context.stage

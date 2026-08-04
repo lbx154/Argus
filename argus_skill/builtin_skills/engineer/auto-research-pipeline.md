@@ -1,10 +1,6 @@
 ---
-name: Auto Research Pipeline
+name: "Auto Research Pipeline"
 description: "PRIMARY ENTRY POINT for full AI research projects across methods, systems, theory, interpretability, evaluation, data, diagnostics, and positive/negative/boundary findings. Orchestrates literature → plan → public evidence → execution → analysis → venue-aware paper → review → submission."
-category: research-orchestration
-priority: highest
-version: 3
-created_at: 2026-07-17T00:00:00+00:00
 ---
 
 # Auto Research Pipeline

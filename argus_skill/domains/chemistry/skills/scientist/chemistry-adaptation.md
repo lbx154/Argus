@@ -1,8 +1,6 @@
 ---
-name: Chemistry Skill Adaptation
-description: Adapt a reusable chemistry workflow only after evidence shows a mechanism-level gap in identity, method, capability, validation, applicability, safety, or domain routing.
-category: chemistry-adaptation
-version: 2
+name: "Chemistry Skill Adaptation"
+description: "Adapt a reusable chemistry workflow only after evidence shows a mechanism-level gap in identity, method, capability, validation, applicability, safety, or domain routing."
 ---
 
 Adapt only after primary evidence and Reviewer findings identify a reusable gap:

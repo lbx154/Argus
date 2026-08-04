@@ -1,11 +1,6 @@
 ---
-name: Stale Blocker Verification Probe
-description: A playbook for verifying whether a previously recorded blocker is still real by performing the cheapest decisive firsthand probe, reporting concrete evidence, and taking the smallest next step when the blocker has cleared.
-category: verification-probe
-version: 1
-created_at: 2026-07-05T12:29:57.209075+00:00
-task_history:
-  - "Verification-probe mission, dispatched by the harness after the planner idled 7 consecutive cycles concluding it was blocked. Do NOT trust the journal's record of the blocker as still current. The rec"
+name: "Stale Blocker Verification Probe"
+description: "A playbook for verifying whether a previously recorded blocker is still real by performing the cheapest decisive firsthand probe, reporting concrete evidence, and taking the smallest next step when the blocker has cleared."
 ---
 
 # Stale Blocker Verification Probe

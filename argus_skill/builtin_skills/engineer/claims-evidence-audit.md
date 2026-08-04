@@ -1,9 +1,6 @@
 ---
-name: Claim Check
-description: Check material paper claims against their real sources and repair unsupported or overstated prose without creating a parallel audit bundle.
-category: paper-review
-version: 2
-created_at: 2026-07-21T00:00:00+00:00
+name: "Claim Check"
+description: "Check material paper claims against their real sources and repair unsupported or overstated prose without creating a parallel audit bundle."
 ---
 
 # Claim Check

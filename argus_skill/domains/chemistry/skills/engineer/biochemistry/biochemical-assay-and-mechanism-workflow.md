@@ -1,8 +1,6 @@
 ---
-name: Biochemical Binding, Kinetics, and Functional Assay Workflow
-description: Analyze biochemical affinity, kinetics, inhibition, target engagement, or function with construct, cofactor, state, and assay controls; excludes docking-only claims and generic characterization.
-category: chemistry-biochemistry
-version: 1
+name: "Biochemical Binding, Kinetics, and Functional Assay Workflow"
+description: "Analyze biochemical affinity, kinetics, inhibition, target engagement, or function with construct, cofactor, state, and assay controls; excludes docking-only claims and generic characterization."
 ---
 
 ## When to use

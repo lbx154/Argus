@@ -1,8 +1,6 @@
 ---
-name: Materials Simulation Sign-off
-description: Audit atomistic, continuum, CAD/CAE, and process simulations from native inputs and outputs, including material state, discretization, solver health, convergence, and claim fidelity.
-category: materials-simulation-review
-version: 2
+name: "Materials Simulation Sign-off"
+description: "Audit atomistic, continuum, CAD/CAE, and process simulations from native inputs and outputs, including material state, discretization, solver health, convergence, and claim fidelity."
 ---
 
 # Materials Simulation Sign-off

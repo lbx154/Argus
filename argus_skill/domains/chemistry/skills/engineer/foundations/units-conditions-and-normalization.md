@@ -1,8 +1,6 @@
 ---
-name: Chemical Units Conditions and Normalization
-description: Make units, basis, environmental conditions, sample normalization, and reporting conventions explicit before comparing chemical measurements, calculations, or datasets across sources.
-category: chemistry-foundation-units
-version: 1
+name: "Chemical Units Conditions and Normalization"
+description: "Make units, basis, environmental conditions, sample normalization, and reporting conventions explicit before comparing chemical measurements, calculations, or datasets across sources."
 ---
 
 ## When to use

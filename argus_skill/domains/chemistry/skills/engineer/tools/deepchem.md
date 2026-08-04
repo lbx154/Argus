@@ -1,8 +1,6 @@
 ---
-name: DeepChem Molecular Machine Learning
-description: Use DeepChem for molecular or materials datasets, featurizers, splitters, models, and evaluation only after target semantics, identity, grouping, leakage, baseline, and applicability requirements are fixed.
-category: chemistry-tool-machine-learning
-version: 2
+name: "DeepChem Molecular Machine Learning"
+description: "Use DeepChem for molecular or materials datasets, featurizers, splitters, models, and evaluation only after target semantics, identity, grouping, leakage, baseline, and applicability requirements are fixed."
 ---
 
 ## When to use

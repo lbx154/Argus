@@ -1,10 +1,6 @@
 ---
-name: Project Venv Package Management
-description: Every project owns its own ./.venv. The agent may install any Python package it needs into the project venv at any stage. Never install into the Argus framework venv.
-category: engineering
-priority: critical
-version: 1
-created_at: 2026-05-28T00:00:00+00:00
+name: "Project Venv Package Management"
+description: "Every project owns its own ./.venv. The agent may install any Python package it needs into the project venv at any stage. Never install into the Argus framework venv."
 ---
 
 # Project Venv Package Management

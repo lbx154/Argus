@@ -1,8 +1,6 @@
 ---
-name: Computational Chemistry Identity and Input Normalization
-description: Normalize molecular or periodic inputs for quantum chemistry, force fields, MD, or free energy; excludes battery analysis, instrument interpretation, and protein assays.
-category: chemistry-computational
-version: 1
+name: "Computational Chemistry Identity and Input Normalization"
+description: "Normalize molecular or periodic inputs for quantum chemistry, force fields, MD, or free energy; excludes battery analysis, instrument interpretation, and protein assays."
 ---
 
 ## When to use

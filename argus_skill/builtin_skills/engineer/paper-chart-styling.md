@@ -1,9 +1,6 @@
 ---
-name: Paper Chart Styling
+name: "Paper Chart Styling"
 description: "Give every DATA figure in a paper one consistent, journal-grade look instead of default-matplotlib ugliness. Use when generating accuracy/latency/ablation plots, bar/line charts, or any data-driven figure for a paper. Covers a shared publication style (SciencePlots + colour-blind-safe palettes), venue-aware figure sizing (single-column figure vs full-width figure*), redundant colour+marker encoding, highlighting the proposed method, correct PDF font embedding, and learning composition from open-access exemplar papers. Applies to any venue (EMNLP/AAAI/NeurIPS/…)."
-category: paper-writing
-version: 1
-created_at: 2026-07-11T00:00:00+00:00
 ---
 
 ## Title

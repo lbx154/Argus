@@ -1,8 +1,6 @@
 ---
-name: Chemistry Research Planning
-description: Guide the direct-executing Planner to choose and apply the narrowest chemistry workflow, preserve evidence and safety boundaries, and define scientifically decisive follow-up work only when execution remains incomplete.
-category: chemistry-planning
-version: 3
+name: "Chemistry Research Planning"
+description: "Guide the direct-executing Planner to choose and apply the narrowest chemistry workflow, preserve evidence and safety boundaries, and define scientifically decisive follow-up work only when execution remains incomplete."
 ---
 
 Act as the current direct-executing Planner, not a plan-only role. Inspect the

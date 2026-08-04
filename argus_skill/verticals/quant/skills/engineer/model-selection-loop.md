@@ -1,10 +1,6 @@
 ---
-name: Model-Selection Loop Skill (Engineer)
-description: Three-intent loop guide for the engineer when Argus autonomously selects (and creates) a forecasting model for the quant_factor domain — pick/create candidates from the model space, evaluate the nested walk-forward scoreboard, and decide continue / stop / expand. Inject during the run stage so model choice stays disciplined and every trial is ledgered.
-category: model-selection-loop
-version: 1
-scientist_model: gpt-5.5
-created_at: 2026-07-13T00:00:00+00:00
+name: "Model-Selection Loop Skill (Engineer)"
+description: "Three-intent loop guide for the engineer when Argus autonomously selects (and creates) a forecasting model for the quant_factor domain — pick/create candidates from the model space, evaluate the nested walk-forward scoreboard, and decide continue / stop / expand. Inject during the run stage so model choice stays disciplined and every trial is ledgered."
 ---
 
 ## Title

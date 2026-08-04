@@ -1,9 +1,6 @@
 ---
-name: Chemistry Playground Promotion Gate
-description: Independently review a Chem Playground QUESTION/RESULT candidate, verify bounded evidence and legal state history, edit the terminal recommendation, and prevent speculative work from silently becoming formal science.
-category: chemistry-playground-review
-version: 1
-protected: true
+name: "Chemistry Playground Promotion Gate"
+description: "Independently review a Chem Playground QUESTION/RESULT candidate, verify bounded evidence and legal state history, edit the terminal recommendation, and prevent speculative work from silently becoming formal science."
 ---
 
 Review the candidate in `research/chem_playground/<idea-id>/` as an independent

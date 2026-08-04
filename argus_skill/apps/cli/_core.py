@@ -956,7 +956,7 @@ def _cmd_learn(args: argparse.Namespace) -> int:
     )
     persist_vertical(base, "learning")
 
-    print(f"\nmaterial staged immutably under {wiki_root / 'sources' / 'notes'}")
+    print(f"\nmaterial staged under {wiki_root / 'pages' / 'materials'}")
     print(f"vertical persisted (learning) at {base}")
     print(
         "next: run the daemon in this workdir to start the learning mission, e.g.\n"

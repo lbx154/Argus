@@ -1,10 +1,6 @@
 ---
-name: Web-Source-Evidence-Audit
+name: "Web-Source-Evidence-Audit"
 description: "Use when reviewing current web research, product behavior, implementation claims, launch posts, vendor benchmarks, public talks, source-code assertions, or closed-source uncertainty."
-category: evidence-review
-priority: high
-version: 1
-created_at: 2026-07-14T00:00:00+00:00
 ---
 
 # Web Source-Evidence Audit

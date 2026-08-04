@@ -1,10 +1,6 @@
 ---
-name: Web-Primary-Source-Evidence
+name: "Web-Primary-Source-Evidence"
 description: "Use when researching current software, products, APIs, agent behavior, implementation details, vendor benchmarks, launch claims, public talks, or closed-source systems from web sources."
-category: web-research
-priority: high
-version: 1
-created_at: 2026-07-14T00:00:00+00:00
 ---
 
 # Web Primary-Source Evidence

@@ -30,7 +30,7 @@ def _run_cli(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
 @pytest.mark.parametrize(
     ("flag", "expected"),
     [
-        ("--skill-cleanse", "cleanse: no skill files found"),
+        ("--skill-cleanse", "cleanse: unnecessary"),
     ],
 )
 def test_empty_skill_admin_actions_no_op_cleanly(

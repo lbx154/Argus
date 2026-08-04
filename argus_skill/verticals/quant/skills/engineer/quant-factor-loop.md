@@ -1,10 +1,6 @@
 ---
-name: Quant-Factor Loop Skill (Engineer)
-description: Three-intent loop guide for the engineer when running the quant_factor domain — select factors from the pool, evaluate a backtest result, and decide continue / stop / expand. Inject during the run and analysis stages so the engineer keeps the loop disciplined and writes every trial through the BacktestExecutor.
-category: factor-mining-loop
-version: 1
-scientist_model: gpt-5.5
-created_at: 2026-06-11T00:00:00+00:00
+name: "Quant-Factor Loop Skill (Engineer)"
+description: "Three-intent loop guide for the engineer when running the quant_factor domain — select factors from the pool, evaluate a backtest result, and decide continue / stop / expand. Inject during the run and analysis stages so the engineer keeps the loop disciplined and writes every trial through the BacktestExecutor."
 ---
 
 ## Title

@@ -1,9 +1,6 @@
 ---
-name: Story State Update
-description: Extract what the chapter CHANGED into a structured state_patch.json and apply it through the safe patch engine to produce story_state.json. Never hand-rewrite the whole state. Enforces idempotency, valid id references, no silent deletion, parseable timeline. The state_update stage of fiction_writing.
-category: fiction-state
-version: 2
-protected: true
+name: "Story State Update"
+description: "Extract what the chapter CHANGED into a structured state_patch.json and apply it through the safe patch engine to produce story_state.json. Never hand-rewrite the whole state. Enforces idempotency, valid id references, no silent deletion, parseable timeline. The state_update stage of fiction_writing."
 ---
 
 ## Title

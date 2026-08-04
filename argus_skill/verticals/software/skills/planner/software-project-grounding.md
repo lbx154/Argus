@@ -1,9 +1,6 @@
 ---
-name: Software Project Grounding Before Decomposition
-description: Validate the Manager grounding brief against the repository, then decompose software work around architecture boundaries and independent acceptance risks.
-category: software-grounding
-version: 1
-created_at: 2026-07-30T00:00:00+00:00
+name: "Software Project Grounding Before Decomposition"
+description: "Validate the Manager grounding brief against the repository, then decompose software work around architecture boundaries and independent acceptance risks."
 ---
 
 # Software Project Grounding Before Decomposition

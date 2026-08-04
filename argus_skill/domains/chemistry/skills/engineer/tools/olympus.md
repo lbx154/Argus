@@ -1,8 +1,6 @@
 ---
-name: Olympus Reaction Optimization
-description: Use Olympus planners and emulator surfaces for controlled reaction-optimization benchmark studies with explicit surface, parameter space, noise, budget, baselines, and simulated-evidence limits.
-category: chemistry-tool-optimization
-version: 2
+name: "Olympus Reaction Optimization"
+description: "Use Olympus planners and emulator surfaces for controlled reaction-optimization benchmark studies with explicit surface, parameter space, noise, budget, baselines, and simulated-evidence limits."
 ---
 
 ## When to use

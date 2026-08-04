@@ -1,8 +1,6 @@
 ---
-name: Organic Synthesis and Retrosynthesis Review
-description: Independently review small-molecule reaction records, retrosynthetic routes, and route-validation claims for identity, precedent, selectivity, feasibility, analytical evidence, safety, and honest claim limits.
-category: chemistry-review-organic-synthesis
-version: 1
+name: "Organic Synthesis and Retrosynthesis Review"
+description: "Independently review small-molecule reaction records, retrosynthetic routes, and route-validation claims for identity, precedent, selectivity, feasibility, analytical evidence, safety, and honest claim limits."
 ---
 
 ## When to use

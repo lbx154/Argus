@@ -406,20 +406,13 @@ def build_continuous_prompt(
         # non-paper verticals have no upstream paper stages to roll back into.
         upstream_rollback_block = ""
 
-    # Planner role mission matcher (same primitive engineer/reviewer use).
-    # No builtin_skills/planner/ OWN pool exists today, but the matcher pool
-    # UNIONs the planner's cross-read references {engineer, reviewer}, so
-    # mission.match() DOES make a real matcher backend call each round and
-    # can surface engineer/reviewer skills to the planner as references.
+    # The Planner gets the same library paths as other roles and searches them
+    # independently. No Skill content is selected or copied into this prompt.
     matched_planner_skill_block = ""
     if mission is not None:
-        planner_match = mission.match(continuous_objective)
-        if planner_match.block:
-            matched_planner_skill_block = (
-                "Matched planner skill(s) for this objective "
-                "(read first; apply the relevant one(s)):\n"
-                f"{planner_match.block}\n\n"
-            )
+        planner_libraries = mission.libraries()
+        if planner_libraries.block:
+            matched_planner_skill_block = planner_libraries.block + "\n\n"
 
     # ------------------------------------------------------------------
     # Shared declarative knowledge. Planner may maintain pages directly; task
@@ -428,60 +421,22 @@ def build_continuous_prompt(
     wiki_block = ""
     autors_root = _proot / ".autors"
     wiki_candidates = sorted(autors_root.glob("*/wiki")) if autors_root.exists() else []
-    wiki_candidates = [w for w in wiki_candidates if (w / "query_pack.md").exists()]
+    wiki_candidates = [
+        wiki
+        for wiki in wiki_candidates
+        if (wiki / "INDEX.md").is_file() and (wiki / "pages").is_dir()
+    ]
     if wiki_candidates:
-        parts: list[str] = ["## Shared project knowledge wiki (direct read/write)\n"]
-        for wiki_root in wiki_candidates:
-            project_name = wiki_root.parent.name
-            parts.append(f"### project: {project_name}\n")
-            pack = (wiki_root / "query_pack.md").read_text(encoding="utf-8")
-            parts.append("#### query_pack.md\n")
-            parts.append(pack.strip() + "\n\n")
-            # Derived indexes surface current declarative knowledge without
-            # copying full pages into every planning prompt.
-            for name in ("by-status.md", "stale-watchlist.md", "open-contradictions.md"):
-                qf = wiki_root / "queries" / name
-                if qf.exists():
-                    parts.append(f"#### queries/{name}\n")
-                    parts.append(qf.read_text(encoding="utf-8").strip() + "\n\n")
-        parts.append(
-            "The wiki stores declarative concepts, structures, mechanisms, "
-            "principles, facts, hypotheses, relationships, and contradictions. "
-            "Skills store procedures; events and CHECKPOINT.md store execution "
-            "history and current state. You may directly create or refine wiki "
-            "pages when planning establishes durable knowledge. Cite real sources "
-            "or artifacts and preserve uncertainty; never copy mission summaries "
-            "or handoffs into the wiki.\n"
+        paths = "\n".join(f"- `{wiki.resolve()}`" for wiki in wiki_candidates)
+        wiki_block = (
+            "## Shared project Wiki\n"
+            "Search these Wiki directories with your own file tools:\n"
+            f"{paths}\n\n"
+            "Start at INDEX.md and progressively read semantic pages as needed. "
+            "Pages contain only title, description, and Markdown content. Edit "
+            "pages and INDEX.md directly when planning establishes durable "
+            "declarative knowledge; do not copy task history or procedures.\n"
         )
-        # M0.3: suggest a wiki_collect mission when cooldown has elapsed.
-        # This is a suggestion in the planner prompt, not a harness-enforced
-        # action; the planner still decides.
-        from datetime import datetime, timezone
-
-        from ...wiki.bot_state import (
-            collect_backoff_hours,
-            collect_cooldown_elapsed,
-            load_bot_state,
-        )
-
-        for wiki_root in wiki_candidates:
-            bot_state_path = wiki_root / "data" / "bot_state.json"
-            state = load_bot_state(bot_state_path)
-            if collect_cooldown_elapsed(state=state, now=datetime.now(timezone.utc)):
-                collect_cooldown_hours = collect_backoff_hours(state)
-                parts.append(
-                    f"### wiki_collect suggestion ({wiki_root.parent.name})\n"
-                    f"The wiki's collector cooldown of {collect_cooldown_hours:.0f}h "
-                    f"has elapsed since the last collect "
-                    f"(last_collected_at={state.last_collected_at}). "
-                    "When relevant, delegate one small train-free wiki "
-                    "collection pass using the `wiki-collector` guidance; it "
-                    "derives 5-10 queries from project state and ingests new "
-                    "arxiv / github hits into sources/*. Any role may synthesize "
-                    "durable declarative knowledge from those sources; Reviewer "
-                    "reconciles it against evidence during review.\n"
-                )
-        wiki_block = "".join(parts)
 
     host_policy_block = (
         "## Dynamic host policy\n"
@@ -539,7 +494,7 @@ def build_continuous_prompt(
         )
 
     # Compile from structured state only: vertical/stage, target contract,
-    # open-ended mode, available wiki, and matched skills. Do not keyword-route
+    # open-ended mode and available semantic libraries. Do not keyword-route
     # task prose to decide which policy fragments the Planner receives.
     return _join_prompt_blocks(
         ground_truth_mandate(

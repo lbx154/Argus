@@ -102,7 +102,6 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_REWRITE_MODEL", "gpt-5.5", "interactive prompt rewrite model", "models"),
     Knob("ARGUS_SKILL_MANAGER_REPLY_MODEL", "inherit", "operator-facing Manager SELF model; inherit uses the configured Manager/shared route model", "models", cockpit=True),
     Knob("ARGUS_SKILL_FRONTDOOR_MODEL", "auto", "cheap front-door classification model: gpt-5.4-mini on codex/copilot, Manager model otherwise", "models"),
-    Knob("ARGUS_SKILL_MATCHER_MODEL", "gpt-5.5", "model for skill matching", "models"),
     # --- reasoning effort ---
     Knob("ARGUS_SKILL_MANAGER_REASONING_EFFORT", "xhigh", "manager reasoning effort", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_PLANNER_REASONING_EFFORT", "xhigh", "planner reasoning effort", "reasoning", cockpit=True),
@@ -112,8 +111,6 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_ENGINEER_INITIAL_REASONING_EFFORT", "high", "direct-task first-round Engineer effort; later rounds use the Engineer effort", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "xhigh", "engineer reasoning effort: low|medium|high|xhigh", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "high", "reviewer reasoning effort", "reasoning", cockpit=True),
-    Knob("ARGUS_SKILL_ADAPTER_REASONING_EFFORT", "low", "matched-skill adaptation reasoning effort", "reasoning"),
-    Knob("ARGUS_SKILL_MAINTENANCE_REASONING_EFFORT", "low", "post-task skill-maintenance reasoning effort", "reasoning"),
     # --- budget ---
     Knob("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"], "host-global daily USD cap across all projects", "budget", cockpit=True),
     Knob("ARGUS_SKILL_COST_CONTROL", "on", "host-global settled-cost admission and reconciliation", "budget"),
@@ -130,16 +127,12 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_SUBAGENT_FAMILY_FAILURE_WINDOW_HOURS", "72.0", "trailing window (hours) the subagent family failure streak is computed over", "budget"),
     # --- mission / lifecycle ---
     Knob("ARGUS_SKILL_MAX_ROUNDS", "500", "max engineer rounds per mission", "mission"),
-    Knob("ARGUS_SKILL_NEAREST_TRANSFER_MIN_SCORE", "0.12", "minimum semantic score for injecting a full nearest-skill fallback", "mission"),
-    Knob("ARGUS_SKILL_NEAREST_TRANSFER_ENABLED", "0", "inject a low-confidence nearest Skill when the LLM matcher finds no high-fit match (default OFF)", "mission"),
     Knob("ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING", "1", "ask every completed task to retain only verified durable learning (default ON)", "mission"),
-    Knob("ARGUS_SKILL_FORCE_POST_TASK_LEARNING", "0", "force every task to create/update a skill; selective learning is default", "mission"),
     Knob("ARGUS_SKILL_ENGINEER_FILE_READ_BUDGET", "12", "soft first-pass relevant-file inspection budget", "mission"),
     Knob("ARGUS_SKILL_ENGINEER_TEST_RUN_BUDGET", "3", "soft focused verification-run budget before the final verifier", "mission"),
     Knob("ARGUS_SKILL_BOUNDED_DAG_MODEL", "auto", "compact model for decomposing Manager bounded tasks into backlog DAG nodes", "mission"),
     Knob("ARGUS_SKILL_BOUNDED_DAG_REASONING_EFFORT", "low", "reasoning effort for bounded DAG decomposition", "mission"),
     Knob("ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS", "0", "optional wall-clock cap for one Engineer turn; disabled by default", "mission"),
-    Knob("ARGUS_SKILL_SCIENTIST_TURN_MAX_SECONDS", "0", "optional wall-clock cap for one Scientist skill-distillation turn; disabled by default", "mission"),
     Knob("ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS", "600", "model stream inactivity before a diagnostic warning (0=off)", "mission"),
     Knob("ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS", "1800", "model stream inactivity before likely-stalled alerting (0=off)", "mission"),
     Knob("ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", "2700", "model stream inactivity before terminating only the current provider process group (0=off)", "mission"),

@@ -1,8 +1,6 @@
 ---
-name: Digital Circuit Sign-off Review
-description: Independently audit Verilog/SystemVerilog designs for contract fidelity, simulation/formal correctness, synthesizability, timing constraints, and reproducible delivery.
-category: digital-hardware-review
-version: 2
+name: "Digital Circuit Sign-off Review"
+description: "Independently audit Verilog/SystemVerilog designs for contract fidelity, simulation/formal correctness, synthesizability, timing constraints, and reproducible delivery."
 ---
 
 # Digital Circuit Sign-off Review

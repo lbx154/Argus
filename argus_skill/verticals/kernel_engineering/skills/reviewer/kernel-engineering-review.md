@@ -1,10 +1,6 @@
 ---
-name: Kernel Engineering Review
-description: Review production GPU-kernel changes for environment readiness, infrastructure reuse, numerical/API parity, benchmark integrity, architecture-bounded dispatch, and upstream-quality evidence.
-category: kernel-engineering-review
-priority: high
-version: 1
-created_at: 2026-07-18T00:00:00+00:00
+name: "Kernel Engineering Review"
+description: "Review production GPU-kernel changes for environment readiness, infrastructure reuse, numerical/API parity, benchmark integrity, architecture-bounded dispatch, and upstream-quality evidence."
 ---
 
 # Kernel Engineering Review

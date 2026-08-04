@@ -1,8 +1,8 @@
-"""SkillLoop — the integrated matcher → supervised-engineer flow.
+"""SkillLoop — agent-native Skill discovery plus supervised engineering.
 
 This is the new code that argus-skill exists to deliver. It composes:
 
-  * ``SkillStore`` (vendored from skill-agent): horizontal skill cache.
+  * ``SkillStore``: path-only access to agent-readable Skill libraries.
   * ``SupervisedEngineer`` (new, with ``Reviewer`` vendored from ArgusBot):
     vertical round-loop that accepts decisive Engineer self-verification for
     bounded work or otherwise supervises until the Reviewer is satisfied.
@@ -10,12 +10,12 @@ This is the new code that argus-skill exists to deliver. It composes:
 Skill and wiki memory normally use independent review. For a bounded mission,
 the Engineer may explicitly self-verify and waive Reviewer; if it also identifies
 durable skill learning, the same Engineer thread is resumed once to author the
-create/update candidate, which still passes through SkillRouter safeguards.
+create or update semantic Skill documents directly in the project library.
 
 End-to-end shape:
 
-    task → matcher/Scientist → engineer round-loop (engineer → reviewer)
-            outcome → record skill use and preserve validated memory edits
+    task → Skill-library paths → engineer round-loop (engineer → reviewer)
+            outcome → preserve Agent-authored semantic memory edits
             continue → inject next_action, next round
             blocked → stop with reason; direct memory edits remain persisted
 """
@@ -36,23 +36,12 @@ from .reviewer import Reviewer, ReviewerConfig
 from .skills.loop_prompt import PromptContextMixin
 from .skills.loop_review_hooks import ReviewedRoundHooksMixin
 from .skills.loop_settlement import MissionSettlementMixin
-from .skills.loop_skill_selection import (
-    SkillSelectionMixin,
-    _nearest_transfer_scores,  # noqa: F401 -- re-exported for tests
-)
+from .skills.loop_skill_library import SkillLibraryMixin
 from .skills.loop_state import MissionContext
 from .skills.missions import EngineerMission
-from .skills.skill_router import SkillRouter
 from .skills.store import SkillStore
 
 log = logging.getLogger(__name__)
-
-def _env_float_setting(name: str, default: float) -> float:
-    try:
-        return float(os.environ.get(name, str(default)))
-    except (TypeError, ValueError):
-        return default
-
 
 def _env_int_setting(name: str, default: int) -> int:
     try:
@@ -72,36 +61,14 @@ def _knob_bool_setting(name: str, default: bool) -> bool:
 class SkillLoopConfig:
     """All knobs for one SkillLoop.run invocation, in one place."""
     engineer_model: str | None = "gpt-5.5"
-    reviewer_model: str | None = None  # default: same as engineer (cheap)
-    matcher_model: str | None = None   # default: same as engineer
+    reviewer_model: str | None = None  # default: same as engineer
     # Direct/bounded work starts at high. A Reviewer-requested second round
     # escalates to ``engineer_reasoning_effort`` (xhigh by default). Staged and
     # paper missions retain xhigh from round one.
     engineer_initial_reasoning_effort: str | None = "high"
     engineer_reasoning_effort: str | None = "xhigh"
     reviewer_reasoning_effort: str = "high"
-    matcher_reasoning_effort: str | None = "low"
-    # Cheap task-conditioning pass over the closest matched skill. This is a
-    # single no-tool input/output request, not a Scientist or execution agent.
-    skill_adapter_model: str | None = None
-    skill_adapter_reasoning_effort: str = "low"
-    skill_adapter_enabled: bool = True
-    skill_adapter_max_bullets: int = 8
-    nearest_transfer_min_score: float = field(
-        default_factory=lambda: _env_float_setting(
-            "ARGUS_SKILL_NEAREST_TRANSFER_MIN_SCORE", 0.12
-        )
-    )
-    nearest_transfer_max_bullets: int = 4
-    nearest_transfer_enabled: bool = field(
-        default_factory=lambda: _knob_bool_setting(
-            "ARGUS_SKILL_NEAREST_TRANSFER_ENABLED",
-            False,
-        )
-    )
-    # Evaluation/continuous-learning mode: completed tasks are asked to retain
-    # only durable reusable learning. ``force_post_task_learning`` restores the
-    # legacy every-task create/update contract for controlled ablations.
+    # Completed tasks may retain durable learning when the Agent judges it useful.
     require_post_task_learning: bool = field(
         default_factory=lambda: _knob_bool_setting(
             "ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING",
@@ -118,46 +85,11 @@ class SkillLoopConfig:
     hard_escalate_rounds: int = 24
     backend_failure_threshold: int = 2
     backend_failure_backoff_seconds: float = 15.0
-    # Repeated reviewer rejection is evidence that a matched playbook is not
-    # enough. Ask the Scientist for a genuinely different strategy every N
-    # non-terminal rounds; 0 disables.
-    adaptive_skill_interval: int = field(
-        default_factory=lambda: _env_int_setting(
-            "ARGUS_SKILL_ADAPTIVE_SKILL_INTERVAL",
-            4,
-        )
-    )
-    # Restart-safe Scientist adaptation after Reviewer-classified method/skill
-    # failures. Bounded calls prevent rejection loops from becoming unbounded
-    # strategy generation.
-    adaptive_rejection_threshold: int = field(
-        default_factory=lambda: _env_int_setting(
-            "ARGUS_SKILL_ADAPTIVE_REJECTION_THRESHOLD",
-            2,
-        )
-    )
-    adaptive_skill_max_triggers: int = field(
-        default_factory=lambda: _env_int_setting(
-            "ARGUS_SKILL_ADAPTIVE_SKILL_MAX_TRIGGERS",
-            2,
-        )
-    )
-    # Legacy proposal compatibility only. Current Reviewers edit the injected
-    # project skill path directly and their output schema has no skill_ops.
-    skill_ops_enabled: bool = False
     # Shared declarative knowledge wiki. Roles edit pages directly.
     wiki_enabled: bool = False
     # Bootstrap one project wiki before the first mission.
     # Library callers remain opt-in; the daemon runtime enables this by default.
     auto_init_wiki: bool = False
-    # Automatic library housekeeping (explicit opt-in). Finds near-duplicate
-    # skills/wiki-pages accumulated across tasks or concurrent writers and
-    # merges each cluster down to one representative. LLM grouping sees compact
-    # summaries only; a no-op-safe,
-    # REVERSIBLE archive/retire move, never a hard delete; a protected/
-    # governing skill is never a merge candidate (self-governance floor).
-    # Off by default; the daemon enables it.
-    auto_compact_enabled: bool = False
     full_auto: bool = True
     skip_git_repo_check: bool = True
     dangerous_yolo: bool = False
@@ -165,17 +97,6 @@ class SkillLoopConfig:
     isolate_workdir: bool = False
     extra_args: list[str] | None = None
     session_id: str | None = None
-    # ``require_post_task_learning`` asks for selective durable learning. This
-    # stronger compatibility flag restores the legacy every-task create/update
-    # requirement for controlled evaluations only.
-    force_post_task_learning: bool = field(
-        default_factory=lambda: (
-            os.environ.get("ARGUS_SKILL_FORCE_POST_TASK_LEARNING", "0")
-            .strip()
-            .lower()
-            in {"1", "true", "yes", "on"}
-        )
-    )
     engineer_file_read_budget: int = field(
         default_factory=lambda: _env_int_setting(
             "ARGUS_SKILL_ENGINEER_FILE_READ_BUDGET", 12
@@ -216,34 +137,6 @@ class SkillLoopConfig:
     def resolved_reviewer_model(self) -> str:
         return self.reviewer_model or self.engineer_model
 
-    def resolved_matcher_model(self) -> str:
-        """Resolve the skill matcher model with env override.
-
-        Precedence (highest first):
-          1. ``ARGUS_SKILL_MATCHER_MODEL`` env var — operator override.
-             Set to a cheap router (e.g. ``gpt-4o-mini``, ``haiku-3.5``)
-             to slash selection cost: at our N=50 a single matcher call
-             is ~180k input tokens, ~80% cheaper on gpt-4o-mini than on
-             gpt-5.4 with negligible accuracy loss.
-          2. ``matcher_model`` field (constructor / config).
-          3. ``engineer_model`` fallback — backwards-compatible default.
-        """
-        import os
-        env = os.environ.get("ARGUS_SKILL_MATCHER_MODEL", "").strip()
-        if env:
-            return env
-        return self.matcher_model or self.engineer_model
-
-    def resolved_skill_adapter_model(self) -> str:
-        env = os.environ.get("ARGUS_SKILL_ADAPTER_MODEL", "").strip()
-        return env or self.skill_adapter_model or self.engineer_model or ""
-
-    def resolved_skill_adapter_reasoning_effort(self) -> str:
-        env = os.environ.get(
-            "ARGUS_SKILL_ADAPTER_REASONING_EFFORT", ""
-        ).strip()
-        return env or self.skill_adapter_reasoning_effort or "low"
-
     def resolved_initial_engineer_effort(self) -> str | None:
         if self.workflow_mode != "direct" or self.paper_mission:
             return self.engineer_reasoning_effort
@@ -254,7 +147,7 @@ class SkillLoopConfig:
 
 
 class SkillLoop(
-    SkillSelectionMixin,
+    SkillLibraryMixin,
     PromptContextMixin,
     ReviewedRoundHooksMixin,
     MissionSettlementMixin,
@@ -296,12 +189,7 @@ class SkillLoop(
         # prompt (used by the daemon to honour /inject between rounds).
         self.extra_guidance_provider = extra_guidance_provider
 
-        self.skill_store = skill_store or SkillStore(
-            self.skills_dir,
-            runner=engineer_runner,
-            matcher_model=self.config.resolved_matcher_model(),
-            matcher_reasoning_effort=self.config.matcher_reasoning_effort,
-        )
+        self.skill_store = skill_store or SkillStore(self.skills_dir)
         self.engineer_mission = EngineerMission(
             self.skill_store, on_event=self.on_event
         )
@@ -310,14 +198,10 @@ class SkillLoop(
             skill_store=self.skill_store,
             memory_maintenance_enabled=self.config.require_post_task_learning,
         )
-        # The single front door to the skill library: selection (delegated to
-        # the role matcher) plus structurally-safe CRUD. New versions are active
-        # immediately; the Reviewer uses real trajectories to update/archive,
-        # while protected skills retain a mechanical self-governance floor.
-        self.skill_router = SkillRouter(
-            skill_store=self.skill_store,
-            matcher=self.engineer_mission,
-        )
+        # Skill discovery and maintenance are agent-native.  Roles receive the
+        # library roots and use their own file tools; there is no matcher/router
+        # decision layer and no runtime Skill mutation channel.
+        self.skill_router = None
         self.supervised = SupervisedEngineer(
             engineer_runner=engineer_runner,
             reviewer=self.reviewer,
@@ -361,39 +245,17 @@ class SkillLoop(
         the right thing to feed to the engineer because round prompts are
         meant to carry full context.
 
-        ``objective_for_skill`` is the *clean* operator objective, with
-        no prelude / boilerplate / identity-card prefix. It is what the
-        skill matcher and ``task_history`` should see —
-        otherwise we end up indexing skills under "### Memory context"
-        boilerplate (literally happened, see commit history).
-        Falls back to ``task`` when not supplied for back-compat.
+        ``objective_for_skill`` remains a clean objective label for event and
+        role context compatibility. Skill discovery itself is performed by the
+        Agents directly from the library paths.
         """
         workdir = Path(workdir) if workdir else Path.cwd()
         run_id = self.config.session_id or f"run-{uuid.uuid4().hex}"
         from .roles.prompts import resolve_role_prompt
-        from .roles.prompts.engineer import (
-            SKILL_ADAPT,
-            SKILL_CREATE,
-            mission_request,
-            skill_request,
-        )
+        from .roles.prompts.engineer import mission_request
         engineer_prompt_context = resolve_role_prompt(mission_request(workdir))
         active_vertical = engineer_prompt_context.vertical
         engineer_role_banner = engineer_prompt_context.role_banner
-        scientist_create_banner = resolve_role_prompt(
-            skill_request(
-                workdir,
-                operation=SKILL_CREATE,
-                vertical=active_vertical,
-            )
-        ).role_banner
-        scientist_adaptation_banner = resolve_role_prompt(
-            skill_request(
-                workdir,
-                operation=SKILL_ADAPT,
-                vertical=active_vertical,
-            )
-        ).role_banner
         if self.config.wiki_enabled:
             from .wiki.lifecycle import ensure_project_wiki
 
@@ -417,15 +279,13 @@ class SkillLoop(
             request_anchor=request_anchor,
             active_vertical=active_vertical,
             engineer_role_banner=engineer_role_banner,
-            scientist_create_banner=scientist_create_banner,
-            scientist_adaptation_banner=scientist_adaptation_banner,
             seed_thread_id=seed_thread_id,
             scope=scope,
         )
 
-        # Step 1/2: matcher + Scientist distill/adapt + venue/idea research
-        # candidate sources (role mission — shared scaffold across all roles).
-        state = self._select_and_prepare_skill(mission)
+        # Step 1/2: expose Skill-library paths and prepare optional research
+        # sources. No Skill is parsed, matched, adapted, or injected.
+        state = self._prepare_skill_libraries(mission)
 
         # Step 3: supervised round-loop. The four small wrappers below adapt
         # this mixin's ``(self, mission, state, ...)`` phase methods to the

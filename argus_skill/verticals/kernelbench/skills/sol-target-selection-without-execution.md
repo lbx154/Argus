@@ -1,11 +1,6 @@
 ---
-name: SOL Target Selection Without Execution
-description: Reusable playbook for selecting the next benchmark optimization target by inventorying local task definitions, excluding already accepted targets, optionally collecting public anchor signals, and producing auditable `NEXT_TARGET_SELECTION.{md,json}` artifacts without editing benchmark/candidate/scorer files or running GPU work.
-category: benchmark-optimization-planning
-version: 1
-created_at: 2026-07-05T22:16:23.315419+00:00
-task_history:
-  - "Read AGENTS.md, research/GROUND_TRUTH.md, optimize/OFFICIAL_SOL_SUBMISSION_PATH.json, and the SOL optimization/runtime skills. Without editing benchmark/scorer/candidate files or running GPU work, cre"
+name: "SOL Target Selection Without Execution"
+description: "Reusable playbook for selecting the next benchmark optimization target by inventorying local task definitions, excluding already accepted targets, optionally collecting public anchor signals, and producing auditable `NEXT_TARGET_SELECTION.{md,json}` artifacts without editing benchmark/candidate/scorer files or running GPU work."
 ---
 
 # SOL Target Selection Without Execution

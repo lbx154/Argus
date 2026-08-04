@@ -1,8 +1,6 @@
 ---
-name: Computational Chemistry Convergence and Interpretation Validation
-description: Validate numerical convergence, model sensitivity, and claim boundaries for molecular or periodic calculations; excludes general materials characterization, battery degradation diagnosis, and biological activity claims.
-category: chemistry-computational
-version: 1
+name: "Computational Chemistry Convergence and Interpretation Validation"
+description: "Validate numerical convergence, model sensitivity, and claim boundaries for molecular or periodic calculations; excludes general materials characterization, battery degradation diagnosis, and biological activity claims."
 ---
 
 ## When to use

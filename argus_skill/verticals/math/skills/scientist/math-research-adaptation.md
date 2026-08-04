@@ -1,8 +1,6 @@
 ---
-name: Math Research Scientist Adaptation
-description: Adapt reusable mathematical research skills after reviewer-certified method failure or skill gaps through the generic Scientist pipeline.
-category: math-research-adaptation
-version: 3
+name: "Math Research Scientist Adaptation"
+description: "Adapt reusable mathematical research skills after reviewer-certified method failure or skill gaps through the generic Scientist pipeline."
 ---
 
 Adapt a reusable mathematical method only after a concrete approach has failed

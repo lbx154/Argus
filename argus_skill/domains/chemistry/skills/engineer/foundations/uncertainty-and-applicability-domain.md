@@ -1,8 +1,6 @@
 ---
-name: Chemistry Uncertainty and Applicability Domain
-description: Quantify or bound uncertainty and determine whether a chemistry model, calculation, measurement, or literature conclusion applies to the actual chemical system.
-category: chemistry-foundation-uncertainty
-version: 1
+name: "Chemistry Uncertainty and Applicability Domain"
+description: "Quantify or bound uncertainty and determine whether a chemistry model, calculation, measurement, or literature conclusion applies to the actual chemical system."
 ---
 
 ## When to use

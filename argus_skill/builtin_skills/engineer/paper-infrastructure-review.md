@@ -1,9 +1,6 @@
 ---
-name: Paper Infrastructure Review
-description: Run the model-backed gate that rejects reader-facing local environment, device, cache, path, and Argus/Codex configuration leaks in a research manuscript (venue-neutral; used by both EMNLP and AAAI pipelines).
-category: paper-review
-version: 1
-created_at: 2026-05-27T00:00:00+00:00
+name: "Paper Infrastructure Review"
+description: "Run the model-backed gate that rejects reader-facing local environment, device, cache, path, and Argus/Codex configuration leaks in a research manuscript (venue-neutral; used by both EMNLP and AAAI pipelines)."
 ---
 
 ## Title

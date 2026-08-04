@@ -1,8 +1,6 @@
 ---
-name: Materials Tool and Skill Router
-description: Select and connect the appropriate open or licensed materials database, atomistic, CAD, CAE, workflow, and evaluation tools without replacing Argus's four-role control loop.
-category: materials-tool-routing
-version: 1
+name: "Materials Tool and Skill Router"
+description: "Select and connect the appropriate open or licensed materials database, atomistic, CAD, CAE, workflow, and evaluation tools without replacing Argus's four-role control loop."
 ---
 
 # Materials Tool and Skill Router

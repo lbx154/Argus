@@ -1,8 +1,6 @@
 ---
-name: Battery Cell Identity and Electrochemical Data Normalization
-description: Normalize battery cell, electrode, electrolyte, protocol, and time-series identity before cycling analysis; excludes molecular computation, generic spectroscopy, and biochemical assays.
-category: chemistry-batteries
-version: 1
+name: "Battery Cell Identity and Electrochemical Data Normalization"
+description: "Normalize battery cell, electrode, electrolyte, protocol, and time-series identity before cycling analysis; excludes molecular computation, generic spectroscopy, and biochemical assays."
 ---
 
 ## When to use

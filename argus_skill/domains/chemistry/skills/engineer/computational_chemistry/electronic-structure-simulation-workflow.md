@@ -1,8 +1,6 @@
 ---
-name: Reproducible Electronic-Structure and Molecular Simulation Workflow
-description: Run reproducible molecular or periodic quantum, atomistic, or free-energy calculations with method and numerical convergence separated; excludes battery cycling, peak fitting, and assay interpretation.
-category: chemistry-computational
-version: 1
+name: "Reproducible Electronic-Structure and Molecular Simulation Workflow"
+description: "Run reproducible molecular or periodic quantum, atomistic, or free-energy calculations with method and numerical convergence separated; excludes battery cycling, peak fitting, and assay interpretation."
 ---
 
 ## When to use

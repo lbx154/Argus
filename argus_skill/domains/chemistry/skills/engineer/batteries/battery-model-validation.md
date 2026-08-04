@@ -1,8 +1,6 @@
 ---
-name: Battery Model Boundary and Degradation Validation
-description: Validate electrochemical models, cycling forecasts, and degradation interpretations against leakage-safe measured cell data; excludes model-free analytical spectroscopy and computational molecular method benchmarking.
-category: chemistry-batteries
-version: 1
+name: "Battery Model Boundary and Degradation Validation"
+description: "Validate electrochemical models, cycling forecasts, and degradation interpretations against leakage-safe measured cell data; excludes model-free analytical spectroscopy and computational molecular method benchmarking."
 ---
 
 ## When to use

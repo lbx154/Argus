@@ -1,8 +1,6 @@
 ---
-name: Materials Validation Review
-description: Independently validate materials claims through convergence, physical invariants, sensitivity, uncertainty, matched baselines, public benchmarks, and experimental evidence.
-category: materials-validation-review
-version: 1
+name: "Materials Validation Review"
+description: "Independently validate materials claims through convergence, physical invariants, sensitivity, uncertainty, matched baselines, public benchmarks, and experimental evidence."
 ---
 
 # Materials Validation Review

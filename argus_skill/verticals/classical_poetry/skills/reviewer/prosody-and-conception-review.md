@@ -1,3 +1,8 @@
+---
+name: "Classical Poetry Prosody and Conception Review"
+description: "Review regulated verse for mechanical prosody constraints and live poetic quality."
+---
+
 # 近体诗审阅 · Prosody, Conception & Anti-AI Review
 
 The classical_poetry reviewer checklist. It reuses the framework Reviewer role

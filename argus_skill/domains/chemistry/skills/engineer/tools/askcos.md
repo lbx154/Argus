@@ -1,8 +1,6 @@
 ---
-name: ASKCOS Retrosynthesis
-description: Use an operator-authorized ASKCOS deployment for retrosynthesis or reaction prediction with endpoint, model, database, access, budget, and result provenance; never assume hosted access or experimental validity.
-category: chemistry-tool-retrosynthesis
-version: 2
+name: "ASKCOS Retrosynthesis"
+description: "Use an operator-authorized ASKCOS deployment for retrosynthesis or reaction prediction with endpoint, model, database, access, budget, and result provenance; never assume hosted access or experimental validity."
 ---
 
 ## When to use

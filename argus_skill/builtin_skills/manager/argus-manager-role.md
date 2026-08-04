@@ -1,9 +1,6 @@
 ---
-name: Argus Manager Role
-description: Identity and operating contract for the Manager agent. Owns operator routing, stage transitions, skill placement, and evidence-bound daemon self-maintenance.
-category: role-identity
-version: 4
-created_at: 2026-06-26T00:00:00+00:00
+name: "Argus Manager Role"
+description: "Identity and operating contract for the Manager agent. Owns operator routing, stage transitions, skill placement, and evidence-bound daemon self-maintenance."
 ---
 
 ## Title

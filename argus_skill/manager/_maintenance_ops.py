@@ -94,7 +94,7 @@ class _MaintenanceMixin:
                 result = run_exec(
                     self._role_skill_block(
                         "evidence-bound daemon self-maintenance",
-                        match=False,
+                        include_libraries=False,
                     )
                     + prompt
                 )
@@ -132,44 +132,18 @@ class _MaintenanceMixin:
         return decision
 
     # ---- skill injection (fixed role skill + matched adaptive block) ----
-    def _role_skill_block(self, objective: str, *, match: bool = True) -> str:
-        """Build the Manager's injected skill block for a decision prompt.
-
-        Returns ``""`` when no ``skill_store`` is wired (the default) — so the
-        Manager's decision prompt is then byte-for-byte identical to before this
-        feature existed, preserving full backward compatibility for every caller
-        that does not pass a store. When a store IS wired the block has two parts,
-        mirroring how the planner/reviewer compose their prompts:
-
-        * a FIXED role skill (``argus-manager-role.md`` from builtin_skills,
-          with an inline fallback) that states the Manager's identity and duties;
-        * a MATCHED adaptive block — the role-scoped matcher's high-fit manager
-          skills for ``objective`` (empty today; populated once self-evolution
-          adds OWN manager skills, and may already surface cross-role references).
-
-        The caller PREPENDS it to the decision prompt; it never alters the
-        decision's output contract/schema.
-
-        ``match=False`` injects ONLY the fixed role identity and SKIPS the matcher
-        LLM call (F6) — for pure-classification callers (route / is_conversational
-        / decide_stage_transition) that need the fixed manager role context but do
-        NOT consume matched skill bodies, so a matcher call each time is pure burn.
-        Skill placement keeps ``match=True`` — it judges from the matched bodies.
-        """
+    def _role_skill_block(
+        self, objective: str, *, include_libraries: bool = True
+    ) -> str:
+        """Return fixed Manager context and, when requested, library paths."""
         if self.skill_store is None:
             return ""
         block = self.role_context()
-        # Adaptive matched manager skill(s). Fail-soft: a matcher hiccup must
-        # never break a stage decision, so any error degrades to role skill only.
-        if match and (objective or "").strip():
+        if include_libraries and (objective or "").strip():
             try:
-                match = self.mission.match(objective)
-                if match.block:
-                    block += (
-                        "Matched manager skill(s) for this objective "
-                        "(read first; apply the relevant one(s)):\n"
-                        f"{match.block}\n\n"
-                    )
-            except Exception:  # noqa: BLE001 — matcher is advisory, never fatal
-                log.debug("manager skill match failed", exc_info=True)
+                libraries = self.mission.libraries()
+                if libraries.block:
+                    block += libraries.block + "\n\n"
+            except Exception:  # noqa: BLE001 — path discovery is fail-soft
+                log.debug("manager Skill-library discovery failed", exc_info=True)
         return block

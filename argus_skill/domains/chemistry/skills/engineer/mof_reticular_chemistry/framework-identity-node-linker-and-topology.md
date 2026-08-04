@@ -1,8 +1,6 @@
 ---
-name: MOF Framework Identity Node Linker and Topology
-description: Resolve metal-organic framework identity from source structures into building units, connectivity, interpenetration, defects, guests, and net topology; excludes generic CIF validation and non-framework materials screening.
-category: chemistry-mof-identity
-version: 1
+name: "MOF Framework Identity Node Linker and Topology"
+description: "Resolve metal-organic framework identity from source structures into building units, connectivity, interpenetration, defects, guests, and net topology; excludes generic CIF validation and non-framework materials screening."
 ---
 
 ## When to use

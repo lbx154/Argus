@@ -1,8 +1,6 @@
 ---
-name: GuacaMol Molecular Design Benchmarking
-description: Run documented GuacaMol distribution-learning or goal-directed benchmarks with exact tasks, scoring functions, reference data, budgets, baselines, validity checks, and benchmark-only claim limits.
-category: chemistry-tool-benchmark
-version: 2
+name: "GuacaMol Molecular Design Benchmarking"
+description: "Run documented GuacaMol distribution-learning or goal-directed benchmarks with exact tasks, scoring functions, reference data, budgets, baselines, validity checks, and benchmark-only claim limits."
 ---
 
 ## When to use

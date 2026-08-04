@@ -1,8 +1,6 @@
 ---
-name: AGENTS.md Optimize Project Template
-description: Copy-ready AGENTS.md template for a benchmark-optimization project — maximize/minimize one real metric on real hardware, correctness-gated, with no paper, no venue, and no literature-review pipeline.
-category: project-agent-template
-version: 1
+name: "AGENTS.md Optimize Project Template"
+description: "Copy-ready AGENTS.md template for a benchmark-optimization project — maximize/minimize one real metric on real hardware, correctness-gated, with no paper, no venue, and no literature-review pipeline."
 ---
 
 ## Title

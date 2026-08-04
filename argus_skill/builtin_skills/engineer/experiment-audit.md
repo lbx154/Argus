@@ -1,9 +1,6 @@
 ---
-name: experiment-audit
+name: "experiment-audit"
 description: "Audit experiment integrity before claiming results. Checks for fake ground truth, score normalization fraud, phantom results, and insufficient scope. Use after experiments complete and before writing claims."
-category: research-integrity
-version: "1.0"
-created_at: "2025-07-17"
 ---
 
 # Experiment Audit: Integrity Verification

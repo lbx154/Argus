@@ -1,8 +1,6 @@
 ---
-name: MOF Datasets Prediction and Structure Generation
-description: Build and evaluate MOF datasets, property models, screening campaigns, and generated frameworks with topology-aware deduplication, leakage control, synthesizability boundaries, and staged validation.
-category: chemistry-mof-data-generation
-version: 1
+name: "MOF Datasets Prediction and Structure Generation"
+description: "Build and evaluate MOF datasets, property models, screening campaigns, and generated frameworks with topology-aware deduplication, leakage control, synthesizability boundaries, and staged validation."
 ---
 
 ## When to use

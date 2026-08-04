@@ -1,8 +1,6 @@
 ---
-name: AGENTS.md Existing Project Optimization Template
-description: Copy-ready AGENTS.md template for repairing or optimizing an existing venue-aware AI research paper project without erasing useful evidence or gaming validators.
-category: project-agent-template
-version: 2
+name: "AGENTS.md Existing Project Optimization Template"
+description: "Copy-ready AGENTS.md template for repairing or optimizing an existing venue-aware AI research paper project without erasing useful evidence or gaming validators."
 ---
 
 ## Title

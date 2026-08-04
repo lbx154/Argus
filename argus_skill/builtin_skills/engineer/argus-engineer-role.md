@@ -1,9 +1,6 @@
 ---
-name: Argus Engineer Role
-description: Identity and operating contract for the engineer agent inside argus-skill supervised loops.
-category: role-identity
-version: 4
-created_at: 2026-05-25T00:00:00+00:00
+name: "Argus Engineer Role"
+description: "Identity and operating contract for the engineer agent inside argus-skill supervised loops."
 ---
 
 ## Title
@@ -112,12 +109,11 @@ blockers at the reviewer gate.
 
 ## Consult and maintain the project wiki deliberately
 
-If `.autors/<project>/wiki/` exists, read `query_pack.md` and only the derived
-queries relevant to the current task. The wiki stores durable declarative
-knowledge: concepts, principles, facts, hypotheses, relationships and conflicts.
+If `.autors/<project>/wiki/` exists, start at `INDEX.md`, search semantic paths,
+and read only pages relevant to the current task. A page contains only `title` and
+`description` frontmatter followed by Markdown declarative knowledge.
 
-Do not copy mission history, round verdicts, status updates or operational notes
-into the wiki; `events.jsonl` and `CHECKPOINT.md` own those. New wikis do not use
-`sources/runs/`. Add immutable source material under `sources/` only when it is
-real evidence, and edit synthesis under `pages/` directly when the round produces
-durable knowledge. Do not manufacture a wiki change merely to show activity.
+Do not copy mission history, round verdicts, status updates, procedures, or
+evaluator results into the Wiki; `events.jsonl`, `CHECKPOINT.md`, and Skills own
+those concerns. When durable declarative knowledge changes, edit the semantic page
+and INDEX directly. Do not manufacture a Wiki change merely to show activity.

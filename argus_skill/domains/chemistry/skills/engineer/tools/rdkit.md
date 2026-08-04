@@ -1,8 +1,6 @@
 ---
-name: RDKit Molecular Integrity
-description: Use RDKit for deterministic molecular parsing, sanitization, stereochemistry, canonical identifiers, substructure, descriptors, fingerprints, conformers, or reaction objects; not for proving chemical identity or feasibility.
-category: chemistry-tool-cheminformatics
-version: 2
+name: "RDKit Molecular Integrity"
+description: "Use RDKit for deterministic molecular parsing, sanitization, stereochemistry, canonical identifiers, substructure, descriptors, fingerprints, conformers, or reaction objects; not for proving chemical identity or feasibility."
 ---
 
 ## When to use

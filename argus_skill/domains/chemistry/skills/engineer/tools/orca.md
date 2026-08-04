@@ -1,8 +1,6 @@
 ---
-name: ORCA Quantum Chemistry
-description: Use an operator-provided authorized ORCA installation for molecular electronic-structure calculations while preserving license boundary, executable/version, input, method, basis, numerical settings, and primary output.
-category: chemistry-tool-computational
-version: 2
+name: "ORCA Quantum Chemistry"
+description: "Use an operator-provided authorized ORCA installation for molecular electronic-structure calculations while preserving license boundary, executable/version, input, method, basis, numerical settings, and primary output."
 ---
 
 ## When to use

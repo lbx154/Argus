@@ -1,10 +1,6 @@
 ---
-name: Kernel Optimization Knowledge & Retrieval
-description: The math/physics priors a kernel optimizer must reason with (roofline, arithmetic intensity, memory bandwidth, occupancy, latency hiding) and HOW to retrieve what you don't know — diagnose the real bottleneck from measurements, search the right sources, and transfer ideas from adjacent domains. Optimize the mechanism, not the parameters.
-category: benchmark-kernel-method
-priority: high
-version: 1
-created_at: 2026-06-27T00:00:00+00:00
+name: "Kernel Optimization Knowledge & Retrieval"
+description: "The math/physics priors a kernel optimizer must reason with (roofline, arithmetic intensity, memory bandwidth, occupancy, latency hiding) and HOW to retrieve what you don't know — diagnose the real bottleneck from measurements, search the right sources, and transfer ideas from adjacent domains. Optimize the mechanism, not the parameters."
 ---
 
 # Kernel Optimization Knowledge & Retrieval

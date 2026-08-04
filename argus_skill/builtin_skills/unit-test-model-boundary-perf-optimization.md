@@ -1,11 +1,6 @@
 ---
-name: Unit Test Model-Boundary Perf Optimization
-description: A playbook for optimizing slow unit tests that accidentally cross model or subprocess boundaries, while preserving deterministic assertions and documenting the measured performance change.
-category: test-performance
-version: 1
-created_at: 2026-07-05T10:53:58.908511+00:00
-task_history:
-  - "Complete only the `perf_tuning` optimize stage. Read `research/GROUND_TRUTH.md`, `research/perf_isolation/SUBPROCESS_WAIT_TRACE.md`, `tests/tools/test_subagent_supervisor.py`, and `argus_skill/tools/s"
+name: "Unit Test Model-Boundary Perf Optimization"
+description: "A playbook for optimizing slow unit tests that accidentally cross model or subprocess boundaries, while preserving deterministic assertions and documenting the measured performance change."
 ---
 
 # Unit Test Model-Boundary Perf Optimization

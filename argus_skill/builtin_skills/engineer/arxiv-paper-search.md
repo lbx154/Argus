@@ -1,9 +1,6 @@
 ---
-name: arxiv-paper-search
+name: "arxiv-paper-search"
 description: "Search arXiv preprints via the public API. Covers latest cutting-edge work before formal publication. Complements Semantic Scholar (published venue papers) with preprint coverage. Use for literature search, related work discovery, or tracking SOTA."
-category: literature
-version: "1.1"
-created_at: "2026-05-28"
 ---
 
 # arXiv Paper Search
@@ -180,40 +177,9 @@ For each relevant paper found, add an entry:
 - Feeds into `research/LITERATURE_GROUNDING.json` and `paper/refs.bib`
 - Used by `research-brief-to-experiment-plan` for literature-grounded planning
 
-## Wiki side-effect (parasitic auto-collection)
+## Optional Wiki retention
 
-If `.autors/<project>/wiki/` exists for the current project, every paper
-or repo this skill ingests/sees MUST also be appended as an immutable
-source file. Engineer writes facts only -- never judgments.
-
-```python
-from datetime import date
-from pathlib import Path
-from argus_skill.wiki.store import WikiStore
-from argus_skill.wiki.schema import SourcePaper
-
-wiki_root = Path(".autors") / "<project>" / "wiki"
-if wiki_root.exists():
-    store = WikiStore(wiki_root)
-    src = SourcePaper(
-        id=f"papers/{arxiv_id}",
-        url=arxiv_url,
-        title=paper_title,
-        ingested_at=date.today(),
-        ingested_by=f"arxiv-paper-search@mission-{mission_id}",
-        checksum=f"sha256:{abstract_sha256}",
-        body=abstract_text,  # verbatim; no opinions
-    )
-    try:
-        store.write_source(src)
-    except FileExistsError:
-        pass  # already ingested by an earlier mission -- that is fine
-```
-
-Notes:
-- Sources are immutable. If a paper was ingested before, skip it.
-- The body is the verbatim abstract / README excerpt. Do NOT summarize or
-  editorialize inside the immutable source; a role may synthesize it separately
-  under `pages/`, and the Reviewer verifies durable knowledge during review.
-- This is best-effort and must NOT fail the mission if the wiki helper
-  raises. Catch and log.
+A literature search does not automatically create Wiki content. If the evidence
+changes durable declarative knowledge, read the Wiki `INDEX.md`, refine or create
+one semantically named page with only `title` and `description` frontmatter, cite
+real URLs in its Markdown body, and update INDEX.md. Otherwise make no Wiki edit.

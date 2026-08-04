@@ -1,8 +1,6 @@
 ---
-name: Materials Research Planning
-description: Plan materials research by selecting the physical scale, evidence source, toolchain, baseline, and validation route that resolve the current scientific uncertainty.
-category: materials-research-planning
-version: 1
+name: "Materials Research Planning"
+description: "Plan materials research by selecting the physical scale, evidence source, toolchain, baseline, and validation route that resolve the current scientific uncertainty."
 ---
 
 # Materials Research Planning

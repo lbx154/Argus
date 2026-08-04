@@ -1,8 +1,6 @@
 ---
-name: Digital Circuit Guidance Promotion Review
-description: Promote only reusable, independently supported RTL lessons into the skill library while blocking benchmark-answer memorization.
-category: anti-cheat
-version: 1
+name: "Digital Circuit Guidance Promotion Review"
+description: "Promote only reusable, independently supported RTL lessons into the skill library while blocking benchmark-answer memorization."
 ---
 
 # Digital Circuit Guidance Promotion Review

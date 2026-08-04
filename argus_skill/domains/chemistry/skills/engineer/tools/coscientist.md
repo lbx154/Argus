@@ -1,8 +1,6 @@
 ---
-name: Coscientist Integration Reference
-description: Use public Coscientist implementation material as an architecture or component reference with exact repository provenance and authorization boundaries, not as a portable autonomous laboratory or evidence of reproduced experiments.
-category: chemistry-tool-agent-reference
-version: 2
+name: "Coscientist Integration Reference"
+description: "Use public Coscientist implementation material as an architecture or component reference with exact repository provenance and authorization boundaries, not as a portable autonomous laboratory or evidence of reproduced experiments."
 ---
 
 ## When to use

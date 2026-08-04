@@ -1,8 +1,6 @@
 ---
-name: Chemical Risk and Authorization Boundary
-description: Identify chemical, biological, pressure, thermal, electrical, radiation, and instrument hazards and enforce authorization boundaries without converting text advice into physical permission.
-category: chemistry-foundation-safety
-version: 1
+name: "Chemical Risk and Authorization Boundary"
+description: "Identify chemical, biological, pressure, thermal, electrical, radiation, and instrument hazards and enforce authorization boundaries without converting text advice into physical permission."
 ---
 
 ## When to use

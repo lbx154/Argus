@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 
 from ..core.event_catalog import EventType
-from .loop_state import MissionContext, SkillSelectionState
+from .loop_state import MissionContext, SkillLibraryState
 
 log = logging.getLogger(__name__)
 
@@ -33,18 +33,7 @@ def _resolve_project_skill_dir(skill_store: object) -> str | None:
 class PromptContextMixin:
     """Prompt-assembly phase methods for ``SkillLoop``."""
 
-    def _build_round_prompt(self, mission: MissionContext, state: SkillSelectionState, next_action: str | None, include_static: bool = True) -> str:
-        if state.adaptive_round_text and not include_static:
-            reviewer_guidance = str(next_action or "").strip()
-            next_action = (
-                "## Scientist alternative playbook for this round\n"
-                + state.adaptive_round_text
-                + (
-                    "\n\n## Reviewer guidance\n" + reviewer_guidance
-                    if reviewer_guidance
-                    else ""
-                )
-            )
+    def _build_round_prompt(self, mission: MissionContext, state: SkillLibraryState, next_action: str | None, include_static: bool = True) -> str:
         prompt = self._build_engineer_prompt(
             task=mission.task,
             skill_text=state.skill_text,
@@ -52,9 +41,7 @@ class PromptContextMixin:
             original_request=mission.request_anchor,
             include_static=include_static,
             role_banner=mission.engineer_role_banner,
-            matched_skill_name=state.learning_target_name,
             require_post_task_learning=self.config.require_post_task_learning,
-            force_post_task_learning=self.config.force_post_task_learning,
             file_read_budget=self.config.engineer_file_read_budget,
             test_run_budget=self.config.engineer_test_run_budget,
             project_root=mission.workdir,
@@ -91,9 +78,7 @@ class PromptContextMixin:
         original_request: str = "",
         include_static: bool = True,
         role_banner: str = "",
-        matched_skill_name: str = "",
         require_post_task_learning: bool = False,
-        force_post_task_learning: bool = False,
         file_read_budget: int = 12,
         test_run_budget: int = 3,
         project_root=None,
@@ -108,9 +93,7 @@ class PromptContextMixin:
             original_request=original_request,
             include_static=include_static,
             role_banner=role_banner,
-            matched_skill_name=matched_skill_name,
             require_post_task_learning=require_post_task_learning,
-            force_post_task_learning=force_post_task_learning,
             file_read_budget=file_read_budget,
             test_run_budget=test_run_budget,
             project_root=project_root,

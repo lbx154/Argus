@@ -1,8 +1,6 @@
 ---
-name: Biochemistry and Chemical Biology System Identity Normalization
-description: Normalize sequence, construct, molecular state, ligand, cofactor, mutation, structure, and assay identity; excludes organic synthesis, generic characterization, and atomistic-method selection.
-category: chemistry-biochemistry
-version: 1
+name: "Biochemistry and Chemical Biology System Identity Normalization"
+description: "Normalize sequence, construct, molecular state, ligand, cofactor, mutation, structure, and assay identity; excludes organic synthesis, generic characterization, and atomistic-method selection."
 ---
 
 ## When to use

@@ -1,9 +1,6 @@
 ---
-name: Research Reality Probe
-description: Run the cheapest faithful observation that informs a research idea, preserve the raw result, and leave its interpretation and next move to the Planner.
-category: paper-ideation
-version: 2
-created_at: 2026-07-21T00:00:00+00:00
+name: "Research Reality Probe"
+description: "Run the cheapest faithful observation that informs a research idea, preserve the raw result, and leave its interpretation and next move to the Planner."
 ---
 
 # Research Reality Probe

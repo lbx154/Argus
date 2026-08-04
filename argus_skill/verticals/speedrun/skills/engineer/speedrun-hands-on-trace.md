@@ -1,9 +1,6 @@
 ---
-name: Speedrun Hands-on Trace
-description: A concrete NanoGPT-speedrun (Recursive "First Steps" Task 2) process trace on 8xH100, written as the operator's OWN known-good operating procedure — opening with a SEARCH-FIRST step (the agent is knowledge-limited: retrieve and reproduce the concrete prior art before building, general technique only, never the answer key), then the exact commands run, the real recipe knobs (line-cited) chosen by lever class, the real measured convergence curve and per-step profile, and the decision at each fork — recorded as a measured causal chain: measured(train_time, val_loss, p from the frozen t-test) → decompose(steps x per-step, convergence curve) → pick the binding lever → one change → re-measure → classify miss (quality vs statistical power) → bank N=10 / stack. The agent's own live run took the wrong path; that path is demoted to the nails.
-category: benchmark-training-speedrun
-version: 3
-created_at: 2026-06-18T00:00:00+00:00
+name: "Speedrun Hands-on Trace"
+description: "A concrete NanoGPT-speedrun (Recursive \"First Steps\" Task 2) process trace on 8xH100, written as the operator's OWN known-good operating procedure — opening with a SEARCH-FIRST step (the agent is knowledge-limited: retrieve and reproduce the concrete prior art before building, general technique only, never the answer key), then the exact commands run, the real recipe knobs (line-cited) chosen by lever class, the real measured convergence curve and per-step profile, and the decision at each fork — recorded as a measured causal chain: measured(train_time, val_loss, p from the frozen t-test) → decompose(steps x per-step, convergence curve) → pick the binding lever → one change → re-measure → classify miss (quality vs statistical power) → bank N=10 / stack. The agent's own live run took the wrong path; that path is demoted to the nails."
 ---
 
 ## Title

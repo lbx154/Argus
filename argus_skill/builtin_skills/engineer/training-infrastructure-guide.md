@@ -1,10 +1,6 @@
 ---
-name: Training Infrastructure Guide
-description: Guide the engineer to use established training and inference frameworks. Covers LLM, agent RL, diffusion, and API inference. Do NOT write custom training loops or inference loops.
-category: engineering
-priority: high
-version: 2
-created_at: 2026-05-28T00:00:00+00:00
+name: "Training Infrastructure Guide"
+description: "Guide the engineer to use established training and inference frameworks. Covers LLM, agent RL, diffusion, and API inference. Do NOT write custom training loops or inference loops."
 ---
 
 # Training & Inference Infrastructure Guide

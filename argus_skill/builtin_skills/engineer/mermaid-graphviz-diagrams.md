@@ -1,9 +1,6 @@
 ---
-name: Mermaid and Graphviz Diagrams
-description: Create source-controlled, reproducible flowcharts, sequence diagrams, state machines, dependency graphs, ER diagrams, and lightweight architecture views using Mermaid or Graphviz, then render and inspect the real output. Use for Markdown-native diagrams, DOT graphs, dependency visualization, or documentation diagrams.
-category: visual-communication
-version: 1
-created_at: 2026-07-19T00:00:00+00:00
+name: "Mermaid and Graphviz Diagrams"
+description: "Create source-controlled, reproducible flowcharts, sequence diagrams, state machines, dependency graphs, ER diagrams, and lightweight architecture views using Mermaid or Graphviz, then render and inspect the real output. Use for Markdown-native diagrams, DOT graphs, dependency visualization, or documentation diagrams."
 ---
 
 # Mermaid and Graphviz Diagrams

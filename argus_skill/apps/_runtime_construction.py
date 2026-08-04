@@ -294,12 +294,8 @@ class _RunnerConstructionMixin:
         # ``_ManagerSession``), which is an orthogonal concern.
         self._artifact_root = _manager_workdir
         os.environ["ARGUS_SKILL_ARTIFACT_ROOT"] = str(_manager_workdir)
-        # Skill matcher for the Manager (same adaptive library the SkillLoop/
-        # planner/reviewer match against). Pointed at the daemon's skills dir so
-        # the Manager injects its fixed role skill plus any matched manager skill
-        # into its stage-decision prompt. Fail-soft: any error → None, and the
-        # Manager simply runs without an injected skill block (unchanged
-        # behaviour), since this must never block daemon start-up.
+        # Give Manager the same Skill-library roots as every other role. Manager
+        # searches them with its own tools; no content is selected or injected.
         self._manager_skill_store = self._build_manager_skill_store(args)
         self.manager = Manager(
             project_root=_manager_workdir,
@@ -323,16 +319,8 @@ class _RunnerConstructionMixin:
         self._allow_chat_fast_path: bool = False
 
     def _build_manager_skill_store(self, args: argparse.Namespace) -> Any:
-        """Build the Manager's skill matcher store from the daemon's skills dir.
-
-        Mirrors the SkillLoop's own ``SkillStore`` (same dir, same matcher model)
-        so the Manager matches against the SAME adaptive library the engineer/
-        reviewer/planner do. Fail-soft: any error returns ``None`` and the Manager
-        runs without an injected skill block (unchanged behaviour) — building this
-        store must never block daemon start-up.
-        """
+        """Build the path-only Skill-library view shared by all role Agents."""
         try:
-            from ..loop import SkillLoopConfig
             from ..skills.layered import (
                 LayeredSkillStore,
                 shared_skill_scope_dir,
@@ -340,34 +328,28 @@ class _RunnerConstructionMixin:
             from ..skills.store import SkillStore
             from ..skills.vertical_select import resolve_skill_scope
 
-            # A default config is enough for the matcher: ``resolved_matcher_model``
-            # already applies the ``ARGUS_SKILL_MATCHER_MODEL`` env override, and
-            # ``matcher_reasoning_effort`` defaults to the same value the SkillLoop
-            # uses. We only need the matcher knobs here, not the full mission cfg.
-            cfg = SkillLoopConfig()
             global_dir = Path(args.skills_dir)
             project_state_dir = str(getattr(args, "project_state_dir", "") or "").strip()
             if project_state_dir:
                 workdir = Path(args.workdir).expanduser() if args.workdir else Path.cwd()
                 active_skill_scope = resolve_skill_scope(workdir)
+                explicit_project_skills = str(
+                    os.environ.get("ARGUS_SKILL_PROJECT_SKILLS_DIR", "") or ""
+                ).strip()
                 return LayeredSkillStore(
-                    project_dir=Path(project_state_dir) / "skills",
+                    project_dir=(
+                        Path(explicit_project_skills)
+                        if explicit_project_skills
+                        else Path(project_state_dir) / "skills"
+                    ),
                     global_dir=global_dir,
                     vertical_dir=shared_skill_scope_dir(
                         global_dir,
                         active_skill_scope,
                     ),
-                    runner=self.manager_backend or self._backend,
-                    matcher_model=cfg.resolved_matcher_model(),
-                    matcher_reasoning_effort=cfg.matcher_reasoning_effort,
                 )
-            return SkillStore(
-                global_dir,
-                runner=self.manager_backend or self._backend,
-                matcher_model=cfg.resolved_matcher_model(),
-                matcher_reasoning_effort=cfg.matcher_reasoning_effort,
-            )
-        except Exception:  # noqa: BLE001 — never block start-up on the matcher
+            return SkillStore(global_dir)
+        except Exception:  # noqa: BLE001 — never block start-up on library discovery
             log.debug("manager skill store build skipped", exc_info=True)
             return None
 

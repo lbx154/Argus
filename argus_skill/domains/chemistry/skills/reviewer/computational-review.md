@@ -1,8 +1,6 @@
 ---
-name: Computational Chemistry Evidence Review
-description: Review molecular or periodic calculations for input identity, numerical convergence, method validity, and computed-versus-measured claims; excludes battery, instrument, and biochemistry review.
-category: chemistry-review
-version: 1
+name: "Computational Chemistry Evidence Review"
+description: "Review molecular or periodic calculations for input identity, numerical convergence, method validity, and computed-versus-measured claims; excludes battery, instrument, and biochemistry review."
 ---
 
 Review original structures, input decks, primary outputs, versions, analysis, and

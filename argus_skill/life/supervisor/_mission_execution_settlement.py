@@ -646,8 +646,6 @@ class MissionExecutionSettlementMixin:
             "cache_write_tokens": cost_sink.total_cache_write_tokens(),
             "output_tokens": cost_sink.total_output_tokens(),
             "reasoning_output_tokens": cost_sink.total_reasoning_output_tokens(),
-            "matched_skill": str(getattr(outcome, "matched_skill_name", "") or ""),
-            "skill_distilled": bool(getattr(outcome, "skill_distilled", False)),
             "had_follow_up": bool(getattr(outcome, "had_follow_up", False)),
             "context_packet": (
                 str(state.context_packet_path.parent / "latest.json")

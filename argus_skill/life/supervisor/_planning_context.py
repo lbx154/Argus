@@ -1549,42 +1549,7 @@ class PlanningContextMixin:
         )
 
     def _wiki_collect_task_if_due_under_blocker(self) -> Any | None:
-        project_root = self._project_workdir()
-        if not _operator_only_external_blocker_wait_reason_for_project(project_root):
-            return None
-        autors = project_root / ".autors"
-        if not autors.is_dir():
-            return None
-        from datetime import datetime, timezone
-
-        from ...planner import TaskSpec
-        from ...wiki.bootstrap import is_initialized_wiki
-        from ...wiki.bot_state import collect_cooldown_elapsed, load_bot_state
-
-        now = datetime.now(timezone.utc)
-        for candidate in sorted(autors.glob("*/wiki")):
-            if not is_initialized_wiki(candidate):
-                continue
-            state = load_bot_state(candidate / "data" / "bot_state.json")
-            if not collect_cooldown_elapsed(state=state, now=now):
-                continue
-            project_name = candidate.parent.name
-            return TaskSpec(
-                title=f"wiki_collect: refresh {project_name} idea wiki",
-                objective=(
-                    "wiki_collect mission. Use the `wiki-collector` engineer "
-                    "skill to derive 5-10 project-state search queries, ingest "
-                    "new paper/repo sources into `.autors/"
-                    f"{project_name}/wiki/sources/`, and update "
-                    "`data/bot_state.json`. This mission is allowed while the "
-                    "project is externally blocked because it is train-free and "
-                    "uses the host-global budget. Do not run GPU work."
-                ),
-                impact_score=4,
-                impact_area="discovery",
-                evidence="collector cooldown elapsed while project waits on external artifacts",
-                scope=PLANNER_SCOPE_BOUNDED,
-            )
+        """No automatic Wiki collection: Agents maintain semantic pages in missions."""
         return None
 
     def _enqueue_wiki_collect_task(self, task: Any) -> bool | str:

@@ -1,8 +1,6 @@
 ---
-name: PySCF Quantum Chemistry
-description: Use PySCF as a Python electronic-structure capability for molecular or periodic calculations after charge, spin, geometry, method, basis, boundary, and convergence requirements are defined.
-category: chemistry-tool-computational
-version: 2
+name: "PySCF Quantum Chemistry"
+description: "Use PySCF as a Python electronic-structure capability for molecular or periodic calculations after charge, spin, geometry, method, basis, boundary, and convergence requirements are defined."
 ---
 
 ## When to use

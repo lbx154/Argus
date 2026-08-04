@@ -1,8 +1,6 @@
 ---
-name: Chemistry Skill and Capability Router
-description: Route chemistry tasks to shared foundations, one or more of eight domain workflow families, and only then to a narrow tool profile; use as a catalog, not an installation script or scientific workflow.
-category: chemistry-routing
-version: 4
+name: "Chemistry Skill and Capability Router"
+description: "Route chemistry tasks to shared foundations, one or more of eight domain workflow families, and only then to a narrow tool profile; use as a catalog, not an installation script or scientific workflow."
 ---
 
 Choose from the scientific question, not software familiarity.

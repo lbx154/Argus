@@ -1,8 +1,6 @@
 ---
-name: Math Research Skill Distillation
-description: Distill a reusable mathematical research playbook after an initial matcher miss, without assuming a failed method or executing the current task.
-category: math-research-distillation
-version: 3
+name: "Math Research Skill Distillation"
+description: "Distill a reusable mathematical research playbook after an initial matcher miss, without assuming a failed method or executing the current task."
 ---
 
 Distill a reusable way to approach this family of mathematical problems without

@@ -1,9 +1,6 @@
 ---
-name: research-ideation
+name: "research-ideation"
 description: "Structured brainstorming frameworks for discovering research ideas. Provides 10 complementary ideation lenses: problem-first thinking, abstraction ladder, tension hunting, cross-pollination, what-changed principle, failure analysis, simplicity test, stakeholder rotation, composition/decomposition, and explain-it test."
-category: ideation
-version: "1.0"
-created_at: "2025-07-27"
 ---
 
 # Research Ideation: Structured Brainstorming

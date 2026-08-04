@@ -161,7 +161,7 @@ def test_digital_circuit_skills_are_packaged() -> None:
         "reviewer/digital-circuit-guidance-promotion-review.md"
     ]
     assert all(
-        "category: anti-cheat" in skills[path]
+        "name:" in skills[path] and "description:" in skills[path]
         for path in (
             "engineer/digital-circuit-benchmark-execution.md",
             "reviewer/digital-circuit-benchmark-review.md",

@@ -1,11 +1,6 @@
 ---
-name: Report-Only Head-to-Head Benchmark Evidence
-description: Create a report-only benchmark comparison from existing accepted artifacts, proving whether a candidate beats a baseline under the same official local protocol without running new measurements or modifying benchmark inputs.
-category: benchmark-reporting
-version: 1
-created_at: 2026-07-06T07:18:02.781700+00:00
-task_history:
-  - "Complete only the current `report` stage. Do not run GPU benchmarks, do not optimize, do not edit candidates/harness/scorer/timing/correctness files, and do not edit `research/PIPELINE_STATE.json`. Re"
+name: "Report-Only Head-to-Head Benchmark Evidence"
+description: "Create a report-only benchmark comparison from existing accepted artifacts, proving whether a candidate beats a baseline under the same official local protocol without running new measurements or modifying benchmark inputs."
 ---
 
 # Report-Only Head-to-Head Benchmark Evidence

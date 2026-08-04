@@ -1,8 +1,6 @@
 ---
-name: Chemistry Skill Distillation
-description: Distill a reusable production-oriented chemistry workflow after a matcher miss, with discriminative domain boundaries, evidence contracts, validation gates, and stop conditions rather than target answers or tool tutorials.
-category: chemistry-distillation
-version: 2
+name: "Chemistry Skill Distillation"
+description: "Distill a reusable production-oriented chemistry workflow after a matcher miss, with discriminative domain boundaries, evidence contracts, validation gates, and stop conditions rather than target answers or tool tutorials."
 ---
 
 Create a reusable Skill for the task family without solving the current target.

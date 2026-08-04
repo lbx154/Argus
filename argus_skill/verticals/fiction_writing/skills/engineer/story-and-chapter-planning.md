@@ -1,9 +1,6 @@
 ---
-name: Story And Chapter Planning
-description: From the creative_brief (and, for a continuation, the existing story_state), produce story_plan.json (premise, arc, cast, beats) and chapter_goal.json (the concrete goal THIS chapter must accomplish — a change under pressure, not a flat scene). The plan stage of fiction_writing.
-category: fiction-planning
-version: 1
-protected: true
+name: "Story And Chapter Planning"
+description: "From the creative_brief (and, for a continuation, the existing story_state), produce story_plan.json (premise, arc, cast, beats) and chapter_goal.json (the concrete goal THIS chapter must accomplish — a change under pressure, not a flat scene). The plan stage of fiction_writing."
 ---
 
 ## Title

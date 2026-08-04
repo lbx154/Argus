@@ -1,8 +1,6 @@
 ---
-name: Chemical Identity and Representation
-description: Normalize and verify molecular, reaction, material, crystal, sample, sequence, and formulation identity before chemistry analysis; use across chemistry domains, not as a substitute for a domain workflow.
-category: chemistry-foundation-identity
-version: 1
+name: "Chemical Identity and Representation"
+description: "Normalize and verify molecular, reaction, material, crystal, sample, sequence, and formulation identity before chemistry analysis; use across chemistry domains, not as a substitute for a domain workflow."
 ---
 
 ## When to use

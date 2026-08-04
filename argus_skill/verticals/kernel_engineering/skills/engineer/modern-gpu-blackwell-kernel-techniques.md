@@ -1,10 +1,6 @@
 ---
-name: Modern GPU Programming for MLSys (Blackwell B200) — the SOTA kernel reference
-description: A distilled reference to Tianqi Chen / MLC's free book "Modern GPU Programming For MLSys", the current SOTA guide for writing fast ML kernels on Blackwell (sm_100a / B200) — GEMM, FlashAttention, tensor cores, TMA async data movement, persistent CTAs, warp specialization, 2-CTA clusters, online softmax. When you optimize a B200 kernel, CONSULT this book (read the relevant chapter online) instead of guessing; the concepts transfer to Triton / CUTLASS / cuda_cpp even though the book's examples use the TIRx DSL.
-category: benchmark-kernel-method
-priority: high
-version: 1
-created_at: 2026-06-28T00:00:00+00:00
+name: "Modern GPU Programming for MLSys (Blackwell B200) — the SOTA kernel reference"
+description: "A distilled reference to Tianqi Chen / MLC's free book \"Modern GPU Programming For MLSys\", the current SOTA guide for writing fast ML kernels on Blackwell (sm_100a / B200) — GEMM, FlashAttention, tensor cores, TMA async data movement, persistent CTAs, warp specialization, 2-CTA clusters, online softmax. When you optimize a B200 kernel, CONSULT this book (read the relevant chapter online) instead of guessing; the concepts transfer to Triton / CUTLASS / cuda_cpp even though the book's examples use the TIRx DSL."
 ---
 
 # Modern GPU Programming for MLSys (Blackwell B200)

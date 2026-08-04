@@ -1,8 +1,6 @@
 ---
-name: Crystallography Evidence Review
-description: Independently review diffraction data, symmetry, single-crystal or powder refinement, CIF validity, phase claims, and structural uncertainty; excludes generic characterization review, materials discovery, and MOF topology assessment.
-category: chemistry-review-crystallography
-version: 1
+name: "Crystallography Evidence Review"
+description: "Independently review diffraction data, symmetry, single-crystal or powder refinement, CIF validity, phase claims, and structural uncertainty; excludes generic characterization review, materials discovery, and MOF topology assessment."
 ---
 
 ## When to use

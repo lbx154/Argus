@@ -1,8 +1,6 @@
 ---
-name: Materials Data and Literature Grounding
-description: Ground material identity, properties, mechanisms, baselines, and novelty in resolvable primary literature and provenance-preserving public databases.
-category: materials-grounding
-version: 1
+name: "Materials Data and Literature Grounding"
+description: "Ground material identity, properties, mechanisms, baselines, and novelty in resolvable primary literature and provenance-preserving public databases."
 ---
 
 # Materials Data and Literature Grounding

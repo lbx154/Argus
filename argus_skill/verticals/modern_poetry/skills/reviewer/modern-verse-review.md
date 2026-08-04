@@ -1,3 +1,8 @@
+---
+name: "Modern Free-Verse Review"
+description: "Review free verse against declared constraints and live poetic craft."
+---
+
 # 现代诗审阅 · Modern Free-Verse Review
 
 Reuses the framework Reviewer role. Free verse has NO metrical machine layer, so

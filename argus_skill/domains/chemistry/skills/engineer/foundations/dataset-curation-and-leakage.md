@@ -1,8 +1,6 @@
 ---
-name: Chemistry Dataset Curation and Leakage Control
-description: Build and evaluate chemical datasets with explicit provenance, deduplication, split logic, label quality, and leakage controls across molecules, reactions, materials, spectra, batteries, and biomolecular systems.
-category: chemistry-foundation-data
-version: 1
+name: "Chemistry Dataset Curation and Leakage Control"
+description: "Build and evaluate chemical datasets with explicit provenance, deduplication, split logic, label quality, and leakage controls across molecules, reactions, materials, spectra, batteries, and biomolecular systems."
 ---
 
 ## When to use

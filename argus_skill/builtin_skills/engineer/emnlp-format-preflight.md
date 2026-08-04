@@ -1,9 +1,6 @@
 ---
-name: EMNLP Format Preflight
-description: Perform the final research.md formatting, PDF, figure/table, and layout-readiness preflight before academic-language and visual layout review.
-category: paper-audit
-version: 1
-created_at: 2026-05-23T00:00:00+00:00
+name: "EMNLP Format Preflight"
+description: "Perform the final research.md formatting, PDF, figure/table, and layout-readiness preflight before academic-language and visual layout review."
 ---
 
 ## Title

@@ -1,10 +1,6 @@
 ---
-name: Singularity AMLT GPU Operations
-description: Operational playbook for Argus to submit, monitor, pause/resume, SSH, and tunnel Singularity/AMLT GPU jobs for H100/H200/A100/B200-style benchmark infrastructure without losing job state or fabricating readiness.
-category: gpu-infrastructure
-priority: high
-version: 1
-created_at: 2026-06-18T00:00:00+00:00
+name: "Singularity AMLT GPU Operations"
+description: "Operational playbook for Argus to submit, monitor, pause/resume, SSH, and tunnel Singularity/AMLT GPU jobs for H100/H200/A100/B200-style benchmark infrastructure without losing job state or fabricating readiness."
 ---
 
 # Singularity AMLT GPU Operations

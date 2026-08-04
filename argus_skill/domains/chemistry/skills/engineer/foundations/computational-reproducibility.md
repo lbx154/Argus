@@ -1,8 +1,6 @@
 ---
-name: Chemistry Computational Reproducibility
-description: Preserve executable inputs, environments, deterministic settings, numerical diagnostics, and primary outputs for chemistry calculations, simulations, data processing, and machine-learning workflows.
-category: chemistry-foundation-reproducibility
-version: 1
+name: "Chemistry Computational Reproducibility"
+description: "Preserve executable inputs, environments, deterministic settings, numerical diagnostics, and primary outputs for chemistry calculations, simulations, data processing, and machine-learning workflows."
 ---
 
 ## When to use

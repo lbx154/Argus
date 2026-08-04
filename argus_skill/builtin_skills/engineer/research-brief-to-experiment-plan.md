@@ -1,9 +1,6 @@
 ---
-name: Research Brief To Experiment Plan
-description: Turn a research seed into a literature-grounded thesis, implementation strategy, and claim-driven experiment plan.
-category: research-planning
-version: 2
-created_at: 2026-07-20T00:00:00+00:00
+name: "Research Brief To Experiment Plan"
+description: "Turn a research seed into a literature-grounded thesis, implementation strategy, and claim-driven experiment plan."
 ---
 
 # Research Brief to Experiment Plan

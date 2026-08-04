@@ -1,8 +1,6 @@
 ---
-name: Materials Processing Structure Property Validation
-description: Validate materials processing-structure-property claims with comparable specimens, controls, uncertainty, and mechanism boundaries; excludes crystal solution and MOF porosity or topology.
-category: chemistry-materials-validation
-version: 1
+name: "Materials Processing Structure Property Validation"
+description: "Validate materials processing-structure-property claims with comparable specimens, controls, uncertainty, and mechanism boundaries; excludes crystal solution and MOF porosity or topology."
 ---
 
 ## When to use

@@ -1,9 +1,6 @@
 ---
-name: Citation Audit
-description: Zero-context bibliographic verification — for every \cite{...} in the paper, an isolated reviewer agent checks (1) the cited paper exists (arXiv/DOI/venue), (2) author/year/venue/title match canonical sources (DBLP, arXiv, ACL Anthology, OpenReview), and (3) the citation context matches what the cited paper actually claims. Catches hallucinated authors, fabricated venues, wrong years, version mismatches, and wrong-context citations.
-category: paper-review
-version: 1
-created_at: 2026-06-01T00:00:00+00:00
+name: "Citation Audit"
+description: "Zero-context bibliographic verification — for every \\cite{...} in the paper, an isolated reviewer agent checks (1) the cited paper exists (arXiv/DOI/venue), (2) author/year/venue/title match canonical sources (DBLP, arXiv, ACL Anthology, OpenReview), and (3) the citation context matches what the cited paper actually claims. Catches hallucinated authors, fabricated venues, wrong years, version mismatches, and wrong-context citations."
 ---
 
 # Citation Audit (zero-context, cross-model)

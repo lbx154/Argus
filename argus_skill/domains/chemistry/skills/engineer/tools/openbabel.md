@@ -1,8 +1,6 @@
 ---
-name: Open Babel Structure Conversion
-description: Use Open Babel for chemical format conversion, independent parsing, hydrogen or coordinate operations, and interoperability checks while preserving source identity and conversion provenance.
-category: chemistry-tool-conversion
-version: 2
+name: "Open Babel Structure Conversion"
+description: "Use Open Babel for chemical format conversion, independent parsing, hydrogen or coordinate operations, and interoperability checks while preserving source identity and conversion provenance."
 ---
 
 ## When to use

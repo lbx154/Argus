@@ -1,10 +1,6 @@
 ---
-name: ALE Last-Exam Execution
-description: Execute difficult Agents' Last Exam professional computer-use tasks end to end, using GUI and CLI tools while protecting exact output contracts, long-running workflow completion, artifact validity, and hidden-reference integrity.
-category: computer-use-execution
-version: 1
-scientist_model: gpt-5.5
-created_at: 2026-07-10T00:00:00+00:00
+name: "ALE Last-Exam Execution"
+description: "Execute difficult Agents' Last Exam professional computer-use tasks end to end, using GUI and CLI tools while protecting exact output contracts, long-running workflow completion, artifact validity, and hidden-reference integrity."
 ---
 
 ## Operating method

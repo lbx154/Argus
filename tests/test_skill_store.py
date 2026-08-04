@@ -1,295 +1,57 @@
-"""Smoke tests for the SkillStore (matcher path with MemoryBackend)."""
-from __future__ import annotations
-
-import json
 from pathlib import Path
 
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
+import pytest
+
 from argus_skill.skills.store import Skill, SkillStore
 
 
-def _write_skill(skills_dir: Path, name: str, description: str, category: str) -> None:
-    skill = Skill(
-        name=name,
-        description=description,
-        category=category,
-        content=f"## When to use\n- {category} tasks\n\n## How to solve\n- step 1\n",
-        version=1,
-        created_at="2026-05-03T00:00:00+00:00",
+def test_save_requires_explicit_semantic_path(tmp_path: Path) -> None:
+    store = SkillStore(tmp_path)
+    with pytest.raises(ValueError, match="semantic Skill path"):
+        store.save(Skill("Name", "Description", "# Name"))
+
+
+def test_save_writes_only_minimal_frontmatter(tmp_path: Path) -> None:
+    store = SkillStore(tmp_path)
+    path = store.save(
+        Skill(
+            "Parser return contract",
+            "Preserve the caller-visible return shape.",
+            "# Parser return contract\n\nInspect every call site.",
+            path="parser/return-contract.md",
+        )
     )
-    SkillStore(skills_dir).save(skill)
-
-
-def test_save_and_list(tmp_path: Path) -> None:
-    skills_dir = tmp_path / "skills"
-    _write_skill(skills_dir, "Foo", "do foo", "foo")
-    _write_skill(skills_dir, "Bar", "do bar", "bar")
-    summaries = SkillStore(skills_dir).list_summaries()
-    names = sorted(s["name"] for s in summaries)
-    assert names == ["Bar", "Foo"]
-
-
-def test_skill_parse_accepts_quoted_semver_frontmatter() -> None:
-    skill = Skill.parse(
-        "---\n"
-        "name: semver skill\n"
-        "description: accepts quoted versions\n"
-        "category: test\n"
-        'version: "2.0"\n'
-        "---\n\n"
-        "body\n",
-        "semver.md",
-    )
-
-    assert skill.version == 2
-
-
-def test_legacy_provisional_frontmatter_loads_as_active(tmp_path: Path) -> None:
-    path = tmp_path / "skills" / "legacy.md"
-    path.parent.mkdir(parents=True)
-    path.write_text(
-        "---\n"
-        "name: legacy skill\n"
-        "description: old candidate metadata\n"
-        "category: test\n"
-        "version: 1\n"
-        "provisional: true\n"
-        "---\n\n"
-        "Use the legacy method.\n",
-        encoding="utf-8",
-    )
-
-    store = SkillStore(path.parent)
-    skill = store.load(str(path))
-
-    assert "provisional" not in store.list_summaries()[0]
-    store.save(skill)
-    assert "provisional:" not in path.read_text(encoding="utf-8")
-
-
-def test_large_skill_uses_progressive_disclosure(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_INLINE_BODY_MAX_CHARS", "1200")
-    path = tmp_path / "skills" / "long.md"
-    path.parent.mkdir(parents=True)
-    content = (
-        "# Long Skill\n\n"
-        "Core instructions.\n\n"
-        "## Setup\n\n"
-        + ("setup detail " * 300)
-        + "\n\n## Verification\n\n"
-        + ("verification detail " * 300)
-    )
-    path.write_text(
-        "---\nname: Long\ndescription: long skill\ncategory: test\n---\n\n"
-        + content,
-        encoding="utf-8",
-    )
-    store = SkillStore(path.parent)
-    skill = store.load(str(path))
-
-    rendered = store.render_skill(skill)
-
-    assert "Progressive skill disclosure" in rendered
-    assert str(path) in rendered
-    assert "## Setup" in rendered
-    assert "## Verification" in rendered
-    assert len(rendered) < len(content)
-    assert store.render_skill(skill, full=True) == content.strip()
-
-
-def test_small_skill_still_renders_in_full(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_INLINE_BODY_MAX_CHARS", "1200")
-    skill = Skill(
-        name="Small",
-        description="small",
-        category="test",
-        content="# Small\n\nComplete instructions.",
-        path=str(tmp_path / "small.md"),
-    )
-    assert SkillStore(tmp_path).render_skill(skill) == skill.content
-
-
-def test_find_relevant_returns_high_fit_skill(tmp_path: Path) -> None:
-    skills_dir = tmp_path / "skills"
-    _write_skill(skills_dir, "set-up-nginx", "configure nginx", "nginx")
-    _write_skill(skills_dir, "audit-html", "review HTML", "html")
-
-    backend = MemoryBackend()
-    backend.queue("matcher", CannedResponse(
-        message=json.dumps({
-            "matched": [{"name": "set-up-nginx", "fit": "high", "why": "exact"}],
-        }),
-    ))
-    store = SkillStore(skills_dir, runner=backend, matcher_model="m")
-    matched, _ = store.find_relevant("install nginx and serve a static site")
-    assert matched is not None
-    assert len(matched) == 1
-    assert matched[0].name == "set-up-nginx"
-
-
-def test_find_relevant_drops_medium_fit(tmp_path: Path) -> None:
-    skills_dir = tmp_path / "skills"
-    _write_skill(skills_dir, "set-up-nginx", "configure nginx", "nginx")
-
-    backend = MemoryBackend()
-    backend.queue("matcher", CannedResponse(
-        message=json.dumps({
-            "matched": [{"name": "set-up-nginx", "fit": "medium", "why": "adjacent"}],
-        }),
-    ))
-    store = SkillStore(skills_dir, runner=backend, matcher_model="m")
-    matched, _ = store.find_relevant("audit some HTML for sanitization")
-    assert matched is None
-
-
-def test_save_distilled_extracts_name_and_description(tmp_path: Path) -> None:
-    skills_dir = tmp_path / "skills"
-    raw = (
-        "## Title\nProvision NGINX site\n\n"
-        "## Description\nServe a static site with nginx.\n\n"
-        "## Category\nnginx\n\n"
-        "## When to use\n- need to host static content\n\n"
-        "## When NOT to use\n- you need dynamic backend\n\n"
-        "## How to solve\n- install nginx\n- write conf\n- enable site\n"
-    )
-    store = SkillStore(skills_dir)
-    skill = store.save_distilled(
-        task_description="set up an nginx site",
-        raw_distill_output=raw,
-    )
-    assert skill is not None
-    assert skill.name == "Provision NGINX site"
-    assert skill.description == "Serve a static site with nginx."
-    assert skill.category == "nginx"
-    assert "set up an nginx site" in skill.task_history
-    assert Path(skill.path).exists()
-
-
-def test_find_relevant_runner_failure_returns_no_match(tmp_path: Path) -> None:
-    skills_dir = tmp_path / "skills"
-    _write_skill(skills_dir, "set-up-nginx", "configure nginx static site", "nginx")
-
-    class BoomBackend:
-        def run_exec(self, **kwargs):  # noqa: ARG002 — protocol stub
-            raise RuntimeError("boom")
-
-    store = SkillStore(skills_dir, runner=BoomBackend(), matcher_model="m")
-    matched, _ = store.find_relevant("install nginx and serve a static site")
-    assert matched is None
-
-
-def test_find_relevant_fatal_matcher_result_returns_no_match(
-    tmp_path: Path,
-) -> None:
-    skills_dir = tmp_path / "skills"
-    _write_skill(skills_dir, "set-up-nginx", "configure nginx static site", "nginx")
-
-    backend = MemoryBackend()
-    backend.queue(
-        "matcher",
-        CannedResponse(
-            exit_code=1,
-            fatal_error=(
-                "unexpected status 404 Not Found: "
-                "The API deployment for this resource does not exist."
-            ),
-        ),
-    )
-    store = SkillStore(skills_dir, runner=backend, matcher_model="m")
-
-    matched, tokens = store.find_relevant("install nginx and serve a static site")
-
-    assert matched is None
-    assert tokens == 0
-    assert store.last_match_input_tokens == 0
-    assert store.last_match_output_tokens == 0
-
-
-def test_find_relevant_fatal_without_keyword_match_returns_none(
-    tmp_path: Path,
-) -> None:
-    skills_dir = tmp_path / "skills"
-    _write_skill(skills_dir, "audit-html", "review HTML", "html")
-
-    backend = MemoryBackend()
-    backend.queue(
-        "matcher",
-        CannedResponse(exit_code=1, fatal_error="502 Bad Gateway"),
-    )
-    store = SkillStore(skills_dir, runner=backend, matcher_model="m")
-
-    matched, tokens = store.find_relevant("install nginx and serve a static site")
-
-    assert matched is None
-    assert tokens == 0
-    assert store.last_match_input_tokens == 0
-    assert store.last_match_output_tokens == 0
-
-
-def test_find_relevant_caches_until_skill_library_changes(tmp_path: Path) -> None:
-    skills_dir = tmp_path / "skills"
-    _write_skill(skills_dir, "set-up-nginx", "configure nginx static site", "nginx")
-
-    backend = MemoryBackend()
-    backend.queue(
-        "matcher",
-        CannedResponse(
-            message=json.dumps({
-                "matched": [{"name": "set-up-nginx", "fit": "high", "why": "exact"}],
-            }),
-            input_tokens=101,
-            cached_input_tokens=11,
-            output_tokens=7,
-        ),
-    )
-    backend.queue(
-        "matcher",
-        CannedResponse(
-            message=json.dumps({
-                "matched": [{"name": "set-up-nginx", "fit": "high", "why": "exact"}],
-            }),
-            input_tokens=90,
-            cached_input_tokens=20,
-            output_tokens=5,
-        ),
-    )
-    store = SkillStore(skills_dir, runner=backend, matcher_model="m")
-
-    matched, tokens = store.find_relevant("install nginx and serve a static site")
-    assert matched is not None
-    assert tokens == 108
-    assert store.last_match_cached_input_tokens == 11
-
-    matched_again, tokens_again = store.find_relevant(
-        "install nginx and serve a static site"
-    )
-    assert matched_again is not None
-    assert tokens_again == 0
-    assert store.last_match_input_tokens == 0
-    assert store.last_match_cached_input_tokens == 0
-    assert store.last_match_output_tokens == 0
-    assert [label for label, _prompt, _options in backend.history] == ["matcher"]
-
-    # Self-evolution changes the summary fingerprint, so the same task rematches
-    # immediately and can see the newly-created skill instead of using stale cache.
-    _write_skill(
-        skills_dir,
-        "nginx-healthcheck",
-        "verify nginx health and static-site delivery",
-        "nginx healthcheck",
-    )
-    matched_after_update, tokens_after_update = store.find_relevant(
-        "install nginx and serve a static site"
-    )
-    assert matched_after_update is not None
-    assert tokens_after_update == 95
-    assert store.last_match_input_tokens == 90
-    assert store.last_match_cached_input_tokens == 20
-    assert store.last_match_output_tokens == 5
-    assert [label for label, _prompt, _options in backend.history] == [
-        "matcher",
-        "matcher",
+    text = path.read_text(encoding="utf-8")
+    front = text[4:].split("\n---\n", 1)[0]
+    assert [line.split(":", 1)[0] for line in front.splitlines()] == [
+        "name",
+        "description",
     ]
+    assert "# Parser return contract" in text
+    assert not hasattr(Skill, "parse")
+
+
+def test_path_listing_never_reads_or_parses_documents(tmp_path: Path) -> None:
+    store = SkillStore(tmp_path)
+    path = tmp_path / "domain" / "malformed-but-agent-readable.md"
+    path.parent.mkdir()
+    path.write_text("arbitrary markdown", encoding="utf-8")
+    rows = store.list_summaries()
+    assert rows == [
+        {
+            "name": "domain/malformed-but-agent-readable",
+            "description": "",
+            "path": str(path.resolve()),
+            "role": "general",
+        }
+    ]
+
+
+def test_archive_preserves_semantic_relative_path(tmp_path: Path) -> None:
+    store = SkillStore(tmp_path)
+    path = store.save(
+        Skill("Name", "Description", "# Name", path="domain/name.md")
+    )
+    archived = store.archive_path(path)
+    assert archived == tmp_path / "_archive" / "domain" / "name.md"
+    assert archived.is_file()

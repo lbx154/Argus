@@ -1,8 +1,6 @@
 ---
-name: Materials Research Execution
-description: Execute materials research with scale-appropriate models, real tools, explicit units and material state, reproducible provenance, and honest capability boundaries.
-category: materials-research-execution
-version: 2
+name: "Materials Research Execution"
+description: "Execute materials research with scale-appropriate models, real tools, explicit units and material state, reproducible provenance, and honest capability boundaries."
 ---
 
 # Materials Research Execution

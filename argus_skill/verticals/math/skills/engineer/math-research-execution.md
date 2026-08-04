@@ -1,8 +1,6 @@
 ---
-name: Math Research Execution
-description: Execute mathematical scope and solve work with honest result classification, statement fidelity, and optional real Lean compilation.
-category: math-research-execution
-version: 6
+name: "Math Research Execution"
+description: "Execute mathematical scope and solve work with honest result classification, statement fidelity, and optional real Lean compilation."
 ---
 
 Do the mathematics in the form that best fits the problem. Distinguish a proof,

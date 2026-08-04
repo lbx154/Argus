@@ -1,8 +1,6 @@
 ---
-name: Materials CAD CAE and Process Simulation
-description: Build and validate parameterized geometry, meshes, constitutive models, contacts, thermal-mechanical loads, and solver workflows for material behavior and manufacturing processes.
-category: materials-cae-processing
-version: 1
+name: "Materials CAD CAE and Process Simulation"
+description: "Build and validate parameterized geometry, meshes, constitutive models, contacts, thermal-mechanical loads, and solver workflows for material behavior and manufacturing processes."
 ---
 
 # Materials CAD, CAE, and Process Simulation

@@ -1,8 +1,6 @@
 ---
-name: Crystal Structure Solution and Refinement Workflow
-description: Solve and refine single-crystal or powder structures with data reduction, symmetry tests, chemical constraints, residuals, and alternatives; excludes materials screening and MOF topology.
-category: chemistry-crystallography-refinement
-version: 1
+name: "Crystal Structure Solution and Refinement Workflow"
+description: "Solve and refine single-crystal or powder structures with data reduction, symmetry tests, chemical constraints, residuals, and alternatives; excludes materials screening and MOF topology."
 ---
 
 ## When to use

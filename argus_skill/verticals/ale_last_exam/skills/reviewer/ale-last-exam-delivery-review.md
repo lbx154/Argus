@@ -1,10 +1,6 @@
 ---
-name: ALE Last-Exam Delivery Review
-description: Independently audit Agents' Last Exam deliverables before exit, prioritizing hard gates, exact paths, complete bundles, parseability, native-tool evidence, measured values, and consistency without access to hidden references.
-category: computer-use-review
-version: 1
-scientist_model: gpt-5.5
-created_at: 2026-07-10T00:00:00+00:00
+name: "ALE Last-Exam Delivery Review"
+description: "Independently audit Agents' Last Exam deliverables before exit, prioritizing hard gates, exact paths, complete bundles, parseability, native-tool evidence, measured values, and consistency without access to hidden references."
 ---
 
 ## Review protocol

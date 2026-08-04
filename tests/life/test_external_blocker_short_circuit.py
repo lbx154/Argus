@@ -2,15 +2,12 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 
 from argus_skill.life.supervisor import (
     _operator_only_blocker_paths_for_project,
     _operator_only_external_blocker_wait_reason_for_project,
 )
-from argus_skill.wiki.bootstrap import init_wiki
-from argus_skill.wiki.bot_state import BotState, save_bot_state
 
 
 def _write_blocker(project_root: Path, filename: str, payload: dict) -> Path:
@@ -199,119 +196,6 @@ def test_plan_next_work_short_circuits_before_planner_runner(tmp_path: Path):
     assert result == "awaiting_external"
     assert any(e.get("type") == "life.planner.waiting" for e in events)
     assert mem.journal.tail(1)[0].kind == "planner_waiting"
-
-
-def test_blocker_present_but_cooldown_elapsed_allows_one_wiki_collect(
-    tmp_path: Path,
-):
-    project = tmp_path / "project"
-    project.mkdir()
-    init_wiki("demo", base=project)
-    _write_blocker(
-        project,
-        "operator_only_external_blocker_20260605.json",
-        {
-            "local_engineer_action_required_before_mount": False,
-            "required_external_targets": ["data/eval/wise.csv"],
-        },
-    )
-
-    from argus_skill.life.memory import LifeMemory
-    from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-
-    mem = LifeMemory.open(tmp_path / "life")
-    mem.init()
-
-    class _Sink:
-        def handle_event(self, event: dict) -> None:
-            pass
-
-    class _Runner:
-        pass
-
-    sup = LifeSupervisor(
-        memory=mem,
-        runner=_Runner(),
-        sink=_Sink(),
-        config=LifeSupervisorConfig(
-            budget=LifeBudget(),
-            poll_interval_seconds=0.01,
-            project_worktree=project,
-            continuous=True,
-            continuous_objective="bounded survey",
-            paper_mission=True,
-            full_paper_gate=True,
-        ),
-        planner_runner=None,
-    )
-
-    result = sup._plan_next_work()
-
-    assert result is True
-    pending = [item for item in mem.backlog.all() if item.status == "pending"]
-    assert len(pending) == 1
-    assert "wiki_collect" in pending[0].objective
-
-
-def test_blocker_present_cooldown_not_elapsed_pure_skip(tmp_path: Path):
-    project = tmp_path / "project"
-    project.mkdir()
-    wiki = init_wiki("demo", base=project)
-    save_bot_state(
-        wiki / "data" / "bot_state.json",
-        BotState(
-            last_collected_at=datetime.now(timezone.utc),
-            last_attempted_at=datetime.now(timezone.utc),
-        ),
-    )
-    _write_blocker(
-        project,
-        "operator_only_external_blocker_20260605.json",
-        {
-            "local_engineer_action_required_before_mount": False,
-            "required_external_targets": ["data/eval/wise.csv"],
-        },
-    )
-
-    from argus_skill.life.memory import LifeMemory
-    from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-
-    mem = LifeMemory.open(tmp_path / "life")
-    mem.init()
-
-    class _Sink:
-        def handle_event(self, event: dict) -> None:
-            pass
-
-    class _Runner:
-        pass
-
-    class _PlannerRunnerThatMustNotBeCalled:
-        def run_exec(self, **_kwargs):  # pragma: no cover
-            raise AssertionError("planner runner should not be called")
-
-    sup = LifeSupervisor(
-        memory=mem,
-        runner=_Runner(),
-        sink=_Sink(),
-        config=LifeSupervisorConfig(
-            budget=LifeBudget(),
-            poll_interval_seconds=0.01,
-            project_worktree=project,
-            continuous=True,
-            continuous_objective="bounded survey",
-            paper_mission=True,
-            full_paper_gate=True,
-        ),
-        planner_runner=_PlannerRunnerThatMustNotBeCalled(),
-    )
-
-    from argus_skill.skills.vertical_select import persist_vertical
-
-    persist_vertical(sup._artifact_root(), "research")
-
-    assert sup._plan_next_work() == "awaiting_external"
-    assert mem.backlog.all() == []
 
 
 def test_blocker_waits_until_all_targets_present(tmp_path: Path):

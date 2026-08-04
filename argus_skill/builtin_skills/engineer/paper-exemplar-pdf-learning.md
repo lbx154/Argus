@@ -1,9 +1,6 @@
 ---
-name: Paper Exemplar PDF Learning
-description: Download open-access top-conference paper PDFs, extract structural evidence, and build a thick style profile before drafting an EMNLP/ACL submission.
-category: paper-audit
-version: 1
-created_at: 2026-05-25T00:00:00+00:00
+name: "Paper Exemplar PDF Learning"
+description: "Download open-access top-conference paper PDFs, extract structural evidence, and build a thick style profile before drafting an EMNLP/ACL submission."
 ---
 
 ## Title

@@ -1,10 +1,6 @@
 ---
-name: Deep Research via API
+name: "Deep Research via API"
 description: "RESEARCH-stage literature playbook — build one canonical LITERATURE_GROUNDING ledger from real primary-source retrieval. Search adaptively until every material claim, nearest competitor, relevant foundation, and contradiction is covered; never optimize for query or paper counts."
-category: literature
-priority: high
-version: 1
-created_at: 2026-06-27T00:00:00+00:00
 ---
 
 # Deep Research via API — real-search literature grounding

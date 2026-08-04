@@ -1,10 +1,6 @@
 ---
-name: Chip Design Environment-First Engineering
-description: Design and optimize a digital chip or accelerator through workload definition, architecture, RTL, verification, PPA, prototyping, benchmark comparison, and sign-off while proving the exact EDA/PDK/IP environment and preserving auditable evidence.
-category: chip-design
-priority: high
-version: 1
-created_at: 2026-07-20T00:00:00+00:00
+name: "Chip Design Environment-First Engineering"
+description: "Design and optimize a digital chip or accelerator through workload definition, architecture, RTL, verification, PPA, prototyping, benchmark comparison, and sign-off while proving the exact EDA/PDK/IP environment and preserving auditable evidence."
 ---
 
 # Chip Design Environment-First Engineering

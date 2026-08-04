@@ -1,9 +1,6 @@
 ---
-name: Paper Illustration Image2
-description: Generate and audit a research-paper illustration with the configured image-2 route. Use only after the Research Visualization Router selects generative raster rendering and model-api-status reports an available image route.
-category: paper-figures
-version: 2
-created_at: 2026-07-19T00:00:00+00:00
+name: "Paper Illustration Image2"
+description: "Generate and audit a research-paper illustration with the configured image-2 route. Use only after the Research Visualization Router selects generative raster rendering and model-api-status reports an available image route."
 ---
 
 # Paper Illustration Image2

@@ -1,9 +1,6 @@
 ---
-name: Figure Spec (deterministic SVG)
-description: After the Research Visualization Router selects a simple exact-topology route, generate deterministic editable SVG architecture, workflow, pipeline, or audit-cascade diagrams from structured JSON. Do not select FigureSpec directly for visually rich paper conceptual/method figures; compare installed PPT Master and HTML/SVG routes first.
-category: paper-figures
-version: 2
-created_at: 2026-06-01T00:00:00+00:00
+name: "Figure Spec (deterministic SVG)"
+description: "After the Research Visualization Router selects a simple exact-topology route, generate deterministic editable SVG architecture, workflow, pipeline, or audit-cascade diagrams from structured JSON. Do not select FigureSpec directly for visually rich paper conceptual/method figures; compare installed PPT Master and HTML/SVG routes first."
 ---
 
 # Figure Spec — deterministic JSON → SVG renderer

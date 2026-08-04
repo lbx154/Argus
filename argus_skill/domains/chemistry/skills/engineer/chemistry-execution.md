@@ -1,8 +1,6 @@
 ---
-name: Chemistry Research Execution
-description: Execute chemistry research by loading a task-specific domain workflow and shared foundations, probing real capabilities, retaining primary evidence, validating scientifically, and respecting physical authorization.
-category: chemistry-execution
-version: 3
+name: "Chemistry Research Execution"
+description: "Execute chemistry research by loading a task-specific domain workflow and shared foundations, probing real capabilities, retaining primary evidence, validating scientifically, and respecting physical authorization."
 ---
 
 Load the narrowest matched domain Skill before acting. For cross-domain work,

@@ -1,10 +1,6 @@
 ---
-name: Official SOL-ExecBench Environment
-description: How to evaluate GPU kernels inside NVIDIA's OFFICIAL sol-execbench docker image for bit-exact, like-for-like results — build the official image, lock GPU clocks (the nested-container privilege trap), run the official harness, and understand what the local env can and cannot tell you (official latency vs the website-only SOL score).
-category: benchmark-kernel-infrastructure
-priority: high
-version: 1
-created_at: 2026-06-27T00:00:00+00:00
+name: "Official SOL-ExecBench Environment"
+description: "How to evaluate GPU kernels inside NVIDIA's OFFICIAL sol-execbench docker image for bit-exact, like-for-like results — build the official image, lock GPU clocks (the nested-container privilege trap), run the official harness, and understand what the local env can and cannot tell you (official latency vs the website-only SOL score)."
 ---
 
 # Official SOL-ExecBench Environment

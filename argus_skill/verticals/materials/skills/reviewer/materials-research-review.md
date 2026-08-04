@@ -1,8 +1,6 @@
 ---
-name: Materials Research Review
-description: Independently review materials research for system fidelity, literature grounding, physical validity, evidence strength, reproducibility, and calibrated claims.
-category: materials-research-review
-version: 1
+name: "Materials Research Review"
+description: "Independently review materials research for system fidelity, literature grounding, physical validity, evidence strength, reproducibility, and calibrated claims."
 ---
 
 # Materials Research Review

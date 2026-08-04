@@ -1,8 +1,6 @@
 ---
-name: Materials Atomistic Simulation
-description: Run provenance-preserving DFT, ML interatomic-potential, molecular-dynamics, phonon, defect, diffusion, and stability studies with scale-appropriate convergence and validation.
-category: materials-atomistic-computation
-version: 1
+name: "Materials Atomistic Simulation"
+description: "Run provenance-preserving DFT, ML interatomic-potential, molecular-dynamics, phonon, defect, diffusion, and stability studies with scale-appropriate convergence and validation."
 ---
 
 # Materials Atomistic Simulation

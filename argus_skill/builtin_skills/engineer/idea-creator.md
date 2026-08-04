@@ -1,9 +1,6 @@
 ---
-name: Idea Creator
-description: Given IDEA_CANDIDATES.md from idea-discovery, rank candidates and run the cheapest faithful falsification or characterization probe within the operator's budget. Positive, negative, diagnostic, and boundary findings may all justify an experiment plan when they have research value.
-category: paper-ideation
-version: 1
-created_at: 2026-06-01T00:00:00+00:00
+name: "Idea Creator"
+description: "Given IDEA_CANDIDATES.md from idea-discovery, rank candidates and run the cheapest faithful falsification or characterization probe within the operator's budget. Positive, negative, diagnostic, and boundary findings may all justify an experiment plan when they have research value."
 ---
 
 # Idea Creator — rank, pilot, commit

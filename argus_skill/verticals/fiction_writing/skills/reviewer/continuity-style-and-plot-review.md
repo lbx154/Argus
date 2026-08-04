@@ -1,9 +1,6 @@
 ---
-name: Continuity, Style and Plot Review
-description: Gate a fiction chapter/story. Blocks on hard narrative contradictions (dead character returns, impossible knowledge, item teleport, location/timeline clash, world-rule break, motive-incoherent action, dropped/leaked foreshadowing, viewpoint/tense/language drift); records craft and AI-flavor issues as non-blocking, evidence-located observations — never a faked numeric score.
-category: fiction-review
-version: 2
-protected: true
+name: "Continuity, Style and Plot Review"
+description: "Gate a fiction chapter/story. Blocks on hard narrative contradictions (dead character returns, impossible knowledge, item teleport, location/timeline clash, world-rule break, motive-incoherent action, dropped/leaked foreshadowing, viewpoint/tense/language drift); records craft and AI-flavor issues as non-blocking, evidence-located observations — never a faked numeric score."
 ---
 
 ## Title

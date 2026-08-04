@@ -1,8 +1,6 @@
 ---
-name: Digital Circuit Benchmark Review
-description: Audit fixed-harness RTL benchmark runs for isolation, anti-cheating, immutable Pass@1 evidence, bounded repair, and reproducible aggregate claims.
-category: anti-cheat
-version: 1
+name: "Digital Circuit Benchmark Review"
+description: "Audit fixed-harness RTL benchmark runs for isolation, anti-cheating, immutable Pass@1 evidence, bounded repair, and reproducible aggregate claims."
 ---
 
 # Digital Circuit Benchmark Review

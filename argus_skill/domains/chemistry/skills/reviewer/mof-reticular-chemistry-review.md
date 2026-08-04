@@ -1,8 +1,6 @@
 ---
-name: MOF and Reticular Chemistry Evidence Review
-description: Independently review MOF framework identity, node/linker connectivity, topology, synthesis and activation, porosity/adsorption, postsynthetic modification, datasets, and generated structures.
-category: chemistry-review-mof
-version: 1
+name: "MOF and Reticular Chemistry Evidence Review"
+description: "Independently review MOF framework identity, node/linker connectivity, topology, synthesis and activation, porosity/adsorption, postsynthetic modification, datasets, and generated structures."
 ---
 
 ## When to use

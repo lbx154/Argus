@@ -1,9 +1,6 @@
 ---
-name: NanoChat Autoresearch SOTA Optimization
-description: A senior-researcher methodology for FIXED-BUDGET from-scratch LM-pretraining benchmarks (nanochat Task 1 and kin) — the DUAL of a speedrun: the 300s budget is frozen, you MINIMIZE the mean val_bpb reachable in it. The budget as effective-tokens × quality-per-token, the bottleneck taxonomy (sample-efficiency-bound vs throughput-bound vs optimization-bound vs capacity-misallocation-bound vs numerics-stability-bound), where-does-the-budget-go diagnosis, the SEED-NOISE validity discipline (measure σ / gate keep-reject at 2-3σ / never bank below noise / multi-seed-confirm only SOTA candidates / stack-don't-revert), a leverage-ordered toolkit (optimizer & capacity allocation first, throughput/numerics as step-budget), the optimizer/architecture prior library, and the BUNDLE (non-greedy) search the frontier requires. Distilled human expertise to learn, NOT a recipe to copy — it does not contain the reference SOTA solution.
-category: benchmark-training-fixed-budget-lm
-version: 2
-created_at: 2026-06-18T00:00:00+00:00
+name: "NanoChat Autoresearch SOTA Optimization"
+description: "{'A senior-researcher methodology for FIXED-BUDGET from-scratch LM-pretraining benchmarks (nanochat Task 1 and kin) — the DUAL of a speedrun': \"the 300s budget is frozen, you MINIMIZE the mean val_bpb reachable in it. The budget as effective-tokens × quality-per-token, the bottleneck taxonomy (sample-efficiency-bound vs throughput-bound vs optimization-bound vs capacity-misallocation-bound vs numerics-stability-bound), where-does-the-budget-go diagnosis, the SEED-NOISE validity discipline (measure σ / gate keep-reject at 2-3σ / never bank below noise / multi-seed-confirm only SOTA candidates / stack-don't-revert), a leverage-ordered toolkit (optimizer & capacity allocation first, throughput/numerics as step-budget), the optimizer/architecture prior library, and the BUNDLE (non-greedy) search the frontier requires. Distilled human expertise to learn, NOT a recipe to copy — it does not contain the reference SOTA solution.\"}"
 ---
 
 ## Title

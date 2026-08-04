@@ -1,9 +1,6 @@
 ---
-name: Paper Review Revision Loop
-description: Review and revise a paper from the reader's perspective, prioritizing scientific argument, natural prose, and the rendered paper over review paperwork.
-category: paper-review
-version: 2
-created_at: 2026-07-21T00:00:00+00:00
+name: "Paper Review Revision Loop"
+description: "Review and revise a paper from the reader's perspective, prioritizing scientific argument, natural prose, and the rendered paper over review paperwork."
 ---
 
 # Paper Review Revision Loop

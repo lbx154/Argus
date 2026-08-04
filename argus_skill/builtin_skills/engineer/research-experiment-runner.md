@@ -1,10 +1,6 @@
 ---
-name: Research Experiment Runner
-description: Execute reproducible AI research experiments across model, systems, data, evaluation, interpretability, and diagnostic studies using public benchmarks, claim-proportional evidence, raw artifacts, and honest positive or negative outcomes.
-category: research-execution
-priority: high
-version: 1
-created_at: 2026-07-17T00:00:00+00:00
+name: "Research Experiment Runner"
+description: "Execute reproducible AI research experiments across model, systems, data, evaluation, interpretability, and diagnostic studies using public benchmarks, claim-proportional evidence, raw artifacts, and honest positive or negative outcomes."
 ---
 
 # Research Experiment Runner

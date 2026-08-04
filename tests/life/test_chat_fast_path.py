@@ -645,8 +645,6 @@ def test_execute_uses_full_pipeline_on_real_task(
         successful: bool = True
         status: str = "done"
         round_count: int = 1
-        skill_used: str | None = None
-        skill_distilled: bool = False
         reason: str = ""
         last_thread_id: str | None = None
 
@@ -668,19 +666,13 @@ def test_execute_uses_full_pipeline_on_real_task(
         engineer_model: str = ""
         reviewer_model: str | None = None
         max_rounds: int = 1
-        skill_writeback: bool = True
-        skill_ops_enabled: bool = False
         wiki_enabled: bool = False
         auto_init_wiki: bool = False
         session_id: str | None = None
         dangerous_yolo: bool = True
         full_auto: bool = False
         skip_git_repo_check: bool = True
-        matcher_reasoning_effort: str = "high"
         workflow_mode: str = "staged"
-
-        def resolved_matcher_model(self) -> str:
-            return self.engineer_model
 
     runner._SkillLoopConfig = _StubConfig
 
@@ -740,7 +732,6 @@ def test_execute_uses_full_pipeline_on_real_task(
     )
     assert "## Planner execution plan" not in planned_tasks[0]
     assert loop_kwargs[0]["config"].workflow_mode == "direct"
-    assert loop_kwargs[0]["config"].skill_ops_enabled is True
     assert loop_kwargs[0]["config"].wiki_enabled is True
     assert loop_kwargs[0]["config"].auto_init_wiki is True
 

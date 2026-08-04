@@ -1,8 +1,6 @@
 ---
-name: AiZynthFinder Retrosynthesis
-description: Run a local AiZynthFinder retrosynthesis search with explicit target, model, stock, configuration, search budget, route output, and evidence limits; use for candidate generation, not feasibility proof.
-category: chemistry-tool-retrosynthesis
-version: 2
+name: "AiZynthFinder Retrosynthesis"
+description: "Run a local AiZynthFinder retrosynthesis search with explicit target, model, stock, configuration, search budget, route output, and evidence limits; use for candidate generation, not feasibility proof."
 ---
 
 ## When to use

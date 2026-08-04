@@ -1,8 +1,6 @@
 ---
-name: Materials Science Evidence Review
-description: Independently review non-MOF materials identity, processing, property data, discovery, and processing-structure-property claims; excludes crystal-refinement certification, MOF topology, battery cycling, and generic spectroscopy review.
-category: chemistry-review-materials
-version: 1
+name: "Materials Science Evidence Review"
+description: "Independently review non-MOF materials identity, processing, property data, discovery, and processing-structure-property claims; excludes crystal-refinement certification, MOF topology, battery cycling, and generic spectroscopy review."
 ---
 
 ## When to use

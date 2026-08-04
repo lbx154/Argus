@@ -1,10 +1,6 @@
 ---
-name: B200 KernelBench Runtime
-description: Operational playbook for B200 KernelBench/SOL runs: verify the B200 SSH endpoint, scorer port-forward, frozen official scorer, artifact capture, and the common infrastructure/correctness traps before optimizing kernels.
-category: benchmark-kernel-infrastructure
-priority: high
-version: 3
-created_at: 2026-06-18T00:00:00+00:00
+name: "B200 KernelBench Runtime"
+description: "{'Operational playbook for B200 KernelBench/SOL runs': 'verify the B200 SSH endpoint, scorer port-forward, frozen official scorer, artifact capture, and the common infrastructure/correctness traps before optimizing kernels.'}"
 ---
 
 # B200 KernelBench Runtime

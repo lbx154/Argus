@@ -1,10 +1,6 @@
 ---
-name: K-line Chart Skill (Engineer)
-description: Render candlestick (K-line) charts from OHLCV — moving averages, volume, and (optionally) the model signal / buy-sell markers overlaid — for quant reports and for eyeballing what a strategy actually trades. Backed by verticals/quant/charting.py (mplfinance, headless Agg).
-category: quant-visualisation
-version: 1
-scientist_model: gpt-5.5
-created_at: 2026-07-13T00:00:00+00:00
+name: "K-line Chart Skill (Engineer)"
+description: "Render candlestick (K-line) charts from OHLCV — moving averages, volume, and (optionally) the model signal / buy-sell markers overlaid — for quant reports and for eyeballing what a strategy actually trades. Backed by verticals/quant/charting.py (mplfinance, headless Agg)."
 ---
 
 ## Title

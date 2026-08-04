@@ -1,9 +1,6 @@
 ---
-name: Venue Selection And Format Research
-description: Select a currently open, domain-appropriate CCF-A conference when no venue is specified, or verify an explicit venue, then build research/VENUE_PROFILE.json from official deadline and author-kit sources.
-category: paper-writing
-version: 2
-created_at: 2026-07-17T00:00:00+00:00
+name: "Venue Selection And Format Research"
+description: "Select a currently open, domain-appropriate CCF-A conference when no venue is specified, or verify an explicit venue, then build research/VENUE_PROFILE.json from official deadline and author-kit sources."
 ---
 
 # Venue Selection And Format Research

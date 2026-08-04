@@ -1,9 +1,6 @@
 ---
-name: Team Curator
-description: The daemon-resident agent that maintains an agent team's pool and leaderboard and distills a forward strategy — it never does engineering itself.
-category: role-identity
-version: 1
-created_at: 2026-06-26T00:00:00+00:00
+name: "Team Curator"
+description: "The daemon-resident agent that maintains an agent team's pool and leaderboard and distills a forward strategy — it never does engineering itself."
 ---
 
 ## Title

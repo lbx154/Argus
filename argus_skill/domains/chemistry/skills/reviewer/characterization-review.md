@@ -1,8 +1,6 @@
 ---
-name: Chemical Characterization Evidence Review
-description: Independently review raw diffraction, spectroscopy, MS, NMR, and microscopy evidence with modality-specific calibration, controls, assignment limits, and multimodal boundaries; excludes battery, computation, and biochemical-assay review.
-category: chemistry-review
-version: 1
+name: "Chemical Characterization Evidence Review"
+description: "Independently review raw diffraction, spectroscopy, MS, NMR, and microscopy evidence with modality-specific calibration, controls, assignment limits, and multimodal boundaries; excludes battery, computation, and biochemical-assay review."
 ---
 
 Inspect native raw data, sample/acquisition identity, instrument settings, calibration,

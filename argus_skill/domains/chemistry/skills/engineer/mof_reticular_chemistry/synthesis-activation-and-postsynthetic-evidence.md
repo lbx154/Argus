@@ -1,8 +1,6 @@
 ---
-name: MOF Synthesis Activation and Postsynthetic Evidence
-description: Extract and evaluate MOF synthesis, activation, solvent exchange, defect modulation, and postsynthetic modification evidence with sample linkage and characterization requirements; excludes generic organic route planning.
-category: chemistry-mof-synthesis
-version: 1
+name: "MOF Synthesis Activation and Postsynthetic Evidence"
+description: "Extract and evaluate MOF synthesis, activation, solvent exchange, defect modulation, and postsynthetic modification evidence with sample linkage and characterization requirements; excludes generic organic route planning."
 ---
 
 ## When to use

@@ -1,8 +1,6 @@
 ---
-name: Digital Circuit RTL and Verification
-description: Design synthesizable Verilog/SystemVerilog from an explicit cycle-level contract and prove it with reproducible simulation, assertions/formal checks, and synthesis evidence.
-category: digital-hardware-engineering
-version: 2
+name: "Digital Circuit RTL and Verification"
+description: "Design synthesizable Verilog/SystemVerilog from an explicit cycle-level contract and prove it with reproducible simulation, assertions/formal checks, and synthesis evidence."
 ---
 
 # Digital Circuit RTL and Verification

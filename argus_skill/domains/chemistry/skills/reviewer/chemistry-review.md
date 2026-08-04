@@ -1,8 +1,6 @@
 ---
-name: Chemistry Research Review
-description: Provide cross-domain chemistry review and route to specialized reviewer Skills while enforcing identity, primary evidence, controls, uncertainty, reproducibility, safety, and claim ceilings.
-category: chemistry-review
-version: 3
+name: "Chemistry Research Review"
+description: "Provide cross-domain chemistry review and route to specialized reviewer Skills while enforcing identity, primary evidence, controls, uncertainty, reproducibility, safety, and claim ceilings."
 ---
 
 Review the scientific result, not paperwork. Read the original question,

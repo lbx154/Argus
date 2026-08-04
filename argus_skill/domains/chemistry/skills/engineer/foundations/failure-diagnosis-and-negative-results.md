@@ -1,8 +1,6 @@
 ---
-name: Chemistry Failure Diagnosis and Negative Results
-description: Diagnose failed chemistry calculations, experiments, analyses, searches, and models while preserving negative evidence and separating implementation defects from scientific falsification.
-category: chemistry-foundation-failure
-version: 1
+name: "Chemistry Failure Diagnosis and Negative Results"
+description: "Diagnose failed chemistry calculations, experiments, analyses, searches, and models while preserving negative evidence and separating implementation defects from scientific falsification."
 ---
 
 ## When to use

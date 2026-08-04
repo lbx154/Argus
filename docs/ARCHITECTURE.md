@@ -127,14 +127,14 @@ Reviewer replan_requested
 
 ```text
 objective
-  -> SkillStore / matcher
-  -> miss 时 Scientist distill/adapt
+  -> 向各角色提供 Skill/Wiki 语义库路径
+  -> Agent 使用文件工具自主搜索与渐进读取
   -> SupervisedEngineer.run
        Engineer round
        Reviewer.evaluate
        continue -> Reviewer next_action 进入下一轮
        done/blocked/replan_requested -> 返回 LifeSupervisor
-  -> skill/wiki maintenance 与 outcome 结算
+  -> 保留 Agent 在 mission 内直接完成的 Skill/Wiki 编辑
 ```
 
 每个 Engineer 和 Reviewer 回合使用新的 provider session。跨回合连续性由普通 Markdown

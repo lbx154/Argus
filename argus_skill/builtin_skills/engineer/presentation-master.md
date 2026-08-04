@@ -1,9 +1,6 @@
 ---
-name: PPT Master for Presentations and Paper Figures (Argus adapter)
-description: Use the installed hugohe3/ppt-master workflow for polished editable research-paper conceptual, method, architecture, teaser, and graphical-abstract figures as well as PPTX decks and templates. This is a first-class deterministic visual route when image-2 is unavailable; it does not require a generative image model.
-category: visual-communication
-version: 3
-created_at: 2026-07-19T00:00:00+00:00
+name: "PPT Master for Presentations and Paper Figures (Argus adapter)"
+description: "Use the installed hugohe3/ppt-master workflow for polished editable research-paper conceptual, method, architecture, teaser, and graphical-abstract figures as well as PPTX decks and templates. This is a first-class deterministic visual route when image-2 is unavailable; it does not require a generative image model."
 ---
 
 # PPT Master — Argus Adapter

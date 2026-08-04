@@ -1,11 +1,6 @@
 ---
-name: Repair Governance Snapshot Verifier Drift
-description: A playbook for fixing brittle governance/audit verifiers when historical setup-era evidence must remain enforced, but current manifest or checksum expansions make exact output comparisons fail spuriously.
-category: governance-verification
-version: 1
-created_at: 2026-07-05T21:50:27.170451+00:00
-task_history:
-  - "Read `AGENTS.md`, `research/GROUND_TRUTH.md`, `research/RESEARCH_GATE_AUDIT.md`, `research/CHECKLISTS.json`, `setup/SETUP_STAGE_AUDIT.{md,json}`, and `setup/verify_setup_audit_consistency.py`. Reprodu"
+name: "Repair Governance Snapshot Verifier Drift"
+description: "A playbook for fixing brittle governance/audit verifiers when historical setup-era evidence must remain enforced, but current manifest or checksum expansions make exact output comparisons fail spuriously."
 ---
 
 # Repair Governance Snapshot Verifier Drift

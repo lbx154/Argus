@@ -1,9 +1,6 @@
 ---
-name: Chapter Drafting And Continuation
-description: Write the chapter prose (fiction/draft.md) from the plan + brief + style profile, holding one viewpoint and tense and the brief's language; for a continuation, stay faithful to the established story_state. Applies the language-specific style and anti-AI reference set. The draft stage of fiction_writing.
-category: fiction-drafting
-version: 1
-protected: true
+name: "Chapter Drafting And Continuation"
+description: "Write the chapter prose (fiction/draft.md) from the plan + brief + style profile, holding one viewpoint and tense and the brief's language; for a continuation, stay faithful to the established story_state. Applies the language-specific style and anti-AI reference set. The draft stage of fiction_writing."
 ---
 
 ## Title

@@ -1,9 +1,6 @@
 ---
-name: Paper Claim Audit
-description: Zero-context paper-to-evidence fidelity audit — for every number, comparison, and scope claim in the paper draft, a fresh reviewer agent with no prior thread checks whether the raw result files actually support it. Catches inflated scores, swapped-condition tables, baselines reported as proposed, "improves over X" with no matching evidence row, range exaggeration (e.g. "5–10%" when only 4% measured).
-category: paper-review
-version: 1
-created_at: 2026-06-01T00:00:00+00:00
+name: "Paper Claim Audit"
+description: "Zero-context paper-to-evidence fidelity audit — for every number, comparison, and scope claim in the paper draft, a fresh reviewer agent with no prior thread checks whether the raw result files actually support it. Catches inflated scores, swapped-condition tables, baselines reported as proposed, \"improves over X\" with no matching evidence row, range exaggeration (e.g. \"5–10%\" when only 4% measured)."
 ---
 
 # Paper Claim Audit (zero-context, cross-model)

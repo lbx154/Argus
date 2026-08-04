@@ -31,16 +31,7 @@ def test_skill_stats_json_main_emits_json_and_skips_tui(
 
     assert rc == 0
     data = json.loads(out)
-    assert data["totals"] == {
-        "missions": 0,
-        "hits": 0,
-        "distills": 0,
-        "cold": 0,
-        "successes": 0,
-        "hit_rate": 0.0,
-        "distill_rate": 0.0,
-    }
-    assert data["by_bucket"]["hit"]["missions"] == 0
-    assert data["by_skill"] == {}
+    assert data["available"] is False
+    assert "discover semantic Skill libraries directly" in data["reason"]
     assert "argus ›" not in out
     assert "skill effectiveness report" not in out

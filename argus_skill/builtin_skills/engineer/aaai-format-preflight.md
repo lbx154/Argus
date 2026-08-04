@@ -1,9 +1,6 @@
 ---
-name: AAAI Format Preflight
-description: Final AAAI-2026 formatting, PDF, figure/table, and layout-readiness preflight (aaai2026.sty page budget, \pdfinfo, forbidden packages, no \bibliographystyle) before academic-language and visual layout review.
-category: paper-audit
-version: 1
-created_at: 2026-06-14T00:00:00+00:00
+name: "AAAI Format Preflight"
+description: "Final AAAI-2026 formatting, PDF, figure/table, and layout-readiness preflight (aaai2026.sty page budget, \\pdfinfo, forbidden packages, no \\bibliographystyle) before academic-language and visual layout review."
 ---
 
 ## Title

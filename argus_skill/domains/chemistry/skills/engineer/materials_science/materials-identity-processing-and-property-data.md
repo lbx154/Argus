@@ -1,8 +1,6 @@
 ---
-name: Materials Identity Processing and Property Data
-description: Normalize composition, phase, processing history, sample form, microstructure, and property conditions for metals, ceramics, polymers, composites, and functional materials; excludes crystallographic refinement and MOF topology analysis.
-category: chemistry-materials-data
-version: 1
+name: "Materials Identity Processing and Property Data"
+description: "Normalize composition, phase, processing history, sample form, microstructure, and property conditions for metals, ceramics, polymers, composites, and functional materials; excludes crystallographic refinement and MOF topology analysis."
 ---
 
 ## When to use

@@ -1,10 +1,6 @@
 ---
-name: Kernel Environment-First Engineering
-description: Execute production GPU-kernel optimization only after proving the project-native toolchain, mature infrastructure, correctness oracle, and benchmark environment are installed and compatible; distinguish environment failures from kernel failures and avoid rebuilding existing frameworks.
-category: kernel-engineering
-priority: high
-version: 1
-created_at: 2026-07-18T00:00:00+00:00
+name: "Kernel Environment-First Engineering"
+description: "Execute production GPU-kernel optimization only after proving the project-native toolchain, mature infrastructure, correctness oracle, and benchmark environment are installed and compatible; distinguish environment failures from kernel failures and avoid rebuilding existing frameworks."
 ---
 
 # Kernel Environment-First Engineering

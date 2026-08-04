@@ -1,8 +1,6 @@
 ---
-name: Organic Retrosynthesis and Route Design
-description: Design small-molecule organic synthesis routes using target identity, disconnections, precedent, selectivity, supply, safety, and evidence; excludes enzyme pathways, MOF assembly, and generic prediction.
-category: chemistry-organic-retrosynthesis
-version: 1
+name: "Organic Retrosynthesis and Route Design"
+description: "Design small-molecule organic synthesis routes using target identity, disconnections, precedent, selectivity, supply, safety, and evidence; excludes enzyme pathways, MOF assembly, and generic prediction."
 ---
 
 ## When to use

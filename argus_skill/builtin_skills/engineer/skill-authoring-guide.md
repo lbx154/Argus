@@ -1,9 +1,6 @@
 ---
-name: Skill Authoring Guide
-description: Meta-skill that guides the author when it AUTHORS a new skill (no skill matched a mission that hit a fixable gap) or OPTIMIZES an existing one (a matched skill was used but a problem remained). Encodes what a good skill is, how to generalize a single mission's lesson into reusable expertise, the quality bar, and the anti-false-learning rules. The loop decides WHEN; this guide governs HOW.
-category: self-evolve
-version: 1
-created_at: 2026-06-18T00:00:00+00:00
+name: "Skill Authoring Guide"
+description: "Meta-skill that guides the author when it AUTHORS a new skill (no skill matched a mission that hit a fixable gap) or OPTIMIZES an existing one (a matched skill was used but a problem remained). Encodes what a good skill is, how to generalize a single mission's lesson into reusable expertise, the quality bar, and the anti-false-learning rules. The loop decides WHEN; this guide governs HOW."
 ---
 
 # Skill Authoring Guide (how to create / optimize a skill)
@@ -23,8 +20,8 @@ hit this wall again.
 ### CREATE — no skill matched, a mission hit a fixable gap
 Write the playbook the missing skill should have been. Scope it to the **class** of
 task (the operator/problem family), not this one instance. It must stand alone:
-when-to-use / when-not, the method, the failure modes, the honest rules. Name it for
-the class so the matcher can find it next time.
+when-to-use / when-not, the method, the failure modes, the honest rules. Give it an
+explicit semantic path and name so future Agents can discover it by browsing and search.
 
 ### OPTIMIZE — a matched skill was used but a problem remained
 Fold the lesson into the EXISTING skill and sharpen it. Prefer making the existing
@@ -62,12 +59,13 @@ bloat — a winning skill stays tight.
   winning). Skills change how the agent works, never what counts as a win.
 
 ## Evolve by EFFECT, not by prose
-Whatever you write is versioned, persisted, and available immediately. Later task
-trajectories and Reviewer feedback determine whether it should be revised, split,
-merged, or archived. So do not optimize for sounding good — optimize for a skill
-that actually helps future work, and preserve the evidence needed to revise it
-honestly. Judging skill text in isolation is not an admission gate.
+Whatever you write is persisted at its semantic path and available to future Agents.
+Later Agents and Reviewer feedback determine whether it should be revised, split,
+merged, or archived. Do not optimize for sounding good — optimize for a Skill that
+actually helps future work and keep the document honest.
 
 ## Output
-Return ONLY the skill markdown (frontmatter + body). For OPTIMIZE, return the full
-revised skill, not a diff. Keep it tight — a sharp 1-page skill beats a padded 3-page one.
+A Skill has exactly two frontmatter fields, `name` and `description`, followed by
+Markdown. Do not add IDs, versions, categories, counters, timestamps, fingerprints,
+or protection metadata. For OPTIMIZE, write the full revised Skill at its existing
+semantic path. Keep it tight — a sharp 1-page Skill beats a padded 3-page one.

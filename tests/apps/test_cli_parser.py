@@ -115,18 +115,18 @@ def test_main_wiki_init(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys)
     out = capsys.readouterr().out
 
     assert rc == 0
-    assert (tmp_path / ".autors" / "demo" / "wiki" / "data" / "schema.yaml").exists()
-    assert (tmp_path / ".autors" / "demo" / "wiki" / "query_pack.md").exists()
+    wiki = tmp_path / ".autors" / "demo" / "wiki"
+    assert (wiki / "pages").is_dir()
+    assert (wiki / "INDEX.md").exists()
+    assert not (wiki / "sources").exists()
     assert "wiki ready at" in out
 
 
-def test_main_wiki_ingest_backfills_refs_and_lit_matrix(
+def test_main_wiki_ingest_does_not_build_a_source_database(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ):
     from argus_skill.wiki.bootstrap import init_wiki
-    from argus_skill.wiki.schema import SourcePaper
-    from argus_skill.wiki.store import WikiStore
 
     wiki = init_wiki("demo", base=tmp_path)
     refs = tmp_path / "paper" / "refs.bib"
@@ -167,11 +167,9 @@ def test_main_wiki_ingest_backfills_refs_and_lit_matrix(
     out = capsys.readouterr().out
 
     assert rc == 0
-    assert "ingested 1 new source(s)" in out
-    assert "enriched 1 source(s)" in out
-    src = WikiStore(wiki).read_source(SourcePaper, "papers/arxiv-2601.00001")
-    assert src.ingested_by == "test"
-    assert "Useful." in src.body
+    assert "ingested 0 new source(s)" in out
+    assert "enriched 0 source(s)" in out
+    assert not (wiki / "sources").exists()
 
 
 def test_wiki_ingest_rejects_uninitialized_path(
@@ -210,8 +208,9 @@ def test_wiki_ingest_init_flag_bootstraps(
     out = capsys.readouterr().out
 
     assert rc == 0
-    assert (wiki / "data" / "schema.yaml").exists()
-    assert "ingested 1 new source(s)" in out
+    assert (wiki / "pages").is_dir()
+    assert (wiki / "INDEX.md").exists()
+    assert "ingested 0 new source(s)" in out
 
 
 def test_parser_accepts_no_daemon_flag():

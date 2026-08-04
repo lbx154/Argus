@@ -1,9 +1,6 @@
 ---
-name: Chemistry Playground Bounded Hypothesis Probe
-description: Run an explicitly requested Chem Playground candidate as a bounded, computation-first hypothesis probe with QUESTION/RESULT artifacts, evidence labels, negative-result retention, and mandatory Reviewer gate.
-category: chemistry-playground
-version: 1
-protected: true
+name: "Chemistry Playground Bounded Hypothesis Probe"
+description: "Run an explicitly requested Chem Playground candidate as a bounded, computation-first hypothesis probe with QUESTION/RESULT artifacts, evidence labels, negative-result retention, and mandatory Reviewer gate."
 ---
 
 ## When to use

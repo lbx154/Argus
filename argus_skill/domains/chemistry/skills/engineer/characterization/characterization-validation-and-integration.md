@@ -1,8 +1,6 @@
 ---
-name: Characterization Validation and Multimodal Evidence Integration
-description: Validate and integrate diffraction, spectroscopy, MS, NMR, and microscopy evidence without erasing modality limits; excludes battery degradation and computational-method validation.
-category: chemistry-characterization
-version: 1
+name: "Characterization Validation and Multimodal Evidence Integration"
+description: "Validate and integrate diffraction, spectroscopy, MS, NMR, and microscopy evidence without erasing modality limits; excludes battery degradation and computational-method validation."
 ---
 
 ## When to use

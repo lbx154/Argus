@@ -1,9 +1,6 @@
 ---
-name: AAAI Paper Skill Router
-description: Choose the smallest relevant skill for AAAI paper work without loading the whole paper pipeline.
-category: skill-routing
-version: 2
-created_at: 2026-07-21T00:00:00+00:00
+name: "AAAI Paper Skill Router"
+description: "Choose the smallest relevant skill for AAAI paper work without loading the whole paper pipeline."
 ---
 
 # AAAI Paper Skill Router

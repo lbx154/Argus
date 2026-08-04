@@ -1,9 +1,6 @@
 ---
-name: Targeted Fiction Revision
-description: Apply the reviewer's findings to produce fiction/final.md and fiction/updated_story_state.json. Fix every BLOCKING continuity contradiction with a concrete change; treat craft/AI-flavor notes as non-blocking (fix or accept with rationale). Do targeted edits, not a full rewrite. The revise stage of fiction_writing.
-category: fiction-revision
-version: 1
-protected: true
+name: "Targeted Fiction Revision"
+description: "Apply the reviewer's findings to produce fiction/final.md and fiction/updated_story_state.json. Fix every BLOCKING continuity contradiction with a concrete change; treat craft/AI-flavor notes as non-blocking (fix or accept with rationale). Do targeted edits, not a full rewrite. The revise stage of fiction_writing."
 ---
 
 ## Title

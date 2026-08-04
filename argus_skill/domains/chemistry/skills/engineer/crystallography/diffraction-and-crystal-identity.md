@@ -1,8 +1,6 @@
 ---
-name: Diffraction and Crystal Structure Identity
-description: Normalize single-crystal or powder diffraction identity, wavelength, geometry, symmetry, cell, phases, and CIF provenance; excludes generic spectral interpretation and MOF topology.
-category: chemistry-crystallography-data
-version: 1
+name: "Diffraction and Crystal Structure Identity"
+description: "Normalize single-crystal or powder diffraction identity, wavelength, geometry, symmetry, cell, phases, and CIF provenance; excludes generic spectral interpretation and MOF topology."
 ---
 
 ## When to use

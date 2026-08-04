@@ -10,11 +10,7 @@ from argus_skill.roles.prompts import (
     RolePromptRequest,
     resolve_role_prompt,
 )
-from argus_skill.roles.prompts.engineer import (
-    SKILL_CREATE,
-    mission_request,
-    skill_request,
-)
+from argus_skill.roles.prompts.engineer import mission_request
 from argus_skill.roles.prompts.manager import (
     FRONT_DOOR,
     stage_decision_request,
@@ -39,22 +35,14 @@ def _set_stage(project_root, stage: str) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
-def test_engineer_and_scientist_banners_resolve_through_one_catalog(
-    tmp_path,
-) -> None:
+def test_engineer_banner_resolves_through_role_catalog(tmp_path) -> None:
     persist_vertical(tmp_path, "speedrun")
     vertical = load_vertical("speedrun", project_root=tmp_path)
 
     engineer = resolve_role_prompt(mission_request(tmp_path))
-    scientist = resolve_role_prompt(
-        skill_request(tmp_path, operation=SKILL_CREATE)
-    )
 
     assert engineer.vertical == "speedrun"
     assert engineer.role_banner == vertical_role_banner(vertical, "engineer")
-    assert scientist.role_banner == vertical_role_banner(
-        vertical, "scientist_create"
-    )
     assert engineer.stage_checklist == ""
     assert engineer.fragment_ids == (
         "vertical:speedrun:banner:engineer",

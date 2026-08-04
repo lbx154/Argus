@@ -1,8 +1,6 @@
 ---
-name: Open Reaction Database I/O
-description: Read, validate, query, and write Open Reaction Database records while preserving reaction roles, quantities, conditions, outcomes, provenance, and schema validation; not as proof of reproducibility.
-category: chemistry-tool-reaction-data
-version: 2
+name: "Open Reaction Database I/O"
+description: "Read, validate, query, and write Open Reaction Database records while preserving reaction roles, quantities, conditions, outcomes, provenance, and schema validation; not as proof of reproducibility."
 ---
 
 ## When to use

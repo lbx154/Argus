@@ -1,9 +1,6 @@
 ---
-name: AAAI Paper Drafting
-description: Draft an AAAI paper around one defensible insight, using authentic local evidence and the official author kit.
-category: paper-writing
-version: 2
-created_at: 2026-07-20T00:00:00+00:00
+name: "AAAI Paper Drafting"
+description: "Draft an AAAI paper around one defensible insight, using authentic local evidence and the official author kit."
 ---
 
 # AAAI Paper Drafting

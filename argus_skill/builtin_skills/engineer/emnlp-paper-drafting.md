@@ -1,9 +1,6 @@
 ---
-name: EMNLP Paper Drafting
-description: Draft an ACL-style paper around one defensible insight, using authentic local evidence and the selected venue's official format.
-category: paper-writing
-version: 2
-created_at: 2026-07-20T00:00:00+00:00
+name: "EMNLP Paper Drafting"
+description: "Draft an ACL-style paper around one defensible insight, using authentic local evidence and the selected venue's official format."
 ---
 
 # EMNLP Paper Drafting

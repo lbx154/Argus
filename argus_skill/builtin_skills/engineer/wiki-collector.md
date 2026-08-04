@@ -1,143 +1,27 @@
 ---
-name: Wiki Collector
-description: Autonomously refresh immutable project-wiki sources by deriving 5-10 search queries from project state and searching arxiv/semantic-scholar/github. Run only when Planner explicitly schedules a wiki_collect mission; Reviewer may directly synthesize durable pages from accepted sources.
-category: wiki
-version: 2
-created_at: 2026-06-05T00:00:00+00:00
+name: "Semantic Wiki Research"
+description: "Search primary sources for a concrete knowledge gap, then update only the minimal semantic Wiki pages and INDEX that the evidence supports."
 ---
 
-# Wiki Collector -- derive queries from project state, ingest sources
+# Semantic Wiki Research
 
-## When to invoke
+## When to use
 
-The planner schedules a `wiki_collect` mission when:
-- `.autors/<project>/wiki/` exists
-- Backlog has been empty for a non-trivial time
-- The bot_state cooldown (default 12h) has elapsed since the last collect
-
-Do NOT invoke this skill outside a planner-scheduled wiki_collect mission.
+Use when the current mission identifies a concrete declarative knowledge gap and
+primary-source research is warranted.
 
 ## Workflow
 
-### Step 1 -- derive 5-10 search queries from project state
+1. Read the Wiki root path and `INDEX.md`.
+2. Search existing semantic pages before external research.
+3. Derive a small set of concrete queries from the actual gap.
+4. Fetch real primary sources or repository artifacts; never fabricate citations.
+5. If evidence supports durable knowledge, create or refine one semantically named
+   page under `pages/`.
+6. Keep exactly `title` and `description` frontmatter followed by Markdown.
+7. Cite real URLs or artifact paths in the body where useful.
+8. Add or update one concise semantic link in `INDEX.md`.
+9. If the research adds nothing durable, make no Wiki edit.
 
-Read in this order; each item should be short:
-
-- `AGENTS.md` and any top-level `*goal*.md`
-- The matched special prompts at `$ARGUS_SKILL_SPECIAL_PROMPTS_DIR`, or
-  `~/.argus-skill/special_prompts/`
-- `research/PIPELINE_STATE.json` if it exists
-- The current `--objective` from mission context
-- `.autors/<project>/wiki/data/tags.yaml` for the controlled vocab
-- `.autors/<project>/wiki/queries/by-tag.md` to see what is already covered
-
-From these, derive 5-10 short search queries that:
-
-- Are concrete enough to return useful arxiv / repo hits. Not
-  "improve LLM reasoning"; yes "asymmetric clipping GRPO visual editing".
-- Cross-product methods and failure modes seen in `reports/` and `diagnosis/`.
-- Tilt toward 2025-2026 work.
-- Avoid topics already heavily covered in `queries/by-tag.md`.
-
-Write the derived queries to mission scratch so the reviewer can see
-what you searched for.
-
-### Step 2 -- run the searches and ingest
-
-For each query, use whichever of these tools is available: codex native
-web search via `--search` if enabled, or the existing
-`arxiv-paper-search` / `semantic-scholar-search` skill behavior.
-
-- arxiv: last 18 months, ML/CL/AI categories
-- semantic-scholar: citation graph traversal from any matching paper
-- GitHub: search repos by topic, sort by stars times recency
-
-For each hit, write an immutable source via the wiki helpers:
-
-```python
-from datetime import date
-from pathlib import Path
-from argus_skill.wiki.store import WikiStore
-from argus_skill.wiki.schema import SourcePaper, SourceRepo
-from argus_skill.wiki.ingest import canonical_paper_id
-
-store = WikiStore(Path(".autors/<project>/wiki"))
-
-# Paper hit
-paper_stem = canonical_paper_id(url=arxiv_url, doi=doi_or_none, key=paper_key)
-src = SourcePaper(
-    id=f"papers/{paper_stem}",
-    url=arxiv_url,
-    title=paper_title,
-    ingested_at=date.today(),
-    ingested_by=f"wiki-collector@mission-{mission_id}",
-    checksum=f"sha256:{abstract_sha256}",
-    body=abstract_text,
-)
-try:
-    store.write_source(src)
-except FileExistsError:
-    pass  # already ingested; sources are immutable
-
-# Repo hit
-repo_src = SourceRepo(
-    id=f"repos/{owner}__{repo}",
-    url=repo_url,
-    title=f"{owner}/{repo} -- {short_description}",
-    ingested_at=date.today(),
-    ingested_by=f"wiki-collector@mission-{mission_id}",
-    checksum=f"sha256:{readme_sha256_or_url_hash}",
-    body=readme_excerpt_or_url,  # short: keep under 2 KB
-)
-try:
-    store.write_source(repo_src)
-except FileExistsError:
-    pass
-```
-
-### Step 3 -- update bot_state
-
-At the end of the mission, regardless of outcome, update the cooldown
-state:
-
-```python
-from datetime import datetime, timezone
-from pathlib import Path
-from argus_skill.wiki.bot_state import load_bot_state, save_bot_state
-
-path = Path(".autors/<project>/wiki/data/bot_state.json")
-state = load_bot_state(path)
-state.last_attempted_at = datetime.now(timezone.utc)
-state.last_query_seed = "; ".join(queries)  # for next-time diversity
-if hit_count == 0:
-    state.consecutive_failures += 1
-else:
-    state.last_collected_at = state.last_attempted_at
-    state.consecutive_failures = 0
-save_bot_state(path, state)
-```
-
-### Step 4 -- short reviewer-facing summary
-
-Output a short note in your final mission summary:
-
-- queries used
-- N new papers ingested / M skipped as duplicates
-- K new repos ingested
-- any noteworthy hits, in 1-2 sentences each, the reviewer might want
-  to consider synthesizing into a durable page
-
-This collector mission is intentionally source-focused: do not manufacture a
-`pages/*` card for every hit. The independent Reviewer may directly create or
-update a durable page when the accepted source supports a useful concept, fact,
-hypothesis, relationship or conflict. There is no automatic mechanical lift.
-
-## Hard rules
-
-- Stay under the per-mission token budget. If a paper's abstract is
-  large, truncate to about 2 KB before storing in source body.
-- Do NOT fabricate arxiv IDs or URLs. If a search returns no results,
-  record that in the summary and move on.
-- Sources are immutable: re-ingestion silently skips. Never overwrite.
-- Cooldown: this skill should not be invoked more than once per 12
-  hours by the planner.
+Do not create a source database, tags, statuses, run cards, generated IDs, or
+per-source placeholder pages.

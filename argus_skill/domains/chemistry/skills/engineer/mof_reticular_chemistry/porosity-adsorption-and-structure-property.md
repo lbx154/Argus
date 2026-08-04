@@ -1,8 +1,6 @@
 ---
-name: MOF Porosity Adsorption and Structure Property Workflow
-description: Analyze MOF pore geometry, activation, gas or vapor adsorption, transport, and structure-property relationships with raw isotherms, model limits, sample-state linkage, and uncertainty; excludes generic materials property comparison.
-category: chemistry-mof-porosity
-version: 1
+name: "MOF Porosity Adsorption and Structure Property Workflow"
+description: "Analyze MOF pore geometry, activation, gas or vapor adsorption, transport, and structure-property relationships with raw isotherms, model limits, sample-state linkage, and uncertainty; excludes generic materials property comparison."
 ---
 
 ## When to use

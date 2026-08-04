@@ -1,8 +1,6 @@
 ---
-name: Chemistry Evidence Provenance and Claim Levels
-description: Classify retrieved, curated, predicted, computed, simulated, measured, and inferred chemistry evidence so every conclusion stays below the strongest supported claim level.
-category: chemistry-foundation-evidence
-version: 1
+name: "Chemistry Evidence Provenance and Claim Levels"
+description: "Classify retrieved, curated, predicted, computed, simulated, measured, and inferred chemistry evidence so every conclusion stays below the strongest supported claim level."
 ---
 
 ## When to use

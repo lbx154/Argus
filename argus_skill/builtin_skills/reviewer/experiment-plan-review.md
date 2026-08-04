@@ -1,9 +1,6 @@
 ---
-name: Experiment Plan Review
-description: Review an experiment plan for scientific rigor before execution begins. Check method competitiveness, baseline strength, evaluation fairness, and benchmark adequacy.
-category: paper-review
-version: 1
-created_at: 2026-05-28T00:00:00+00:00
+name: "Experiment Plan Review"
+description: "Review an experiment plan for scientific rigor before execution begins. Check method competitiveness, baseline strength, evaluation fairness, and benchmark adequacy."
 ---
 
 # Experiment Plan Review

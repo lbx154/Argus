@@ -66,34 +66,6 @@ def test_unknown_nonempty_venue_fails_closed(tmp_path: Path) -> None:
     assert "reads like a real EMNLP paper" not in checklist
 
 
-def test_unknown_venue_skill_matcher_excludes_all_venue_skills(
-    tmp_path: Path,
-    caplog,
-) -> None:
-    from argus_skill.skills.venue_profiles import venue_excluded_skill_files
-
-    _write_state(tmp_path, "Unknown Journal")
-    excluded = venue_excluded_skill_files(tmp_path)
-    assert "emnlp-paper-drafting.md" in excluded
-    assert "aaai-paper-drafting.md" in excluded
-    assert any(record.levelname == "ERROR" for record in caplog.records)
-
-
-def test_missing_venue_excludes_venue_skills_without_error(
-    tmp_path: Path,
-    caplog,
-    monkeypatch,
-) -> None:
-    from argus_skill.skills.venue_profiles import venue_excluded_skill_files
-
-    monkeypatch.delenv("ARGUS_SKILL_VENUE", raising=False)
-    excluded = venue_excluded_skill_files(tmp_path)
-
-    assert "emnlp-paper-drafting.md" in excluded
-    assert "aaai-paper-drafting.md" in excluded
-    assert not any(record.levelname == "ERROR" for record in caplog.records)
-
-
 def test_frontiers_project_uses_native_reviewer_rules(tmp_path: Path) -> None:
     _write_state(tmp_path, "Frontiers in Sleep")
     profile = resolve_venue_profile(tmp_path)

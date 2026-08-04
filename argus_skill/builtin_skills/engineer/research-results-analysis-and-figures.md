@@ -1,9 +1,6 @@
 ---
-name: Research Results Analysis And Figures
-description: Turn raw experiment outputs into evidence-grounded tables, claims, and paper figures, and route every visual across PPT Master, HTML/SVG, ECharts, Recharts, Vega, FigureSpec, matplotlib, or optional image-2. Use PPT Master as a first-class polished editable route for non-data paper figures when installed; never invent missing numbers.
-category: research-analysis
-version: 3
-created_at: 2026-07-19T00:00:00+00:00
+name: "Research Results Analysis And Figures"
+description: "Turn raw experiment outputs into evidence-grounded tables, claims, and paper figures, and route every visual across PPT Master, HTML/SVG, ECharts, Recharts, Vega, FigureSpec, matplotlib, or optional image-2. Use PPT Master as a first-class polished editable route for non-data paper figures when installed; never invent missing numbers."
 ---
 
 # Research Results Analysis and Figures

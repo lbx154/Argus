@@ -1,11 +1,6 @@
 ---
-name: Performance Profile Ground Truth
-description: A playbook for completing a profiling-only stage by documenting current behavior, runnable environment facts, measured timings, profiler output, and the single strongest measured bottleneck before any optimization work begins.
-category: performance-profiling
-version: 1
-created_at: 2026-07-05T09:52:47.834598+00:00
-task_history:
-  - "Complete the CURRENT `profile` stage only; do not optimize code yet and do not edit `research/PIPELINE_STATE.json`. Read `AGENTS.md`, `pyproject.toml`, `research/PIPELINE_STATE.json`, and `research/DO"
+name: "Performance Profile Ground Truth"
+description: "A playbook for completing a profiling-only stage by documenting current behavior, runnable environment facts, measured timings, profiler output, and the single strongest measured bottleneck before any optimization work begins."
 ---
 
 # Performance Profile Ground Truth

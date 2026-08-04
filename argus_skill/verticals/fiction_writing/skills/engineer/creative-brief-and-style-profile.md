@@ -1,9 +1,6 @@
 ---
-name: Creative Brief And Style Profile
-description: Turn an operator's fiction request into a structured creative_brief.json (language, form, mode, genre, market_style, length, viewpoint, tense, constraints) and a checkable style_profile.json of ABSTRACT features — never "imitate author X". The intake stage of fiction_writing.
-category: fiction-intake
-version: 1
-protected: true
+name: "Creative Brief And Style Profile"
+description: "Turn an operator's fiction request into a structured creative_brief.json (language, form, mode, genre, market_style, length, viewpoint, tense, constraints) and a checkable style_profile.json of ABSTRACT features — never \"imitate author X\". The intake stage of fiction_writing."
 ---
 
 ## Title

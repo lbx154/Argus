@@ -1,8 +1,6 @@
 ---
-name: ChEMBL Bioactivity Retrieval
-description: Retrieve ChEMBL molecule, target, assay, document, and activity records with release, construct/target, assay, relation, unit, and provenance controls; not as direct evidence of new biological activity.
-category: chemistry-tool-bioactivity
-version: 2
+name: "ChEMBL Bioactivity Retrieval"
+description: "Retrieve ChEMBL molecule, target, assay, document, and activity records with release, construct/target, assay, relation, unit, and provenance controls; not as direct evidence of new biological activity."
 ---
 
 ## When to use

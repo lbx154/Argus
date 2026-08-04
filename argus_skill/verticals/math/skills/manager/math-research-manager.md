@@ -1,8 +1,6 @@
 ---
-name: Math Research Manager Context
-description: Route mathematical research through the generic Manager while preserving the requested target and scope-solve-review authority.
-category: math-research-management
-version: 2
+name: "Math Research Manager Context"
+description: "Route mathematical research through the generic Manager while preserving the requested target and scope-solve-review authority."
 ---
 
 This is mathematical work: a proof, counterexample, construction, computation,

@@ -9,10 +9,7 @@ from ..task_contract import EFFECTIVE_TASK_CONTRACT
 from .types import RoleName, RolePromptRequest
 
 MISSION = "mission"
-SKILL_CREATE = "skill_create"
-SKILL_ADAPT = "skill_adapt"
-
-OPERATIONS = frozenset({MISSION, SKILL_CREATE, SKILL_ADAPT})
+OPERATIONS = frozenset({MISSION})
 
 _LONG_EXPERIMENT_RULE = (
     "Commands expected to run over two minutes must follow "
@@ -62,8 +59,6 @@ def assemble_round_prompt(
 def _post_task_learning_section(
     *,
     require_post_task_learning: bool,
-    force_post_task_learning: bool,
-    matched_skill_name: str,
     project_skill_dir: Path | str | None,
 ) -> str:
     """Render the Engineer's own durable-learning contract.
@@ -76,35 +71,13 @@ def _post_task_learning_section(
     if not require_post_task_learning or project_skill_dir is None:
         return ""
     rules = (
-        f"Project skill directory (project layer only): {project_skill_dir}\n"
-        "Inspect the existing Markdown first; preserve valid frontmatter; "
-        "increment `version` on an update; never modify a skill marked "
-        "`protected: true`; never write the shared/global skill layer."
+        f"Project Skill directory (project layer only): {project_skill_dir}\n"
+        "Search and read the library yourself. A Skill has exactly two "
+        "frontmatter fields, `name` and `description`, followed by ordinary "
+        "Markdown. Use an explicit semantic path; never invent an opaque ID, "
+        "numeric suffix, fingerprint, or generated fallback name. Never write "
+        "the shared/global Skill layer."
     )
-    if force_post_task_learning:
-        action = "update" if matched_skill_name else "create"
-        target = (
-            f"the matched skill `{matched_skill_name}`"
-            if matched_skill_name
-            else "one reusable Engineer skill"
-        )
-        return (
-            "## Required self-evolution\n"
-            "You have file and shell tools. After verification and before you "
-            f"hand off, {action} {target} directly in the project skill "
-            "directory. Record the reusable mechanism, the approach that "
-            "failed, and the decisive verification. Also create or update exactly "
-            "one concise declarative knowledge page under the initialized project "
-            "wiki `pages/` tree: retain a durable repository fact, structure, or "
-            "mechanism learned here, not the procedure already stored in the Skill. "
-            "Prefer refining a related page over creating a duplicate. Follow a "
-            "neighboring page's frontmatter; if none exists, provide `id`, `type` "
-            "(fact/concept/principle/relationship), `status: scratch`, `title`, "
-            "`tags`, `sources`, `related_runs`, `related_projects`, "
-            "`revisit_after`, `created_at`, `last_reviewed_at`, and "
-            "`reviewer_note`.\n"
-            + rules
-        )
     return (
         "## Durable learning\n"
         "You have file and shell tools. After verification, if this task "
@@ -124,9 +97,7 @@ def build_mission_prompt(
     original_request: str = "",
     include_static: bool = True,
     role_banner: str = "",
-    matched_skill_name: str = "",
     require_post_task_learning: bool = False,
-    force_post_task_learning: bool = False,
     file_read_budget: int = 12,
     test_run_budget: int = 3,
     project_root: Path | str | None = None,
@@ -138,7 +109,7 @@ def build_mission_prompt(
     if role_banner.strip():
         sections.append("## Active vertical role\n" + role_banner.strip())
     if skill_text:
-        sections.append("## Skill playbook (read first)\n" + skill_text)
+        sections.append("## Skill library paths\n" + skill_text)
     if original_request.strip():
         sections.append(
             "## Original operator request\n"
@@ -188,8 +159,6 @@ def build_mission_prompt(
     )
     learning_block = _post_task_learning_section(
         require_post_task_learning=require_post_task_learning,
-        force_post_task_learning=force_post_task_learning,
-        matched_skill_name=matched_skill_name,
         project_skill_dir=project_skill_dir,
     )
     if learning_block:
@@ -244,35 +213,11 @@ def mission_request(project_root: Path | str) -> RolePromptRequest:
     )
 
 
-def skill_request(
-    project_root: Path | str,
-    *,
-    operation: str,
-    vertical: str | None = None,
-) -> RolePromptRequest:
-    banner_role = {
-        SKILL_CREATE: "scientist_create",
-        SKILL_ADAPT: "scientist",
-    }.get(operation)
-    if banner_role is None:
-        raise ValueError(f"unsupported Engineer skill prompt operation: {operation!r}")
-    return RolePromptRequest(
-        role=RoleName.ENGINEER,
-        operation=operation,
-        project_root=project_root,
-        vertical=vertical,
-        banner_role=banner_role,
-    )
-
-
 __all__ = [
     "MISSION",
     "OPERATIONS",
-    "SKILL_ADAPT",
-    "SKILL_CREATE",
     "append_live_guidance",
     "assemble_round_prompt",
     "build_mission_prompt",
     "mission_request",
-    "skill_request",
 ]

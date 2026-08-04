@@ -1,8 +1,6 @@
 ---
-name: Biochemistry Structural, Docking, and MD Evidence Boundary Workflow
-description: Evaluate structures, docking, MD, and mutations as biochemical hypotheses with construct, protonation, cofactor, and assay boundaries; excludes affinity proof and generic method benchmarking.
-category: chemistry-biochemistry
-version: 1
+name: "Biochemistry Structural, Docking, and MD Evidence Boundary Workflow"
+description: "Evaluate structures, docking, MD, and mutations as biochemical hypotheses with construct, protonation, cofactor, and assay boundaries; excludes affinity proof and generic method benchmarking."
 ---
 
 ## When to use

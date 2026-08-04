@@ -1,8 +1,6 @@
 ---
-name: ChemOS Orchestration Reference
-description: Evaluate ChemOS as laboratory-orchestration infrastructure only when authenticated device services, facility ownership, safety interlocks, data contracts, and rollback behavior already exist.
-category: chemistry-tool-lab-orchestration
-version: 2
+name: "ChemOS Orchestration Reference"
+description: "Evaluate ChemOS as laboratory-orchestration infrastructure only when authenticated device services, facility ownership, safety interlocks, data contracts, and rollback behavior already exist."
 ---
 
 ## When to use

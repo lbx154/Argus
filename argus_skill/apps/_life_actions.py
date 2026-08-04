@@ -422,8 +422,5 @@ def render_skills_cmd(tokens: Sequence[str]) -> str:
         rows = global_store.list_summaries()
         if not rows:
             return "(no global skills)"
-        return "\n".join(
-            f"- {s['name']}  ({s.get('category') or '-'})  {s['description']}"
-            for s in rows
-        )
+        return "\n".join(f"- {s['path']}" for s in rows)
     return f"unknown /skills subcommand: {op}  (try ls)"

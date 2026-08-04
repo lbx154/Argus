@@ -1,10 +1,6 @@
 ---
-name: Learning Curation Review
-description: Gate a learning mission's proposed CRUD on the skill and wiki libraries — pass only changes that are evidence-anchored to the immutable material, non-redundant, non-regressive, correctly scoped, and (for removals) justified by a cited contradiction. A justified no-op passes.
-category: learning
-version: 1
-created_at: 2026-07-04T00:00:00+00:00
-protected: true
+name: "Learning Curation Review"
+description: "Gate a learning mission's proposed CRUD on the skill and wiki libraries — pass only changes that are evidence-anchored to the immutable material, non-redundant, non-regressive, correctly scoped, and (for removals) justified by a cited contradiction. A justified no-op passes."
 ---
 
 ## Title

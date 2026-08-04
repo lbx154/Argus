@@ -1,10 +1,6 @@
 ---
-name: Paper Framework Figure Studio Pro (Image2)
+name: "Paper Framework Figure Studio Pro (Image2)"
 description: "Image-2-specific S0-S7 conceptual-figure workflow adapted from paper-framework-figure-studio-pro-v3.1.4a. Use only after the research Research Visualization Router selects image-2 and model-api-status reports an available image route."
-category: paper-figures
-version: "3.3.0-argus"
-created_at: "2026-05-28"
-source: "paper-framework-figure-studio-pro-v3.1.4a"
 ---
 
 # Paper Framework Figure Studio Pro

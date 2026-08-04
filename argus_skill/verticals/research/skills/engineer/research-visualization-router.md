@@ -1,10 +1,6 @@
 ---
-name: Research Visualization Router
-description: Use before rendering any research-paper visual. Select among installed PPT Master, HTML/SVG, ECharts, Recharts/React, Vega, Plotly, FigureSpec, diagrams, matplotlib, and optional image-2. Prefer PPT Master for polished editable non-data conceptual/method/architecture figures when available; image-2 is not required.
-category: research-visualization
-version: 2
-created_at: 2026-07-19T00:00:00+00:00
-protected: true
+name: "Research Visualization Router"
+description: "Use before rendering any research-paper visual. Select among installed PPT Master, HTML/SVG, ECharts, Recharts/React, Vega, Plotly, FigureSpec, diagrams, matplotlib, and optional image-2. Prefer PPT Master for polished editable non-data conceptual/method/architecture figures when available; image-2 is not required."
 ---
 
 # Research Visualization Router

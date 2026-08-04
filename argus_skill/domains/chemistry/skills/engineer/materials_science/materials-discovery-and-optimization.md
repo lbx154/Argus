@@ -1,8 +1,6 @@
 ---
-name: Materials Discovery and Optimization Workflow
-description: Execute a bounded materials discovery, screening, or processing optimization study with explicit design space, property objectives, uncertainty, baselines, and validation; excludes crystal refinement, MOF topology, and battery cell cycling.
-category: chemistry-materials-discovery
-version: 1
+name: "Materials Discovery and Optimization Workflow"
+description: "Execute a bounded materials discovery, screening, or processing optimization study with explicit design space, property objectives, uncertainty, baselines, and validation; excludes crystal refinement, MOF topology, and battery cell cycling."
 ---
 
 ## When to use

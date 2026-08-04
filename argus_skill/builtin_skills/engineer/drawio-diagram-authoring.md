@@ -1,9 +1,6 @@
 ---
-name: Draw.io Diagram Authoring
-description: Author or revise editable Draw.io diagrams for architecture, UML, ER, network, BPMN, sequence, and process deliverables. Use when the user requests a .drawio file, needs interactive post-handoff editing, or needs rich standard shape libraries beyond Mermaid and Graphviz.
-category: visual-communication
-version: 1
-created_at: 2026-07-19T00:00:00+00:00
+name: "Draw.io Diagram Authoring"
+description: "Author or revise editable Draw.io diagrams for architecture, UML, ER, network, BPMN, sequence, and process deliverables. Use when the user requests a .drawio file, needs interactive post-handoff editing, or needs rich standard shape libraries beyond Mermaid and Graphviz."
 ---
 
 # Draw.io Diagram Authoring

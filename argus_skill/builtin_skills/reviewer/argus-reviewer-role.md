@@ -1,9 +1,6 @@
 ---
-name: Argus Reviewer Role
-description: Identity and operating contract for the reviewer agent that gates engineer rounds in argus-skill.
-category: role-identity
-version: 2
-created_at: 2026-05-25T00:00:00+00:00
+name: "Argus Reviewer Role"
+description: "Identity and operating contract for the reviewer agent that gates engineer rounds in argus-skill."
 ---
 
 ## Title

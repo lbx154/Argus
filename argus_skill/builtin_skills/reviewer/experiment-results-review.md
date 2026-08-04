@@ -1,9 +1,6 @@
 ---
-name: Experiment Results Review
-description: Review experiment results for scientific validity before writing the paper. Check statistical significance, ablation fairness, effect size meaningfulness, and whether results support the intended claims.
-category: paper-review
-version: 1
-created_at: 2026-05-28T00:00:00+00:00
+name: "Experiment Results Review"
+description: "Review experiment results for scientific validity before writing the paper. Check statistical significance, ablation fairness, effect size meaningfulness, and whether results support the intended claims."
 ---
 
 # Experiment Results Review

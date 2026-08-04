@@ -1,8 +1,6 @@
 ---
-name: Deep Research via Source Timeline
-description: Depth of research is measured by reconstructing the FIELD'S TIMELINE (founding work → key turning points → current SOTA → open frontier), each node backed by a real fetched source (curl arXiv/Crossref OR codex web_search via the Responses API) — NOT by paper count. Forces real search instead of reciting the model's prior knowledge; reach for web_search for conference/OpenReview/recent work that curl-on-arXiv misses.
-category: engineer
-version: 1
+name: "Deep Research via Source Timeline"
+description: "Depth of research is measured by reconstructing the FIELD'S TIMELINE (founding work → key turning points → current SOTA → open frontier), each node backed by a real fetched source (curl arXiv/Crossref OR codex web_search via the Responses API) — NOT by paper count. Forces real search instead of reciting the model's prior knowledge; reach for web_search for conference/OpenReview/recent work that curl-on-arXiv misses."
 ---
 
 # Deep Research — measured by TIMELINE, not paper count

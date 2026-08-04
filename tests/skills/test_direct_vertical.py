@@ -86,7 +86,7 @@ def test_manager_prompt_routes_short_repair_to_software_direct() -> None:
     assert "workflow_mode=direct" in prompt
 
 
-def test_direct_reviewer_still_calls_role_skill_matcher(tmp_path) -> None:
+def test_direct_reviewer_receives_skill_library_paths(tmp_path) -> None:
     from types import SimpleNamespace
 
     persist_vertical(tmp_path, "software", workflow_mode="direct")
@@ -104,9 +104,10 @@ def test_direct_reviewer_still_calls_role_skill_matcher(tmp_path) -> None:
             return _Result()
 
     reviewer = Reviewer(runner=_Runner(), skill_store=object())
-    calls: list[str] = []
-    reviewer.mission.match = lambda objective, **kwargs: (
-        calls.append(objective) or SimpleNamespace(block="")
+    calls: list[bool] = []
+    reviewer.mission.libraries = lambda: (
+        calls.append(True)
+        or SimpleNamespace(block="## Skill libraries\n- `/semantic/library`")
     )
 
     reviewer.evaluate(
@@ -117,4 +118,4 @@ def test_direct_reviewer_still_calls_role_skill_matcher(tmp_path) -> None:
         main_error=None,
         config=ReviewerConfig(working_dir=str(tmp_path)),
     )
-    assert calls == ["创建一个单文件番茄钟"]
+    assert calls == [True]

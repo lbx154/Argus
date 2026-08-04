@@ -50,7 +50,6 @@ def test_registry_covers_the_key_operator_knobs() -> None:
         "ARGUS_SKILL_PLAN_PREVIEW_MODEL",
         "ARGUS_SKILL_PLAN_PREVIEW_REASONING_EFFORT",
         "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
-        "ARGUS_SKILL_ADAPTER_REASONING_EFFORT",
         "ARGUS_SKILL_REQUIRE_RELEASE_MATCH",
     ):
         assert must in names

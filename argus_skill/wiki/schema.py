@@ -1,202 +1,61 @@
-"""Card dataclasses and frontmatter (de)serialization.
+"""Minimal Wiki page format.
 
-A card on disk is a markdown file with a YAML frontmatter block followed
-by a free-form body:
-
-    ---
-    id: ...
-    ...
-    ---
-
-    body...
-
-This module is the single point that turns those bytes into typed objects
-and back. Nothing else in the package should touch YAML directly.
+A Wiki page has exactly ``title`` and ``description`` frontmatter followed by
+ordinary Markdown content.  Identity and hierarchy come from its Agent-authored
+semantic path; there are no IDs, types, statuses, tags, run records, checksums,
+or evaluator fields.
 """
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import asdict, dataclass, fields
-from datetime import date, datetime
-from typing import Any, Literal, TypeVar
+from dataclasses import dataclass
+from typing import Any
 
 import yaml
 
-CardType = Literal[
-    "concept",
-    "principle",
-    "fact",
-    "hypothesis",
-    "relationship",
-    "conflict",
-    "technique",
-    "pattern",
-]
-CardStatus = Literal["scratch", "candidate", "stable"]
-
-_VALID_TYPES = {
-    "concept",
-    "principle",
-    "fact",
-    "hypothesis",
-    "relationship",
-    "conflict",
-    # Legacy page kinds remain readable during migration.
-    "technique",
-    "pattern",
-}
-_VALID_STATUSES = {"scratch", "candidate", "stable"}
-_LEGACY_STATUS_ALIASES = {
-    # Some agent-authored pages used evidence words where the schema expects a
-    # maturity state.  Keep those pages readable without overstating maturity.
-    "observed": "scratch",
-    "verified": "candidate",
-}
-_VALID_OUTCOMES = {"success", "partial", "failure"}
-
 
 @dataclass
-class PageCard:
-    id: str
-    type: str
-    status: str
+class WikiPage:
     title: str
-    tags: list[str]
-    sources: list[str]
-    related_runs: list[str]
-    related_projects: list[str]
-    revisit_after: date | None
-    created_at: date
-    last_reviewed_at: date
-    reviewer_note: str
-    body: str
-
-    def __post_init__(self) -> None:
-        if self.type not in _VALID_TYPES:
-            raise ValueError(f"type must be one of {_VALID_TYPES}, got {self.type!r}")
-        if self.status not in _VALID_STATUSES:
-            raise ValueError(f"status must be one of {_VALID_STATUSES}, got {self.status!r}")
+    description: str
+    content: str
 
 
-@dataclass
-class SourcePaper:
-    id: str
-    url: str
-    title: str
-    ingested_at: date
-    ingested_by: str
-    checksum: str
-    body: str
+def serialize_page(page: WikiPage) -> str:
+    front = yaml.safe_dump(
+        {"title": page.title, "description": page.description},
+        sort_keys=False,
+        allow_unicode=True,
+    ).strip()
+    return f"---\n{front}\n---\n\n{page.content.rstrip()}\n"
 
 
-@dataclass
-class SourceRepo:
-    id: str
-    url: str
-    title: str
-    ingested_at: date
-    ingested_by: str
-    checksum: str
-    body: str
+def parse_page(text: str) -> WikiPage:
+    """Parse the two-field page format for explicit Wiki tooling.
 
-
-@dataclass
-class SourceRun:
-    id: str
-    mission_id: str
-    git_commit: str
-    project: str
-    config_path: str
-    dataset: str
-    metrics: dict[str, float]
-    artifacts: dict[str, str]
-    outcome: str
-    failure_signature: str
-    suspected_cause: str
-    next_action: str
-    body: str
-    closed_at: str = ""
-
-    def __post_init__(self) -> None:
-        if self.outcome not in _VALID_OUTCOMES:
-            raise ValueError(f"outcome must be one of {_VALID_OUTCOMES}, got {self.outcome!r}")
-
-
-@dataclass
-class SourceNote:
-    id: str
-    title: str
-    mission_id: str
-    created_at: date
-    tags: list[str]
-    body: str
-
-
-T = TypeVar("T", PageCard, SourcePaper, SourceRepo, SourceRun, SourceNote)
-
-
-def serialize_frontmatter(card: PageCard | SourcePaper | SourceRepo | SourceRun | SourceNote) -> str:
-    data = asdict(card)
-    body = data.pop("body", "") or ""
-    # PyYAML serializes dates as ISO automatically; sort_keys=False keeps dataclass order.
-    front = yaml.safe_dump(data, sort_keys=False, allow_unicode=True).strip()
-    return f"---\n{front}\n---\n\n{body}\n"
-
-
-def parse_frontmatter(
-    text: str,
-    cls: type[T],
-    *,
-    defaults: Mapping[str, Any] | None = None,
-) -> T:
+    Role Agents normally read files directly. This helper exists only for the
+    optional Wiki index command and structural validation.
+    """
     if not text.startswith("---\n"):
-        raise ValueError("expected frontmatter to start with '---\\n'")
-    _, _, rest = text.partition("---\n")
-    front_text, sep, body = rest.partition("\n---\n")
-    if not sep:
-        raise ValueError("expected closing frontmatter delimiter")
-    loaded = yaml.safe_load(front_text) or {}
+        raise ValueError("Wiki page must begin with YAML frontmatter")
+    front, separator, content = text[4:].partition("\n---\n")
+    if not separator:
+        raise ValueError("Wiki page is missing its frontmatter terminator")
+    loaded: Any = yaml.safe_load(front) or {}
     if not isinstance(loaded, dict):
-        raise ValueError("frontmatter must be a mapping")
-    data: dict[str, Any] = dict(defaults or {})
-    data.update(loaded)
-    data["body"] = body.lstrip("\n").rstrip("\n")
-    # Coerce ISO date strings back to date objects when a dumper/producer quoted them.
-    for f in fields(cls):
-        if "date" in str(f.type):
-            val = data.get(f.name)
-            if isinstance(val, datetime):
-                data[f.name] = val.date()
-            elif isinstance(val, str):
-                try:
-                    data[f.name] = date.fromisoformat(val)
-                except ValueError:
-                    # Some legacy/agent-authored cards used a full ISO datetime
-                    # for fields whose canonical schema is a calendar date.
-                    data[f.name] = datetime.fromisoformat(
-                        val.replace("Z", "+00:00")
-                    ).date()
-    # Back-compat: legacy cards may carry retired frontmatter keys (e.g. the
-    # removed ``confidence`` field). Silently drop any key the dataclass no
-    # longer declares so old entries still load instead of raising TypeError.
-    known = {f.name for f in fields(cls)}
-    data = {k: v for k, v in data.items() if k in known}
-    if cls is PageCard:
-        # Runtime Engineers may write concise wiki pages while the schema grows.
-        # Fill only structural defaults so legacy/minimal cards remain indexable.
-        status = data.get("status")
-        if isinstance(status, str):
-            normalized_status = status.strip().lower()
-            data["status"] = _LEGACY_STATUS_ALIASES.get(
-                normalized_status,
-                normalized_status,
-            )
-        data.setdefault("tags", [])
-        data.setdefault("sources", [])
-        data.setdefault("related_runs", [])
-        data.setdefault("related_projects", [])
-        data.setdefault("revisit_after", None)
-        data.setdefault("created_at", date.today())
-        data.setdefault("last_reviewed_at", data["created_at"])
-        data.setdefault("reviewer_note", "")
-    return cls(**data)
+        raise ValueError("Wiki frontmatter must be a mapping")
+    if set(loaded) != {"title", "description"}:
+        raise ValueError("Wiki frontmatter allows only title and description")
+    title = loaded.get("title")
+    description = loaded.get("description")
+    if not isinstance(title, str) or not title.strip():
+        raise ValueError("Wiki title must be a non-empty string")
+    if not isinstance(description, str) or not description.strip():
+        raise ValueError("Wiki description must be a non-empty string")
+    return WikiPage(
+        title=title.strip(),
+        description=description.strip(),
+        content=content.lstrip("\n").rstrip("\n"),
+    )
+
+
+__all__ = ["WikiPage", "parse_page", "serialize_page"]

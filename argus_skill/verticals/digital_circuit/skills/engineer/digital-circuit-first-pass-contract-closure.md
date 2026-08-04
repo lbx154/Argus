@@ -1,8 +1,6 @@
 ---
-name: Digital Circuit First-Pass Contract Closure
-description: Eliminate avoidable first-attempt RTL failures by freezing exact benchmark interfaces, timing, control semantics, and state/output behavior before generation.
-category: digital-hardware-engineering
-version: 2
+name: "Digital Circuit First-Pass Contract Closure"
+description: "Eliminate avoidable first-attempt RTL failures by freezing exact benchmark interfaces, timing, control semantics, and state/output behavior before generation."
 ---
 
 # Digital Circuit First-Pass Contract Closure

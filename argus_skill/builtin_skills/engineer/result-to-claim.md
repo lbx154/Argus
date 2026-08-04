@@ -1,9 +1,6 @@
 ---
-name: result-to-claim
+name: "result-to-claim"
 description: "After experiments complete, judge which claims results support, which they don't, and what evidence is missing. Routes to next action: pivot, supplement experiments, or confirm and proceed to paper writing."
-category: research-integrity
-version: "1.0"
-created_at: "2025-07-27"
 ---
 
 # Result-to-Claim Gate

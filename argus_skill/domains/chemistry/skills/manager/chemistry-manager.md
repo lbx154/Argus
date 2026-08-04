@@ -1,8 +1,6 @@
 ---
-name: Chemistry Manager Context
-description: Route chemistry research across eight specialized skill families while preserving the active research vertical, scientific question, evidence ceiling, stage gate, and authorization boundary.
-category: chemistry-management
-version: 2
+name: "Chemistry Manager Context"
+description: "Route chemistry research across eight specialized skill families while preserving the active research vertical, scientific question, evidence ceiling, stage gate, and authorization boundary."
 ---
 
 The `research` vertical owns the project lifecycle and stage transitions.

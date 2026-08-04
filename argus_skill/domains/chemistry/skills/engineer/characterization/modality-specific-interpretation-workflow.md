@@ -1,8 +1,6 @@
 ---
-name: Modality-Specific Chemical Characterization Interpretation Workflow
-description: Interpret diffraction, spectroscopy, MS, NMR, or microscopy with modality-specific controls and models; excludes one-size-fits-all peak fitting, battery cycling, and molecular simulation.
-category: chemistry-characterization
-version: 1
+name: "Modality-Specific Chemical Characterization Interpretation Workflow"
+description: "Interpret diffraction, spectroscopy, MS, NMR, or microscopy with modality-specific controls and models; excludes one-size-fits-all peak fitting, battery cycling, and molecular simulation."
 ---
 
 ## When to use

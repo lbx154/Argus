@@ -1,8 +1,6 @@
 ---
-name: Chemistry Workflow and Output Contract
-description: Design a bounded chemistry workflow with explicit inputs, decisions, capability probes, evidence, validation, output fields, and stop conditions; use when no narrower domain playbook fully specifies the task.
-category: chemistry-foundation-workflow
-version: 1
+name: "Chemistry Workflow and Output Contract"
+description: "Design a bounded chemistry workflow with explicit inputs, decisions, capability probes, evidence, validation, output fields, and stop conditions; use when no narrower domain playbook fully specifies the task."
 ---
 
 ## When to use

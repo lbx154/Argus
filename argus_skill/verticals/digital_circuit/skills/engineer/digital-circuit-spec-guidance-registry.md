@@ -1,8 +1,6 @@
 ---
-name: Digital Circuit Spec Guidance Registry
-description: Enrich visible RTL specifications with compact, reusable hardware invariants before generation without importing benchmark-specific answers.
-category: digital-hardware-engineering
-version: 1
+name: "Digital Circuit Spec Guidance Registry"
+description: "Enrich visible RTL specifications with compact, reusable hardware invariants before generation without importing benchmark-specific answers."
 ---
 
 # Digital Circuit Spec Guidance Registry

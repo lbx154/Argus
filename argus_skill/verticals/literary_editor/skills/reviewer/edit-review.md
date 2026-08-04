@@ -1,3 +1,8 @@
+---
+name: "Literary Editing Review"
+description: "Review literary edits for mechanical discipline and live craft quality."
+---
+
 # 文学编辑审阅 · Literary Editing Review
 
 Reuses the framework Reviewer role — the editor does NOT add a new agent. The

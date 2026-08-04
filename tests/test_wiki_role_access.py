@@ -37,7 +37,8 @@ def test_manager_engineer_and_planner_share_direct_wiki_contract(
     )
 
     for prompt in (manager, engineer, planner):
-        assert "direct read/write" in prompt
-        assert str(wiki.resolve()) in prompt or "project: demo" in prompt
-        assert "Skills store procedures" in prompt or "A Skill is procedural" in prompt
-        assert "events and checkpoint.md" in prompt.lower()
+        assert "Wiki" in prompt
+        assert str(wiki.resolve()) in prompt
+        assert "INDEX.md" in prompt
+        assert "sources/" not in prompt
+        assert "query_pack.md" not in prompt

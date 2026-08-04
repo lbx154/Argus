@@ -338,32 +338,15 @@ class SkillLoopExecuteMixin:
     def _playground_skills_from_snapshots(
         snapshots: tuple[tuple[Path, bytes], ...],
     ) -> tuple[object | None, object | None, str]:
+        """Return trusted source paths without parsing Skill Markdown."""
         if len(snapshots) < 2:
             return None, None, "protected Playground Skill snapshot is incomplete"
         try:
-            from ..skills.skill_router import is_protected_skill
-            from ..skills.store import Skill
-
-            engineer = Skill.parse(
-                snapshots[0][1].decode("utf-8"),
-                str(snapshots[0][0]),
-            )
-            reviewer = Skill.parse(
-                snapshots[1][1].decode("utf-8"),
-                str(snapshots[1][0]),
-            )
+            snapshots[0][1].decode("utf-8")
+            snapshots[1][1].decode("utf-8")
         except UnicodeError as exc:
             return None, None, f"protected Playground Skill is not UTF-8: {exc}"
-        if (
-            engineer.name != "Chemistry Playground Bounded Hypothesis Probe"
-            or engineer.category != "chemistry-playground"
-            or not is_protected_skill(engineer)
-            or reviewer.name != "Chemistry Playground Promotion Gate"
-            or reviewer.category != "chemistry-playground-review"
-            or not is_protected_skill(reviewer)
-        ):
-            return None, None, "protected Playground Skill snapshot is invalid"
-        return engineer, reviewer, ""
+        return snapshots[0][0], snapshots[1][0], ""
 
     def execute(
         self,
@@ -542,10 +525,6 @@ class SkillLoopExecuteMixin:
                 if max_rounds_override is not None
                 else args.max_rounds
             ),
-            "skill_ops_enabled": _env_flag(
-                "ARGUS_SKILL_SKILL_OPS",
-                default=True,
-            ),
             "wiki_enabled": _env_flag(
                 "ARGUS_SKILL_WIKI",
                 default=True,
@@ -553,14 +532,6 @@ class SkillLoopExecuteMixin:
             "auto_init_wiki": _env_flag(
                 "ARGUS_SKILL_AUTO_INIT_WIKI",
                 default=True,
-            ),
-            "auto_compact_enabled": _env_flag(
-                "ARGUS_SKILL_AUTO_COMPACT",
-                # Compaction is an explicit maintenance operation, not part of
-                # every mission close. Per-mission sweeps scale with the entire
-                # shared library and historically regenerated/archived the same
-                # duplicates in a costly loop.
-                default=False,
             ),
             "dangerous_yolo": not safe_mode,
             "full_auto": safe_mode,
@@ -684,17 +655,22 @@ class SkillLoopExecuteMixin:
             from ..skills.vertical_select import resolve_skill_scope
 
             active_skill_scope = resolve_skill_scope(workdir)
+            explicit_project_skills = str(
+                os.environ.get("ARGUS_SKILL_PROJECT_SKILLS_DIR", "") or ""
+            ).strip()
+            project_skills_dir = (
+                Path(explicit_project_skills)
+                if explicit_project_skills
+                else Path(project_state_dir) / "skills"
+            )
 
             skill_store = LayeredSkillStore(
-                project_dir=Path(project_state_dir) / "skills",
+                project_dir=project_skills_dir,
                 global_dir=global_skills_dir,
                 vertical_dir=shared_skill_scope_dir(
                     global_skills_dir,
                     active_skill_scope,
                 ),
-                runner=engineer_backend,
-                matcher_model=config.resolved_matcher_model(),
-                matcher_reasoning_effort=config.matcher_reasoning_effort,
             )
         ex_state.loop = self._SkillLoop(
             skills_dir=global_skills_dir,
@@ -860,7 +836,7 @@ class SkillLoopExecuteMixin:
             canonical_playground_reviewer,
             canonical_skill_error,
         ) = self._playground_skills_from_snapshots(skill_snapshots)
-        expected_playground_digest = self._canonical_playground_skill_digest(
+        expected_playground_path = self._canonical_playground_skill_path(
             skill_snapshots
         )
         try:
@@ -871,7 +847,7 @@ class SkillLoopExecuteMixin:
             if (
                 skill_snapshot_error
                 or canonical_skill_error
-                or not expected_playground_digest
+                or not expected_playground_path
             ):
                 raise RuntimeError(
                     "refused before execution: "
@@ -920,18 +896,11 @@ class SkillLoopExecuteMixin:
                 if not playground_claimed:
                     return status, final_message, reason
                 self._suppress_playground_settlement(state)
-                from ..skills.skill_router import is_protected_skill
-                from ..skills.store import skill_content_digest
-
                 ex_state.playground_workflow_guarded = True
                 ex_state.trusted_playground_workflow = bool(
                     skill is not None
-                    and getattr(state, "strict_skill_hit", False)
-                    and not getattr(state, "nearest_transfer_fallback", False)
-                    and not getattr(state, "skill_distilled", False)
-                    and is_protected_skill(skill)
-                    and expected_playground_digest
-                    and skill_content_digest(skill) == expected_playground_digest
+                    and expected_playground_path
+                    and str(getattr(skill, "path", "")) == expected_playground_path
                 )
                 changed, isolation_reason, restoration_ok = (
                     self._restore_playground_boundaries(
@@ -989,7 +958,7 @@ class SkillLoopExecuteMixin:
             )
             ex_state.trusted_playground_workflow = self._trusted_playground_workflow(
                 ex_state.outcome,
-                expected_digest=expected_playground_digest,
+                expected_path=expected_playground_path,
             )
             ex_state.playground_workflow_guarded = playground_claimed
             if playground_claimed:
@@ -1188,8 +1157,6 @@ class SkillLoopExecuteMixin:
             stop_kind=ex_state.effective_stop_kind,
             recoverable=ex_state.effective_recoverable,
             rounds=outcome.round_count,
-            matched_skill_name=outcome.skill_used,
-            skill_distilled=outcome.skill_distilled,
             last_thread_id=ex_state.new_tid,
             auth_failure=ex_state.auth_fail,
             final_submission_certified=ex_state.final_submission_certified,
@@ -1204,34 +1171,20 @@ class SkillLoopExecuteMixin:
         )
 
     @staticmethod
-    def _canonical_playground_skill_digest(
+    def _canonical_playground_skill_path(
         snapshots: tuple[tuple[Path, bytes], ...],
     ) -> str:
-        try:
-            if not snapshots:
-                return ""
-            from ..skills.store import Skill, skill_content_digest
-
-            expected_skill = Skill.parse(
-                snapshots[0][1].decode("utf-8"),
-                str(snapshots[0][0]),
-            )
-            return skill_content_digest(expected_skill)
-        except (UnicodeError, RuntimeError, ValueError):
-            return ""
+        """Compatibility marker: use the semantic source path, never a digest."""
+        return str(snapshots[0][0]) if snapshots else ""
 
     @staticmethod
     def _playground_workflow_claimed(outcome: object) -> bool:
         extras = getattr(outcome, "extras", {})
-        skill_used = str(getattr(outcome, "skill_used", "") or "")
-        category = (
-            str(extras.get("skill_category") or "")
-            if isinstance(extras, dict)
-            else ""
-        )
-        return (
-            skill_used == "Chemistry Playground Bounded Hypothesis Probe"
-            or category == "chemistry-playground"
+        return bool(
+            isinstance(extras, dict)
+            and str(extras.get("skill_path") or "").endswith(
+                "/chemistry-playground.md"
+            )
         )
 
     @classmethod
@@ -1239,20 +1192,13 @@ class SkillLoopExecuteMixin:
         cls,
         outcome: object,
         *,
-        expected_digest: str,
+        expected_path: str,
     ) -> bool:
         if not cls._playground_workflow_claimed(outcome):
             return False
         extras = getattr(outcome, "extras", {})
-        if (
-            not isinstance(extras, dict)
-            or bool(getattr(outcome, "skill_distilled", False))
-            or extras.get("skill_match_strict") is not True
-            or extras.get("skill_nearest_transfer_fallback") is True
-            or extras.get("skill_protected") is not True
-            or extras.get("skill_category") != "chemistry-playground"
-        ):
+        if not isinstance(extras, dict):
             return False
-        return bool(expected_digest) and (
-            str(extras.get("skill_digest") or "") == expected_digest
+        return bool(expected_path) and (
+            str(extras.get("skill_path") or "") == expected_path
         )

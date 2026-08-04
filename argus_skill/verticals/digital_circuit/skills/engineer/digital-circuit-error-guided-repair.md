@@ -1,8 +1,6 @@
 ---
-name: Digital Circuit Error-Guided Repair
-description: Classify RTL failures, choose the smallest evidence-supported repair strategy, and preserve cumulative correctness across a fixed iteration budget.
-category: digital-hardware-engineering
-version: 1
+name: "Digital Circuit Error-Guided Repair"
+description: "Classify RTL failures, choose the smallest evidence-supported repair strategy, and preserve cumulative correctness across a fixed iteration budget."
 ---
 
 # Digital Circuit Error-Guided Repair

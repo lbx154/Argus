@@ -24,7 +24,7 @@ codex (see `required_codex_routes`). 中文：有 Copilot 订阅就可以整套�
 
 ```bash
 # one switch routes every role (engineer/reviewer/planner/manager/curator,
-# and the matcher/distiller that ride on them) to the copilot CLI:
+# to the copilot CLI (Skill discovery is performed directly by each Agent):
 export ARGUS_SKILL_RUNNER_BACKEND=copilot
 
 # optional: pin one role to a different backend, e.g. reviewer back on codex:

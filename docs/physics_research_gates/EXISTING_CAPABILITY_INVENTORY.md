@@ -11,15 +11,14 @@ replace it; the new `CapabilityRegistry` sits alongside it.
 
 | Component | Path | What it is |
 |---|---|---|
-| `SkillStore` | `argus_skill/skills/store.py` | markdown+YAML skills; `list_summaries` / `load` / `find_relevant` (LLM matcher) / `save`; versioning; `protected` governing skills |
+| `SkillStore` | `argus_skill/skills/store.py` | path-only semantic Markdown library; Agents search/read files directly; no parser or matcher |
 | `LayeredSkillStore` | `argus_skill/skills/layered.py` | project+global composition, `promote_to_global` |
-| role matcher | `argus_skill/skills/role_match.py`, `missions.py` | `match_role_skills` → prompt block per role |
+| role library discovery | `argus_skill/skills/role_library.py`, `missions.py` | supplies semantic library paths; each Agent searches independently |
 | skill mutations | `argus_skill/skills/skill_router.py`, `evolution.py`, `lifecycle.py` | validated create/update/archive; protected-category guard |
 | bundled skills | `argus_skill/builtin_skills/` (engineer/reviewer/planner/manager/curator) | version-controlled role playbooks |
 | global skills dir | `$ARGUS_SKILL_HOME/skills` (`core/paths.py::shared_skills_root`) | learned skills |
 
-Skill schema (frontmatter): `name, description, category, version, created_at,
-skill_id, successful_reuses, failed_reuses, task_history, protected`.
+Skill schema (frontmatter): `name, description` only, followed by Markdown.
 
 ## 2. Distilled physics capability library (the ~200-paper distillation, reused read-only)
 

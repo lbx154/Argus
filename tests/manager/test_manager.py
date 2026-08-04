@@ -772,19 +772,19 @@ def test_manager_owns_chat_vs_task_decision():
     ) is False
 
 
-# ---- F6: pure classification must NOT fire the skill matcher ----------------
+# ---- Classification may omit library paths; no matcher exists --------------
 
 class _CountingMission:
-    """Stand-in ManagerMission that counts matcher calls (the LLM burn F6 cuts)."""
+    """Stand-in ManagerMission that counts path-discovery calls."""
     def __init__(self) -> None:
         self.calls = 0
 
-    def match(self, objective: str):
+    def libraries(self):
         self.calls += 1
 
-        class _M:
-            block = ""
-        return _M()
+        class _Libraries:
+            block = "## Skill libraries\n- `/semantic/library`"
+        return _Libraries()
 
 
 def _mgr_with_store(tmp_path):
@@ -793,18 +793,23 @@ def _mgr_with_store(tmp_path):
     return mgr
 
 
-def test_role_skill_block_match_false_still_injects_fixed_role(tmp_path):
+def test_role_skill_block_can_omit_libraries_for_classification(tmp_path):
     mgr = _mgr_with_store(tmp_path)
-    block = mgr._role_skill_block("optimize a CUDA kernel", match=False)
-    assert block.strip()                       # fixed role identity still injected
+    block = mgr._role_skill_block(
+        "optimize a CUDA kernel", include_libraries=False
+    )
+    assert block.strip()
     assert "manager" in block.lower()
-    assert mgr.mission.calls == 0              # matcher NEVER called
+    assert mgr.mission.calls == 0
 
 
-def test_role_skill_block_match_true_fires_matcher(tmp_path):
+def test_role_skill_block_exposes_paths_without_matching(tmp_path):
     mgr = _mgr_with_store(tmp_path)
-    mgr._role_skill_block("optimize a CUDA kernel", match=True)
-    assert mgr.mission.calls == 1             # default path still matches
+    block = mgr._role_skill_block(
+        "optimize a CUDA kernel", include_libraries=True
+    )
+    assert "/semantic/library" in block
+    assert mgr.mission.calls == 1
 
 
 def test_route_does_not_fire_matcher(tmp_path):

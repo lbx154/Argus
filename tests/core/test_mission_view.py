@@ -276,8 +276,7 @@ def test_snapshot_discovers_project_skill_and_attributes_mission(
 
     assert view["learned_skills"] == [{
         "id": "measured-repair",
-        "name": "Measured repair",
-        "version": 1,
+        "name": "measured-repair",
         "scope": "project",
         "path": str(skill_path),
         "status": "active",

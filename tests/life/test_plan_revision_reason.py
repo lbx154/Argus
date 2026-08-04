@@ -18,8 +18,6 @@ def test_loop_outcome_exposes_final_reviewer_reason() -> None:
     outcome = LoopOutcome(
         status="replan_requested",
         rounds=[RoundRecord(1, "", 0, review)],
-        skill_used=None,
-        skill_distilled=False,
         final_message="",
         reason="",
         workdir="/tmp",

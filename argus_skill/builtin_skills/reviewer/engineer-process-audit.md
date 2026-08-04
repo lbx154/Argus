@@ -1,9 +1,6 @@
 ---
-name: Engineer Process Audit
-description: Audit the engineer's EXECUTION LOG (events.jsonl) by grep to verify PROCESS correctness, not just whether the final artifact matches the checklist. Catches hardcoded answers, skipped steps, cheat methods (use_attach, fabricated metrics, bypassed evaluators), and commands that contradict the claimed method. Use when the result is suspicious, surprisingly good, or a checklist item can't be independently verified from the produced files.
-category: reviewer
-version: 1
-created_at: 2026-06-26T00:00:00+00:00
+name: "Engineer Process Audit"
+description: "Audit the engineer's EXECUTION LOG (events.jsonl) by grep to verify PROCESS correctness, not just whether the final artifact matches the checklist. Catches hardcoded answers, skipped steps, cheat methods (use_attach, fabricated metrics, bypassed evaluators), and commands that contradict the claimed method. Use when the result is suspicious, surprisingly good, or a checklist item can't be independently verified from the produced files."
 ---
 
 # Engineer Process Audit

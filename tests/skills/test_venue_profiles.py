@@ -9,10 +9,8 @@ from argus_skill.skills.venue_profiles import (
     AAAI_PROFILE,
     EMNLP_PROFILE,
     FRONTIERS_SLEEP_PROFILE,
-    cross_venue_excluded_skill_files,
     get_venue_profile,
     resolve_venue_profile,
-    venue_excluded_skill_files,
 )
 
 
@@ -101,50 +99,3 @@ def test_env_override_wins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     _write_state(tmp_path, {"current_stage": "plan", "target_venue": "EMNLP"})
     monkeypatch.setenv("ARGUS_SKILL_VENUE", "aaai")
     assert resolve_venue_profile(tmp_path) is AAAI_PROFILE
-
-
-def test_cross_venue_exclusion_hides_other_venue_skills() -> None:
-    # An EMNLP project hides the AAAI siblings; an AAAI project hides the EMNLP ones.
-    emnlp_excl = cross_venue_excluded_skill_files(EMNLP_PROFILE)
-    aaai_excl = cross_venue_excluded_skill_files(AAAI_PROFILE)
-    assert emnlp_excl == {
-        "aaai-paper-drafting.md",
-        "aaai-format-preflight.md",
-        "aaai-paper-skill-router.md",
-        "aaai-academic-language-review.md",
-    }
-    assert aaai_excl == {
-        "emnlp-paper-drafting.md",
-        "emnlp-format-preflight.md",
-        "emnlp-paper-skill-router.md",
-        "emnlp-academic-language-review.md",
-    }
-    # Venue-neutral skills (e.g. infrastructure review) are never excluded.
-    assert not any("infrastructure" in f for f in emnlp_excl | aaai_excl)
-
-
-def test_venue_excluded_skill_files_resolves_from_project(tmp_path: Path) -> None:
-    _write_state(tmp_path, {"target_venue": "AAAI"})
-    excl = venue_excluded_skill_files(tmp_path)
-    assert "emnlp-paper-drafting.md" in excl
-    assert "aaai-paper-drafting.md" not in excl
-    # Unresolved venue excludes all venue-specific siblings.
-    _write_state(tmp_path / "e", {})
-    unresolved = venue_excluded_skill_files(tmp_path / "e")
-    assert "aaai-paper-drafting.md" in unresolved
-    assert "emnlp-paper-drafting.md" in unresolved
-
-
-def test_venue_skill_files_resolve_to_real_builtin_skills() -> None:
-    # Guards against rename drift: if a venue skill .md is renamed without
-    # updating venue_skill_files, the cross-venue exclusion silently becomes a
-    # no-op. Assert every listed basename exists as a real built-in skill file.
-    from argus_skill.skills.builtins import iter_builtin_skill_texts
-
-    on_disk = {Path(p).name for p, _ in iter_builtin_skill_texts()}
-    for profile in (EMNLP_PROFILE, AAAI_PROFILE, FRONTIERS_SLEEP_PROFILE):
-        for fname in profile.venue_skill_files:
-            assert fname in on_disk, (
-                f"{profile.key} venue_skill_files lists {fname!r} but no such "
-                "builtin skill exists — the matcher exclusion would be a no-op"
-            )

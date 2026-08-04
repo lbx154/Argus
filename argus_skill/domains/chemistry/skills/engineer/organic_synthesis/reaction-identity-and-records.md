@@ -1,8 +1,6 @@
 ---
-name: Organic Reaction Identity and Records
-description: Normalize organic reaction components, mapping, stoichiometry, stereochemistry, conditions, workup, and yields for route or dataset work; excludes biochemical assays and materials processing.
-category: chemistry-organic-reaction-data
-version: 1
+name: "Organic Reaction Identity and Records"
+description: "Normalize organic reaction components, mapping, stoichiometry, stereochemistry, conditions, workup, and yields for route or dataset work; excludes biochemical assays and materials processing."
 ---
 
 ## When to use
