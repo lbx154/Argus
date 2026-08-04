@@ -142,7 +142,7 @@ def test_classify_prompt_asks_chat_or_task() -> None:
 
 def test_build_chat_prompt_names_the_worker_and_guards_identity() -> None:
     out = build_chat_prompt(objective="你好")
-    from argus_skill.cli.roles_status import runner_backend_label
+    from argus_skill.core.role_config import runner_backend_label
 
     assert "You are Argus Manager" in out
     assert f"{runner_backend_label()} worker" in out
@@ -172,7 +172,7 @@ def test_build_simple_prompt_is_minimal() -> None:
     out = build_simple_prompt(objective="17*23=?")
     assert "17*23" in out
     assert "Argus Manager" in out
-    from argus_skill.cli.roles_status import runner_backend_label
+    from argus_skill.core.role_config import runner_backend_label
 
     assert f"{runner_backend_label()} worker" in out
     assert "Answer and act as Argus Manager" in out

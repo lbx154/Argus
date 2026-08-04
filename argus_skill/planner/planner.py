@@ -119,11 +119,6 @@ class PlannerVerdict:
     # later. ``project_done`` stays False; ``new_tasks`` stays empty.
     waiting: bool = False
     waiting_reason: str = ""
-    # The Planner OWNS the per-stage checklist. ``checklist_ops`` carries the
-    # add/modify/remove/seed edits it authored this cycle; ``plan_next`` applies
-    # them to the per-project checklist store after the verdict is parsed. Empty
-    # for a cycle that did not touch the checklist (back-compat default).
-    checklist_ops: list[dict] = field(default_factory=list)
     waiting_contract: WaitingContract | None = None
 
 

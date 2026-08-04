@@ -65,26 +65,6 @@ def test_hr_with_label_is_centered() -> None:
     assert len(out) == 30
 
 
-def test_left_box_only_has_left_border() -> None:
-    theme = Theme(enabled=False, width=80)
-    lines = theme.left_box(["line one", "line two"], title="hdr").splitlines()
-    assert lines[0].startswith(BOX["left_top"])
-    assert "hdr" in lines[0]
-    for body in lines[1:-1]:
-        assert body.startswith(BOX["v"])
-        assert not body.rstrip().endswith(BOX["v"])
-    assert lines[-1].startswith(BOX["left_bot"])
-
-
-def test_left_box_handles_cjk_content() -> None:
-    out = Theme(enabled=False).left_box(
-        ["在 /tmp/argus 创建 word_freq.py"],
-        title="status",
-    )
-    assert "word_freq.py" in out
-    assert "创建" in out
-
-
 def test_truecolor_off_by_default_keeps_8color() -> None:
     theme = Theme(enabled=True)
     assert theme.truecolor is False

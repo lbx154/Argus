@@ -3,6 +3,7 @@ project_done deferred by the EMNLP/paper completion gate just because the raw
 config flag defaults True. The gate the supervisor consults must be the
 vertical-effective one. (Careful-hunt finding; roadmap #3-core.)
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -10,7 +11,6 @@ from types import SimpleNamespace
 
 from argus_skill.life.memory import BacklogItem
 from argus_skill.life.supervisor._core import LifeSupervisor
-from argus_skill.skills import checklist_store as cs
 from argus_skill.verticals import _data_domain as dd
 
 
@@ -79,12 +79,6 @@ def test_persisted_bounded_data_domain_disables_emnlp_gate(
         '{"current_stage": "profile", "vertical": "perf_tuning"}\n',
         encoding="utf-8",
     )
-    cs.apply_checklist_ops(tmp_path, [
-        {"op": "add", "stage": "profile", "id": "profile.ground_truth",
-         "statement": "measure ground truth"},
-        {"op": "add", "stage": "report", "id": "report.final",
-         "statement": "write the bounded report"},
-    ])
 
     sup = LifeSupervisor.__new__(LifeSupervisor)
     sup.config = SimpleNamespace(full_paper_gate=True)
@@ -136,12 +130,6 @@ def test_tick_skips_inapplicable_final_submission_for_bounded_domain(
         '{"current_stage": "profile", "vertical": "perf_tuning"}\n',
         encoding="utf-8",
     )
-    cs.apply_checklist_ops(tmp_path, [
-        {"op": "add", "stage": "profile", "id": "profile.ground_truth",
-         "statement": "measure ground truth"},
-        {"op": "add", "stage": "report", "id": "report.final",
-         "statement": "write the bounded report"},
-    ])
     item = BacklogItem.new(
         title="Prove final submission readiness",
         objective="Project-final task. Scope: final_submission.",
@@ -167,9 +155,7 @@ def test_tick_skips_inapplicable_final_submission_for_bounded_domain(
     sup._emit = lambda event: updates.append({"event": event})  # type: ignore[method-assign]
     sup._emit_status = lambda status: updates.append({"status": status})  # type: ignore[method-assign]
     sup.runner = SimpleNamespace(
-        execute=lambda **_kwargs: (_ for _ in ()).throw(
-            AssertionError("runner must not be called")
-        )
+        execute=lambda **_kwargs: (_ for _ in ()).throw(AssertionError("runner must not be called"))
     )
 
     result = sup.tick()

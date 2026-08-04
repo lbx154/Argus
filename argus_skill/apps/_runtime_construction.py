@@ -24,7 +24,6 @@ from ..core.ports import EventSink
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ._env import env_int as _env_int
 from ._runtime_backends import _MemoryRunner, _ScriptedPlannerBackend
-from ._runtime_helpers import _SplitMemory
 
 log = logging.getLogger(__name__)
 
@@ -475,75 +474,6 @@ class _RunnerConstructionMixin:
                 except Exception:  # noqa: BLE001
                     pass
         return failed
-
-
-def _format_daemon_mode_cell(theme, mem: _SplitMemory) -> str:  # noqa: ANN001
-    """Banner ``executor`` cell — the honest one-line daemon state.
-
-    Shows ``life ● daemon: pid X · up Y · draining`` when a 7×24 worker is
-    draining this project's backlog, or ``life · no daemon`` when not. Only the
-    daemon drains the backlog; the operator front-end never executes missions.
-
-    Uses the plain ``●`` status dot (as everywhere else — /roles, /daemons),
-    NOT an emoji: a lightning/gear/etc. emoji has East-Asian *ambiguous/wide*
-    width and desyncs column math next to the CJK text on this line, producing
-    the "字符错位" corruption the tui glyph test guards against.
-    """
-    try:
-        from ..daemon.life_worker import read_daemon_status
-        from .cli._core import _format_short_duration
-
-        status = read_daemon_status(mem.project.root)
-    except Exception:  # noqa: BLE001
-        return (
-            f"{theme.bold('life')}    "
-            + theme.yellow("no daemon")
-            + theme.dim(" — tasks queue until `argus-skill --daemon`")
-        )
-    if status.alive and status.pid is not None:
-        uptime = _format_short_duration(status.uptime_seconds or 0.0)
-        body = (
-            f"{theme.bold('life')}  "
-            + theme.bold_green("● daemon")
-            + theme.dim(f": pid {status.pid} · up {uptime} · draining")
-        )
-        return body
-    return (
-        f"{theme.bold('life')}    "
-        + theme.yellow("no daemon")
-        + theme.dim("  — tasks queue until you start one (`argus-skill --daemon`)")
-    )
-
-
-def _codex_preflight_warning() -> str | None:
-    """Return a one-line warning if the configured runner backend's CLI
-    cannot run, else None.
-
-    Surfaced on the banner so the user does not discover at mission time
-    that the bundled agent_cli runtime or the configured CLI binary are
-    missing. Best-effort: if anything raises we stay quiet — a confusing
-    warning is worse than no warning, and the real failure path
-    (``_SkillLoopRunner``) will print a precise error when a mission
-    actually starts.
-    """
-    try:
-        from ..adapters.agent_cli_backend._runtime import load_agent_cli_runtime
-    except ImportError:
-        return "bundled agent_cli module not importable — reinstall argus-skill"
-    try:  # noqa: SIM105
-        load_agent_cli_runtime()
-    except Exception:  # noqa: BLE001
-        return "bundled agent_cli failed to load — check the argus-skill install"
-    from ..core.backend_readiness import check_backend_readiness
-
-    readiness = check_backend_readiness(
-        probe_auth=False,
-        probe_vault=False,
-    )
-    if not readiness.ok:
-        problem = readiness.problems[0]
-        return f"{problem.detail} — {problem.remediation}"
-    return None
 
 
 def _inbox_drainer_for(

@@ -33,10 +33,10 @@ Manager 和 Planner 必须把其余负结果用于诊断与重规划，不能把
 差异永远不能触发 `continue` / `blocked` / `replan_requested`。语义裁决必须基于直接内容、
 结构化字段、时间、命令/测试输出、指标和人类可读 provenance。
 
-**Checklist ownership:** vertical/framework 提供 seed；Planner 通过
-`checklist_ops` 独占项目 checklist 写权限；Reviewer 只有 `checklist_feedback`；Engineer
-不得用 harness overlay 增删 checklist。`research/CHECKLISTS.json` 必须带 vertical，和当前
-项目 vertical 不一致时完全忽略。
+**Checklist ownership:** vertical/framework 提供当前 checklist；Reviewer 在普通 verdict
+中报告问题，Planner/Manager 通过后续任务修复源 contract。当前运行时不提供
+`checklist_ops` 写通道；历史 `research/CHECKLISTS.json` 仅作只读兼容，必须带 vertical，
+和当前项目 vertical 不一致时完全忽略。
 
 **Math judgment:** Reviewer 直接判断问题、实际数学结果与论证，不按过程文件验收。只有
 在声明 novelty 或目标确实依赖 novelty 时才做相称的一手来源检查；不强制独立审计节点、

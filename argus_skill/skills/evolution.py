@@ -43,19 +43,6 @@ def collect_skill_ops(rounds: list[RoundRecord]) -> list[dict[str, Any]]:
     return ops
 
 
-def apply_skill_ops(
-    skill_router: Any,
-    rounds: list[RoundRecord],
-    *,
-    task: str,
-    on_event: EventSink = None,
-) -> dict[str, int]:
-    ops = collect_skill_ops(rounds)
-    if not ops:
-        return {"created": 0, "updated": 0, "archived": 0, "rejected": 0}
-    return skill_router.apply_ops(ops, task=task, on_event=on_event)
-
-
 def _store_snapshot(skill_store: Any) -> dict[str, Any]:
     project = getattr(skill_store, "project", None)
     global_store = getattr(skill_store, "global_", None)
@@ -175,7 +162,6 @@ def evolve_skills_after_mission(
 
 
 __all__ = [
-    "apply_skill_ops",
     "collect_skill_ops",
     "evolve_skills_after_mission",
 ]

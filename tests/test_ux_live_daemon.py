@@ -1,10 +1,5 @@
-"""UX-B: surface a live daemon + --continue prefers it + honest executor line.
+"""A fresh session must prefer an existing live-daemon session."""
 
-A fresh session must never bury the operator's actually-running daemon. These
-pin: live_daemon_sessions detection, --continue preferring a live-daemon session
-over a more-recent empty one, and the honest "no daemon — tasks queue" banner
-wording (no more misleading "in-process").
-"""
 from __future__ import annotations
 
 import os
@@ -33,8 +28,8 @@ def _make_session_with_daemon(gr: Path, sid: str, now: float, *, pid: int | None
 
 def test_live_daemon_sessions_detects_live_pid(tmp_path):
     _make_session_with_daemon(tmp_path, "s-live0001", 100, pid=os.getpid())  # alive
-    _make_session_with_daemon(tmp_path, "s-dead0002", 200, pid=999999)        # dead pid
-    _make_session_with_daemon(tmp_path, "s-none0003", 300, pid=None)          # no daemon
+    _make_session_with_daemon(tmp_path, "s-dead0002", 200, pid=999999)  # dead pid
+    _make_session_with_daemon(tmp_path, "s-none0003", 300, pid=None)  # no daemon
     live = live_daemon_sessions(tmp_path)
     ids = [s.id for s in live]
     assert "s-live0001" in ids
@@ -56,47 +51,3 @@ def test_continue_falls_back_to_most_recent_when_none_live(tmp_path):
     _make_session_with_daemon(tmp_path, "s-new0002", 500, pid=None)
     sid, _ = resolve_session(global_root=tmp_path, mode="continue")
     assert sid == "s-new0002"  # plain most-recent when nothing is live
-
-
-# ---- T7: honest executor wording ----------------------------------------
-
-class _Theme:
-    def bold(self, s): return s
-    def bold_green(self, s): return s
-    def yellow(self, s): return s
-    def dim(self, s): return s
-    def gray(self, s): return s
-    def cyan(self, s): return s
-
-
-class _Proj:
-    def __init__(self, root): self.root = root
-
-
-class _Mem:
-    def __init__(self, root): self.project = _Proj(root)
-
-
-def test_daemon_mode_cell_no_daemon_is_honest(tmp_path):
-    from argus_skill.apps._runtime import _format_daemon_mode_cell
-
-    cell = _format_daemon_mode_cell(_Theme(), _Mem(tmp_path))
-    assert "no daemon" in cell
-    assert "queue" in cell  # tells the user tasks queue until --daemon
-    assert "in-process" not in cell  # the old misleading wording is gone
-
-
-def test_daemon_mode_cell_uses_no_ambiguous_width_emoji():
-    """Regression: the banner daemon cell must use the plain ``●`` status dot,
-    NOT an emoji (⚡ ⚙ 💭 ❓ 🚀 …). Emoji have East-Asian ambiguous/wide width and
-    corrupt this tightly-packed status line's column math next to CJK text — the
-    exact "字符错位" class the tui glyph test guards against, which slipped into
-    the alive branch here."""
-    import inspect
-
-    from argus_skill.apps import _runtime
-
-    source = inspect.getsource(_runtime._format_daemon_mode_cell)
-    for glyph in ("⚡", "⚙", "💭", "❓", "🚀", "▸"):
-        assert glyph not in source, f"banned glyph {glyph!r} in daemon-cell renderer"
-    assert "● daemon" in source  # the safe indicator, consistent with /roles

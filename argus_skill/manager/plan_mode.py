@@ -13,7 +13,6 @@ This module is deliberately thin and self-contained:
   an ordered plan and parse it. Failures are surfaced explicitly in the
   returned :class:`Plan`; the cockpit stays alive, but it does NOT silently
   invent a fake one-step plan.
-* :func:`render_plan` — pretty, scannable multi-line text (numbered steps + notes).
 * :func:`parse_plan_text` — the pure, unit-testable parser (no live model). Accepts
   JSON (list of steps, or an object with a ``steps`` key) and a numbered/bulleted
   list fallback; returns ``[]`` on garbage so the caller can surface the draft
@@ -428,67 +427,6 @@ def draft_plan(
     return Plan(objective=objective, steps=steps, notes=notes)
 
 
-# ---------------------------------------------------------------------------
-# Rendering
-# ---------------------------------------------------------------------------
-
-def _style(theme: Any, name: str, text: str) -> str:
-    """Apply a theme color method if available; plain text otherwise (fail-soft)."""
-    if theme is None:
-        return text
-    fn = getattr(theme, name, None)
-    if not callable(fn):
-        return text
-    try:
-        return str(fn(text))
-    except Exception:  # noqa: BLE001 — styling is cosmetic, never break rendering
-        return text
-
-
-def render_plan(plan: Plan, theme: Any = None) -> str:
-    """Render a :class:`Plan` as pretty, scannable multi-line text.
-
-    Numbered steps with an indented one-line detail, then an optional Notes
-    block. ``theme`` is an optional :class:`cli.theme.Theme`; when omitted (or a
-    method is missing) the output degrades to plain text. Never raises.
-    """
-    try:
-        steps = list(getattr(plan, "steps", []) or [])
-        notes = list(getattr(plan, "notes", []) or [])
-        objective = str(getattr(plan, "objective", "") or "").strip()
-
-        lines: list[str] = []
-        header = f"Plan · {objective}" if objective else "Plan"
-        lines.append(_style(theme, "bold", header))
-
-        if not steps:
-            error = str(getattr(plan, "error", "") or "").strip()
-            if error:
-                lines.append("  " + _style(theme, "red", f"draft failed: {error}"))
-            else:
-                lines.append("  " + _style(theme, "gray", "(no steps)"))
-        for i, step in enumerate(steps, 1):
-            title = str(getattr(step, "title", "") or "").strip()
-            detail = str(getattr(step, "detail", "") or "").strip()
-            num = _style(theme, "cyan", f"{i:>2}.")
-            lines.append(f"  {num} {_style(theme, 'bold', title)}")
-            if detail:
-                lines.append("      " + _style(theme, "gray", detail))
-
-        if notes:
-            lines.append("")
-            lines.append(_style(theme, "gray", "Notes:"))
-            for note in notes:
-                lines.append("  " + _style(theme, "dim", f"- {str(note).strip()}"))
-
-        return "\n".join(lines)
-    except Exception:  # noqa: BLE001 — rendering must never crash the cockpit
-        try:
-            return f"Plan · {plan.objective}"
-        except Exception:  # noqa: BLE001
-            return "Plan"
-
-
 __all__ = [
     "PlanStep",
     "Plan",
@@ -496,5 +434,4 @@ __all__ = [
     "parse_plan_notes",
     "build_plan_prompt",
     "draft_plan",
-    "render_plan",
 ]

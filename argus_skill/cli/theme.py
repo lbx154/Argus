@@ -81,13 +81,7 @@ def supports_truecolor() -> bool:
 
 # ── Box-drawing constants (always plain Unicode, no ANSI) ─────────────────
 
-BOX = {
-    "h": "─",
-    "v": "│",
-    "left_top": "┌",
-    "left_bot": "└",
-    "left_mid": "├",
-}
+BOX = {"h": "─"}
 
 
 # ── Theme ─────────────────────────────────────────────────────────────────
@@ -204,29 +198,6 @@ class Theme:
         side = max(3, (w - len(pad)) // 2)
         line = BOX["h"] * side + pad + BOX["h"] * (w - side - len(pad))
         return self.dim(line[:w])
-
-    def left_box(self, lines: list[str], *, title: str | None = None) -> str:
-        """Render ``lines`` with a left-side box decoration only.
-
-        Skips a right border so CJK / emoji width quirks don't break
-        alignment. The first line gets ``┌─`` if ``title`` is given,
-        else nothing special; the last line gets ``└─``.
-
-        ::
-
-            ┌─ status header
-            │  body line 1
-            │  body line 2
-            └─
-        """
-        out: list[str] = []
-        bar = self.dim(BOX["v"]) + "  "
-        if title is not None:
-            out.append(self.dim(BOX["left_top"] + BOX["h"] + " ") + title)
-        for ln in lines:
-            out.append(bar + ln)
-        out.append(self.dim(BOX["left_bot"] + BOX["h"]))
-        return "\n".join(out)
 
 
 def default_theme() -> Theme:

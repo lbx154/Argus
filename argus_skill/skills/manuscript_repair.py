@@ -1,17 +1,8 @@
-"""Persisted manuscript-stage repair context.
+"""Read and render legacy manuscript-stage repair context.
 
-When a vertical's deterministic manuscript verifier fails, its repair workflow
-records the exact failure list here so that:
-
-* the next manuscript-stage agent round receives the failures verbatim (the
-  physics ``role_banner`` embeds :func:`render_repair_block` when this file
-  exists), and
-* a stall — no drop in the failure count across consecutive rounds — can be
-  detected and reported BLOCKED instead of spinning to the mission timeout.
-
-The state lives in a SEPARATE file (``research/MANUSCRIPT_REPAIR.json``), never in
-the Manager-owned ``PIPELINE_STATE.json``, so stage authority is untouched. This
-module is discipline-agnostic; it only ever stores an opaque failure-string list.
+Current missions no longer write ``MANUSCRIPT_REPAIR.json``. The read path is
+retained so projects created by older releases still surface their exact pending
+failures to the physics role banner.
 """
 from __future__ import annotations
 
@@ -20,10 +11,6 @@ from pathlib import Path
 
 #: Repair-context file, relative to the project root.
 REPAIR_REL = "research/MANUSCRIPT_REPAIR.json"
-
-#: Consecutive rounds without a drop in the failure count before we call it stalled.
-STALL_THRESHOLD = 2
-
 
 def _path(project_root: object) -> Path:
     return Path(str(project_root or ".")) / REPAIR_REL
@@ -36,59 +23,6 @@ def read_repair_state(project_root: object) -> dict | None:
     except (OSError, ValueError):
         return None
     return data if isinstance(data, dict) else None
-
-
-def update_repair_state(
-    project_root: object,
-    failures: list[str],
-    *,
-    now_iso: str | None = None,
-) -> dict:
-    """Record a failing terminal-gate round and return the new state.
-
-    Tracks ``round``, ``prev_failure_count``, ``failure_count`` and a
-    ``no_drop_streak``; sets ``stalled`` once the count has failed to drop for
-    :data:`STALL_THRESHOLD` consecutive rounds.
-    """
-    prev = read_repair_state(project_root)
-    count = len(failures)
-    if prev is None:
-        rnd, prev_count, no_drop = 1, None, 0
-    else:
-        rnd = int(prev.get("round", 0) or 0) + 1
-        prev_count = prev.get("failure_count")
-        no_drop = int(prev.get("no_drop_streak", 0) or 0)
-        if isinstance(prev_count, int) and count >= prev_count:
-            no_drop += 1
-        else:
-            no_drop = 0
-    stalled = no_drop >= STALL_THRESHOLD
-    state: dict = {
-        "kind": "manuscript",
-        "round": rnd,
-        "prev_failure_count": prev_count,
-        "failure_count": count,
-        "no_drop_streak": no_drop,
-        "stalled": stalled,
-        "status": "manuscript_repair_stalled" if stalled else "manuscript_repair_required",
-        "failures": list(failures),
-    }
-    if now_iso:
-        state["updated_utc"] = now_iso
-    p = _path(project_root)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_name(p.name + ".tmp")
-    tmp.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
-    tmp.replace(p)
-    return state
-
-
-def clear_repair_state(project_root: object) -> None:
-    """Remove the repair context (called once the verifier passes)."""
-    try:
-        _path(project_root).unlink()
-    except OSError:
-        pass
 
 
 def render_repair_block(state: dict | None) -> str:
@@ -121,9 +55,6 @@ def render_repair_block(state: dict | None) -> str:
 
 __all__ = [
     "REPAIR_REL",
-    "STALL_THRESHOLD",
     "read_repair_state",
-    "update_repair_state",
-    "clear_repair_state",
     "render_repair_block",
 ]

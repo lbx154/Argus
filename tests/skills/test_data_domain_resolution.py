@@ -3,14 +3,22 @@
 The highest-value regression check: with NO project data domain and NO
 ``research/CHECKLISTS.json``, the existing verticals render exactly as before.
 """
+
 from __future__ import annotations
 
 import json
 
-from argus_skill.skills import checklist_store as cs
 from argus_skill.skills import stage_machine as sc
 from argus_skill.skills import vertical_select as vs
 from argus_skill.verticals import _data_domain as dd
+
+
+def _write_store(root, *, vertical: str, stages: dict) -> None:
+    path = root / "research" / "CHECKLISTS.json"
+    path.write_text(
+        json.dumps({"revision": 1, "vertical": vertical, "stages": stages}),
+        encoding="utf-8",
+    )
 
 
 def test_undecided_legacy_project_keeps_research_seed(tmp_path, monkeypatch):
@@ -29,17 +37,21 @@ def test_undecided_legacy_project_keeps_research_seed(tmp_path, monkeypatch):
 
 def test_data_domain_resolves_and_seeds_first_stage(tmp_path, monkeypatch):
     monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
-    dd.write_data_domain(tmp_path, "robotics_sim", stages=["scope", "simulate", "measure", "report"])
+    dd.write_data_domain(
+        tmp_path, "robotics_sim", stages=["scope", "simulate", "measure", "report"]
+    )
     vs.persist_vertical(tmp_path, "robotics_sim")
     assert vs.resolve_vertical(tmp_path) == "robotics_sim"
-    assert sc.current_stage(tmp_path) == "scope"           # seeded to the domain's first stage
+    assert sc.current_stage(tmp_path) == "scope"  # seeded to the domain's first stage
     order, _items = sc._active_vertical_checklist_defs(tmp_path)
     assert list(order) == ["scope", "simulate", "measure", "report"]
 
 
 def test_default_research_env_preserves_persisted_data_domain(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "research")
-    dd.write_data_domain(tmp_path, "robotics_sim", stages=["scope", "simulate", "measure", "report"])
+    dd.write_data_domain(
+        tmp_path, "robotics_sim", stages=["scope", "simulate", "measure", "report"]
+    )
     vs.persist_vertical(tmp_path, "robotics_sim")
 
     assert vs.resolve_vertical(tmp_path) == "robotics_sim"
@@ -53,7 +65,9 @@ def test_default_research_env_preserves_persisted_data_domain(tmp_path, monkeypa
 
 def test_current_stage_uses_data_domain_under_default_research_env(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "research")
-    dd.write_data_domain(tmp_path, "robotics_sim", stages=["scope", "simulate", "measure", "report"])
+    dd.write_data_domain(
+        tmp_path, "robotics_sim", stages=["scope", "simulate", "measure", "report"]
+    )
     vs.persist_vertical(tmp_path, "robotics_sim")
     state_path = tmp_path / "research" / "PIPELINE_STATE.json"
     payload = json.loads(state_path.read_text(encoding="utf-8"))
@@ -65,11 +79,11 @@ def test_current_stage_uses_data_domain_under_default_research_env(tmp_path, mon
     assert "research.literature" not in body
 
 
-def test_manager_persisted_data_domain_wins_over_bootstrap_builtin_env(
-    tmp_path, monkeypatch
-):
+def test_manager_persisted_data_domain_wins_over_bootstrap_builtin_env(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_VERTICAL", "speedrun")
-    dd.write_data_domain(tmp_path, "robotics_sim", stages=["scope", "simulate", "measure", "report"])
+    dd.write_data_domain(
+        tmp_path, "robotics_sim", stages=["scope", "simulate", "measure", "report"]
+    )
     vs.persist_vertical(tmp_path, "robotics_sim")
 
     assert vs.resolve_vertical(tmp_path) == "robotics_sim"
@@ -80,10 +94,19 @@ def test_store_override_shows_in_render(tmp_path, monkeypatch):
     monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
     dd.write_data_domain(tmp_path, "robotics_sim", stages=["scope", "simulate"])
     vs.persist_vertical(tmp_path, "robotics_sim")
-    cs.apply_checklist_ops(tmp_path, [
-        {"op": "add", "stage": "simulate", "id": "simulate.seeds",
-         "statement": "Run at least 3 seeds", "evidence_hint": "runs/*/seed*"},
-    ])
+    _write_store(
+        tmp_path,
+        vertical="robotics_sim",
+        stages={
+            "simulate": [
+                {
+                    "id": "simulate.seeds",
+                    "statement": "Run at least 3 seeds",
+                    "evidence_hint": "runs/*/seed*",
+                }
+            ]
+        },
+    )
     body = sc.format_stage_checklist("simulate", role="reviewer", project_root=tmp_path)
     assert "simulate.seeds" in body and "Run at least 3 seeds" in body
 
@@ -115,14 +138,23 @@ def test_data_domain_can_advance_past_first_stage(tmp_path, monkeypatch):
 
 
 def test_store_custom_item_merges_with_seed_for_research_stage(tmp_path, monkeypatch):
-    # Seed-plus-override: an authored custom item MERGES with the seed for that
+    # Read compatibility: a historical custom item MERGES with the seed for that
     # stage (non-protected edits). Other stages keep their seed unchanged.
     monkeypatch.delenv("ARGUS_SKILL_VERTICAL", raising=False)
     vs.persist_vertical(tmp_path, "research")
-    cs.apply_checklist_ops(tmp_path, [
-        {"op": "add", "stage": "research", "id": "research.custom",
-         "statement": "a custom research gate", "evidence_hint": "x"},
-    ])
+    _write_store(
+        tmp_path,
+        vertical="research",
+        stages={
+            "research": [
+                {
+                    "id": "research.custom",
+                    "statement": "a custom research gate",
+                    "evidence_hint": "x",
+                }
+            ]
+        },
+    )
     body = sc.format_stage_checklist("research", role="reviewer", project_root=tmp_path)
     assert "research.custom" in body
     # 'research.literature' is the seed; seeds are merged (not replaced) so it

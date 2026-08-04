@@ -151,53 +151,6 @@ def _front_door_classify(
         )
 
 
-def _maybe_handle_config_intent(
-    mem: Any,
-    text: str,
-    chat_state: dict[str, Any],
-    *,
-    on_confirm: Any = None,
-    root_task_id: str | None = None,
-    ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
-    accepts_keyword: Callable[[Any, str], bool] | None = None,
-    apply_intent: Callable[..., bool] | None = None,
-) -> bool:
-    """Recognize + apply a natural-language change to one of Argus's OWN runtime
-    knobs (a role's backend/model/effort, a budget cap, or the safe_mode/
-    show_reasoning/telegram toggles) BEFORE it becomes work.
-
-    One low-reasoning LLM call decides intent (Manager.classify_config_intent →
-    life.router.classify_config_intent) — there is NO keyword/regex matching, so
-    a request phrased any way is caught and a bare mention of a model/backend is
-    not misread as a switch. Fail-soft: no runner, a classify error, or a NONE
-    verdict all return False, and the text flows on to the normal chat/task path.
-    Returns True iff it applied a change (and the turn is done).
-
-    ``on_confirm(line)`` is an optional sink for confirmation lines."""
-    runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
-    mgr = getattr(runner, "manager", None) if runner is not None else None
-    if mgr is None or not hasattr(mgr, "classify_config_intent"):
-        return False
-    try:
-        accepts = accepts_keyword or _accepts_keyword
-        if root_task_id is None or not accepts(
-            mgr.classify_config_intent,
-            "root_task_id",
-        ):
-            intent = mgr.classify_config_intent(text)
-        else:
-            intent = mgr.classify_config_intent(
-                text,
-                root_task_id=root_task_id,
-            )
-    except Exception:  # noqa: BLE001 — a classify hiccup must never break the turn
-        return False
-    if intent is None:
-        return False
-    apply = apply_intent or _apply_config_intent
-    return apply(mem, intent, chat_state, on_confirm=on_confirm)
-
-
 def _apply_config_intent(
     mem: Any, intent: Any, chat_state: dict[str, Any], *, on_confirm: Any = None
 ) -> bool:
@@ -328,5 +281,4 @@ def _apply_config_intent(
 __all__ = [
     "_apply_config_intent",
     "_front_door_classify",
-    "_maybe_handle_config_intent",
 ]

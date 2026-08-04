@@ -78,8 +78,8 @@ def test_direct_is_not_selectable_and_is_migrated_to_software(tmp_path: Path) ->
 def test_a_verticals_protected_floor_is_a_subset_of_its_own_checklist() -> None:
     """A protected id that names no real item protects nothing.
 
-    ``checklist_store`` refuses to let Planner ``checklist_ops`` delete or
-    weaken an id listed in a vertical's ``PROTECTED_ITEM_IDS``. If such an id
+    ``checklist_store`` restores an id listed in a vertical's
+    ``PROTECTED_ITEM_IDS`` after historical or direct edits. If such an id
     does not correspond to an actual checklist item the protection is a no-op,
     and the floor silently disappears.
     """

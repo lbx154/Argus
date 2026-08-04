@@ -8,8 +8,7 @@ runner, and Manager front-door:
                                   without a TTY).
 - ``_invoke_supervisor``       — assemble a runtime context + run the
                                   supervisor for a single backend.
-- ``LifeStderrSink``           — chat-style event renderer (shared with
-                                  telegram.notifier and the daemon).
+- ``LifeStderrSink``           — terminal event renderer for headless runs.
 - ``_inbox_drainer_for``       — operator-inbox drain callable.
 - the runner adapters (``_MemoryRunner`` / ``_ScriptedPlannerBackend`` /
   ``_SkillLoopRunner``) and the duck-typed ``_Outcome`` they return.
@@ -39,8 +38,6 @@ from ._runtime_backends import (  # noqa: F401 — re-exported, see __all__
     _ScriptedPlannerBackend,
 )
 from ._runtime_construction import (  # noqa: F401 — re-exported, see __all__
-    _codex_preflight_warning,
-    _format_daemon_mode_cell,
     _inbox_drainer_for,
     _pending_question_resolver_for,
     _resolve_role_runner_backend_name,
@@ -112,8 +109,6 @@ __all__ = [
     "_SkillLoopRunner",
     "log",
     "_TEST_DAEMON_PLANNER_SCRIPT_ENV",
-    "_format_daemon_mode_cell",
-    "_codex_preflight_warning",
     "_inbox_drainer_for",
     "build_life_runner",
     "_build_supervisor_config",

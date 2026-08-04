@@ -282,32 +282,3 @@ def test_research_checklist_item_present():
 
     ids = [it.id for it in STAGE_CHECKLISTS["research"]]
     assert "research.signal_derisk" in ids
-
-
-def test_planner_can_replace_signal_screen_with_generic_theorem_evidence(tmp_path):
-    from argus_skill.skills.checklist_store import apply_checklist_ops
-    from argus_skill.skills.stage_machine import format_stage_checklist
-    from argus_skill.skills.vertical_select import persist_vertical
-
-    persist_vertical(tmp_path, "research")
-    result = apply_checklist_ops(
-        tmp_path,
-        [
-            {"op": "seed", "stage": "research", "id": ""},
-            {
-                "op": "modify",
-                "stage": "research",
-                "id": "research.signal_derisk",
-                "statement": (
-                    "The natural-language proof states every lemma and an independent "
-                    "reviewer checks the argument without performance metrics."
-                ),
-                "evidence_hint": "research/PROOF.md, research/PROOF_AUDIT.md",
-            },
-        ],
-    )
-
-    rendered = format_stage_checklist("research", role="reviewer", project_root=tmp_path)
-    assert result["applied"] == 2
-    assert "research/PROOF.md" in rendered
-    assert "without performance metrics" in rendered

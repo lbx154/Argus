@@ -1,10 +1,9 @@
-"""Per-project, stage-keyed checklist STORE — the Planner-authored override.
+"""Read legacy per-project checklist overrides.
 
-Historically the per-stage checklist was a frozen Python constant in the
-research vertical plus each vertical's ``CHECKLIST_ITEMS``.
-That floor is now a *reference seed*: the Planner is the sole runtime author of
-the current task's checklist, per stage, and this module stores it —
-``<project_root>/research/CHECKLISTS.json``.
+Current Planner verdicts no longer carry or apply ``checklist_ops``. This module
+keeps the read path for projects that already have
+``<project_root>/research/CHECKLISTS.json`` and re-injects each vertical's
+protected floor against direct or historical edits.
 
 The file is bound to one explicit ``vertical``. A store authored for research
 is ignored after the Manager changes the project to math (and vice versa); stage
@@ -15,72 +14,50 @@ Read path: :func:`store_items_for_stage` is consulted by
 BEFORE the seed constants. It returns:
 
 * a tuple of items when the store vertical matches the committed project
-  vertical and has an entry for the stage (the Planner has
-  authored that stage) — used as the checklist base;
-* ``()`` when the stage key is present but the list is empty (the Planner
-  deliberately emptied it — honored);
+  vertical and has an entry for the stage — used as the checklist base;
+* ``()`` when the historical stage key is present but its effective list is
+  empty;
 * ``None`` when the stage is absent from the store — the signal to FALL BACK to
   the seed constant. This ``None`` is what preserves byte-identical rendering for
   research/quant/speedrun when no project checklist exists.
 
-Write path: :func:`apply_checklist_ops` is the ONLY mutator, invoked by the
-Planner after its verdict is finalized. The Reviewer never writes here — it only
-reports checklist problems in its ordinary verdict reason.
-
-Fail-open everywhere: a missing/corrupt store reads as empty; a write error
-leaves the store untouched and the planning cycle continues. ``ChecklistItem``
-and the active-vertical seed lookup are late-imported to avoid the module-load
-cycle ``stage_machine`` ↔ this module.
+A missing/corrupt store reads as empty. ``ChecklistItem`` and the
+active-vertical seed lookup are late-imported to avoid the module-load cycle
+``stage_machine`` ↔ this module.
 """
+
 from __future__ import annotations
 
 import json
 import logging
-import os
-import tempfile
 from pathlib import Path
 from typing import Any
 
-_SHARED_PROTECTED_ITEM_IDS = frozenset({
-    "benchmark.evaluator_authentic",
-    "run.score_variance",
-    "run.method_diagnosis_recall",
-    "analysis.claims",
-    "review.placeholders",
-    "submission.assurance",
-    "submission.anonymous",
-    "submission.upstream",
-})
+_SHARED_PROTECTED_ITEM_IDS = frozenset(
+    {
+        "benchmark.evaluator_authentic",
+        "run.score_variance",
+        "run.method_diagnosis_recall",
+        "analysis.claims",
+        "review.placeholders",
+        "submission.assurance",
+        "submission.anonymous",
+        "submission.upstream",
+    }
+)
 
 log = logging.getLogger(__name__)
 
 #: ``<project_root>/research/CHECKLISTS.json``.
 CHECKLISTS_RELPATH = ("research", "CHECKLISTS.json")
 
-VALID_OPS = ("seed", "add", "modify", "remove")
-
-#: Bounds — keep a runaway Planner from ballooning the prompt.
-MAX_ITEMS_PER_STAGE = 40
+#: Bounds keep historical rows from ballooning the prompt.
 MAX_STATEMENT_LEN = 1600
 MAX_EVIDENCE_LEN = 1600
 
 
 def _store_path(project_root: object) -> Path:
     return Path(str(project_root)).joinpath(*CHECKLISTS_RELPATH)
-
-
-def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
-        os.replace(tmp, path)
-    finally:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
 
 
 def _current_vertical(project_root: object) -> str | None:
@@ -120,10 +97,7 @@ def _load_raw(project_root: object) -> dict[str, Any]:
         for k, v in disabled_raw.items():
             key = str(k).strip().lower()
             if isinstance(v, list):
-                disabled[key] = [
-                    s for s in (str(i).strip() for i in v if isinstance(i, str))
-                    if s
-                ]
+                disabled[key] = [s for s in (str(i).strip() for i in v if isinstance(i, str)) if s]
     return {
         "revision": int(rev) if isinstance(rev, (int, float)) else 0,
         "vertical": str(payload.get("vertical") or "").strip(),
@@ -152,7 +126,7 @@ def _coerce_item(raw: object) -> Any | None:
 def store_items_for_stage(project_root: object, stage: str) -> "tuple[Any, ...] | None":
     """Return the effective checklist items for ``stage``, or ``None`` if absent.
 
-    **Seed-plus-override semantics** (Task 2):
+    **Historical seed-plus-override semantics**:
 
     * Effective = active-vertical seed keyed by ID, overlaid with project rows.
       A project row whose ``id`` matches a seed ID overrides that seed item in
@@ -212,29 +186,11 @@ def store_items_for_stage(project_root: object, stage: str) -> "tuple[Any, ...] 
     return tuple(_with_protected_floor(project_root, stage_n, effective))
 
 
-def load_checklist_store(project_root: object) -> dict[str, list[Any]]:
-    """Return ``{stage: [ChecklistItem, ...]}`` for every stage present (fail-open)."""
-    current = _current_vertical(project_root)
-    raw = _load_raw(project_root)
-    if current is None or raw["vertical"] != current:
-        return {}
-    stages = raw["stages"]
-    out: dict[str, list[Any]] = {}
-    for stage, rows in stages.items():
-        if not isinstance(rows, list):
-            continue
-        out[str(stage).strip().lower()] = [
-            it for it in (_coerce_item(r) for r in rows) if it is not None
-        ]
-    return out
-
-
 def seed_items_for(project_root: object, stage: str) -> "tuple[Any, ...]":
     """Resolve the ACTIVE vertical's seed (reference) items for ``stage``.
 
-    This is the reference the Planner edits FROM (a ``seed`` op copies these into
-    the store). Late-imports the single stage-defs chokepoint so data domains and
-    Python verticals resolve identically. Fail-open to ``()``.
+    Late-imports the single stage-defs chokepoint so data domains and Python
+    verticals resolve identically. Fail-open to ``()``.
     """
     stage_n = (stage or "").strip().lower()
     if not stage_n:
@@ -249,11 +205,11 @@ def seed_items_for(project_root: object, stage: str) -> "tuple[Any, ...]":
 
 
 def _protected_floor_ids(project_root: object) -> frozenset[str] | None:
-    """Protected seed ids the Planner may not remove or modify.
+    """Protected seed ids restored against historical or direct edits.
 
     Verticals may declare ``PROTECTED_ITEM_IDS`` for irreducible Goal/Integrity
     gates. Paper verticals additionally inherit the shared anti-fraud floor.
-    ``None`` means protection could not be resolved; writes then fail closed.
+    ``None`` means protection could not be resolved.
     """
     try:
         from ..verticals._base import load_vertical, vertical_completion_gate
@@ -271,7 +227,7 @@ def _protected_floor_ids(project_root: object) -> frozenset[str] | None:
         if vertical_completion_gate(module) == "full_paper":
             return vertical_ids | _SHARED_PROTECTED_ITEM_IDS
         return vertical_ids
-    except Exception:  # noqa: BLE001 — unknown protection refuses writes
+    except Exception:  # noqa: BLE001 — unknown protection fails open on read
         return None
 
 
@@ -280,10 +236,9 @@ def _with_protected_floor(project_root: object, stage: str, items: list[Any]) ->
 
     Force each protected seed item for the stage to its canonical seed text
     (replacing any weakened override copy in place) and append any protected
-    floor item the override dropped. The write
-    guard in :func:`apply_checklist_ops` only covers the Planner-ops path; this
-    read-side     re-injection is what makes the floor un-removable against any writer,
-    including a direct edit
+    floor item the override dropped. This read-side re-injection makes the floor
+    un-removable against any writer,
+    including a direct or historical edit
     of ``research/CHECKLISTS.json`` by the unsandboxed engineer subprocess. No-op
     when the vertical declares no protected ids or seed resolution fails.
     """
@@ -291,9 +246,7 @@ def _with_protected_floor(project_root: object, stage: str, items: list[Any]) ->
         protected = _protected_floor_ids(project_root)
         if protected is None or not protected:
             return items
-        seed_by_id = {
-            s.id: s for s in seed_items_for(project_root, stage) if s.id in protected
-        }
+        seed_by_id = {s.id: s for s in seed_items_for(project_root, stage) if s.id in protected}
         if not seed_by_id:
             return items
         out: list[Any] = []
@@ -313,213 +266,4 @@ def _with_protected_floor(project_root: object, stage: str, items: list[Any]) ->
         return items
 
 
-def _row(item_id: str, statement: str, evidence_hint: str) -> dict[str, str]:
-    return {
-        "id": item_id,
-        "statement": statement[:MAX_STATEMENT_LEN],
-        "evidence_hint": evidence_hint[:MAX_EVIDENCE_LEN],
-    }
-
-
-def apply_checklist_ops(
-    project_root: object,
-    ops: list[dict[str, Any]] | None,
-    *,
-    seed_lookup: Any | None = None,
-) -> dict[str, Any]:
-    """Apply Planner ``checklist_ops`` to the store (the ONLY write path).
-
-    ``ops`` items: ``{op, stage, id, statement?, evidence_hint?}`` with
-    ``op ∈ {seed, add, modify, remove}``:
-
-    * ``seed`` — if the stage has no project entry yet, initialize an empty
-      project entry so subsequent ``add``/``modify``/``remove`` ops have a bucket
-      to work with.  Seeds are always merged in at read time; ``seed`` does NOT
-      copy them into the store (no duplication).  No-op if the stage is already
-      present.
-    * ``add`` — append (or replace same-id) a new item; needs ``statement``.
-      Refused when the authored-row count is already at ``MAX_ITEMS_PER_STAGE``
-      (replacement of an existing same-id row is still permitted because the
-      old row is stripped before the cap check).  Clears any tombstone for the
-      same ID only when the operation succeeds.
-    * ``modify`` — update an existing item's statement/evidence by ``id``.
-      For seed IDs not yet overridden and below the cap, creates an override
-      entry.  Custom IDs that are absent from the store are skipped (modify
-      cannot create arbitrary new rows).  Clears any tombstone for the same
-      ID only when the operation succeeds.
-    * ``remove`` on a **custom ID** — removes its row only.  ``remove`` on a
-      **seed ID** — records a tombstone under ``disabled[stage]`` and hides that
-      seed from the effective list; does not touch other seeds.
-
-    ``add``/``modify``/``remove`` on a vertical PROTECTED floor id are
-    refused (counted as ``skipped``) — the floor is the Planner's read-only base.
-    Atomic write, ``revision`` bumped. Fail-soft: any
-    error leaves the store untouched. Returns ``{applied, skipped, revision}``.
-    """
-    current_vertical = _current_vertical(project_root)
-    raw_now = _load_raw(project_root)
-    if current_vertical is None:
-        return {
-            "applied": 0,
-            "skipped": len(ops or []),
-            "revision": raw_now["revision"],
-        }
-    if not ops:
-        return {"applied": 0, "skipped": 0, "revision": raw_now["revision"]}
-
-    seed_fn = seed_lookup or (lambda stage: seed_items_for(project_root, stage))
-    protected = _protected_floor_ids(project_root)
-    if protected is None:
-        return {
-            "applied": 0,
-            "skipped": len(ops),
-            "revision": raw_now["revision"],
-        }
-
-    try:
-        raw = _load_raw(project_root)
-        # A checklist authored for another vertical is unrelated state. Start a
-        # clean project checklist for the committed vertical instead of mixing
-        # stage names or requirements across domains.
-        stages: dict[str, Any] = (
-            dict(raw["stages"])
-            if raw["vertical"] == current_vertical
-            else {}
-        )
-        disabled: dict[str, list[str]] = (
-            {k: list(v) for k, v in raw["disabled"].items()}
-            if raw["vertical"] == current_vertical
-            else {}
-        )
-        # Normalize existing stage lists to plain lists we can mutate.
-        for k, v in list(stages.items()):
-            stages[k] = list(v) if isinstance(v, list) else []
-
-        applied = 0
-        skipped = 0
-        for op_raw in ops:
-            if not isinstance(op_raw, dict):
-                skipped += 1
-                continue
-            op = str(op_raw.get("op") or "").strip().lower()
-            stage = str(op_raw.get("stage") or "").strip().lower()
-            item_id = str(op_raw.get("id") or "").strip()
-            if op not in VALID_OPS or not stage:
-                skipped += 1
-                continue
-
-            if op == "seed":
-                if stage not in stages:
-                    # Mark stage as explicitly managed; seeds are merged at read time.
-                    stages[stage] = []
-                    applied += 1
-                else:
-                    skipped += 1
-                continue
-
-            if not item_id:
-                skipped += 1
-                continue
-            if op in {"add", "modify", "remove"} and item_id in protected:
-                skipped += 1
-                continue
-
-            bucket = stages.setdefault(stage, [])
-
-            if op == "add":
-                statement = str(op_raw.get("statement") or "").strip()
-                if not statement:
-                    skipped += 1
-                    continue
-                evidence = str(op_raw.get("evidence_hint") or "").strip()
-                # Strip same-id existing row (dedup before cap check).
-                bucket = [r for r in bucket if not (isinstance(r, dict) and r.get("id") == item_id)]
-                if len(bucket) >= MAX_ITEMS_PER_STAGE:
-                    skipped += 1
-                    stages[stage] = bucket
-                    continue
-                # Clear tombstone only after we know the add will succeed.
-                if item_id in disabled.get(stage, []):
-                    disabled[stage] = [i for i in disabled[stage] if i != item_id]
-                bucket.append(_row(item_id, statement, evidence))
-                stages[stage] = bucket
-                applied += 1
-
-            elif op == "modify":
-                found = False
-                for r in bucket:
-                    if isinstance(r, dict) and r.get("id") == item_id:
-                        if str(op_raw.get("statement") or "").strip():
-                            r["statement"] = str(op_raw["statement"]).strip()[:MAX_STATEMENT_LEN]
-                        if "evidence_hint" in op_raw:
-                            r["evidence_hint"] = str(op_raw.get("evidence_hint") or "").strip()[:MAX_EVIDENCE_LEN]
-                        found = True
-                        break
-                if not found:
-                    # Only create an override entry for seed IDs, not arbitrary custom IDs.
-                    seed_ids_for_stage = {it.id for it in (seed_fn(stage) or ())}
-                    if item_id in seed_ids_for_stage:
-                        stmt = str(op_raw.get("statement") or "").strip()
-                        ev = str(op_raw.get("evidence_hint") or "").strip()
-                        if stmt and len(bucket) < MAX_ITEMS_PER_STAGE:
-                            bucket.append(_row(item_id, stmt, ev))
-                            stages[stage] = bucket
-                            found = True
-                # Clear tombstone only after the operation is known to succeed.
-                if found and item_id in disabled.get(stage, []):
-                    disabled[stage] = [i for i in disabled[stage] if i != item_id]
-                applied += 1 if found else 0
-                skipped += 0 if found else 1
-
-            elif op == "remove":
-                seed_ids_for_stage = {it.id for it in (seed_fn(stage) or ())}
-                if item_id in seed_ids_for_stage:
-                    # Seed ID: record tombstone to hide this seed from effective list.
-                    dis = disabled.setdefault(stage, [])
-                    if item_id not in dis:
-                        dis.append(item_id)
-                        applied += 1
-                    else:
-                        skipped += 1  # already tombstoned → idempotent
-                    # Also remove any override entry so the tombstone is authoritative.
-                    stages[stage] = [
-                        r for r in bucket
-                        if not (isinstance(r, dict) and r.get("id") == item_id)
-                    ]
-                else:
-                    # Custom ID: remove its row only.
-                    before = len(bucket)
-                    stages[stage] = [
-                        r for r in bucket
-                        if not (isinstance(r, dict) and r.get("id") == item_id)
-                    ]
-                    if len(stages[stage]) != before:
-                        applied += 1
-                    else:
-                        skipped += 1
-
-        revision = int(raw["revision"]) + 1
-        payload: dict[str, Any] = {
-            "revision": revision,
-            "vertical": current_vertical,
-            "stages": stages,
-        }
-        # Only persist 'disabled' when it is non-empty (keeps old format for clean stores).
-        clean_disabled = {k: v for k, v in disabled.items() if v}
-        if clean_disabled:
-            payload["disabled"] = clean_disabled
-        _atomic_write_json(_store_path(project_root), payload)
-        return {"applied": applied, "skipped": skipped, "revision": revision}
-    except Exception:  # noqa: BLE001 — write must never break planning
-        log.warning("apply_checklist_ops failed; store left untouched", exc_info=True)
-        return {"applied": 0, "skipped": len(ops), "revision": _load_raw(project_root)["revision"]}
-
-
-__all__ = [
-    "CHECKLISTS_RELPATH",
-    "VALID_OPS",
-    "store_items_for_stage",
-    "load_checklist_store",
-    "seed_items_for",
-    "apply_checklist_ops",
-]
+__all__ = ["CHECKLISTS_RELPATH", "store_items_for_stage", "seed_items_for"]

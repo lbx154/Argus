@@ -1441,26 +1441,6 @@ def _resolve_research_workdir(bundle: Any) -> Path:
     return project_root
 
 
-def _read_current_stage(workdir: Path) -> str | None:
-    """Best-effort read of ``research/PIPELINE_STATE.json``. None if
-    the project hasn't reached stage tracking yet."""
-    state_path = workdir / "research" / "PIPELINE_STATE.json"
-    if not state_path.exists():
-        return None
-    try:
-        import json as _json
-        data = _json.loads(state_path.read_text(encoding="utf-8"))
-        if not isinstance(data, dict):
-            return None
-        stage = data.get("current_stage")
-        if not isinstance(stage, str):
-            return None
-        stage = stage.strip()
-        return stage or None
-    except (OSError, ValueError):
-        return None
-
-
 def _render_lifecycle_status_lines(
     workdir: Path, *, state_root: Path
 ) -> list[str]:

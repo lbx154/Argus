@@ -542,10 +542,9 @@ A task is complete only when:
 The full project is complete only when the L2 reviewer certifies `done` for `scope: final_submission` against the full pipeline checklist on the current workspace, with every checklist item satisfied and backed by concrete evidence, and that verdict is quoted in completion evidence.
 
 ## Harness self-evolution
-Recurring role-behavior failures may be encoded as reversible prompt rules with
-Reusable behavior belongs in a Skill. Checklist changes belong
-only to Planner `checklist_ops`; Reviewer supplies feedback and Engineer never
-edits checklist content.
+Reusable behavior belongs in a Skill. Checklist defects are reported in the
+Reviewer verdict and repaired in the source vertical contract by a later scoped
+task; the runtime has no `checklist_ops` mutation channel.
 ````
 
 ## Generality check

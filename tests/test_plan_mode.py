@@ -2,27 +2,26 @@
 
 Plan mode previews a SHORT step-by-step plan BEFORE any task is queued
 (Codex / Claude-Code / Cursor parity). These tests target the pure parser
-(:func:`parse_plan_text` / :func:`parse_plan_notes`) and the renderer
-(:func:`render_plan`) — no live model — plus :func:`draft_plan`'s explicit
+(:func:`parse_plan_text` / :func:`parse_plan_notes`) — no live model — plus
+:func:`draft_plan`'s explicit
 failure surfacing driven by tiny stub runners.
 """
+
 from __future__ import annotations
 
 import json
 
 from argus_skill.manager.plan_mode import (
-    Plan,
-    PlanStep,
     build_plan_prompt,
     draft_plan,
     parse_plan_notes,
     parse_plan_text,
-    render_plan,
 )
 
 # ---------------------------------------------------------------------------
 # Stub runner shapes (no live model)
 # ---------------------------------------------------------------------------
+
 
 class _Result:
     """Minimal RunnerResult shape (last_agent_message + exit_code)."""
@@ -43,8 +42,14 @@ class _StubRunner:
         self.last_options = None
         self.last_resume_thread_id = None
 
-    def run_exec(self, *, prompt: str, options, run_label: str,  # noqa: ANN001
-                 resume_thread_id=None):
+    def run_exec(
+        self,
+        *,
+        prompt: str,
+        options,
+        run_label: str,  # noqa: ANN001
+        resume_thread_id=None,
+    ):
         self.calls += 1
         self.last_prompt = prompt
         self.last_options = options
@@ -53,8 +58,14 @@ class _StubRunner:
 
 
 class _BoomRunner:
-    def run_exec(self, *, prompt: str, options, run_label: str,  # noqa: ANN001
-                 resume_thread_id=None):
+    def run_exec(
+        self,
+        *,
+        prompt: str,
+        options,
+        run_label: str,  # noqa: ANN001
+        resume_thread_id=None,
+    ):
         raise RuntimeError("backend down")
 
 
@@ -68,6 +79,7 @@ class _BackendWrapper:
 # ---------------------------------------------------------------------------
 # parse_plan_text — JSON forms
 # ---------------------------------------------------------------------------
+
 
 def test_parse_json_list_of_objects() -> None:
     text = json.dumps(
@@ -101,19 +113,21 @@ def test_parse_json_object_with_steps_and_notes() -> None:
 
 
 def test_plan_parser_ignores_domain_specific_step_kinds() -> None:
-    text = json.dumps({
-        "steps": [
-            {
-                "title": "Formalize the lemma",
-                "detail": "compile it independently",
-                "kind": "lean_formalization",
-            },
-            {
-                "title": "Write the explanation",
-                "kind": "work",
-            },
-        ]
-    })
+    text = json.dumps(
+        {
+            "steps": [
+                {
+                    "title": "Formalize the lemma",
+                    "detail": "compile it independently",
+                    "kind": "lean_formalization",
+                },
+                {
+                    "title": "Write the explanation",
+                    "kind": "work",
+                },
+            ]
+        }
+    )
 
     steps = parse_plan_text(text)
 
@@ -162,6 +176,7 @@ def test_parse_json_with_prose_around_object() -> None:
 # parse_plan_text — numbered / bulleted list fallback
 # ---------------------------------------------------------------------------
 
+
 def test_parse_numbered_list() -> None:
     text = (
         "1. Set up the environment — install deps\n"
@@ -206,6 +221,7 @@ def test_parse_strips_markdown_bold_in_title() -> None:
 # parse_plan_text / parse_plan_notes — garbage → fail soft
 # ---------------------------------------------------------------------------
 
+
 def test_parse_garbage_returns_empty() -> None:
     assert parse_plan_text("the quick brown fox jumped over nothing") == []
     assert parse_plan_text("{not valid json at all") == []
@@ -226,83 +242,9 @@ def test_parse_notes_failsoft() -> None:
 
 
 # ---------------------------------------------------------------------------
-# render_plan
-# ---------------------------------------------------------------------------
-
-def test_render_plan_contains_titles_details_and_notes() -> None:
-    plan = Plan(
-        objective="optimize the kernel",
-        steps=[
-            PlanStep("Profile", "find the stall"),
-            PlanStep("Optimize", ""),
-        ],
-        notes=["assumes B200"],
-    )
-    out = render_plan(plan)
-    assert "optimize the kernel" in out
-    assert "1." in out and "2." in out
-    assert "Profile" in out
-    assert "find the stall" in out
-    assert "Optimize" in out
-    assert "Notes:" in out
-    assert "assumes B200" in out
-    # Multi-line, scannable.
-    assert out.count("\n") >= 3
-
-
-def test_render_plan_no_steps_is_safe() -> None:
-    out = render_plan(Plan(objective="x", steps=[], notes=[]))
-    assert "Plan" in out
-    assert "(no steps)" in out
-
-
-def test_render_plan_surfaces_draft_error() -> None:
-    out = render_plan(Plan(objective="x", steps=[], notes=[], error="backend error"))
-    assert "draft failed" in out
-    assert "backend error" in out
-
-
-def test_render_plan_with_theme_uses_theme_methods() -> None:
-    class _Theme:
-        def __init__(self) -> None:
-            self.used: list[str] = []
-
-        def _mark(self, name: str, text: str) -> str:
-            self.used.append(name)
-            return f"<{name}>{text}</{name}>"
-
-        def bold(self, text: str) -> str:
-            return self._mark("bold", text)
-
-        def cyan(self, text: str) -> str:
-            return self._mark("cyan", text)
-
-        def gray(self, text: str) -> str:
-            return self._mark("gray", text)
-
-        def dim(self, text: str) -> str:
-            return self._mark("dim", text)
-
-    theme = _Theme()
-    plan = Plan(objective="o", steps=[PlanStep("A", "d")], notes=["n"])
-    out = render_plan(plan, theme)
-    assert "<bold>" in out and "<cyan>" in out and "<dim>" in out
-    assert "bold" in theme.used and "cyan" in theme.used
-
-
-def test_render_plan_failsoft_theme_method_raises() -> None:
-    class _BadTheme:
-        def bold(self, text: str) -> str:
-            raise RuntimeError("nope")
-
-    plan = Plan(objective="o", steps=[PlanStep("A", "")], notes=[])
-    out = render_plan(plan, _BadTheme())  # must not raise
-    assert "A" in out
-
-
-# ---------------------------------------------------------------------------
 # draft_plan — happy path + explicit failure surfacing (stub runners only)
 # ---------------------------------------------------------------------------
+
 
 def test_draft_plan_parses_stub_reply() -> None:
     payload = json.dumps(
@@ -339,9 +281,7 @@ def test_grounded_plan_gets_full_repository_tools() -> None:
     assert runner.last_options.working_dir == "/tmp/project"
     assert runner.last_options.dangerous_yolo is True
     assert runner.last_options.sandbox_mode is None
-    assert callable(
-        runner.last_options.external_interrupt_reason_provider
-    )
+    assert callable(runner.last_options.external_interrupt_reason_provider)
     assert runner.last_resume_thread_id is None
 
 

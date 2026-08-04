@@ -3,6 +3,7 @@
 Promotion requires explicit operator approval; the render must compile to a valid
 ``stages`` module exposing the vertical contract.
 """
+
 from __future__ import annotations
 
 import json
@@ -10,18 +11,39 @@ import types
 
 from argus_skill.manager import domain_tidy as dt
 from argus_skill.manager import source_writeback
-from argus_skill.skills import checklist_store as cs
 from argus_skill.skills.vertical_select import persist_vertical
 from argus_skill.verticals import _data_domain as dd
 
 
+def _write_checklist_store(tmp_path, stages: dict) -> None:
+    path = tmp_path / "research" / "CHECKLISTS.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"revision": 1, "vertical": "robotics_sim", "stages": stages}),
+        encoding="utf-8",
+    )
+
+
 def _seed_proven_domain(tmp_path):
-    dd.write_data_domain(tmp_path, "robotics_sim", stages=["scope", "simulate", "measure", "report"])
+    dd.write_data_domain(
+        tmp_path, "robotics_sim", stages=["scope", "simulate", "measure", "report"]
+    )
     persist_vertical(tmp_path, "robotics_sim")
-    cs.apply_checklist_ops(tmp_path, [
-        {"op": "add", "stage": "scope", "id": "scope.obj", "statement": "state the objective", "evidence_hint": "scope/OBJ.md"},
-        {"op": "add", "stage": "simulate", "id": "simulate.seeds", "statement": "run >=3 seeds", "evidence_hint": "runs/"},
-    ])
+    _write_checklist_store(
+        tmp_path,
+        {
+            "scope": [
+                {
+                    "id": "scope.obj",
+                    "statement": "state the objective",
+                    "evidence_hint": "scope/OBJ.md",
+                }
+            ],
+            "simulate": [
+                {"id": "simulate.seeds", "statement": "run >=3 seeds", "evidence_hint": "runs/"}
+            ],
+        },
+    )
     state = tmp_path / "research" / "PIPELINE_STATE.json"
     payload = json.loads(state.read_text())
     payload.update({"current_stage": "simulate", "stages": {"scope": {"status": "done"}}})
@@ -31,7 +53,7 @@ def _seed_proven_domain(tmp_path):
 def test_disabled_by_default(tmp_path, monkeypatch):
     monkeypatch.delenv("ARGUS_SKILL_PROMOTE_DOMAINS", raising=False)
     _seed_proven_domain(tmp_path)
-    assert dt.propose_promotions(tmp_path) == []        # gate OFF → nothing proposed
+    assert dt.propose_promotions(tmp_path) == []  # gate OFF → nothing proposed
 
 
 def test_proposes_only_when_proven(tmp_path, monkeypatch):
@@ -41,7 +63,9 @@ def test_proposes_only_when_proven(tmp_path, monkeypatch):
     assert dt.propose_promotions(tmp_path) == []
     # Mark a stage done → proven.
     state = tmp_path / "research" / "PIPELINE_STATE.json"
-    state.write_text(json.dumps({"current_stage": "simulate", "stages": {"scope": {"status": "done"}}}))
+    state.write_text(
+        json.dumps({"current_stage": "simulate", "stages": {"scope": {"status": "done"}}})
+    )
     names = [p.name for p in dt.propose_promotions(tmp_path)]
     assert names == ["robotics_sim"]
 
@@ -73,14 +97,11 @@ def test_render_preserves_seed_plus_custom_items(tmp_path):
     """REGRESSION: _render_stages_py must snapshot seed items AND custom items.
 
     A data domain with seed checklist items in its CHECKLIST_ITEMS, plus a
-    Planner-authored custom row for the same stage, should produce a promoted
+    historical custom row for the same stage, should produce a promoted
     CHECKLIST_ITEMS that contains both IDs — seeds first, then custom.
 
-    Previously _render_stages_py called load_checklist_store(), which only
-    returns raw project rows.  When a custom row existed, store.get(stage) was
-    truthy and the code returned *only* the custom row, silently dropping the
-    domain's seed items.  The fix is to call store_items_for_stage() instead,
-    which applies seed+override+tombstone semantics before returning.
+    Promotion must read the effective legacy store, not raw project rows, so a
+    custom row cannot silently drop the domain's seed items.
     """
     # Hand-author a domain JSON that carries a real seed item for "scope".
     domains_dir = tmp_path / "research" / "DOMAINS"
@@ -109,23 +130,28 @@ def test_render_preserves_seed_plus_custom_items(tmp_path):
     # and one stage done so the domain is "proven".
     state = tmp_path / "research" / "PIPELINE_STATE.json"
     state.write_text(
-        json.dumps({
-            "vertical": "robotics_sim",
-            "current_stage": "simulate",
-            "stages": {"scope": {"status": "done"}},
-        })
+        json.dumps(
+            {
+                "vertical": "robotics_sim",
+                "current_stage": "simulate",
+                "stages": {"scope": {"status": "done"}},
+            }
+        )
     )
 
-    # Planner adds a custom row for the same "scope" stage.
-    cs.apply_checklist_ops(tmp_path, [
+    # Preserve a custom row authored by an older release.
+    _write_checklist_store(
+        tmp_path,
         {
-            "op": "add",
-            "stage": "scope",
-            "id": "scope.custom.planner",
-            "statement": "Custom planner item",
-            "evidence_hint": "scope/CUSTOM.md",
-        }
-    ])
+            "scope": [
+                {
+                    "id": "scope.custom.legacy",
+                    "statement": "Custom legacy item",
+                    "evidence_hint": "scope/CUSTOM.md",
+                }
+            ]
+        },
+    )
 
     src = dt._render_stages_py("robotics_sim", tmp_path)
     src = src.replace("from ...skills.stage_machine", "from argus_skill.skills.stage_machine")
@@ -134,10 +160,10 @@ def test_render_preserves_seed_plus_custom_items(tmp_path):
 
     scope_ids = [i.id for i in mod.CHECKLIST_ITEMS["scope"]]
     assert "scope.seed.vision" in scope_ids, "seed item was dropped during promotion"
-    assert "scope.custom.planner" in scope_ids, "custom item was dropped during promotion"
-    assert scope_ids.index("scope.seed.vision") < scope_ids.index("scope.custom.planner"), (
-        "seed items should precede custom items in the promoted snapshot"
-    )
+    assert "scope.custom.legacy" in scope_ids, "custom item was dropped during promotion"
+    assert scope_ids.index("scope.seed.vision") < scope_ids.index(
+        "scope.custom.legacy"
+    ), "seed items should precede custom items in the promoted snapshot"
 
 
 def test_approved_promotion_uses_shared_source_writeback(tmp_path, monkeypatch):
@@ -152,9 +178,7 @@ def test_approved_promotion_uses_shared_source_writeback(tmp_path, monkeypatch):
         lambda paths, _message: committed.extend(paths) or True,
     )
 
-    stages_path = dt.promote_data_domain(
-        tmp_path, "robotics_sim", approved=True
-    )
+    stages_path = dt.promote_data_domain(tmp_path, "robotics_sim", approved=True)
 
     assert stages_path == verticals_root / "robotics_sim" / "stages.py"
     assert stages_path.is_file()

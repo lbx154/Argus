@@ -353,24 +353,7 @@ class LifeSupervisor(
             return None
 
     def _planner_workdir(self) -> Path:
-        configured = self._configured_worktree()
-        if configured is not None:
-            return configured
-        env_workdir = os.environ.get("ARGUS_SKILL_WORKDIR", "").strip()
-        if env_workdir:
-            return Path(env_workdir).expanduser()
-        project_root = getattr(self.memory, "project_root", None)
-        if project_root:
-            return Path(project_root)
-        project = getattr(self.memory, "project", None)
-        if project is not None:
-            root = getattr(project, "root", None)
-            if root:
-                return Path(root)
-        root = getattr(self.memory, "root", None)
-        if root:
-            return Path(root)
-        return Path.cwd()
+        return self._project_workdir()
 
     def _planner_config(self):
         from ...core.knobs import resolve_role_model

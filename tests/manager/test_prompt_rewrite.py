@@ -8,9 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from argus_skill.manager.prompt_rewrite import (
-    PromptRewrite,
     parse_rewrite_text,
-    render_rewrite,
     rewrite_prompt,
 )
 from argus_skill.roles.prompts.manager import build_prompt_rewrite_prompt
@@ -43,12 +41,15 @@ def _payload(**kwargs) -> str:
 
 # --- parsing ---------------------------------------------------------------
 
+
 def test_parses_the_contracted_json_object() -> None:
-    parsed = parse_rewrite_text(_payload(
-        rewritten="Profile the attention kernel on B200 and report the bottleneck.",
-        changes=["named the hardware the operator already mentioned"],
-        questions=["which attention variant?"],
-    ))
+    parsed = parse_rewrite_text(
+        _payload(
+            rewritten="Profile the attention kernel on B200 and report the bottleneck.",
+            changes=["named the hardware the operator already mentioned"],
+            questions=["which attention variant?"],
+        )
+    )
     assert parsed.rewritten.startswith("Profile the attention kernel")
     assert parsed.changes == ["named the hardware the operator already mentioned"]
     assert parsed.questions == ["which attention variant?"]
@@ -75,14 +76,17 @@ def test_empty_or_unusable_reply_yields_no_rewrite() -> None:
 
 
 def test_advisory_lists_are_bounded() -> None:
-    parsed = parse_rewrite_text(_payload(
-        rewritten="do the thing",
-        questions=[f"q{i}" for i in range(20)],
-    ))
+    parsed = parse_rewrite_text(
+        _payload(
+            rewritten="do the thing",
+            questions=[f"q{i}" for i in range(20)],
+        )
+    )
     assert len(parsed.questions) == 6
 
 
 # --- the prompt contract ---------------------------------------------------
+
 
 def test_prompt_keeps_unagreed_requirements_out_of_the_rewrite() -> None:
     prompt = build_prompt_rewrite_prompt("优化一下 kernel")
@@ -126,6 +130,7 @@ def test_prompt_carries_optional_project_context() -> None:
 
 
 # --- rewrite_prompt end to end (stubbed backend) ---------------------------
+
 
 def test_rewrite_prompt_returns_the_parsed_rewrite() -> None:
     backend = _Backend(_payload(rewritten="Make the CSV loader stream rows."))
@@ -174,22 +179,3 @@ def test_interactive_rewrite_keeps_operator_overrides(monkeypatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_REWRITE_REASONING_EFFORT", "xhigh")
 
     assert _rewrite_model_and_effort() == ("custom-rewrite-model", "xhigh")
-
-
-# --- rendering -------------------------------------------------------------
-
-def test_render_shows_the_rewrite_with_changes_and_open_questions() -> None:
-    text = render_rewrite(PromptRewrite(
-        original="优化一下 kernel",
-        rewritten="Profile the kernel and report the bottleneck.",
-        changes=["named the deliverable"],
-        questions=["which kernel?"],
-    ))
-    assert "Profile the kernel and report the bottleneck." in text
-    assert "named the deliverable" in text
-    assert "which kernel?" in text
-
-
-def test_render_surfaces_the_failure_instead_of_a_fake_rewrite() -> None:
-    text = render_rewrite(PromptRewrite(original="x", error="could not rewrite: backend error"))
-    assert "could not rewrite: backend error" in text

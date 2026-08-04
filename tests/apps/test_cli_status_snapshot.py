@@ -4,6 +4,7 @@ The new helpers are pure projections of observable state — render facts
 the agent already acts on, don't make new decisions. These tests verify
 the rendering is correct and fail-soft.
 """
+
 from __future__ import annotations
 
 import json
@@ -12,10 +13,7 @@ import sys
 from argparse import Namespace
 from pathlib import Path
 
-import pytest
-
 from argus_skill.apps.cli._core import (
-    _read_current_stage,
     _render_lifecycle_status_lines,
     _resolve_research_workdir,
 )
@@ -37,9 +35,7 @@ def test_resolve_workdir_prefers_env_var(tmp_path: Path, monkeypatch) -> None:
     assert _resolve_research_workdir(bundle) == custom
 
 
-def test_resolve_workdir_picks_code_subdir_when_present(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_resolve_workdir_picks_code_subdir_when_present(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("ARGUS_SKILL_WORKDIR", raising=False)
     life = tmp_path / "life"
     (life / "code").mkdir(parents=True)
@@ -47,55 +43,12 @@ def test_resolve_workdir_picks_code_subdir_when_present(
     assert _resolve_research_workdir(bundle) == life / "code"
 
 
-def test_resolve_workdir_falls_back_to_project_root(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_resolve_workdir_falls_back_to_project_root(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("ARGUS_SKILL_WORKDIR", raising=False)
     life = tmp_path / "life"
     life.mkdir()
     bundle = _bundle(life)
     assert _resolve_research_workdir(bundle) == life
-
-
-# ---------------------------------------------------------------------------
-# _read_current_stage
-# ---------------------------------------------------------------------------
-
-
-def test_read_current_stage_returns_none_when_state_missing(tmp_path: Path) -> None:
-    assert _read_current_stage(tmp_path) is None
-
-
-@pytest.mark.parametrize(
-    ("payload", "expected"),
-    [
-        ({"current_stage": "review"}, "review"),
-        ({"current_stage": "  review  "}, "review"),
-        ({"current_stage": ""}, None),
-        ({"current_stage": "   \t  "}, None),
-        ({"current_stage": ["review"]}, None),
-        ({"current_stage": 3}, None),
-        ({"current_stage": {"name": "review"}}, None),
-        ({"vertical": "maintainability"}, None),
-        (["review"], None),
-        (3, None),
-        ("review", None),
-    ],
-)
-def test_read_current_stage_normalizes_pipeline_state_json(
-    tmp_path: Path, payload: object, expected: str | None
-) -> None:
-    state_path = tmp_path / "research" / "PIPELINE_STATE.json"
-    state_path.parent.mkdir()
-    state_path.write_text(json.dumps(payload), encoding="utf-8")
-    assert _read_current_stage(tmp_path) == expected
-
-
-def test_read_current_stage_tolerates_corrupt_state(tmp_path: Path) -> None:
-    state_path = tmp_path / "research" / "PIPELINE_STATE.json"
-    state_path.parent.mkdir()
-    state_path.write_text("{not valid json", encoding="utf-8")
-    assert _read_current_stage(tmp_path) is None
 
 
 # ---------------------------------------------------------------------------
@@ -152,10 +105,6 @@ def test_lifecycle_lines_mark_persisted_state(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-
-
-
-
 def _write_bundle(root: Path, name: str, *, condition: str, reward: float, dataset_id: str) -> None:
     bundle = root / "benchmarks" / "evidence" / name
     bundle.mkdir(parents=True, exist_ok=True)
@@ -181,18 +130,12 @@ def _write_claims_tsv(root: Path, rows: list[dict[str, str]]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-
-
-
-
 # ---------------------------------------------------------------------------
 # Subprocess: full `python -m argus_skill --status` smoke
 # ---------------------------------------------------------------------------
 
 
-def test_status_subprocess_includes_lifecycle_block(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_status_subprocess_includes_lifecycle_block(tmp_path: Path, monkeypatch) -> None:
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(home))
@@ -212,5 +155,3 @@ def test_status_subprocess_includes_lifecycle_block(
     assert "lifecycle:" in proc.stdout
     assert "state         :" in proc.stdout
     assert "allocatable   :" in proc.stdout
-
-

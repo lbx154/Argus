@@ -12,7 +12,6 @@ This module is deliberately thin and mirrors :mod:`argus_skill.manager.plan_mode
   holds) for a rewrite and parse it. Failures are surfaced explicitly via
   ``PromptRewrite.error``; we never silently hand back a fabricated rewrite.
 * :func:`parse_rewrite_text` — the pure, unit-testable parser (no live model).
-* :func:`render_rewrite` — scannable text for the terminal cockpit.
 
 Design note (matches the rest of the Manager): the harness makes no judgment
 about whether a rewrite is *good*. It renders a request, parses the reply
@@ -291,47 +290,9 @@ def rewrite_prompt(
     return parsed
 
 
-def _style(theme: Any, name: str, text: str) -> str:
-    if theme is None:
-        return text
-    fn = getattr(theme, name, None)
-    if not callable(fn):
-        return text
-    try:
-        return str(fn(text))
-    except Exception:  # noqa: BLE001 — styling is cosmetic
-        return text
-
-
-def render_rewrite(rewrite: PromptRewrite, theme: Any = None) -> str:
-    """Render a :class:`PromptRewrite` as scannable multi-line text."""
-    try:
-        lines: list[str] = [_style(theme, "bold", "Rewritten prompt")]
-        if not rewrite.rewritten.strip():
-            reason = (rewrite.error or "no rewrite produced").strip()
-            lines.append("  " + _style(theme, "red", reason))
-            return "\n".join(lines)
-        for line in rewrite.rewritten.splitlines() or [""]:
-            lines.append("  " + line)
-        if rewrite.changes:
-            lines.append("")
-            lines.append(_style(theme, "gray", "Made explicit:"))
-            for item in rewrite.changes:
-                lines.append("  " + _style(theme, "dim", f"- {item}"))
-        if rewrite.questions:
-            lines.append("")
-            lines.append(_style(theme, "gray", "Manager asks (answer, or it stays unspecified):"))
-            for item in rewrite.questions:
-                lines.append("  " + _style(theme, "dim", f"? {item}"))
-        return "\n".join(lines)
-    except Exception:  # noqa: BLE001 — rendering must never crash the cockpit
-        return "Rewritten prompt"
-
-
 __all__ = [
     "PromptRewrite",
     "build_prompt_rewrite_prompt",
     "parse_rewrite_text",
-    "render_rewrite",
     "rewrite_prompt",
 ]
