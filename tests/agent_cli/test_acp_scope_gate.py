@@ -158,6 +158,45 @@ def test_front_door_label_takes_acp_and_never_spawns_cli(monkeypatch) -> None:
     assert any(w.get("method") == "session/prompt" for w in acp_proc.written)
 
 
+@pytest.mark.parametrize(
+    "run_label",
+    ["manager-frontdoor-classify", "manager-classify-fast"],
+)
+def test_lean_acp_failure_does_not_fall_back_to_full_context_cli(
+    monkeypatch,
+    run_label: str,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_ACP", "1")
+    commands: list[list[str]] = []
+
+    def _popen(cmd, *args, **kwargs):
+        commands.append(cmd)
+        if "--acp" in cmd:
+            raise RuntimeError("acp unavailable")
+        raise AssertionError("lean classifier must not spawn the full Copilot CLI")
+
+    monkeypatch.setattr(agent_cli_runner.subprocess, "Popen", _popen)
+
+    runner = AgentCliRunner("copilot-bin", backend=BACKEND_COPILOT)
+    result = runner.run_exec(
+        prompt="classify this input",
+        resume_thread_id=None,
+        options=RunnerOptions(),
+        run_label=run_label,
+    )
+
+    assert result.exit_code != 0
+    assert result.turn_failed is True
+    assert "acp setup failed" in (result.fatal_error or "").lower()
+    assert commands == [[
+        "copilot-bin",
+        "--acp",
+        "--no-custom-instructions",
+        "--disable-builtin-mcps",
+        "--available-tools=",
+    ]]
+
+
 def test_manager_fast_route_takes_lean_acp_and_never_spawns_cli(monkeypatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_ACP", "1")
     acp_proc = _FakeAcpProc()

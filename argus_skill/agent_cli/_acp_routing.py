@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 
+from .models import AgentRunResult
 from .runner_backend import BACKEND_COPILOT
 
 # Manager run labels routed through the warm ``copilot --acp`` client (see
@@ -108,9 +109,10 @@ class AcpRoutingMixin:
         """Run one prompt on the warm ACP client.
 
         A failure before an ACP session exists returns ``None`` so the caller can
-        safely fall back to the ordinary CLI.  Once a conversational prompt may
-        have started, return its failure instead of replaying a tool-capable turn
-        in a second process (which could duplicate side effects).
+        safely fall back to the ordinary CLI, except for lean classifiers whose
+        no-context policy would be lost. Once a conversational prompt may have
+        started, return its failure instead of replaying a tool-capable turn in a
+        second process (which could duplicate side effects).
         """
         try:
             from .copilot_acp import get_client
@@ -137,9 +139,20 @@ class AcpRoutingMixin:
                 emit=_emit,
                 on_block=options.on_agent_message,
             )
-        except Exception:  # noqa: BLE001 — fast path must never break the turn
+        except Exception as exc:  # noqa: BLE001 — fast path must never break the turn
+            if run_label in _ACP_LEAN_LABELS:
+                return AgentRunResult(
+                    command=[self.agent_bin, "--acp"],
+                    exit_code=-1,
+                    thread_id=resume_thread_id,
+                    turn_completed=False,
+                    turn_failed=True,
+                    fatal_error=f"ACP lean classifier unavailable: {exc}",
+                )
             return None
         if result.exit_code == 0 and result.turn_completed and result.agent_messages:
+            return result
+        if run_label in _ACP_LEAN_LABELS:
             return result
         if run_label in {"simple-1", "chat-1"} and result.thread_id:
             return result
