@@ -1,45 +1,84 @@
-"""Round-budget guards must stay reachable when ``max_rounds`` is overridden.
+"""Small round budgets must retain the guards that can meaningfully fire.
 
-``SupervisedConfig`` sizes ``stall_threshold`` / ``soft_round_limit`` /
-``hard_escalate_rounds`` for the default 500-round budget. A caller may hand one
-mission a far smaller budget — ``bounded_dag_node_max_rounds()`` (see the
-sibling ``test_bounded_dag_round_budget``) yields 3 — and before the
-``SupervisedConfig.__post_init__`` rescale every one of those guards silently
-became unreachable. What remained was ``no_progress_threshold``, which counts
-EMPTY rounds only and therefore cannot tell a converging mission from a
-spinning one.
-
-These tests pin the arithmetic AND the observable classifier behaviour, because
-the arithmetic alone is what regressed unnoticed: the guards stayed in the
-config, were passed to the classifier, and evaluated to ``False`` forever.
+The semantic-stall guard is driven only by the Reviewer's structured
+``FORWARD_PROGRESS=false`` judgment. These tests exercise the real
+Engineer -> Reviewer -> settlement path so arithmetic-only tests cannot hide a
+disconnected runtime counter again.
 """
 
 from __future__ import annotations
 
-from argus_skill.core.models import ReviewDecision
-from argus_skill.engineer.round_config import SupervisedConfig
-from argus_skill.engineer.round_settlement import RoundSettlementMixin
+import json
+
+from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus_skill.core.models import ReviewDecision, RunnerResult
+from argus_skill.engineer import round_settlement
+from argus_skill.engineer.round_state import EngineerTurnOutcome, RoundLoopState
+from argus_skill.engineer.runner import (
+    EngineerConfig,
+    SupervisedConfig,
+    SupervisedEngineer,
+)
+from argus_skill.reviewer import Reviewer, ReviewerConfig
 
 
-def _classify_stalled(config: SupervisedConfig, *, streak: int, round_index: int):
-    return RoundSettlementMixin._classify(
-        review=ReviewDecision(
-            status="continue",
-            reason="Residual still open.",
-            next_action="Discharge the next conjunct.",
+def _review_json(
+    status: str,
+    *,
+    forward_progress: bool | None,
+    reason: str = "Residual still open.",
+) -> str:
+    payload: dict[str, object] = {
+        "status": status,
+        "reason": reason,
+        "next_action": "Discharge the next conjunct." if status == "continue" else "",
+        "operator_question": None,
+    }
+    if forward_progress is not None:
+        payload["planner_report"] = {
+            "forward_progress": forward_progress,
+            "plan_signal": "continue",
+        }
+    return json.dumps(payload)
+
+
+def _engineer(backend: MemoryBackend) -> SupervisedEngineer:
+    return SupervisedEngineer(
+        engineer_runner=backend,
+        reviewer=Reviewer(runner=backend),
+        engineer_config=EngineerConfig(model="m"),
+        reviewer_config=ReviewerConfig(model="m"),
+    )
+
+
+def _queue_round(
+    backend: MemoryBackend,
+    round_index: int,
+    *,
+    status: str = "continue",
+    forward_progress: bool | None = False,
+) -> None:
+    backend.queue(
+        f"engineer-r{round_index}",
+        CannedResponse(message=f"round {round_index} produced a substantive result"),
+    )
+    backend.queue(
+        "reviewer",
+        CannedResponse(
+            message=_review_json(
+                status,
+                forward_progress=forward_progress,
+                reason=(
+                    "The objective is verified complete."
+                    if status == "done"
+                    else "Residual still open."
+                ),
+            )
         ),
-        no_progress_streak=0,
-        no_progress_threshold=config.no_progress_threshold,
-        semantic_stall_streak=streak,
-        stall_threshold=config.stall_threshold,
-        round_index=round_index,
-        max_rounds=config.max_rounds,
-        hard_escalate_rounds=config.hard_escalate_rounds,
     )
 
 
 def test_default_budget_leaves_every_guard_untouched() -> None:
-    """The 500-round default must stay byte-for-byte identical."""
     config = SupervisedConfig()
 
     assert config.max_rounds == 500
@@ -48,61 +87,164 @@ def test_default_budget_leaves_every_guard_untouched() -> None:
     assert config.hard_escalate_rounds == 24
 
 
-def test_small_budget_rescales_guards_into_reach() -> None:
+def test_three_round_budget_rescales_guards_into_reach() -> None:
     config = SupervisedConfig(max_rounds=3)
 
-    # A stall streak can never exceed the round index, and the classifier also
-    # requires ``round_index < max_rounds``, so the guard has to sit at or
-    # below ``max_rounds - 1`` to be satisfiable at all.
-    assert config.stall_threshold <= config.max_rounds - 1
-    assert config.soft_round_limit <= config.max_rounds - 1
-    assert config.hard_escalate_rounds <= config.max_rounds
+    assert config.stall_threshold == 2
+    assert config.soft_round_limit == 2
+    assert config.hard_escalate_rounds == 3
 
 
-def test_semantic_stall_guard_can_actually_fire_on_a_bounded_node() -> None:
-    """The regression this file exists for.
+def test_explicit_no_progress_reaches_stall_guard_on_real_bounded_run(
+    tmp_path,
+) -> None:
+    backend = MemoryBackend()
+    _queue_round(backend, 1, forward_progress=False)
+    _queue_round(backend, 2, forward_progress=False)
+    events: list[dict] = []
 
-    With ``stall_threshold=4`` and ``max_rounds=3`` the classifier needs a
-    streak of 4 while the round index is still below 3 — unsatisfiable — so a
-    spinning bounded node burned its whole budget without the semantic guard
-    ever being consulted.
-    """
-    config = SupervisedConfig(max_rounds=3)
-
-    classifications = [
-        _classify_stalled(config, streak=streak, round_index=streak)[0]
-        for streak in range(1, config.max_rounds + 1)
-    ]
-
-    assert "no_progress" in classifications, (
-        "the semantic stall guard is unreachable inside a 3-round budget; "
-        f"classifications were {classifications}"
+    status, rounds, _final, reason, _thread = _engineer(backend).run(
+        objective="Discharge the bounded proof node.",
+        engineer_prompt_builder=lambda _next, _static=True: "Do the task.",
+        supervised_config=SupervisedConfig(
+            max_rounds=3,
+            decision_progress_timeout_seconds=0,
+        ),
+        workdir=tmp_path,
+        on_event=events.append,
     )
 
+    assert status == "no_progress"
+    assert len(rounds) == 2
+    assert "Reviewer reported no forward progress for 2 consecutive rounds" in reason
+    stall_events = [event for event in events if event.get("type") == "round.stall"]
+    assert [event["semantic_stall_streak"] for event in stall_events] == [1, 2]
 
-def test_unbounded_budget_keeps_explicitly_disabled_guards_disabled() -> None:
-    """A progressive experiment matrix zeroes both escalation guards on purpose."""
+
+def test_explicit_no_progress_keeps_decision_timeout_clock(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    state = RoundLoopState(last_decision_progress_at=100.0)
+    outcome = EngineerTurnOutcome(
+        engineer_result=RunnerResult(exit_code=0),
+        round_thread_id=None,
+        fatal_error=None,
+        safe_fatal_error=None,
+        stop_kind=None,
+        raw_engineer_message="substantive work",
+        engineer_message="substantive work",
+        process_ownership_note="",
+        round_started_at=99.0,
+    )
+    monkeypatch.setattr(round_settlement.time, "monotonic", lambda: 1900.0)
+
+    control = _engineer(MemoryBackend())._settle_round(
+        review=ReviewDecision(
+            status="continue",
+            reason="No forward progress.",
+            next_action="Try a different mechanism.",
+            planner_report={"forward_progress": False},
+        ),
+        round_index=1,
+        supervised_config=SupervisedConfig(
+            max_rounds=3,
+            decision_progress_timeout_seconds=1800,
+        ),
+        workdir=tmp_path,
+        outcome=outcome,
+        state=state,
+        review_completed_hook=None,
+        continue_adaptor=None,
+        on_event=None,
+    )
+
+    assert control.terminal is not None
+    assert control.terminal[0] == "no_progress"
+    assert "1800 seconds without decision progress" in control.terminal[3]
+
+
+def test_explicit_progress_resets_stall_streak_on_real_run(tmp_path) -> None:
+    backend = MemoryBackend()
+    _queue_round(backend, 1, forward_progress=False)
+    _queue_round(backend, 2, forward_progress=True)
+    _queue_round(backend, 3, forward_progress=False)
+    _queue_round(backend, 4, status="done", forward_progress=True)
+
+    status, rounds, _final, _reason, _thread = _engineer(backend).run(
+        objective="Converge one residual at a time.",
+        engineer_prompt_builder=lambda _next, _static=True: "Do the task.",
+        supervised_config=SupervisedConfig(
+            max_rounds=4,
+            stall_threshold=2,
+            soft_round_limit=0,
+            hard_escalate_rounds=0,
+            decision_progress_timeout_seconds=0,
+        ),
+        workdir=tmp_path,
+    )
+
+    assert status == "done"
+    assert len(rounds) == 4
+
+
+def test_missing_progress_signal_never_counts_as_stall_evidence(tmp_path) -> None:
+    backend = MemoryBackend()
+    _queue_round(backend, 1, forward_progress=False)
+    _queue_round(backend, 2, forward_progress=None)
+    _queue_round(backend, 3, forward_progress=False)
+    _queue_round(backend, 4, status="done", forward_progress=True)
+
+    status, rounds, _final, _reason, _thread = _engineer(backend).run(
+        objective="Do not infer progress from Reviewer prose.",
+        engineer_prompt_builder=lambda _next, _static=True: "Do the task.",
+        supervised_config=SupervisedConfig(
+            max_rounds=4,
+            stall_threshold=2,
+            soft_round_limit=0,
+            hard_escalate_rounds=0,
+            decision_progress_timeout_seconds=0,
+        ),
+        workdir=tmp_path,
+    )
+
+    assert status == "done"
+    assert len(rounds) == 4
+
+
+def test_two_round_budget_does_not_invent_a_one_strike_stall_policy() -> None:
+    config = SupervisedConfig(max_rounds=2)
+
+    assert config.stall_threshold == 0
+    assert SupervisedConfig(max_rounds=2, stall_threshold=1).stall_threshold == 1
+
+
+def test_explicitly_disabled_guards_stay_disabled() -> None:
     config = SupervisedConfig(
         max_rounds=2_147_483_647,
+        stall_threshold=0,
         soft_round_limit=0,
         hard_escalate_rounds=0,
     )
 
+    assert config.stall_threshold == 0
     assert config.soft_round_limit == 0
     assert config.hard_escalate_rounds == 0
 
 
-def test_single_round_budget_never_produces_a_disabled_looking_guard() -> None:
-    """A repair capability pins ``max_rounds`` to 1; 0 would read as 'disabled'."""
+def test_single_round_budget_disables_impossible_stall_guard() -> None:
     config = SupervisedConfig(max_rounds=1)
 
-    assert config.stall_threshold >= 1
-    assert config.soft_round_limit >= 1
-    assert config.hard_escalate_rounds >= 1
+    # ``_classify`` intentionally lets the final-round result win, so there is
+    # no round_index < max_rounds point at which a semantic-stall guard can fire.
+    assert config.stall_threshold == 0
+    assert config.soft_round_limit == 1
+    assert config.hard_escalate_rounds == 1
 
 
 def test_nonpositive_budget_is_left_alone() -> None:
     config = SupervisedConfig(max_rounds=0)
 
     assert config.stall_threshold == 4
+    assert config.soft_round_limit == 12
     assert config.hard_escalate_rounds == 24

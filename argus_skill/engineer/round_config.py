@@ -129,15 +129,28 @@ def _fit_guard(threshold: int, reachable_max: int) -> int:
     return max(1, reachable_max)
 
 
+def _fit_stall_guard(threshold: int, budget: int) -> int:
+    """Fit a sustained-stall guard without inventing a one-strike policy."""
+    value = int(threshold)
+    if value <= 0:
+        return value
+    reachable_max = budget - 1
+    if reachable_max <= 0:
+        return 0
+    if value > reachable_max and reachable_max < 2:
+        return 0
+    return _fit_guard(value, reachable_max)
+
+
 @dataclass
 class SupervisedConfig:
     """Knobs for the round-loop control."""
 
     max_rounds: int = 500
     no_progress_threshold: int = 2  # consecutive rounds with no engineer message before bailing
-    # Consecutive reviewed rounds classified by the Reviewer as setup-only,
-    # artifact-sync-only, or no decision progress. The harness counts the
-    # structured verdict; it never infers scientific progress from activity.
+    # Consecutive ``continue`` rounds for which the Reviewer explicitly reports
+    # ``FORWARD_PROGRESS=false``. Missing signals never count: the harness does
+    # not infer scientific progress from prose, files, or activity.
     stall_threshold: int = 4
     # Round 1 receives the full task/skill contract. Continuation rounds use
     # Reviewer guidance plus the shared CHECKPOINT.md baton.
@@ -226,10 +239,11 @@ class SupervisedConfig:
         ``bounded_dag_node_max_rounds()`` yields 3 — and a guard whose
         threshold is not strictly reachable within the budget can then never
         fire. Nothing reports this: the value stays in the config, is passed
-        to the classifier, and evaluates to ``False`` on every round, so the
-        loop silently degrades to the single coarsest guard
-        (``no_progress_threshold``, which only counts EMPTY rounds and cannot
-        tell a converging mission from a spinning one).
+        to the classifier, and evaluates to ``False`` on every round.
+
+        Semantic stall is counted only from the Reviewer's structured
+        ``FORWARD_PROGRESS=false`` judgment. The harness never derives it from
+        verdict prose or filesystem activity.
 
         ``_runtime_execute`` already performs the mirror-image coordination in
         the unbounded direction (a progressive experiment matrix raises
@@ -241,7 +255,11 @@ class SupervisedConfig:
 
         * ``stall_threshold`` needs ``streak >= threshold`` while
           ``round_index < max_rounds``; a streak cannot exceed the round
-          index, so it must be ``<= max_rounds - 1``.
+          index, so it must be ``<= max_rounds - 1``. If a configured
+          multi-round threshold cannot fit at least two observations before the
+          final round, it is disabled rather than silently becoming a one-strike
+          policy. Callers may still request ``stall_threshold=1`` explicitly
+          when a two-round budget should stop after its first negative verdict.
         * ``soft_round_limit`` advises the Reviewer partway through, so it
           must also land strictly inside the budget.
         * ``hard_escalate_rounds`` force-ends the loop with a planner-readable
@@ -255,6 +273,6 @@ class SupervisedConfig:
         budget = int(self.max_rounds)
         if budget <= 0:
             return
-        self.stall_threshold = _fit_guard(self.stall_threshold, budget - 1)
+        self.stall_threshold = _fit_stall_guard(self.stall_threshold, budget)
         self.soft_round_limit = _fit_guard(self.soft_round_limit, budget - 1)
         self.hard_escalate_rounds = _fit_guard(self.hard_escalate_rounds, budget)

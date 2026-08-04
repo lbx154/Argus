@@ -1,4 +1,5 @@
 """Direct checkpoint editing and minimal verdict parsing."""
+
 from __future__ import annotations
 
 from argus_skill.reviewer import Reviewer, parse_decision_text
@@ -35,6 +36,16 @@ def test_checkpoint_state_is_not_copied_into_the_prompt():
     p = _prompt()
     assert "CURATED WORKING MEMORY" not in p
     assert "tried_and_failed" not in p
+
+
+def test_reviewer_final_handoff_requires_explicit_progress_fields():
+    p = _prompt()
+
+    assert (
+        "Return exactly STATUS, REASON, NEXT_ACTION, OPERATOR_QUESTION, "
+        "FORWARD_PROGRESS and PLAN_SIGNAL"
+    ) in p
+    assert "Return only STATUS, REASON, NEXT_ACTION and OPERATOR_QUESTION" not in p
 
 
 def test_reviewer_output_without_confidence_parses_into_verdict():
