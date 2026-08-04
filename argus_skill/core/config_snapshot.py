@@ -14,11 +14,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from ..cli.roles_status import ROLES, resolve_all_roles
 from .knobs import KNOBS, redact_knob_value, resolve_knob
+from .role_config import ROLES, resolve_all_roles
 
 _ROLE_MODEL_ENV: dict[str, str] = {
-    "manager": "ARGUS_SKILL_ENGINEER_MODEL",
+    "manager": "ARGUS_SKILL_MANAGER_MODEL",
     "planner": "ARGUS_SKILL_PLAN_MODEL",
     "engineer": "ARGUS_SKILL_ENGINEER_MODEL",
     "reviewer": "ARGUS_SKILL_REVIEWER_MODEL",

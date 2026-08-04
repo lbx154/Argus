@@ -26,7 +26,7 @@ _ROLE_EFFORT_ENVS: dict[str, str] = {
     "reviewer": "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
 }
 _ROLE_MODEL_ENVS: dict[str, str] = {
-    "manager": "ARGUS_SKILL_ENGINEER_MODEL",
+    "manager": "ARGUS_SKILL_MANAGER_MODEL",
     "planner": "ARGUS_SKILL_PLAN_MODEL",
     "engineer": "ARGUS_SKILL_ENGINEER_MODEL",
     "reviewer": "ARGUS_SKILL_REVIEWER_MODEL",
@@ -268,7 +268,7 @@ def _apply_config_intent(
         target = roles or list(_ROLE_EFFORT_ENVS)
         # A reasoning-effort knob is a silent no-op on a non-reasoning model —
         # reject with a grounded explanation instead of pretending to apply it.
-        from ..cli.roles_status import resolve_role_config
+        from ..core.role_config import resolve_role_config
 
         rcfg = {r: resolve_role_config(r, env=os.environ) for r in target}
         applicable = [r for r in target if rcfg[r].effort is not None]

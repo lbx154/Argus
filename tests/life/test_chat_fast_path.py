@@ -708,7 +708,6 @@ def test_execute_uses_full_pipeline_on_real_task(
     assert planner_call["options"].working_dir == str(Path.cwd())
     assert planned_tasks and "## Planner execution plan (advisory)" in planned_tasks[0]
     assert "Check the premise" in planned_tasks[0]
-    assert any(event.get("type") == "plan.completed" for event in sink.events)
     assert any(event.get("type") == "life.planner.start" for event in sink.events)
     assert any(event.get("type") == "life.planner.verdict" for event in sink.events)
     from argus_skill.skills.layered import LayeredSkillStore

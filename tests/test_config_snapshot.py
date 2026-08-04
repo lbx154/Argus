@@ -38,6 +38,17 @@ def test_config_snapshot_resolves_role_hyperparameters() -> None:
     manager = next(r for r in snapshot["roles"] if r["role"] == "manager")
     assert manager["backend"] == "copilot"
 
+    manager_specific = build_config_snapshot(
+        env={
+            "ARGUS_SKILL_MANAGER_MODEL": "manager-model",
+            "ARGUS_SKILL_ENGINEER_MODEL": "engineer-model",
+        },
+        generated_at_utc="2026-07-07T00:00:00Z",
+    )
+    manager = next(r for r in manager_specific["roles"] if r["role"] == "manager")
+    assert manager["model"] == "manager-model"
+    assert manager["model_source"] == "ARGUS_SKILL_MANAGER_MODEL"
+
     token = next(
         k for k in snapshot["operator_knobs"]
         if k["name"] == "ARGUS_SKILL_TELEGRAM_BOT_TOKEN"

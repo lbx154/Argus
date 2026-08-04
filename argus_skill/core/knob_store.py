@@ -12,7 +12,7 @@ This module is the persisted layer for non-project operator switches: a flat
 ``ARGUS_SKILL_*`` env-var-name -> value map at ``core.paths.config_path()``
 (``~/.argus-skill/config.json``, resolved via ``ARGUS_SKILL_HOME`` like every
 other cross-project file — never a hard-coded path). Every existing resolver
-(``core.knobs.resolve_role_model``, ``cli.roles_status``'s backend/model
+(``core.knobs.resolve_role_model``, ``core.role_config``'s backend/model
 display resolution, the raw ``ARGUS_SKILL_RUNNER_BACKEND`` reads in
 ``apps._runtime``) is wired to check it as ONE MORE precedence layer. The sole
 host-global USD budget is stored here too; projects have no separate budgets.

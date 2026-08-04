@@ -126,7 +126,7 @@ class LifeStderrSink:
         {
             "loop.start",
             "loop.done",
-            "match.info",  # "skill store empty - will distill a new playbook"
+            "match.info",  # matcher diagnostics
             "distill.done",  # "distilled (4009 chars, 0 tok)"
         }
     )

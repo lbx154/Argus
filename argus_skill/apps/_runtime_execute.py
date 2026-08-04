@@ -802,15 +802,6 @@ class SkillLoopExecuteMixin:
                     lines.append("Notes: " + "; ".join(plan.notes))
                 ex_state.full_task += "\n\n---\n" + "\n".join(lines)
                 sink.handle_event(
-                    {
-                        "type": "plan.completed",
-                        "agent_layer": "planner",
-                        "plan_mode": "bounded",
-                        "steps": len(plan.steps),
-                        "text": f"bounded execution plan · {len(plan.steps)} steps",
-                    }
-                )
-                sink.handle_event(
                     build_planner_verdict_event(
                         status=PlannerVerdictStatus.PLANNED,
                         reason=(

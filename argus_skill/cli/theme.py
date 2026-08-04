@@ -35,41 +35,24 @@ _GRAY = "\x1b[90m"  # bright black
 # each Theme method plays, not the literal hue (e.g. ``magenta`` → mauve, the
 # signature accent; ``cyan`` → sky; ``gray`` → overlay1).
 _MOCHA: dict[str, tuple[int, int, int]] = {
-    "red": (243, 139, 168),      # #f38ba8
-    "green": (166, 227, 161),    # #a6e3a1
-    "yellow": (249, 226, 175),   # #f9e2af
-    "blue": (137, 180, 250),     # #89b4fa
+    "red": (243, 139, 168),  # #f38ba8
+    "green": (166, 227, 161),  # #a6e3a1
+    "yellow": (249, 226, 175),  # #f9e2af
+    "blue": (137, 180, 250),  # #89b4fa
     "magenta": (203, 166, 247),  # #cba6f7  mauve — signature accent
-    "cyan": (137, 220, 235),     # #89dceb  sky
-    "gray": (127, 132, 156),     # #7f849c  overlay1
+    "cyan": (137, 220, 235),  # #89dceb  sky
+    "gray": (127, 132, 156),  # #7f849c  overlay1
 }
 
 _FALLBACK_SGR: dict[str, str] = {
-    "red": _RED, "green": _GREEN, "yellow": _YELLOW, "blue": _BLUE,
-    "magenta": _MAGENTA, "cyan": _CYAN, "gray": _GRAY,
+    "red": _RED,
+    "green": _GREEN,
+    "yellow": _YELLOW,
+    "blue": _BLUE,
+    "magenta": _MAGENTA,
+    "cyan": _CYAN,
+    "gray": _GRAY,
 }
-
-# Default banner gradient: mauve → blue → teal — cool, modern, on-brand for a
-# coding agent (warm gradients read as "playful", cool reads as "precise").
-_LOGO_GRADIENT = ["#cba6f7", "#89b4fa", "#94e2d5"]
-
-def _hex_to_rgb(h: str) -> tuple[int, int, int]:
-    h = h.lstrip("#")
-    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-
-
-def _lerp(c1: tuple[int, int, int], c2: tuple[int, int, int], t: float) -> tuple[int, int, int]:
-    return tuple(int(round(c1[i] + (c2[i] - c1[i]) * t)) for i in range(3))  # type: ignore[return-value]
-
-
-def _gradient_rgb_at(stops_rgb: list[tuple[int, int, int]], t: float) -> tuple[int, int, int]:
-    """Colour at position ``t`` in [0,1] across a multi-stop gradient."""
-    if len(stops_rgb) == 1:
-        return stops_rgb[0]
-    t = 0.0 if t < 0 else 1.0 if t > 1 else t
-    seg = t * (len(stops_rgb) - 1)
-    idx = min(int(seg), len(stops_rgb) - 2)
-    return _lerp(stops_rgb[idx], stops_rgb[idx + 1], seg - idx)
 
 
 def supports_truecolor() -> bool:
@@ -85,7 +68,12 @@ def supports_truecolor() -> bool:
     if os.environ.get("VTE_VERSION"):
         return True
     if os.environ.get("TERM_PROGRAM", "") in (
-        "iTerm.app", "WezTerm", "Hyper", "Tabby", "vscode", "ghostty",
+        "iTerm.app",
+        "WezTerm",
+        "Hyper",
+        "Tabby",
+        "vscode",
+        "ghostty",
     ):
         return True
     return False
@@ -94,14 +82,8 @@ def supports_truecolor() -> bool:
 # ── Box-drawing constants (always plain Unicode, no ANSI) ─────────────────
 
 BOX = {
-    "tl": "╭",
-    "tr": "╮",
-    "bl": "╰",
-    "br": "╯",
     "h": "─",
     "v": "│",
-    "vl": "├",
-    "vr": "┤",
     "left_top": "┌",
     "left_bot": "└",
     "left_mid": "├",
@@ -109,6 +91,7 @@ BOX = {
 
 
 # ── Theme ─────────────────────────────────────────────────────────────────
+
 
 @dataclass(frozen=True)
 class Theme:
@@ -149,64 +132,12 @@ class Theme:
         truecolor = enabled and supports_truecolor()
         return cls(enabled=enabled, width=width, truecolor=truecolor)
 
-    def live_width(self) -> int:
-        """Re-query the terminal's CURRENT column count, bypassing ``self.width``.
-
-        ``Theme.auto()`` runs once at terminal startup and freezes ``width`` for
-        the theme's whole lifetime (it's a ``frozen`` dataclass). Anything
-        built for a WRAPPING-SENSITIVE, cursor-row-counted redraw (the live
-        cockpit panel, the bottom hint line) silently corrupts the instant
-        the content is wider than the terminal's real, CURRENT width — every
-        "move up N rows" calculation assumes one physical row per logical
-        line, and that assumption breaks the moment a padded line wraps.
-        Two ways this cached value goes stale even when the code is correct:
-        the operator resizes their terminal mid-session, or a stale
-        ``COLUMNS`` env var (tmux/screen not re-exporting it on resize) made
-        ``shutil.get_terminal_size()`` — which checks ``COLUMNS``/``LINES``
-        before falling back to the OS — disagree with the tty from the
-        start. ``os.get_terminal_size()`` queries the tty directly (no env
-        var involved), so calling it fresh right before building any such
-        content sidesteps both. Falls back to ``self.width`` for a disabled
-        theme (non-TTY output, where nothing wraps visibly anyway) or if the
-        live query fails for any reason.
-        """
-        if not self.enabled:
-            return self.width
-        try:
-            cols = os.get_terminal_size(sys.__stdout__.fileno()).columns
-        except (OSError, ValueError, AttributeError):
-            return self.width
-        return max(40, min(cols, 120))
-
     # ── primitives ────────────────────────────────────────────────────
 
     def _wrap(self, text: str, *codes: str) -> str:
         if not self.enabled or not codes:
             return text
         return "".join(codes) + text + _RESET
-
-    def cursor_up_and_forward(self, up: int, forward: int) -> str:
-        """Move the cursor ``up`` rows then ``forward`` columns from column 1
-        — used to jump back to an input position after printing a status
-        line below it (Codex-CLI/Claude-Code-style redraw, confirmed by
-        capturing both live in a pty this session).
-
-        Deliberately built from ``\\x1b[<n>A`` / ``\\x1b[<n>C`` (bracketed CSI
-        forms) rather than DEC save/restore-cursor (bare ``ESC 7`` / ``ESC
-        8``): the ANSI handling used by terminal renderers only matches
-        ``\\x1b[...`` sequences. ``ESC 7`` slips past
-        that regex un-marked and corrupts readline's line-start bookkeeping
-        (confirmed live: the prompt prefix visually vanished the instant a
-        keystroke was echoed). No-op when theme is disabled (piped/non-TTY
-        output), so scripted stdin never sees raw escapes.
-        """
-        if not self.enabled:
-            return ""
-        parts = [f"\x1b[{up}A"] if up else []
-        parts.append("\r")
-        if forward:
-            parts.append(f"\x1b[{forward}C")
-        return "".join(parts)
 
     def _sgr(self, name: str) -> str:
         """Foreground SGR for a semantic colour name — 24-bit when the terminal
@@ -258,43 +189,6 @@ class Theme:
     def bold_yellow(self, text: str) -> str:
         return self._wrap(text, _BOLD, self._sgr("yellow"))
 
-    # ── gradient ──────────────────────────────────────────────────────
-
-    def gradient(
-        self,
-        text: str,
-        stops: list[str] | None = None,
-        *,
-        bold: bool = True,
-        width: int | None = None,
-        offset: int = 0,
-    ) -> str:
-        """Per-character horizontal colour gradient across ``text``.
-
-        On a 24-bit terminal each character gets its own interpolated tone
-        (mauve→blue→teal by default); on a basic colour TTY it degrades to a
-        single bold accent (the signature mauve); with colour off it is the
-        plain text. ``width``/``offset`` let a multi-row banner share one
-        colour ramp across the whole block so every row's columns line up in
-        hue (pass the block's max width as ``width``).
-        """
-        if not self.enabled:
-            return text
-        if not self.truecolor:
-            codes = (_BOLD, self._sgr("magenta")) if bold else (self._sgr("magenta"),)
-            return self._wrap(text, *codes)
-        rgb_stops = [_hex_to_rgb(s) for s in (stops or _LOGO_GRADIENT)]
-        span = max(1, (width if width is not None else len(text)) - 1)
-        pre = _BOLD if bold else ""
-        out: list[str] = []
-        for i, ch in enumerate(text):
-            if ch == " ":
-                out.append(ch)
-                continue
-            r, g, b = _gradient_rgb_at(rgb_stops, (offset + i) / span)
-            out.append(f"{pre}\x1b[38;2;{r};{g};{b}m{ch}")
-        return "".join(out) + _RESET
-
     # ── box drawing ───────────────────────────────────────────────────
 
     def hr(self, label: str | None = None) -> str:
@@ -333,42 +227,6 @@ class Theme:
             out.append(bar + ln)
         out.append(self.dim(BOX["left_bot"] + BOX["h"]))
         return "\n".join(out)
-
-    def boxed(
-        self, lines: list[str], *, title: str | None = None
-    ) -> str:
-        """Full four-sided box. Use only for ASCII content (no CJK).
-
-        Pads each line with spaces to a fixed width; this means CJK
-        content WILL break alignment. For mixed content use
-        ``left_box`` instead.
-        """
-        # Compute box content width: theme.width - 4 (left/right borders + 2 pad).
-        body_w = max(20, min(self.width, 120) - 4)
-        clipped = [
-            (ln if len(ln) <= body_w else ln[: body_w - 1] + "…")
-            for ln in lines
-        ]
-        h = BOX["h"]
-        # Top
-        if title is None:
-            top = BOX["tl"] + h * (body_w + 2) + BOX["tr"]
-        else:
-            label = f" {title} "
-            side = max(2, (body_w + 2 - len(label)) // 2)
-            top_line = (
-                BOX["tl"]
-                + h * side
-                + label
-                + h * (body_w + 2 - side - len(label))
-                + BOX["tr"]
-            )
-            top = top_line
-        bot = BOX["bl"] + h * (body_w + 2) + BOX["br"]
-        return "\n".join(
-            [self.dim(top)] + [self.dim(BOX["v"]) + " " + ln + " " * (body_w - len(ln) + 1) + self.dim(BOX["v"])
-                              for ln in clipped] + [self.dim(bot)]
-        )
 
 
 def default_theme() -> Theme:

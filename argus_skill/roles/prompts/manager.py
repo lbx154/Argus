@@ -103,7 +103,7 @@ def build_chat_prompt(
     identity_card: str = "",
     runtime_context: str = "",
 ) -> str:
-    from ...cli.roles_status import runner_backend_label
+    from ...core.role_config import runner_backend_label
 
     prefix = f"{identity_card.strip()}\n\n" if identity_card.strip() else ""
     runtime = f"{runtime_context.strip()}\n\n" if runtime_context.strip() else ""
@@ -124,7 +124,7 @@ def build_simple_prompt(
     runtime_context: str = "",
     operator_workspace: str = "",
 ) -> str:
-    from ...cli.roles_status import runner_backend_label
+    from ...core.role_config import runner_backend_label
 
     identity = f"{identity_card.strip()}\n\n" if identity_card.strip() else ""
     prefix = f"{mission_status.strip()}\n\n" if mission_status.strip() else ""

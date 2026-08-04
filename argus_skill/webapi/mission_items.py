@@ -14,9 +14,9 @@ from typing import Any
 
 from ..apps._inbox import count_pending_inbox_messages, queue_inbox_message
 from ..apps._life_actions import add_backlog_item, append_note, parse_add_flags
-from ..cli.roles_status import resolve_all_roles, role_activity
 from ..core.config_snapshot import build_config_snapshot
 from ..core.provider_quota import provider_usage_snapshot
+from ..core.role_config import resolve_all_roles
 from ..core.session import (
     SessionMeta,
     read_session_meta,
@@ -26,6 +26,7 @@ from ..core.session import (
 from ..core.transcript import read_turns
 from ..daemon.life_worker import read_continuous_state
 from ..life.memory import BacklogItem, LifeMemory
+from ..life.role_activity import role_activity
 from . import project_state
 from .diagnostics import run_diagnostics
 

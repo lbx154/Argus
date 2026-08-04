@@ -16,9 +16,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ..cli.roles_status import resolve_all_roles, role_activity
 from ..core import paths as core_paths
 from ..core.event_catalog import EventType
+from ..core.role_config import resolve_all_roles
 from ..core.session import (
     SessionMeta,
     migrate_legacy_session_workdir,
@@ -36,6 +36,7 @@ from ..daemon.life_worker import (
     _workspace_start_error,
 )
 from ..life.memory import LifeMemory
+from ..life.role_activity import role_activity
 from . import project_state
 
 log = logging.getLogger(__name__)

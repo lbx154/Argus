@@ -1,7 +1,7 @@
-"""Tests for the per-role backend/model/effort + live-activity resolver
-(cli/roles_status.py). Deterministic: every test passes an explicit ``env`` and
-writes a synthetic ``events.jsonl``, so nothing depends on the real vault, real
-env, or wall clock.
+"""Tests for role configuration and event-derived live activity.
+
+Deterministic: every test passes an explicit ``env`` and writes a synthetic
+``events.jsonl``, so nothing depends on the real vault, real env, or wall clock.
 """
 from __future__ import annotations
 
@@ -11,12 +11,12 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.cli.roles_status import (
+from argus_skill.core.role_config import (
     ROLES,
     is_reasoning_model,
     resolve_role_config,
-    role_activity,
 )
+from argus_skill.life.role_activity import role_activity
 
 
 @pytest.fixture(autouse=True)
@@ -54,7 +54,15 @@ def _hermetic_capability_vault(monkeypatch, tmp_path):
 
 # ── backend resolution + fallback chain ───────────────────────────────────
 
-def test_backend_defaults_to_codex_when_unset():
+def test_backend_defaults_to_codex_when_unset(monkeypatch):
+    from argus_skill.agent_cli import runner_backend
+
+    monkeypatch.setattr(
+        runner_backend,
+        "resolve_available_runner",
+        lambda requested, configured=None: (requested, configured or "/bin/codex"),
+    )
+
     c = resolve_role_config("engineer", env={})
     assert c.backend == "codex" and c.backend_label == "Codex"
 
@@ -112,6 +120,15 @@ def test_explicit_role_model_env_wins():
     assert resolve_role_config("engineer", env=env).model == "gpt-5.5-codex"
 
 
+def test_manager_uses_its_own_model_override() -> None:
+    env = {
+        "ARGUS_SKILL_MANAGER_MODEL": "manager-model",
+        "ARGUS_SKILL_ENGINEER_MODEL": "engineer-model",
+    }
+
+    assert resolve_role_config("manager", env=env).model == "manager-model"
+
+
 def test_planner_reads_plan_model_env():
     env = {"ARGUS_SKILL_PLAN_MODEL": "o3"}
     assert resolve_role_config("planner", env=env).model == "o3"
@@ -162,6 +179,18 @@ def _write_events(life_dir, events):
     (life_dir / "events.jsonl").write_text(
         "\n".join(json.dumps(e) for e in events), encoding="utf-8"
     )
+
+
+def test_activity_canonicalizes_historical_event_aliases(tmp_path):
+    now = time.time()
+    _write_events(
+        tmp_path,
+        [{"type": "round.started", "round_index": 2, "ts": now - 1}],
+    )
+
+    engineer = role_activity(tmp_path, now=now)["engineer"]
+    assert engineer.active is True
+    assert engineer.label == "round 2"
 
 
 def test_activity_marks_latest_role_active(tmp_path):

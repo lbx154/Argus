@@ -15,12 +15,12 @@ from pathlib import Path
 from typing import Any
 
 from ..apps.cli._follow import _read_recent_project_events
-from ..cli.roles_status import RoleActivity, RoleConfig, resolve_all_roles, role_activity
 from ..core import paths as core_paths
 from ..core.cost_control import CostControlLockBusyError, cost_control_snapshot
 from ..core.metrics import metrics_snapshot
 from ..core.mission_view import snapshot_mission_view
 from ..core.provider_quota import provider_usage_snapshot
+from ..core.role_config import RoleConfig, resolve_all_roles
 from ..core.runtime_identity import runtime_identity
 from ..core.session import SessionMeta, list_sessions, read_session_meta
 from ..core.usage import UsageLedger, UsageSummary
@@ -37,6 +37,7 @@ from ..daemon.protocol import (
 )
 from ..daemon.state import DAEMON_UPGRADE_REQUEST_FILE
 from ..life.memory import LifeMemory
+from ..life.role_activity import RoleActivity, role_activity
 from .daemon_liveness import web_daemon_liveness
 from .protocol import SNAPSHOT_SCHEMA_VERSION
 

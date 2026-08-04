@@ -462,13 +462,13 @@ _ROLE_TAG_RE = re.compile(r"\[(Manager|Planner|Engineer|Reviewer)\]")
 
 def _colorize_role_tags(theme: Any, text: str) -> str:
     """Recolour every ``[Role]`` tag in ``text`` with that role's signature hue
-    (see ``cli.roles_status.ROLE_COLOR``) — a pure text touch-up applied to an
+    (see ``cli.role_colors.ROLE_COLOR``) — a pure text touch-up applied to an
     already-rendered, append-only line. No cursor math, no redraw risk: this
     is the same append-only scrolling feed as before, just with the same
     colour-per-role language used everywhere else in the cockpit."""
     if theme is None:
         return text
-    from ...cli.roles_status import role_paint
+    from ...cli.role_colors import role_paint
 
     def _sub(m: "re.Match[str]") -> str:
         name = m.group(1)

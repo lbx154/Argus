@@ -124,10 +124,10 @@ def looks_like_status_query(text: str) -> bool:
 def build_status_snapshot_reply(root: Path | str, objective: str) -> str:
     """Render a live, bounded status snapshot without invoking a model."""
     try:
-        from ..cli.roles_status import role_activity
         from ..core.mission_view import snapshot_mission_view
         from ..daemon.life_worker import read_continuous_state, read_daemon_status
         from ..life.memory import Backlog
+        from ..life.role_activity import role_activity
 
         path = Path(root).expanduser()
         daemon = read_daemon_status(path)
@@ -376,7 +376,7 @@ class SelfReplyMixin:
                 if callable(closer):
                     closer()
 
-        from ..cli.roles_status import runner_backend_label
+        from ..core.role_config import runner_backend_label
 
         backend_label = runner_backend_label()
         _phase(f"Deciding: {backend_label} solo vs. the Argus team…")
@@ -501,9 +501,9 @@ class SelfReplyMixin:
         if not session_root:
             return ""
         try:
-            from ..cli.roles_status import role_activity
             from ..daemon.life_worker import read_daemon_status
             from ..life.memory import Backlog
+            from ..life.role_activity import role_activity
 
             root = Path(session_root)
             daemon = read_daemon_status(root)
@@ -726,7 +726,7 @@ class SelfReplyMixin:
         sink: EventSink,
         seed_thread_id: str | None = None,
     ) -> _Outcome:
-        from ..cli.roles_status import runner_backend_label
+        from ..core.role_config import runner_backend_label
         from ..roles.prompts.manager import build_simple_prompt
 
         args = self._args
