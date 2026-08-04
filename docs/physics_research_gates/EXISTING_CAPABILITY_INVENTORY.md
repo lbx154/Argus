@@ -15,7 +15,7 @@ replace it; the new `CapabilityRegistry` sits alongside it.
 | `LayeredSkillStore` | `argus_skill/skills/layered.py` | project+global composition, `promote_to_global` |
 | role library discovery | `argus_skill/skills/role_library.py`, `missions.py` | supplies semantic library paths; each Agent searches independently |
 | skill mutations | `argus_skill/skills/skill_router.py`, `evolution.py`, `lifecycle.py` | validated create/update/archive; protected-category guard |
-| bundled skills | `argus_skill/builtin_skills/` (engineer/reviewer/planner/manager/curator) | version-controlled role playbooks |
+| bundled skills | `argus_skill/builtin_skills/` (engineer/reviewer/planner/manager) | version-controlled role playbooks |
 | global skills dir | `$ARGUS_SKILL_HOME/skills` (`core/paths.py::shared_skills_root`) | learned skills |
 
 Skill schema (frontmatter): `name, description` only, followed by Markdown.

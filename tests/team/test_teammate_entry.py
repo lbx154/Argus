@@ -10,7 +10,8 @@ from argus_skill.team import teammate_entry as te
 
 def _form_claim(root: Path, member: str = "t1::w1", task: str = "t1::a") -> None:
     tb.form(root, [{"task_id": task, "objective": "do a", "owns_paths": ["a/**"]}])
-    tb.claim_specific(root, task, member, now=1.0)
+    claimed = tb.claim_top(root, member, now=1.0)
+    assert claimed is not None and claimed["task_id"] == task
 
 
 def test_build_runner_ns_has_required_fields(tmp_path: Path, monkeypatch) -> None:
@@ -59,20 +60,10 @@ def test_main_inprocess_failure_marks_failed(tmp_path: Path, monkeypatch) -> Non
     assert {t["task_id"]: t for t in tb.snapshot(root)}["t1::a"]["state"] == "failed"
 
 
-def test_main_stub_path_still_works(tmp_path: Path) -> None:
-    root = tmp_path / ".argus_team" / "t1"
-    _form_claim(root)
-    rc = te.main(["--root", str(root), "--member-id", "t1::w1", "--task-id", "t1::a",
-                  "--cwd", str(tmp_path), "--mission-cmd", "true"])
-    assert rc == 0
-    assert {t["task_id"]: t for t in tb.snapshot(root)}["t1::a"]["state"] == "done"
-
-
 def test_main_no_task_returns_2(tmp_path: Path) -> None:
     root = tmp_path / ".argus_team" / "t1"
     tb.form(root, [{"task_id": "t1::a", "objective": "x", "owns_paths": ["a/**"]}])
-    rc = te.main(["--root", str(root), "--member-id", "t1::ghost", "--cwd", str(tmp_path),
-                  "--mission-cmd", "true"])
+    rc = te.main(["--root", str(root), "--member-id", "t1::ghost", "--cwd", str(tmp_path)])
     assert rc == 2
 
 
@@ -144,7 +135,7 @@ def test_teammate_restores_checkpoint_env_when_setup_fails(
     monkeypatch.setenv("ARGUS_SKILL_CHECKPOINT_PERSIST", "1")
     monkeypatch.setattr(
         te,
-        "_forced_web_research",
+        "_build_runner_ns",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
     )
 
@@ -187,7 +178,7 @@ def test_shard_metric_null_without_result_file(tmp_path: Path, monkeypatch) -> N
 def test_shard_carries_lower_is_better_from_task(tmp_path: Path, monkeypatch) -> None:
     root = tmp_path / ".argus_team" / "t1"
     tb.form(root, [{"task_id": "t1::a", "objective": "x", "target": "kLat", "lower_is_better": True}])
-    tb.claim_specific(root, "t1::a", "t1::w1", now=1.0)
+    assert tb.claim_top(root, "t1::w1", now=1.0)["task_id"] == "t1::a"
     monkeypatch.setattr(te, "run_one_engineer_mission", lambda *a, **k: True)
     te.main(["--root", str(root), "--member-id", "t1::w1", "--task-id", "t1::a", "--cwd", str(tmp_path)])
     rec = _shard(root)
@@ -201,81 +192,6 @@ def test_shard_omits_lower_is_better_when_task_unset(tmp_path: Path, monkeypatch
     te.main(["--root", str(root), "--member-id", "t1::w1", "--task-id", "t1::a", "--cwd", str(tmp_path)])
     rec = _shard(root)
     assert "lower_is_better" not in rec  # absent → leaderboard uses its global default
-
-
-def test_forced_profile_keeps_non_kernel_report(tmp_path: Path, monkeypatch) -> None:
-    # A general profile (py-spy / cProfile / EXPLAIN ANALYZE) that never says "kernel"
-    # must NOT be silently discarded.
-    monkeypatch.setenv("ARGUS_TEAMMATE_FORCE_PROFILE", "1")
-    monkeypatch.delenv("ARGUS_TEAMMATE_PROFILE_REQUIRE_SUBSTR", raising=False)
-    report = ("Top function: parse_request 62% self time; allocate_buffer 18%; "
-              "the hot path is JSON decoding in the request handler.")
-    rf = tmp_path / "prof.txt"
-    rf.write_text(report, encoding="utf-8")
-    monkeypatch.setenv("ARGUS_TEAMMATE_PROFILE_CMD", f"cat {rf}")
-    out = te._forced_profile("optimize the request parser", cwd=str(tmp_path))
-    assert "parse_request" in out and "optimize the request parser" in out
-    assert out != "optimize the request parser"  # i.e. the profile was kept, not dropped
-
-
-class _FakeProc:
-    def __init__(self, stdout: str) -> None:
-        self.stdout = stdout
-
-
-def test_forced_research_default_prompt_is_domain_neutral(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("ARGUS_TEAMMATE_FORCE_RESEARCH", "1")
-    monkeypatch.delenv("ARGUS_TEAMMATE_RESEARCH_PROMPT", raising=False)
-    captured: dict = {}
-
-    def fake_run(argv, **k):
-        captured["prompt"] = argv[-1]
-        return _FakeProc("web search done; the SOTA approach is X using technique Y; source: paperZ.")
-
-    monkeypatch.setattr(te.subprocess, "run", fake_run)
-    te._forced_web_research("survey diffusion-policy robotics papers", cwd=str(tmp_path))
-    p = captured["prompt"]
-    for lib in ("vLLM", "CUTLASS", "Triton", "cuDNN", "FlashInfer"):
-        assert lib not in p  # no hardcoded GPU-kernel domain in the default
-    assert "survey diffusion-policy robotics papers" in p  # objective interpolated
-
-
-def test_forced_research_prompt_is_operator_configurable(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("ARGUS_TEAMMATE_FORCE_RESEARCH", "1")
-    monkeypatch.setenv("ARGUS_TEAMMATE_RESEARCH_PROMPT", "DOMAIN: check libA, libB. TASK:\n{objective}")
-    captured: dict = {}
-
-    def fake_run(argv, **k):
-        captured["prompt"] = argv[-1]
-        return _FakeProc("web search: libA is best.")
-
-    monkeypatch.setattr(te.subprocess, "run", fake_run)
-    te._forced_web_research("optimize the GEMM epilogue", cwd=str(tmp_path))
-    assert "libA" in captured["prompt"] and "optimize the GEMM epilogue" in captured["prompt"]
-
-
-def _profile_out(tmp_path, monkeypatch, *, header_env=None) -> str:
-    monkeypatch.setenv("ARGUS_TEAMMATE_FORCE_PROFILE", "1")
-    if header_env is None:
-        monkeypatch.delenv("ARGUS_TEAMMATE_PROFILE_HEADER", raising=False)
-    else:
-        monkeypatch.setenv("ARGUS_TEAMMATE_PROFILE_HEADER", header_env)
-    report = "Top function parse_request 62% self; the hot path is JSON decoding in the request handler."
-    rf = tmp_path / "p.txt"
-    rf.write_text(report, encoding="utf-8")
-    monkeypatch.setenv("ARGUS_TEAMMATE_PROFILE_CMD", f"cat {rf}")
-    return te._forced_profile("optimize the parser", cwd=str(tmp_path))
-
-
-def test_forced_profile_default_header_is_domain_neutral(tmp_path: Path, monkeypatch) -> None:
-    out = _profile_out(tmp_path, monkeypatch)
-    assert "NCU" not in out and "B200" not in out  # no GPU framing in the default
-    assert "LIVE PROFILE" in out and "bottleneck" in out.lower()
-
-
-def test_forced_profile_header_is_operator_configurable(tmp_path: Path, monkeypatch) -> None:
-    out = _profile_out(tmp_path, monkeypatch, header_env="[MY NCU PROFILE — attack the kernel]")
-    assert "[MY NCU PROFILE — attack the kernel]" in out
 
 
 def test_paper_mission_env_override(tmp_path: Path, monkeypatch) -> None:
@@ -297,7 +213,7 @@ def test_teammate_inherits_leaderboard_block_in_objective(tmp_path: Path, monkey
     from argus_skill.team import leaderboard as lb
     root = tmp_path / ".argus_team" / "t1"
     tb.form(root, [{"task_id": "t1::a", "objective": "optimize kA", "target": "kA"}])
-    tb.claim_specific(root, "t1::a", "t1::w1", now=1.0)
+    assert tb.claim_top(root, "t1::w1", now=1.0)["task_id"] == "t1::a"
     d = root / "shards"
     d.mkdir(parents=True, exist_ok=True)
     (d / "prev.jsonl").write_text(json.dumps(
@@ -324,7 +240,7 @@ def _setup_verify(tmp_path: Path, monkeypatch, signed: dict):
     from argus_skill.team import result_provenance as rp
     root = tmp_path / ".argus_team" / "t1"
     tb.form(root, [{"task_id": "t1::a", "objective": "x", "target": "kA"}])
-    tb.claim_specific(root, "t1::a", "t1::w1", now=1.0)
+    assert tb.claim_top(root, "t1::w1", now=1.0)["task_id"] == "t1::a"
     priv, pub = rp.generate_keypair()
     (tmp_path / "pub.pem").write_bytes(pub)
     if signed.get("_sign"):  # sign with the matching private key

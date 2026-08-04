@@ -3,9 +3,8 @@ can discover active team campaigns.
 
 When the lead forms a team it writes ``<project_root>/.argus/team/<team_id>.json``
 ``{team_id, team_root, cwd, created_ts}``. ONE Curator per daemon watches this
-directory and manages the pool for every active root — which is what makes a
-duplicate coordinator (the "2 coordinators on one root" leak) structurally
-impossible: discovery is centralised, not per-lead-mission.
+directory and manages the pool for every active root. Discovery is centralised,
+so a lead never creates a second process owner for the same campaign.
 
 ``.argus/`` is the existing per-project overlay convention (cf. the harness
 overlay), so this sits beside it without inventing a new location.
@@ -45,11 +44,6 @@ def write_marker(project_root: Path, *, team_id: str, team_root: Path | str,
         "created_ts": float(now),
     })
     return path
-
-
-def read_marker(project_root: Path, team_id: str) -> dict[str, Any] | None:
-    doc = _store.read_json(marker_path(project_root, team_id), default=None)
-    return doc if isinstance(doc, dict) else None
 
 
 def list_markers(project_root: Path) -> list[dict[str, Any]]:

@@ -54,11 +54,6 @@ def _payload(root: Path, marker: dict[str, Any]) -> dict[str, Any] | None:
         "mission": str(manifest.get("mission_objective") or ""),
         "tasks": normalized_tasks,
         "leaderboard": leaderboard.read(root),
-        "strategy": (
-            (root / "strategy.md").read_text(encoding="utf-8", errors="replace")[:4000]
-            if (root / "strategy.md").is_file()
-            else ""
-        ),
     }
 
 

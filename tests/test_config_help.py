@@ -63,18 +63,18 @@ def test_config_help_does_not_advertise_formal_vertical_override() -> None:
     assert "ARGUS_SKILL_VERTICAL" not in format_config_help(env={})
 
 
-def test_registry_covers_the_team_teammate_knobs() -> None:
-    """The teammate forced-grounding + leaderboard-direction control surface is
-    documented — an operator running a non-GPU team needs these to be discoverable."""
+def test_registry_covers_the_active_team_knobs() -> None:
+    """Only teammate execution/result controls remain operator-facing."""
     names = {k.name for k in KNOBS}
     for must in (
-        "ARGUS_TEAMMATE_RESEARCH_PROMPT",
-        "ARGUS_TEAMMATE_PROFILE_HEADER",
-        "ARGUS_TEAMMATE_PROFILE_REQUIRE_SUBSTR",
         "ARGUS_TEAMMATE_PAPER_MISSION",
+        "ARGUS_TEAMMATE_TIMEOUT_S",
+        "ARGUS_TEAMMATE_MAX_ROUNDS",
+        "ARGUS_TEAMMATE_RESULT_FILE",
         "ARGUS_LEADERBOARD_LOWER_IS_BETTER",
     ):
         assert must in names, must
+    assert not any(name.startswith("ARGUS_SKILL_CURATOR_") for name in names)
 
 
 def test_format_shows_default_when_unset() -> None:

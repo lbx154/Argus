@@ -114,51 +114,11 @@ def _done_ids(tasks: list[dict[str, Any]]) -> set[str]:
     return {t["task_id"] for t in tasks if t["state"] == "done"}
 
 
-def claim(root: Path, member_id: str, *, now: float) -> dict[str, Any] | None:
-    """Atomically claim the first pending task whose deps are all done."""
-    with _store.locked(_lock(root)):
-        tasks = _load_all(root)
-        done = _done_ids(tasks)
-        for task in sorted(tasks, key=lambda t: t["task_id"]):
-            if task["state"] != "pending":
-                continue
-            if not all(dep in done for dep in task["deps"]):
-                continue
-            task["state"] = "claimed"
-            task["owner"] = member_id
-            task["claim_ts"] = now
-            task["heartbeat_ts"] = now
-            _store.atomic_write_json(_path(root, task["task_id"]), task)
-            return task
-    return None
-
-
-def claim_specific(root: Path, task_id: str, member_id: str, *, now: float) -> dict[str, Any] | None:
-    """Atomically claim a SPECIFIC task for ``member_id`` (only if pending + deps done).
-
-    Spawn uses this so parallel teammates each claim their OWN assigned task and
-    never cross member IDs the way the next-pending ``claim()`` can under a race.
-    """
-    with _store.locked(_lock(root)):
-        task = _store.read_json(_path(root, task_id), default=None)
-        if not isinstance(task, dict) or task["state"] != "pending":
-            return None
-        if not all(dep in _done_ids(_load_all(root)) for dep in task["deps"]):
-            return None
-        task["state"] = "claimed"
-        task["owner"] = member_id
-        task["claim_ts"] = now
-        task["heartbeat_ts"] = now
-        _store.atomic_write_json(_path(root, task_id), task)
-        return task
-
-
 def claim_top(root: Path, member_id: str, *, now: float) -> dict[str, Any] | None:
     """Atomically claim the highest-priority pending task whose deps are all done.
 
-    Like ``claim()`` but orders eligible tasks by ``priority`` (lower number =
-    higher priority), tie-broken by ``task_id``. This is what the coordinator
-    uses to pull the top of the lead's backlog.
+    Lower ``priority`` values run first, tie-broken by ``task_id``. The resident
+    Curator is the sole caller that allocates work from the lead's backlog.
     """
     with _store.locked(_lock(root)):
         tasks = _load_all(root)
@@ -222,7 +182,7 @@ def reassign_stale(
 ) -> list[str]:
     """Return stale claimed/running tasks to pending.
 
-    ``live_owners`` lets the rolling coordinator distinguish a stale heartbeat
+    ``live_owners`` lets the resident Curator distinguish a stale heartbeat
     from a still-running teammate process whose heartbeat thread is delayed. A
     task with a live owner must not be reset to pending, or the same logical task
     can be claimed again while the old teammate is still running.
@@ -240,11 +200,6 @@ def reassign_stale(
                 _store.atomic_write_json(_path(root, task["task_id"]), task)
                 reassigned.append(task["task_id"])
     return reassigned
-
-
-def all_done(root: Path) -> bool:
-    tasks = _load_all(root)
-    return bool(tasks) and all(t["state"] == "done" for t in tasks)
 
 
 def snapshot(root: Path) -> list[dict[str, Any]]:

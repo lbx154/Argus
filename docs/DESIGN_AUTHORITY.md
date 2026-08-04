@@ -61,7 +61,7 @@
 
 ## 3. 当前不可破坏的系统不变量
 
-- 常驻角色是 Manager、Planner、Engineer、Reviewer；Curator 只属于可选团队模式。
+- 常驻模型角色只有 Manager、Planner、Engineer、Reviewer；团队模式的 Curator 是机械进程池/leaderboard 组件，不是第五个模型角色。
 - Manager 是 pipeline stage 的唯一语义决策者。Supervisor 只有一个机械补偿例外：
   bounded DAG 尚有同计划未完成节点时，可把被提前推进的 stage 恢复到本 mission 的起始
   stage；它不能选择新的科研阶段。

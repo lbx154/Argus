@@ -1,9 +1,9 @@
-"""Team manifest: who is in the team, what they own, and their liveness.
+"""Durable team manifest and teammate-process registry.
 
-Persisted atomically under an exclusive lock. The roster plus each
-teammate's living doc (``TEAMMATE_STATUS.md`` in its worktree) is the
-restart-resume anchor: on daemon restart the lead reads the roster, finds
-half-run members, and re-spawns them from their doc.
+The resident Curator records each spawned process here.  After an unclean
+daemon restart it can adopt a still-running process only after verifying the
+recorded PID's command line; task state and result shards remain authoritative
+for work completion.
 """
 from __future__ import annotations
 
@@ -65,6 +65,20 @@ def add_member(root: Path, member: dict[str, Any]) -> None:
         _store.atomic_write_json(_path(root), doc)
 
 
+def set_member_status(root: Path, member_id: str, status: str) -> None:
+    """Update one member's process status without dropping its PID/task metadata."""
+    with _store.locked(_lock(root)):
+        doc = load(root)
+        changed = False
+        for member in doc.get("members", []):
+            if member.get("id") == member_id:
+                member["status"] = status
+                changed = True
+                break
+        if changed:
+            _store.atomic_write_json(_path(root), doc)
+
+
 def _member_seq_from_id(value: object, *, prefix: str) -> int:
     text = str(value or "")
     if text.startswith(prefix) and text[len(prefix):].isdigit():
@@ -87,13 +101,13 @@ def _max_task_owner_seq(root: Path, *, prefix: str) -> int:
 def next_member_id(root: Path, *, prefix: str = "w") -> str:
     """Atomically allocate a unique, monotonic member id like ``w1``, ``w2``.
 
-    The coordinator calls this for every teammate it spawns so ids never
-    collide across the campaign. Works even if ``create()`` was never called.
+    The Curator calls this for every teammate it starts so ids never collide
+    inside one campaign. Works even if ``create()`` was never called.
 
     Long-running teams can be restocked and repaired while tasks still carry
     owners from roster generations that were later compacted or accidentally
     reset. Derive the next sequence from every durable owner source, not just
-    the stored counter, so a restarted coordinator never reuses ids such as
+    the stored counter, so a restarted Curator never reuses ids such as
     ``w1600``.
     """
     with _store.locked(_lock(root)):

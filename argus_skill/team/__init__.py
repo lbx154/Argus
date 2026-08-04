@@ -1,11 +1,9 @@
-"""Argus Agent Teams — domain-agnostic team plumbing (harness layer).
+"""Argus Agent Teams — domain-agnostic rolling-pool plumbing.
 
-A *lead* engineer decomposes a mission into file-ownership-disjoint
-subtasks and fans out autonomous *teammate* engineers that coordinate
-through a shared task board and a per-recipient mailbox. This package is
-the dumb pipe: atomic+locked storage, the task board, the mailbox, the
-roster, and per-teammate git-worktree isolation. All research judgment
-(whether to form a team, how to split, how to synthesise) lives in the
-engineer skills, never here.
+A lead engineer writes independent tasks to a durable board.  The daemon's
+resident Curator exclusively owns teammate process lifetime, while result
+shards and a deterministic leaderboard carry measured outcomes back to the
+lead.  Research judgment—whether to form a team, how to split it, and how to
+synthesise the result—stays in the engineer skill rather than this package.
 """
 from __future__ import annotations

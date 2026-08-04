@@ -1,12 +1,9 @@
 """Deterministic leaderboard fold for an agent team.
 
-The Curator folds teammate result shards into a per-target leaderboard. This is
-the HIGH-frequency, **deterministic** half of the curator design — pure code, no
-LLM, no agent ritual (the LLM only runs the low-frequency ``distill`` step). It
-exists to stop the "every approach tried once, none carried through, all stuck
-at the same weak result" failure: ``objective_block`` shows a fresh teammate
-what has already been tried so it builds on the best instead of re-running the
-same breadth.
+The Curator deterministically folds teammate result shards into a per-target
+leaderboard. It is pure single-writer code—no model call or agent bookkeeping.
+``objective_block`` shows a fresh teammate what has already been tried so it can
+build on the best instead of repeating exhausted breadth.
 
 Generality red line: the metric and its direction are the only operator-specific
 inputs, and both are DATA — the metric arrives in the shard (see
@@ -89,9 +86,13 @@ def fold(root: Path, *, lower_is_better: bool | None = None) -> dict[str, Any]:
         per_mech: dict[str, float | None] = {}
         for r in recs:
             mech = str(r.get("mechanism") or "")
-            metric = r.get("metric")
+            # A failed teammate may still have left a stale/partial result file.
+            # Keep the mechanism as "tried" but never let that number become the
+            # campaign's best.  Missing ``success`` remains compatible with old
+            # externally produced shards; current teammate shards always set it.
+            metric = None if r.get("success") is False else r.get("metric")
             if metric is None:
-                per_mech.setdefault(mech, None)  # tried, but unmeasured
+                per_mech.setdefault(mech, None)  # tried, but not a valid outcome
                 continue
             try:
                 metric = float(metric)
@@ -139,11 +140,14 @@ def objective_block(root: Path, target: str) -> str:
     lines = ["## LEADERBOARD — already attempted on this target (don't repeat these)"]
     best = entry.get("best")
     if best:
-        lines.append(f"Best so far: `{best.get('mechanism') or '(unnamed)'}` = {best.get('metric')}")
-        lines.append("This best is a VERIFIED, FIXED FLOOR — take it as given. Do NOT "
-                     "re-score, reproduce, or audit old attempts to re-confirm it; that "
-                     "is wasted budget, not progress. Spend the whole mission BEATING it "
-                     "with a new mechanism, then score that once.")
+        lines.append(
+            f"Best recorded so far: `{best.get('mechanism') or '(unnamed)'}` "
+            f"= {best.get('metric')}"
+        )
+        lines.append(
+            "Use it as the current incumbent; improve it or try a genuinely new "
+            "mechanism rather than blindly repeating the same attempt."
+        )
     lines.append("Approaches already attempted — build on the best, or try a "
                  "genuinely different one; don't just repeat these:")
     for a in attempts:

@@ -57,6 +57,15 @@ def test_fold_null_metric_is_attempt_not_best(tmp_path: Path) -> None:
     assert {a["mechanism"] for a in board["kA"]["attempts"]} == {"unmeasured", "measured"}
 
 
+def test_fold_failed_metric_is_attempt_but_never_best(tmp_path: Path) -> None:
+    _shard(tmp_path, "failed", "kA", 999.0, "failed-result", success=False)
+    _shard(tmp_path, "passed", "kA", 1.0, "passed-result", success=True)
+    board = lb.fold(tmp_path)
+    assert board["kA"]["best"] == {"mechanism": "passed-result", "metric": 1.0}
+    attempts = {row["mechanism"]: row["metric"] for row in board["kA"]["attempts"]}
+    assert attempts["failed-result"] is None
+
+
 def test_fold_dedups_mechanism_keeping_best(tmp_path: Path) -> None:
     _shard(tmp_path, "w1", "kA", 1.0, "fuse")
     _shard(tmp_path, "w2", "kA", 1.7, "fuse")  # same mechanism tried again, better

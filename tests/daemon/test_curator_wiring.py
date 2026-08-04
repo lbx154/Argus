@@ -27,7 +27,7 @@ def test_build_curator_is_none_without_project_workdir(tmp_path: Path) -> None:
 
 
 class _FakeResult:
-    last_agent_message = "## Strategy\nkA: deepen the fused kernel"
+    last_agent_message = "Team completed: one measured result landed."
 
 
 class _FakeBackend:
@@ -39,21 +39,6 @@ class _FakeBackend:
         self.labels.append(run_label)
         self.opts.append(options)
         return _FakeResult()
-
-
-def test_build_curator_distill_fn_calls_the_backend(tmp_path: Path) -> None:
-    backend = _FakeBackend()
-    runner = type("R", (), {})()
-    runner.curator_backend = backend
-    proj = tmp_path / "proj"
-    c = LifeWorker(_cfg(tmp_path, workdir=proj))._build_curator(runner)
-    assert c is not None and c._distill_fn is not None
-    # the daemon wraps the curator backend into the Curator's (prompt)->str distill_fn
-    assert c._distill_fn("PROMPT") == "## Strategy\nkA: deepen the fused kernel"
-    assert "curator.distill" in backend.labels
-    # distill runs CONTAINED in the project dir, so a stray agent file write can't
-    # land in the daemon's cwd (a real bug a live run surfaced)
-    assert backend.opts and backend.opts[0].working_dir == str(proj)
 
 
 def test_build_curator_summary_uses_manager_backend_and_conversation_root(tmp_path: Path) -> None:
@@ -72,11 +57,6 @@ def test_build_curator_summary_uses_manager_backend_and_conversation_root(tmp_pa
     assert curator._completion_fn("TEAM FACTS") == _FakeResult.last_agent_message
     assert "manager.team_summary" in backend.labels
     assert backend.opts[-1].working_dir == str(project)
-
-
-def test_build_curator_no_distill_fn_without_runner(tmp_path: Path) -> None:
-    c = LifeWorker(_cfg(tmp_path, workdir=tmp_path / "proj"))._build_curator()
-    assert c is not None and c._distill_fn is None  # deterministic-only Curator
 
 
 def test_build_curator_reads_env_knobs(tmp_path: Path, monkeypatch) -> None:

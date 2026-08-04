@@ -74,19 +74,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_REVIEWER_RUNNER_BIN", "(=RUNNER_BIN)", "per-role CLI binary for the reviewer", "backend"),
     Knob("ARGUS_SKILL_PLANNER_RUNNER_BIN", "(=RUNNER_BIN)", "per-role CLI binary for the planner", "backend"),
     Knob("ARGUS_SKILL_MANAGER_RUNNER_BIN", "(=RUNNER_BIN)", "per-role CLI binary for the manager", "backend"),
-    # --- team Curator (resident teammate-pool + leaderboard agent) ---
-    Knob("ARGUS_SKILL_CURATOR_BACKEND", "(=LIFE_BACKEND)", "per-role backend override for the team Curator", "backend"),
-    Knob("ARGUS_SKILL_CURATOR_RUNNER_BIN", "(=RUNNER_BIN)", "per-role CLI binary for the team Curator", "backend"),
-    Knob("ARGUS_SKILL_CURATOR_MODEL", "gpt-5.5", "model for the team Curator's distill", "models"),
-    Knob("ARGUS_SKILL_CURATOR_REASONING_EFFORT", "high", "team Curator distill reasoning effort", "reasoning"),
-    Knob("ARGUS_SKILL_CURATOR_DISTILL_INTERVAL_S", "1260", "min seconds between Curator leaderboard distills", "mission"),
-    # --- team teammates (per-teammate forced-grounding, time-box, leaderboard) ---
-    Knob("ARGUS_TEAMMATE_FORCE_RESEARCH", "off", "force ONE web_search grounding pass before each teammate mission (opt-in)", "team"),
-    Knob("ARGUS_TEAMMATE_RESEARCH_PROMPT", "(built-in, domain-neutral)", "override the forced-research prompt template ({objective} placeholder)", "team"),
-    Knob("ARGUS_TEAMMATE_FORCE_PROFILE", "off", "force ONE profiling pass before each teammate mission (opt-in; needs PROFILE_CMD)", "team"),
-    Knob("ARGUS_TEAMMATE_PROFILE_CMD", "(unset)", "operator profiling command; its stdout is prepended to the objective (ARGUS_OBJECTIVE exported)", "team"),
-    Knob("ARGUS_TEAMMATE_PROFILE_HEADER", "(built-in, domain-neutral)", "override the framing line prepended above the profile output", "team"),
-    Knob("ARGUS_TEAMMATE_PROFILE_REQUIRE_SUBSTR", "(unset → accept any non-empty)", "require this substring in the profile output or it is discarded", "team"),
+    # --- resident teammate pool, time-box, and deterministic leaderboard ---
     Knob("ARGUS_TEAMMATE_PAPER_MISSION", "(inherit lead default)", "force the paper gates on|off for each teammate", "team"),
     Knob("ARGUS_TEAMMATE_TIMEOUT_S", "5400", "wall-clock seconds before a teammate mission is time-boxed", "team"),
     Knob("ARGUS_TEAMMATE_MAX_ROUNDS", "200", "max engineer rounds per teammate mission", "team"),

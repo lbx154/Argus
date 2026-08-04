@@ -1,11 +1,8 @@
 """Daemon-resident Curator: the persistent owner of the teammate pool.
 
-The Curator is a managed component/thread *inside* the daemon process. It
-replaces the old detached ``nohup coordinator``: it keeps N teammates in flight,
-is the single reaper, and (M2) maintains the leaderboard. Because it is
-daemon-resident and persistent it can never be orphaned by a finished lead
-mission — which is what makes the "control the teammate lifecycle" problem
-disappear by construction.
+The Curator is a managed component/thread inside the daemon process. It keeps N
+teammates in flight, is the single reaper, and maintains the leaderboard. Its
+lifetime is tied to the daemon rather than to a lead mission.
 
 Ownership model (load-bearing): the Curator is a *thread* of the daemon, so it
 shares the daemon's process group. Teammates are therefore launched as their
@@ -29,7 +26,6 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
-import shlex
 import signal
 import subprocess
 import sys
@@ -43,19 +39,38 @@ from . import completion, leaderboard, pool, registry, roster, task_board
 log = logging.getLogger(__name__)
 
 
-def _pid_is_teammate(pid: int, member_id: str) -> bool:
-    """True iff ``pid`` is alive AND its cmdline is the teammate we recorded.
-
-    Defends against PID recycling: a dead teammate's pid may be reused by an
-    unrelated process, so we adopt only when ``teammate_entry`` and this exact
-    member id are both on the command line."""
+def _pid_is_teammate(pid: int, member_id: str, root: Path | None = None) -> bool:
+    """Verify an adopted PID against exact teammate command-line arguments."""
     if os.name == "nt":
         return False
     try:
-        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\x00", b" ").decode("utf-8", "replace")
+        argv = [
+            part.decode("utf-8", "replace")
+            for part in Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\x00")
+            if part
+        ]
     except OSError:
         return False
-    return "teammate_entry" in cmdline and member_id in cmdline
+    if "argus_skill.team.teammate_entry" not in argv:
+        return False
+
+    def option(name: str) -> str:
+        try:
+            return argv[argv.index(name) + 1]
+        except (ValueError, IndexError):
+            return ""
+
+    if option("--member-id") != member_id:
+        return False
+    if root is None:
+        return True
+    recorded_root = option("--root")
+    if not recorded_root:
+        return False
+    try:
+        return Path(recorded_root).expanduser().resolve() == Path(root).expanduser().resolve()
+    except (OSError, RuntimeError):
+        return False
 
 
 class _AdoptedProc:
@@ -65,12 +80,13 @@ class _AdoptedProc:
     ``_terminate`` rely on, so adopted children flow through every owned-child
     path unchanged."""
 
-    def __init__(self, pid: int, member_id: str) -> None:
+    def __init__(self, pid: int, member_id: str, root: Path) -> None:
         self.pid = int(pid)
         self._member_id = member_id
+        self._root = Path(root)
 
     def poll(self) -> int | None:
-        return None if _pid_is_teammate(self.pid, self._member_id) else 0
+        return None if _pid_is_teammate(self.pid, self._member_id, self._root) else 0
 
     def wait(self, timeout: float | None = None) -> int:
         end = (time.time() + timeout) if timeout else None
@@ -105,22 +121,28 @@ class TrackedTeammate:
         return self.started_at + self.timeout_s + self.hard_grace_s
 
 
+def _child_key(root: Path, member_id: str) -> tuple[str, str]:
+    """Namespace a member id by campaign root.
+
+    Member sequences intentionally restart at ``w1`` for each campaign, so a
+    process registry shared by the daemon must never key on member id alone.
+    """
+    return (str(Path(root).expanduser().resolve()), str(member_id))
+
+
 class Curator:
     """Keeps N teammates in flight per active campaign and reaps them.
 
-    ``make_proc`` is the only injection seam (tests pass a fake-process factory);
-    by default it launches the real headless ``teammate_entry`` (or ``exec_cmd``
-    when given, e.g. a stub for tests/E2E). ``now_fn`` is injected so the reaper's
-    deadlines are testable without sleeping.
+    ``make_proc`` is the process-factory injection seam used by tests; by default
+    it launches the real headless ``teammate_entry``. ``now_fn`` keeps reaper
+    deadlines testable without sleeping.
     """
 
     def __init__(self, *, project_root: Path, default_width: int = 8,
                  tick_s: float = 5.0, teammate_timeout_s: float = 5400.0,
-                 hard_grace_s: float = 600.0, exec_cmd: str = "",
+                 hard_grace_s: float = 600.0,
                  now_fn: Callable[[], float] = time.time,
                  make_proc: Callable[..., Any] | None = None,
-                 distill_fn: Callable[[str], str] | None = None,
-                 distill_interval_s: float = 1260.0,
                  completion_fn: Callable[[str], str] | None = None,
                  conversation_root: Path | None = None) -> None:
         self.project_root = Path(project_root)
@@ -128,17 +150,13 @@ class Curator:
         self.tick_s = float(tick_s)
         self.teammate_timeout_s = float(teammate_timeout_s)
         self.hard_grace_s = float(hard_grace_s)
-        self._exec_cmd = exec_cmd
         self._now = now_fn
         self._make_proc = make_proc or self._default_make_proc
-        self._distill_fn = distill_fn
-        self.distill_interval_s = float(distill_interval_s)
         self._completion_fn = completion_fn
         self.conversation_root = Path(conversation_root) if conversation_root is not None else None
-        self._children: dict[str, TrackedTeammate] = {}
+        self._children: dict[tuple[str, str], TrackedTeammate] = {}
         self._adopted_roots: set[str] = set()  # roots whose roster orphans were adopted
         self._fold_mtime: dict[str, float] = {}  # per-root shards mtime at last fold
-        self._distill_at: dict[str, float] = {}  # per-root wall-clock of last distill
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -148,12 +166,9 @@ class Curator:
         log_dir = Path(root) / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / (member_id.replace(":", "_") + ".spawn.log")
-        if self._exec_cmd:
-            argv = shlex.split(self._exec_cmd)
-        else:
-            argv = [sys.executable, "-m", "argus_skill.team.teammate_entry",
-                    "--root", str(root), "--member-id", member_id,
-                    "--task-id", task_id, "--cwd", str(cwd)]
+        argv = [sys.executable, "-m", "argus_skill.team.teammate_entry",
+                "--root", str(root), "--member-id", member_id,
+                "--task-id", task_id, "--cwd", str(cwd)]
         log = open(log_path, "ab")
         devnull = open(os.devnull, "rb")
         # OWN session (own pgroup) — the Curator owns it via the retained handle,
@@ -174,26 +189,30 @@ class Curator:
 
     def _spawn_tracked(self, root: Path, *, member_id: str, task_id: str,
                        cwd: Path, now: float | None = None) -> int:
-        proc = self._make_proc(Path(root), member_id, task_id, Path(cwd))
-        self._children[member_id] = TrackedTeammate(
-            proc, member_id=member_id, task_id=task_id, root=Path(root),
+        root = Path(root)
+        key = _child_key(root, member_id)
+        prior = self._children.get(key)
+        if prior is not None and prior.alive():
+            raise RuntimeError(f"teammate {member_id!r} is already running for {root}")
+        proc = self._make_proc(root, member_id, task_id, Path(cwd))
+        self._children[key] = TrackedTeammate(
+            proc, member_id=member_id, task_id=task_id, root=root,
             started_at=(self._now() if now is None else now),
             timeout_s=self.teammate_timeout_s, hard_grace_s=self.hard_grace_s)
-        roster.add_member(Path(root), {
-            "id": member_id, "pid": proc.pid, "worktree": str(cwd),
+        roster.add_member(root, {
+            "id": member_id, "pid": proc.pid, "cwd": str(cwd),
             "task_id": task_id, "status": "running",
         })
         return int(proc.pid)
 
     def live_owner_ids(self, root: Path) -> set[str]:
-        """Member ids whose tracked child is genuinely alive, for ``root``.
-
-        Exact and free now that we own the handle: ``proc.poll() is None`` — no
-        ``/proc`` cmdline archaeology, no PID-recycle false positives (BUG-5/6).
-        """
-        root = Path(root)
-        return {mid for mid, tt in self._children.items()
-                if tt.root == root and tt.alive()}
+        """Member ids whose tracked child is genuinely alive for ``root``."""
+        root_key = str(Path(root).expanduser().resolve())
+        return {
+            tt.member_id
+            for (child_root, _member_id), tt in self._children.items()
+            if child_root == root_key and tt.alive()
+        }
 
     # ---- adoption: reclaim teammates left running by a prior daemon ------
     def _adopt_orphans(self, root: Path, *, now: float | None = None) -> list[str]:
@@ -207,21 +226,23 @@ class Curator:
         they're invisible to live-owner accounting (→ duplicate spawns) and to the
         reaper (→ never killed). Runs once per root; later spawns are ours.
         """
-        key = str(Path(root))
-        if key in self._adopted_roots:
+        root = Path(root)
+        root_key = str(root.expanduser().resolve())
+        if root_key in self._adopted_roots:
             return []
-        self._adopted_roots.add(key)
+        self._adopted_roots.add(root_key)
         now = self._now() if now is None else now
         adopted: list[str] = []
         for m in roster.members(root):
             mid, pid = m.get("id"), m.get("pid")
-            if not mid or mid in self._children or not pid:
+            child_key = _child_key(root, str(mid or ""))
+            if not mid or child_key in self._children or not pid:
                 continue
-            if m.get("status") != "running" or not _pid_is_teammate(int(pid), mid):
+            if m.get("status") != "running" or not _pid_is_teammate(int(pid), mid, root):
                 continue
-            self._children[mid] = TrackedTeammate(
-                _AdoptedProc(int(pid), mid), member_id=mid,
-                task_id=m.get("task_id", ""), root=Path(root), started_at=now,
+            self._children[child_key] = TrackedTeammate(
+                _AdoptedProc(int(pid), mid, root), member_id=mid,
+                task_id=m.get("task_id", ""), root=root, started_at=now,
                 timeout_s=self.teammate_timeout_s, hard_grace_s=self.hard_grace_s)
             adopted.append(mid)
         if adopted:
@@ -270,7 +291,7 @@ class Curator:
             # starves the tick). So FAIL it honestly and ONCE: a failed task leaves
             # the pending set (claim_top only picks pending) so it is never retried,
             # and its recorded reason + this log keep the vanished path visible —
-            # e.g. a leaked temporary worktree — instead of masking it.
+            # e.g. a deleted temporary workspace — instead of masking it.
             if not task_cwd.is_dir():
                 task_board.fail(root, task["task_id"],
                                 reason=f"working dir vanished before spawn: {task_cwd}")
@@ -325,17 +346,20 @@ class Curator:
         now = self._now() if now is None else now
         dropped: list[str] = []
         hard_killed: list[str] = []
-        for mid, tt in list(self._children.items()):
+        for key, tt in list(self._children.items()):
             if not tt.alive():
-                del self._children[mid]
-                dropped.append(mid)
+                del self._children[key]
+                with contextlib.suppress(Exception):
+                    roster.set_member_status(tt.root, tt.member_id, "exited")
+                dropped.append(tt.member_id)
                 continue
             if now >= tt.hard_deadline():
                 self._terminate(tt)
                 with contextlib.suppress(Exception):
                     task_board.fail(tt.root, tt.task_id, reason="curator hard-timeout")
-                del self._children[mid]
-                hard_killed.append(mid)
+                    roster.set_member_status(tt.root, tt.member_id, "failed")
+                del self._children[key]
+                hard_killed.append(tt.member_id)
         return {"dropped": dropped, "hard_killed": hard_killed}
 
     # ---- the resident loop ---------------------------------------------
@@ -343,9 +367,8 @@ class Curator:
         """One maintenance pass: reap finished/wedged children, then for every
         active campaign keep the pool at its width (or wind a draining one down).
 
-        Discovery is centralised over the registry markers, so there is exactly
-        ONE place that manages every root — no per-lead-mission coordinator can
-        spawn a second manager (the duplicate-coordinator leak is impossible).
+        Discovery is centralised over registry markers, so the daemon has one
+        process owner for every active campaign root.
         """
         now = self._now() if now is None else now
         self._reap(now=now)
@@ -388,15 +411,14 @@ class Curator:
             if task_board.count_in_flight(root) == 0 and not self.live_owner_ids(root):
                 registry.remove_marker(self.project_root, marker["team_id"])
             return
-        self._maybe_distill(root, now)
         width = int(doc["width"]) if "width" in doc else self.default_width
         self._refill(root, width=width, cwd=cwd, now=now)
 
     def _maybe_fold(self, root: Path) -> None:
         """Deterministically re-fold the leaderboard when shards have changed.
 
-        Pure code (no LLM) — the high-frequency half of the curator design. The
-        shards-dir mtime guards against re-reading thousands of shards every tick
+        Pure code with no model call. The shards-directory mtime guards against
+        re-reading thousands of shards every tick
         on a large campaign; we only fold when a new shard has landed."""
         sd = Path(root) / "shards"
         try:
@@ -415,56 +437,6 @@ class Curator:
                 # then re-raise. Not advancing means the next tick retries.
                 return
             self._fold_mtime[key] = mtime
-
-    def _maybe_distill(self, root: Path, now: float) -> None:
-        """Low-frequency LLM distill, at most every ``distill_interval_s``. No-op
-        without a distill function (a deterministic-only Curator)."""
-        if self._distill_fn is None:
-            return
-        key = str(root)
-        if now - self._distill_at.get(key, 0.0) < self.distill_interval_s:
-            return
-        self._distill_at[key] = now  # advance even on failure — best-effort, don't hammer
-        self._distill_root(root, self._distill_fn)
-
-    def _distill_root(self, root: Path, distill_fn: Callable[[str], str]) -> bool:
-        """Low-frequency LLM distill: read the leaderboard, ask the curator agent
-        for a forward strategy, write ``strategy.md``. Best-effort — any failure
-        or empty response keeps the prior strategy. Returns True iff it wrote."""
-        board = leaderboard.read(root)
-        if not board:
-            return False
-        try:
-            text = distill_fn(self._distill_prompt(board))
-        except Exception:  # noqa: BLE001 — distill must never break the tick
-            log.exception("curator: distill failed for %s", root)
-            return False
-        if not text or not text.strip():
-            return False
-        (Path(root) / "strategy.md").write_text(text.strip() + "\n", encoding="utf-8")
-        return True
-
-    def _distill_prompt(self, board: dict[str, Any]) -> str:
-        lines = ["# Current leaderboard (judge each target by its recorded outcome)", ""]
-        for target, entry in sorted(board.items()):
-            best = entry.get("best")
-            best_s = (f"best `{best.get('mechanism') or '(unnamed)'}`={best.get('metric')}"
-                      if best else "no recorded outcome yet")
-            tried = ", ".join(
-                f"{a.get('mechanism') or '(unnamed)'}"
-                f"({'no outcome' if a.get('metric') is None else a.get('metric')})"
-                for a in entry.get("attempts", []))
-            lines.append(f"- {target}: {best_s}; tried: {tried or '(none)'}")
-        return (self._curator_contract() + "\n\n" + "\n".join(lines)
-                + "\n\nReply with ONLY the strategy as markdown — a short prioritized "
-                "list of `target -> next move (build on best | try a different approach) "
-                "-> one-line why`. Do NOT create, edit, or read any files; your reply IS "
-                "the strategy.")
-
-    def _curator_contract(self) -> str:
-        from ..skills.role_context import load_builtin_skill_text
-
-        return load_builtin_skill_text("curator/argus-curator-role.md")
 
     def _run(self) -> None:
         while not self._stop.is_set():
@@ -494,6 +466,21 @@ class Curator:
         if self._thread is not None:
             self._thread.join(timeout=self.tick_s + 5.0)
             self._thread = None
+        stopped_roots: set[Path] = set()
         for tt in list(self._children.values()):
+            status = "stopped" if tt.alive() else "exited"
             self._terminate(tt)
+            stopped_roots.add(tt.root)
+            with contextlib.suppress(Exception):
+                roster.set_member_status(tt.root, tt.member_id, status)
         self._children.clear()
+        # A clean daemon stop has killed every owned process, so leave its tasks
+        # immediately claimable on restart instead of waiting for the stale TTL.
+        for root in stopped_roots:
+            with contextlib.suppress(Exception):
+                task_board.reassign_stale(
+                    root,
+                    ttl=-1.0,
+                    now=self._now(),
+                    live_owners=set(),
+                )

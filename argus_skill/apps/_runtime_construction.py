@@ -244,7 +244,6 @@ class _RunnerConstructionMixin:
         self.reviewer_backend = _role_backend("reviewer")
         self.planner_backend = _role_backend("planner")
         self.manager_backend = _role_backend("manager")
-        self.curator_backend = _role_backend("curator")
         self._args = args
         raw_usage_root = str(getattr(args, "project_state_dir", "") or "").strip()
         self._usage_project_root = Path(raw_usage_root).expanduser() if raw_usage_root else None
@@ -410,7 +409,6 @@ class _RunnerConstructionMixin:
             getattr(self, "engineer_backend", None),
             getattr(self, "reviewer_backend", None),
             getattr(self, "planner_backend", None),
-            getattr(self, "curator_backend", None),
             getattr(self, "manager_backend", None),
         ):
             if be is not None and id(be) not in seen:
