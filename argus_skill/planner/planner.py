@@ -125,15 +125,22 @@ class PlannerVerdict:
 class Planner:
     """Project-level read-only planning authority."""
 
-    def __init__(self, runner: RunnerBackend, *, skill_store: Any | None = None) -> None:
+    def __init__(
+        self,
+        runner: RunnerBackend,
+        *,
+        skill_store: Any | None = None,
+        memory_maintenance_enabled: bool | None = None,
+    ) -> None:
         self.runner = runner
-        # Optional role-mission skill matcher (same scaffold engineer and
-        # reviewer use). There is no builtin_skills/planner/ OWN pool today, but
-        # the matcher pool also UNIONs the planner's cross-read references
-        # {engineer, reviewer} (non-empty), so this DOES fire a real matcher call
-        # each planner round, surfacing engineer/reviewer skills to the planner
-        # as read-only references — it is not a no-op.
+        # Role-mission matcher: Planner-owned skills are actionable; Engineer and
+        # Reviewer skills remain read-only references.
         self.skill_store = skill_store
+        if memory_maintenance_enabled is None:
+            from ..skills.role_memory import role_skill_maintenance_enabled
+
+            memory_maintenance_enabled = role_skill_maintenance_enabled()
+        self.memory_maintenance_enabled = memory_maintenance_enabled
         from ..skills.missions import PlannerMission
 
         self.mission = PlannerMission(skill_store)
@@ -160,6 +167,7 @@ class Planner:
             runtime_change_summary=runtime_change_summary,
             mission=self.mission,
             open_ended=cfg.open_ended,
+            memory_maintenance_enabled=self.memory_maintenance_enabled,
         )
         dangerous_yolo = bool(cfg.dangerous_yolo)
         planner_options = RunnerOptions(
@@ -255,6 +263,7 @@ class Planner:
         runtime_change_summary: str = "",
         mission: Any | None = None,
         open_ended: bool = False,
+        memory_maintenance_enabled: bool = True,
     ) -> str:
         from ..roles.prompts.planner import build_continuous_prompt
 
@@ -265,6 +274,7 @@ class Planner:
             runtime_change_summary=runtime_change_summary,
             mission=mission,
             open_ended=open_ended,
+            memory_maintenance_enabled=memory_maintenance_enabled,
         )
 
     def _repair_no_task_verdict(

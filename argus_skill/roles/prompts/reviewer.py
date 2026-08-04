@@ -79,15 +79,14 @@ def _direct_memory_edit_block(
     skill_store: Any,
     working_dir: str | Path | None,
 ) -> str:
-    project_store = getattr(skill_store, "project", None)
-    skill_dir_value = getattr(project_store, "skills_dir", None)
-    if skill_dir_value is None:
-        skill_dir_value = getattr(skill_store, "skills_dir", None)
-    skill_dir = (
-        Path(skill_dir_value).expanduser().resolve() if skill_dir_value is not None else None
+    from ...skills.role_memory import role_skill_maintenance_block
+
+    skill_block = role_skill_maintenance_block(
+        skill_store,
+        "reviewer",
+        enabled=True,
     )
     project_root = Path(working_dir).expanduser().resolve() if working_dir else Path.cwd().resolve()
-    wiki_roots: list[Path] = []
     try:
         from ...wiki.auto_hooks import discover_wikis
 
@@ -297,6 +296,7 @@ def render_reviewer_prompt(
     engineer_call_id: str = "",
     preselected_skill_block: str | None = None,
     working_dir: str | Path | None = None,
+    skill_matching_enabled: bool = True,
 ) -> tuple[str, str]:
     """Render the complete Reviewer prompt as ``(static_preamble, round_delta)``."""
     from ...core.project import resolve_project_root
@@ -345,6 +345,12 @@ def render_reviewer_prompt(
                 "independently as needed:\n"
                 f"{review_libraries.block}\n\n"
             )
+    if preselected_skill_block and preselected_skill_block.strip():
+        matched_review_skill_block += (
+            "Engineer playbook context (read-only; use only to audit the claimed "
+            "process):\n"
+            f"{preselected_skill_block.strip()}\n\n"
+        )
 
     stage = prompt_context.stage
     _measured = not _requires_engineering_audit and os.environ.get(

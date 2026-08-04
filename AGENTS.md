@@ -11,7 +11,7 @@
 
 ## 一句话架构
 
-`argus-skill` 是一个长期运行的 agent harness：外层 `LifeSupervisor` 管 backlog、预算、daemon、L4 planner（forward scheduling）；内层 `SkillLoop` 管单个任务的 skill 匹配、L1 Engineer 执行、L2 Reviewer 验收和选择性 Skill maintenance。当前每个正常 mission round 都走 `Engineer -> independent Reviewer`；历史 Engineer self-review 旁路已退出生产链路，旧事件/兼容字段中的 `engineer_self_review` 只代表历史数据。成功 mission 边界由 Manager 判断 stay / shared-global / shared-vertical，默认把可迁移经验传播给其他项目。历史上的 L3 critic 逐轮打磨循环已经移除。论文 pipeline 是 built-in skill + vertical-owned checklist + Reviewer 裁决 + Planner fallback 共同实现的，不是机器 validator 工具链。
+`argus-skill` 是一个长期运行的 agent harness：外层 `LifeSupervisor` 管 backlog、预算、daemon、L4 planner（forward scheduling）；内层 `SkillLoop` 管单个任务的 skill 匹配、L1 Engineer 执行和 L2 Reviewer 验收。Manager、Planner、Engineer、Reviewer 都能把本角色的耐久方法选择性写入项目层角色目录；`ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING=0/1` 是统一自进化 A/B 开关。Reviewer Skill 注入单独用 `ARGUS_SKILL_REVIEWER_SKILL_MATCHING=0/1` 做 control/treatment。当前每个正常 mission round 都走 `Engineer -> independent Reviewer`；历史 Engineer self-review 旁路已退出生产链路，旧事件/兼容字段中的 `engineer_self_review` 只代表历史数据。成功 mission 边界由 Manager 判断 stay / shared-global / shared-vertical，默认把可迁移经验传播给其他项目。历史上的 L3 critic 逐轮打磨循环已经移除。论文 pipeline 是 built-in skill + vertical-owned checklist + Reviewer 裁决 + Planner fallback 共同实现的，不是机器 validator 工具链。
 
 **角色限制责任，不限制能力。** L4 Planner 持续负责 forward planning，但使用完整
 Agent 工具主动读代码、跑有界探针/测试，并可在形成或验证计划所必需时直接编辑代码或规划
@@ -73,7 +73,7 @@ argus-skill / python -m argus_skill
 | L1 | Engineer | `argus_skill/loop.py`, `argus_skill/engineer/runner.py` | 单轮执行 prompt、失败重试、session 续接、进度 watchdog |
 | L2 | Reviewer | `argus_skill/reviewer/_core.py`, `argus_skill/reviewer/reviewer_schema.json` | 独立检查每个正常 mission round，给出 done/continue/blocked/replan_requested，维护 reviewer JSON schema，并承担论文任务的 peer-review gate |
 | L4 | Planner | `argus_skill/planner/planner.py`, `argus_skill/life/supervisor/_core.py` | 持续读取真实项目并用完整 Agent 工具调查、运行有界探针/测试、必要时编辑代码或规划 artifact，以维护 forward plan 和自动排新任务；也负责 EMNLP final gate 失败后的自动分流。历史的 L3 critic 逐轮打磨层已移除；Planner 不负责 mission 验收 |
-| Skill | 横向能力复用 | `argus_skill/skills/store.py`, `argus_skill/skills/layered.py`, `argus_skill/manager/skill_tidy.py` | project / shared-vertical / shared-global 匹配，Engineer/Reviewer 选择性 maintenance，成功 mission 后 Manager 跨项目传播 |
+| Skill | 横向能力复用 | `argus_skill/skills/store.py`, `argus_skill/skills/layered.py`, `argus_skill/skills/role_memory.py`, `argus_skill/manager/skill_tidy.py` | project / shared-vertical / shared-global 匹配，四角色选择性维护各自角色目录，成功 mission 后 Manager 跨项目传播 |
 | Stage | 通用状态机 + vertical checklist | `argus_skill/skills/stage_machine.py`, `argus_skill/verticals/*/stages.py`, `argus_skill/skills/checklist_store.py` | 通用 stage 状态转移/渲染在 `stage_machine`；stage 顺序、seed checklist 和领域渲染归各 vertical |
 
 > **常见误解**：读到 L0/L1/L2/L4 这个编号，容易以为 argus 是"三层 agent"（Planner/Engineer/Reviewer，L3 critic 已退役）。实际常驻跑着的是**四个**角色——Manager/Planner/Engineer/Reviewer（`core/role_config.py`: `ROLES = ("manager", "planner", "engineer", "reviewer")`）；Manager 不占 L 编号只是因为它跨越整条流水线（前门 + stage 权威），不代表它级别更低。另外还有一个可选的 **Curator** 角色（`ARGUS_SKILL_CURATOR_*`），只在并行 subagent/团队模式下才跑，管 skill 池维护和团队排行榜蒸馏，不参与日常单任务流水线，因此不在上表中。README 和三份 pitch 文档（商业计划书/项目介绍/一页纸概览）历史上都只画了三个角色（未包含 Manager），已于 2026-07-07 全部修正为四个角色。
@@ -355,6 +355,7 @@ skill 是 markdown 文件，带 YAML-like frontmatter。
   `builtins.py` 的 `_VERTICAL_SKILL_INHERITANCE`，不要复制文件。
   `tests/skills/test_builtins_seeding.py::test_vertical_owned_skills_are_not_also_flat_builtins`
   守住这条。
+- 四角色的自进化 Skill 分别写入项目层 `manager/`、`planner/`、`engineer/`、`reviewer/`；这些都是可持续增长的角色专用方法池，不是每个角色一份的身份说明，也不设机械数量上限。own-role matcher 可同时返回多个 high-fit playbook，cross-role 只读引用。共同的路径解析和简短写回契约在 `skills/role_memory.py`，不要复制四份提示。
 - Project wiki 是四个常驻角色共享、可直接读写的声明性知识层，保存概念、结构、机制、
   原理、事实、假设、关系与矛盾；例如 Transformer 的结构或 RL 的原理。Skill 保存
   “如何做”的流程，events/CHECKPOINT 保存历史与当前状态。禁止把 round/handoff 再抄进

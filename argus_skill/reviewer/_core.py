@@ -40,6 +40,7 @@ class ReviewerConfig:
     sandbox_mode: str | None = None
     isolate_workdir: bool = False
     working_dir: str | None = None
+    skill_matching_enabled: bool = True
 
 
 SCHEMA_PATH = str(Path(__file__).with_name("reviewer_schema.json"))
@@ -251,6 +252,7 @@ class Reviewer:
             engineer_call_id=engineer_call_id,
             preselected_skill_block=preselected_skill_block,
             working_dir=config.working_dir,
+            skill_matching_enabled=config.skill_matching_enabled,
         )
         static, delta_base = self._render(resumed=False, **common)
         prompt_block_stats = {
@@ -426,6 +428,7 @@ class Reviewer:
         engineer_call_id: str = "",
         preselected_skill_block: str | None = None,
         working_dir: str | Path | None = None,
+        skill_matching_enabled: bool = True,
     ) -> tuple[str, str]:
         """F7: render the reviewer prompt as ``(static_preamble, round_delta)``.
 
@@ -459,6 +462,7 @@ class Reviewer:
             engineer_call_id=engineer_call_id,
             preselected_skill_block=preselected_skill_block,
             working_dir=working_dir,
+            skill_matching_enabled=skill_matching_enabled,
         )
 
     def _build_prompt(self, **kwargs: Any) -> str:

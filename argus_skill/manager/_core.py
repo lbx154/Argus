@@ -109,6 +109,7 @@ class Manager(
         skill_store: Any = None,
         manager_session_root: Path | str | None = None,
         usage_context: Any = None,
+        memory_maintenance_enabled: bool | None = None,
     ) -> None:
         self.project_root = Path(project_root)
         self.runner = runner
@@ -129,6 +130,11 @@ class Manager(
         # Optional role/adaptive skill source for self-maintenance and
         # stage-decision prompts. No store means no injected skill block.
         self.skill_store = skill_store
+        if memory_maintenance_enabled is None:
+            from ..skills.role_memory import role_skill_maintenance_enabled
+
+            memory_maintenance_enabled = role_skill_maintenance_enabled()
+        self.memory_maintenance_enabled = memory_maintenance_enabled
         from ..skills.missions import ManagerMission
 
         self.mission = ManagerMission(skill_store)

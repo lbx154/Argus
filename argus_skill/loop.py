@@ -75,6 +75,12 @@ class SkillLoopConfig:
             True,
         )
     )
+    reviewer_skill_matching_enabled: bool = field(
+        default_factory=lambda: _knob_bool_setting(
+            "ARGUS_SKILL_REVIEWER_SKILL_MATCHING",
+            True,
+        )
+    )
     max_rounds: int = 500
     no_progress_threshold: int = 2
     # Anti-livelock escalation thresholds threaded into SupervisedConfig: at
@@ -227,6 +233,9 @@ class SkillLoop(
                 dangerous_yolo=self.config.dangerous_yolo,
                 sandbox_mode=self.config.sandbox_mode,
                 isolate_workdir=self.config.isolate_workdir,
+                skill_matching_enabled=(
+                    self.config.reviewer_skill_matching_enabled
+                ),
             ),
         )
 

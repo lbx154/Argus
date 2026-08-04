@@ -17,16 +17,10 @@ log = logging.getLogger(__name__)
 
 
 def _resolve_project_skill_dir(skill_store: object) -> str | None:
-    """Return the project-layer skill directory the Engineer may write.
+    """Return the Engineer-owned project Skill directory."""
+    from .role_memory import project_role_skill_dir
 
-    Mirrors the Reviewer's resolution so both roles are handed the same path:
-    the layered store exposes it on ``.project``, while a flat store carries
-    ``skills_dir`` directly.
-    """
-    project_store = getattr(skill_store, "project", None)
-    value = getattr(project_store, "skills_dir", None)
-    if value is None:
-        value = getattr(skill_store, "skills_dir", None)
+    value = project_role_skill_dir(skill_store, "engineer")
     return str(value) if value is not None else None
 
 

@@ -45,7 +45,15 @@ class PlanningCycleVerdictMixin:
         try:
             from ...planner import Planner
 
-            planner = Planner(self.planner_runner, skill_store=self.skill_store)
+            planner = Planner(
+                self.planner_runner,
+                skill_store=self.skill_store,
+                memory_maintenance_enabled=getattr(
+                    self.config,
+                    "role_skill_maintenance_enabled",
+                    True,
+                ),
+            )
             # Enable streaming so planner output flows through the event sink
             ctx = getattr(self.runner, "stream_to", None)
             stream_ctx = ctx(self.sink) if ctx else None

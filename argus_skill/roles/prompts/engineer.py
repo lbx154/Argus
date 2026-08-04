@@ -81,9 +81,9 @@ def _post_task_learning_section(
     return (
         "## Durable learning\n"
         "You have file and shell tools. After verification, if this task "
-        "produced a durable procedure that would change how a future task is "
-        "done, create or update one skill directly in the project skill "
-        "directory before you hand off.\n"
+        "produced durable procedures that would change how future tasks are "
+        "done, create or update the applicable Engineer Skills directly in the "
+        "project skill directory before you hand off.\n"
         + rules
         + "\nIf there is no durable reusable procedure, make no Skill edit."
     )

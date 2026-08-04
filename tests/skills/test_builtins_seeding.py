@@ -61,6 +61,7 @@ def test_iter_vertical_skill_texts_unknown_or_skill_less_is_empty() -> None:
     assert set(software) == {
         "manager/software-project-grounding.md",
         "planner/software-project-grounding.md",
+        "reviewer/software-change-review.md",
     }
 
 

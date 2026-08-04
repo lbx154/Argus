@@ -110,6 +110,7 @@ def _build_supervisor_config(
     # undecided or malformed project is bounded/non-paper, never implicitly an
     # EMNLP campaign.
     paper_mission = _paper_mission_for_project_root(artifact_root or project_root)
+    from ..skills.role_memory import role_skill_maintenance_enabled
 
     return LifeSupervisorConfig(
         budget=LifeBudget(
@@ -127,6 +128,7 @@ def _build_supervisor_config(
         ),
         pending_question_resolver=_pending_question_resolver_for(project_root),
         runtime_context=runtime_context,
+        role_skill_maintenance_enabled=role_skill_maintenance_enabled(),
         continuous=continuous,
         continuous_objective=continuous_objective,
         open_ended=open_ended,
@@ -233,6 +235,9 @@ def run_life_supervisor(
                 )
                 continuous = False
                 continuous_objective = ""
+        refresh_skill_store = getattr(runner, "_refresh_manager_skill_store", None)
+        if callable(refresh_skill_store):
+            refresh_skill_store(runner._args)
         cfg = _build_supervisor_config(
             global_daily_cap_usd=global_daily_cap_usd,
             once=once,
@@ -255,6 +260,7 @@ def run_life_supervisor(
             reviewer_model=reviewer_model,
             planner_runner=getattr(runner, "planner_backend", None)
             or getattr(runner, "backend", None),
+            skill_store=getattr(runner, "_manager_skill_store", None),
         )
         return sup.run()
     finally:

@@ -189,6 +189,7 @@ def build_continuous_prompt(
     runtime_change_summary: str = "",
     mission: Any | None = None,
     open_ended: bool = False,
+    memory_maintenance_enabled: bool = True,
 ) -> str:
     """Build the continuous Planner prompt from the unified role catalog."""
     from ...core.project import resolve_project_root
@@ -409,6 +410,7 @@ def build_continuous_prompt(
     # The Planner gets the same library paths as other roles and searches them
     # independently. No Skill content is selected or copied into this prompt.
     matched_planner_skill_block = ""
+    planner_memory_block = ""
     if mission is not None:
         planner_libraries = mission.libraries()
         if planner_libraries.block:
@@ -512,6 +514,7 @@ def build_continuous_prompt(
         stage_checklist,
         stage_gate_block,
         matched_planner_skill_block,
+        planner_memory_block,
         upstream_rollback_block,
         parallel_drafting_block,
         wiki_block,

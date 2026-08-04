@@ -245,6 +245,9 @@ class _RunnerConstructionMixin:
         self.planner_backend = _role_backend("planner")
         self.manager_backend = _role_backend("manager")
         self._args = args
+        self._role_memory_maintenance_enabled = (
+            SkillLoopConfig().require_post_task_learning
+        )
         raw_usage_root = str(getattr(args, "project_state_dir", "") or "").strip()
         self._usage_project_root = Path(raw_usage_root).expanduser() if raw_usage_root else None
         raw_global_root = str(getattr(args, "global_root", "") or "").strip()
@@ -302,6 +305,7 @@ class _RunnerConstructionMixin:
             skill_store=self._manager_skill_store,
             manager_session_root=_manager_session_root,
             usage_context=self.task_usage_context,
+            memory_maintenance_enabled=self._role_memory_maintenance_enabled,
         )
         self._manager_session_root = _manager_session_root
         # Session continuity: seed_thread_id is the codex session id from

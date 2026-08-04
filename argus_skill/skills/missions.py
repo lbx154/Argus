@@ -48,10 +48,12 @@ class ReviewerMission(RoleMission):
 
 class PlannerMission(RoleMission):
     role = "planner"
+    default_exclude = frozenset({"argus-planner-role.md"})
 
 
 class ManagerMission(RoleMission):
     role = "manager"
+    default_exclude = frozenset({"argus-manager-role.md"})
 
 
 __all__ = [
