@@ -74,7 +74,7 @@ speedrun and nanochat on B200 — carry committed artifact-digest records: a ten
 verifier line (`valid=true`, `p=0.004007`, `79.77±0.06 s`, `seal=ok`) and a
 frozen-scorer, one-seed `MEAN_VAL_BPB=0.963634`. This repository stores their
 logical artifact IDs and SHA-256 digests, not the artifact bytes. The other four
-rows are website snapshots and are labeled accordingly.
+rows are website snapshots and are labeled accordingly. 
 
 Separately, the public research portfolio contains **41 de-duplicated papers
 across six programs**: 35 manuscripts and 6 drafts, spanning cognitive bias in
