@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { operatorDecisionCards, type OperatorDecisionCard } from '../../core/src/decisions';
 import { api, type BacklogItem } from './api';
 import { type NoticeTone } from './components/ActionNotice';
-import { type PendingReply } from './components/PendingReplyDialog';
 
 const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : String(error || 'Unknown error');
@@ -25,27 +25,12 @@ export function usePendingReplySession({
   const [pendingReplyBusy, setPendingReplyBusy] = useState(false);
   const promptedReplyRef = useRef('');
 
-  const pendingReply = useMemo<PendingReply | null>(() => {
-    const rows: Array<Record<string, unknown>> = [
-      ...(pendingQuestions ?? []),
-      ...(backlog ?? []).map<Record<string, unknown>>((item) => ({
-        id: item.id,
-        title: item.title,
-        objective: item.objective,
-        pending_question: item.pending_question,
-      })),
-    ];
-    const row = rows.find((item) => {
-      const id = String(item.id ?? '').trim();
-      const question = String(item.pending_question ?? item.question ?? item.text ?? '').trim();
-      return Boolean(id && question);
-    });
-    if (!row) return null;
-    return {
-      id: String(row.id),
-      title: String(row.title ?? row.objective ?? 'Blocked task'),
-      question: String(row.pending_question ?? row.question ?? row.text),
-    };
+  const pendingReply = useMemo<OperatorDecisionCard | null>(() => {
+    const backlogRows = (backlog ?? []).map<Record<string, unknown>>((item) => ({
+      ...item,
+      operator_decision: (item as unknown as Record<string, unknown>).operator_decision,
+    }));
+    return operatorDecisionCards(pendingQuestions ?? [], backlogRows)[0] ?? null;
   }, [backlog, pendingQuestions]);
 
   useEffect(() => {
@@ -60,11 +45,19 @@ export function usePendingReplySession({
     }
   }, [activeSid, pendingReply]);
 
-  const answerPendingReply = async (text: string) => {
+  const answerPendingReply = async (optionId: string, note: string) => {
     if (!activeSid || !pendingReply || pendingReplyBusy) return;
     setPendingReplyBusy(true);
     try {
-      const result = await api.answerPending(activeSid, pendingReply.id, text);
+      const result = pendingReply.legacy
+        ? await api.answerPending(activeSid, pendingReply.item_id, note)
+        : await api.resolveDecision(
+          activeSid,
+          pendingReply.id,
+          optionId,
+          note,
+          pendingReply.revision,
+        );
       if (result.resolved === false) {
         notify(
           'info',

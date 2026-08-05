@@ -51,6 +51,7 @@ export interface BacklogItem {
   priority: number;
   iterate?: boolean;
   pending_question?: string;
+  operator_decision?: import('./decisions').OperatorDecisionCard;
   ts?: number;
   tags?: string[];
   notes?: string;

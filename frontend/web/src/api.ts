@@ -409,6 +409,21 @@ export const api = {
       P(sid, `/backlog/${encodeURIComponent(itemId)}/answer`),
       { text },
     ),
+  resolveDecision: (
+    sid: string,
+    decisionId: string,
+    optionId: string,
+    note: string,
+    expectedRevision: number,
+  ) => postJson<{
+    resolved: boolean;
+    stopped?: boolean;
+    reply?: string;
+    daemon?: { rc?: number; error?: string; admission_required?: boolean };
+  }>(
+    P(sid, `/decisions/${encodeURIComponent(decisionId)}/resolve`),
+    { option_id: optionId, note, expected_revision: expectedRevision },
+  ),
   /** The Manager front-door: NL message → chat reply or an enqueued mission. */
   message: (sid: string, text: string, signal?: AbortSignal) =>
     postJson<{ kind: 'chat' | 'task' | 'pending_question' | 'pending_question_choice' | 'error'; reply: string | null; resolved?: boolean; item?: BacklogItem | null; daemon_alive?: boolean }>(

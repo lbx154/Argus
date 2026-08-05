@@ -177,19 +177,27 @@ describe('shared frontend core', () => {
   it('renders operator questions in a dedicated direct-reply dialog', () => {
     const html = renderToStaticMarkup(createElement(PendingReplyDialog, {
       reply: {
-        id: 'blocked-1',
+        id: 'decision-blocked-1',
+        item_id: 'blocked-1',
+        revision: 1,
+        status: 'pending',
         title: 'Blocked task',
+        reason: 'Dataset access is required.',
         question: 'Which dataset should the process use?',
+        evidence: [],
+        options: [{ id: 'custom', label: 'Choose dataset', description: 'Name the dataset.', requires_note: true }],
+        selected_option: '',
+        note: '',
       },
       open: true,
       busy: false,
       onClose: () => undefined,
       onSubmit: () => undefined,
     }));
-    expect(html).toContain('Answer required');
+    expect(html).toContain('Decision required');
     expect(html).toContain('Which dataset should the process use?');
-    expect(html).toContain('Send answer');
-    expect(html).toContain('directly to the process');
+    expect(html).toContain('Choose dataset');
+    expect(html).toContain('The Manager applies your choice');
   });
 
   it('renders Settings and icon-only theme controls in the sidebar footer', () => {
