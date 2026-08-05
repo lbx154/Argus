@@ -102,10 +102,10 @@ the project adheres to semantic versioning once it leaves 0.x.
 - **Duplicate and inert Agent-Team control paths.** Team lifecycle now has one
   owner and four lead commands only: `form`, `status`, `pool-set`, and
   `dissolve`. Removed the manual `spawn`/`wait`/`claim`/`reassign` commands,
-  unused mailbox and opt-in worktree modules, test-only mission command,
-  harness-forced research/profile pre-turns, and the unconsumed Curator LLM
-  `strategy.md` role. The retained Curator is deterministic process/leaderboard
-  machinery; new campaigns register paused until the lead sets an explicit
+  unused mailbox and opt-in worktree modules, test-only mission command, and
+  harness-forced research/profile pre-turns. The daemon-resident Curator keeps
+  mechanical pool/leaderboard ownership plus its bounded, low-frequency strategy
+  distillation; new campaigns register paused until the lead sets an explicit
   width.
 - **4 tests asserting engineer-prompt content deleted by `7d20af7`**
   ("refactor(prompts): simplify role context and restore scientist
@@ -129,11 +129,13 @@ the project adheres to semantic versioning once it leaves 0.x.
   one Curator manages every root — a duplicate coordinator is structurally
   impossible and a finished lead mission can never orphan the pool. Makes "the
   daemon can't control the teammate lifecycle" disappear by construction.
-- **Deterministic teammate leaderboard.** `team/leaderboard.py` folds teammate
-  shards (now carrying `{target, metric, mechanism}`) into a per-target
-  `{best, attempts}` ledger each tick; fresh teammates inherit a "what's already
-  tried" block so the pool builds depth instead of re-running exhausted breadth.
-  The Curator is mechanical single-writer code, not a fifth model role.
+- **Deterministic leaderboard + a Curator agent role.** `team/leaderboard.py`
+  folds teammate shards (now carrying `{target, metric, mechanism}`) into a
+  per-target `{best, attempts}` ledger each tick; fresh teammates inherit a
+  "what's already tried" block so the pool builds depth instead of re-running
+  exhausted breadth. The Curator's high-frequency pool/leaderboard work remains
+  deterministic; its optional model call only distills a bounded `strategy.md`
+  at a low frequency.
 
 ### Changed
 - **Retired the detached `nohup` coordinator.** `tools/team.py coordinate`, the

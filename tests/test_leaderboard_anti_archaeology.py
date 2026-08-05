@@ -1,10 +1,8 @@
-"""Leaderboard objective_block must steer a fresh teammate OFF archaeology.
+"""Leaderboard context steers teammates away from repeated mechanisms.
 
-The failure mode (observed live): a teammate burns its whole 16-round mission
-re-scoring / re-auditing old attempts to re-confirm a floor it already has,
-chasing run-to-run reproducibility, and never ships a new mechanism. The
-prefix prepended to its objective must say: the verified best is a FIXED FLOOR,
-don't reproduce it, beat it.
+A recorded best is an incumbent, not a host-certified fixed floor. Teammates
+should improve it or try a genuinely different mechanism without the Harness
+claiming stronger verification than the shard provides.
 """
 from __future__ import annotations
 
@@ -19,19 +17,19 @@ def _shard(tmp_path, **rec):
     (d / f"{rec['mechanism']}.jsonl").write_text(json.dumps(rec) + "\n")
 
 
-def test_prefix_marks_best_as_fixed_floor_and_forbids_rescore(tmp_path):
+def test_prefix_marks_best_as_incumbent_without_overclaiming(tmp_path):
     _shard(tmp_path, target="012", mechanism="cutlass_a", metric=5.5, lower_is_better=True)
     _shard(tmp_path, target="012", mechanism="cutlass_b", metric=4.0, lower_is_better=True)
     leaderboard.fold(tmp_path, lower_is_better=True)
     block = leaderboard.objective_block(tmp_path, "012")
-    assert "4.0" in block                       # best surfaced
-    assert "FIXED FLOOR" in block               # treated as given
-    assert "do NOT re-score" in block.lower() or "do not re-score" in block.lower()
-    assert "BEATING it" in block                # mission = beat, not reproduce
+    assert "4.0" in block
+    assert "current incumbent" in block
+    assert "genuinely new mechanism" in block
+    assert "FIXED FLOOR" not in block
 
 
-def test_no_best_no_archaeology_clause(tmp_path):
-    # unmeasured attempt only -> no best -> no fixed-floor clause, but still "tried" list
+def test_no_best_still_lists_attempted_mechanisms(tmp_path):
+    # An unmeasured attempt has no incumbent but must remain visible as tried.
     _shard(tmp_path, target="x", mechanism="dead", metric=None)
     leaderboard.fold(tmp_path, lower_is_better=True)
     block = leaderboard.objective_block(tmp_path, "x")

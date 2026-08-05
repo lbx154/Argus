@@ -415,6 +415,13 @@ def build_continuous_prompt(
         planner_libraries = mission.libraries()
         if planner_libraries.block:
             matched_planner_skill_block = planner_libraries.block + "\n\n"
+        from ...skills.role_memory import role_skill_maintenance_block
+
+        planner_memory_block = role_skill_maintenance_block(
+            mission.skill_store,
+            "planner",
+            enabled=memory_maintenance_enabled,
+        )
 
     # ------------------------------------------------------------------
     # Shared declarative knowledge. Planner may maintain pages directly; task

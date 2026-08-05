@@ -323,7 +323,7 @@ def _preflight_route_on_codex(route: str) -> bool:
     )
     from ..core.knobs import resolve_role_backend
 
-    role = route if route in ("engineer", "reviewer", "planner", "manager") else ""
+    role = route if route in ("engineer", "reviewer", "planner", "manager", "curator") else ""
     chosen = resolve_role_backend(role)
     if not chosen:
         chosen = BACKEND_CODEX

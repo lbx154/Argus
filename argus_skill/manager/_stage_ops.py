@@ -590,7 +590,7 @@ class _StageDecisionMixin:
                 role_banner=prompt_context.role_banner,
                 role_skill_block=self._role_skill_block(
                     _match_objective,
-                    include_libraries=False,
+                    include_libraries=True,
                 ),
             )
 

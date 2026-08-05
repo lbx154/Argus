@@ -41,6 +41,26 @@ class _FakeBackend:
         return _FakeResult()
 
 
+def test_build_curator_distill_uses_curator_backend(tmp_path: Path) -> None:
+    backend = _FakeBackend()
+    runner = type("R", (), {"curator_backend": backend})()
+    project = tmp_path / "proj"
+
+    curator = LifeWorker(_cfg(tmp_path, workdir=project))._build_curator(runner)
+
+    assert curator is not None and curator._distill_fn is not None
+    assert curator._distill_fn("LEADERBOARD") == _FakeResult.last_agent_message
+    assert backend.labels == ["curator.distill"]
+    assert backend.opts[0].working_dir == str(project)
+
+
+def test_build_curator_without_runner_is_deterministic_only(tmp_path: Path) -> None:
+    curator = LifeWorker(
+        _cfg(tmp_path, workdir=tmp_path / "proj")
+    )._build_curator()
+    assert curator is not None and curator._distill_fn is None
+
+
 def test_build_curator_summary_uses_manager_backend_and_conversation_root(tmp_path: Path) -> None:
     backend = _FakeBackend()
     runner = type("R", (), {})()

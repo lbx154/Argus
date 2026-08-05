@@ -70,14 +70,9 @@ def _post_task_learning_section(
     """
     if not require_post_task_learning or project_skill_dir is None:
         return ""
-    rules = (
-        f"Project Skill directory (project layer only): {project_skill_dir}\n"
-        "Search and read the library yourself. A Skill has exactly two "
-        "frontmatter fields, `name` and `description`, followed by ordinary "
-        "Markdown. Use an explicit semantic path; never invent an opaque ID, "
-        "numeric suffix, fingerprint, or generated fallback name. Never write "
-        "the shared/global Skill layer."
-    )
+    from ...skills.role_memory import role_skill_edit_rules
+
+    rules = role_skill_edit_rules("engineer", project_skill_dir)
     return (
         "## Durable learning\n"
         "You have file and shell tools. After verification, if this task "

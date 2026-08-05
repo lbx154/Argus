@@ -143,6 +143,8 @@ class Curator:
                  hard_grace_s: float = 600.0,
                  now_fn: Callable[[], float] = time.time,
                  make_proc: Callable[..., Any] | None = None,
+                 distill_fn: Callable[[str], str] | None = None,
+                 distill_interval_s: float = 1260.0,
                  completion_fn: Callable[[str], str] | None = None,
                  conversation_root: Path | None = None) -> None:
         self.project_root = Path(project_root)
@@ -152,11 +154,14 @@ class Curator:
         self.hard_grace_s = float(hard_grace_s)
         self._now = now_fn
         self._make_proc = make_proc or self._default_make_proc
+        self._distill_fn = distill_fn
+        self.distill_interval_s = float(distill_interval_s)
         self._completion_fn = completion_fn
         self.conversation_root = Path(conversation_root) if conversation_root is not None else None
         self._children: dict[tuple[str, str], TrackedTeammate] = {}
         self._adopted_roots: set[str] = set()  # roots whose roster orphans were adopted
         self._fold_mtime: dict[str, float] = {}  # per-root shards mtime at last fold
+        self._distill_at: dict[str, float] = {}
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -411,6 +416,7 @@ class Curator:
             if task_board.count_in_flight(root) == 0 and not self.live_owner_ids(root):
                 registry.remove_marker(self.project_root, marker["team_id"])
             return
+        self._maybe_distill(root, now)
         width = int(doc["width"]) if "width" in doc else self.default_width
         self._refill(root, width=width, cwd=cwd, now=now)
 
@@ -437,6 +443,72 @@ class Curator:
                 # then re-raise. Not advancing means the next tick retries.
                 return
             self._fold_mtime[key] = mtime
+
+    def _maybe_distill(self, root: Path, now: float) -> None:
+        """Refresh strategy at a bounded cadence when a backend is available."""
+        if self._distill_fn is None:
+            return
+        key = str(root)
+        if now - self._distill_at.get(key, 0.0) < self.distill_interval_s:
+            return
+        self._distill_at[key] = now
+        self._distill_root(root, self._distill_fn)
+
+    def _distill_root(
+        self,
+        root: Path,
+        distill_fn: Callable[[str], str],
+    ) -> bool:
+        board = leaderboard.read(root)
+        if not board:
+            return False
+        try:
+            text = distill_fn(self._distill_prompt(board))
+        except Exception:  # noqa: BLE001 — strategy is best-effort
+            log.exception("curator: distill failed for %s", root)
+            return False
+        if not text or not text.strip():
+            return False
+        (Path(root) / "strategy.md").write_text(
+            text.strip() + "\n",
+            encoding="utf-8",
+        )
+        return True
+
+    def _distill_prompt(self, board: dict[str, Any]) -> str:
+        lines = [
+            "# Current leaderboard (judge each target by its recorded outcome)",
+            "",
+        ]
+        for target, entry in sorted(board.items()):
+            best = entry.get("best")
+            best_text = (
+                f"best `{best.get('mechanism') or '(unnamed)'}`={best.get('metric')}"
+                if best
+                else "no recorded outcome yet"
+            )
+            attempts = ", ".join(
+                f"{attempt.get('mechanism') or '(unnamed)'}"
+                f"({'no outcome' if attempt.get('metric') is None else attempt.get('metric')})"
+                for attempt in entry.get("attempts", [])
+            )
+            lines.append(
+                f"- {target}: {best_text}; tried: {attempts or '(none)'}"
+            )
+        return (
+            self._curator_contract()
+            + "\n\n"
+            + "\n".join(lines)
+            + "\n\nReply with ONLY the strategy as markdown — a short "
+            "prioritized list of `target -> next move (build on best | try a "
+            "different approach) -> one-line why`."
+        )
+
+    @staticmethod
+    def _curator_contract() -> str:
+        from ..skills.role_context import load_builtin_skill_text
+
+        return load_builtin_skill_text("curator/argus-curator-role.md")
 
     def _run(self) -> None:
         while not self._stop.is_set():

@@ -33,15 +33,14 @@ def project_role_skill_dir(skill_store: Any, role: str) -> Path | None:
 
 
 def role_skill_edit_rules(role: str, skill_dir: Path | str) -> str:
-    """Render the common, intentionally short direct-edit rules."""
+    """Render the shared agent-native edit rules for one role."""
     label = _ROLE_LABELS[(role or "").strip().lower()]
     return (
-        f"{label} skill directory (project layer only): {skill_dir}\n"
-        "Inspect existing Markdown first. Create or update the distinct "
-        "role-specific Skills justified by the learning; prefer updating a related "
-        "Skill over duplicating it. Preserve valid frontmatter, increment `version` "
-        "on update, never modify `protected: true`, and never write shared/global "
-        "layers."
+        f"{label} Skill directory (project layer only): {skill_dir}\n"
+        "Inspect existing Markdown first. Each Skill has exactly `name` and "
+        "`description` frontmatter followed by Markdown. Use an explicit semantic "
+        "path, update a related Skill instead of duplicating it, and never write "
+        "shared/global layers."
     )
 
 

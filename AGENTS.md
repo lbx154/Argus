@@ -11,7 +11,7 @@
 
 ## 一句话架构
 
-`argus-skill` 是一个长期运行的 agent harness：外层 `LifeSupervisor` 管 backlog、预算、daemon、L4 planner（forward scheduling）；内层 `SkillLoop` 管单个任务的 skill 匹配、L1 Engineer 执行和 L2 Reviewer 验收。Manager、Planner、Engineer、Reviewer 都能把本角色的耐久方法选择性写入项目层角色目录；`ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING=0/1` 是统一自进化 A/B 开关。Reviewer Skill 注入单独用 `ARGUS_SKILL_REVIEWER_SKILL_MATCHING=0/1` 做 control/treatment。当前每个正常 mission round 都走 `Engineer -> independent Reviewer`；历史 Engineer self-review 旁路已退出生产链路，旧事件/兼容字段中的 `engineer_self_review` 只代表历史数据。成功 mission 边界由 Manager 判断 stay / shared-global / shared-vertical，默认把可迁移经验传播给其他项目。历史上的 L3 critic 逐轮打磨循环已经移除。论文 pipeline 是 built-in skill + vertical-owned checklist + Reviewer 裁决 + Planner fallback 共同实现的，不是机器 validator 工具链。
+`argus-skill` 是一个长期运行的 agent harness：外层 `LifeSupervisor` 管 backlog、预算、daemon、L4 planner（forward scheduling）；内层 `SkillLoop` 向角色提供 agent-native Skill-library 路径，并管理 L1 Engineer 执行和 L2 Reviewer 验收。运行时不匹配、解析或注入 Skill 正文；Manager、Planner、Engineer、Reviewer 用自己的文件工具发现 Skill，并可把本角色的耐久方法选择性写入项目层角色目录。`ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING=0/1` 是四角色统一维护开关。当前每个正常 mission round 都走 `Engineer -> independent Reviewer`；历史 Engineer self-review 旁路已退出生产链路，旧事件/兼容字段中的 `engineer_self_review` 只代表历史数据。成功 mission 边界由 Manager 判断 stay / shared-global / shared-vertical，默认把可迁移经验传播给其他项目。历史上的 L3 critic 逐轮打磨循环已经移除。论文 pipeline 是 built-in skill + vertical-owned checklist + Reviewer 裁决 + Planner fallback 共同实现的，不是机器 validator 工具链。
 
 **角色限制责任，不限制能力。** L4 Planner 持续负责 forward planning，但使用完整
 Agent 工具主动读代码、跑有界探针/测试，并可在形成或验证计划所必需时直接编辑代码或规划
@@ -59,7 +59,7 @@ argus-skill / python -m argus_skill
      或 argus_skill/daemon/life_worker.py
   -> argus_skill/life/supervisor/_core.py  # backlog / budget / L4 planner
   -> argus_skill/apps/_runtime.py (_SkillLoopRunner.execute(...))
-  -> argus_skill/loop.py                   # matcher -> Scientist-on-miss -> engineer -> reviewer
+  -> argus_skill/loop.py                   # Skill-library paths -> engineer -> reviewer
   -> argus_skill/engineer/runner.py        # L1 round loop
   -> argus_skill/reviewer/_core.py      # L2 structured verdict
 ```
@@ -73,7 +73,7 @@ argus-skill / python -m argus_skill
 | L1 | Engineer | `argus_skill/loop.py`, `argus_skill/engineer/runner.py` | 单轮执行 prompt、失败重试、session 续接、进度 watchdog |
 | L2 | Reviewer | `argus_skill/reviewer/_core.py`, `argus_skill/reviewer/reviewer_schema.json` | 独立检查每个正常 mission round，给出 done/continue/blocked/replan_requested，维护 reviewer JSON schema，并承担论文任务的 peer-review gate |
 | L4 | Planner | `argus_skill/planner/planner.py`, `argus_skill/life/supervisor/_core.py` | 持续读取真实项目并用完整 Agent 工具调查、运行有界探针/测试、必要时编辑代码或规划 artifact，以维护 forward plan 和自动排新任务；也负责 EMNLP final gate 失败后的自动分流。历史的 L3 critic 逐轮打磨层已移除；Planner 不负责 mission 验收 |
-| Skill | 横向能力复用 | `argus_skill/skills/store.py`, `argus_skill/skills/layered.py`, `argus_skill/skills/role_memory.py`, `argus_skill/manager/skill_tidy.py` | project / shared-vertical / shared-global 匹配，四角色选择性维护各自角色目录，成功 mission 后 Manager 跨项目传播 |
+| Skill | 横向能力复用 | `argus_skill/skills/store.py`, `argus_skill/skills/layered.py`, `argus_skill/skills/role_library.py`, `argus_skill/skills/role_memory.py` | 向 Agent 暴露 project / shared-vertical / shared-global 路径；四角色自行发现并选择性维护各自角色目录 |
 | Stage | 通用状态机 + vertical checklist | `argus_skill/skills/stage_machine.py`, `argus_skill/verticals/*/stages.py`, `argus_skill/skills/checklist_store.py` | 通用 stage 状态转移/渲染在 `stage_machine`；stage 顺序、seed checklist 和领域渲染归各 vertical |
 
 > **常见误解**：读到 L0/L1/L2/L4 这个编号，容易以为 argus 是"三层 agent"（Planner/Engineer/Reviewer，L3 critic 已退役）。实际常驻跑着的是**四个**角色——Manager/Planner/Engineer/Reviewer（`core/role_config.py`: `ROLES = ("manager", "planner", "engineer", "reviewer")`）；Manager 不占 L 编号只是因为它跨越整条流水线（前门 + stage 权威），不代表它级别更低。另外还有一个可选的 **Curator** 角色（`ARGUS_SKILL_CURATOR_*`），只在并行 subagent/团队模式下才跑，管 skill 池维护和团队排行榜蒸馏，不参与日常单任务流水线，因此不在上表中。README 和三份 pitch 文档（商业计划书/项目介绍/一页纸概览）历史上都只画了三个角色（未包含 Manager），已于 2026-07-07 全部修正为四个角色。
@@ -151,7 +151,7 @@ Prompt。它们不得重新定义 Reviewer 是否运行、completion status、st
 
 关键对象：
 
-- `SkillLoopConfig`: engineer/reviewer/matcher model、max rounds、writeback、distill-on-miss、runner flags、`paper_mission`。
+- `SkillLoopConfig`: engineer/reviewer model、max rounds、四角色选择性 Skill 维护、runner flags、`paper_mission`。
 - `SkillLoop.run(...)`: 主流程。
 - `_build_engineer_prompt(..., paper_mission)`: 拼 L1 engineer prompt。长 horizon 论文 contract 仅在 `paper_mission=True` 时注入。
 - 论文任务的识别**不再用关键词猜 objective 文本**，改由已解析 vertical 的结构化 completion gate 决定：只有 `completion_gate == "full_paper"` 才会把 `SkillLoopConfig.paper_mission` 置 True；缺失/损坏/未决状态一律按 False 处理。`full_emnlp` 只在旧持久化数据迁移中兼容。
@@ -159,12 +159,10 @@ Prompt。它们不得重新定义 Reviewer 是否运行、completion status、st
 主流程：
 
 ```text
-objective_for_skill -> SkillStore.find_relevant(...)
-  miss -> SkillScientist.distill(...) -> SkillStore.save_distilled(...)
-skill_text + task -> SupervisedEngineer.run(...)
+SkillStore.library_roots() -> Agent 自行搜索/读取 Markdown
+task + library paths -> SupervisedEngineer.run(...)
   round k: engineer -> Reviewer.evaluate(...)
-  outcome -> record distinct skill use; Reviewer may directly maintain project Skill/wiki
-             (legacy skill_ops replay remains compatibility-only)
+  outcome -> 角色可直接维护 project Skill/wiki
   continue -> next_action 注入下一轮
   blocked/max_rounds -> 返回 outcome
 ```
@@ -172,8 +170,8 @@ skill_text + task -> SupervisedEngineer.run(...)
 改 prompt 时注意：
 
 - 普通任务的 L1 prompt 在 `SkillLoop._build_engineer_prompt`。
-- L1 prompt 现在保持轻量：当前任务、原始用户目标、匹配/Scientist 生成的 skill、Reviewer next_action、turn discipline。不要再把 vertical role banner、stage checklist、operator injected guidance、paper/non-paper long contract 塞回 engineer prompt。
-- `objective_for_skill` 是干净用户目标；不要把 memory prelude 写进 skill history。`SkillStore.append_task_history` 已经在防这个坑。
+- L1 prompt 现在保持轻量：当前任务、原始用户目标、Skill-library 路径、Reviewer next_action 和 turn discipline。Agent 按需读 Skill 正文；Harness 不复制正文进 prompt。
+- `objective_for_skill` 只保留为干净目标标签和事件兼容字段，不参与 Skill 匹配或历史写入。
 
 ## Engineer / Reviewer
 
@@ -282,7 +280,7 @@ L2 reviewer 在 `argus_skill/reviewer/_core.py`。
 - `reviewer_schema.json` 结构化输出。
 - `parse_decision_text` / JSON verdict。
 - 近完成论文任务按结构化 stage/scope 注入一份**精简** peer-review contract；不再每轮塞入完整 `academic-paper-peer-review-benchmark.md`。
-- Reviewer role、handoff、project-venv、wiki-curator 都使用短契约；长源 skill 从 matcher 排除，避免重复注入。
+- Reviewer role、handoff、project-venv、wiki-curator 都使用短契约；长源 Skill 只提供路径并由 Reviewer 按需读取，避免重复注入。
 
 > **不再有 harness 关键词改判，也不再从 prose 猜 scope。** 历史上 `reviewer.py` 有个
 > `_coerce_decision_against_main_summary`，会用关键词正则扫 engineer 的 summary，
@@ -334,28 +332,26 @@ skill 是 markdown 文件，带 YAML-like frontmatter。
 
 关键文件：
 
-- `argus_skill/skills/store.py`: markdown skill store、frontmatter parse、matcher、save/writeback。
-- `argus_skill/skills/scientist.py`: 兼容的 matcher-miss Scientist/Distiller 路径；默认主路径由完成任务的 Engineer 同 session 提交选择性 create/update。
-- `argus_skill/skills/layered.py`: project > active shared-vertical > shared-global 的匹配层；共享 Skill 被修改或记录复用时先 fork 回项目层。
-- `argus_skill/manager/skill_tidy.py`: 成功 mission 边界的 Manager placement；内容 hash ledger 避免重复判断，shared-global 立即对所有项目可见，shared-vertical 只对同 vertical 可见。
-- 不设 Skill 文本质量门、candidate/provisional 或 confirm 晋升状态。新建和更新先在项目层生效；跨项目传播需要成功 mission 后的 Manager placement，保留版本历史和可逆 archive。
-- `argus_skill/skills/lifecycle.py`: 低层 archive helper；旧 lifecycle dispatcher 已删除。
-- `argus_skill/skills/builtins.py`: packaged built-in skill seed/export。
+- `argus_skill/skills/store.py`: path-only Markdown library；只枚举路径和原子写入 Agent 明确指定的语义路径，不解析、匹配或生成身份。
+- `argus_skill/skills/role_library.py`: 把 library roots 和 agent-native discovery 短契约交给角色。
+- `argus_skill/skills/loop_skill_library.py`: mission 开始时准备 Engineer/Reviewer 可见的路径，不选择或复制正文。
+- `argus_skill/skills/layered.py`: 按顺序暴露 project、active shared-vertical、shared-global roots。
+- `argus_skill/manager/skill_tidy.py`: 成功 mission 边界的 Manager placement；shared-global 对所有项目可见，shared-vertical 只对同 vertical 可见。
+- 不设 Skill 文本质量门、candidate/provisional、matcher 分数或 confirm 晋升状态。角色在项目层直接创建、更新或归档语义路径。
+- `argus_skill/skills/builtins.py`: packaged built-in Skill seed/export。
 - `argus_skill/builtin_skills/*.md`: 内置 skill 源文件。
 - `argus_skill/builtin_skills/domains/**`: domain skill 包。
 - **存储边界**：Git 只保存人工维护的 built-in Skill source；初始化时把它们 seed
   到 runtime。Agent 新建、更新、共享和归档的 Skill 永远只写
   `ARGUS_SKILL_HOME` 下的 project/shared runtime 层，不得反向写回或提交到 Git。
 - **`builtin_skills/` 只放跨 vertical 的通用 Skill。** 它会被 seed 进每一个
-  runtime 层和每一个项目 workspace，所以留在那里的东西是**所有**项目的 matcher
-  候选，每次匹配都要付它的 summary token。某个 vertical 独有的 playbook 一律放
-  `verticals/<name>/skills/<role>/<file>.md`，**不要**在 `builtin_skills/` 留
-  pointer stub——stub 同样是候选，对拥有它的 vertical 会被 seeding 跳过，对其余
-  项目则是纯粹的死重量。需要让子 vertical 复用父层方法论时用
+  runtime 层和项目 workspace；某个 vertical 独有的 playbook 一律放
+  `verticals/<name>/skills/<role>/<file>.md`，不要在 `builtin_skills/` 留
+  pointer stub，避免无关 Agent 搜索到死文档。需要让子 vertical 复用父层方法论时用
   `builtins.py` 的 `_VERTICAL_SKILL_INHERITANCE`，不要复制文件。
   `tests/skills/test_builtins_seeding.py::test_vertical_owned_skills_are_not_also_flat_builtins`
   守住这条。
-- 四角色的自进化 Skill 分别写入项目层 `manager/`、`planner/`、`engineer/`、`reviewer/`；这些都是可持续增长的角色专用方法池，不是每个角色一份的身份说明，也不设机械数量上限。own-role matcher 可同时返回多个 high-fit playbook，cross-role 只读引用。共同的路径解析和简短写回契约在 `skills/role_memory.py`，不要复制四份提示。
+- 四角色的自进化 Skill 分别写入项目层 `manager/`、`planner/`、`engineer/`、`reviewer/`；这些是可持续增长的方法池，不是身份说明，也不设机械数量上限。角色从给定 library roots 自行搜索和读取，Harness 不做 matcher。共同的路径解析和简短写回契约在 `skills/role_memory.py`，不要复制四份提示。
 - Project wiki 是四个常驻角色共享、可直接读写的声明性知识层，保存概念、结构、机制、
   原理、事实、假设、关系与矛盾；例如 Transformer 的结构或 RL 的原理。Skill 保存
   “如何做”的流程，events/CHECKPOINT 保存历史与当前状态。禁止把 round/handoff 再抄进
@@ -366,11 +362,7 @@ skill 是 markdown 文件，带 YAML-like frontmatter。
 
 - `GlobalMemory.init()` 会把 `argus_skill/builtin_skills` seed 到 `~/.argus-skill/skills/`。
 - 默认不覆盖用户已经编辑过的 skill。
-- **seeding 只增不删**，所以删除或迁走一个 builtin 之后，老 runtime 层里的副本会
-  永远留下来继续当 matcher 候选。`retire_orphaned_builtin_seeds()` 负责收尾：只在
-  文件与 `_RETIRED_BUILTIN_DIGESTS` 里钉住的出厂正文**逐字节相同**时删除，agent
-  改过的摘要不同、原样保留。删/迁 builtin 时必须把它当时的摘要补进那张表，否则改
-  动对既有安装完全无效。
+- 默认 seeding 不覆盖已有文件；语义退休由 Agent 明确执行，Harness 不从正文、摘要或 digest 推断应删除哪个 Skill。
 - `argus-skill --export-builtin-skills [DIR]` 可以复制内置 skill 到项目目录，默认 `./argus_builtin_skills`。目标项目尚无 Manager 持久化的 vertical 时只导出公共 skill，不回退到 research；已有 vertical 时再叠加该 vertical 的 skill，并清理其他 vertical 未修改的旧 seed（用户改过的文件保留）。
 
 改内置 skill 时：
@@ -562,7 +554,7 @@ RunnerBackend.run_exec(prompt, options, run_label, resume_thread_id=None) -> Run
 - `argus_skill/adapters/agent_cli_backend/`: 真实 codex/claude/copilot/opencode CLI 的稳定适配入口；内部按 admission、spawn、I/O、result/finalize 分层。
 - `argus_skill/agent_cli/`: 对外保持 `agent_cli_runner` / `runner_backend` / `models` 三个底层 driver 表面；命令构造、进程控制、事件解析、prompt delivery、ACP 路由和恢复逻辑在私有模块中。`__init__` 不 eager import 子模块，因此 `import argus_skill.agent_cli.agent_cli_runner` 保持轻量。
 - `argus_skill/adapters/memory_backend.py`: deterministic 测试/smoke。
-- `_SkillLoopRunner` 在 `apps/_runtime.py` 里组装真实 backend，并把 backend 传给 Scientist、engineer、reviewer、planner。
+- `_SkillLoopRunner` 在 `apps/_runtime.py` 里组装真实 backend，并按角色传给 Manager、Planner、Engineer、Reviewer 和可选 Curator。
 
 常见 env：
 
@@ -620,7 +612,7 @@ operator 一次 Manager 回合期间，cockpit 显示的是一条**追加式 ste
    报告工具活动（旧的 `tool.call` / `tool.result` 仅作兼容保留）。
    `_actor_is_visible()` 决定哪些 run label 属于 operator 可见角色——**Manager 的
    run label(`simple-*` / `chat-*` / `manager-*` / `router-*` …)在列**，
-   matcher/distiller 等协议噪音不在。
+   内部协议噪音不在。
 3. `core/progress_step.py` 的 `describe_progress_step(event) -> (label, detail)`
    把一个 progress 事件渲染成一行真实动作（跑的命令、调的工具、改的文件），
    并经 `core/secret_guard` 脱敏。**它不做“这步有没有用”的判断**，只如实呈现；
@@ -688,7 +680,7 @@ pytest
 3. L1 执行可靠性改 `engineer/runner.py`。
 4. L2 验收标准改 `reviewer/_core.py` 和相关 role skill。
 5. L4 调度策略改 `life/supervisor/_core.py` / `planner/planner.py`。
-6. Skill 匹配、蒸馏、writeback 改 `skills/store.py` / `scientist/*`。
+6. Skill 路径、分层和直接维护改 `skills/store.py` / `skills/layered.py` / `skills/role_library.py` / `skills/role_memory.py`。
 7. Vertical 质量标准改对应 `verticals/*/stages.py` 的 checklist；通用状态转移和 checklist 渲染改 `skills/stage_machine.py`。
 8. full-paper 项目何时算完成 / 还差认证时改派什么，改 `life/supervisor/` 的 planning/lifecycle phase 与 `_journal_has_full_paper_gate_success`。
 9. Agent 读到 paper 任务后的操作手册改 `argus_skill/builtin_skills/*.md`。

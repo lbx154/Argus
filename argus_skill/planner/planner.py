@@ -133,8 +133,7 @@ class Planner:
         memory_maintenance_enabled: bool | None = None,
     ) -> None:
         self.runner = runner
-        # Role-mission matcher: Planner-owned skills are actionable; Engineer and
-        # Reviewer skills remain read-only references.
+        # Agent-native library roots; Planner searches and reads them directly.
         self.skill_store = skill_store
         if memory_maintenance_enabled is None:
             from ..skills.role_memory import role_skill_maintenance_enabled

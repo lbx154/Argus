@@ -1,10 +1,6 @@
 ---
 name: Software Change Review
 description: Independently review a software patch for real call-path behavior, compatibility, and honest verification without access to a reference answer.
-category: software-review
-priority: high
-version: 1
-created_at: 2026-07-30T00:00:00+00:00
 ---
 
 # Software Change Review

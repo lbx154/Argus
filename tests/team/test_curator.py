@@ -602,3 +602,77 @@ def test_tick_folds_leaderboard_when_shards_present(tmp_path: Path) -> None:
     c._tick(now=100.0)
     # the resident Curator maintains the leaderboard deterministically each tick
     assert leaderboard.read(root)["kA"]["best"] == {"mechanism": "fuse", "metric": 2.0}
+
+
+def _seed_board(
+    root: Path,
+    target: str = "kA",
+    metric: float = 1.2,
+    mechanism: str = "fuse",
+) -> None:
+    shards = root / "shards"
+    shards.mkdir(parents=True, exist_ok=True)
+    (shards / f"{mechanism}.jsonl").write_text(
+        json.dumps(
+            {
+                "target": target,
+                "metric": metric,
+                "mechanism": mechanism,
+                "success": True,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    leaderboard.fold(root)
+
+
+def test_distill_writes_strategy_from_leaderboard(tmp_path: Path) -> None:
+    root = tmp_path / "team"
+    _seed_board(root)
+    prompts: list[str] = []
+    curator = _fake_curator(tmp_path)
+
+    assert curator._distill_root(
+        root,
+        lambda prompt: prompts.append(prompt) or "## Strategy\nDeepen kA.",
+    )
+    assert "Deepen kA" in (root / "strategy.md").read_text(encoding="utf-8")
+    assert "kA" in prompts[0] and "fuse" in prompts[0]
+
+
+def test_distill_failure_preserves_prior_strategy(tmp_path: Path) -> None:
+    root = tmp_path / "team"
+    _seed_board(root)
+    (root / "strategy.md").write_text("PRIOR", encoding="utf-8")
+
+    def fail(_prompt: str) -> str:
+        raise RuntimeError("backend unavailable")
+
+    assert _fake_curator(tmp_path)._distill_root(root, fail) is False
+    assert (root / "strategy.md").read_text(encoding="utf-8") == "PRIOR"
+
+
+def test_tick_distills_at_bounded_interval(tmp_path: Path) -> None:
+    root = tmp_path / "team"
+    registry.write_marker(
+        tmp_path,
+        team_id="t1",
+        team_root=root,
+        cwd=tmp_path,
+        now=1.0,
+    )
+    pool.update(root, width=0, state="running")
+    _seed_board(root)
+    calls: list[str] = []
+    curator = _fake_curator(
+        tmp_path,
+        distill_fn=lambda prompt: calls.append(prompt) or "strategy",
+        distill_interval_s=100.0,
+    )
+
+    curator._tick(now=1000.0)
+    curator._tick(now=1050.0)
+    curator._tick(now=1200.0)
+
+    assert len(calls) == 2

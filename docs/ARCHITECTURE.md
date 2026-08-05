@@ -50,7 +50,7 @@ argus-skill / python -m argus_skill
 | Planner (L4) | 读取真实项目状态；生成 bounded DAG 或 continuous 后续任务；在 `replan_requested` 后替换剩余计划 | 不把 mission 判为完成，不直接写 stage |
 | Engineer (L1) | 使用真实文件、工具、搜索、实验和硬件执行任务；更新 `CHECKPOINT.md`；交付可检查证据 | 不跳过 Reviewer，不写 stage，不静默放宽 GoalContract |
 | Reviewer (L2) | 独立检查当前 artifact、必要日志和 checklist；返回 `done`、`continue`、`blocked` 或 `replan_requested`；最后编辑 `CHECKPOINT.md` | 不写 stage，不扩大 mission 范围，不替 Planner 创建新计划 |
-| Curator（可选机械组件） | 团队/teammate 模式下维护进程池和确定性 leaderboard | 不调用模型，不参与普通单 mission 主链路 |
+| Curator（可选） | 团队/teammate 模式下维护 pool、leaderboard 和策略蒸馏 | 不参与普通单 mission 主链路 |
 
 角色权限模式由 composition root 决定并结构化传入各 role config；角色实现不得静默
 覆盖该值。特别是 headless daemon 的 Copilot Planner 必须保留已授权的非交互模式，

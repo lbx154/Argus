@@ -22,5 +22,7 @@ semantic path and name. The runtime does not generate names, IDs, numeric suffix
 fingerprints, versions, reuse counters, or outcome labels.
 
 A project library may contain an Agent-maintained `INDEX.md` for progressive
-disclosure. The Harness only supplies paths and never reads or mutates Skill
-content.
+disclosure. Role-owned learning is written under `manager/`, `planner/`,
+`engineer/`, or `reviewer/` in the project library. Agents update these semantic
+paths directly; the Harness only supplies library roots and never reads, matches,
+or mutates Skill content.

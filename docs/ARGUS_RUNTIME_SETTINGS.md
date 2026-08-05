@@ -37,7 +37,7 @@ Runner binary、role backend/model 和少数兼容参数有专用 resolver，但
 - `reasoning`：各角色和辅助调用的 reasoning effort
 - `budget`：host-global USD cap、provider call guard、daemon cap
 - `mission`：round、idle、bounded DAG、continuation、等待和任务级软预算
-- `team`：teammate 进程池、时限和 leaderboard
+- `team`：teammate/Curator pool
 - `lifecycle`：Skill/Wiki、sandbox、release match、compaction
 - `telemetry`：metrics、agent I/O、Telegram 和 reasoning display
 

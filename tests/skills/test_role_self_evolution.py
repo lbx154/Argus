@@ -6,6 +6,7 @@ from argus_skill.manager import Manager
 from argus_skill.planner import Planner
 from argus_skill.reviewer import Reviewer
 from argus_skill.roles.prompts.engineer import build_mission_prompt
+from argus_skill.skills.missions import PlannerMission
 from argus_skill.skills.role_memory import (
     project_role_skill_dir,
     role_skill_maintenance_block,
@@ -42,8 +43,8 @@ def test_role_maintenance_block_has_a_clean_ab_switch(tmp_path) -> None:
     assert control == ""
     assert "## Reviewer self-evolution" in treatment
     assert str((tmp_path / "skills" / "reviewer").resolve()) in treatment
-    assert "distinct role-specific Skills" in treatment
-    assert "at most one" not in treatment
+    assert "exactly `name` and `description` frontmatter" in treatment
+    assert "`version`" not in treatment
 
 
 def test_engineer_learning_targets_engineer_bucket(tmp_path) -> None:
@@ -56,7 +57,7 @@ def test_engineer_learning_targets_engineer_bucket(tmp_path) -> None:
         project_skill_dir=skill_dir,
     )
 
-    assert f"Engineer skill directory (project layer only): {skill_dir}" in prompt
+    assert f"Engineer Skill directory (project layer only): {skill_dir}" in prompt
 
 
 def test_reviewer_learning_ab_switch_targets_reviewer_bucket(tmp_path) -> None:
@@ -91,10 +92,7 @@ def test_reviewer_learning_ab_switch_targets_reviewer_bucket(tmp_path) -> None:
 def test_planner_learning_ab_switch_targets_planner_bucket(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     store = SkillStore(tmp_path / "skills")
-    mission = SimpleNamespace(
-        skill_store=store,
-        match=lambda _task: SimpleNamespace(block=""),
-    )
+    mission = PlannerMission(store)
     common = dict(
         continuous_objective="improve the repository",
         journal_tail="",
@@ -123,12 +121,12 @@ def test_manager_learning_ab_switch_targets_manager_bucket(tmp_path) -> None:
         project_root=tmp_path,
         skill_store=store,
         memory_maintenance_enabled=False,
-    )._role_skill_block("delivery", match=False)
+    )._role_skill_block("delivery", include_libraries=False)
     treatment = Manager(
         project_root=tmp_path,
         skill_store=store,
         memory_maintenance_enabled=True,
-    )._role_skill_block("delivery", match=False)
+    )._role_skill_block("delivery", include_libraries=False)
 
     assert "Manager self-evolution" not in control
     assert "Manager self-evolution" in treatment

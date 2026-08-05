@@ -127,8 +127,8 @@ class Manager(
             if runner is not None
             else None
         )
-        # Optional role/adaptive skill source for self-maintenance and
-        # stage-decision prompts. No store means no injected skill block.
+        # Optional agent-native library for stage decisions and direct
+        # project-layer maintenance. No store means no Skill context.
         self.skill_store = skill_store
         if memory_maintenance_enabled is None:
             from ..skills.role_memory import role_skill_maintenance_enabled

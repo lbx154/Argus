@@ -524,13 +524,14 @@ def test_no_raw_codex_spawn_bypasses_gate_anywhere():
     assert offenders == [], f"raw codex bypass outside the gated chokepoint: {offenders}"
 
 
-def test_teammate_research_spawn_is_gated():
-    """team/teammate_entry.py's forced-research codex spawn must route through the
-    sandbox helpers so it is contained when the gate is on (it was an un-gated
-    danger-full-access spawn before this fix)."""
+def test_teammate_has_no_harness_forced_research_spawn():
+    """Teammates use the normal reviewed mission path, not a second CLI spawn."""
     import argus_skill.team.teammate_entry as te
+
     src = Path(te.__file__).read_text()
-    assert "codex_sandbox_args" in src and "codex_sandbox_env" in src
+    assert "_forced_web_research" not in src
+    assert "codex_sandbox_args" not in src
+    assert "--dangerously-bypass-approvals-and-sandbox" not in src
 
 
 # ── default-OFF inertness (must stay byte-for-byte legacy) ────────────────────

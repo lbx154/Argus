@@ -86,30 +86,18 @@ def _direct_memory_edit_block(
         "reviewer",
         enabled=True,
     )
-    project_root = Path(working_dir).expanduser().resolve() if working_dir else Path.cwd().resolve()
+    project_root = (
+        Path(working_dir).expanduser().resolve()
+        if working_dir
+        else Path.cwd().resolve()
+    )
     try:
         from ...wiki.auto_hooks import discover_wikis
 
-        wiki_roots = [path.resolve() for path in discover_wikis(project_root)]
+        has_wiki = bool(discover_wikis(project_root))
     except Exception:  # noqa: BLE001
-        wiki_roots = []
-    if skill_dir is None and not wiki_roots:
-        return ""
-    skill_line = str(skill_dir) if skill_dir is not None else "none"
-    skill_block = (
-        "## Direct reusable-memory maintenance\n"
-        "You are an executable Reviewer with file and shell tools. If this round "
-        "contains durable, reusable learning, edit the project memory directly "
-        "BEFORE your final verdict. Do not describe a proposed edit in final JSON.\n"
-        f"Project skill directory (project layer only): {skill_line}\n"
-        "Skill rules: inspect the existing Markdown first; create or edit only in "
-        "the project Skill directory; use an explicit semantic path; keep exactly "
-        "`name` and `description` frontmatter followed by Markdown; never invent "
-        "IDs, versions, counters, fingerprints, or numeric fallback names; never "
-        "write the shared/global Skill layer.\n"
-        "If there is no durable reusable procedure, make no Skill edit.\n\n"
-    )
-    if not wiki_roots:
+        has_wiki = False
+    if not has_wiki:
         return skill_block
     from ...wiki.context import render_knowledge_wiki_block
 
@@ -296,7 +284,6 @@ def render_reviewer_prompt(
     engineer_call_id: str = "",
     preselected_skill_block: str | None = None,
     working_dir: str | Path | None = None,
-    skill_matching_enabled: bool = True,
 ) -> tuple[str, str]:
     """Render the complete Reviewer prompt as ``(static_preamble, round_delta)``."""
     from ...core.project import resolve_project_root
@@ -345,13 +332,6 @@ def render_reviewer_prompt(
                 "independently as needed:\n"
                 f"{review_libraries.block}\n\n"
             )
-    if preselected_skill_block and preselected_skill_block.strip():
-        matched_review_skill_block += (
-            "Engineer playbook context (read-only; use only to audit the claimed "
-            "process):\n"
-            f"{preselected_skill_block.strip()}\n\n"
-        )
-
     stage = prompt_context.stage
     _measured = not _requires_engineering_audit and os.environ.get(
         "ARGUS_SKILL_MEASURED_MODE", ""

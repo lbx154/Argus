@@ -64,9 +64,12 @@ def test_config_help_does_not_advertise_formal_vertical_override() -> None:
 
 
 def test_registry_covers_the_active_team_knobs() -> None:
-    """Only teammate execution/result controls remain operator-facing."""
+    """Expose the pool, result, and bounded Curator strategy controls."""
     names = {k.name for k in KNOBS}
     for must in (
+        "ARGUS_SKILL_CURATOR_BACKEND",
+        "ARGUS_SKILL_CURATOR_MODEL",
+        "ARGUS_SKILL_CURATOR_DISTILL_INTERVAL_S",
         "ARGUS_TEAMMATE_PAPER_MISSION",
         "ARGUS_TEAMMATE_TIMEOUT_S",
         "ARGUS_TEAMMATE_MAX_ROUNDS",
@@ -74,7 +77,8 @@ def test_registry_covers_the_active_team_knobs() -> None:
         "ARGUS_LEADERBOARD_LOWER_IS_BETTER",
     ):
         assert must in names, must
-    assert not any(name.startswith("ARGUS_SKILL_CURATOR_") for name in names)
+    assert "ARGUS_TEAMMATE_FORCE_RESEARCH" not in names
+    assert "ARGUS_TEAMMATE_FORCE_PROFILE" not in names
 
 
 def test_format_shows_default_when_unset() -> None:

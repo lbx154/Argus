@@ -131,11 +131,11 @@ class _MaintenanceMixin:
             })
         return decision
 
-    # ---- skill injection (fixed role skill + matched adaptive block) ----
+    # ---- role context, library discovery, and direct maintenance ----
     def _role_skill_block(
         self, objective: str, *, include_libraries: bool = True
     ) -> str:
-        """Return fixed Manager context and, when requested, library paths."""
+        """Return Manager context, optional library paths, and edit rules."""
         if self.skill_store is None:
             return ""
         block = self.role_context()
@@ -146,4 +146,10 @@ class _MaintenanceMixin:
                     block += libraries.block + "\n\n"
             except Exception:  # noqa: BLE001 — path discovery is fail-soft
                 log.debug("manager Skill-library discovery failed", exc_info=True)
-        return block
+        from ..skills.role_memory import role_skill_maintenance_block
+
+        return block + role_skill_maintenance_block(
+            self.skill_store,
+            "manager",
+            enabled=self.memory_maintenance_enabled,
+        )

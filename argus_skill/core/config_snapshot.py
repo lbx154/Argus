@@ -22,12 +22,14 @@ _ROLE_MODEL_ENV: dict[str, str] = {
     "planner": "ARGUS_SKILL_PLAN_MODEL",
     "engineer": "ARGUS_SKILL_ENGINEER_MODEL",
     "reviewer": "ARGUS_SKILL_REVIEWER_MODEL",
+    "curator": "ARGUS_SKILL_CURATOR_MODEL",
 }
 _ROLE_EFFORT_ENV: dict[str, str] = {
     "manager": "ARGUS_SKILL_MANAGER_REASONING_EFFORT",
     "planner": "ARGUS_SKILL_PLANNER_REASONING_EFFORT",
     "engineer": "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
     "reviewer": "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
+    "curator": "ARGUS_SKILL_CURATOR_REASONING_EFFORT",
 }
 
 

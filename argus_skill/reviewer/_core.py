@@ -40,7 +40,6 @@ class ReviewerConfig:
     sandbox_mode: str | None = None
     isolate_workdir: bool = False
     working_dir: str | None = None
-    skill_matching_enabled: bool = True
 
 
 SCHEMA_PATH = str(Path(__file__).with_name("reviewer_schema.json"))
@@ -155,11 +154,8 @@ class Reviewer:
         # deliberately sets one.
         self.schema_path = ""
         self._last_prompt_block_stats: dict[str, dict[str, int]] = {}
-        # Optional: when wired, the reviewer runs the same role-mission skill
-        # matcher every other role uses, surfacing adaptive reviewer skills
-        # (e.g. stage-specific review playbooks) plus cross-role engineer
-        # references on top of the fixed role/handoff context. ``None`` keeps
-        # the legacy fixed-context-only behaviour.
+        # Optional agent-native library roots. The Reviewer searches and reads
+        # relevant Markdown itself; the runtime never injects Skill bodies.
         self.skill_store = skill_store
         self.memory_maintenance_enabled = memory_maintenance_enabled
         from ..skills.missions import ReviewerMission
@@ -252,7 +248,6 @@ class Reviewer:
             engineer_call_id=engineer_call_id,
             preselected_skill_block=preselected_skill_block,
             working_dir=config.working_dir,
-            skill_matching_enabled=config.skill_matching_enabled,
         )
         static, delta_base = self._render(resumed=False, **common)
         prompt_block_stats = {
@@ -428,7 +423,6 @@ class Reviewer:
         engineer_call_id: str = "",
         preselected_skill_block: str | None = None,
         working_dir: str | Path | None = None,
-        skill_matching_enabled: bool = True,
     ) -> tuple[str, str]:
         """F7: render the reviewer prompt as ``(static_preamble, round_delta)``.
 
@@ -462,7 +456,6 @@ class Reviewer:
             engineer_call_id=engineer_call_id,
             preselected_skill_block=preselected_skill_block,
             working_dir=working_dir,
-            skill_matching_enabled=skill_matching_enabled,
         )
 
     def _build_prompt(self, **kwargs: Any) -> str:

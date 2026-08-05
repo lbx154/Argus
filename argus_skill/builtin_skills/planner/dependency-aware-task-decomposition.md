@@ -1,10 +1,6 @@
 ---
 name: Dependency-Aware Task Decomposition
 description: Convert a project objective and current evidence into a minimal dependency-aware set of executable tasks with decisive acceptance checks.
-category: planner-decomposition
-priority: high
-version: 1
-created_at: 2026-07-30T00:00:00+00:00
 ---
 
 # Dependency-Aware Task Decomposition

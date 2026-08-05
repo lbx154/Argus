@@ -1,10 +1,6 @@
 ---
 name: Evidence-Based Stage Decision
 description: Turn Reviewer and Planner evidence into a concise Manager hold, advance, rollback, or completion decision without redoing execution work.
-category: manager-stage-decision
-priority: high
-version: 1
-created_at: 2026-07-30T00:00:00+00:00
 ---
 
 # Evidence-Based Stage Decision

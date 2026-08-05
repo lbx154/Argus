@@ -1,65 +1,49 @@
 from __future__ import annotations
 
-import json
+from pathlib import Path
 
 from argus_skill.core.models import RunnerResult
-from argus_skill.loop import SkillLoopConfig
 from argus_skill.reviewer import Reviewer, ReviewerConfig
 from argus_skill.skills.builtins import seed_vertical_skills
 from argus_skill.skills.store import SkillStore
 from argus_skill.skills.vertical_select import persist_vertical
 
 
-class _PromptDrivenABBackend:
-    """Deterministic wiring probe; model-quality A/B remains an external eval."""
+class _LibraryAwareBackend:
+    """Probe that models agent-native discovery without a runtime matcher."""
 
-    def __init__(self) -> None:
+    def __init__(self, library_root: Path | None = None) -> None:
+        self.library_root = library_root.resolve() if library_root else None
         self.reviewer_prompts: list[str] = []
 
     def run_exec(self, *, prompt: str, run_label: str, **_kwargs) -> RunnerResult:
-        if run_label == "matcher":
-            return RunnerResult(
-                exit_code=0,
-                agent_messages=[json.dumps({
-                    "matched": [{
-                        "name": "Software Change Review",
-                        "fit": "high",
-                        "why": "software patch review",
-                    }],
-                })],
-            )
         assert run_label == "reviewer"
         self.reviewer_prompts.append(prompt)
-        treatment = "# Software Change Review" in prompt
-        status = "continue" if treatment else "done"
-        next_action = (
-            "Preserve the two-argument public signature and rerun its existing caller."
-            if treatment
-            else ""
+        library_available = bool(
+            self.library_root and f"`{self.library_root}`" in prompt
         )
         return RunnerResult(
             exit_code=0,
             agent_messages=[
-                "\n".join((
-                    f"STATUS={status}",
-                    "REASON=The treatment audits the unchanged caller contract."
-                    if treatment
-                    else "REASON=The implementation summary appears complete.",
-                    f"NEXT_ACTION={next_action}",
-                    "OPERATOR_QUESTION=none",
-                    "FORWARD_PROGRESS=true",
-                    "PLAN_SIGNAL=continue",
-                ))
+                "\n".join(
+                    (
+                        f"STATUS={'continue' if library_available else 'done'}",
+                        "REASON=The Reviewer can inspect its software review library."
+                        if library_available
+                        else "REASON=No Reviewer library was supplied.",
+                        "NEXT_ACTION=Trace the changed signature through unchanged callers."
+                        if library_available
+                        else "NEXT_ACTION=",
+                        "OPERATOR_QUESTION=none",
+                        "FORWARD_PROGRESS=true",
+                        "PLAN_SIGNAL=continue",
+                    )
+                )
             ],
         )
 
 
-def _evaluate(
-    reviewer: Reviewer,
-    project,
-    *,
-    skill_matching_enabled: bool,
-) -> object:
+def _evaluate(reviewer: Reviewer, project: Path) -> object:
     return reviewer.evaluate(
         objective="Review a software patch that adds a required third argument.",
         round_index=1,
@@ -69,68 +53,37 @@ def _evaluate(
             "existing callers were not discussed."
         ),
         main_error=None,
-        config=ReviewerConfig(
-            working_dir=str(project),
-            skill_matching_enabled=skill_matching_enabled,
-        ),
+        config=ReviewerConfig(working_dir=str(project)),
     )
 
 
-def test_reviewer_skill_ab_knob_controls_skill_loop_config(monkeypatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_REVIEWER_SKILL_MATCHING", "0")
-    assert SkillLoopConfig().reviewer_skill_matching_enabled is False
-    monkeypatch.setenv("ARGUS_SKILL_REVIEWER_SKILL_MATCHING", "1")
-    assert SkillLoopConfig().reviewer_skill_matching_enabled is True
-
-
-def test_software_reviewer_skill_ab_reaches_the_reviewer(tmp_path) -> None:
+def test_software_reviewer_skill_is_agent_native_and_discoverable(tmp_path) -> None:
     project = tmp_path / "project"
     project.mkdir()
     persist_vertical(project, "software")
 
-    control_skill_dir = tmp_path / "control-skills"
-    seed_vertical_skills(control_skill_dir, "software")
-    control_backend = _PromptDrivenABBackend()
-    control_store = SkillStore(
-        control_skill_dir,
-        runner=control_backend,
-        matcher_model="test-model",
-    )
-    control = _evaluate(
-        Reviewer(
-            control_backend,
-            skill_store=control_store,
-            memory_maintenance_enabled=False,
-        ),
-        project,
-        skill_matching_enabled=False,
-    )
+    skill_root = tmp_path / "software-skills"
+    seed_vertical_skills(skill_root, "software")
+    skill_path = skill_root / "reviewer" / "software-change-review.md"
+    text = skill_path.read_text(encoding="utf-8")
+    assert "exact positional/keyword arguments" in " ".join(text.split())
+    assert [line for line in text.split("---", 2)[1].splitlines() if line] == [
+        "name: Software Change Review",
+        "description: Independently review a software patch for real call-path behavior, compatibility, and honest verification without access to a reference answer.",
+    ]
 
-    treatment_skill_dir = tmp_path / "treatment-skills"
-    seed_vertical_skills(treatment_skill_dir, "software")
-    treatment_backend = _PromptDrivenABBackend()
-    treatment_store = SkillStore(
-        treatment_skill_dir,
-        runner=treatment_backend,
-        matcher_model="test-model",
-    )
+    control_backend = _LibraryAwareBackend()
+    control = _evaluate(Reviewer(control_backend), project)
+
+    treatment_backend = _LibraryAwareBackend(skill_root)
     treatment = _evaluate(
-        Reviewer(
-            treatment_backend,
-            skill_store=treatment_store,
-            memory_maintenance_enabled=False,
-        ),
+        Reviewer(treatment_backend, skill_store=SkillStore(skill_root)),
         project,
-        skill_matching_enabled=True,
     )
 
     assert control.status == "done"
     assert treatment.status == "continue"
-    assert "# Software Change Review" not in control_backend.reviewer_prompts[0]
-    assert "# Software Change Review" in treatment_backend.reviewer_prompts[0]
-    assert "exact positional/keyword arguments" in " ".join(
-        treatment_backend.reviewer_prompts[0].split()
-    )
-    assert len(treatment_backend.reviewer_prompts[0]) - len(
-        control_backend.reviewer_prompts[0]
-    ) < 2_500
+    assert str(skill_root.resolve()) not in control_backend.reviewer_prompts[0]
+    assert f"`{skill_root.resolve()}`" in treatment_backend.reviewer_prompts[0]
+    # Main's agent-native contract supplies paths, never copied Skill bodies.
+    assert "# Software Change Review" not in treatment_backend.reviewer_prompts[0]
