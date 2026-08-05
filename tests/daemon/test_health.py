@@ -83,3 +83,13 @@ def test_degraded_planner_retry_does_not_reset_progress(
     assert health["state"] == "stalled"
     assert health["last_progress_event"] == "life.planner.start"
     assert health["last_progress_at"] == old
+
+
+def test_ready_daemon_transitions_out_of_starting(tmp_path: Path) -> None:
+    tracker = DaemonHealthTracker(tmp_path, pid=123)
+
+    tracker.mark_ready()
+
+    health = read_daemon_health(tmp_path, pid=123, alive=True)
+    assert health["state"] == "idle"
+    assert health["last_progress_event"] == "life.daemon.ready"

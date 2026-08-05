@@ -97,6 +97,27 @@ def test_read_self_maintenance_snapshot_is_typed_and_fail_soft(
     assert snapshot.publication_error == "no push permission"
 
 
+def test_copilot_self_maintenance_defers_without_safe_isolated_auth(
+    tmp_path: Path,
+) -> None:
+    events: list[dict] = []
+    controller = DaemonSelfMaintenance(
+        life_dir=tmp_path / "life",
+        framework_root=tmp_path,
+        project_workdir=tmp_path,
+        manager=_Manager(),
+        memory=SimpleNamespace(),
+        backend="copilot",
+        on_event=events.append,
+    )
+
+    assert controller.preflight_isolation(force=True) is False
+    state = json.loads(controller.state_path.read_text(encoding="utf-8"))
+    assert state["maintenance_available"] is False
+    assert "safe isolated authentication" in state["isolation_error"]
+    assert events[-1]["type"] == "manager.self_maintenance.availability"
+
+
 def test_frontend_dependency_links_are_temporary(tmp_path: Path) -> None:
     source = tmp_path / "source"
     worktree = tmp_path / "worktree"

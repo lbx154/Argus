@@ -63,7 +63,14 @@ def daemon_protocol_compatibility(status: Any) -> tuple[bool | None, str]:
             f"{runtime.get('source_root')} but ARGUS_SKILL_SOURCE_ROOT points to "
             f"{runtime.get('configured_source_root')}",
         )
-    if isinstance(runtime, dict) and runtime.get("release_matches_source") is False:
+    require_release_match = str(
+        os.environ.get("ARGUS_SKILL_REQUIRE_RELEASE_MATCH", "")
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    if (
+        require_release_match
+        and isinstance(runtime, dict)
+        and runtime.get("release_matches_source") is False
+    ):
         return False, "daemon release manifest does not match its loaded source"
     worktree = runtime.get("worktree") if isinstance(runtime, dict) else None
     require_clean = str(os.environ.get("ARGUS_SKILL_REQUIRE_CLEAN_SOURCE", "")).strip().lower() in {

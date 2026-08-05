@@ -214,12 +214,30 @@ def _backend_support_executables(executable: Path) -> list[Path]:
     only the wrapper therefore makes a healthy backend fail with exit 127. Bind
     only matching executable files, never the extension tree or user home.
     """
+    executable_real = os.path.realpath(executable)
     if (
         executable.name == "cli.js"
         and "pi-coding-agent" in executable.as_posix()
     ):
         node = shutil.which("node")
         return [Path(node).resolve()] if node else []
+    if executable.name == "copilot":
+        found: list[Path] = []
+        root = Path.home() / ".nvm" / "versions" / "node"
+        for candidate in root.glob(
+            "*/lib/node_modules/@github/copilot/node_modules/"
+            "@github/copilot-*/copilot"
+        ):
+            try:
+                if (
+                    candidate.is_file()
+                    and os.access(candidate, os.X_OK)
+                    and os.path.realpath(candidate) != executable_real
+                ):
+                    found.append(candidate.resolve())
+            except OSError:
+                continue
+        return sorted(set(found), key=str)
     if executable.name != "codex":
         return []
     roots = (
@@ -227,7 +245,6 @@ def _backend_support_executables(executable: Path) -> list[Path]:
         Path.home() / ".vscode-server-insiders" / "extensions",
         Path.home() / ".vscode" / "extensions",
     )
-    executable_real = os.path.realpath(executable)
     found: list[Path] = []
     for root in roots:
         for candidate in root.glob("openai.chatgpt-*/bin/*/codex"):
@@ -266,6 +283,11 @@ def isolated_workdir_command(
         executable = Path(resolved_executable)
         command = [str(executable), *command[1:]]
     executable = executable.resolve()
+    support_executables = _backend_support_executables(executable)
+    if executable.name == "copilot" and support_executables:
+        executable = support_executables[-1]
+        command = [str(executable), *command[1:]]
+        support_executables = []
     root = os.path.realpath(os.fspath(working_dir))
     if not os.path.isdir(root):
         raise RuntimeError("isolated workdir does not exist")
@@ -368,7 +390,7 @@ def isolated_workdir_command(
     # the selected backend executable so configured per-user CLI installs remain
     # runnable without revealing the rest of their home directory.
     bind_file(executable, executable)
-    for support_executable in _backend_support_executables(executable):
+    for support_executable in support_executables:
         bind_file(support_executable, support_executable)
     bind_dir(
         Path.home() / ".cache" / "copilot",

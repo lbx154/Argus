@@ -161,6 +161,36 @@ def test_daemon_stop_before_provider_start_is_read_as_not_billed() -> None:
     assert record.cost_usd == 0.0
 
 
+@pytest.mark.parametrize(
+    "provider,error",
+    [
+        ("copilot", "copilot wrapper: real Copilot CLI binary not found"),
+        ("copilot", "Error: No authentication information found."),
+        ("opencode", "Error: Token refresh failed: 401"),
+    ],
+)
+def test_local_backend_refusal_is_read_as_not_billed(
+    provider: str,
+    error: str,
+) -> None:
+    record = UsageRecord.from_jsonable({
+        "call_id": f"{provider}-pre-provider",
+        "project_id": "s-1",
+        "provider": provider,
+        "status": "error",
+        "pricing_status": "partial",
+        "pricing_tier": "unknown",
+        "cost_usd": None,
+        "model_usage": [],
+        "total_nano_aiu": None,
+        "error": error,
+    })
+
+    assert record.pricing_status == "not_billed"
+    assert record.pricing_tier == "not_started"
+    assert record.cost_usd == 0.0
+
+
 def test_stale_resume_error_with_observed_premium_usage_stays_partial() -> None:
     record = UsageRecord.from_jsonable({
         "call_id": "billed-resume",

@@ -401,6 +401,7 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
         project_workdir: Path,
         manager: Any,
         memory: Any,
+        backend: str = "",
         on_event: Any = None,
     ) -> None:
         super().__init__(life_dir=life_dir, on_event=on_event)
@@ -408,6 +409,7 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
         self.project_workdir = Path(project_workdir)
         self.manager = manager
         self.memory = memory
+        self.backend = str(backend or "").strip().lower()
 
     def observe(self, event: dict[str, Any]) -> None:
         row = _compact_event(event)
@@ -534,31 +536,37 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
         probe = self.root / "isolation-probe"
         probe.mkdir(parents=True, exist_ok=True)
         error = ""
-        try:
-            from ..core.sandbox import isolated_workdir_command
-
-            command = isolated_workdir_command(
-                ["/usr/bin/true"],
-                working_dir=probe,
-            )
-            result = subprocess.run(
-                command,
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=15.0,
-            )
-            available = result.returncode == 0
-            if not available:
-                error = (
-                    result.stderr.strip()
-                    or f"bubblewrap probe exited {result.returncode}"
-                )
-        except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+        if self.backend == "copilot":
             available = False
-            error = f"{type(exc).__name__}: {exc}"
-        finally:
-            shutil.rmtree(probe, ignore_errors=True)
+            error = (
+                "Copilot self-maintenance deferred: safe isolated authentication "
+                "is unavailable without exposing GitHub repository credentials"
+            )
+        else:
+            try:
+                from ..core.sandbox import isolated_workdir_command
+
+                command = isolated_workdir_command(
+                    ["/usr/bin/true"],
+                    working_dir=probe,
+                )
+                result = subprocess.run(
+                    command,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=15.0,
+                )
+                available = result.returncode == 0
+                if not available:
+                    error = (
+                        result.stderr.strip()
+                        or f"bubblewrap probe exited {result.returncode}"
+                    )
+            except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+                available = False
+                error = f"{type(exc).__name__}: {exc}"
+        shutil.rmtree(probe, ignore_errors=True)
         previous = state.get("maintenance_available")
         self._write_state(
             maintenance_available=available,

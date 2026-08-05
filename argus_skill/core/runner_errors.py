@@ -11,6 +11,11 @@ _ENCRYPTED_CONTENT_FAILURES = (
     "could not be verified",
     "could not be decrypted or parsed",
 )
+_PRE_PROVIDER_REFUSALS = (
+    "copilot wrapper: real copilot cli binary not found",
+    "no authentication information found",
+    "token refresh failed: 401",
+)
 
 
 def is_missing_resume_target_error(value: object) -> bool:
@@ -19,9 +24,11 @@ def is_missing_resume_target_error(value: object) -> bool:
 
 def is_pre_provider_refusal_error(value: object) -> bool:
     text = str(value or "")
+    lowered = text.lower()
     return (
         is_missing_resume_target_error(text)
-        or _REFUSED_BEFORE_START in text.lower()
+        or _REFUSED_BEFORE_START in lowered
+        or any(marker in lowered for marker in _PRE_PROVIDER_REFUSALS)
     )
 
 

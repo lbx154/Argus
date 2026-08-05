@@ -165,6 +165,66 @@ def test_daemon_from_different_release_is_incompatible(tmp_path: Path) -> None:
     assert "incompatible with WebAPI release" in error
 
 
+def test_manifest_drift_is_warning_when_strict_release_gate_is_off(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_REQUIRE_RELEASE_MATCH", raising=False)
+    monkeypatch.setattr(
+        "argus_skill.daemon.protocol.runtime_identity",
+        lambda: {
+            "release_id": "0.1.1+same",
+            "runtime_source_digest": "same-source",
+        },
+    )
+    status = DaemonStatus(
+        alive=True,
+        pid=os.getpid(),
+        started_at_iso=None,
+        uptime_seconds=1.0,
+        life_dir=tmp_path,
+        protocol_name=DAEMON_PROTOCOL_NAME,
+        protocol_major=DAEMON_PROTOCOL_MAJOR,
+        protocol_minor=DAEMON_PROTOCOL_MINOR,
+        capabilities=DAEMON_CAPABILITIES,
+        runtime={
+            "source_root_matches_config": True,
+            "release_id": "0.1.1+same",
+            "release_matches_source": False,
+            "runtime_source_digest": "same-source",
+        },
+    )
+
+    assert daemon_protocol_compatibility(status) == (True, "")
+
+
+def test_manifest_drift_is_incompatible_when_strict_release_gate_is_on(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_REQUIRE_RELEASE_MATCH", "1")
+    status = DaemonStatus(
+        alive=True,
+        pid=os.getpid(),
+        started_at_iso=None,
+        uptime_seconds=1.0,
+        life_dir=tmp_path,
+        protocol_name=DAEMON_PROTOCOL_NAME,
+        protocol_major=DAEMON_PROTOCOL_MAJOR,
+        protocol_minor=DAEMON_PROTOCOL_MINOR,
+        capabilities=DAEMON_CAPABILITIES,
+        runtime={
+            "source_root_matches_config": True,
+            "release_matches_source": False,
+        },
+    )
+
+    assert daemon_protocol_compatibility(status) == (
+        False,
+        "daemon release manifest does not match its loaded source",
+    )
+
+
 def test_clean_self_managed_canary_may_differ_from_webapi_release(
     tmp_path: Path,
 ) -> None:

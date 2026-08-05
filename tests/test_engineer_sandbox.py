@@ -523,3 +523,23 @@ def test_off_path_inert_for_all_roles(gate_off):
     # legacy command still emits the bypass and no -s
     cmd = r._build_codex_command(resume_thread_id=None, options=o1)
     assert "--dangerously-bypass-approvals-and-sandbox" in cmd and "-s" not in cmd
+def test_copilot_wrapper_exposes_real_nvm_binary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = tmp_path / "home"
+    wrapper = home / "bin" / "copilot"
+    real = (
+        home / ".nvm" / "versions" / "node" / "v22" / "lib" / "node_modules"
+        / "@github" / "copilot" / "node_modules" / "@github"
+        / "copilot-linux-x64" / "copilot"
+    )
+    wrapper.parent.mkdir(parents=True)
+    real.parent.mkdir(parents=True)
+    wrapper.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    real.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    wrapper.chmod(0o755)
+    real.chmod(0o755)
+    monkeypatch.setenv("HOME", str(home))
+
+    assert sandbox._backend_support_executables(wrapper) == [real.resolve()]

@@ -62,6 +62,7 @@ class LifeWorkerRunMixin:
                     project_workdir=rf_state.cfg.project_workdir,
                     manager=rf_state.runner.manager,
                     memory=rf_state.mem,
+                    backend=rf_state.cfg.backend,
                     on_event=rf_state.sink.handle_event,
                 )
                 rf_state.daemon_sink.self_maintenance = self._self_maintenance
@@ -174,6 +175,12 @@ class LifeWorkerRunMixin:
                 _effective_runner_backend(rf_state.runner, rf_state.cfg.backend),
                 os.getpid(),
             )
+            tracker = getattr(rf_state.daemon_sink, "health_tracker", None)
+            if tracker is not None:
+                try:
+                    tracker.mark_ready()
+                except Exception:  # noqa: BLE001 - health telemetry is non-critical
+                    log.exception("daemon: failed to mark health ready")
 
         # Start the Telegram inbound command poller only when explicitly enabled.
         try:

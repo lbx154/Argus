@@ -25,6 +25,7 @@ _ACTIVE_EVENTS = frozenset({
     "round.start",
 })
 _IDLE_EVENTS = frozenset({
+    "life.daemon.ready",
     "life.mission.completed",
     "life.mission.failed",
     "life.mission.skipped",
@@ -46,6 +47,7 @@ _PROGRESS_EVENTS = frozenset({
     "engineer.progress",
     "life.inbox.drained",
     "life.manager.intent.completed",
+    "life.daemon.ready",
     "life.mission.completed",
     "life.mission.failed",
     "life.mission.skipped",
@@ -140,6 +142,9 @@ class DaemonHealthTracker:
             ):
                 _atomic_write(self.path, self._state)
                 self._last_write_monotonic = monotonic_now
+
+    def mark_ready(self) -> None:
+        self.observe({"type": "life.daemon.ready", "ts": time.time()})
 
 
 def read_daemon_health(
