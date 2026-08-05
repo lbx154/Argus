@@ -8,7 +8,6 @@ import pytest
 from argus_skill.skills.venue_profiles import (
     AAAI_PROFILE,
     EMNLP_PROFILE,
-    FRONTIERS_SLEEP_PROFILE,
     get_venue_profile,
     resolve_venue_profile,
 )

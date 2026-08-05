@@ -104,7 +104,27 @@ def _validate_checkout(root: Path, revision: str, git: str) -> None:
         )
 
 
-def _configure_sparse_checkout(root: Path, git: str) -> None:
+def _supports_sparse_checkout(git: str) -> bool:
+    """Whether Git has the ``sparse-checkout`` porcelain (introduced in 2.25)."""
+    result = subprocess.run(
+        [git, "--version"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    words = result.stdout.strip().split()
+    if result.returncode != 0 or not words:
+        return False
+    try:
+        major, minor, *_rest = (int(part) for part in words[-1].split("."))
+    except ValueError:
+        return False
+    return (major, minor) >= (2, 25)
+
+
+def _configure_sparse_checkout(root: Path, git: str) -> bool:
+    if not _supports_sparse_checkout(git):
+        return False
     _run([git, "-C", str(root), "sparse-checkout", "init", "--no-cone"])
     _run(
         [
@@ -117,6 +137,7 @@ def _configure_sparse_checkout(root: Path, git: str) -> None:
             "/skills/ppt-master/",
         ]
     )
+    return True
 
 
 def _tracked_changes(root: Path, git: str) -> str:
@@ -135,20 +156,19 @@ def _prepare_checkout(
     temporary = target.with_name(f".ppt-master.{uuid.uuid4().hex}.tmp")
     _run([git, "init", str(temporary)])
     _run([git, "-C", str(temporary), "remote", "add", "origin", repository])
-    _configure_sparse_checkout(temporary, git)
-    _run(
-        [
-            git,
-            "-C",
-            str(temporary),
-            "fetch",
-            "--depth",
-            "1",
-            "--filter=blob:none",
-            "origin",
-            revision,
-        ]
-    )
+    sparse = _configure_sparse_checkout(temporary, git)
+    fetch = [
+        git,
+        "-C",
+        str(temporary),
+        "fetch",
+        "--depth",
+        "1",
+    ]
+    if sparse:
+        fetch.append("--filter=blob:none")
+    fetch.extend(["origin", revision])
+    _run(fetch)
     _run([git, "-C", str(temporary), "checkout", "--detach", "FETCH_HEAD"])
     _validate_checkout(temporary, revision, git)
     return temporary

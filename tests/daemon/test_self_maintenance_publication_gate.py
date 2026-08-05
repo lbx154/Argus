@@ -218,11 +218,15 @@ def _canary_ready(tmp_path: Path) -> tuple[_CanaryProbe, str]:
         "PATH": "/usr/bin:/bin",
     }
     (worktree / "f.txt").write_text("x", encoding="utf-8")
-    for cmd in (
-        ["git", "init", "-q", "-b", "fix"],
-        ["git", "add", "-A"],
-        ["git", "commit", "-qm", "reviewed fix"],
-    ):
+    # ``git init -b`` is newer than the oldest supported Git on Linux.
+    subprocess.run(["git", "init", "-q"], cwd=worktree, env=env, check=True)
+    subprocess.run(
+        ["git", "checkout", "-qb", "fix"],
+        cwd=worktree,
+        env=env,
+        check=True,
+    )
+    for cmd in (["git", "add", "-A"], ["git", "commit", "-qm", "reviewed fix"]):
         subprocess.run(cmd, cwd=worktree, env=env, check=True)
     head = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=worktree, env=env,

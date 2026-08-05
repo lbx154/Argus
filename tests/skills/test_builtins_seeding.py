@@ -11,11 +11,8 @@ These tests pin that contract on the quant vertical (the first to adopt it).
 """
 from __future__ import annotations
 
-import hashlib
-
 import pytest
 
-import argus_skill.skills.builtins as builtins_module
 from argus_skill.skills.builtins import (
     _validate_builtin,
     iter_builtin_skill_texts,
@@ -26,7 +23,6 @@ from argus_skill.skills.builtins import (
     seed_vertical_skills,
     vertical_skill_source_path,
 )
-from argus_skill.skills.store import SkillStore
 
 QUANT_SKILLS = {
     "engineer/quant-factor-loop.md",

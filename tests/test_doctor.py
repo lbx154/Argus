@@ -9,6 +9,7 @@ real network call.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 
 from argus_skill.webapi.diagnostics import Check, render_report, run_diagnostics
@@ -251,6 +252,14 @@ def test_backend_preflight_uses_persisted_copilot_selection(
 # ---------------------------------------------------------------------------
 
 def test_injected_probe_429_surfaces_switch_backend_fix(tmp_path, monkeypatch):
+    # Keep backend readiness green independently of the developer machine so
+    # the injected 429 remains the root cause under test.
+    real_which = shutil.which
+    monkeypatch.setattr(
+        "shutil.which",
+        lambda name: "/usr/bin/codex" if name == "codex" else real_which(name),
+    )
+    _mock_backend_commands(monkeypatch, "codex-cli 0.144.5")
     # Force a configured route so the offline gate passes, then inject a probe
     # that returns a 429 — the check must recommend switching backend.
     from argus_skill.webapi import diagnostics as doctor_mod

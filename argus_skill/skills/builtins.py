@@ -16,7 +16,6 @@ from importlib.resources.abc import Traversable
 from pathlib import Path
 from typing import Iterable
 
-
 _BUILTIN_PACKAGE = "argus_skill.builtin_skills"
 DEFAULT_PROJECT_BUILTIN_SKILLS_DIR = "argus_builtin_skills"
 _VERTICAL_SKILL_INHERITANCE = {

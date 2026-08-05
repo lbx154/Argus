@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus_skill.domains import (
     BUILTIN_DOMAINS,
     DOMAIN_PURPOSES,
@@ -16,15 +15,12 @@ from argus_skill.domains import (
 from argus_skill.roles.prompts import resolve_role_prompt
 from argus_skill.roles.prompts.engineer import mission_request
 from argus_skill.skills.builtins import (
-    iter_context_skill_texts,
     iter_domain_skill_texts,
     remove_unmodified_inactive_context_skill_seeds,
-    seed_builtin_skills_for_context,
     seed_context_skills,
 )
 from argus_skill.skills.layered import LayeredSkillStore, shared_skill_scope_dir
 from argus_skill.skills.stage_machine import resolve_stage_checklist_contract
-from argus_skill.skills.store import SkillStore
 from argus_skill.skills.vertical_select import (
     VERTICALS,
     UnknownVerticalError,

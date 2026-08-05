@@ -23,16 +23,16 @@ from typing import Any, cast
 
 import pytest
 
+from argus_skill.apps._self_reply import (
+    build_status_snapshot_reply,
+    looks_like_status_query,
+)
 from argus_skill.core.models import RunnerOptions, RunnerResult
 from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.life.supervisor import (
     LifeBudget,
     LifeSupervisor,
     LifeSupervisorConfig,
-)
-from argus_skill.apps._self_reply import (
-    build_status_snapshot_reply,
-    looks_like_status_query,
 )
 
 # ---------- fakes for the runner unit test --------------------------------

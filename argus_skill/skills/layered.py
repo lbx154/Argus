@@ -7,7 +7,6 @@ match, rank, copy, or rewrite Skill documents.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from .store import Skill, SkillStore, role_of_path
 

@@ -12,7 +12,7 @@ skill-agent's ``codex_exec(...)`` callable used to be. By making it a
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from .models import RunnerOptions, RunnerResult
 

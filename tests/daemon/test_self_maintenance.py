@@ -17,6 +17,17 @@ from argus_skill.daemon.self_maintenance import (
 from argus_skill.life.memory import BacklogItem, LifeMemory
 
 
+def _init_repo(path: Path, branch: str = "main") -> None:
+    """Initialise a named branch on Git versions predating ``git init -b``."""
+    subprocess.run(["git", "init", str(path)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "checkout", "-b", branch],
+        cwd=path,
+        check=True,
+        capture_output=True,
+    )
+
+
 class _Manager:
     def __init__(
         self,
@@ -138,7 +149,7 @@ def _controller(tmp_path: Path, manager: _Manager) -> DaemonSelfMaintenance:
 
 def _publication_repo(tmp_path: Path) -> tuple[Path, str]:
     repo = tmp_path / "publication-repo"
-    subprocess.run(["git", "init", "-b", "main", str(repo)], check=True)
+    _init_repo(repo)
     subprocess.run(["git", "config", "user.name", "seed"], cwd=repo, check=True)
     subprocess.run(
         ["git", "config", "user.email", "seed@example.com"],
@@ -226,7 +237,7 @@ def test_manager_queues_private_reviewed_repair_from_real_event(
     manager = _Manager()
     controller = _controller(tmp_path, manager)
     worktree = tmp_path / "private-framework"
-    subprocess.run(["git", "init", "-b", "main", str(worktree)], check=True)
+    _init_repo(worktree)
     subprocess.run(["git", "config", "user.name", "seed"], cwd=worktree, check=True)
     subprocess.run(
         ["git", "config", "user.email", "seed@example.com"],
@@ -442,7 +453,7 @@ def test_private_worktree_uses_local_main_when_fetch_times_out(
     monkeypatch,
 ) -> None:
     repo = tmp_path / "framework"
-    subprocess.run(["git", "init", "-b", "main", str(repo)], check=True)
+    _init_repo(repo)
     subprocess.run(["git", "config", "user.name", "seed"], cwd=repo, check=True)
     subprocess.run(
         ["git", "config", "user.email", "seed@example.com"],
@@ -460,7 +471,7 @@ def test_private_worktree_uses_local_main_when_fetch_times_out(
         text=True,
     ).stdout.strip()
     subprocess.run(
-        ["git", "switch", "-c", "running-vertical"],
+        ["git", "checkout", "-b", "running-vertical"],
         cwd=repo,
         check=True,
     )
@@ -518,7 +529,7 @@ def test_private_worktree_prefers_fetched_origin_main(tmp_path: Path) -> None:
     upstream = tmp_path / "upstream"
     subprocess.run(["git", "init", "--bare", str(upstream)], check=True)
     repo = tmp_path / "framework"
-    subprocess.run(["git", "init", "-b", "main", str(repo)], check=True)
+    _init_repo(repo)
     subprocess.run(["git", "config", "user.name", "seed"], cwd=repo, check=True)
     subprocess.run(
         ["git", "config", "user.email", "seed@example.com"],
@@ -535,7 +546,7 @@ def test_private_worktree_prefers_fetched_origin_main(tmp_path: Path) -> None:
     )
     subprocess.run(["git", "push", "-u", "origin", "main"], cwd=repo, check=True)
     subprocess.run(
-        ["git", "switch", "-c", "running-vertical"],
+        ["git", "checkout", "-b", "running-vertical"],
         cwd=repo,
         check=True,
     )

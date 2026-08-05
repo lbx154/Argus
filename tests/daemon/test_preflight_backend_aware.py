@@ -9,6 +9,8 @@ no Azure routes to probe and must start without ``ARGUS_SKILL_SKIP_VAULT_PREFLIG
 """
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from argus_skill.daemon import life_worker
@@ -36,15 +38,26 @@ _BACKEND_ENVS = (
 
 
 @pytest.fixture(autouse=True)
-def _clear_backend_env(monkeypatch):
+def _clear_backend_env(monkeypatch, tmp_path):
     for name in _BACKEND_ENVS:
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.delenv("ARGUS_SKILL_LIFE_BACKEND", raising=False)
-    # Isolate from the operator's persisted knob store (config.json): the
-    # resolver now consults it, so tests must not depend on the real file.
-    monkeypatch.setattr(
-        "argus_skill.core.knob_store.read_persisted_knobs", lambda: {}
+    # Most cases exercise an explicitly configured Codex route and must not
+    # depend on whether the developer machine happens to have Codex installed.
+    # The dedicated fallback test replaces PATH and therefore still verifies
+    # Codex-missing → Copilot behavior.
+    fake_bin = tmp_path / "fake-codex-bin"
+    fake_bin.mkdir()
+    codex = fake_bin / "codex"
+    codex.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    codex.chmod(0o755)
+    monkeypatch.setenv(
+        "PATH",
+        f"{fake_bin}{os.pathsep}{os.environ.get('PATH', '')}",
     )
+    monkeypatch.delenv("ARGUS_SKILL_LIFE_BACKEND", raising=False)
+    # Isolate from the operator's persisted knob store without monkeypatching a
+    # function that other modules may import lazily and retain after this test.
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
 
 
 def test_default_codex_subscription_skips_model_api_routes() -> None:

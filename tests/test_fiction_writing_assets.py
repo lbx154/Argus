@@ -14,7 +14,6 @@ import yaml
 from jsonschema import Draft7Validator
 
 import argus_skill.verticals.fiction_writing as fw
-from argus_skill.skills.store import Skill
 
 _FW = Path(fw.__file__).resolve().parent
 
@@ -31,14 +30,19 @@ def test_schemas_are_valid_draft7():
         Draft7Validator.check_schema(schema)
 
 
-def test_all_skills_parse_with_real_parser():
+def test_all_skills_follow_the_agent_native_markdown_contract():
     md = sorted((_FW / "skills").rglob("*.md"))
     assert len(md) >= 6
     for p in md:
-        sk = Skill.parse(p.read_text(encoding="utf-8"), str(p))
-        assert sk.name and sk.description and sk.category
-        body = sk.content.lower()
-        assert "when to use" in body and "how to solve" in body
+        text = p.read_text(encoding="utf-8")
+        assert text.startswith("---\n"), p
+        front_text, body = text[4:].split("\n---\n", 1)
+        front = yaml.safe_load(front_text)
+        assert set(front) == {"name", "description"}, p
+        assert isinstance(front["name"], str) and front["name"].strip(), p
+        assert isinstance(front["description"], str) and front["description"].strip(), p
+        lowered = body.lower()
+        assert "when to use" in lowered and "how to solve" in lowered
 
 
 # ---- #6 source registry ---------------------------------------------------- #

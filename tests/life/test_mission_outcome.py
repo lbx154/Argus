@@ -166,8 +166,6 @@ def test_replan_reason_survives_runtime_and_supervisor_adapters(tmp_path) -> Non
                 ),
             )
         ],
-        skill_used=None,
-        skill_distilled=False,
         final_message="",
         reason="",
         workdir=str(tmp_path),

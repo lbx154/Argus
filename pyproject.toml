@@ -64,6 +64,9 @@ quant = [
   "scikit-learn>=1.4",
   "matplotlib>=3.8",
   "mplfinance>=0.12.10b0",
+  # The shipped model toolkit exposes these as first-class gbdt/mlp families.
+  "lightgbm>=4",
+  "torch>=2.2",
 ]
 # Browser-rendered research figures (React/ECharts/Recharts/Vega/D3). The
 # browser binary remains an explicit project/environment choice: install
@@ -134,6 +137,8 @@ dev = [
   # anywhere in argus_skill/ runtime code — test-only, so it belongs here
   # rather than as its own installable extra.
   "jsonschema>=4",
+  # Starlette 1.x keeps TestClient as an optional dependency under this name.
+  "httpx2>=2.9,<3",
   # Quant modules are covered by the default test suite. Keep the dev install
   # self-contained instead of relying on unrelated host packages.
   "numpy>=1.26",
@@ -142,6 +147,8 @@ dev = [
   "scikit-learn>=1.4",
   "matplotlib>=3.8",
   "mplfinance>=0.12.10b0",
+  "lightgbm>=4",
+  "torch>=2.2",
 ]
 
 [project.scripts]
