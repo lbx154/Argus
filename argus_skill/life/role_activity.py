@@ -23,7 +23,7 @@ class RoleActivity:
     age_s: float | None  # seconds since the driving event
 
 
-def _tail_jsonl(path: Path, *, limit: int = 200) -> list[dict[str, Any]]:
+def _tail_jsonl(path: Path, *, limit: int = 500) -> list[dict[str, Any]]:
     # Reuse the reverse chunk reader used by persistent life memory. Reading
     # ``Path.read_text()`` here used to load every retained 100 MiB event-log
     # generation merely to show four role labels when switching Web projects.
@@ -270,12 +270,22 @@ def role_activity(
     events = _tail_jsonl(life_dir / "events.jsonl")
     latest: dict[str, dict[str, Any]] = {}
     latest_order: dict[str, int] = {}
+    inflight_calls: dict[str, str] = {}
     for index, ev in enumerate(events):
         role = _event_role(ev)
+        event_type = canonical_event_type(
+            ev.get("canonical_type") or ev.get("type")
+        )
+        call_id = str(ev.get("call_id") or "").strip()
+        if event_type == "agent.io.start" and role and call_id:
+            inflight_calls[call_id] = role
+        elif event_type in {"agent.io.complete", "agent.io.error"} and call_id:
+            inflight_calls.pop(call_id, None)
         if role is None:
             continue
         latest[role] = ev
         latest_order[role] = index
+    inflight_roles = set(inflight_calls.values())
 
     out: dict[str, RoleActivity] = {}
     for role in ROLES:
@@ -294,7 +304,7 @@ def role_activity(
         )
         effective_active_window = (
             max(active_window_s, INFLIGHT_CALL_ACTIVE_WINDOW_S)
-            if event_type == "agent.io.start"
+            if role in inflight_roles
             else active_window_s
         )
         active = status not in {"done", "blocked", "idle"} and (

@@ -231,6 +231,13 @@ def test_long_inflight_venue_call_does_not_decay_to_waiting(tmp_path):
                 "run_label": "venue-research",
                 "ts": now - 219,
             },
+            {
+                "type": "engineer.progress",
+                "kind": "tool_use",
+                "agent_layer": "engineer",
+                "text": "web_fetch",
+                "ts": now - 200,
+            },
         ],
     )
 
@@ -238,7 +245,7 @@ def test_long_inflight_venue_call_does_not_decay_to_waiting(tmp_path):
 
     assert engineer.active is True
     assert engineer.status == "running"
-    assert engineer.label == "researching target venue"
+    assert "web_fetch" in engineer.label
 
 
 def test_completed_venue_call_is_not_active(tmp_path):
