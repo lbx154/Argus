@@ -193,7 +193,7 @@ The same launch also finds stale project daemons and schedules a drain-and-resum
 upgrade: an active mission reaches its normal reviewed boundary before the new
 daemon takes over, with no mid-mission `SIGKILL`.
 
-Argus targets four interchangeable agent-CLI backends:
+Argus targets five interchangeable agent-CLI backends:
 
 | Backend | Configuration value | Installation | Authentication |
 |---|---|---|---|
@@ -201,6 +201,7 @@ Argus targets four interchangeable agent-CLI backends:
 | OpenAI Codex CLI | `codex` (default) | `npm install -g @openai/codex@latest` | `subscription_cli` or explicit `model_api`; stable `>=0.128.0` |
 | Claude Code | `claude` | `npm install -g @anthropic-ai/claude-code` | Interactive login |
 | OpenCode | `opencode` | `curl -fsSL https://opencode.ai/install \| bash` | `opencode auth login` or provider environment variables |
+| Pi | `pi` | `npm install -g --ignore-scripts @earendil-works/pi-coding-agent` | Run `pi`, then `/login`; Pi provider/API-key configuration |
 
 Set `ARGUS_SKILL_RUNNER_BACKEND`, or switch the backend and model from the
 cockpit without restarting the project.

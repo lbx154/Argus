@@ -46,7 +46,9 @@ _USABLE_ROUTE = {
 }
 
 
-@pytest.mark.parametrize("backend", ["copilot", "claude", "COPILOT", "Claude"])
+@pytest.mark.parametrize(
+    "backend", ["copilot", "claude", "pi", "COPILOT", "Claude", "PI"]
+)
 def test_agent_cli_backend_without_a_route_gets_actionable_guidance(
     tmp_path: Path,
     backend: str,

@@ -31,7 +31,7 @@ except ImportError:  # pragma: no cover
     fcntl = None  # type: ignore[assignment]
 
 _WEB_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"})
-_PROVIDERS = frozenset({"codex", "copilot", "claude", "opencode", "memory"})
+_PROVIDERS = frozenset({"codex", "copilot", "claude", "opencode", "pi", "memory"})
 _CALL_STATUSES = frozenset({"completed", "error", "denied"})
 _PRICING_STATUSES = frozenset({"priced", "partial", "unpriced", "not_billed", "unknown"})
 _COMMAND_OPERATIONS = frozenset({"create", "start", "stop", "drain", "kill", "replace"})

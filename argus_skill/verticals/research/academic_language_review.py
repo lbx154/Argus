@@ -1128,7 +1128,7 @@ def describe_reviewer_route_unavailable(
         backend = resolve_role_backend("reviewer", env=env).strip().lower()
     except Exception:  # pragma: no cover - never mask the underlying error
         return base
-    if route_missing and backend in {"copilot", "claude"}:
+    if route_missing and backend in {"copilot", "claude", "pi"}:
         return (
             f"{base} — note: the reviewer role runs on the {backend!r} agent-CLI "
             "backend, which authenticates through its own CLI and exposes no "

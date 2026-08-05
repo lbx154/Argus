@@ -214,6 +214,12 @@ def _backend_support_executables(executable: Path) -> list[Path]:
     only the wrapper therefore makes a healthy backend fail with exit 127. Bind
     only matching executable files, never the extension tree or user home.
     """
+    if (
+        executable.name == "cli.js"
+        and "pi-coding-agent" in executable.as_posix()
+    ):
+        node = shutil.which("node")
+        return [Path(node).resolve()] if node else []
     if executable.name != "codex":
         return []
     roots = (
@@ -385,11 +391,6 @@ def isolated_workdir_command(
         bind_dir(common_path, common_path, writable=False)
     bind_dir(private_copilot, Path.home() / ".copilot", writable=False)
     bind_dir(private_state, Path.home() / ".copilot" / "session-state", writable=True)
-    for index, value in enumerate(command[:-1]):
-        if value == "--output-schema":
-            schema = Path(command[index + 1]).expanduser().resolve()
-            bind_file(schema, schema)
-
     wrapped.extend([
         "--dev-bind",
         "/dev",

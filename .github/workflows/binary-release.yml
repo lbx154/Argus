@@ -63,6 +63,36 @@ jobs:
           print(report.version)
           PY
 
+  pi-compat:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install source fallback and tested Pi CLI
+        run: |
+          python -m pip install -e .
+          npm install -g --ignore-scripts @earendil-works/pi-coding-agent@0.83.0
+      - name: Verify Pi JSON-stream compatibility without a model call
+        run: |
+          python - <<'PY'
+          from argus_skill.core.backend_readiness import check_backend_readiness
+          report = check_backend_readiness(
+              "pi",
+              "subscription_cli",
+              probe_auth=False,
+          )
+          assert report.ok, report.problems
+          print(report.version)
+          PY
+
   platform:
     if: ${{ github.ref == 'refs/heads/main' }}
     strategy:
@@ -129,7 +159,7 @@ jobs:
           npm run build --prefix frontend/tui
 
       - name: Install binary build dependencies
-        run: python -m pip install --upgrade pip '.[binary]' pytest
+        run: python -m pip install --upgrade pip '.[binary]' pytest build
 
       - name: Scan only shipped inputs for credentials
         run: python scripts/scan_binary_release_inputs.py
@@ -142,10 +172,21 @@ jobs:
             tests/apps/test_tui_launcher.py \
             tests/daemon/test_windows_terminal_process.py \
             tests/tools/test_setup_readiness.py \
+            tests/scripts/test_build_release.py \
+            tests/scripts/test_install_contract.py \
+            tests/scripts/test_materialize_npm_release.py \
             tests/scripts/test_prepare_npm_binary_packages.py \
+            tests/scripts/test_verify_binary.py \
+            tests/test_pi_backend.py \
             tests/tools/test_verify_npm_tarballs.py
           npm test --prefix frontend/web
           npm test --prefix frontend/tui
+
+      - name: Verify a clean wheel install and its WebAPI
+        if: ${{ matrix.platform == 'linux' }}
+        run: |
+          python -m build --wheel --outdir dist-wheel
+          python scripts/verify_wheel.py dist-wheel/*.whl
 
       - name: Build and verify executable
         run: |
@@ -187,7 +228,7 @@ jobs:
 
   publish:
     if: ${{ github.ref == 'refs/heads/main' && inputs.publish }}
-    needs: [platform, backend-compat]
+    needs: [platform, backend-compat, pi-compat]
     runs-on: ubuntu-22.04
     environment: npm-beta
     permissions:
@@ -259,65 +300,18 @@ jobs:
             exit 1
           fi
 
-      - name: Prepare GitHub Release metadata and assets
-        id: release_meta
-        env:
-          RELEASE_VERSION: ${{ inputs.version }}
-          SOURCE_SHA: ${{ inputs.source_sha }}
-        run: |
-          python scripts/set_binary_release_version.py "$RELEASE_VERSION"
-          release_id=$(python -c 'import json; print(json.load(open("argus_skill/release_manifest.json"))["release_id"])')
-          source_digest=$(python -c 'import json; print(json.load(open("argus_skill/release_manifest.json"))["source_digest"])')
-          python_distribution_version=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
-          tag="v$RELEASE_VERSION"
-          mkdir -p release/assets
-
-          linux_name="argus-$RELEASE_VERSION-linux-x64"
-          windows_name="argus-$RELEASE_VERSION-win32-x64.exe"
-          cp release/linux/argus-core "release/assets/$linux_name"
-          cp release/windows/argus-core.exe "release/assets/$windows_name"
-          chmod +x "release/assets/$linux_name"
-          linux_digest=$(awk '{print $1}' release/linux/argus-core.sha256)
-          windows_digest=$(awk '{print $1}' release/windows/argus-core.exe.sha256)
-          printf '%s  %s\n' "$linux_digest" "$linux_name" > "release/assets/$linux_name.sha256"
-          printf '%s  %s\n' "$windows_digest" "$windows_name" > "release/assets/$windows_name.sha256"
-          cp release/linux/THIRD_PARTY_NOTICES.txt release/assets/THIRD_PARTY_NOTICES-linux.txt
-          cp release/windows/THIRD_PARTY_NOTICES.txt release/assets/THIRD_PARTY_NOTICES-windows.txt
-
-          cat > release/notes.md <<EOF
-          ## Argus binary beta
-
-          - Version: \`$RELEASE_VERSION\`
-          - Commit: \`$SOURCE_SHA\`
-          - Release identity: \`$release_id\`
-          - npm: \`@argusevolve/argus@$RELEASE_VERSION\`
-          - Platforms: Linux x64 and Windows x64
-
-          ### Install
-
-          \`\`\`bash
-          npm install -g @argusevolve/argus@beta
-          \`\`\`
-
-          This prerelease was built, tested, packaged, and audited by the same
-          GitHub Actions run that published the npm beta.
-          EOF
-
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
-          echo "source_digest=$source_digest" >> "$GITHUB_OUTPUT"
-          echo "python_distribution_version=$python_distribution_version" >> "$GITHUB_OUTPUT"
-
-      - name: Publish or verify audited npm tarballs
+      - name: Publish or recover canonical npm tarballs
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
+          set -euo pipefail
           linux_tarball=$(find release/linux/packs -name "argusevolve-argus-$RELEASE_VERSION-linux-x64.tgz" -print -quit)
           windows_tarball=$(find release/windows/packs -name "argusevolve-argus-$RELEASE_VERSION-win32-x64.tgz" -print -quit)
           argus_tarball=$(find release/linux/packs -name "argusevolve-argus-$RELEASE_VERSION.tgz" -print -quit)
           test -n "$linux_tarball"
           test -n "$windows_tarball"
           test -n "$argus_tarball"
+          mkdir -p release/canonical/{linux,windows,main}
 
           integrity() {
             python - "$1" <<'PY'
@@ -330,26 +324,40 @@ jobs:
           PY
           }
 
-          publish_or_verify() {
-            tarball=$1
+          canonicalize() {
+            local_tarball=$1
             version=$2
             tag=$3
+            destination=$4
             if npm view "@argusevolve/argus@$version" version >/dev/null 2>&1; then
-              expected=$(integrity "$tarball")
-              actual=$(npm view "@argusevolve/argus@$version" dist.integrity)
-              test "$expected" = "$actual" || {
-                echo "published integrity mismatch for @argusevolve/argus@$version" >&2
-                exit 1
-              }
-              echo "verified existing @argusevolve/argus@$version"
+              # Immutable version already exists after a partial release. Fetch
+              # the registry's exact bytes; a fresh PyInstaller rebuild is not
+              # reproducible and must never replace the canonical artifact.
+              npm pack "@argusevolve/argus@$version" \
+                --pack-destination "$destination" >&2
             else
-              npm publish "$tarball" --access public --tag "$tag"
+              npm publish "$local_tarball" --access public --tag "$tag" >&2
+              cp "$local_tarball" "$destination/"
             fi
+            canonical=$(find "$destination" -maxdepth 1 -name '*.tgz' -print)
+            test "$(printf '%s\n' "$canonical" | grep -c .)" = 1
+            expected=$(integrity "$canonical")
+            actual=""
+            for attempt in $(seq 1 12); do
+              actual=$(npm view "@argusevolve/argus@$version" dist.integrity 2>/dev/null || true)
+              [ -n "$actual" ] && break
+              sleep 5
+            done
+            test "$expected" = "$actual" || {
+              echo "registry integrity mismatch for @argusevolve/argus@$version" >&2
+              exit 1
+            }
           }
 
-          publish_or_verify "$linux_tarball" "$RELEASE_VERSION-linux-x64" linux-x64
-          publish_or_verify "$windows_tarball" "$RELEASE_VERSION-win32-x64" win32-x64
-          publish_or_verify "$argus_tarball" "$RELEASE_VERSION" beta
+          canonicalize "$linux_tarball" "$RELEASE_VERSION-linux-x64" linux-x64 release/canonical/linux
+          canonicalize "$windows_tarball" "$RELEASE_VERSION-win32-x64" win32-x64 release/canonical/windows
+          canonicalize "$argus_tarball" "$RELEASE_VERSION" beta release/canonical/main
+          python scripts/verify_npm_tarballs.py release/canonical/*/*.tgz
 
           wait_for_tag() {
             tag=$1
@@ -369,6 +377,47 @@ jobs:
           wait_for_tag linux-x64 "$RELEASE_VERSION-linux-x64"
           wait_for_tag win32-x64 "$RELEASE_VERSION-win32-x64"
           wait_for_tag beta "$RELEASE_VERSION"
+          python scripts/materialize_npm_release.py \
+            --version "$RELEASE_VERSION" \
+            --output release/assets \
+            release/canonical/*/*.tgz
+
+      - name: Prepare GitHub Release metadata and notes
+        id: release_meta
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          python scripts/set_binary_release_version.py "$RELEASE_VERSION"
+          release_id=$(python -c 'import json; print(json.load(open("argus_skill/release_manifest.json"))["release_id"])')
+          source_digest=$(python -c 'import json; print(json.load(open("argus_skill/release_manifest.json"))["source_digest"])')
+          python_distribution_version=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          tag="v$RELEASE_VERSION"
+
+          cat > release/notes.md <<EOF
+          ## Argus binary beta
+
+          - Version: \`$RELEASE_VERSION\`
+          - Commit: \`$SOURCE_SHA\`
+          - Release identity: \`$release_id\`
+          - npm: \`@argusevolve/argus@$RELEASE_VERSION\`
+          - Platforms: Linux x64 and Windows x64
+
+          ### Install
+
+          \`\`\`bash
+          npm install -g @argusevolve/argus@beta
+          \`\`\`
+
+          The attached binaries were materialized from the exact immutable npm
+          tarballs. A partial-release retry therefore reuses registry bytes
+          instead of attaching a non-reproducible rebuild.
+          EOF
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+          echo "source_digest=$source_digest" >> "$GITHUB_OUTPUT"
+          echo "python_distribution_version=$python_distribution_version" >> "$GITHUB_OUTPUT"
 
       - name: Write auditable release metadata
         env:

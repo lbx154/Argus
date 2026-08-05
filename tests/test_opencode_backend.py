@@ -83,21 +83,17 @@ def test_opencode_read_only_uses_restricted_agent_and_strips_override() -> None:
     }
 
 
-def test_opencode_embeds_output_schema_in_stdin_prompt(tmp_path) -> None:
-    schema = tmp_path / "schema.json"
-    schema.write_text(
-        json.dumps({"type": "object", "required": ["status"]}),
-        encoding="utf-8",
-    )
-
-    prompt = _runner()._effective_prompt(
-        prompt="review",
+def test_opencode_delivers_plain_prompt_on_stdin() -> None:
+    command = _runner()._build_opencode_command(
         resume_thread_id=None,
-        options=RunnerOptions(output_schema_path=str(schema)),
+        options=RunnerOptions(),
     )
 
-    assert "OUTPUT CONTRACT (STRICT)" in prompt
-    assert '"required":["status"]' in prompt
+    prepared, stdin_prompt = _runner()._prepare_prompt_delivery(command, "review")
+
+    assert prepared == command
+    assert stdin_prompt == "review"
+    assert "--output-schema" not in command
 
 
 def test_opencode_event_consumer_tracks_session_text_and_completion() -> None:

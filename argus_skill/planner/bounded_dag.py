@@ -222,45 +222,81 @@ def plan_bounded_dag(
     model: str | None = None,
     reasoning_effort: str = "high",
 ) -> BoundedDagPlan:
-    try:
-        result = gateway_run_exec(
-            runner,
-            prompt=_prompt(objective),
-            resume_thread_id=None,
-            options=RunnerOptions(
-                model=model,
-                reasoning_effort=reasoning_effort,
-                working_dir=str(Path(workdir).expanduser().resolve()),
-                dangerous_yolo=True,
-                skip_git_repo_check=True,
-            ),
-            run_label="planner.bounded_dag",
-        )
-    except Exception as exc:  # noqa: BLE001
-        return BoundedDagPlan(reason="planner failed", error=f"{type(exc).__name__}: {exc}")
-    usage = {
-        "input_tokens": int(getattr(result, "input_tokens", 0) or 0),
-        "cached_input_tokens": int(getattr(result, "cached_input_tokens", 0) or 0),
-        "output_tokens": int(getattr(result, "output_tokens", 0) or 0),
-        "reasoning_output_tokens": int(getattr(result, "reasoning_output_tokens", 0) or 0),
-        "premium_requests": float(getattr(result, "premium_requests", 0.0) or 0.0),
+    usage: dict[str, int | float] = {
+        "input_tokens": 0,
+        "cached_input_tokens": 0,
+        "output_tokens": 0,
+        "reasoning_output_tokens": 0,
+        "premium_requests": 0.0,
     }
-    if int(getattr(result, "exit_code", 0) or 0) != 0:
-        return BoundedDagPlan(
-            reason="planner failed",
-            error=str(getattr(result, "fatal_error", "") or "planner exited non-zero"),
-            **usage,
+    prompt = _prompt(objective)
+    for attempt in range(2):
+        try:
+            result = gateway_run_exec(
+                runner,
+                prompt=prompt,
+                resume_thread_id=None,
+                options=RunnerOptions(
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                    working_dir=str(Path(workdir).expanduser().resolve()),
+                    dangerous_yolo=True,
+                    skip_git_repo_check=True,
+                ),
+                run_label=(
+                    "planner.bounded_dag"
+                    if attempt == 0
+                    else "planner.bounded_dag.repair"
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            return BoundedDagPlan(
+                reason="planner failed",
+                error=f"{type(exc).__name__}: {exc}",
+                **usage,
+            )
+        for usage_field in (
+            "input_tokens",
+            "cached_input_tokens",
+            "output_tokens",
+            "reasoning_output_tokens",
+        ):
+            usage[usage_field] = int(usage[usage_field]) + int(
+                getattr(result, usage_field, 0) or 0
+            )
+        usage["premium_requests"] = float(usage["premium_requests"]) + float(
+            getattr(result, "premium_requests", 0.0) or 0.0
         )
-    try:
-        payload = _parse_key_value_plan(_extract(result))
-        reason, tasks = _validate(payload)
-    except (TypeError, ValueError) as exc:
-        return BoundedDagPlan(
-            reason="planner output invalid",
-            error=f"{type(exc).__name__}: {exc}",
-            **usage,
-        )
-    return BoundedDagPlan(reason=reason, tasks=tasks, **usage)
+        if int(getattr(result, "exit_code", 0) or 0) != 0:
+            return BoundedDagPlan(
+                reason="planner failed",
+                error=str(
+                    getattr(result, "fatal_error", "") or "planner exited non-zero"
+                ),
+                **usage,
+            )
+        output = _extract(result)
+        try:
+            payload = _parse_key_value_plan(output)
+            reason, tasks = _validate(payload)
+            return BoundedDagPlan(reason=reason, tasks=tasks, **usage)
+        except (TypeError, ValueError) as exc:
+            validation_error = f"{type(exc).__name__}: {exc}"
+            if attempt == 0:
+                from ..roles.prompts.planner import build_bounded_dag_repair_prompt
+
+                prompt = build_bounded_dag_repair_prompt(
+                    objective,
+                    output,
+                    validation_error,
+                )
+                continue
+            return BoundedDagPlan(
+                reason="planner output invalid",
+                error=validation_error,
+                **usage,
+            )
+    raise AssertionError("bounded DAG repair loop exhausted unexpectedly")
 
 
 __all__ = [

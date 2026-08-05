@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -12,7 +13,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def run(*argv: str, cwd: Path = ROOT) -> None:
-    subprocess.run(argv, cwd=cwd, check=True)
+    env = os.environ.copy()
+    # npm frontend scripts invoke `python`; pin that name to the interpreter
+    # running this release build instead of whichever legacy system Python
+    # happens to appear first on PATH.
+    python_bin = str(Path(sys.executable).parent)
+    env["PATH"] = os.pathsep.join(
+        value for value in (python_bin, env.get("PATH", "")) if value
+    )
+    subprocess.run(argv, cwd=cwd, check=True, env=env)
 
 
 def main() -> int:

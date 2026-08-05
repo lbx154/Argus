@@ -138,44 +138,6 @@ def test_stage_change_still_uses_a_fresh_full_prompt() -> None:
     assert _STATIC_MARKER in r2                # full rubric re-sent
 
 
-def test_output_schema_change_still_uses_a_fresh_full_prompt(tmp_path: Path) -> None:
-    backend = MemoryBackend()
-    backend.queue("reviewer", CannedResponse(message=_review_json(), thread_id="rv1"))
-    backend.queue("reviewer", CannedResponse(message=_review_json(), thread_id="rv2"))
-    schema_path = tmp_path / "reviewer-schema.json"
-    schema_path.write_text('{"type":"object","required":["status"]}', encoding="utf-8")
-    reviewer = Reviewer(backend, skill_store=None)
-    reviewer.schema_path = str(schema_path)
-
-    first = _evaluate(reviewer)
-    schema_path.write_text(
-        '{"type":"object","required":["status","research_result"]}',
-        encoding="utf-8",
-    )
-    _evaluate(
-        reviewer,
-        round_index=2,
-        resume_thread_id="rv1",
-        prior_static_fingerprint=first.static_fingerprint,
-    )
-
-    resumes = [thread for label, thread in backend.resume_history if label == "reviewer"]
-    assert resumes == [None, None]
-    second_prompt = [p for label, p, _ in backend.history if label == "reviewer"][1]
-    assert _STATIC_MARKER in second_prompt
-
-
-def test_unreadable_output_schema_is_backend_unavailable(tmp_path: Path) -> None:
-    reviewer = Reviewer(MemoryBackend(), skill_store=None)
-    reviewer.schema_path = str(tmp_path)
-
-    review = _evaluate(reviewer)
-
-    assert review.status == "blocked"
-    assert review.backend_unavailable is True
-    assert "output-schema file is unavailable" in review.reason
-
-
 def test_backend_dead_review_still_reports_thread_and_fingerprint() -> None:
     backend = MemoryBackend()
     backend.queue("reviewer", CannedResponse(

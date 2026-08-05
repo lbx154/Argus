@@ -11,12 +11,14 @@ flag ordering, or sandbox-mode semantics changed.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from .runner_backend import (
     BACKEND_CLAUDE,
     BACKEND_CODEX,
     BACKEND_COPILOT,
     BACKEND_OPENCODE,
+    BACKEND_PI,
     RunnerBackend,
 )
 
@@ -24,6 +26,17 @@ from .runner_backend import (
 # injected into the child env must name the same agent this builder selects
 # via ``--agent``).
 _OPENCODE_READ_ONLY_AGENT = "argus-read-only"
+
+
+def _pi_session_dir() -> str:
+    """Keep Argus-owned Pi sessions out of the operator's interactive history."""
+    configured = str(os.environ.get("ARGUS_SKILL_PI_SESSION_DIR") or "").strip()
+    if configured:
+        return str(Path(configured).expanduser().resolve())
+    from ..core.paths import global_root
+
+    return str((global_root() / "pi-sessions").resolve())
+
 
 _READ_ONLY_FLAG_SWITCHES = frozenset({
     "--allow-all",
@@ -44,6 +57,11 @@ _READ_ONLY_FLAG_SWITCHES = frozenset({
     "--tools",
     "--yolo",
     "--agent",
+    "--approve",
+    "-a",
+    "--extension",
+    "-e",
+    "--skill",
     "--dir",
     "-C",
     "-s",
@@ -56,6 +74,9 @@ _READ_ONLY_VALUE_SWITCHES = frozenset({
     "--allowedTools",
     "--available-tools",
     "--agent",
+    "--extension",
+    "-e",
+    "--skill",
     "--dir",
     "--permission-mode",
     "--sandbox",
@@ -130,6 +151,10 @@ class CommandBuilderMixin:
             return self._build_opencode_command(
                 resume_thread_id=resume_thread_id, options=options
             )
+        if self.backend == BACKEND_PI:
+            return self._build_pi_command(
+                resume_thread_id=resume_thread_id, options=options
+            )
         return self._build_codex_command(resume_thread_id=resume_thread_id, options=options)
 
     def _apply_sandbox_policy(self, options):
@@ -147,7 +172,12 @@ class CommandBuilderMixin:
         explicit ``sandbox_mode`` was already chosen, or for non-codex backends —
         so the default path stays byte-for-byte unchanged.
         """
-        if self.backend in (BACKEND_CLAUDE, BACKEND_COPILOT, BACKEND_OPENCODE):
+        if self.backend in (
+            BACKEND_CLAUDE,
+            BACKEND_COPILOT,
+            BACKEND_OPENCODE,
+            BACKEND_PI,
+        ):
             return options
         if options.sandbox_mode is not None:
             return options
@@ -233,8 +263,6 @@ class CommandBuilderMixin:
             # disabled/cached/indexed/live; force ``live`` so idea discovery does
             # real live searches instead of the cached default.
             command.extend(["-c", 'web_search="live"'])
-        if options.output_schema_path and not resume_thread_id:
-            command.extend(["--output-schema", options.output_schema_path])
         merged_extra_args = [*self.default_extra_args]
         if options.extra_args:
             merged_extra_args.extend(options.extra_args)
@@ -276,17 +304,6 @@ class CommandBuilderMixin:
             command.extend(["--permission-mode", "bypassPermissions"])
         elif options.full_auto:
             command.extend(["--permission-mode", "acceptEdits"])
-        if options.output_schema_path and not resume_thread_id:
-            command.extend(
-                [
-                    "--json-schema",
-                    self._load_compact_schema_text(
-                        options.output_schema_path,
-                        omit_dialect=True,
-                    ),
-                ]
-            )
-
         # --add-dir
         if options.add_dirs:
             for dir_path in options.add_dirs:
@@ -421,4 +438,54 @@ class CommandBuilderMixin:
             command.extend(["--session", resume_thread_id])
         # With no positional message, ``opencode run`` reads the prompt from
         # stdin. This avoids exposing prompts in argv and supports large schemas.
+        return command
+
+    def _build_pi_command(
+        self,
+        *,
+        resume_thread_id: str | None,
+        options,
+    ) -> list[str]:
+        """Build a deterministic Pi JSON-stream turn with stdin prompt delivery."""
+        command = [
+            self.agent_bin,
+            "--mode",
+            "json",
+        ]
+        if options.isolate_workdir:
+            if resume_thread_id:
+                raise ValueError("isolated Pi calls cannot resume a persisted session")
+            command.append("--no-session")
+        else:
+            command.extend(["--session-dir", _pi_session_dir()])
+        command.extend([
+            # Argus supplies the complete role prompt and owns tool policy. Do
+            # not let interactive Pi packages or project context alter it.
+            "--no-extensions",
+            "--no-skills",
+            "--no-prompt-templates",
+            "--no-themes",
+            "--no-context-files",
+            "--no-approve",
+        ])
+        if options.model:
+            command.extend(["--model", options.model])
+        if options.reasoning_effort:
+            command.extend(["--thinking", options.reasoning_effort])
+        if options.sandbox_mode == "read-only":
+            command.extend(["--tools", "read,grep,find,ls"])
+        merged_extra_args = [*self.default_extra_args]
+        if options.extra_args:
+            merged_extra_args.extend(options.extra_args)
+        if options.sandbox_mode == "read-only":
+            merged_extra_args = _read_only_extra_args(
+                merged_extra_args,
+                backend=BACKEND_PI,
+            )
+        if merged_extra_args:
+            command.extend(merged_extra_args)
+        if resume_thread_id:
+            command.extend(["--session", resume_thread_id])
+        # Pi reads non-TTY stdin into the initial message in JSON mode. Keeping
+        # the prompt out of argv avoids E2BIG and process-list disclosure.
         return command

@@ -1,16 +1,9 @@
 """Interactive setup wizard for Argus.
 
-Guides the user through configuring:
-0. Author identity (name + email for papers / project commits)
-1. Planner API (model + endpoint)
-2. Engineer API (model + endpoint)
-3. Reviewer API (model + endpoint)
-4. GPU resource allocation (which devices to use)
-
-Usage:
-    python -m argus_skill.tools.setup
-    # or
-    argus-skill --setup
+Configures the author identity, one shared agent-CLI backend and authentication
+contract, optional model-API routes, and optional GPU resources.  The canonical
+entrypoint is ``argus --setup``; ``argus-skill --setup`` remains available for
+legacy automation.
 """
 from __future__ import annotations
 
@@ -78,7 +71,7 @@ def _banner() -> None:
     print(_bold("  面向学术论文全流程的自主研究智能体系统"))
     print(_bold("═" * 60))
     print()
-    print(_dim("  This wizard will configure your 3 agents and GPU resources."))
+    print(_dim("  This wizard configures your backend, identity, and resources."))
     print(_dim("  Press Enter to accept [default] values."))
     print()
 
@@ -95,12 +88,13 @@ def _prompt(label: str, default: str = "", secret: bool = False) -> str:
     return val if val else default
 
 
-_SUPPORTED_AGENT_BACKENDS = ("copilot", "codex", "claude", "opencode")
+_SUPPORTED_AGENT_BACKENDS = ("copilot", "codex", "claude", "opencode", "pi")
 _BACKEND_INSTALL_COMMANDS = {
     "copilot": "npm install -g @github/copilot",
-    "codex": "npm install -g @openai/codex",
+    "codex": "npm install -g @openai/codex@latest",
     "claude": "npm install -g @anthropic-ai/claude-code",
     "opencode": "curl -fsSL https://opencode.ai/install | bash",
+    "pi": "npm install -g --ignore-scripts @earendil-works/pi-coding-agent",
 }
 
 
@@ -145,11 +139,11 @@ def _configure_runner_backend(requested: str | None = None) -> str | None:
     selected = (
         str(requested).strip().lower()
         if requested is not None
-        else _prompt("Backend (copilot/codex/claude/opencode)", default).lower()
+        else _prompt("Backend (copilot/codex/claude/opencode/pi)", default).lower()
     )
     if selected not in _SUPPORTED_AGENT_BACKENDS:
         print(_yellow(f"  Unknown backend '{selected}'."))
-        print(_dim("    Choose one of: copilot, codex, claude, opencode"))
+        print(_dim("    Choose one of: copilot, codex, claude, opencode, pi"))
         print()
         return None
 
@@ -161,6 +155,8 @@ def _configure_runner_backend(requested: str | None = None) -> str | None:
             print(_dim("    Then authenticate with: copilot login"))
         elif selected == "opencode":
             print(_dim("    Then authenticate with: opencode auth login"))
+        elif selected == "pi":
+            print(_dim("    Then run `pi` and use `/login` to authenticate."))
         print()
         return None
 
@@ -217,7 +213,7 @@ def _run_noninteractive_setup(
     if not backend:
         sys.stderr.write(
             "argus: --setup --non-interactive requires --backend "
-            "{copilot,codex,claude,opencode}\n"
+            "{copilot,codex,claude,opencode,pi}\n"
         )
         return SETUP_EXIT_USAGE
     selected = str(backend).strip().lower()

@@ -42,8 +42,11 @@ GitHub prerelease: Argus v0.1.1-beta.g0123456789ab
 The GitHub prerelease attaches both native binaries, their SHA-256 files,
 platform-specific third-party notices, and `release-metadata.json`. The metadata
 records the full source commit, source digest, release identity, workflow run,
-npm integrity values, and binary hashes. It reuses the exact artifacts that were
-already built and audited for npm; it does not rebuild them.
+npm integrity values, and binary hashes. The assets are materialized from the
+exact canonical npm tarballs. On a partial-release retry, the workflow downloads
+an already-published immutable version instead of comparing it with a fresh,
+non-byte-reproducible PyInstaller rebuild, so npm, the Git tag, and the GitHub
+prerelease can converge safely.
 
 To build and audit without publishing:
 

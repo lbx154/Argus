@@ -71,7 +71,7 @@ argus-skill / python -m argus_skill
 | L0 | CLI / daemon / cockpit | `argus_skill/apps/cli/_core.py`, `argus_skill/webapi/`, `frontend/tui/`, `argus_skill/daemon/life_worker.py`, `argus_skill/apps/_watch.py` | 命令行参数、Ink/Web cockpit、daemon 启停、`--status`、`--follow`、Telegram/事件展示 |
 | Manager | 前门 + stage 权威 | `argus_skill/manager/_core.py`, `argus_skill/manager/front_door.py`, `argus_skill/manager/dispatch.py`, `argus_skill/webapi/manager_bridge.py` | 操作员自由文本的 chat-vs-task 分流（模型判断，非关键词）、vertical 选择、pipeline stage 转移的**唯一语义权威**（其余角色只能建议；Supervisor 仅可机械撤销 unfinished-DAG 的提前推进）。不在 L1/L2/L4 的编号序列里——它跨越整条流水线，不是流水线上的一站；有自己独立的 backend/model 配置（`ARGUS_SKILL_MANAGER_BACKEND`/`_MODEL`），在 `/roles` 和 cockpit 面板里与其余三个角色平级展示 |
 | L1 | Engineer | `argus_skill/loop.py`, `argus_skill/engineer/runner.py` | 单轮执行 prompt、失败重试、session 续接、进度 watchdog |
-| L2 | Reviewer | `argus_skill/reviewer/_core.py`, `argus_skill/reviewer/reviewer_schema.json` | 独立检查每个正常 mission round，给出 done/continue/blocked/replan_requested，维护 reviewer JSON schema，并承担论文任务的 peer-review gate |
+| L2 | Reviewer | `argus_skill/reviewer/_core.py`, `argus_skill/reviewer/_parsing.py` | 独立检查每个正常 mission round，以命名行给出 done/continue/blocked/replan_requested，并承担论文任务的 peer-review gate；JSON 只作旧会话解析兼容，不再约束模型输出 |
 | L4 | Planner | `argus_skill/planner/planner.py`, `argus_skill/life/supervisor/_core.py` | 持续读取真实项目并用完整 Agent 工具调查、运行有界探针/测试、必要时编辑代码或规划 artifact，以维护 forward plan 和自动排新任务；也负责 EMNLP final gate 失败后的自动分流。历史的 L3 critic 逐轮打磨层已移除；Planner 不负责 mission 验收 |
 | Skill | 横向能力复用 | `argus_skill/skills/store.py`, `argus_skill/skills/layered.py`, `argus_skill/skills/role_library.py`, `argus_skill/skills/role_memory.py` | 向 Agent 暴露 project / shared-vertical / shared-global 路径；四角色自行发现并选择性维护各自角色目录 |
 | Stage | 通用状态机 + vertical checklist | `argus_skill/skills/stage_machine.py`, `argus_skill/verticals/*/stages.py`, `argus_skill/skills/checklist_store.py` | 通用 stage 状态转移/渲染在 `stage_machine`；stage 顺序、seed checklist 和领域渲染归各 vertical |
@@ -277,7 +277,7 @@ L2 reviewer 在 `argus_skill/reviewer/_core.py`。
 这里管：
 
 - reviewer prompt。
-- `reviewer_schema.json` 结构化输出。
+- Reviewer 普通回复末尾的命名 verdict 行（`STATUS` / `REASON` / `NEXT_ACTION` 等）；不再有 provider output schema。
 - `parse_decision_text` / JSON verdict。
 - 近完成论文任务按结构化 stage/scope 注入一份**精简** peer-review contract；不再每轮塞入完整 `academic-paper-peer-review-benchmark.md`。
 - Reviewer role、handoff、project-venv、wiki-curator 都使用短契约；长源 Skill 只提供路径并由 Reviewer 按需读取，避免重复注入。
@@ -551,7 +551,7 @@ RunnerBackend.run_exec(prompt, options, run_label, resume_thread_id=None) -> Run
 
 实现：
 
-- `argus_skill/adapters/agent_cli_backend/`: 真实 codex/claude/copilot/opencode CLI 的稳定适配入口；内部按 admission、spawn、I/O、result/finalize 分层。
+- `argus_skill/adapters/agent_cli_backend/`: 真实 codex/claude/copilot/opencode/pi CLI 的稳定适配入口；内部按 admission、spawn、I/O、result/finalize 分层。
 - `argus_skill/agent_cli/`: 对外保持 `agent_cli_runner` / `runner_backend` / `models` 三个底层 driver 表面；命令构造、进程控制、事件解析、prompt delivery、ACP 路由和恢复逻辑在私有模块中。`__init__` 不 eager import 子模块，因此 `import argus_skill.agent_cli.agent_cli_runner` 保持轻量。
 - `argus_skill/adapters/memory_backend.py`: deterministic 测试/smoke。
 - `_SkillLoopRunner` 在 `apps/_runtime.py` 里组装真实 backend，并按角色传给 Manager、Planner、Engineer、Reviewer 和可选 Curator。
@@ -560,7 +560,7 @@ RunnerBackend.run_exec(prompt, options, run_label, resume_thread_id=None) -> Run
 
 ```text
 ARGUS_SKILL_LIFE_BACKEND=codex|memory
-ARGUS_SKILL_RUNNER_BACKEND=codex|claude|copilot|opencode
+ARGUS_SKILL_RUNNER_BACKEND=codex|claude|copilot|opencode|pi
 ARGUS_SKILL_RUNNER_BIN=/path/to/codex
 ARGUS_SKILL_RUNNER_EXTRA_ARGS="..."
 ARGUS_SKILL_SAFE_MODE=1

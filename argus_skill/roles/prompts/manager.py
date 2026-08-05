@@ -213,7 +213,7 @@ def build_config_intent_prompt(text: str) -> str:
         "Argus has four roles — manager, planner, engineer, reviewer. The "
         "operator-changeable settings are:\n"
         "  PER-ROLE (may name one role, several, or ALL / the shared default):\n"
-        "    backend  — which agent CLI runs a role: codex | claude | copilot | opencode\n"
+        "    backend  — which agent CLI runs a role: codex | claude | copilot | opencode | pi\n"
         "    model    — which model a role calls, e.g. gpt-5.5, claude-sonnet-5, "
         "o3, gemini-3.5 (any id the backend supports)\n"
         "    effort   — a role's reasoning effort: low | medium | high | max | xhigh\n"

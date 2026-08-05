@@ -283,8 +283,7 @@ def test_math_has_no_target_schema_or_legacy_lifecycle_branches() -> None:
     assert 'name == "math" and target_level' not in domain_author
     assert 'resolve_vertical(root) == "math"' not in reviewer
     assert "math_result" not in parsing
-    assert not (root / "reviewer" / "reviewer_math_schema.json").exists()
-    assert (root / "reviewer" / "reviewer_legacy_research_schema.json").exists()
+    assert not list((root / "reviewer").glob("reviewer*_schema.json"))
 
 
 @pytest.mark.parametrize(

@@ -154,7 +154,7 @@ def finalize_result(
                 total_nano_aiu=result.total_nano_aiu,
                 provider_cost_usd=(
                     provider_cost_usd
-                    if backend._backend_name == "opencode"
+                    if backend._backend_name in {"opencode", "pi"}
                     else None
                 ),
                 thread_id=result.thread_id,

@@ -7,21 +7,12 @@ for "done / continue / blocked"), so it now lives in its own package:
   * :mod:`._core`    — the ``Reviewer`` agent + ``ReviewerConfig`` and prompt build.
   * :mod:`._parsing` — pure verdict/decision parsers (unit-testable, no runner).
 
-The JSON contract is ``reviewer_schema.json`` (resolved relative to ``_core.py``).
-The public API — and the previously-public test/internal helpers — are re-exported
-here so existing ``from argus_skill.reviewer import ...`` callers keep working.
+The model-facing verdict is an ordinary reply ending in named lines; the parser
+keeps JSON input compatibility only for sessions started by older releases.
 """
 from __future__ import annotations
 
-from ._core import (
-    LEGACY_RESEARCH_SCHEMA_PATH,
-    RESEARCH_SCHEMA_PATH,
-    REVIEWER_SCHEMA_PATHS,
-    SCHEMA_PATH,
-    Reviewer,
-    ReviewerConfig,
-    _load_wiki_curator_skill_if_present,
-)
+from ._core import Reviewer, ReviewerConfig, _load_wiki_curator_skill_if_present
 from ._parsing import (
     _find_decision_in_messages,
     parse_decision_text,
@@ -30,10 +21,6 @@ from ._parsing import (
 __all__ = [
     "Reviewer",
     "ReviewerConfig",
-    "SCHEMA_PATH",
-    "RESEARCH_SCHEMA_PATH",
-    "LEGACY_RESEARCH_SCHEMA_PATH",
-    "REVIEWER_SCHEMA_PATHS",
     "parse_decision_text",
     "_find_decision_in_messages",
     "_load_wiki_curator_skill_if_present",

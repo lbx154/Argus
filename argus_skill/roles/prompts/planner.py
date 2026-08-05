@@ -149,7 +149,9 @@ def build_bounded_dag_prompt(objective: str) -> str:
         "- Preserve bounded completion metadata separately from prose: one decisive "
         "acceptance check, explicit non-goals, safe project-relative context "
         "references, and whether independent review is required. Do not mark "
-        "ordinary work as stage-closing.\n"
+        "ordinary work as stage-closing. Ordinary implementation/writing nodes "
+        "must use `TASK_SKIP_STAGE_TRANSITION=false`; that flag is exclusively "
+        "for a review-only node with independent review and stage-closing false.\n"
         "- Nodes execute directly. Do not assign planning/spec/brief creation unless "
         "that document is itself the requested deliverable. Do not initialize Git, "
         "create worktrees/branches, commit, spawn subagents, or invoke meta-workflow "
@@ -178,6 +180,27 @@ def build_bounded_dag_prompt(objective: str) -> str:
         "require-independent-review true, skip-stage-transition true, and "
         "stage-closing false. Never suppress a stage-closing task.\n\n"
         "Manager execution handoff:\n" + objective.strip()
+    )
+
+
+def build_bounded_dag_repair_prompt(
+    objective: str,
+    previous_output: str,
+    validation_error: str,
+) -> str:
+    """Request one complete replacement after a mechanically invalid DAG."""
+    prior = sanitize_model_visible_text(str(previous_output or "")[-40_000:])
+    error = sanitize_model_visible_text(str(validation_error or ""))
+    return (
+        build_bounded_dag_prompt(objective)
+        + "\n\nYour previous answer was rejected by the mechanical DAG contract. "
+        "Return the COMPLETE corrected plan, not a patch or explanation. Keep "
+        "the intended deliverables unless the error requires changing a control "
+        "field. In particular, ordinary nodes use "
+        "`TASK_SKIP_STAGE_TRANSITION=false`.\n"
+        + f"VALIDATION_ERROR={error}\n"
+        + "PREVIOUS_ANSWER:\n"
+        + prior
     )
 
 

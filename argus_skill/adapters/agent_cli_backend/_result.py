@@ -48,6 +48,8 @@ _AUTH_FAILURE_PATTERNS: tuple[str, ...] = (
     "invalid api key",
     "no api key",
     "missing credentials",
+    "no models available",
+    "use /login",
 )
 _RECOVERABLE_RECONNECT_RE = re.compile(r"^reconnecting\.\.\.\s*(\d+)/(\d+)\b")
 _PROVIDER_COOLDOWN_PATTERNS = (

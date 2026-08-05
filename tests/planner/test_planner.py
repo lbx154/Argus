@@ -119,7 +119,7 @@ def test_plan_next_disables_schema_and_planner_timeouts(monkeypatch) -> None:
     call = runner.calls[0]
     assert call["run_label"] == "planner.cycle0"
     options = call["options"]
-    assert options.output_schema_path is None
+    assert not hasattr(options, "output_schema_path")
     assert options.external_interrupt_reason_provider is None
     assert options.watchdog_hard_idle_seconds == 0
     assert options.dangerous_yolo is True

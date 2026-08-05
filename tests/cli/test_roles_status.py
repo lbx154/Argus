@@ -101,6 +101,13 @@ def test_life_backend_is_last_resort():
     assert resolve_role_config("manager", env=env).backend == "copilot"
 
 
+def test_pi_backend_has_display_label():
+    env = {"ARGUS_SKILL_LIFE_BACKEND": "pi"}
+    config = resolve_role_config("manager", env=env)
+    assert config.backend == "pi"
+    assert config.backend_label == "Pi"
+
+
 def test_opencode_backend_has_display_label():
     env = {"ARGUS_SKILL_LIFE_BACKEND": "opencode"}
     config = resolve_role_config("manager", env=env)

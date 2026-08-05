@@ -20,13 +20,14 @@ ALLOW_PRERELEASE_ENV = "ARGUS_SKILL_ALLOW_BACKEND_PRERELEASE"
 
 CODEX_MIN_VERSION = (0, 128, 0)
 CODEX_RECOMMENDED_VERSION = "0.144.5"
+PI_MIN_VERSION = (0, 83, 0)
 DEFAULT_MODEL_API_ROUTES = ("engineer", "reviewer", "text")
 
 SETUP_EXIT_USAGE = 2
 SETUP_EXIT_NOT_READY = 3
 SETUP_EXIT_PERSISTENCE = 4
 
-_SUPPORTED_BACKENDS = frozenset({"codex", "copilot", "claude", "opencode"})
+_SUPPORTED_BACKENDS = frozenset({"codex", "copilot", "claude", "opencode", "pi"})
 _VERSION_RE = re.compile(
     r"(?<!\d)(\d+)\.(\d+)\.(\d+)(?:[-+]([0-9A-Za-z.-]+))?"
 )
@@ -40,12 +41,14 @@ _INSTALL_COMMANDS = {
     "copilot": "npm install -g @github/copilot",
     "claude": "npm install -g @anthropic-ai/claude-code",
     "opencode": "curl -fsSL https://opencode.ai/install | bash",
+    "pi": "npm install -g --ignore-scripts @earendil-works/pi-coding-agent",
 }
 _LOGIN_COMMANDS = {
     "codex": "codex login",
     "copilot": "copilot login",
     "claude": "claude auth login",
     "opencode": "opencode auth login",
+    "pi": "pi, then /login",
 }
 
 
@@ -208,6 +211,23 @@ def _probe_cli_auth(
 ) -> tuple[bool, str]:
     if backend == "copilot":
         return _probe_copilot_auth(executable, timeout_s)
+    if backend == "pi":
+        try:
+            result = _run_text((executable, "--list-models"), timeout_s=timeout_s)
+        except (OSError, subprocess.SubprocessError) as exc:
+            return False, f"{type(exc).__name__}: {exc}"
+        lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        model_rows = [
+            line
+            for line in lines
+            if len(line.split()) >= 2
+            and line.split()[0].casefold() not in {"provider", "warning:", "error:"}
+            and not set(line) <= {"-", " "}
+        ]
+        if result.returncode == 0 and model_rows:
+            return True, ""
+        detail = (result.stderr or result.stdout or "no authenticated Pi models").strip()
+        return False, detail[:300]
     suffix = _AUTH_COMMANDS.get(backend)
     if suffix is None:
         return False, f"no read-only authentication probe is defined for {backend}"
@@ -309,7 +329,7 @@ def check_backend_readiness(
             ReadinessProblem(
                 "backend",
                 f"unsupported backend {profile.backend!r}",
-                "choose one of: codex, copilot, claude, opencode",
+                "choose one of: codex, copilot, claude, opencode, pi",
             )
         )
         return report
@@ -401,6 +421,14 @@ def check_backend_readiness(
                 f"tested recommendation is Codex {CODEX_RECOMMENDED_VERSION}; "
                 f"detected {report.version}"
             )
+    elif profile.backend == "pi" and version_tuple < PI_MIN_VERSION:
+        report.problems.append(
+            ReadinessProblem(
+                "backend version",
+                f"Pi {report.version} is below the supported floor >=0.83.0",
+                "upgrade with `pi update --self`",
+            )
+        )
     if report.problems:
         return report
 

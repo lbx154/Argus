@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "argus://literary/review.schema.json",
   "title": "literary_review",
-  "description": "Shared structured review payload every literary reviewer emits and the revise stage consumes. Complementary to the framework reviewer envelope (argus_skill/reviewer/reviewer_schema.json, which carries the round OUTCOME): this is the domain FINDING list. `severity` (critical|major|minor|note) is the IMPORTANCE axis; `blocking` is the INDEPENDENT gate axis — they are deliberately decoupled so a serious-but-non-gating craft note (critical, non-blocking) and a hard continuity contradiction (blocking) are both expressible. `type` is a free string validated against a PER-VERTICAL vocabulary by verticals.literary.shared.review_contract, never hardcoded here.",
+  "description": "Shared structured review payload every literary reviewer emits and the revise stage consumes. Complementary to the framework Reviewer's named-line verdict envelope, which carries the round OUTCOME: this is the domain FINDING list. `severity` (critical|major|minor|note) is the IMPORTANCE axis; `blocking` is the INDEPENDENT gate axis — they are deliberately decoupled so a serious-but-non-gating craft note (critical, non-blocking) and a hard continuity contradiction (blocking) are both expressible. `type` is a free string validated against a PER-VERTICAL vocabulary by verticals.literary.shared.review_contract, never hardcoded here.",
   "type": "object",
   "additionalProperties": false,
   "required": ["verdict", "findings"],

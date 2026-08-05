@@ -49,6 +49,21 @@ class _RawRunner:
         return RunnerResult(exit_code=0, agent_messages=[self.text])
 
 
+class _SequenceRunner:
+    def __init__(self, *responses: str) -> None:
+        self.responses = list(responses)
+        self.calls: list[dict] = []
+
+    def run_exec(self, **kwargs):
+        self.calls.append(kwargs)
+        return RunnerResult(
+            exit_code=0,
+            agent_messages=[self.responses.pop(0)],
+            input_tokens=10,
+            output_tokens=2,
+        )
+
+
 def test_bounded_planner_parses_real_fanout_fanin_dag(tmp_path) -> None:
     runner = _Runner(
         {
@@ -103,7 +118,7 @@ def test_bounded_planner_parses_real_fanout_fanin_dag(tmp_path) -> None:
     call = runner.calls[0]
     assert call["run_label"] == "planner.bounded_dag"
     assert call["options"].working_dir == str(tmp_path.resolve())
-    assert call["options"].output_schema_path is None
+    assert not hasattr(call["options"], "output_schema_path")
     assert "one fresh Engineer session" in call["prompt"]
     assert "Do not initialize Git" in call["prompt"]
     assert "Never create standalone inspect/audit/planning" in call["prompt"]
@@ -168,6 +183,45 @@ def test_bounded_planner_rejects_any_malformed_context_ref(tmp_path) -> None:
     plan = plan_bounded_dag(runner, "x", workdir=tmp_path)
 
     assert "TASK_CONTEXT_REFS entries must use" in plan.error
+
+
+def test_bounded_planner_repairs_invalid_stage_skip_contract_once(tmp_path) -> None:
+    invalid = (
+        "PLAN_REASON=draft a paper\n"
+        "TASK_KEY=outline\n"
+        "TASK_DEPS=\n"
+        "TASK_TITLE=Draft outline\n"
+        "TASK_OBJECTIVE=write paper/outline.md\n"
+        "TASK_SCOPE=bounded\n"
+        "TASK_STAGE_CLOSING=false\n"
+        "TASK_REQUIRE_INDEPENDENT_REVIEW=false\n"
+        "TASK_SKIP_STAGE_TRANSITION=true\n"
+    )
+    corrected = invalid.replace(
+        "TASK_SKIP_STAGE_TRANSITION=true",
+        "TASK_SKIP_STAGE_TRANSITION=false",
+    )
+    runner = _SequenceRunner(invalid, corrected)
+
+    plan = plan_bounded_dag(
+        runner,
+        "帮我写一篇AI方面的论文，我要投到ICLR上面",
+        workdir=tmp_path,
+    )
+
+    assert not plan.error
+    assert len(plan.tasks) == 1
+    assert plan.tasks[0].skip_stage_transition is False
+    assert plan.input_tokens == 20
+    assert plan.output_tokens == 4
+    assert [call["run_label"] for call in runner.calls] == [
+        "planner.bounded_dag",
+        "planner.bounded_dag.repair",
+    ]
+    assert "VALIDATION_ERROR=ValueError: skip_stage_transition requires" in (
+        runner.calls[1]["prompt"]
+    )
+    assert "Return the COMPLETE corrected plan" in runner.calls[1]["prompt"]
 
 
 def test_bounded_planner_rejects_stage_skip_without_review_only_contract(

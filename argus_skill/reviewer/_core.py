@@ -12,10 +12,7 @@ Public surface kept identical: ``Reviewer.evaluate(...) -> ReviewDecision``,
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
-import os
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -40,61 +37,6 @@ class ReviewerConfig:
     sandbox_mode: str | None = None
     isolate_workdir: bool = False
     working_dir: str | None = None
-
-
-SCHEMA_PATH = str(Path(__file__).with_name("reviewer_schema.json"))
-RESEARCH_SCHEMA_PATH = str(Path(__file__).with_name("reviewer_research_schema.json"))
-LEGACY_RESEARCH_SCHEMA_PATH = str(
-    Path(__file__).with_name("reviewer_legacy_research_schema.json")
-)
-REVIEWER_SCHEMA_PATHS = (
-    SCHEMA_PATH,
-    RESEARCH_SCHEMA_PATH,
-    LEGACY_RESEARCH_SCHEMA_PATH,
-)
-
-
-def _compact_schema_for_backend(
-    schema_path: str,
-    schema_contract: bytes,
-) -> tuple[str, bytes]:
-    """Return a content-addressed minified schema path for provider input.
-
-    Keep the checked-in schema readable, but do not spend tokens on indentation
-    and descriptive whitespace every review turn. Any parse/cache failure falls
-    back to the authoritative original bytes/path.
-    """
-    try:
-        payload = json.loads(schema_contract)
-        compact = json.dumps(
-            payload,
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        if len(compact) >= len(schema_contract):
-            return schema_path, schema_contract
-        digest = hashlib.sha256(compact).hexdigest()[:20]
-        cache_dir = Path(tempfile.gettempdir()) / "argus-skill-reviewer-schemas"
-        cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-        cached_path = cache_dir / f"{Path(schema_path).stem}-{digest}.json"
-        if not cached_path.exists() or cached_path.read_bytes() != compact:
-            fd, temp_name = tempfile.mkstemp(
-                dir=cache_dir,
-                prefix=f".{cached_path.name}.",
-                suffix=".tmp",
-            )
-            try:
-                with os.fdopen(fd, "wb") as handle:
-                    handle.write(compact)
-                os.replace(temp_name, cached_path)
-            finally:
-                try:
-                    os.unlink(temp_name)
-                except FileNotFoundError:
-                    pass
-        return str(cached_path), compact
-    except (OSError, TypeError, ValueError):
-        return schema_path, schema_contract
 
 
 def _load_wiki_curator_skill_if_present(
@@ -144,15 +86,9 @@ class Reviewer:
         memory_maintenance_enabled: bool = True,
     ) -> None:
         self.runner = runner
-        # No provider-enforced output schema. Constraining the Reviewer to emit
-        # one JSON object is the strongest form of "the harness decides how the
-        # agent may speak": it spends the verdict on satisfying a serialiser and
-        # discards everything the Reviewer wanted to say around it. The verdict
-        # is now read from named lines in an ordinary reply, and the parser
-        # still accepts a JSON object so a run already in flight is unaffected.
-        # The defensive schema plumbing below is left intact for a caller that
-        # deliberately sets one.
-        self.schema_path = ""
+        # The Reviewer speaks normally and ends with named verdict lines. JSON
+        # remains parser-only backward compatibility for already-running old
+        # sessions; no backend receives an output schema.
         self._last_prompt_block_stats: dict[str, dict[str, int]] = {}
         # Optional agent-native library roots. The Reviewer searches and reads
         # relevant Markdown itself; the runtime never injects Skill bodies.
@@ -188,41 +124,6 @@ class Reviewer:
         resume_thread_id: str | None = None,
         prior_static_fingerprint: str = "",
     ) -> ReviewDecision:
-        schema_path = self.schema_path
-        # Defense-in-depth (root-cause guard for the 2026-06-25 incident): if the
-        # reviewer output-schema file is unavailable, codex aborts with exit 1
-        # ("Failed to read output schema file ...") and the round renders NO
-        # verdict. Detect it up front and fail loud as a backend-unavailable
-        # block, instead of building a prompt and handing codex a path it cannot
-        # read. This catches a moved schema / a stale import-time path held by a
-        # long-lived daemon whose on-disk tree moved underneath it.
-        schema_contract = b""
-        try:
-            if schema_path:
-                schema_contract = Path(schema_path).read_bytes()
-                schema_path, schema_contract = _compact_schema_for_backend(
-                    schema_path,
-                    schema_contract,
-                )
-        except OSError as exc:
-            reason = (
-                "Reviewer output-schema file is unavailable (missing or unreadable) at "
-                f"{schema_path} ({type(exc).__name__}: {exc}); the reviewer backend "
-                "cannot start. This is "
-                "an environment/packaging fault (e.g. the schema was moved or a "
-                "running process holds a stale import-time path), not a verdict."
-            )
-            return ReviewDecision(
-                status="blocked",
-                reason=reason,
-                next_action=(
-                    "Restore the reviewer schema at that path, or restart the "
-                    "daemon on code whose schema path matches disk; do not treat "
-                    "this as evidence about the engineer's work."
-                ),
-                backend_unavailable=True,
-                backend_stop_kind="backend_unavailable",
-            )
         # Split the prompt into a byte-stable STATIC preamble and per-round DELTA
         # for provider prefix caching. Every call still sends both into a fresh
         # Reviewer session.
@@ -254,17 +155,7 @@ class Reviewer:
             name: dict(stats)
             for name, stats in self._last_prompt_block_stats.items()
         }
-        if schema_contract:
-            schema_bytes = len(schema_contract)
-            prompt_block_stats["output_schema"] = {
-                "chars": len(schema_contract.decode("utf-8", errors="replace")),
-                "bytes": schema_bytes,
-                "estimated_tokens": (schema_bytes + 3) // 4,
-            }
         fingerprint_input = bytearray(static.encode("utf-8"))
-        if schema_path:
-            fingerprint_input.extend(b"\0output-schema\0")
-            fingerprint_input.extend(schema_contract)
         new_fp = hashlib.sha256(fingerprint_input).hexdigest()
         # Autonomous reviews are deliberately one turn per provider session.
         # ``resume_thread_id`` / ``prior_static_fingerprint`` remain accepted for
@@ -287,7 +178,6 @@ class Reviewer:
                     isolate_workdir=config.isolate_workdir,
                     skip_git_repo_check=config.skip_git_repo_check,
                     extra_args=list(config.extra_args) if config.extra_args else None,
-                    output_schema_path=schema_path,
                     working_dir=config.working_dir,
                     # Search is available for the rare turn that proposes a
                     # skill; ordinary review turns need not invoke it.
@@ -365,8 +255,11 @@ class Reviewer:
         if parsed is None:
             return ReviewDecision(
                 status="continue",
-                reason="Reviewer output was not valid JSON.",
-                next_action="Continue implementation and include clear completion evidence.",
+                reason="Reviewer output did not contain a valid named verdict footer.",
+                next_action=(
+                    "Continue implementation and end the next review with STATUS, "
+                    "REASON, NEXT_ACTION, and the remaining named verdict fields."
+                ),
                 input_tokens=rev_in,
                 cached_input_tokens=rev_cached,
                 output_tokens=rev_out,

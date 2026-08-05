@@ -1,14 +1,12 @@
 """Sanity tests for the vendored ``agent_cli`` module.
 
-argus-skill drives the codex/claude/copilot/opencode CLI using nothing more
+argus-skill drives the codex/claude/copilot/opencode/pi CLI using nothing more
 than its own wheel — the bundled ``argus_skill.agent_cli`` package is the
 only supported runtime. These tests fail loudly if the vendored copy ever
 gets dropped or its public surface diverges from what
 ``argus_skill.adapters.agent_cli_backend`` expects.
 """
 from __future__ import annotations
-
-import json
 
 
 def test_vendored_agent_cli_runner_importable() -> None:
@@ -26,6 +24,7 @@ def test_vendored_runner_backend_constants() -> None:
         BACKEND_CODEX,
         BACKEND_COPILOT,
         BACKEND_OPENCODE,
+        BACKEND_PI,
         DEFAULT_RUNNER_BACKEND,
         normalize_runner_backend,
     )
@@ -33,12 +32,18 @@ def test_vendored_runner_backend_constants() -> None:
     assert BACKEND_CLAUDE == "claude"
     assert BACKEND_COPILOT == "copilot"
     assert BACKEND_OPENCODE == "opencode"
+    assert BACKEND_PI == "pi"
     assert DEFAULT_RUNNER_BACKEND in {
-        BACKEND_CODEX, BACKEND_CLAUDE, BACKEND_COPILOT, BACKEND_OPENCODE,
+        BACKEND_CODEX,
+        BACKEND_CLAUDE,
+        BACKEND_COPILOT,
+        BACKEND_OPENCODE,
+        BACKEND_PI,
     }
     assert normalize_runner_backend("CODEX") == BACKEND_CODEX
     assert normalize_runner_backend("copilot") == BACKEND_COPILOT
     assert normalize_runner_backend("opencod") == BACKEND_OPENCODE
+    assert normalize_runner_backend("PI") == BACKEND_PI
 
 
 def test_agent_cli_backend_resolver_uses_vendored_module() -> None:
@@ -58,6 +63,7 @@ def test_agent_cli_backend_resolver_uses_vendored_module() -> None:
         "BACKEND_CODEX",
         "BACKEND_COPILOT",
         "BACKEND_OPENCODE",
+        "BACKEND_PI",
         "DEFAULT_RUNNER_BACKEND",
         "default_runner_bin",
         "normalize_runner_backend",
@@ -84,24 +90,15 @@ def test_agent_cli_package_init_is_thin() -> None:
         assert not hasattr(pkg, legacy), f"legacy symbol leaked: {legacy}"
 
 
-def test_claude_command_omits_unsupported_schema_dialect(tmp_path) -> None:
+def test_claude_command_has_no_retired_output_schema_flags() -> None:
     from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
     from argus_skill.agent_cli.runner_backend import BACKEND_CLAUDE
 
-    schema_path = tmp_path / "schema.json"
-    schema_path.write_text(
-        json.dumps({
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "type": "object",
-        }),
-        encoding="utf-8",
-    )
     runner = AgentCliRunner(agent_bin="claude", backend=BACKEND_CLAUDE)
-
     command = runner._build_command(
         resume_thread_id=None,
-        options=RunnerOptions(output_schema_path=str(schema_path)),
+        options=RunnerOptions(),
     )
 
-    schema = json.loads(command[command.index("--json-schema") + 1])
-    assert schema == {"type": "object"}
+    assert "--json-schema" not in command
+    assert "--output-schema" not in command

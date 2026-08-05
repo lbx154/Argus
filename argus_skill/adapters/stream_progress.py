@@ -157,10 +157,22 @@ def _is_final_delivery_message(text: str) -> bool:
 
 
 def _is_structured_role_result(actor: str, text: str) -> bool:
-    """Return whether a role message is a structured control-plane result."""
+    """Return whether a role message is its machine-consumed verdict footer."""
     role = (actor or "").lower()
     if not (role.startswith("planner") or role.startswith("reviewer")):
         return False
+    lines = {
+        line.strip().partition("=")[0].upper()
+        for line in str(text or "").splitlines()
+        if "=" in line
+    }
+    if role.startswith("reviewer") and {"STATUS", "REASON"} <= lines:
+        return True
+    if role.startswith("planner") and (
+        {"PROJECT_DONE", "REASON"} <= lines or "PLAN_REASON" in lines
+    ):
+        return True
+    # Backward compatibility for an old role turn already in flight.
     try:
         payload = json.loads((text or "").strip())
     except (TypeError, ValueError, json.JSONDecodeError):
@@ -545,6 +557,92 @@ def make_stream_progress_callback(
                 text=text,
                 actor=actor,
                 extra=extra,
+            )
+            return
+
+        # Pi dialect: complete assistant messages and tool lifecycle events.
+        if et == "message_end":
+            message = event.get("message")
+            if not isinstance(message, dict) or message.get("role") != "assistant":
+                return
+            text = _extract_text(message)
+            if text:
+                message_id = str(
+                    message.get("responseId") or message.get("timestamp") or ""
+                ).strip()
+                _emit_progress(
+                    kind="agent_message",
+                    text=text,
+                    actor=actor,
+                    replace=True,
+                    transient=_is_structured_role_result(actor, text),
+                    message_id=message_id or None,
+                )
+            return
+
+        if et == "tool_execution_start":
+            name = str(event.get("toolName") or "tool").strip()
+            args = event.get("args")
+            command = (
+                str(args.get("command") or "").strip()
+                if isinstance(args, dict)
+                else ""
+            )
+            rendered = _render_tool_arguments(args)
+            call_id = str(event.get("toolCallId") or "").strip()
+            is_shell = bool(command) or name.lower() in _SHELL_TOOL_NAMES
+            kind = "command_execution" if is_shell else "tool_use"
+            text = command or (name + (f": {rendered}" if rendered else ""))
+            if call_id:
+                tool_calls[call_id] = (name, kind, text)
+            if text:
+                _emit_progress(
+                    kind=kind,
+                    text=text,
+                    actor=actor,
+                    extra={
+                        "status": "running",
+                        "action_summary": _action_summary(
+                            kind, text, {"type": kind, "name": name, "command": command}
+                        ),
+                        "tool_name": name,
+                    },
+                )
+            return
+
+        if et == "tool_execution_end":
+            call_id = str(event.get("toolCallId") or "").strip()
+            name, kind, text = tool_calls.pop(call_id, ("tool", "tool_use", ""))
+            failed = bool(event.get("isError", False))
+            if not failed:
+                return
+            result = event.get("result")
+            result = result if isinstance(result, dict) else {}
+            content = result.get("content")
+            if isinstance(content, list):
+                content = "\n".join(
+                    str(row.get("text") or "")
+                    for row in content
+                    if isinstance(row, dict) and row.get("type") == "text"
+                )
+            item = {
+                "type": kind,
+                "name": name,
+                "status": "failed",
+                "aggregated_output": str(content or ""),
+            }
+            if ledger is not None:
+                _record_failure_if_any(ledger, kind, item)
+            _emit_progress(
+                kind=kind,
+                text=text or name,
+                actor=actor,
+                extra={
+                    "status": "failed",
+                    "output_excerpt": _extract_output_excerpt(item),
+                    "action_summary": _action_summary(kind, text or name, item),
+                    "tool_name": name,
+                },
             )
             return
 

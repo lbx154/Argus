@@ -145,6 +145,10 @@ def extract_token_usage(
     opencode_present = [False, False, False, False, False]
     opencode_cost_usd = 0.0
     opencode_cost_present = False
+    pi_values = [0, 0, 0, 0, 0]
+    pi_present = [False, False, False, False, False]
+    pi_cost_usd = 0.0
+    pi_cost_present = False
 
     for event in events:
         if not isinstance(event, dict):
@@ -204,6 +208,46 @@ def extract_token_usage(
                         continue
                     anthropic_present[index] = True
                     anthropic_values[index] += row_values[index]
+
+        # Pi ``--mode json`` emits exactly one assistant ``message_end`` per
+        # provider turn. Its usage names are input/output/cacheRead/cacheWrite/
+        # reasoning and are deltas, so sum them across tool-using turns.
+        if (
+            str(event.get("type") or "").strip().casefold() == "message_end"
+            and str(message.get("role") or "").strip().casefold() == "assistant"
+            and message_usage
+        ):
+            fresh_present = "input" in message_usage
+            cache_read_present = "cacheRead" in message_usage
+            cache_write_present = "cacheWrite" in message_usage
+            if fresh_present or cache_read_present or cache_write_present:
+                pi_present[0] = True
+                pi_values[0] += (
+                    _coerce_int(message_usage.get("input"))
+                    + _coerce_int(message_usage.get("cacheRead"))
+                    + _coerce_int(message_usage.get("cacheWrite"))
+                )
+            if cache_read_present:
+                pi_present[1] = True
+                pi_values[1] += _coerce_int(message_usage.get("cacheRead"))
+            if cache_write_present:
+                pi_present[2] = True
+                pi_values[2] += _coerce_int(message_usage.get("cacheWrite"))
+            if "output" in message_usage:
+                pi_present[3] = True
+                pi_values[3] += _coerce_int(message_usage.get("output"))
+            if "reasoning" in message_usage:
+                pi_present[4] = True
+                pi_values[4] += _coerce_int(message_usage.get("reasoning"))
+            raw_pi_cost = message_usage.get("cost")
+            pi_cost = (
+                _coerce_nonnegative_float(raw_pi_cost.get("total"))
+                if isinstance(raw_pi_cost, dict)
+                else None
+            )
+            if pi_cost is not None:
+                pi_cost_present = True
+                pi_cost_usd += pi_cost
 
         if str(event.get("type") or "").strip().casefold() == "result":
             result_num_turns = max(
@@ -337,6 +381,21 @@ def extract_token_usage(
             output_tokens_present=delta_present[3],
             reasoning_output_tokens_present=delta_present[4],
             source="per_event",
+        )
+    if any(pi_present):
+        return TokenUsage(
+            input_tokens=pi_values[0],
+            cached_input_tokens=pi_values[1],
+            cache_write_tokens=pi_values[2],
+            output_tokens=pi_values[3],
+            reasoning_output_tokens=pi_values[4],
+            input_tokens_present=pi_present[0],
+            cached_input_tokens_present=pi_present[1],
+            cache_write_tokens_present=pi_present[2],
+            output_tokens_present=pi_present[3],
+            reasoning_output_tokens_present=pi_present[4],
+            provider_cost_usd=(pi_cost_usd if pi_cost_present else None),
+            source="pi_message",
         )
     if any(opencode_present):
         return TokenUsage(

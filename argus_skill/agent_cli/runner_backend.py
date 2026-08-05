@@ -5,12 +5,13 @@ import shutil
 from pathlib import Path
 from typing import Literal
 
-RunnerBackend = Literal["codex", "claude", "copilot", "opencode"]
+RunnerBackend = Literal["codex", "claude", "copilot", "opencode", "pi"]
 
 BACKEND_CODEX: RunnerBackend = "codex"
 BACKEND_CLAUDE: RunnerBackend = "claude"
 BACKEND_COPILOT: RunnerBackend = "copilot"
 BACKEND_OPENCODE: RunnerBackend = "opencode"
+BACKEND_PI: RunnerBackend = "pi"
 DEFAULT_RUNNER_BACKEND: RunnerBackend = BACKEND_CODEX
 
 
@@ -22,6 +23,8 @@ def normalize_runner_backend(raw: str | None) -> RunnerBackend:
         return BACKEND_COPILOT
     if value in (BACKEND_OPENCODE, "opencod"):
         return BACKEND_OPENCODE
+    if value == BACKEND_PI:
+        return BACKEND_PI
     return BACKEND_CODEX
 
 
@@ -32,6 +35,8 @@ def default_runner_bin(backend: RunnerBackend) -> str:
         return "copilot"
     if backend == BACKEND_OPENCODE:
         return "opencode"
+    if backend == BACKEND_PI:
+        return "pi"
     return "codex"
 
 

@@ -3,7 +3,7 @@
 argus-skill's loop is deliberately backend-agnostic — it talks to a
 ``RunnerBackend`` (Protocol) defined in ``argus_skill.core.ports``. The
 deterministic ``MemoryBackend`` is fine for tests, but for *real* runs we
-need to drive the actual codex / claude / copilot / opencode CLI.
+need to drive the actual codex / claude / copilot / opencode / pi CLI.
 
 ``argus_skill.agent_cli.agent_cli_runner.AgentCliRunner`` is a
 battle-tested subprocess wrapper that handles JSON event streams, idle

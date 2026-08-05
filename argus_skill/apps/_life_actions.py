@@ -11,7 +11,7 @@ from typing import Any, Mapping, Sequence
 
 from ..life import BacklogItem
 
-_LIFE_BACKENDS = ("codex", "claude", "copilot", "opencode", "memory")
+_LIFE_BACKENDS = ("codex", "claude", "copilot", "opencode", "pi", "memory")
 
 
 def format_backlog_list(mem: Any, *, include_all: bool) -> str:

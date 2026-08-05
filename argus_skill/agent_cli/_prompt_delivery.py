@@ -1,24 +1,28 @@
-"""Prompt delivery (stdin) and per-backend output-schema embedding.
-
-Covers how a prompt reaches the child process (stdin, never argv — a large
-reviewer/planner prompt would trip the kernel per-arg limit), the compact
-JSON-Schema suffix appended for backends without a native ``--output-schema``
-flag, and the sandboxed/isolated child environment. Extracted verbatim from
-``agent_cli_runner.py``.
-"""
+"""Safe prompt delivery and sandboxed/isolated child environments."""
 from __future__ import annotations
 
 import json
 import os
 import subprocess
-from pathlib import Path
 
 from ..core.sandbox import sandboxed_child_env
 from ._sandbox_commands import _OPENCODE_READ_ONLY_AGENT
 from .copilot_home import apply_copilot_home
-from .runner_backend import BACKEND_CLAUDE, BACKEND_COPILOT, BACKEND_OPENCODE
+from .runner_backend import (
+    BACKEND_CLAUDE,
+    BACKEND_COPILOT,
+    BACKEND_OPENCODE,
+    BACKEND_PI,
+)
 
 _OPENCODE_CONFIG_CONTENT_ENV = "OPENCODE_CONFIG_CONTENT"
+
+
+def _apply_pi_automation_env(env: dict[str, str]) -> dict[str, str]:
+    """Disable per-turn Pi update pings without changing provider traffic."""
+    env.setdefault("PI_SKIP_VERSION_CHECK", "1")
+    env.setdefault("PI_TELEMETRY", "0")
+    return env
 
 
 def _opencode_read_only_env() -> dict[str, str]:
@@ -69,30 +73,7 @@ def _opencode_read_only_env() -> dict[str, str]:
 
 
 class PromptDeliveryMixin:
-    """Prompt-on-stdin delivery + embedded output-schema contract."""
-
-    def _effective_prompt(
-        self,
-        *,
-        prompt: str,
-        resume_thread_id: str | None,
-        options,
-    ) -> str:
-        """Prompt actually delivered to the backend (via stdin).
-
-        Copilot and OpenCode have no ``--output-schema`` flag, so the compact JSON Schema +
-        strict "reply with ONLY schema-valid JSON" contract is appended to the
-        prompt itself (skipped on a resumed thread, where the contract already
-        lives in the conversation). codex/claude carry the schema out-of-band
-        via their own flags, so their prompt is returned unchanged.
-        """
-        if self.backend not in (BACKEND_COPILOT, BACKEND_OPENCODE):
-            return prompt
-        if options.output_schema_path and not resume_thread_id:
-            suffix = self._prompt_schema_suffix(options.output_schema_path)
-            if suffix:
-                return prompt + suffix
-        return prompt
+    """Deliver large role prompts without exposing them in process arguments."""
 
     @staticmethod
     def _write_prompt(*, process: subprocess.Popen[str], prompt: str) -> None:
@@ -169,6 +150,8 @@ class PromptDeliveryMixin:
             # history. Relocate the working state, change nothing else.
             if self.backend == BACKEND_COPILOT:
                 return apply_copilot_home(dict(os.environ))
+            if self.backend == BACKEND_PI:
+                return _apply_pi_automation_env(dict(os.environ))
             return None
         if (
             self.backend == BACKEND_OPENCODE
@@ -178,6 +161,8 @@ class PromptDeliveryMixin:
         env = sandboxed_child_env()
         if self.backend == BACKEND_COPILOT:
             apply_copilot_home(env)
+        elif self.backend == BACKEND_PI:
+            _apply_pi_automation_env(env)
         if options.isolate_workdir:
             secret_markers = (
                 "TOKEN",
@@ -211,43 +196,3 @@ class PromptDeliveryMixin:
             env["GIT_CONFIG_NOSYSTEM"] = "1"
             env["GH_CONFIG_DIR"] = "/tmp/argus-no-gh-auth"
         return env
-
-    @staticmethod
-    def _load_compact_schema_text(
-        path: str,
-        *,
-        omit_dialect: bool = False,
-    ) -> str:
-        raw = Path(path).read_text(encoding="utf-8")
-        parsed = json.loads(raw)
-        if omit_dialect and isinstance(parsed, dict):
-            parsed.pop("$schema", None)
-        return json.dumps(parsed, ensure_ascii=True, separators=(",", ":"))
-
-    def _prompt_schema_suffix(self, schema_path: str) -> str:
-        """Prompt-embedded output contract for backends without a schema flag.
-
-        EN: Copilot and OpenCode have no ``--output-schema``. Append the compact JSON Schema +
-        a strict "reply with ONLY schema-valid JSON" instruction so the
-        reviewer/planner verdict parses instead of degrading to a prose reply
-        (which the strict parser rejects → the reviewer, the sole done-authority,
-        would fall back to ``continue``). Fail-soft to "" — a missing/invalid
-        schema must never block a run.
-        中文：copilot 没有 ``--output-schema``。把压缩后的 JSON Schema + 严格
-        "只回合法 JSON"指令追加到 prompt，让 reviewer/planner 裁决可解析，而不是
-        退化成散文（严格 parser 会拒 → reviewer 退回 ``continue``）。schema
-        缺失/非法时返回 ""，绝不阻塞运行。
-        """
-        try:
-            schema_text = self._load_compact_schema_text(schema_path)
-        except Exception:  # noqa: BLE001 — no/invalid schema → no suffix, fail-open
-            return ""
-        if not schema_text.strip():
-            return ""
-        return (
-            "\n\n--- OUTPUT CONTRACT (STRICT) ---\n"
-            "Your FINAL message MUST be exactly one JSON object that validates "
-            "against this JSON Schema. No prose, no markdown fences, nothing "
-            "before or after it:\n"
-            f"{schema_text}\n"
-        )

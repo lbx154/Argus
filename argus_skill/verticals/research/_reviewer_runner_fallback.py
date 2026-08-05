@@ -19,7 +19,7 @@ hard-block behaviour (require the model-API route). The fallback uses the same
 canonical Reviewer role configuration as the resident fleet:
 
 * ``ARGUS_SKILL_REVIEWER_BACKEND`` — runner backend to drive the review
-  (``codex`` / ``claude`` / ``copilot`` / ``opencode``), with the normal shared/persisted
+  (``codex`` / ``claude`` / ``copilot`` / ``opencode`` / ``pi``), with the normal shared/persisted
   fallback chain.
 * ``ARGUS_SKILL_REVIEWER_RUNNER_BIN`` — role-specific runner binary, falling
   back to ``ARGUS_SKILL_RUNNER_BIN``.

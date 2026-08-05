@@ -7,7 +7,7 @@ Polls ``getUpdates`` with long-polling and dispatches commands:
 * ``/status`` — reply with daemon / active queue / history / cost summary
 * ``/config [key=val ...]`` — view/change session defaults
 * ``/identity`` / ``/identity set <text>`` — view or update the identity card
-* ``/backend [codex|memory]`` — show or change the active backend
+* ``/backend [codex|claude|copilot|opencode|pi|memory]`` — show or change the active backend
 * ``/reset`` — drop the current codex session id
 * ``/skills [ls|promote <name>]`` — inspect or promote skills
 * ``/backlog [all]`` — list pending tasks or full backlog
@@ -165,7 +165,7 @@ _HELP_TEXT = """🤖 <b>argus-skill 命令列表</b>
 /config [key=val ...] — 调整会话默认值
 /identity — 查看身份卡
 /identity set <text> — 单条消息更新身份卡
-/backend [codex|memory] — 查看或切换后端
+/backend [codex|claude|copilot|opencode|pi|memory] — 查看或切换后端
 /reset — 清除当前 codex 会话
 /skills [ls|promote <name>] — 查看或提升技能
 /backlog [all] — 查看待办任务

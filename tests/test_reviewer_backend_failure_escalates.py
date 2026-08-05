@@ -1,19 +1,12 @@
 """Regression: a DEAD reviewer backend must FAIL LOUD, never be laundered into a
 silent ``continue``.
 
-On 2026-06-25 a refactor ``git mv``'d ``reviewer_schema.json`` out from under a
-running daemon. The daemon held the import-time schema path in memory, so every
-reviewer round handed codex a now-missing ``--output-schema`` file; codex exited
-1 "before turn completion". The reviewer's no-output branch returned
-``status="continue"``, so the supervised loop ran the SOLE
-completion gate BLIND for ~1.5h (27 rounds, ~$8) with no real review — the
-opposite of the operator's "reviewer is the single source of truth" contract.
+A reviewer transport that exits before the named verdict footer must never be
+laundered into ``continue``; that would run the sole completion gate blind.
 
 The contract pinned here:
   * reviewer backend death   -> status="blocked", backend_unavailable=True
                                 (NOT "continue")
-  * missing output-schema    -> same verdict, detected up front WITHOUT spawning
-                                codex
   * the supervised loop       -> escalates to "error" + an operator_alert event
                                 once the reviewer-backend failure streak hits the
                                 threshold, instead of looping blind.
@@ -71,21 +64,6 @@ def test_backend_death_is_blocked_not_continue() -> None:
     assert decision.backend_unavailable is True
 
 
-def test_missing_output_schema_is_blocked_without_spawning_codex() -> None:
-    class _ExplodingRunner:
-        def run_exec(self, **_kwargs):  # pragma: no cover - must never run
-            raise AssertionError(
-                "runner must not be invoked when the output-schema is missing"
-            )
-
-    reviewer = Reviewer(runner=_ExplodingRunner())
-    reviewer.schema_path = "/nonexistent/argus/reviewer_schema.json"
-    decision = _evaluate(reviewer)
-    assert decision.status == "blocked"
-    assert decision.backend_unavailable is True
-    assert "unavailable" in decision.reason.lower()
-
-
 def test_empty_clean_output_stays_continue() -> None:
     # A clean exit (exit_code==0, no fatal) with empty output is a MODEL-quality
     # miss, NOT infra death: it must stay "continue" and NOT trip the backend
@@ -105,7 +83,7 @@ def test_empty_clean_output_stays_continue() -> None:
     assert decision.backend_unavailable is False
 
 
-def test_invalid_json_output_is_not_credited_as_evidence() -> None:
+def test_invalid_named_footer_is_not_credited_as_evidence() -> None:
     class _InvalidRunner:
         def run_exec(self, **_kwargs):
             return RunnerResult(

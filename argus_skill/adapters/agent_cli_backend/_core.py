@@ -52,7 +52,7 @@ class AgentCliBackend:
     """``RunnerBackend`` implementation that shells out to a real CLI.
 
     Construct once with the runner backend choice ("codex" / "claude" /
-    "copilot" / "opencode") and any cross-call defaults (e.g. ``default_extra_args``
+    "copilot" / "opencode" / "pi") and any cross-call defaults (e.g. ``default_extra_args``
     for ``-c "config_profile=..."``), then pass the same instance to
     every ``SkillLoop`` actor (author / engineer / reviewer). Each
     ``run_exec`` call spawns a fresh subprocess.
@@ -65,10 +65,10 @@ class AgentCliBackend:
     enough).
 
     Args:
-        backend: which CLI to drive ("codex" / "claude" / "copilot" / "opencode").
+        backend: which CLI to drive ("codex" / "claude" / "copilot" / "opencode" / "pi").
             Defaults to the bundled runner's default (codex).
         runner_bin: explicit path to the CLI binary. Default: resolve
-            from ``$PATH`` (e.g. ``codex`` / ``claude`` / ``copilot`` / ``opencode``).
+            from ``$PATH`` (e.g. ``codex`` / ``claude`` / ``copilot`` / ``opencode`` / ``pi``).
         default_extra_args: appended to every command (after
             ``options.extra_args``). Useful for global ``-c`` flags.
         before_exec: called before each subprocess spawn — used to reset
@@ -343,7 +343,6 @@ class AgentCliBackend:
             skip_git_repo_check=options.skip_git_repo_check,
             extra_args=list(options.extra_args) if options.extra_args else None,
             working_dir=options.working_dir,
-            output_schema_path=options.output_schema_path,
             external_interrupt_reason_provider=interrupt_provider,
             inactivity_callback=options.inactivity_callback,
             watchdog_soft_idle_seconds=soft_idle,
@@ -420,7 +419,7 @@ def build_agent_cli_backend_from_env() -> AgentCliBackend:
 
     Honours:
 
-      * ``ARGUS_SKILL_RUNNER_BACKEND`` — "codex" / "claude" / "copilot" / "opencode"
+      * ``ARGUS_SKILL_RUNNER_BACKEND`` — "codex" / "claude" / "copilot" / "opencode" / "pi"
         (default: codex)
       * ``ARGUS_SKILL_RUNNER_BIN``     — path to the CLI binary
       * ``ARGUS_SKILL_RUNNER_EXTRA_ARGS`` — space-separated default args

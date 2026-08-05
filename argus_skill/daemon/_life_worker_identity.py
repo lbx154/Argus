@@ -298,7 +298,7 @@ def _preflight_route_on_codex(route: str) -> bool:
     EN: Uses the SAME canonical resolution as the role runners
     (``core.knobs.resolve_role_backend``: ``ARGUS_SKILL_{ROLE}_BACKEND`` →
     ``ARGUS_SKILL_RUNNER_BACKEND`` → ``ARGUS_SKILL_LIFE_BACKEND`` → persisted
-    knob store → codex). A role pinned to copilot/claude/opencode authenticates through
+    knob store → codex). A role pinned to copilot/claude/opencode/pi authenticates through
     its OWN CLI (the copilot subscription / claude), NOT the ``model_api`` vault
     — so probing its Azure route is a FALSE gate. Reading the resolver (not raw
     ``os.environ``) is load-bearing: a non-interactive launcher (the web
@@ -332,6 +332,7 @@ def _preflight_route_on_codex(route: str) -> bool:
         "copilot",
         "claude",
         "opencode",
+        "pi",
     }:
         return True
     role_bin = (
@@ -386,7 +387,7 @@ def _rearm_operator_drain_for_resume(
 def required_codex_routes(required: Iterable[str] | None = None) -> list[str]:
     """The subset of preflight routes that will hit the codex/Azure model_api.
 
-    Roles routed to copilot/claude/opencode are excluded (they never touch the Azure
+    Roles routed to copilot/claude/opencode/pi are excluded (they never touch the Azure
     vault). When this returns ``[]`` the daemon can skip the vault preflight
     entirely — e.g. a fully copilot-backed run needs no Azure routes at all.
     返回真正会打到 codex/Azure model_api 的预检路由子集；copilot/claude 的角色被排除。

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 
-from .runner_backend import BACKEND_CLAUDE, BACKEND_COPILOT, BACKEND_OPENCODE
+from .runner_backend import BACKEND_CLAUDE, BACKEND_COPILOT, BACKEND_OPENCODE, BACKEND_PI
 
 
 class EventConsumerMixin:
@@ -129,6 +129,15 @@ class EventConsumerMixin:
             )
         if self.backend == BACKEND_OPENCODE:
             return self._consume_opencode_event(
+                event=event,
+                thread_id=thread_id,
+                agent_messages=agent_messages,
+                turn_completed=turn_completed,
+                turn_failed=turn_failed,
+                fatal_error=fatal_error,
+            )
+        if self.backend == BACKEND_PI:
+            return self._consume_pi_event(
                 event=event,
                 thread_id=thread_id,
                 agent_messages=agent_messages,
@@ -329,6 +338,71 @@ class EventConsumerMixin:
         return thread_id, turn_completed, turn_failed, fatal_error
 
     @staticmethod
+    def _consume_pi_event(
+        *,
+        event: dict,
+        thread_id: str | None,
+        agent_messages: list[str],
+        turn_completed: bool,
+        turn_failed: bool,
+        fatal_error: str | None,
+    ) -> tuple[str | None, bool, bool, str | None]:
+        """Consume Pi's documented ``--mode json`` session event stream."""
+        event_type = str(event.get("type") or "").strip()
+        if event_type == "session":
+            session_id = event.get("id")
+            if isinstance(session_id, str) and session_id.strip():
+                thread_id = session_id.strip()
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        if event_type == "message_end":
+            message = event.get("message")
+            message = message if isinstance(message, dict) else {}
+            if str(message.get("role") or "").strip() != "assistant":
+                return thread_id, turn_completed, turn_failed, fatal_error
+            text = EventConsumerMixin._extract_claude_message_text(message)
+            if text and (not agent_messages or agent_messages[-1] != text):
+                agent_messages.append(text)
+            stop_reason = str(message.get("stopReason") or "").strip().lower()
+            if stop_reason in {"error", "aborted"}:
+                turn_failed = True
+                if fatal_error is None:
+                    detail = str(message.get("errorMessage") or "").strip()
+                    fatal_error = detail or f"Pi runner reported {stop_reason}."
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        if event_type == "message_update":
+            delta = event.get("assistantMessageEvent")
+            delta = delta if isinstance(delta, dict) else {}
+            if str(delta.get("type") or "").strip() == "error":
+                turn_failed = True
+                if fatal_error is None:
+                    detail = str(
+                        delta.get("errorMessage")
+                        or delta.get("message")
+                        or delta.get("reason")
+                        or ""
+                    ).strip()
+                    fatal_error = detail or "Pi runner reported a streaming error."
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        if event_type == "auto_retry_end" and event.get("success") is False:
+            turn_failed = True
+            if fatal_error is None:
+                fatal_error = str(event.get("finalError") or "Pi retries exhausted.").strip()
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        if event_type == "extension_error":
+            turn_failed = True
+            if fatal_error is None:
+                fatal_error = str(event.get("error") or "Pi extension failed.").strip()
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        if event_type == "agent_settled" and not turn_failed:
+            turn_completed = True
+        return thread_id, turn_completed, turn_failed, fatal_error
+
+    @staticmethod
     def _extract_claude_message_text(message: object) -> str:
         if not isinstance(message, dict):
             return ""
@@ -388,4 +462,12 @@ class EventConsumerMixin:
             "assistant.tool_call_delta",
             "session.background_tasks_changed",
             "tool.execution_partial_result",
+            # Pi's partial/full aggregate transport frames are consumed live;
+            # ``message_end`` retains the final text + usage once per turn.
+            "message_start",
+            "message_update",
+            "turn_start",
+            "turn_end",
+            "agent_end",
+            "queue_update",
         }

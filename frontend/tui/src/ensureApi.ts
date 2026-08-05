@@ -26,8 +26,8 @@ import {
  * Binary resolution (this box has SEVERAL argus-skill installs on PATH, most of
  * them older checkouts WITHOUT the `--web` flag): prefer ARGUS_SKILL_BIN, then
  * the repo's own `.venv/bin/argus-skill` (the one this frontend ships beside —
- * it has the [web] extra + `--web`), and only fall back to bare `argus-skill`
- * on PATH.
+ * the base runtime includes the WebAPI used by the cockpit), and only fall back
+ * to bare `argus-skill` on PATH.
  */
 
 function resolveBin(): string {

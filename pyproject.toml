@@ -30,6 +30,12 @@ dependencies = [
   "rich>=13.7",
   "PyYAML>=6",
   "portalocker>=3",
+  # The product-facing `argus` command is an Ink client that always ensures
+  # the local WebAPI is running.  These are therefore runtime dependencies,
+  # not an optional Web-UI add-on: a clean base install must be one-command.
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.29",
+  "websockets>=12",
 ]
 
 [project.optional-dependencies]
@@ -111,17 +117,10 @@ binary = [
 zh-fold = [
   "opencc>=1.1",
 ]
-# `argus-skill[web]` — the optional web/TUI backend API (argus_skill/webapi/).
-# A thin FastAPI layer over the file-based daemon pub/sub (events.jsonl +
-# backlog/inbox) that the Ink terminal frontend (frontend/tui/) and the React
-# web frontend (frontend/web/) both talk to. Kept OUT of the base deps so the
-# 7x24 daemon + Rich cockpit stay dependency-light; install only to run
-# `argus-skill --web`. Defaults to a 127.0.0.1 bind.
-web = [
-  "fastapi>=0.110",
-  "uvicorn[standard]>=0.29",
-  "websockets>=12",
-]
+# Compatibility alias retained for existing `argus-skill[web]` automation.
+# The WebAPI dependencies now live in the base install because the canonical
+# `argus` cockpit starts `argus-skill --web` automatically.
+web = []
 dev = [
   "build>=1",
   "mypy>=1.8,<2",
@@ -162,7 +161,7 @@ Repository = "https://github.com/lbx154/argus-skill"
 [tool.hatch.build.targets.wheel]
 packages = ["argus_skill"]
 # NOTE: hatchling's `packages` already vendors every file under argus_skill/
-# (builtin_skills/*.md, the *_schema.json, wiki/templates, codex_autoloop), so
+# (builtin_skills/*.md, runtime JSON assets, wiki/templates, agent_cli), so
 # no force-include is needed. Force-including those package dirs would re-add
 # their __init__.py and fail the build with a duplicate-path error.
 

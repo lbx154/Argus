@@ -45,6 +45,7 @@ class _ArgusArgumentParser(argparse.ArgumentParser):
 
 def build_parser() -> argparse.ArgumentParser:
     from ... import __version__
+    from ...release import release_manifest
     from ...skills.builtins import DEFAULT_PROJECT_BUILTIN_SKILLS_DIR
 
     parser = _ArgusArgumentParser(
@@ -58,10 +59,11 @@ def build_parser() -> argparse.ArgumentParser:
         # that mis-classifies ``--init`` and exits 2 on Python <= 3.12.
         allow_abbrev=False,
     )
+    release_id = str(release_manifest().get("release_id") or "unknown")
     parser.add_argument(
         "--version",
         action="version",
-        version=f"argus-skill {__version__}",
+        version=f"argus-skill {__version__} ({release_id})",
     )
 
     daemon_grp = parser.add_argument_group("7×24 daemon")
@@ -261,7 +263,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     capability_grp.add_argument(
         "--backend",
-        choices=("copilot", "codex", "claude", "opencode"),
+        choices=("copilot", "codex", "claude", "opencode", "pi"),
         default=None,
         help="backend selected by --setup, --doctor, or this daemon launch",
     )

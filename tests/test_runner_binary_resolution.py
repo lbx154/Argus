@@ -7,6 +7,7 @@ from argus_skill.agent_cli.runner_backend import (
     BACKEND_CODEX,
     BACKEND_COPILOT,
     BACKEND_OPENCODE,
+    BACKEND_PI,
     resolve_available_runner,
     resolve_runner_bin,
 )
@@ -35,6 +36,16 @@ def test_opencode_runner_uses_opencode_binary(tmp_path: Path, monkeypatch) -> No
 
     assert resolve_runner_bin(BACKEND_OPENCODE) == str(executable)
     assert AgentCliRunner(backend=BACKEND_OPENCODE).agent_bin == str(executable)
+
+
+def test_pi_runner_uses_pi_binary(tmp_path: Path, monkeypatch) -> None:
+    executable = tmp_path / "pi"
+    executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    executable.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    assert resolve_runner_bin(BACKEND_PI) == str(executable)
+    assert AgentCliRunner(backend=BACKEND_PI).agent_bin == str(executable)
 
 
 def test_opencode_runner_resolves_standard_install_directory(

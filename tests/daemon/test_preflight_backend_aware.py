@@ -106,6 +106,11 @@ def test_claude_backend_also_skips(monkeypatch) -> None:
     assert required_codex_routes() == []
 
 
+def test_pi_backend_also_skips(monkeypatch) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "pi")
+    assert required_codex_routes() == []
+
+
 def test_opencode_backend_also_skips(monkeypatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "opencode")
     assert required_codex_routes() == []

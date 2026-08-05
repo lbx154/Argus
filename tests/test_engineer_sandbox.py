@@ -417,29 +417,6 @@ def test_isolated_workdir_fails_closed_without_bubblewrap(
         sandbox.isolated_workdir_command(["copilot"], working_dir=tmp_path)
 
 
-def test_isolated_workdir_binds_reviewer_schema_from_host_tmp(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    workdir = tmp_path / "worktree"
-    workdir.mkdir()
-    schema = tmp_path / "review-schema.json"
-    schema.write_text("{}\n", encoding="utf-8")
-    monkeypatch.setattr(sandbox.shutil, "which", lambda _name: "/usr/bin/bwrap")
-
-    command = sandbox.isolated_workdir_command(
-        ["codex", "--output-schema", str(schema)],
-        working_dir=workdir,
-    )
-
-    schema_index = command.index(str(schema))
-    assert command[schema_index - 1 : schema_index + 2] == [
-        "--ro-bind",
-        str(schema),
-        str(schema),
-    ]
-
-
 def test_isolated_runner_scrubs_credentials_even_without_native_sandbox(
     monkeypatch,
 ) -> None:

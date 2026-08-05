@@ -1,9 +1,8 @@
 """Shared literary-vertical REVIEW contract — the structured finding payload every literary
 reviewer emits and the revise stage consumes.
 
-Complementary to the framework reviewer ENVELOPE
-(:mod:`argus_skill.reviewer`, ``reviewer_schema.json``), which carries the round
-OUTCOME (status / next_action / checklist). This module carries the domain
+Complementary to the framework Reviewer's named-line verdict envelope, which
+carries the round OUTCOME (status / next_action / checklist). This module carries the domain
 FINDINGS: a ``verdict`` plus a typed, severity-tagged, evidence-located,
 fix-carrying list. The existing framework Reviewer ROLE is reused unchanged —
 this is ONLY the payload contract its literary output must satisfy, not a new

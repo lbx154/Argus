@@ -234,7 +234,7 @@ test('default feed shows pale reasoning but hides internal actions', () => {
   assert.equal(milestone?.tone, 'ok');
 });
 
-test('default feed hides reviewer protocol JSON and empty phase markers', () => {
+test('default feed hides legacy reviewer protocol payloads and empty phase markers', () => {
   assert.equal(renderEvent({
     type: 'engineer.progress', kind: 'agent_message', agent_layer: 'reviewer',
     text: '{"status":"done","reason":"verified"}',

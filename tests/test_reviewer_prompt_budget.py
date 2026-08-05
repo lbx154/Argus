@@ -4,24 +4,16 @@ The reviewer prompt built by ``_build_prompt`` is assembled and sent every
 review round. Its fixed instruction prose had grown to restate the same ideas
 3-6x with worked examples; an operator-requested compression cut the decision /
 planner-report / checkpoint / step-back prose roughly in half while preserving
-every consumed JSON field and every anti-cheat guardrail.
+every consumed named verdict field and every anti-cheat guardrail.
 
 This test pins a CHARACTER BUDGET on the built non-measured prompt so fixed
 policy prose cannot silently regrow. Task-specific checklists remain allowed;
-role/routing/schema explanations must stay compact.
+role/routing and named-verdict explanations must stay compact.
 """
 
 from __future__ import annotations
 
-import json
-from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
-
 from argus_skill.reviewer import Reviewer
-from argus_skill.reviewer._core import (
-    SCHEMA_PATH,
-    _compact_schema_for_backend,
-)
 
 # Repeated evidence-policy prose was removed; the representative prompt is now
 # about 6.5k chars. Keep headroom for task checklists without permitting the
@@ -159,28 +151,10 @@ def test_research_target_context_stays_compact(tmp_path, monkeypatch):
     assert stats["estimated_tokens"] < 300
 
 
-def test_backend_schema_is_minified_without_semantic_change() -> None:
-    source = Path(SCHEMA_PATH).read_bytes()
-    compact_path, compact = _compact_schema_for_backend(SCHEMA_PATH, source)
+def test_reviewer_prompt_uses_named_footer_without_schema_language(monkeypatch) -> None:
+    prompt = _build(measured=False, monkeypatch=monkeypatch)
 
-    assert json.loads(compact) == json.loads(source)
-    assert Path(compact_path).read_bytes() == compact
-    assert len(compact) < len(source)
-    assert (len(compact) + 3) // 4 < 1_200
-
-
-def test_compact_schema_cache_is_safe_under_concurrent_reviewers() -> None:
-    source = Path(SCHEMA_PATH).read_bytes()
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        results = list(
-            pool.map(
-                lambda _index: _compact_schema_for_backend(SCHEMA_PATH, source),
-                range(32),
-            )
-        )
-
-    paths = {path for path, _contract in results}
-    assert len(paths) == 1
-    cached_path = Path(next(iter(paths)))
-    assert cached_path.read_bytes() == results[0][1]
-    assert json.loads(cached_path.read_bytes()) == json.loads(source)
+    assert "STATUS=done|continue|blocked|replan_requested" in prompt
+    assert "NEXT_ACTION=<the Engineer instruction; empty for done>" in prompt
+    assert "JSON Schema" not in prompt
+    assert "OUTPUT CONTRACT (STRICT)" not in prompt

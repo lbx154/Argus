@@ -340,7 +340,7 @@ def manager_plan(
             )
             model = (
                 "gpt-5.4-mini"
-                if planner_backend in {"codex", "copilot"}
+                if planner_backend in {"codex", "copilot", "pi"}
                 else planner_model
             )
         else:
@@ -438,7 +438,7 @@ def _rewrite_model_and_effort() -> tuple[str, str]:
         manager_backend = normalize_runner_backend(resolve_role_backend("manager"))
         model = (
             "gpt-5.4-mini"
-            if manager_backend in {"codex", "copilot"}
+            if manager_backend in {"codex", "copilot", "pi"}
             else manager_model
         )
     else:

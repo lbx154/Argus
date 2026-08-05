@@ -188,15 +188,7 @@ class RunExecMixin:
         command = self._build_command(
             resume_thread_id=resume_thread_id, options=options
         )
-        effective_prompt = self._effective_prompt(
-            prompt=prompt,
-            resume_thread_id=resume_thread_id,
-            options=options,
-        )
-        command, stdin_prompt = self._prepare_prompt_delivery(
-            command,
-            effective_prompt,
-        )
+        command, stdin_prompt = self._prepare_prompt_delivery(command, prompt)
         command[0] = self._resolve_executable(command[0])
         if options.isolate_workdir:
             try:

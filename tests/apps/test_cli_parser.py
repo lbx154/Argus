@@ -29,6 +29,14 @@ def test_public_help_distinguishes_human_and_automation_surfaces() -> None:
     assert "wiki" not in help_text
 
 
+def test_version_reports_release_identity(capsys) -> None:
+    with pytest.raises(SystemExit, match="0"):
+        build_parser().parse_args(["--version"])
+    rendered = capsys.readouterr().out
+    assert "argus-skill 0.1.1" in rendered
+    assert "0.1.1+" in rendered
+
+
 def test_debug_help_still_exposes_internal_flags(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_DEBUG_HELP", "1")
     help_text = build_parser().format_help()
@@ -76,6 +84,11 @@ def test_parser_accepts_noninteractive_backend_setup_contract() -> None:
     assert args.auth_mode == "subscription_cli"
     assert args.accept_house_rules is True
     assert args.allow_prerelease is True
+
+
+def test_parser_accepts_pi_backend() -> None:
+    args = build_parser().parse_args(["--doctor", "--backend", "pi"])
+    assert args.backend == "pi"
 
 
 def test_parser_exposes_cli_doctor() -> None:

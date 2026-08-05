@@ -60,7 +60,6 @@ class RunnerOptions:
 
     model: str | None = None
     reasoning_effort: str | None = None
-    output_schema_path: str | None = None
     working_dir: str | None = None
     add_dirs: list[str] | None = None
     extra_args: list[str] | None = None

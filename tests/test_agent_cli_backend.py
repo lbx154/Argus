@@ -48,7 +48,6 @@ class FakeCliRunnerOptions:
     sandbox_mode: str | None = None
     extra_args: list[str] | None = None
     working_dir: str | None = None
-    output_schema_path: str | None = None
     external_interrupt_reason_provider: Any | None = None
     inactivity_callback: Any | None = None
     watchdog_soft_idle_seconds: int = 0
@@ -105,6 +104,7 @@ def fake_agent_cli(monkeypatch: pytest.MonkeyPatch) -> None:
     backend_mod.__dict__["BACKEND_CODEX"] = "codex"
     backend_mod.__dict__["BACKEND_COPILOT"] = "copilot"
     backend_mod.__dict__["BACKEND_OPENCODE"] = "opencode"
+    backend_mod.__dict__["BACKEND_PI"] = "pi"
     backend_mod.__dict__["DEFAULT_RUNNER_BACKEND"] = "codex"
 
     def default_runner_bin() -> str | None:
@@ -221,7 +221,6 @@ def test_run_exec_translates_options_and_result(
         sandbox_mode="read-only",
         skip_git_repo_check=True,
         dangerous_yolo=False,
-        output_schema_path="/tmp/schema.json",
     )
     result = backend.run_exec(
         prompt="say hi",
@@ -240,7 +239,6 @@ def test_run_exec_translates_options_and_result(
     assert forwarded.sandbox_mode == "read-only"
     assert forwarded.skip_git_repo_check is True
     assert forwarded.dangerous_yolo is False
-    assert forwarded.output_schema_path == "/tmp/schema.json"
     assert captured["resume_thread_id"] == "thr-prev"
     assert captured["run_label"] == "engineer-r1"
     assert captured["prompt"] == "say hi"
@@ -298,6 +296,55 @@ def test_opencode_success_persists_provider_reported_cost(
     result = backend.run_exec(
         prompt="priced OpenCode call",
         options=RunnerOptions(model="anthropic/claude-sonnet-4-5"),
+        run_label="engineer-r1",
+    )
+
+    usage_row = json.loads((project / "usage.jsonl").read_text().strip())
+    assert result.cost_usd == pytest.approx(0.0123)
+    assert result.pricing_status == "priced"
+    assert usage_row["cost_usd"] == pytest.approx(0.0123)
+    assert usage_row["pricing_tier"] == "provider_reported"
+    assert usage_row["cost_basis"] == "provider_reported"
+
+
+def test_pi_success_persists_provider_reported_cost(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = AgentCliBackend(backend="pi")
+    project = tmp_path / ".argus"
+    backend.set_usage_context(project_root=project)
+
+    monkeypatch.setattr(
+        backend._runner.__class__,
+        "run_exec",
+        lambda self, **kwargs: _make_cli_result(
+            json_events=[
+                {
+                    "type": "message_end",
+                    "message": {
+                        "role": "assistant",
+                        "model": "gpt-5.4-mini",
+                        "usage": {
+                            "input": 100,
+                            "output": 20,
+                            "cacheRead": 40,
+                            "cacheWrite": 0,
+                            "reasoning": 5,
+                            "cost": {"total": 0.0123},
+                        },
+                    },
+                }
+            ],
+            thread_id="pi-cost-thread",
+            usage_model="gpt-5.4-mini",
+        ),
+        raising=True,
+    )
+
+    result = backend.run_exec(
+        prompt="priced Pi call",
+        options=RunnerOptions(model="gpt-5.4-mini"),
         run_label="engineer-r1",
     )
 

@@ -63,10 +63,11 @@ KNOBS: tuple[Knob, ...] = (
     Knob(
         "ARGUS_SKILL_LIFE_BACKEND",
         "codex",
-        "agent backend: codex | copilot | claude | opencode | memory (test only)",
+        "agent backend: codex | copilot | claude | opencode | pi | memory (test only)",
         "backend",
     ),
     Knob("ARGUS_SKILL_RUNNER_BIN", "(agent CLI on PATH)", "absolute path to the agent CLI binary", "backend"),
+    Knob("ARGUS_SKILL_PI_SESSION_DIR", "(~/.argus-skill/pi-sessions)", "Argus-owned Pi session storage, separate from interactive Pi history", "backend"),
     Knob("ARGUS_SKILL_ENGINEER_BACKEND", "(=LIFE_BACKEND)", "per-role backend override for the engineer", "backend", cockpit=True),
     Knob("ARGUS_SKILL_REVIEWER_BACKEND", "(=LIFE_BACKEND)", "per-role backend override for the reviewer", "backend", cockpit=True),
     Knob("ARGUS_SKILL_PLANNER_BACKEND", "(=LIFE_BACKEND)", "per-role backend override for the planner", "backend", cockpit=True),
@@ -93,10 +94,10 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.5", "model for the L1 engineer", "models", cockpit=True),
     Knob("ARGUS_SKILL_REVIEWER_MODEL", "gpt-5.5", "model for the L2 reviewer", "models", cockpit=True),
     Knob("ARGUS_SKILL_PLAN_MODEL", "gpt-5.5", "model for the L4 planner", "models", cockpit=True),
-    Knob("ARGUS_SKILL_PLAN_PREVIEW_MODEL", "auto", "interactive /plan model: gpt-5.4-mini on codex/copilot, planner model on claude; set an id to override", "models"),
+    Knob("ARGUS_SKILL_PLAN_PREVIEW_MODEL", "auto", "interactive /plan model: gpt-5.4-mini on codex/copilot/pi, planner model otherwise; set an id to override", "models"),
     Knob("ARGUS_SKILL_REWRITE_MODEL", "gpt-5.5", "interactive prompt rewrite model", "models"),
     Knob("ARGUS_SKILL_MANAGER_REPLY_MODEL", "inherit", "operator-facing Manager SELF model; inherit uses the configured Manager/shared route model", "models", cockpit=True),
-    Knob("ARGUS_SKILL_FRONTDOOR_MODEL", "auto", "cheap front-door classification model: gpt-5.4-mini on codex/copilot, Manager model otherwise", "models"),
+    Knob("ARGUS_SKILL_FRONTDOOR_MODEL", "auto", "cheap front-door classification model: gpt-5.4-mini on codex/copilot/pi, Manager model otherwise", "models"),
     # --- reasoning effort ---
     Knob("ARGUS_SKILL_MANAGER_REASONING_EFFORT", "xhigh", "manager reasoning effort", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_PLANNER_REASONING_EFFORT", "xhigh", "planner reasoning effort", "reasoning", cockpit=True),
@@ -398,8 +399,10 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
         backend = raw.lower()
         if backend == "opencod":
             backend = "opencode"
-        if backend not in {"codex", "claude", "copilot", "opencode"}:
-            raise ValueError(f"{name} must be codex, claude, copilot, or opencode")
+        if backend not in {"codex", "claude", "copilot", "opencode", "pi"}:
+            raise ValueError(
+                f"{name} must be codex, claude, copilot, opencode, or pi"
+            )
         return backend
     if name in _EFFORT_KNOBS:
         effort = raw.lower()
@@ -508,7 +511,7 @@ def resolve_role_model(
 
 
 def resolve_role_backend(role: str, *, env: Mapping[str, str] | None = None) -> str:
-    """Resolve a role's agent-CLI backend (codex / claude / copilot / opencode / memory)
+    """Resolve a role's agent-CLI backend (codex / claude / copilot / opencode / pi / memory)
     using Argus's runtime precedence.
 
     Precedence: role-specific override (``ARGUS_SKILL_<ROLE>_BACKEND``) ->
@@ -570,7 +573,7 @@ def resolve_manager_classify_model(*, env: Mapping[str, str] | None = None) -> s
     from ..agent_cli.runner_backend import normalize_runner_backend
 
     backend = normalize_runner_backend(resolve_role_backend("manager", env=env_map))
-    if backend in {"codex", "copilot"}:
+    if backend in {"codex", "copilot", "pi"}:
         return "gpt-5.4-mini"
     return resolve_role_model(
         "manager",

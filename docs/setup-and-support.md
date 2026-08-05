@@ -24,7 +24,10 @@ pip install -e .
 argus --setup
 ```
 
-Both paths use the same setup, doctor, cockpit, and daemon commands.
+Both paths use the same setup, doctor, cockpit, and daemon commands. The base
+Python distribution includes the local FastAPI WebAPI because the canonical
+`argus` cockpit starts that backend automatically; the historical `[web]` extra
+is retained only as a compatibility alias.
 
 ## Platform and runtime support
 
@@ -44,6 +47,7 @@ Both paths use the same setup, doctor, cockpit, and daemon commands.
 | OpenAI Codex CLI | `npm install -g @openai/codex@latest` | `codex login` or explicit model-API mode | Stable `>=0.128.0`; tested recommendation `0.144.5` |
 | Claude Code | `npm install -g @anthropic-ai/claude-code` | `claude auth login` | Current stable CLI |
 | OpenCode | `curl -fsSL https://opencode.ai/install \| bash` | `opencode auth login` | Current stable CLI |
+| Pi | `npm install -g --ignore-scripts @earendil-works/pi-coding-agent` | Run `pi`, then `/login`, or configure a Pi provider API key | `>=0.83.0` |
 
 Codex prereleases are rejected unless the operator explicitly passes
 `--allow-prerelease` or sets `ARGUS_SKILL_ALLOW_BACKEND_PRERELEASE=1`.

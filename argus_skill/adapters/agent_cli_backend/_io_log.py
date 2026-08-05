@@ -78,6 +78,13 @@ _PROGRESS_STREAM_MARKERS = (
     '"type": "step_finish"',
     '"type":"reasoning"',
     '"type": "reasoning"',
+    # Pi ``--mode json`` event names.
+    '"type":"message_end"',
+    '"type": "message_end"',
+    '"type":"tool_execution_start"',
+    '"type": "tool_execution_start"',
+    '"type":"tool_execution_end"',
+    '"type": "tool_execution_end"',
 )
 
 

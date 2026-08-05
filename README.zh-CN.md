@@ -142,7 +142,7 @@ argus --daemon --continuous \
 与 `--follow` 查看。Argus 也可交给用户级 service manager 长期托管；受控替换会保留
 campaign identity，绝不在升级时静默重规划正在执行的目标。
 
-Argus 面向四种可互换的 agent CLI backend：
+Argus 面向五种可互换的 agent CLI backend：
 
 | Backend | 配置值 | 安装 | 鉴权 |
 |---|---|---|---|
@@ -150,6 +150,7 @@ Argus 面向四种可互换的 agent CLI backend：
 | OpenAI Codex CLI | `codex`（默认） | `npm install -g @openai/codex@latest` | `subscription_cli` 或显式 `model_api`；稳定版 `>=0.128.0` |
 | Claude Code | `claude` | `npm install -g @anthropic-ai/claude-code` | 交互式登录 |
 | OpenCode | `opencode` | `curl -fsSL https://opencode.ai/install \| bash` | `opencode auth login` 或 provider 环境变量 |
+| Pi | `pi` | `npm install -g --ignore-scripts @earendil-works/pi-coding-agent` | 运行 `pi` 后使用 `/login`；复用 Pi provider/API-key 配置 |
 
 可设置 `ARGUS_SKILL_RUNNER_BACKEND`，也可直接在 cockpit 中切换 backend 与 model。
 完整支持矩阵、鉴权模式、非交互 setup 与退出码见

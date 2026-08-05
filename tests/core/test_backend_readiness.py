@@ -107,6 +107,47 @@ def test_auth_failure_uses_exit_status(monkeypatch) -> None:
     assert "codex login" in report.problems[0].remediation
 
 
+def test_pi_readiness_uses_model_listing_without_spending_a_turn(monkeypatch) -> None:
+    monkeypatch.setattr(readiness, "resolve_runner_bin", lambda *_args: "/bin/pi")
+
+    def run(command, *, timeout_s, input_text=None):
+        del timeout_s, input_text
+        if command[-1] == "--version":
+            return _completed("0.83.0\n")
+        assert command[-1] == "--list-models"
+        return _completed(
+            "provider model context max-out thinking images\n"
+            "github-copilot gpt-5.6-sol 1.1M 128K yes yes\n"
+        )
+
+    monkeypatch.setattr(readiness, "_run_text", run)
+
+    report = readiness.check_backend_readiness("pi", "subscription_cli")
+
+    assert report.ok
+    assert report.auth_checked
+    assert report.version == "0.83.0"
+
+
+def test_pi_below_supported_floor_fails(monkeypatch) -> None:
+    monkeypatch.setattr(readiness, "resolve_runner_bin", lambda *_args: "/bin/pi")
+    monkeypatch.setattr(
+        readiness,
+        "_run_text",
+        lambda command, **_kwargs: _completed("0.82.0\n"),
+    )
+
+    report = readiness.check_backend_readiness(
+        "pi",
+        "subscription_cli",
+        probe_auth=False,
+    )
+
+    assert not report.ok
+    assert ">=0.83.0" in report.problems[0].detail
+    assert "pi update --self" in report.problems[0].remediation
+
+
 def test_subscription_mode_never_loads_model_api_vault(monkeypatch) -> None:
     _fake_codex(monkeypatch, "0.144.5")
     monkeypatch.setattr(

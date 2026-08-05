@@ -111,7 +111,7 @@ describe('renderEvent', () => {
     ])).toBeNull();
   });
 
-  it('hides reviewer protocol JSON and empty phase markers', () => {
+  it('hides legacy reviewer protocol payloads and empty phase markers', () => {
     expect(renderEvent({
       type: 'engineer.progress', kind: 'agent_message', agent_layer: 'reviewer',
       text: '{"status":"done","reason":"verified"}',

@@ -10,7 +10,7 @@ This directory is a vendored copy of the **ArgusBot** package
 
 `argus_skill.adapters.agent_cli_backend` and `argus_skill.apps._life_repl` need
 the codex/claude/copilot CLI dialect handler from ArgusBot. Argus additionally
-maintains its OpenCode dialect in this copy. We vendor the
+maintains its OpenCode and Pi JSON-stream dialects in this copy. We vendor the
 module so end users do not need a separate `pip install 'argus-skill[codex]'`
 step — `pip install argus-skill` is sufficient to drive the codex CLI.
 

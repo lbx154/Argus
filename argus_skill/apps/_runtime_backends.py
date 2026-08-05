@@ -46,7 +46,7 @@ class _Outcome:
     # True when a trusted review-only workflow deliberately bypassed the formal
     # stage writer. Persisted separately so recovery cannot replay the review.
     stage_transition_skipped: bool = False
-    # The reviewer's ``operator_question`` (reviewer_schema.json) from the
+    # The reviewer's named ``OPERATOR_QUESTION`` verdict field from the
     # FINAL round, when the mission stopped with ``status == "blocked"``. The
     # supervisor persists this onto the backlog item (``pending_question``)
     # so it survives past this one event and /status can list it later —

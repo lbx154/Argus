@@ -686,7 +686,7 @@ class BacklogItem:
     finished_ts: float | None = None
     last_error: str = ""
     # Set when this item's reviewer verdict was "blocked" with a
-    # non-empty ``operator_question`` (reviewer_schema.json) — i.e. it did not
+    # non-empty named ``OPERATOR_QUESTION`` verdict field — i.e. it did not
     # fail on a bug/crash, it stopped because the REVIEWER needed the operator
     # to make a call. Persisted on the item (not just kept in an ephemeral
     # Manager state) so it survives a cockpit/daemon restart and so /status can

@@ -1,4 +1,4 @@
-"""Vendored low-level codex/claude/copilot/opencode CLI driver.
+"""Vendored low-level codex/claude/copilot/opencode/pi CLI driver.
 
 ``AgentCliRunner`` and ``RunnerOptions`` are the two public names callers
 import from this module (``argus_skill.adapters.agent_cli_backend`` wraps
@@ -69,7 +69,6 @@ class RunnerOptions:
     live_search: bool = False
     extra_args: list[str] | None = None
     working_dir: str | None = None
-    output_schema_path: str | None = None
     watchdog_soft_idle_seconds: int | None = None
     watchdog_stalled_idle_seconds: int | None = None
     watchdog_hard_idle_seconds: int | None = None
@@ -95,7 +94,7 @@ class AgentCliRunner(
     OpenCodeRecoveryMixin,
     ProcessControlMixin,
 ):
-    """Drives one codex/claude/copilot/opencode CLI turn.
+    """Drives one codex/claude/copilot/opencode/pi CLI turn.
 
     This class itself only owns construction and ACP-scope state; every other
     behavior comes from the mixins above (each documented in its own module):
@@ -105,8 +104,7 @@ class AgentCliRunner(
       into its start-gate / spawn / stream / finalize phases.
     - ``_sandbox_commands.CommandBuilderMixin``: per-backend argv construction
       and the codex sandbox policy gate.
-    - ``_prompt_delivery.PromptDeliveryMixin``: stdin prompt delivery and the
-      embedded output-schema contract for backends without ``--output-schema``.
+    - ``_prompt_delivery.PromptDeliveryMixin``: safe stdin/positional prompt delivery.
     - ``_event_consumers.EventConsumerMixin``: per-backend JSON event parsing.
     - ``_opencode_recovery.OpenCodeRecoveryMixin``: truncated-stream recovery
       for OpenCode.

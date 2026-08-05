@@ -78,7 +78,7 @@ def _plan_bounded_execution(
         planner_backend = normalize_runner_backend(resolve_role_backend("planner"))
         model = (
             "gpt-5.4-mini"
-            if planner_backend in {"codex", "copilot"}
+            if planner_backend in {"codex", "copilot", "pi"}
             else resolve_role_model("planner", role_env="ARGUS_SKILL_PLAN_MODEL")
         )
     else:
