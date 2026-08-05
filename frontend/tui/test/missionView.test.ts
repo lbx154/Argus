@@ -235,6 +235,57 @@ test('live snapshot preserves authoritative completed pipeline roles', () => {
   );
 });
 
+test('completed mission preserves terminal role verdicts', () => {
+  const completed = snapshot();
+  completed.daemon.alive = false;
+  completed.backlog = [{
+    id: 'task-1',
+    title: 'Paper review',
+    objective: 'Review the paper',
+    status: 'failed',
+    priority: 1,
+    deps: [],
+  }];
+  completed.roles = ['manager', 'planner', 'engineer', 'reviewer'].map((role) => ({
+    role,
+    backend: 'copilot',
+    backend_label: 'Copilot',
+    model: 'gpt',
+    effort: 'high',
+    active: false,
+    label: 'idle',
+    status: 'idle',
+    age_s: 20,
+  }));
+  completed.mission_view = emptyMissionView();
+  completed.mission_view.mission.id = 'task-1';
+  completed.mission_view.mission.status = 'failed';
+  Object.assign(completed.mission_view.roles.find((role) => role.role === 'manager')!, {
+    status: 'done', label: 'Goal framed',
+  });
+  Object.assign(completed.mission_view.roles.find((role) => role.role === 'planner')!, {
+    status: 'done', label: 'Research branch added',
+  });
+  Object.assign(completed.mission_view.roles.find((role) => role.role === 'engineer')!, {
+    status: 'error', label: 'Mission failed',
+  });
+  Object.assign(completed.mission_view.roles.find((role) => role.role === 'reviewer')!, {
+    status: 'rejected', label: 'Requested another attempt',
+  });
+
+  const view = projectMissionView(completed);
+
+  assert.deepEqual(
+    view.roles.map((role) => [role.role, role.status]),
+    [
+      ['manager', 'done'],
+      ['planner', 'done'],
+      ['engineer', 'error'],
+      ['reviewer', 'rejected'],
+    ],
+  );
+});
+
 test('budget summary is always visible with global spend and cap', () => {
   assert.equal(
     budgetSummary(0.26285125, 'priced', 300),
