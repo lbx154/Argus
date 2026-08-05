@@ -96,8 +96,48 @@ def test_source_controlled_skills_use_only_minimal_frontmatter() -> None:
     assert checked > 100
 
 
-def test_wiki_rejects_extra_frontmatter() -> None:
+def test_wiki_writes_only_minimal_frontmatter() -> None:
     text = serialize_page(WikiPage("Title", "Description", "# Title"))
-    invalid = text.replace("description: Description", "description: Description\ntags: []")
-    with pytest.raises(ValueError, match="only title and description"):
-        parse_page(invalid)
+    front = yaml.safe_load(text[4:].split("\n---\n", 1)[0])
+    assert set(front) == {"title", "description"}
+
+
+def test_wiki_reads_legacy_pages_instead_of_dropping_them() -> None:
+    """Pages predating the two-field format carry a richer frontmatter and no
+    description. Rejecting them emptied every existing knowledge base."""
+    legacy = (
+        "---\n"
+        "id: erdos-straus-typeii\n"
+        "type: pattern\n"
+        "status: superseded-by-witness\n"
+        "title: Type II residue reduction\n"
+        "tags: [number-theory]\n"
+        "sources: []\n"
+        "---\n"
+        "\n"
+        "# Type II residue reduction\n"
+        "\n"
+        "Reduces the residue class before the lift gate.\n"
+    )
+    page = parse_page(legacy)
+    assert page.title == "Type II residue reduction"
+    assert page.description == "Reduces the residue class before the lift gate."
+    assert "lift gate" in page.content
+
+
+def test_wiki_description_falls_back_to_title_when_body_has_no_prose() -> None:
+    text = "---\ntitle: Only a heading\nstatus: active\n---\n\n# Only a heading\n"
+    assert parse_page(text).description == "Only a heading"
+
+
+def test_wiki_description_skips_fenced_code() -> None:
+    text = (
+        "---\ntitle: Fenced\n---\n\n"
+        "# Fenced\n\n```text\nnot_a_description=1\n```\n\nReal prose here.\n"
+    )
+    assert parse_page(text).description == "Real prose here."
+
+
+def test_wiki_still_requires_a_title() -> None:
+    with pytest.raises(ValueError, match="title"):
+        parse_page("---\nstatus: active\n---\n\nBody\n")
