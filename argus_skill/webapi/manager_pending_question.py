@@ -131,6 +131,7 @@ def _resolve_pending_question_with_manager(
     chat_state: dict[str, Any],
     *,
     root_task_id: str | None = None,
+    decision_option: str = "custom",
 ) -> dict[str, Any]:
     from ..apps._inbox import queue_inbox_message
     from ..core.event_catalog import EventType
@@ -182,6 +183,7 @@ def _resolve_pending_question_with_manager(
         item.id,
         answer,
         manager_decision=parsed["decision"],
+        decision_option=decision_option,
     )
     if blocked is None:
         return {"error": "unknown backlog item", "answered_item_id": item.id}
@@ -223,6 +225,7 @@ def manager_answer_pending_question(
     text: str,
     *,
     global_root: Path | str | None = None,
+    decision_option: str = "custom",
 ) -> dict[str, Any] | None:
     """Have Manager interpret and atomically deliver one operator answer."""
     from ..core.transcript import append_turn
@@ -256,12 +259,24 @@ def manager_answer_pending_question(
             item,
             text,
             chat_state,
+            decision_option=decision_option,
         )
         reply = str(
             result.get("reply")
             or result.get("error")
             or "Manager could not resolve the pending question."
         )
+        if result.get("resolved"):
+            from ..daemon.state import read_continuous_state, write_continuous_config
+
+            continuous = read_continuous_state(mem.project_root)
+            if continuous.objective.strip() and not continuous.enabled:
+                write_continuous_config(
+                    mem.project_root,
+                    enabled=True,
+                    objective=continuous.objective,
+                )
+                result["continuous"] = True
         append_turn(mem.project_root, "argus", reply)
         _emit_ui_turn(
             mem.project_root,
@@ -270,6 +285,73 @@ def manager_answer_pending_question(
             message_id=f"{turn_id}-argus",
         )
         return result
+
+
+def manager_resolve_operator_decision(
+    sid: str,
+    decision_id: str,
+    option_id: str,
+    note: str = "",
+    *,
+    expected_revision: int | None = None,
+    global_root: Path | str | None = None,
+) -> dict[str, Any] | None:
+    """Resolve one visible decision-card option."""
+    from ..core.operator_decision import selected_decision_text
+    from ..daemon.state import read_continuous_state, write_continuous_config
+    from ..life.memory import MemoryBundle
+
+    mem = MemoryBundle.for_cwd(
+        fingerprint=sid,
+        global_root=Path(global_root) if global_root else None,
+    )
+    item = next(
+        (
+            row
+            for row in mem.backlog.all()
+            if str(row.operator_decision.get("id") or "") == decision_id
+        ),
+        None,
+    )
+    if item is None:
+        return None
+    card = item.operator_decision
+    if card.get("status") != "pending":
+        return {"error": "decision is no longer pending"}
+    if expected_revision is not None and int(card.get("revision", 1)) != expected_revision:
+        return {"error": "decision changed; reload before choosing"}
+    if option_id == "stop":
+        stopped = mem.backlog.stop_for_operator_decision(item.id, note=note)
+        if stopped is None:
+            return {"error": "decision is no longer pending"}
+        continuous = read_continuous_state(mem.project_root)
+        if continuous.enabled:
+            write_continuous_config(
+                mem.project_root,
+                enabled=False,
+                objective=continuous.objective,
+                done_reason="operator chose to stop the campaign",
+            )
+        return {
+            "resolved": True,
+            "stopped": True,
+            "decision_id": decision_id,
+            "reply": "Campaign stopped. Current work was preserved.",
+        }
+    try:
+        answer = selected_decision_text(card, option_id, note)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    result = manager_answer_pending_question(
+        sid,
+        item.id,
+        answer,
+        global_root=global_root,
+        decision_option=option_id,
+    )
+    if result is not None:
+        result["decision_id"] = decision_id
+    return result
 
 
 def record_task_dispatch_ack(

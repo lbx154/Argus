@@ -31,6 +31,12 @@ class AnswerIn(BaseModel):
     text: str
 
 
+class DecisionIn(BaseModel):
+    option_id: str
+    note: str = ""
+    expected_revision: int | None = None
+
+
 class AbortMissionIn(BaseModel):
     reason: str = ""
 

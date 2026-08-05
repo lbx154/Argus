@@ -695,6 +695,7 @@ class BacklogItem:
     # folded into a follow-up item (see ``manager.dispatch.enqueue_mission``)
     # — a non-empty value always means "still waiting on the operator".
     pending_question: str = ""
+    operator_decision: dict[str, Any] = field(default_factory=dict)
     # --- iteration loop fields (Phase-7) -------------------------------
     # When ``iterate`` is True the supervisor, after a successful
     # ``done`` verdict, hands the produced artefacts to a L2 reviewer agent. The reviewer is the only verdict authority;
@@ -838,6 +839,11 @@ class BacklogItem:
             finished_ts=row.get("finished_ts"),
             last_error=str(row.get("last_error", "")),
             pending_question=str(row.get("pending_question", "")),
+            operator_decision=(
+                dict(row.get("operator_decision", {}))
+                if isinstance(row.get("operator_decision"), dict)
+                else {}
+            ),
             iterate=bool(row.get("iterate", False)),
             iteration_max_cycles=int(row.get("iteration_max_cycles", 6)),
             iteration_cycles_done=int(row.get("iteration_cycles_done", 0)),
@@ -1325,6 +1331,7 @@ class Backlog:
         answer: str,
         *,
         manager_decision: str = "",
+        decision_option: str = "custom",
     ) -> tuple[BacklogItem | None, BacklogItem | None]:
         """Atomically consume one pending question and enqueue its continuation."""
         with self._locked():
@@ -1394,6 +1401,13 @@ class Backlog:
             blocked.status = "failed"
             blocked.finished_ts = time.time()
             blocked.pending_question = ""
+            if blocked.operator_decision:
+                blocked.operator_decision.update({
+                    "status": "resolved",
+                    "selected_option": decision_option,
+                    "note": answer,
+                    "revision": int(blocked.operator_decision.get("revision", 1)) + 1,
+                })
             # The blocked item becomes terminal in the same transaction that
             # creates its continuation. Every live downstream node that
             # depended on it must now depend on the continuation; otherwise
@@ -1411,6 +1425,31 @@ class Backlog:
             self._validate_no_dependency_cycles(items)
             self._save(items)
             return blocked, continuation
+
+    def stop_for_operator_decision(
+        self,
+        item_id: str,
+        *,
+        note: str = "",
+    ) -> BacklogItem | None:
+        """Resolve one pending decision by stopping its campaign item."""
+        with self._locked():
+            items = self._load()
+            item = next((row for row in items if row.id == item_id), None)
+            if item is None or not item.pending_question:
+                return None
+            item.status = "aborted"
+            item.finished_ts = time.time()
+            item.pending_question = ""
+            if item.operator_decision:
+                item.operator_decision.update({
+                    "status": "resolved",
+                    "selected_option": "stop",
+                    "note": note.strip(),
+                    "revision": int(item.operator_decision.get("revision", 1)) + 1,
+                })
+            self._save(items)
+            return item
 
     def claim_next(self) -> BacklogItem | None:
         """Atomically pick the head *ready* pending item and flip it to ``running``.

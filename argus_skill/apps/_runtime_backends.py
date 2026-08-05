@@ -55,6 +55,7 @@ class _Outcome:
     operator_question: str = ""
     final_review_status: str = ""
     final_review_reason: str = ""
+    final_review_next_action: str = ""
 
 
 # ---------------------------------------------------------------------------

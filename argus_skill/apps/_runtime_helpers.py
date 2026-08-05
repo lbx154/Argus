@@ -239,6 +239,7 @@ class _ExecuteState:
         self.rounds_list: list = []
         self.operator_question: str = ""
         self.final_review_status: str = ""
+        self.final_review_next_action: str = ""
         self.review_source: str = ""
         self.final_submission_certified: bool = False
         self.completion_evidence: str = ""

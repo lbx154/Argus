@@ -406,6 +406,24 @@ class MissionExecutionSettlementMixin:
         if success:
             self.memory.backlog.mark_done(item.id, outcome=outcome_dimensions)
         elif status == "blocked" and operator_question:
+            from ...core.operator_decision import build_operator_decision
+
+            evidence = list(getattr(item, "context_refs", None) or [])
+            if str(getattr(item, "acceptance_check", "") or "").strip():
+                evidence.append({
+                    "label": "Acceptance check",
+                    "summary": str(item.acceptance_check).strip(),
+                })
+            decision_card = build_operator_decision(
+                item_id=item.id,
+                title=item.title,
+                reason=str(getattr(outcome, "final_review_reason", "") or err),
+                question=operator_question,
+                recommendation=str(
+                    getattr(outcome, "final_review_next_action", "") or ""
+                ),
+                evidence=evidence,
+            )
             # Status and the authority-bearing question must reach disk in one
             # backlog transaction. Keep the row nonterminal so dependency
             # reconciliation cannot cascade-skip its downstream plan while the
@@ -418,6 +436,7 @@ class MissionExecutionSettlementMixin:
                 last_error=err,
                 outcome=outcome_dimensions,
                 pending_question=operator_question,
+                operator_decision=decision_card,
             )
         elif stage_reconciled_replan:
             self.memory.backlog.mark_failed(

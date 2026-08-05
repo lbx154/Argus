@@ -391,6 +391,11 @@ def compact_backlog_item(item: Any) -> dict[str, Any]:
         "priority": int(getattr(item, "priority", 100)),
         "iterate": bool(getattr(item, "iterate", False)),
         "pending_question": str(getattr(item, "pending_question", "") or "")[:500],
+        "operator_decision": (
+            dict(getattr(item, "operator_decision", {}) or {})
+            if isinstance(getattr(item, "operator_decision", {}), dict)
+            else {}
+        ),
         "started_ts": getattr(item, "started_ts", None),
         "finished_ts": getattr(item, "finished_ts", None),
         "deps": [str(dep) for dep in (getattr(item, "deps", None) or [])],

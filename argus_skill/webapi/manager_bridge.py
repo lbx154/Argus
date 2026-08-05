@@ -541,6 +541,9 @@ _resolve_pending_question_with_manager = (
 manager_answer_pending_question = (
     manager_pending_question.manager_answer_pending_question
 )
+manager_resolve_operator_decision = (
+    manager_pending_question.manager_resolve_operator_decision
+)
 record_task_dispatch_ack = manager_pending_question.record_task_dispatch_ack
 
 # manager_dispatch.py

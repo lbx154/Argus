@@ -18,6 +18,7 @@ from .context import ServerContext
 from .models import (
     AbortMissionIn,
     AnswerIn,
+    DecisionIn,
     DisposeIn,
     NoteIn,
     NudgeIn,
@@ -93,6 +94,39 @@ def register_workitem_routes(app, ctx: ServerContext, server_mod) -> None:
                 server_mod.start_project_daemon,
                 sid,
                 global_root=project_root,
+                reclaim_idle=True,
+            )
+        return result
+
+    @app.post(
+        "/api/projects/{sid}/decisions/{decision_id}/resolve",
+        dependencies=[Depends(ctx.require_auth)],
+    )
+    async def _resolve_decision(
+        sid: str,
+        decision_id: str,
+        body: DecisionIn,
+    ) -> dict[str, Any]:
+        project_root = ctx.project_root_or_404(sid)
+        result = await run_in_threadpool(
+            server_mod.resolve_operator_decision,
+            sid,
+            decision_id,
+            body.option_id,
+            body.note,
+            expected_revision=body.expected_revision,
+            global_root=project_root,
+        )
+        if result is None:
+            raise HTTPException(status_code=404, detail="unknown decision")
+        if result.get("error"):
+            raise HTTPException(status_code=409, detail=result["error"])
+        if result.get("resolved") and not result.get("stopped"):
+            result["daemon"] = await run_in_threadpool(
+                server_mod.start_project_daemon,
+                sid,
+                global_root=project_root,
+                resume_continuous=bool(result.get("continuous")),
                 reclaim_idle=True,
             )
         return result

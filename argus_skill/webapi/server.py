@@ -293,6 +293,7 @@ enqueue_task = mission_items.enqueue_task
 enqueue_task_command = mission_items.enqueue_task_command
 enqueue_nudge = mission_items.enqueue_nudge
 answer_pending_question = mission_items.answer_pending_question
+resolve_operator_decision = mission_items.resolve_operator_decision
 get_status = mission_items.get_status
 get_journal = mission_items.get_journal
 add_project_note = mission_items.add_project_note

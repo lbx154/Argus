@@ -188,6 +188,27 @@ def answer_pending_question(
     )
 
 
+def resolve_operator_decision(
+    sid: str,
+    decision_id: str,
+    option_id: str,
+    note: str = "",
+    *,
+    expected_revision: int | None = None,
+    global_root: Path | str | None = None,
+) -> dict[str, Any] | None:
+    from .manager_bridge import manager_resolve_operator_decision
+
+    return manager_resolve_operator_decision(
+        sid,
+        decision_id,
+        option_id,
+        note,
+        expected_revision=expected_revision,
+        global_root=global_root,
+    )
+
+
 def get_status(sid: str, *, global_root: Path | str | None = None) -> dict[str, Any] | None:
     """Composite of the Python /status view: identity, pending backlog + pending
     questions, recent journal, continuous, inbox count, daemon, active role."""
