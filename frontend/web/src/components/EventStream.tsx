@@ -284,8 +284,8 @@ function ConversationThread({ group, latest }: { group: ConversationGroup; lates
 /**
  * The live event feed — a CLEAN, whitelisted stream (matching the terminal
  * cockpit), not a raw event dump. Non-whitelisted events (agent_io.* framing,
- * telemetry, internal bookkeeping) are dropped; reasoning is pale and visible
- * by default, with ⌘/Ctrl+T available to hide it.
+ * telemetry, internal bookkeeping) are dropped; provider reasoning is opt-in
+ * and visually quiet, with ⌘/Ctrl+T available to show or hide it.
  * Auto-follows the tail unless the user scrolls up to read history.
  */
 export function EventStream({

@@ -285,14 +285,14 @@ export const api = {
   createDaemon: async (
     objective: string,
     name = '',
-    launchCwd = '',
+    workdir = '',
     expectedRevision?: number,
   ) => {
     const path = '/api/daemons';
     const body = {
       objective,
       name,
-      launch_cwd: launchCwd,
+      workdir,
       command_id: commandId(),
       expected_revision: expectedRevision,
     };

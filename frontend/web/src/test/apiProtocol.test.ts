@@ -149,11 +149,13 @@ describe('web API protocol handshake', () => {
     vi.stubGlobal('fetch', fetchMock);
     const { api } = await import('../api');
 
-    await expect(api.createDaemon('', 'Retry create')).resolves.toMatchObject({
+    await expect(api.createDaemon('', 'Retry create', '/workspace/output')).resolves.toMatchObject({
       sid: 's-retried',
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(bodies[0].command_id).toBe(bodies[1].command_id);
+    expect(bodies[0].workdir).toBe('/workspace/output');
+    expect(bodies[0]).not.toHaveProperty('launch_cwd');
   });
 
   it('wires the complete Web administration surface', async () => {

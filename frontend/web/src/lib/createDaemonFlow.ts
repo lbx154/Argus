@@ -7,7 +7,7 @@ interface DaemonCreationClient {
   createDaemon: (
     objective: string,
     name?: string,
-    launchCwd?: string,
+    workdir?: string,
   ) => Promise<CreatedDaemon>;
   setContinuous: (
     sid: string,

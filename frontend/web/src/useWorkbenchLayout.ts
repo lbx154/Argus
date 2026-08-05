@@ -9,10 +9,10 @@ function storedBoolean(key: string, fallback: boolean): boolean {
 export function useWorkbenchLayout() {
   const params = new URLSearchParams(window.location.search);
   const [kiosk, setKiosk] = useState(params.get('kiosk') === '1');
-  // Match pi's default: reasoning summaries are visible but visually quiet.
-  // Users can hide them with Ctrl/⌘+O and the choice survives reloads.
+  // Match the operator knob and TUI privacy default: reasoning is opt-in.
+  // Users can show it with Ctrl/⌘+O and the choice survives reloads.
   const [showReasoning, setShowReasoning] = useState(
-    () => storedBoolean('argus.reasoning.visible.v1', true),
+    () => storedBoolean('argus.reasoning.visible.v1', false),
   );
   const [workspaceView, setWorkspaceView] = useState<'mission' | 'activity'>(
     () => localStorage.getItem('argus.workspace.view') === 'mission' ? 'mission' : 'activity',
