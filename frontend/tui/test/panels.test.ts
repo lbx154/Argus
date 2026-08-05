@@ -664,14 +664,15 @@ test('pending Manager frame does not trigger Ink full-screen repaint', async () 
 });
 
 test('long streaming Manager reply does not clear terminal scrollback', async () => {
+  const text = `HEAD-MARKER ${'LONG_STREAMING_REPLY '.repeat(500)} TAIL-MARKER`;
   const output = await renderInteractiveNode(
     React.createElement(
       Box,
       { flexDirection: 'column' },
-      React.createElement(Header, { width: 100 }),
+      React.createElement(Header, { width: 60 }),
       React.createElement(MissionCockpit, {
         view: emptyMissionView(),
-        width: 100,
+        width: 60,
         height: 19,
         busy: true,
       }),
@@ -679,29 +680,27 @@ test('long streaming Manager reply does not clear terminal scrollback', async ()
         events: [{
           type: 'ui.argus',
           message_id: 'live-reply',
-          text: 'LONG_STREAMING_REPLY '.repeat(500),
+          text,
+          fragment_mode: 'append',
           ts: 1,
         }],
-        width: 100,
+        width: 60,
         liveMessageId: 'live-reply',
         showIdle: false,
       }),
       React.createElement(PromptBox, {
         edit: { value: '', cursor: 0 },
-        width: 100,
+        width: 60,
         rowsBelow: 1,
       }),
-      React.createElement(Footer, { width: 100 }),
+      React.createElement(Footer, { width: 60 }),
     ),
-    100,
+    60,
     19,
   );
 
-  assert.doesNotMatch(
-    output,
-    /\u001B\[2J/,
-    'a growing live reply must not trigger Ink full-screen clearing',
-  );
+  assert.match(output, /HEAD-MARKER/);
+  assert.match(output, /TAIL-MARKER/);
 });
 
 test('interleaved activity stays single and the completed reply reaches Static', async () => {
@@ -756,9 +755,156 @@ test('interleaved activity stays single and the completed reply reaches Static',
 
   const clean = output.replace(ANSI, '');
   assert.equal(clean.split('ACTIVITY-ONCE').length - 1, 1);
-  // The final body appears once as the mutable live row and once when Static
-  // commits it permanently to terminal scrollback.
-  assert.equal(clean.split('FINAL-MARKER').length - 1, 2);
+  assert.equal(clean.split('FINAL-MARKER').length - 1, 1);
+});
+
+test('snapshot correction does not leave stale reply text in scrollback', async () => {
+  const stdout = new PassThrough() as PassThrough & {
+    columns: number;
+    rows: number;
+    isTTY: boolean;
+  };
+  stdout.columns = 80;
+  stdout.rows = 24;
+  stdout.isTTY = false;
+  let output = '';
+  stdout.on('data', (chunk) => { output += String(chunk); });
+  const view = (text: string, liveMessageId: string) => React.createElement(
+    EventLog,
+    {
+      events: [{
+        type: 'ui.argus',
+        text,
+        message_id: 'reply-snapshot',
+        fragment_mode: 'snapshot',
+        ts: 1,
+      }],
+      width: 80,
+      liveMessageId,
+      showIdle: false,
+    },
+  );
+  const instance = render(
+    view('ANSWER stale tail', 'reply-snapshot'),
+    {
+      stdout: stdout as never,
+      debug: false,
+      exitOnCtrlC: false,
+      patchConsole: false,
+    },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  instance.rerender(view('ANSWER', 'reply-snapshot'));
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  instance.rerender(view('ANSWER', ''));
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  instance.unmount();
+
+  const clean = output.replace(ANSI, '');
+  assert.doesNotMatch(clean, /stale tail/);
+  assert.equal(clean.split('ANSWER').length - 1, 1);
+});
+
+test('authoritative snapshot is retained after append streaming', async () => {
+  const stdout = new PassThrough() as PassThrough & {
+    columns: number;
+    rows: number;
+    isTTY: boolean;
+  };
+  stdout.columns = 80;
+  stdout.rows = 24;
+  stdout.isTTY = false;
+  let output = '';
+  stdout.on('data', (chunk) => { output += String(chunk); });
+  const view = (
+    text: string,
+    mode: 'append' | 'snapshot',
+    liveMessageId: string,
+  ) => React.createElement(
+    EventLog,
+    {
+      events: [{
+        type: 'ui.argus',
+        text,
+        message_id: 'reply-mixed',
+        fragment_mode: mode,
+        ts: 1,
+      }],
+      width: 80,
+      liveMessageId,
+      showIdle: false,
+    },
+  );
+  const instance = render(
+    view('APPEND-PARTIAL', 'append', 'reply-mixed'),
+    {
+      stdout: stdout as never,
+      debug: false,
+      exitOnCtrlC: false,
+      patchConsole: false,
+    },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  instance.rerender(
+    view('AUTHORITATIVE-FINAL', 'snapshot', 'reply-mixed'),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  instance.rerender(view('AUTHORITATIVE-FINAL', 'snapshot', ''));
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  instance.unmount();
+
+  const clean = output.replace(ANSI, '');
+  assert.equal(clean.split('APPEND-PARTIAL').length - 1, 1);
+  assert.equal(clean.split('AUTHORITATIVE-FINAL').length - 1, 1);
+});
+
+test('batched append-to-snapshot settlement retains the authoritative final', async () => {
+  const stdout = new PassThrough() as PassThrough & {
+    columns: number;
+    rows: number;
+    isTTY: boolean;
+  };
+  stdout.columns = 80;
+  stdout.rows = 24;
+  stdout.isTTY = false;
+  let output = '';
+  stdout.on('data', (chunk) => { output += String(chunk); });
+  const view = (
+    text: string,
+    mode: 'append' | 'snapshot',
+    liveMessageId: string,
+  ) => React.createElement(
+    EventLog,
+    {
+      events: [{
+        type: 'ui.argus',
+        text,
+        message_id: 'reply-batched',
+        fragment_mode: mode,
+        ts: 1,
+      }],
+      width: 80,
+      liveMessageId,
+      showIdle: false,
+    },
+  );
+  const instance = render(
+    view('APPEND-PARTIAL', 'append', 'reply-batched'),
+    {
+      stdout: stdout as never,
+      debug: false,
+      exitOnCtrlC: false,
+      patchConsole: false,
+    },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  instance.rerender(view('AUTHORITATIVE-FINAL', 'snapshot', ''));
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  instance.unmount();
+
+  const clean = output.replace(ANSI, '');
+  assert.equal(clean.split('APPEND-PARTIAL').length - 1, 1);
+  assert.equal(clean.split('AUTHORITATIVE-FINAL').length - 1, 1);
 });
 
 test('24-row operations panel stays below Ink full-screen clear threshold', async () => {
