@@ -19,6 +19,11 @@ from ._planning_cycle_helpers import _PlanCycleState, _render_revision_request
 log = logging.getLogger(__name__)
 
 
+def _is_content_filter_failure(*values: Any) -> bool:
+    text = " ".join(str(value or "") for value in values).casefold()
+    return "content filtering blocked" in text or "blocked by content filtering" in text
+
+
 class PlanningCycleVerdictMixin:
     """Planner invocation and error/overlap normalization."""
 
@@ -160,15 +165,59 @@ class PlanningCycleVerdictMixin:
                 return PLAN_RETRY
             if reconciliation == "hold":
                 return self._pc_complete_terminal_empty_plan(state)
+            content_filtered = _is_content_filter_failure(
+                verdict.error,
+                verdict.raw_text,
+            )
+            if content_filtered:
+                # Replaying identical bytes reproduces a provider policy refusal.
+                # Disarm the standing campaign and require an operator-authored
+                # reformulation instead of retrying forever.
+                try:
+                    from ...daemon.state import (
+                        compare_and_swap_continuous_config,
+                        read_continuous_state,
+                    )
+
+                    current = read_continuous_state(self.memory.root)
+                    if current.enabled:
+                        compare_and_swap_continuous_config(
+                            self.memory.root,
+                            expected=current,
+                            enabled=False,
+                            objective=current.objective,
+                            done_reason=(
+                                "planner response blocked by content filtering; "
+                                "operator reformulation required"
+                            ),
+                        )
+                except Exception:  # noqa: BLE001 - event still surfaces the block
+                    log.exception("failed to disarm content-filtered campaign")
             self._emit(
                 {
                     "type": EventType.LIFE_PLANNER_ERROR,
                     "cycle": self._planning_cycles,
                     "error": verdict.error,
                     "raw_text": verdict.raw_text,
+                    **(
+                        {
+                            "operator_alert": True,
+                            "recoverable": False,
+                            "stop_kind": "permanent_error",
+                        }
+                        if content_filtered
+                        else {}
+                    ),
                 }
             )
-            self._emit_status(f"planner error: {verdict.error}; retry later")
+            self._emit_status(
+                (
+                    "planner blocked by content filtering; campaign paused for "
+                    "operator reformulation"
+                )
+                if content_filtered
+                else f"planner error: {verdict.error}; retry later"
+            )
             # A planner error is a no-work outcome: back off before retrying so
             # a persistently-failing planner cannot spin every poll interval.
             self._enter_idle_backoff()

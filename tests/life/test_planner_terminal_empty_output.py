@@ -79,6 +79,23 @@ class _EmptyPlannerThenManagerRunner:
         )
 
 
+class _ContentFilterPlannerRunner(_EmptyPlannerThenManagerRunner):
+    def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+        self.planner_calls += 1
+        return RunnerResult(
+            exit_code=1,
+            agent_messages=[],
+            stdout_lines=[],
+            stderr_lines=[],
+            thread_id=None,
+            fatal_error=(
+                "Copilot content filtering blocked the response; the identical "
+                "prompt must not be retried"
+            ),
+            stop_kind="permanent_error",
+        )
+
+
 class _EmptyThenTaskPlannerRunner(_EmptyPlannerThenManagerRunner):
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
         if run_label.startswith("planner.cycle"):
@@ -269,6 +286,39 @@ def _make_supervisor(
     monkeypatch.setattr(supervisor, "_effective_full_paper_gate", lambda *_a, **_k: False)
     monkeypatch.setattr(supervisor, "_planner_runtime_with_idle_note", lambda: "")
     return supervisor, backend, sink
+
+
+def test_content_filtered_planner_disarms_campaign_instead_of_retrying(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from argus_skill.daemon.state import (
+        read_continuous_state,
+        write_continuous_config,
+    )
+
+    backend = _ContentFilterPlannerRunner()
+    supervisor, _backend, sink = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        terminal_stage_done=False,
+        backend=backend,
+    )
+    write_continuous_config(
+        supervisor.memory.root,
+        enabled=True,
+        objective="standing filtered campaign",
+    )
+
+    assert supervisor._plan_next_work() == PLAN_ERROR
+
+    state = read_continuous_state(supervisor.memory.root)
+    assert state.enabled is False
+    assert "operator reformulation required" in state.done_reason
+    assert backend.planner_calls == 1
+    error = next(event for event in sink.events if event.get("type") == "life.planner.error")
+    assert error["operator_alert"] is True
+    assert error["stop_kind"] == "permanent_error"
 
 
 def test_certified_terminal_empty_plan_completes_without_planner_error(

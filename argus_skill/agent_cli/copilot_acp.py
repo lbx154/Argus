@@ -41,6 +41,9 @@ _CANCEL_GRACE_S = 5.0
 _DEFAULT_SESSION_RECYCLE = 12
 _FRONT_DOOR_LABEL = "manager-frontdoor-classify"
 _TRANSPORT_CANCEL_NOTICE = "Info: Operation cancelled by user"
+_CONTENT_FILTER_NOTICE = (
+    "The model returned no content because the response was blocked by content filtering."
+)
 _TRANSPORT_INFO_PREFIXES = (
     "Info: Disabled tools:",
     "Info: Unknown tool name in the tool allowlist:",
@@ -61,6 +64,12 @@ def _prompt_timeout(run_label: str | None) -> float:
         return default
 
 
+def _looks_like_content_filter_notice(text: str) -> bool:
+    normalized = " ".join(str(text or "").split()).rstrip(".").casefold()
+    expected = " ".join(_CONTENT_FILTER_NOTICE.split()).rstrip(".").casefold()
+    return normalized == expected
+
+
 def _filter_transport_notices(raw_text: str, *, final: bool = False) -> str:
     """Remove ACP transport notices while retaining ordinary assistant prose.
 
@@ -75,14 +84,19 @@ def _filter_transport_notices(raw_text: str, *, final: bool = False) -> str:
     for index, line in enumerate(lines):
         body = line.rstrip("\r\n")
         stripped = body.strip()
-        if stripped == _TRANSPORT_CANCEL_NOTICE:
+        if stripped == _TRANSPORT_CANCEL_NOTICE or _looks_like_content_filter_notice(
+            stripped
+        ):
             continue
         is_unterminated_last = index == len(lines) - 1 and not line.endswith(("\n", "\r"))
         if (
             not final
             and is_unterminated_last
             and stripped
-            and _TRANSPORT_CANCEL_NOTICE.startswith(stripped)
+            and (
+                _TRANSPORT_CANCEL_NOTICE.startswith(stripped)
+                or _CONTENT_FILTER_NOTICE.startswith(stripped)
+            )
         ):
             continue
         kept.append(line)
@@ -835,6 +849,15 @@ class CopilotAcpClient:
                 )
             stop_reason = str((resp.get("result") or {}).get("stopReason") or "")
             completed = (stop_reason == "end_turn") and not cancelled["v"]
+            if completed and _looks_like_content_filter_notice(turn.raw_text):
+                self._invalidate_session(sid)
+                return self._fail_result(
+                    "Copilot content filtering blocked the response; the identical "
+                    "prompt must not be retried",
+                    sid=sid,
+                    stop_kind="permanent_error",
+                    tool_activity_observed=turn.tool_activity_observed,
+                )
             json_events: list[dict[str, Any]] = []
             if completed:
                 total = self._session_premium_totals.get(sid, 0.0)
@@ -875,6 +898,7 @@ class CopilotAcpClient:
         *,
         sid: str | None = None,
         text: str = "",
+        stop_kind: str | None = None,
         tool_activity_observed: bool = False,
     ) -> AgentRunResult:
         return AgentRunResult(
@@ -888,8 +912,9 @@ class CopilotAcpClient:
             turn_completed=False,
             turn_failed=True,
             fatal_error=msg,
+            stop_kind=stop_kind,
             tool_activity_observed=tool_activity_observed,
-            usage_model=self._session_models.get(sid, self._model or ""),
+            usage_model=self._session_models.get(sid or "", self._model or ""),
         )
 
 

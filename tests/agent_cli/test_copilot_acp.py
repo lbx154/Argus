@@ -163,6 +163,35 @@ def _read_only_info_script(req, proc):
     return []
 
 
+def _content_filter_script(req, proc):
+    method = req.get("method")
+    if method == "initialize":
+        return [_init_ok(req)]
+    if method == "session/new":
+        return [_session_ok(req)]
+    if method == "session/prompt":
+        sid = req["params"]["sessionId"]
+        notice = (
+            "The model returned no content because the response was blocked "
+            "by content filtering."
+        )
+        return [
+            {
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": sid,
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": notice},
+                    },
+                },
+            },
+            {"jsonrpc": "2.0", "id": req["id"], "result": {"stopReason": "end_turn"}},
+        ]
+    return []
+
+
 def _multi_session_script(req, proc):
     """Dynamic sessions + a small model multiplier for continuity tests."""
     m = req.get("method")
@@ -282,6 +311,30 @@ def test_acp_happy_path_maps_to_agent_run_result(monkeypatch) -> None:
     assert perm and perm[0]["result"]["outcome"]["optionId"] == "allow"
     assert popen_kwargs["encoding"] == "utf-8"
     assert popen_kwargs["errors"] == "replace"
+
+
+def test_content_filter_notice_is_a_permanent_failure_not_agent_output(
+    monkeypatch,
+) -> None:
+    proc = _FakeAcpProc(_content_filter_script)
+    monkeypatch.setattr(copilot_acp.subprocess, "Popen", lambda *a, **k: proc)
+    client = CopilotAcpClient("copilot-bin")
+    blocks: list[str] = []
+
+    result = client.run_prompt(
+        prompt="trigger filter",
+        resume_thread_id=None,
+        options=_Opt(),
+        run_label="planner",
+        on_block=blocks.append,
+    )
+
+    assert result.exit_code != 0
+    assert result.turn_completed is False and result.turn_failed is True
+    assert result.stop_kind == "permanent_error"
+    assert "content filtering" in str(result.fatal_error)
+    assert result.agent_messages == []
+    assert blocks == []
 
 
 def test_acp_warm_reuse_skips_new_handshake(monkeypatch) -> None:
