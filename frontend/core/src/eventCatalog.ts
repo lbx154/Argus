@@ -78,6 +78,8 @@ export const EVENT_TYPES = {
   IDEA_SEARCH_STARTED: 'idea.search.started',
   IDEA_SEARCH_COMPLETED: 'idea.search.completed',
   IDEA_SEARCH_SKIPPED: 'idea.search.skipped',
+  VENUE_RESEARCH_STARTED: 'venue.research.started',
+  VENUE_RESEARCH_COMPLETED: 'venue.research.completed',
   RESEARCH_ACHIEVEMENT_CERTIFIED: 'research.achievement.certified',
   SKILL_LIBRARY_AVAILABLE: 'skill.library.available',
   SKILL_CREATED: 'skill.created',
@@ -224,6 +226,8 @@ export const SIGNAL_EVENT_TYPES = new Set<CatalogEventType>([
   EVENT_TYPES.IDEA_SEARCH_STARTED,
   EVENT_TYPES.IDEA_SEARCH_COMPLETED,
   EVENT_TYPES.IDEA_SEARCH_SKIPPED,
+  EVENT_TYPES.VENUE_RESEARCH_STARTED,
+  EVENT_TYPES.VENUE_RESEARCH_COMPLETED,
   EVENT_TYPES.RESEARCH_ACHIEVEMENT_CERTIFIED,
   EVENT_TYPES.OPERATOR_ALERT,
 ]);

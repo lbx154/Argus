@@ -57,6 +57,8 @@ def _event_role(event: dict[str, Any]) -> str | None:
         return "engineer"
     if etype.startswith("life.planner."):
         return "planner"
+    if etype.startswith("venue.research.") or etype.startswith("idea.search."):
+        return "engineer"
     if etype == "round.review.deferred":
         return "engineer"
     if etype.startswith("round.review") or etype.startswith("reviewer"):
@@ -141,6 +143,8 @@ def _describe_event(event: dict[str, Any]) -> tuple[str, str]:
             label = "matching skills"
         elif run_label == "idea-search":
             label = "searching candidate ideas"
+        elif run_label == "venue-research":
+            label = "researching target venue"
         elif "reviewer" in run_label or run_label.startswith("review"):
             label = "reviewing"
         elif "planner" in run_label or run_label.startswith("plan"):
@@ -166,6 +170,14 @@ def _describe_event(event: dict[str, Any]) -> tuple[str, str]:
         return label, "running"
     if etype == "engineer.progress":
         return _describe_engineer_progress(event), "running"
+    if etype == "venue.research.started":
+        return "researching target venue", "running"
+    if etype == "venue.research.completed":
+        return "venue research done", "done"
+    if etype == "idea.search.started":
+        return "searching candidate ideas", "running"
+    if etype == "idea.search.completed":
+        return "candidate ideas ready", "done"
     if etype == "round.review.started":
         return "reviewing", "running"
     if etype == "round.review.deferred":
@@ -231,6 +243,10 @@ def _describe_event(event: dict[str, Any]) -> tuple[str, str]:
 # they have no recent events in the tail. Without this, an inactive role froze
 # its last (possibly verbose) label until it scrolled out of the 200-line tail.
 STALE_LABEL_WINDOW_S: float = 180.0
+# A provider turn can legitimately remain silent while reasoning or waiting on
+# a tool. Keep an unmatched agent.io.start active through the runner's default
+# 45-minute hard-idle window instead of falsely showing "Waiting" after 90s.
+INFLIGHT_CALL_ACTIVE_WINDOW_S: float = 50 * 60.0
 
 
 def role_activity(
@@ -273,8 +289,16 @@ def role_activity(
         status = status or "idle"
         ts = ev.get("ts") or ev.get("time")
         age = (now - float(ts)) if isinstance(ts, (int, float)) else None
+        event_type = canonical_event_type(
+            ev.get("canonical_type") or ev.get("type")
+        )
+        effective_active_window = (
+            max(active_window_s, INFLIGHT_CALL_ACTIVE_WINDOW_S)
+            if event_type == "agent.io.start"
+            else active_window_s
+        )
         active = status not in {"done", "blocked", "idle"} and (
-            age is None or age <= active_window_s
+            age is None or age <= effective_active_window
         )
         if not active and (age is None or age > stale_window_s):
             # At rest: no longer the actor and its last event is stale → decay
@@ -293,4 +317,9 @@ def role_activity(
     return out
 
 
-__all__ = ["RoleActivity", "STALE_LABEL_WINDOW_S", "role_activity"]
+__all__ = [
+    "INFLIGHT_CALL_ACTIVE_WINDOW_S",
+    "RoleActivity",
+    "STALE_LABEL_WINDOW_S",
+    "role_activity",
+]

@@ -117,6 +117,8 @@ class EventType(StrEnum):
     IDEA_SEARCH_STARTED = "idea.search.started"
     IDEA_SEARCH_COMPLETED = "idea.search.completed"
     IDEA_SEARCH_SKIPPED = "idea.search.skipped"
+    VENUE_RESEARCH_STARTED = "venue.research.started"
+    VENUE_RESEARCH_COMPLETED = "venue.research.completed"
     RESEARCH_ACHIEVEMENT_CERTIFIED = "research.achievement.certified"
     SKILL_LIBRARY_AVAILABLE = "skill.library.available"
     SKILL_CREATED = "skill.created"
@@ -261,6 +263,8 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.IDEA_SEARCH_STARTED,
     EventType.IDEA_SEARCH_COMPLETED,
     EventType.IDEA_SEARCH_SKIPPED,
+    EventType.VENUE_RESEARCH_STARTED,
+    EventType.VENUE_RESEARCH_COMPLETED,
     EventType.RESEARCH_ACHIEVEMENT_CERTIFIED,
     EventType.OPERATOR_ALERT,
 })
@@ -308,7 +312,7 @@ def _category(event_type: EventType) -> EventCategory:
         return EventCategory.WIKI
     if value.startswith("idea."):
         return EventCategory.IDEA
-    if value.startswith("research."):
+    if value.startswith("research.") or value.startswith("venue."):
         return EventCategory.RESEARCH
     if value.startswith("project."):
         return EventCategory.PROJECT

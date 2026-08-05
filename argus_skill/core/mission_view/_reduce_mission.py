@@ -149,7 +149,67 @@ def reduce_round_event(
     ts: float,
     mission: dict[str, Any],
 ) -> None:
-    if event_type == EventType.ROUND_START:
+    if event_type == EventType.VENUE_RESEARCH_STARTED:
+        label = "Researching target venue"
+        detail = _text(event, "text", 4000)
+        _set_role(view, "engineer", "active", label, ts)
+        _timeline(view, event, role="engineer", title=label, detail=detail)
+        _role_work(
+            view,
+            event,
+            role="engineer",
+            kind="venue_research",
+            title=label,
+            detail=detail,
+            status="active",
+        )
+
+    elif event_type == EventType.VENUE_RESEARCH_COMPLETED:
+        label = "Venue profile ready" if event.get("ok") is True else "Venue research finished"
+        detail = _text(event, "text", 4000)
+        _set_role(view, "engineer", "done", label, ts)
+        _timeline(view, event, role="engineer", title=label, detail=detail)
+        _role_work(
+            view,
+            event,
+            role="engineer",
+            kind="venue_research",
+            title=label,
+            detail=detail,
+            status="done",
+        )
+
+    elif event_type == EventType.IDEA_SEARCH_STARTED:
+        label = "Searching candidate ideas"
+        detail = _text(event, "text", 4000)
+        _set_role(view, "engineer", "active", label, ts)
+        _timeline(view, event, role="engineer", title=label, detail=detail)
+        _role_work(
+            view,
+            event,
+            role="engineer",
+            kind="idea_search",
+            title=label,
+            detail=detail,
+            status="active",
+        )
+
+    elif event_type == EventType.IDEA_SEARCH_COMPLETED:
+        label = "Candidate ideas ready"
+        detail = _text(event, "text", 4000)
+        _set_role(view, "engineer", "done", label, ts)
+        _timeline(view, event, role="engineer", title=label, detail=detail)
+        _role_work(
+            view,
+            event,
+            role="engineer",
+            kind="idea_search",
+            title=label,
+            detail=detail,
+            status="done",
+        )
+
+    elif event_type == EventType.ROUND_START:
         current = _integer(event, "round_index") or 0
         maximum = _integer(event, "round_max") or int(view.get("round", {}).get("max") or 0)
         view["round"] = {"current": current, "max": maximum}

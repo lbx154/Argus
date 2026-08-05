@@ -69,6 +69,10 @@ _EVENT_HANDLERS: dict[str, _FamilyReducer] = {
         EventType.ROUND_MAIN_COMPLETED,
         EventType.ROUND_REVIEW_DEFERRED,
         EventType.ROUND_REVIEW_COMPLETED,
+        EventType.IDEA_SEARCH_STARTED,
+        EventType.IDEA_SEARCH_COMPLETED,
+        EventType.VENUE_RESEARCH_STARTED,
+        EventType.VENUE_RESEARCH_COMPLETED,
     ),
     **_handlers_for(
         reduce_achievement_event,

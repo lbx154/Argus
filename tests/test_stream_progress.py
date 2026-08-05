@@ -84,6 +84,29 @@ def test_reviewer_critic_and_planner_stdout_emit_layered_progress() -> None:
     assert layers == ["reviewer", "critic", "planner"]
 
 
+@pytest.mark.parametrize("actor", ["venue-research", "idea-search"])
+def test_research_helpers_stream_as_engineer_progress(actor: str) -> None:
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+    line = json.dumps(
+        {
+            "type": "tool.execution_start",
+            "data": {
+                "toolCallId": "call-1",
+                "toolName": "web_fetch",
+                "arguments": {"url": "https://example.test/paper"},
+            },
+        }
+    )
+
+    cb(f"{actor}.stdout", line)
+
+    assert len(sink.events) == 1
+    assert sink.events[0]["agent_layer"] == "engineer"
+    assert sink.events[0]["kind"] == "tool_use"
+    assert "web_fetch" in sink.events[0]["text"]
+
+
 def test_matcher_and_distiller_stdout_do_not_emit_progress() -> None:
     """Protocol/maintenance agents' JSON output must stay hidden."""
     sink = _RecordingSink()

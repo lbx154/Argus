@@ -68,6 +68,48 @@ def test_manager_grounding_lifecycle_is_visible(tmp_path: Path) -> None:
     assert roles["manager"]["status"] == "done"
 
 
+def test_venue_and_idea_research_are_visible_as_engineer_work(tmp_path: Path) -> None:
+    emit(
+        tmp_path,
+        "life.mission.started",
+        1,
+        item_id="paper-1",
+        title="Draft paper",
+        objective="Prepare an ICLR submission",
+    )
+    view = emit(
+        tmp_path,
+        "venue.research.started",
+        2,
+        text="live web search: researching ICLR",
+    )
+    roles = {role["role"]: role for role in view["roles"]}
+    assert view["active_role"] == "engineer"
+    assert roles["engineer"]["status"] == "active"
+    assert roles["engineer"]["label"] == "Researching target venue"
+    assert view["role_work"][-1]["kind"] == "venue_research"
+
+    view = emit(
+        tmp_path,
+        "venue.research.completed",
+        3,
+        ok=True,
+        text="built research/VENUE_PROFILE.json",
+    )
+    roles = {role["role"]: role for role in view["roles"]}
+    assert roles["engineer"]["label"] == "Venue profile ready"
+
+    view = emit(
+        tmp_path,
+        "idea.search.started",
+        4,
+        text="live web search: seeding candidate ideas",
+    )
+    roles = {role["role"]: role for role in view["roles"]}
+    assert view["active_role"] == "engineer"
+    assert roles["engineer"]["label"] == "Searching candidate ideas"
+
+
 def test_planner_terminal_event_clears_active_role(tmp_path: Path) -> None:
     view = emit(tmp_path, "life.planner.start", 1)
     assert view["active_role"] == "planner"

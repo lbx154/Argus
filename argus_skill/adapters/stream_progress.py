@@ -905,6 +905,12 @@ class StreamProgressRelay:
 # simply has no L-number. These labels were previously absent from the
 # visible-role filter below, which silently dropped every command and tool call
 # the Manager made: the cockpit showed a spinner and nothing else.
+_ENGINEER_HELPER_ACTOR_PREFIXES = (
+    "venue-research",
+    "idea-search",
+    "research.",
+)
+
 _MANAGER_ACTOR_PREFIXES = (
     "manager",
     "simple",
@@ -928,7 +934,15 @@ def _actor_is_visible(role: str) -> bool:
     if lowered.startswith(_HIDDEN_ACTOR_PREFIXES):
         return False
     return lowered.startswith(
-        ("engineer", "main", "reviewer", "critic", "planner", *_MANAGER_ACTOR_PREFIXES)
+        (
+            "engineer",
+            "main",
+            "reviewer",
+            "critic",
+            "planner",
+            *_ENGINEER_HELPER_ACTOR_PREFIXES,
+            *_MANAGER_ACTOR_PREFIXES,
+        )
     )
 
 

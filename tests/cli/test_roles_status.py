@@ -215,6 +215,60 @@ def test_activity_marks_latest_role_active(tmp_path):
     assert acts["reviewer"].status == "done"
 
 
+def test_long_inflight_venue_call_does_not_decay_to_waiting(tmp_path):
+    now = time.time()
+    _write_events(
+        tmp_path,
+        [
+            {
+                "type": "venue.research.started",
+                "text": "researching ICLR",
+                "ts": now - 220,
+            },
+            {
+                "type": "agent.io.start",
+                "call_id": "venue-call",
+                "run_label": "venue-research",
+                "ts": now - 219,
+            },
+        ],
+    )
+
+    engineer = role_activity(tmp_path, now=now)["engineer"]
+
+    assert engineer.active is True
+    assert engineer.status == "running"
+    assert engineer.label == "researching target venue"
+
+
+def test_completed_venue_call_is_not_active(tmp_path):
+    now = time.time()
+    _write_events(
+        tmp_path,
+        [
+            {
+                "type": "agent.io.start",
+                "call_id": "venue-call",
+                "run_label": "venue-research",
+                "ts": now - 220,
+            },
+            {
+                "type": "agent.io.complete",
+                "call_id": "venue-call",
+                "run_label": "venue-research",
+                "exit_code": 0,
+                "ts": now - 1,
+            },
+        ],
+    )
+
+    engineer = role_activity(tmp_path, now=now)["engineer"]
+
+    assert engineer.active is False
+    assert engineer.status == "done"
+    assert engineer.label == "researching target venue done"
+
+
 def test_activity_has_only_one_fresh_active_role(tmp_path):
     now = time.time()
     _write_events(tmp_path, [
