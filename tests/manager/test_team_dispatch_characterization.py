@@ -1,10 +1,10 @@
 """Characterization of the operator-visible TEAM lifetime contract.
 
-The merged front-door call decides BOUNDED versus STANDING once, while the
-normal Manager decision independently chooses direct versus staged workflow.
-Finite direct work enters the bounded DAG path; standing or staged work uses the
-durable campaign supervisor. Missing or malformed lifetime metadata keeps the
-conservative STANDING default without paying for another lifetime model call.
+The merged front-door call distinguishes an explicit bounded increment, a
+finite complete outcome, and standing work, while the normal Manager decision
+independently chooses direct versus staged workflow. Explicit increments and
+finite direct work enter the bounded DAG path; standing or finite staged work
+uses the durable campaign supervisor.
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ def memory(tmp_path):
         pytest.param(None, True, id="missing-defaults-standing"),
         pytest.param("standing", True, id="standing"),
         pytest.param("bounded", False, id="bounded"),
+        pytest.param("bounded_increment", False, id="bounded-increment"),
         pytest.param("garbage", True, id="malformed-defaults-standing"),
     ],
 )

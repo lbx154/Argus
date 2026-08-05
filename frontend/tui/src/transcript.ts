@@ -33,16 +33,17 @@ export function mergeTranscriptReplay(
   turns: Turn[],
   maxEvents = 400,
 ): EventMsg[] {
-  const merged = [
-    ...liveEvents,
-    ...transcriptEvents(turns),
-  ].reduce(
+  // The live list may legitimately contain two identical rapid-fire turns;
+  // it has already passed through the wire reducer, while optimistic rows are
+  // deliberately appended as distinct user actions. Preserve it verbatim and
+  // use replay rows only to fill history that live state does not already hold.
+  const merged = transcriptEvents(turns).reduce(
     (current, event) => reduceOperatorEvent(
       current,
       event,
       Number.MAX_SAFE_INTEGER,
     ),
-    [] as EventMsg[],
+    [...liveEvents],
   ).sort(
     (left, right) => Number(left.ts ?? 0) - Number(right.ts ?? 0),
   );

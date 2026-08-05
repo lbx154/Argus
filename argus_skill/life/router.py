@@ -132,7 +132,7 @@ class ConfigIntent:
 
 ControlIntent = Literal["abort", "no_dispatch", "steer"]
 SelfModeIntent = Literal["reply", "inspect"]
-LifetimeIntent = Literal["bounded", "standing"]
+LifetimeIntent = Literal["bounded", "bounded_increment", "standing"]
 AuthorizationAction = Literal[
     "validator_repair",
     "acceptance_retry",
@@ -355,11 +355,22 @@ def classify_front_door(
                 pass
     lifetime: LifetimeIntent | None = None
     if route == "complex":
-        # Missing/malformed output keeps the conservative standing default, but
-        # an explicit BOUNDED verdict is authoritative and routes through the
-        # existing bounded-DAG path without paying for a second model call.
-        lifetime_token = _first_alpha_token(lifetime_line or "").upper()
-        lifetime = "bounded" if lifetime_token == "BOUNDED" else "standing"
+        # Missing/malformed output keeps the conservative standing default.
+        # BOUNDED_INCREMENT preserves an operator's explicit instruction to do
+        # only one named stage/increment even when vertical classification later
+        # identifies a normally-staged workflow.
+        lifetime_parts = str(lifetime_line or "").strip().split(maxsplit=1)
+        lifetime_token = (
+            lifetime_parts[0].replace("-", "_").upper()
+            if lifetime_parts
+            else ""
+        )
+        if lifetime_token == "BOUNDED_INCREMENT":
+            lifetime = "bounded_increment"
+        elif lifetime_token == "BOUNDED":
+            lifetime = "bounded"
+        else:
+            lifetime = "standing"
     if callable(lifetime_sink) and lifetime is not None:
         try:
             lifetime_sink(lifetime)

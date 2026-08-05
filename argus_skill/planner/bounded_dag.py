@@ -9,7 +9,11 @@ from typing import Any
 
 from ..core.models import RunnerOptions
 from ..core.run_gateway import run_exec as gateway_run_exec
-from .planner import TASK_SCOPE_BOUNDED, parse_task_context_refs
+from .planner import (
+    TASK_SCOPE_BOUNDED,
+    hydrate_task_context_refs,
+    parse_task_context_refs,
+)
 
 
 @dataclass(frozen=True)
@@ -222,7 +226,7 @@ def plan_bounded_dag(
     model: str | None = None,
     reasoning_effort: str = "high",
 ) -> BoundedDagPlan:
-    usage: dict[str, int | float] = {
+    usage: dict[str, Any] = {
         "input_tokens": 0,
         "cached_input_tokens": 0,
         "output_tokens": 0,
@@ -279,6 +283,12 @@ def plan_bounded_dag(
         try:
             payload = _parse_key_value_plan(output)
             reason, tasks = _validate(payload)
+            # Context refs are advisory, but malformed/escaping paths are a
+            # security boundary. Validate them while the Planner's one repair
+            # attempt is still available instead of discovering the defect only
+            # after Manager has accepted an otherwise-executable plan.
+            for task in tasks:
+                hydrate_task_context_refs(list(task.context_refs), workdir)
             return BoundedDagPlan(reason=reason, tasks=tasks, **usage)
         except (TypeError, ValueError) as exc:
             validation_error = f"{type(exc).__name__}: {exc}"

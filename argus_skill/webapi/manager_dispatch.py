@@ -794,10 +794,15 @@ def _dispatch_team_mission(
     )
     from ..manager.front_door import prepare_manager_execution_task
 
-    # Lifetime and workflow are independent axes. A publication campaign has a
-    # finite finish line, but Manager may still require staged progression. Run
-    # the normal vertical/workflow decision once, use it to choose topology,
-    # then reuse the sealed handoff during the eventual commit.
+    # Reject quarantined/archived projects and resume completed projects before
+    # paying for another Manager model call. Lifetime and workflow are separate
+    # axes only after the project lifecycle admits new work.
+    emitter.phase("Manager · validating project lifecycle")
+    resume_done_lifecycle_for_team_dispatch(mem)
+
+    # A publication campaign has a finite finish line, but Manager may still
+    # require staged progression. Run the normal workflow decision once, use it
+    # to choose topology, then reuse the sealed handoff during commit.
     emitter.phase("Manager · choosing workflow and task lifetime")
     prepared = prepare_manager_execution_task(
         mem,
@@ -816,7 +821,6 @@ def _dispatch_team_mission(
             root_task_id=root_task_id,
             workflow_mode=workflow_mode,
         )
-        resume_done_lifecycle_for_team_dispatch(mem)
     except Exception as exc:
         prepared.failed(exc)
         raise

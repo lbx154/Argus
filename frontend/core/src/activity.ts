@@ -247,12 +247,21 @@ export function reduceOperatorEvent(
   if (event.type === 'ui.operator' || event.type === 'ui.argus') {
     const text = S(event, 'text');
     const ts = N(event, 'ts');
-    const duplicate = events.some(
-      (candidate) =>
-        candidate.type === event.type
+    const incomingMessageId = S(event, 'message_id');
+    const duplicate = events.some((candidate) => {
+      const candidateMessageId = S(candidate, 'message_id');
+      return candidate.type === event.type
         && S(candidate, 'text') === text
-        && Math.abs(N(candidate, 'ts') - ts) <= 2,
-    );
+        && Math.abs(N(candidate, 'ts') - ts) <= 2
+        // Distinct stable ids are distinct operator turns, even when the text
+        // is intentionally repeated quickly. Empty-vs-confirmed still
+        // coalesces the optimistic/transcript copy with its durable event.
+        && !(
+          incomingMessageId
+          && candidateMessageId
+          && incomingMessageId !== candidateMessageId
+        );
+    });
     if (duplicate) return events;
   }
   if (event.type === 'role.activity') {

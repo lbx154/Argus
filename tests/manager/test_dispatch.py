@@ -381,6 +381,22 @@ def test_finite_staged_task_uses_durable_campaign_supervisor(memory, monkeypatch
     assert "_frontdoor_lifetime" not in state
 
 
+def test_explicit_bounded_increment_overrides_normally_staged_workflow(memory):
+    state = {
+        "backend": "codex",
+        "_frontdoor_lifetime": "bounded_increment",
+    }
+
+    assert not dispatch.maybe_promote_to_continuous(
+        memory,
+        "只完成 research 阶段，不要进入 plan",
+        state,
+        workflow_mode="staged",
+    )
+    assert state["config"]["continuous"] is False
+    assert "_frontdoor_lifetime" not in state
+
+
 def test_lifetime_promotion_validates_the_life_backend(memory, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "memory")
     monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "memory")

@@ -51,6 +51,7 @@ def test_front_door_prompt_has_a_strict_token_efficiency_budget() -> None:
     assert "WORKFLOW:" not in prompt
     assert "FAST_REPLY:" not in prompt
     assert "ACTIVE_MISSION: YES" in prompt
+    assert "BOUNDED_INCREMENT" in prompt
     assert "BOUNDED" in prompt
     assert "STANDING" in prompt
 
@@ -128,6 +129,21 @@ def test_front_door_preserves_bounded_lifetime_for_team() -> None:
 
     assert decision == (None, None, "complex")
     assert lifetimes == ["bounded"]
+
+
+def test_front_door_preserves_explicit_bounded_increment_for_team() -> None:
+    lifetimes: list[str] = []
+    decision = classify_front_door(
+        "只完成 research 阶段，不要进入后续阶段",
+        run_exec=_exec(
+            "CONFIG: NONE\nCONTROL: NONE\nROUTE: TEAM\n"
+            "LIFETIME: BOUNDED_INCREMENT\nNAME: Research 阶段"
+        ),
+        lifetime_sink=lifetimes.append,
+    )
+
+    assert decision == (None, None, "complex")
+    assert lifetimes == ["bounded_increment"]
 
 
 def test_front_door_missing_lifetime_defaults_team_to_standing() -> None:

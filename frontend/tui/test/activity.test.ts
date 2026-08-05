@@ -83,6 +83,18 @@ test('operator transcript, local echo, and wire event coalesce to one line', () 
   assert.equal(events.length, 1);
 });
 
+test('rapid identical turns with distinct message ids are both preserved', () => {
+  let events = reduceOperatorEvent([], {
+    type: 'ui.operator', text: '再试一次', message_id: 'turn-1', ts: 10,
+  });
+  events = reduceOperatorEvent(events, {
+    type: 'ui.operator', text: '再试一次', message_id: 'turn-2', ts: 11,
+  });
+
+  assert.equal(events.length, 2);
+  assert.deepEqual(events.map((event) => event.message_id), ['turn-1', 'turn-2']);
+});
+
 test('stream protocol is coalesced by call id and rate-limited to one heartbeat per second', () => {
   const start = Date.now() / 1000 - 2;
   const callId = `${Math.floor(start * 1000)}-7`;

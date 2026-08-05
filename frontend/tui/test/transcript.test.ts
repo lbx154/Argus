@@ -56,3 +56,29 @@ test('late transcript replay preserves live keys instead of reprinting rows', ()
     ['local-operator', 'web-turn-argus'],
   );
 });
+
+test('late replay does not collapse two intentional identical live turns', () => {
+  const live = [
+    {
+      type: 'ui.operator',
+      text: '再试一次',
+      ts: 10,
+      message_id: 'local-turn-1',
+    },
+    {
+      type: 'ui.operator',
+      text: '再试一次',
+      ts: 11,
+      message_id: 'local-turn-2',
+    },
+  ];
+
+  const merged = mergeTranscriptReplay(live, [
+    { role: 'operator', text: '再试一次', ts: 10.1 },
+    { role: 'operator', text: '再试一次', ts: 11.1 },
+  ]);
+
+  assert.equal(merged.length, 2);
+  assert.equal(merged[0], live[0]);
+  assert.equal(merged[1], live[1]);
+});

@@ -423,18 +423,20 @@ def maybe_promote_to_continuous(
 ) -> bool:
     """Resolve finite lifetime and Manager workflow into a dispatch topology.
 
-    The front door decides whether the requested outcome is finite (BOUNDED) or
-    standing. The Manager independently decides whether satisfying that outcome
-    requires staged progression. A finite direct task uses the bounded DAG;
-    staged work still needs the durable campaign supervisor so its stage gates
-    can advance. Both decisions are reused from calls the request already makes.
+    The front door decides whether the requested outcome is a single explicit
+    increment, finite, or standing. The Manager independently decides whether
+    satisfying the complete outcome requires staged progression. An explicit
+    increment always stays bounded; an ordinary finite staged outcome uses the
+    durable campaign supervisor so its stage gates can advance.
     """
     del root_task_id
     lifetime = str(
         chat_state.pop("_frontdoor_lifetime", "standing") or "standing"
     ).strip().lower()
     normalized_workflow = str(workflow_mode or "").strip().lower()
-    if lifetime == "bounded" and normalized_workflow != "staged":
+    if lifetime == "bounded_increment" or (
+        lifetime == "bounded" and normalized_workflow != "staged"
+    ):
         chat_state.setdefault("config", dict(DEFAULT_MANAGER_CONFIG))[
             "continuous"
         ] = False

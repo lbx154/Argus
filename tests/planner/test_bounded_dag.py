@@ -185,6 +185,34 @@ def test_bounded_planner_rejects_any_malformed_context_ref(tmp_path) -> None:
     assert "TASK_CONTEXT_REFS entries must use" in plan.error
 
 
+def test_bounded_planner_repairs_invalid_absolute_context_ref_once(tmp_path) -> None:
+    invalid = (
+        "PLAN_REASON=repair one test\n"
+        "TASK_KEY=fix\n"
+        "TASK_DEPS=\n"
+        "TASK_TITLE=Fix one test\n"
+        "TASK_OBJECTIVE=locate and repair the failing test\n"
+        f"TASK_CONTEXT_REFS=workspace::{tmp_path}::current workspace\n"
+        "TASK_SCOPE=bounded\n"
+        "TASK_STAGE_CLOSING=false\n"
+        "TASK_REQUIRE_INDEPENDENT_REVIEW=false\n"
+        "TASK_SKIP_STAGE_TRANSITION=false\n"
+    )
+    corrected = invalid.replace(str(tmp_path), "./")
+    runner = _SequenceRunner(invalid, corrected)
+
+    plan = plan_bounded_dag(runner, "fix one test", workdir=tmp_path)
+
+    assert not plan.error
+    assert len(plan.tasks) == 1
+    assert plan.tasks[0].context_refs[0]["ref"] == "./"
+    assert [call["run_label"] for call in runner.calls] == [
+        "planner.bounded_dag",
+        "planner.bounded_dag.repair",
+    ]
+    assert "project-relative file paths" in runner.calls[1]["prompt"]
+
+
 def test_bounded_planner_repairs_invalid_stage_skip_contract_once(tmp_path) -> None:
     invalid = (
         "PLAN_REASON=draft a paper\n"

@@ -70,6 +70,22 @@ def test_front_door_wrapper_caches_bounded_lifetime_for_dispatch() -> None:
     assert state["_frontdoor_lifetime"] == "bounded"
 
 
+def test_front_door_wrapper_caches_explicit_bounded_increment() -> None:
+    state: dict = {}
+
+    decision = _front_door_classify(
+        object(),
+        "only complete research and stop",
+        state,
+        ensure_runner=lambda *_args: SimpleNamespace(
+            manager=_Manager(route="complex", lifetime="bounded_increment")
+        ),
+    )
+
+    assert decision == (None, None, "complex")
+    assert state["_frontdoor_lifetime"] == "bounded_increment"
+
+
 def test_front_door_wrapper_carries_one_turn_greeting_reply() -> None:
     state: dict = {"_frontdoor_lifetime": "stale"}
 

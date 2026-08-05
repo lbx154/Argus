@@ -849,7 +849,7 @@ def test_simple_route_reply_failure_never_falls_through_to_task_dispatch(
     assert LifeMemory.open(life).backlog.all() == []
 
 
-def test_team_message_validates_continuous_before_resume_and_enqueue(
+def test_team_message_validates_lifecycle_before_workflow_and_enqueue(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -867,17 +867,21 @@ def test_team_message_validates_continuous_before_resume_and_enqueue(
     monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
 
     def promote(mem, body, chat_state, **kwargs):
+        assert seen["order"] == ["lifecycle"]
+        seen["order"].append("promote")
         seen["promoted_body"] = body
         seen["root_task_id"] = kwargs.get("root_task_id")
         chat_state.setdefault("config", {})["continuous"] = True
         return True
 
     def enqueue(mem, body, chat_state, **kwargs):
+        assert seen["order"] == ["lifecycle", "promote"]
+        seen["order"].append("enqueue")
         seen["continuous_at_enqueue"] = chat_state["config"]["continuous"]
         return None, False, None
 
     def resume(mem):
-        assert seen["promoted_body"] == "keep researching this conjecture"
+        seen["order"] = ["lifecycle"]
         seen["resumed"] = True
         return False
 
@@ -895,6 +899,7 @@ def test_team_message_validates_continuous_before_resume_and_enqueue(
     assert seen["root_task_id"]
     assert seen["resumed"] is True
     assert seen["continuous_at_enqueue"] is True
+    assert seen["order"] == ["lifecycle", "promote", "enqueue"]
     assert result["kind"] == "task"
     assert result["item"] is None
     assert result["continuous"] is True
