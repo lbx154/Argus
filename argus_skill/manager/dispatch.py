@@ -417,12 +417,23 @@ def maybe_promote_to_continuous(
     *,
     root_task_id: str | None = None,
 ) -> bool:
-    """Promote every TEAM task to vertical-aware continuous planning."""
+    """Apply the Manager's cached BOUNDED/STANDING decision.
+
+    The decision comes from the merged front-door call, so this function never
+    spends another model call. Missing or malformed metadata defaults to
+    STANDING; an explicit BOUNDED verdict selects the existing bounded-DAG path.
+    """
     del root_task_id
-    # Retired concept: the front door no longer classifies a TEAM lifetime, so
-    # nothing writes this key. The drain stays so a stray value left by an older
-    # in-process state can never resurrect a finite-lifetime decision here.
-    chat_state.pop("_frontdoor_lifetime", None)
+    lifetime = str(
+        chat_state.pop("_frontdoor_lifetime", "standing") or "standing"
+    ).strip().lower()
+    if lifetime == "bounded":
+        chat_state.setdefault("config", dict(DEFAULT_MANAGER_CONFIG))[
+            "continuous"
+        ] = False
+        chat_state["continuous_objective"] = ""
+        chat_state.pop("_continuous_pending_manager_handoff", None)
+        return False
 
     from ..core.knobs import resolve_role_backend
     from ..daemon.life_worker import (

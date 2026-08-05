@@ -417,7 +417,7 @@ def _classify_operator_turn(
         chat_state["rotations"] = int(chat_state.get("rotations", 0)) + 1
 
     # ONE merged front-door call decides config, control, route, TEAM
-    # lifetime, title, vertical, and a strict pure-greeting token. A natural-language
+    # lifetime, title, and a strict pure-greeting token. A natural-language
     # config change ("set the engineer to xhigh", "use copilot for reviewer",
     # "cap the budget at $10") is applied + confirmed inline and NEVER
     # enqueued; otherwise the reusable decisions avoid a second route/lifetime
@@ -763,7 +763,7 @@ def _dispatch_team_mission(
     cancelled: Callable[[], bool],
     emitter: _TurnEmitter,
 ) -> tuple[Any, bool, int | None]:
-    """Promote to continuous if warranted, resume a done lifecycle, and
+    """Apply the Manager's lifetime decision, resume a done lifecycle, and
     enqueue the operator's TEAM mission. Raises on failure — the caller
     catches it and turns it into a structured ``{"kind": "error"}`` reply."""
     from ..manager.dispatch import (
@@ -772,7 +772,7 @@ def _dispatch_team_mission(
         resume_done_lifecycle_for_team_dispatch,
     )
 
-    emitter.phase("Manager · validating continuous planning")
+    emitter.phase("Manager · validating task lifetime")
     maybe_promote_to_continuous(
         mem,
         body,

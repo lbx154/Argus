@@ -127,8 +127,8 @@ class _FrontDoorMixin:
         Same discipline as ``classify_config_intent``: built FRESH on the raw
         backend (``self.runner``, NEVER ``self._session`` — no giant-session
         resume, no pollution), ``resume_thread_id=None``. Effort comes from
-        ``ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT`` (default ``low``): a three-axis
-        nine-axis classification needs no heavy reasoning, and ``low`` is what makes
+        ``ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT`` (default ``low``): an eight-axis
+        classification needs no heavy reasoning, and ``low`` is what makes
         this cheap. Biases each axis to its own safe default on any error."""
         from ..life.router import classify_front_door
 

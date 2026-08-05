@@ -256,8 +256,8 @@ def manager_message(
         if triage_result is not None:
             return triage_result
 
-        # 2) TEAM/complex — always enter the vertical-aware continuous lifecycle.
-        # Chat and simple one-turn work already returned above.
+        # 2) TEAM/complex — apply the BOUNDED/STANDING lifetime selected by the
+        # same merged front-door call. Chat and SELF work already returned above.
         #
         # If the project lifecycle is ``done``, auto-resume it so the new
         # work can actually be picked up by the daemon.  Quarantined/archived

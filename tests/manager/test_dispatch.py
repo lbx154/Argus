@@ -353,11 +353,11 @@ def test_lifetime_promotion_repairs_stale_continuous_cache(memory, monkeypatch):
     assert state["continuous_objective"] == ""
 
 
-def test_lifetime_promotion_forces_explicit_bounded_task_to_continuous(memory):
+def test_lifetime_promotion_keeps_explicit_bounded_task_finite(memory):
     state = {"backend": "codex", "_frontdoor_lifetime": "bounded"}
 
-    assert dispatch.maybe_promote_to_continuous(memory, "one report", state)
-    assert state["config"]["continuous"] is True
+    assert not dispatch.maybe_promote_to_continuous(memory, "one report", state)
+    assert state["config"]["continuous"] is False
     assert "_frontdoor_lifetime" not in state
 
 
@@ -403,28 +403,12 @@ def test_lifetime_promotion_validates_the_active_daemon_backend(
     assert "config" not in state
 
 
-def test_team_bounded_verdict_dispatches_through_continuous_handoff(
-    memory, monkeypatch,
-):
-    monkeypatch.setattr(
-        dispatch,
-        "_plan_bounded_execution",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("TEAM dispatch must not invoke bounded DAG planning")
-        ),
-    )
+def test_team_bounded_verdict_selects_bounded_dispatch(memory):
     state = {"backend": "codex", "_frontdoor_lifetime": "bounded"}
 
-    assert dispatch.maybe_promote_to_continuous(memory, "one report", state)
-    item, _, _ = dispatch.enqueue_mission(memory, "one report", state)
-
-    assert item is None
+    assert not dispatch.maybe_promote_to_continuous(memory, "one report", state)
+    assert state["config"]["continuous"] is False
     assert memory.backlog.all() == []
-    payload = json.loads(
-        (memory.project.root / "continuous.json").read_text(encoding="utf-8")
-    )
-    assert payload["enabled"] is True
-    assert payload["objective"] == "managed: one report"
 
 
 def test_lifetime_promotion_never_calls_a_second_classifier(memory, monkeypatch):
@@ -439,7 +423,7 @@ def test_lifetime_promotion_never_calls_a_second_classifier(memory, monkeypatch)
     bounded = {"backend": "codex", "_frontdoor_lifetime": "bounded"}
 
     assert dispatch.maybe_promote_to_continuous(memory, "keep going", standing)
-    assert dispatch.maybe_promote_to_continuous(memory, "one report", bounded)
+    assert not dispatch.maybe_promote_to_continuous(memory, "one report", bounded)
     assert "_frontdoor_lifetime" not in standing
     assert "_frontdoor_lifetime" not in bounded
 

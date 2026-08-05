@@ -512,7 +512,7 @@ def hydrate_task_context_refs(
         if not target or Path(target).is_absolute():
             raise ValueError("Planner context refs must be project-relative file paths")
         resolved = (root / target).resolve()
-        if root not in resolved.parents:
+        if resolved != root and root not in resolved.parents:
             raise ValueError(f"Planner context ref escapes the project root: {target}")
         if not resolved.is_file():
             continue

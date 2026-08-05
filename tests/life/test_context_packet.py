@@ -147,6 +147,20 @@ def test_planner_context_ref_hash_tracks_project_file_revision(tmp_path: Path) -
     assert refs[0]["content_hash"] == ""
 
 
+def test_planner_context_ref_at_project_root_is_safe_but_not_hydrated(
+    tmp_path: Path,
+) -> None:
+    assert hydrate_task_context_refs(
+        [{
+            "kind": "workspace",
+            "ref": "./",
+            "why": "whole bounded workspace",
+            "content_hash": "",
+        }],
+        tmp_path,
+    ) == []
+
+
 def test_planner_context_refs_reject_project_escape(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="escapes the project root"):
         hydrate_task_context_refs(

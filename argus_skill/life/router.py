@@ -290,6 +290,7 @@ def classify_front_door(
     authorization_line = _line_after_prefix(answer, "AUTHORIZATION:")
     steering_line = _line_after_prefix(answer, "STEER_DIRECTIVE:")
     route_line = _line_after_prefix(answer, "ROUTE:")
+    lifetime_line = _line_after_prefix(answer, "LIFETIME:")
     greeting_line = _line_after_prefix(answer, "GREETING:")
     name_line = _line_after_prefix(answer, "NAME:")
     intent = _parse_config_line(config_line) if config_line is not None else None
@@ -320,10 +321,11 @@ def classify_front_door(
                 pass
     lifetime: LifetimeIntent | None = None
     if route == "complex":
-        # TEAM work always enters the vertical-aware continuous lifecycle. Ignore
-        # stale/incorrect BOUNDED model output instead of silently selecting the
-        # generic bounded DAG Planner.
-        lifetime = "standing"
+        # Missing/malformed output keeps the conservative standing default, but
+        # an explicit BOUNDED verdict is authoritative and routes through the
+        # existing bounded-DAG path without paying for a second model call.
+        lifetime_token = _first_alpha_token(lifetime_line).upper()
+        lifetime = "bounded" if lifetime_token == "BOUNDED" else "standing"
     if callable(lifetime_sink) and lifetime is not None:
         try:
             lifetime_sink(lifetime)
