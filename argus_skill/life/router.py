@@ -132,6 +132,7 @@ class ConfigIntent:
 
 ControlIntent = Literal["abort", "no_dispatch", "steer"]
 SelfModeIntent = Literal["reply", "inspect"]
+ConfigDecision = ConfigIntent | tuple[ConfigIntent, ...] | None
 LifetimeIntent = Literal["bounded", "bounded_increment", "standing"]
 AuthorizationAction = Literal[
     "validator_repair",
@@ -203,11 +204,39 @@ def _parse_config_line(line: str) -> "ConfigIntent | None":
     return ConfigIntent(knob=knob, roles=roles, value=value)
 
 
+def _parse_config_decision(line: str | None) -> ConfigDecision:
+    """Parse one or more ``SET`` clauses separated by semicolons.
+
+    Multi-knob requests are one operator transaction. Any malformed clause
+    rejects the whole decision instead of concatenating trailing SET text into
+    the first value (which previously turned ``pi; SET model ...`` into an
+    unknown backend that silently fell back to Codex).
+    """
+    raw = str(line or "").strip()
+    if not raw or raw.upper() == "NONE":
+        return None
+    clauses = [clause.strip() for clause in raw.split(";") if clause.strip()]
+    if not clauses or len(clauses) > 8:
+        return None
+    intents: list[ConfigIntent] = []
+    seen: set[tuple[str, tuple[str, ...]]] = set()
+    for clause in clauses:
+        intent = _parse_config_line(clause)
+        if intent is None:
+            return None
+        identity = (intent.knob, intent.roles)
+        if identity in seen:
+            return None
+        seen.add(identity)
+        intents.append(intent)
+    return intents[0] if len(intents) == 1 else tuple(intents)
+
+
 def classify_config_intent(
     text: str,
     *,
     run_exec: Callable[[str], Any],
-) -> ConfigIntent | None:
+) -> ConfigDecision:
     """Does this free text ask to change one of Argus's own runtime knobs?
 
     Intent recognition, not keyword matching: one low-reasoning model call
@@ -229,7 +258,7 @@ def classify_config_intent(
         return None
     answer = _extract_answer(result).strip()
     line = next((ln.strip() for ln in answer.splitlines() if ln.strip()), "")
-    return _parse_config_line(line)
+    return _parse_config_decision(line)
 
 
 def _line_after_prefix(answer: str, prefix: str) -> "str | None":
@@ -271,7 +300,7 @@ def classify_front_door(
     steering_sink: Callable[[str], None] | None = None,
     authorization_sink: Callable[[tuple[str, ...]], None] | None = None,
     active_mission: bool = False,
-) -> "tuple[ConfigIntent | None, ControlIntent | None, str]":
+) -> "tuple[ConfigDecision, ControlIntent | None, str]":
     """One model call for every cheap front-door decision.
 
     The return shape stays backward-compatible; optional sinks expose reusable
@@ -299,7 +328,7 @@ def classify_front_door(
     lifetime_line = _line_after_prefix(answer, "LIFETIME:")
     greeting_line = _line_after_prefix(answer, "GREETING:")
     name_line = _line_after_prefix(answer, "NAME:")
-    intent = _parse_config_line(config_line) if config_line is not None else None
+    intent = _parse_config_decision(config_line)
     control_token = (
         str(control_line or "").strip().upper().replace("-", "_")
     )
@@ -411,6 +440,7 @@ def classify_front_door(
 
 __all__ = [
     "ConfigIntent",
+    "ConfigDecision",
     "ControlIntent",
     "SelfModeIntent",
     "LifetimeIntent",

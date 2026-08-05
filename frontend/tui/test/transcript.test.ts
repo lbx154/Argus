@@ -44,8 +44,8 @@ test('late transcript replay preserves live keys instead of reprinting rows', ()
   ];
 
   const merged = mergeTranscriptReplay(live, [
-    { role: 'operator', text: '你好', ts: 10 },
-    { role: 'argus', text: '你好，我是 Argus Manager。', ts: 11 },
+    { role: 'operator', text: '你好', ts: 20 },
+    { role: 'argus', text: '你好，我是 Argus Manager。', ts: 21 },
   ]);
 
   assert.equal(merged.length, 2);
@@ -74,11 +74,29 @@ test('late replay does not collapse two intentional identical live turns', () =>
   ];
 
   const merged = mergeTranscriptReplay(live, [
-    { role: 'operator', text: '再试一次', ts: 10.1 },
-    { role: 'operator', text: '再试一次', ts: 11.1 },
+    { role: 'operator', text: '再试一次', ts: 20 },
+    { role: 'operator', text: '再试一次', ts: 21 },
   ]);
 
   assert.equal(merged.length, 2);
   assert.equal(merged[0], live[0]);
   assert.equal(merged[1], live[1]);
+});
+
+test('late replay keeps older unmatched identical history by count', () => {
+  const live = [{
+    type: 'ui.operator',
+    text: '你好',
+    ts: 30,
+    message_id: 'local-current',
+  }];
+
+  const merged = mergeTranscriptReplay(live, [
+    { role: 'operator', text: '你好', ts: 5 },
+    { role: 'operator', text: '你好', ts: 30.5 },
+  ]);
+
+  assert.equal(merged.length, 2);
+  assert.equal(merged[0].ts, 5);
+  assert.equal(merged[1], live[0]);
 });

@@ -33,18 +33,38 @@ export function mergeTranscriptReplay(
   turns: Turn[],
   maxEvents = 400,
 ): EventMsg[] {
-  // The live list may legitimately contain two identical rapid-fire turns;
-  // it has already passed through the wire reducer, while optimistic rows are
-  // deliberately appended as distinct user actions. Preserve it verbatim and
-  // use replay rows only to fill history that live state does not already hold.
-  const merged = transcriptEvents(turns).reduce(
-    (current, event) => reduceOperatorEvent(
-      current,
-      event,
-      Number.MAX_SAFE_INTEGER,
-    ),
-    [...liveEvents],
-  ).sort(
+  // The live list may legitimately contain two identical rapid-fire turns.
+  // Match the newest durable transcript rows to live rows by occurrence count,
+  // not by timestamp: WebAPI cold start can delay the first durable row well
+  // beyond the old two-second heuristic. Older unmatched history is retained.
+  const replay = transcriptEvents(turns);
+  const liveCounts = new Map<string, number>();
+  for (const event of liveEvents) {
+    const type = String(event.type ?? '');
+    if (type !== 'ui.operator' && type !== 'ui.argus') continue;
+    const key = `${type}\u0000${String(event.text ?? '')}`;
+    liveCounts.set(key, (liveCounts.get(key) ?? 0) + 1);
+  }
+  const keepReplay = new Array(replay.length).fill(true);
+  for (let index = replay.length - 1; index >= 0; index -= 1) {
+    const event = replay[index];
+    const key = `${String(event.type ?? '')}\u0000${String(event.text ?? '')}`;
+    const count = liveCounts.get(key) ?? 0;
+    if (count > 0) {
+      keepReplay[index] = false;
+      liveCounts.set(key, count - 1);
+    }
+  }
+  const merged = replay
+    .filter((_event, index) => keepReplay[index])
+    .reduce(
+      (current, event) => reduceOperatorEvent(
+        current,
+        event,
+        Number.MAX_SAFE_INTEGER,
+      ),
+      [...liveEvents],
+    ).sort(
     (left, right) => Number(left.ts ?? 0) - Number(right.ts ?? 0),
   );
   return merged.length > maxEvents

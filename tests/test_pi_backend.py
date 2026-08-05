@@ -51,6 +51,30 @@ def test_pi_command_uses_json_stdin_and_exact_session(
     ]
 
 
+def test_pi_bare_model_uses_configured_provider_prefix(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
+    monkeypatch.delenv("ARGUS_SKILL_PI_PROVIDER", raising=False)
+
+    command = _runner()._build_pi_command(
+        resume_thread_id=None,
+        options=RunnerOptions(model="gpt-5.6-sol"),
+    )
+
+    assert command[command.index("--model") + 1] == (
+        "github-copilot/gpt-5.6-sol"
+    )
+
+    monkeypatch.setenv("ARGUS_SKILL_PI_PROVIDER", "openai")
+    command = _runner()._build_pi_command(
+        resume_thread_id=None,
+        options=RunnerOptions(model="gpt-5.6-sol"),
+    )
+    assert command[command.index("--model") + 1] == "openai/gpt-5.6-sol"
+
+
 def test_pi_read_only_allows_only_builtin_read_tools_and_strips_overrides(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

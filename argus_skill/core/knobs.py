@@ -68,6 +68,7 @@ KNOBS: tuple[Knob, ...] = (
     ),
     Knob("ARGUS_SKILL_RUNNER_BIN", "(agent CLI on PATH)", "absolute path to the agent CLI binary", "backend"),
     Knob("ARGUS_SKILL_PI_SESSION_DIR", "(~/.argus-skill/pi-sessions)", "Argus-owned Pi session storage, separate from interactive Pi history", "backend"),
+    Knob("ARGUS_SKILL_PI_PROVIDER", "github-copilot", "provider prefix for bare model ids passed to the Pi backend", "backend"),
     Knob("ARGUS_SKILL_ENGINEER_BACKEND", "(=LIFE_BACKEND)", "per-role backend override for the engineer", "backend", cockpit=True),
     Knob("ARGUS_SKILL_REVIEWER_BACKEND", "(=LIFE_BACKEND)", "per-role backend override for the reviewer", "backend", cockpit=True),
     Knob("ARGUS_SKILL_PLANNER_BACKEND", "(=LIFE_BACKEND)", "per-role backend override for the planner", "backend", cockpit=True),
@@ -410,6 +411,19 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
             raise ValueError(f"{name} must be low, medium, high, xhigh, or max")
         return effort
     if name in _MODEL_KNOBS:
+        # Natural-language cockpit requests often omit separators
+        # (``gpt5.6sol``). Canonicalize only the unambiguous GPT family while
+        # leaving arbitrary provider/model ids verbatim.
+        compact_gpt = re.fullmatch(
+            r"gpt[-_]?(\d+(?:\.\d+)?)(?:[-_]?(sol|mini|codex))?",
+            raw,
+            flags=re.IGNORECASE,
+        )
+        if compact_gpt:
+            suffix = compact_gpt.group(2)
+            raw = f"gpt-{compact_gpt.group(1)}" + (
+                f"-{suffix.lower()}" if suffix else ""
+            )
         if not _MODEL_ID_RE.match(raw):
             raise ValueError(
                 f"{name} must be a bare model id such as gpt-5.6-sol, not free "

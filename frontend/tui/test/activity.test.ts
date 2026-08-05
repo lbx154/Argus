@@ -83,6 +83,38 @@ test('operator transcript, local echo, and wire event coalesce to one line', () 
   assert.equal(events.length, 1);
 });
 
+test('cold-start durable echo confirms one optimistic operator row in place', () => {
+  const optimistic = {
+    type: 'ui.operator',
+    text: '你好',
+    ts: 1,
+    event_id: 'local-project-1-operator',
+    message_id: 'local-1-operator',
+    local_request_id: 1,
+    local_optimistic: true,
+  };
+  let events = reduceOperatorEvent([optimistic], {
+    type: 'ui.operator',
+    text: '你好',
+    ts: 10,
+    message_id: 'web-10-operator',
+  });
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0].event_id, optimistic.event_id);
+  assert.equal(events[0].message_id, optimistic.message_id);
+  assert.equal(events[0].confirmed_message_id, 'web-10-operator');
+  assert.equal(events[0].local_optimistic, false);
+
+  events = reduceOperatorEvent(events, {
+    type: 'ui.operator',
+    text: '你好',
+    ts: 11,
+    message_id: 'web-10-operator',
+  });
+  assert.equal(events.length, 1, 'replay of the confirmed server row stays deduped');
+});
+
 test('rapid identical turns with distinct message ids are both preserved', () => {
   let events = reduceOperatorEvent([], {
     type: 'ui.operator', text: '再试一次', message_id: 'turn-1', ts: 10,

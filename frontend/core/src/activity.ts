@@ -248,6 +248,32 @@ export function reduceOperatorEvent(
     const text = S(event, 'text');
     const ts = N(event, 'ts');
     const incomingMessageId = S(event, 'message_id');
+    const confirmedDuplicate = incomingMessageId && events.some(
+      (candidate) => S(candidate, 'confirmed_message_id') === incomingMessageId,
+    );
+    if (confirmedDuplicate) return events;
+
+    // The first request can sit behind WebAPI cold start for several seconds,
+    // so timestamp proximity cannot correlate its optimistic echo. Confirm the
+    // oldest matching local request in place and preserve its explicit event_id;
+    // Ink Static then keeps one stable scrollback key instead of printing twice.
+    const optimisticIndex = incomingMessageId
+      ? events.findIndex((candidate) => (
+          candidate.type === event.type
+          && S(candidate, 'text') === text
+          && (candidate as Record<string, unknown>).local_optimistic === true
+        ))
+      : -1;
+    if (optimisticIndex >= 0) {
+      const copy = events.slice();
+      copy[optimisticIndex] = {
+        ...copy[optimisticIndex],
+        local_optimistic: false,
+        confirmed_message_id: incomingMessageId,
+      };
+      return copy;
+    }
+
     const duplicate = events.some((candidate) => {
       const candidateMessageId = S(candidate, 'message_id');
       return candidate.type === event.type

@@ -125,7 +125,15 @@ export function useManagerSession({
     const replyId = `argus-${Date.now()}`;
     setEvents((events) => [
       ...events,
-      { type: 'ui.operator', text, ts: Date.now() / 1000 } as EventMsg,
+      {
+        type: 'ui.operator',
+        text,
+        ts: Date.now() / 1000,
+        event_id: `local-${requestProject}-${requestId}-operator`,
+        message_id: `local-${requestId}-operator`,
+        local_request_id: requestId,
+        local_optimistic: true,
+      } as EventMsg,
     ]);
     setPhase('');
     setSteps([]);

@@ -39,6 +39,20 @@ def _pi_session_dir() -> str:
     return str((global_root() / "pi-sessions").resolve())
 
 
+def _pi_model(model: str) -> str:
+    """Qualify a bare Pi model so duplicate provider catalogs are unambiguous."""
+    value = str(model or "").strip()
+    if not value or "/" in value:
+        return value
+    from ..core.knobs import resolve_knob
+
+    provider = resolve_knob(
+        "ARGUS_SKILL_PI_PROVIDER",
+        "github-copilot",
+    ).value.strip() or "github-copilot"
+    return f"{provider}/{value}"
+
+
 _READ_ONLY_FLAG_SWITCHES = frozenset({
     "--allow-all",
     "--allow-all-paths",
@@ -470,7 +484,7 @@ class CommandBuilderMixin:
             "--no-approve",
         ])
         if options.model:
-            command.extend(["--model", options.model])
+            command.extend(["--model", _pi_model(options.model)])
         if options.reasoning_effort:
             command.extend(["--thinking", options.reasoning_effort])
         if options.sandbox_mode == "read-only":

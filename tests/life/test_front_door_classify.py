@@ -190,6 +190,35 @@ def test_front_door_contextual_greeting_does_not_take_one_call_path() -> None:
     assert replies == []
 
 
+def test_front_door_parses_multiple_config_sets_as_one_transaction() -> None:
+    intent, control, route = classify_front_door(
+        "请把所有模型的 backend 换成 pi，模型用 gpt5.6sol",
+        run_exec=_exec(
+            "CONFIG: SET backend ALL pi; SET model ALL gpt5.6sol\n"
+            "CONTROL: NONE\nROUTE: SELF"
+        ),
+    )
+
+    assert intent == (
+        ConfigIntent(knob="backend", roles=(), value="pi"),
+        ConfigIntent(knob="model", roles=(), value="gpt5.6sol"),
+    )
+    assert control is None
+    assert route == "simple"
+
+
+def test_front_door_rejects_whole_config_batch_when_one_clause_is_malformed() -> None:
+    intent, _, _ = classify_front_door(
+        "change two settings",
+        run_exec=_exec(
+            "CONFIG: SET backend ALL pi; malformed model clause\n"
+            "CONTROL: NONE\nROUTE: SELF"
+        ),
+    )
+
+    assert intent is None
+
+
 def test_both_axes_config_and_self() -> None:
     intent, control, route = classify_front_door(
         "用 copilot",

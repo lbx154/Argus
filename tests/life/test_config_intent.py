@@ -44,6 +44,17 @@ def test_backend_all_becomes_empty_roles() -> None:
     assert intent == ConfigIntent(knob="backend", roles=(), value="codex")
 
 
+def test_backend_and_model_batch() -> None:
+    intent = classify_config_intent(
+        "x",
+        run_exec=_exec("SET backend ALL pi; SET model ALL gpt5.6sol"),
+    )
+    assert intent == (
+        ConfigIntent(knob="backend", roles=(), value="pi"),
+        ConfigIntent(knob="model", roles=(), value="gpt5.6sol"),
+    )
+
+
 def test_effort_multiple_roles() -> None:
     intent = classify_config_intent("x", run_exec=_exec("SET effort engineer,reviewer high"))
     assert intent is not None

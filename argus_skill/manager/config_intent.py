@@ -33,6 +33,35 @@ _ROLE_MODEL_ENVS: dict[str, str] = {
 }
 
 
+def _invalidate_manager_runner(
+    chat_state: dict[str, Any],
+    *,
+    backend: str | None = None,
+) -> None:
+    """Close stale warm clients after a Manager backend/model knob change."""
+    runner = chat_state.pop("manager_runner", None)
+    chat_state.pop("manager_runner_workdir", None)
+    chat_state.pop("_manager_acp_prewarmed", None)
+    chat_state["last_thread_id"] = None
+    if backend:
+        chat_state["backend"] = backend
+    if runner is None:
+        return
+    try:
+        for candidate in (
+            getattr(runner, "_backend", None),
+            getattr(runner, "manager_backend", None),
+        ):
+            close_acp = getattr(candidate, "close_acp_clients", None)
+            if callable(close_acp):
+                close_acp()
+        reset = getattr(runner, "reset_chat_session", None)
+        if callable(reset):
+            reset()
+    except Exception:  # noqa: BLE001 - config is already durable; recover next turn
+        pass
+
+
 def _front_door_classify(
     mem: Any,
     text: str,
@@ -216,29 +245,129 @@ def _apply_config_intent(
         os.environ.update(values)
         return True
 
+    intents = list(intent) if isinstance(intent, (tuple, list)) else []
+    if intents:
+        from ..core.knobs import normalize_cockpit_knob_value
+
+        updates: dict[str, str] = {}
+        confirmations: list[str] = []
+        manager_backend: str | None = None
+        quota_knobs = {
+            "global_daily_cap": "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD",
+            "max_daemons": "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
+            "codex_daily_requests": "ARGUS_SKILL_CODEX_DAILY_CALL_CAP",
+            "copilot_daily_requests": "ARGUS_SKILL_COPILOT_DAILY_CALL_CAP",
+            "copilot_daily_premium": "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP",
+        }
+        toggle_knobs = {
+            "safe_mode": "ARGUS_SKILL_SAFE_MODE",
+            "show_reasoning": "ARGUS_SKILL_SHOW_REASONING",
+            "telegram": "ARGUS_SKILL_ENABLE_TELEGRAM",
+        }
+        try:
+            for entry in intents:
+                knob = str(entry.knob)
+                roles = list(entry.roles)
+                if knob == "backend":
+                    names = (
+                        [_ROLE_BACKEND_ENVS[role] for role in roles]
+                        if roles else [
+                            "ARGUS_SKILL_RUNNER_BACKEND",
+                            *_ROLE_BACKEND_ENVS.values(),
+                        ]
+                    )
+                    value = normalize_cockpit_knob_value(names[0], entry.value)
+                    updates.update({name: value for name in names})
+                    if not roles or "manager" in roles:
+                        manager_backend = value
+                    confirmations.append(
+                        f"Set {' / '.join(r.title() for r in roles) if roles else 'all Argus roles'} "
+                        f"CLI backend to {value}."
+                    )
+                elif knob == "model":
+                    names = (
+                        [_ROLE_MODEL_ENVS[role] for role in roles]
+                        if roles else ["ARGUS_SKILL_MODEL", *_ROLE_MODEL_ENVS.values()]
+                    )
+                    value = normalize_cockpit_knob_value(names[0], entry.value)
+                    updates.update({name: value for name in names})
+                    confirmations.append(
+                        f"Set {' / '.join(r.title() for r in roles) if roles else 'all Argus roles'} "
+                        f"model to {value}."
+                    )
+                elif knob == "effort":
+                    target = roles or list(_ROLE_EFFORT_ENVS)
+                    value = normalize_cockpit_knob_value(
+                        _ROLE_EFFORT_ENVS[target[0]], entry.value
+                    )
+                    updates.update({_ROLE_EFFORT_ENVS[role]: value for role in target})
+                    confirmations.append(
+                        f"Set {' / '.join(r.title() for r in target)} reasoning effort "
+                        f"to {value}."
+                    )
+                elif knob in quota_knobs:
+                    match = re.search(r"\d+(?:\.\d+)?", str(entry.value))
+                    if match is None:
+                        raise ValueError(f"{knob} has no numeric value")
+                    env_var = quota_knobs[knob]
+                    value = normalize_cockpit_knob_value(env_var, match.group(0))
+                    updates[env_var] = value
+                    confirmations.append(f"Set {env_var} = {value}.")
+                elif knob in toggle_knobs:
+                    env_var = toggle_knobs[knob]
+                    value = normalize_cockpit_knob_value(env_var, entry.value)
+                    updates[env_var] = value
+                    confirmations.append(
+                        f"Set {env_var} = {value} ({'on' if value == '1' else 'off'})."
+                    )
+                else:
+                    raise ValueError(f"unsupported config knob: {knob}")
+        except (KeyError, ValueError) as exc:
+            _confirm(f"Could not apply configuration; nothing changed: {exc}")
+            return True
+        if not _set(updates):
+            return True
+        for line in confirmations:
+            _confirm(line)
+        _invalidate_manager_runner(chat_state, backend=manager_backend)
+        return True
+
     knob = intent.knob
     roles = list(intent.roles)
 
     if knob == "backend":
-        from ..agent_cli.runner_backend import normalize_runner_backend
+        from ..core.knobs import normalize_cockpit_knob_value
 
-        value = normalize_runner_backend(intent.value)
+        names = [_ROLE_BACKEND_ENVS[r] for r in roles] if roles else [
+            "ARGUS_SKILL_RUNNER_BACKEND",
+            *_ROLE_BACKEND_ENVS.values(),
+        ]
+        try:
+            value = normalize_cockpit_knob_value(names[0], intent.value)
+        except ValueError as exc:
+            _confirm(f"Could not apply backend; nothing changed: {exc}")
+            return True
         if roles:
             if not _set({_ROLE_BACKEND_ENVS[role]: value for role in roles}):
                 return True
             _confirm(f"Set {' / '.join(r.title() for r in roles)} CLI backend to {value}.")
         else:
-            if not _set({"ARGUS_SKILL_RUNNER_BACKEND": value}):
+            if not _set({name: value for name in names}):
                 return True
-            _confirm(f"Set Argus default CLI backend to {value} "
-                     "(roles without their own backend follow).")
-        chat_state.pop("manager_runner", None)
+            _confirm(f"Set all Argus roles' CLI backend to {value}.")
+        _invalidate_manager_runner(
+            chat_state,
+            backend=(value if not roles or "manager" in roles else None),
+        )
         return True
 
     if knob == "model":
         from ..core.knobs import normalize_cockpit_knob_value
 
-        names = [_ROLE_MODEL_ENVS[r] for r in roles] if roles else ["ARGUS_SKILL_MODEL"]
+        names = [_ROLE_MODEL_ENVS[r] for r in roles] if roles else [
+            "ARGUS_SKILL_MODEL",
+            *_ROLE_MODEL_ENVS.values(),
+        ]
         try:
             values = {n: normalize_cockpit_knob_value(n, intent.value) for n in names}
         except ValueError:
@@ -256,9 +385,8 @@ def _apply_config_intent(
         if roles:
             _confirm(f"Set {' / '.join(r.title() for r in roles)} model to {model_value}.")
         else:
-            _confirm(f"Set Argus default model to {model_value} "
-                     "(roles without their own model follow).")
-        chat_state.pop("manager_runner", None)
+            _confirm(f"Set all Argus roles' model to {model_value}.")
+        _invalidate_manager_runner(chat_state)
         return True
 
     if knob == "effort":
@@ -278,7 +406,7 @@ def _apply_config_intent(
         if not _set({_ROLE_EFFORT_ENVS[role]: value for role in applicable}):
             return True
         _confirm(f"Set {' / '.join(r.title() for r in applicable)} reasoning effort to {value}.")
-        chat_state.pop("manager_runner", None)
+        _invalidate_manager_runner(chat_state)
         return True
 
     # The host-global cap and provider quotas share the knob_store write path.
