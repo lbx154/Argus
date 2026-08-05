@@ -487,7 +487,10 @@ def format_backend_readiness(report: BackendReadiness) -> str:
     for warning in report.warnings:
         lines.append(f"  warning: {warning}")
     if report.ok:
-        auth = "checked" if report.auth_checked else "configuration validated"
+        if report.auth_checked and report.profile.backend == "opencode":
+            auth = "credentials listed; live token not checked"
+        else:
+            auth = "checked" if report.auth_checked else "configuration validated"
         lines.append(f"  ready: yes ({auth})")
     else:
         lines.append("  ready: no")

@@ -6,7 +6,10 @@ import os
 import subprocess
 
 from ..core.sandbox import sandboxed_child_env
-from ._sandbox_commands import _OPENCODE_READ_ONLY_AGENT
+from ._sandbox_commands import (
+    _OPENCODE_FULL_ACCESS_AGENT,
+    _OPENCODE_READ_ONLY_AGENT,
+)
 from .copilot_home import apply_copilot_home
 from .runner_backend import (
     BACKEND_CLAUDE,
@@ -25,8 +28,12 @@ def _apply_pi_automation_env(env: dict[str, str]) -> dict[str, str]:
     return env
 
 
-def _opencode_read_only_env() -> dict[str, str]:
-    """Inject a final-precedence OpenCode agent that cannot invoke write tools."""
+def _opencode_agent_env(
+    *,
+    agent_name: str,
+    description: str,
+    permission: dict[str, str],
+) -> dict[str, str]:
     env = sandboxed_child_env()
     raw = str(env.get(_OPENCODE_CONFIG_CONTENT_ENV) or "").strip()
     if raw:
@@ -35,7 +42,7 @@ def _opencode_read_only_env() -> dict[str, str]:
         except json.JSONDecodeError as exc:
             raise ValueError(
                 f"{_OPENCODE_CONFIG_CONTENT_ENV} must be valid JSON for "
-                "read-only OpenCode calls"
+                "Argus OpenCode calls"
             ) from exc
         if not isinstance(config, dict):
             raise ValueError(
@@ -53,15 +60,10 @@ def _opencode_read_only_env() -> dict[str, str]:
         raise ValueError(
             f"{_OPENCODE_CONFIG_CONTENT_ENV}.agent must contain a JSON object"
         )
-    agents[_OPENCODE_READ_ONLY_AGENT] = {
-        "description": "Argus read-only inspection agent.",
+    agents[agent_name] = {
+        "description": description,
         "mode": "primary",
-        "permission": {
-            "*": "deny",
-            "read": "allow",
-            "glob": "allow",
-            "grep": "allow",
-        },
+        "permission": permission,
     }
     config["agent"] = agents
     env[_OPENCODE_CONFIG_CONTENT_ENV] = json.dumps(
@@ -70,6 +72,29 @@ def _opencode_read_only_env() -> dict[str, str]:
         separators=(",", ":"),
     )
     return env
+
+
+def _opencode_read_only_env() -> dict[str, str]:
+    """Inject a final-precedence OpenCode agent that cannot invoke write tools."""
+    return _opencode_agent_env(
+        agent_name=_OPENCODE_READ_ONLY_AGENT,
+        description="Argus read-only inspection agent.",
+        permission={
+            "*": "deny",
+            "read": "allow",
+            "glob": "allow",
+            "grep": "allow",
+        },
+    )
+
+
+def _opencode_full_access_env() -> dict[str, str]:
+    """Inject a noninteractive OpenCode agent with explicit tool permission."""
+    return _opencode_agent_env(
+        agent_name=_OPENCODE_FULL_ACCESS_AGENT,
+        description="Argus noninteractive execution agent.",
+        permission={"*": "allow"},
+    )
 
 
 class PromptDeliveryMixin:
@@ -152,13 +177,24 @@ class PromptDeliveryMixin:
                 return apply_copilot_home(dict(os.environ))
             if self.backend == BACKEND_PI:
                 return _apply_pi_automation_env(dict(os.environ))
+            if (
+                self.backend == BACKEND_OPENCODE
+                and (options.dangerous_yolo or options.full_auto)
+            ):
+                return _opencode_full_access_env()
             return None
         if (
             self.backend == BACKEND_OPENCODE
             and options.sandbox_mode == "read-only"
         ):
             return _opencode_read_only_env()
-        env = sandboxed_child_env()
+        if (
+            self.backend == BACKEND_OPENCODE
+            and (options.dangerous_yolo or options.full_auto)
+        ):
+            env = _opencode_full_access_env()
+        else:
+            env = sandboxed_child_env()
         if self.backend == BACKEND_COPILOT:
             apply_copilot_home(env)
         elif self.backend == BACKEND_PI:

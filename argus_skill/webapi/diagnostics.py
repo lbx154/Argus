@@ -275,7 +275,10 @@ def _check_backend_preflight(
             ),
             problem.remediation,
         )
-    auth = "authentication checked" if report.auth_checked else "configuration checked"
+    if report.auth_checked and selected == "opencode":
+        auth = "credentials listed; live token not checked"
+    else:
+        auth = "authentication checked" if report.auth_checked else "configuration checked"
     return Check(
         "backend preflight",
         True,

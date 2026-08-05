@@ -26,6 +26,7 @@ from .runner_backend import (
 # injected into the child env must name the same agent this builder selects
 # via ``--agent``).
 _OPENCODE_READ_ONLY_AGENT = "argus-read-only"
+_OPENCODE_FULL_ACCESS_AGENT = "argus-full-access"
 
 
 def _pi_session_dir() -> str:
@@ -421,7 +422,7 @@ class CommandBuilderMixin:
         if options.sandbox_mode == "read-only":
             command.extend(["--agent", _OPENCODE_READ_ONLY_AGENT])
         elif options.dangerous_yolo or options.full_auto:
-            command.append("--dangerously-skip-permissions")
+            command.extend(["--agent", _OPENCODE_FULL_ACCESS_AGENT])
         if options.file_specs:
             for file_spec in options.file_specs:
                 command.extend(["--file", file_spec])

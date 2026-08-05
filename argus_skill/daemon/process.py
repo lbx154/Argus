@@ -26,6 +26,44 @@ from .state import (
 
 log = logging.getLogger(__name__)
 
+_DAEMON_PUBLISH_TIMEOUT_SECONDS = 5.0
+_DAEMON_STABILITY_SECONDS = 0.5
+_DAEMON_POLL_INTERVAL_SECONDS = 0.1
+
+
+def _wait_for_stable_daemon_status(
+    life_dir,
+    *,
+    publish_timeout_s: float = _DAEMON_PUBLISH_TIMEOUT_SECONDS,
+    stable_for_s: float = _DAEMON_STABILITY_SECONDS,
+    poll_interval_s: float = _DAEMON_POLL_INTERVAL_SECONDS,
+):
+    """Return a daemon status only after one PID stays continuously alive."""
+    publish_deadline = time.monotonic() + publish_timeout_s
+    stable_since: float | None = None
+    stable_pid: int | None = None
+
+    while True:
+        status = read_daemon_status(life_dir)
+        now = time.monotonic()
+        valid = (
+            status.alive
+            and status.pid is not None
+            and not status.status_read_error
+        )
+        if valid:
+            if stable_since is None or status.pid != stable_pid:
+                stable_since = now
+                stable_pid = status.pid
+            elif now - stable_since >= stable_for_s:
+                return status
+        elif stable_since is not None:
+            return None
+        elif now >= publish_deadline:
+            return None
+
+        time.sleep(poll_interval_s)
+
 
 def _windows_daemon_command(config: Any) -> list[str]:
     """Re-enter the active package/binary as one foreground worker."""
@@ -204,27 +242,21 @@ def spawn_detached_process(
         raise
     if pid > 0:
         try:
-            # Parent waits briefly so the admission lock covers pid publication.
-            deadline = time.monotonic() + 5.0
-            while time.monotonic() < deadline:
-                if pid_path.exists() and status_path.exists():
-                    status = read_daemon_status(config.life_dir)
-                    if (
-                        status.alive
-                        and status.pid is not None
-                        and not status.status_read_error
-                    ):
-                        if not quiet:
-                            sys.stdout.write(
-                                f"argus-skill: daemon started (pid {status.pid}, "
-                                f"life_dir={config.life_dir}, log={log_path}).\n"
-                            )
-                        return 0
-                time.sleep(0.1)
+            # A daemon publishes pid/status before backend readiness. Require
+            # continuous liveness so a readiness failure cannot be reported as
+            # a successful executor start.
+            status = _wait_for_stable_daemon_status(config.life_dir)
+            if status is not None:
+                if not quiet:
+                    sys.stdout.write(
+                        f"argus-skill: daemon started (pid {status.pid}, "
+                        f"life_dir={config.life_dir}, log={log_path}).\n"
+                    )
+                return 0
             if not quiet:
                 sys.stderr.write(
-                    "argus-skill: daemon fork succeeded but child did not write its "
-                    f"pid file within 5s. Check {log_path} for errors.\n"
+                    "argus-skill: daemon exited or failed to stabilize during "
+                    f"startup. Check {log_path} for errors.\n"
                 )
             return 2
         finally:

@@ -40,10 +40,22 @@ def test_opencode_command_uses_json_stdin_and_resume() -> None:
         "high",
         "--dir",
         "/repo",
-        "--dangerously-skip-permissions",
+        "--agent",
+        "argus-full-access",
         "--session",
         "ses-123",
     ]
+
+
+def test_opencode_full_auto_uses_explicit_full_access_agent() -> None:
+    runner = _runner()
+    options = RunnerOptions(full_auto=True)
+
+    child_env = runner._child_env(options)
+
+    assert child_env is not None
+    config = json.loads(child_env["OPENCODE_CONFIG_CONTENT"])
+    assert config["agent"]["argus-full-access"]["permission"] == {"*": "allow"}
 
 
 def test_opencode_defers_bare_model_to_its_own_config() -> None:
