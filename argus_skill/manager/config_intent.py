@@ -55,10 +55,14 @@ def _front_door_classify(
     real work on a classify hiccup)."""
     suggested_names: list[str] = []
     lifetime_decisions: list[str] = []
+    self_mode_decisions: list[str] = []
+    fast_replies: list[str] = []
     greeting_replies: list[str] = []
     steering_directives: list[str] = []
     authorization_decisions: list[tuple[str, ...]] = []
     chat_state.pop("_frontdoor_lifetime", None)
+    chat_state.pop("_frontdoor_self_mode", None)
+    chat_state.pop("_frontdoor_fast_reply", None)
     chat_state.pop("_frontdoor_greeting_reply", None)
     chat_state.pop("_frontdoor_failure", None)
     chat_state.pop("_frontdoor_steering_directive", None)
@@ -80,6 +84,10 @@ def _front_door_classify(
             kwargs["name_sink"] = suggested_names.append
         if accepts(mgr.classify_front_door, "lifetime_sink"):
             kwargs["lifetime_sink"] = lifetime_decisions.append
+        if accepts(mgr.classify_front_door, "self_mode_sink"):
+            kwargs["self_mode_sink"] = self_mode_decisions.append
+        if accepts(mgr.classify_front_door, "reply_sink"):
+            kwargs["reply_sink"] = fast_replies.append
         if accepts(mgr.classify_front_door, "greeting_sink"):
             kwargs["greeting_sink"] = greeting_replies.append
         if accepts(mgr.classify_front_door, "steering_sink"):
@@ -99,6 +107,22 @@ def _front_door_classify(
             intent, route = decision
             control = None
         normalized_route = route if route in ("simple", "complex") else "complex"
+        if normalized_route == "simple":
+            self_mode = next(
+                (
+                    str(value).strip().lower()
+                    for value in self_mode_decisions
+                    if str(value).strip().lower() in {"reply", "inspect"}
+                ),
+                "inspect",
+            )
+            chat_state["_frontdoor_self_mode"] = self_mode
+            fast_reply = next(
+                (str(value).strip() for value in fast_replies if str(value).strip()),
+                "",
+            )
+            if self_mode == "reply" and fast_reply:
+                chat_state["_frontdoor_fast_reply"] = fast_reply
         if normalized_route == "complex":
             lifetime = next(
                 (
@@ -258,10 +282,10 @@ def _apply_config_intent(
         env_var = quota_knobs[knob]
         from ..core.knobs import normalize_cockpit_knob_value
 
-        value = normalize_cockpit_knob_value(env_var, m.group(0))
-        if not _set({env_var: value}):
+        normalized_value = normalize_cockpit_knob_value(env_var, m.group(0))
+        if not _set({env_var: normalized_value}):
             return True
-        _confirm(f"Set {env_var} = {value}.")
+        _confirm(f"Set {env_var} = {normalized_value}.")
         return True
 
     if knob in ("safe_mode", "show_reasoning", "telegram"):

@@ -6,6 +6,7 @@ for source compatibility.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Callable, Literal
 
@@ -130,6 +131,7 @@ class ConfigIntent:
 
 
 ControlIntent = Literal["abort", "no_dispatch", "steer"]
+SelfModeIntent = Literal["reply", "inspect"]
 LifetimeIntent = Literal["bounded", "standing"]
 AuthorizationAction = Literal[
     "validator_repair",
@@ -263,6 +265,8 @@ def classify_front_door(
     run_exec: Callable[[str], Any],
     name_sink: Callable[[str], None] | None = None,
     lifetime_sink: Callable[[LifetimeIntent], None] | None = None,
+    self_mode_sink: Callable[[SelfModeIntent], None] | None = None,
+    reply_sink: Callable[[str], None] | None = None,
     greeting_sink: Callable[[str], None] | None = None,
     steering_sink: Callable[[str], None] | None = None,
     authorization_sink: Callable[[tuple[str, ...]], None] | None = None,
@@ -290,6 +294,8 @@ def classify_front_door(
     authorization_line = _line_after_prefix(answer, "AUTHORIZATION:")
     steering_line = _line_after_prefix(answer, "STEER_DIRECTIVE:")
     route_line = _line_after_prefix(answer, "ROUTE:")
+    self_mode_line = _line_after_prefix(answer, "SELF_MODE:")
+    reply_line = _line_after_prefix(answer, "REPLY:")
     lifetime_line = _line_after_prefix(answer, "LIFETIME:")
     greeting_line = _line_after_prefix(answer, "GREETING:")
     name_line = _line_after_prefix(answer, "NAME:")
@@ -319,12 +325,40 @@ def classify_front_door(
                 authorization_sink(authorization)
             except Exception:  # noqa: BLE001 - advisory metadata never owns routing
                 pass
+    self_mode: SelfModeIntent | None = None
+    if route == "simple":
+        self_mode_token = _first_alpha_token(self_mode_line or "").upper()
+        self_mode = "reply" if self_mode_token == "REPLY" else "inspect"
+    if callable(self_mode_sink) and self_mode is not None:
+        try:
+            self_mode_sink(self_mode)
+        except Exception:  # noqa: BLE001 - advisory metadata never owns routing
+            pass
+    if (
+        callable(reply_sink)
+        and route == "simple"
+        and self_mode == "reply"
+        and intent is None
+        and control in {None, "no_dispatch"}
+        and not authorization
+        and reply_line
+        and reply_line.strip().upper() != "NONE"
+    ):
+        try:
+            parsed_reply = json.loads(reply_line)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            parsed_reply = None
+        if isinstance(parsed_reply, str) and 0 < len(parsed_reply.strip()) <= 1600:
+            try:
+                reply_sink(parsed_reply.strip())
+            except Exception:  # noqa: BLE001 - optional fast reply only
+                pass
     lifetime: LifetimeIntent | None = None
     if route == "complex":
         # Missing/malformed output keeps the conservative standing default, but
         # an explicit BOUNDED verdict is authoritative and routes through the
         # existing bounded-DAG path without paying for a second model call.
-        lifetime_token = _first_alpha_token(lifetime_line).upper()
+        lifetime_token = _first_alpha_token(lifetime_line or "").upper()
         lifetime = "bounded" if lifetime_token == "BOUNDED" else "standing"
     if callable(lifetime_sink) and lifetime is not None:
         try:
@@ -367,6 +401,7 @@ def classify_front_door(
 __all__ = [
     "ConfigIntent",
     "ControlIntent",
+    "SelfModeIntent",
     "LifetimeIntent",
     "AuthorizationAction",
     "classify_is_conversational",

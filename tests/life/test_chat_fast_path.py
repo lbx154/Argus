@@ -180,6 +180,29 @@ def test_execute_dispatches_to_manager_self_path_on_greeting(monkeypatch) -> Non
     assert backend.calls[0]["options"].model == "best-manager"
 
 
+def test_message_only_self_reply_uses_lean_low_cost_route(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "argus_skill.apps._self_reply.resolve_manager_classify_model",
+        lambda: "cheap-manager",
+    )
+    backend = _FakeBackend(response_message="exact reply")
+    runner = _make_runner(backend)
+
+    runner._simple_quick_reply(
+        objective="reply exactly hello",
+        sink=_RecordingSink(),
+        lean=True,
+    )
+
+    call = backend.calls[-1]
+    assert call["run_label"] == "manager-quick-reply"
+    assert call["options"].model == "cheap-manager"
+    assert call["options"].reasoning_effort == "low"
+    assert call["options"].dangerous_yolo is False
+    assert "reply exactly hello" in call["prompt"]
+    assert "Grounding workspace" not in call["prompt"]
+
+
 def test_manager_self_effort_can_be_overridden(monkeypatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_SELF_REASONING_EFFORT", "high")
     backend = _FakeBackend(response_message="grounded")

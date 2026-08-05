@@ -145,6 +145,38 @@ def test_pure_greeting_uses_one_frontdoor_model_call(
     assert LifeMemory.open(life).backlog.all() == []
 
 
+def test_message_only_fast_reply_uses_only_frontdoor_call(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    sid = "s-one-call-fast-reply"
+    life = _make_project(tmp_path, sid)
+    manager_bridge._STATES.clear()
+
+    def classify(mem, text, chat_state, **kwargs):
+        chat_state["_frontdoor_self_mode"] = "reply"
+        chat_state["_frontdoor_fast_reply"] = "OK"
+        return None, "no_dispatch", "simple"
+
+    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+    monkeypatch.setattr(
+        front_door,
+        "manager_triage",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("message-only fast reply must not make a second model call")
+        ),
+    )
+
+    result = manager_bridge.manager_message(
+        sid,
+        "reply exactly OK",
+        global_root=tmp_path,
+    )
+
+    assert result == {"kind": "chat", "reply": "OK"}
+    assert LifeMemory.open(life).backlog.all() == []
+
+
 def test_explicit_authorization_persists_current_blocker_and_never_dispatches(
     tmp_path: Path, monkeypatch,
 ) -> None:

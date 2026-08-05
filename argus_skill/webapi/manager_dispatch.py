@@ -360,6 +360,8 @@ class _ClassifyResult:
     route: Any
     send_body: str
     root_task_id: str
+    self_mode: str
+    fast_reply: str
     greeting_reply: str
     frontdoor_failure: str
 
@@ -448,6 +450,12 @@ def _classify_operator_turn(
         intent, route = decision
         control = None
 
+    self_mode = str(
+        chat_state.get("_frontdoor_self_mode", "inspect") or "inspect"
+    ).strip().lower()
+    fast_reply = str(
+        chat_state.pop("_frontdoor_fast_reply", "") or ""
+    ).strip()
     greeting_reply = str(
         chat_state.pop("_frontdoor_greeting_reply", "") or ""
     ).strip()
@@ -460,6 +468,8 @@ def _classify_operator_turn(
         route=route,
         send_body=send_body,
         root_task_id=root_task_id,
+        self_mode=self_mode,
+        fast_reply=fast_reply,
         greeting_reply=greeting_reply,
         frontdoor_failure=frontdoor_failure,
     )
@@ -470,10 +480,10 @@ def _maybe_greeting_reply(
     body: str,
     emitter: _TurnEmitter,
 ) -> dict[str, Any] | None:
-    """Short-circuit a pure greeting the classifier already answered inline.
+    """Short-circuit a safe message-only reply from the merged classifier.
 
-    Only fires when nothing else was decided (no config intent, no control
-    action) AND the classifier didn't need the startup/rotation handoff to
+    Only fires when no stateful action was decided and the classifier did not
+    need the startup/rotation handoff to
     answer it (``send_body == body``) — otherwise the greeting reply could be
     stale relative to the actual enriched turn sent to the Manager.
     """
@@ -485,6 +495,15 @@ def _maybe_greeting_reply(
         and classify.send_body == body
     ):
         return emitter.respond(classify.greeting_reply, {"kind": "chat"})
+    if (
+        classify.fast_reply
+        and classify.intent is None
+        and classify.control in {None, "no_dispatch"}
+        and classify.route == "simple"
+        and classify.self_mode == "reply"
+        and classify.send_body == body
+    ):
+        return emitter.respond(classify.fast_reply, {"kind": "chat"})
     return None
 
 
@@ -716,6 +735,7 @@ def _run_triage_and_fallbacks(
     """
     from ..manager.front_door import manager_triage
 
+    self_mode = str(chat_state.pop("_frontdoor_self_mode", "inspect") or "inspect")
     # 1) Manager triage — chat/SELF returns a reply; TEAM returns None. The
     # route was already decided in the merged call above, so triage skips its
     # own route classify (``route=route``).
@@ -726,6 +746,7 @@ def _run_triage_and_fallbacks(
             chat_state,
             on_fragment=emitter.fragment if callable(on_fragment) else None,
             route=route,
+            self_mode=self_mode,
             root_task_id=root_task_id,
         )
     except Exception:  # noqa: BLE001 — triage failure biases to task

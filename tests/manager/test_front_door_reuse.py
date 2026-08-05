@@ -6,20 +6,30 @@ from argus_skill.manager.config_intent import _front_door_classify
 
 
 class _Manager:
-    def __init__(self, *, route: str, lifetime: str = "standing") -> None:
+    def __init__(
+        self,
+        *,
+        route: str,
+        lifetime: str = "standing",
+        self_mode: str = "inspect",
+    ) -> None:
         self.route = route
         self.lifetime = lifetime
+        self.self_mode = self_mode
 
     def classify_front_door(
         self,
         text: str,
         *,
         lifetime_sink=None,
+        self_mode_sink=None,
         greeting_sink=None,
         name_sink=None,
     ):
         if self.route == "complex" and lifetime_sink is not None:
             lifetime_sink(self.lifetime)
+        if self.route == "simple" and self_mode_sink is not None:
+            self_mode_sink(self.self_mode)
         if self.route == "simple" and greeting_sink is not None:
             greeting_sink("你好，我是 Argus Manager。")
         if name_sink is not None:
@@ -72,6 +82,7 @@ def test_front_door_wrapper_carries_one_turn_greeting_reply() -> None:
 
     assert decision == (None, None, "simple")
     assert "_frontdoor_lifetime" not in state
+    assert state["_frontdoor_self_mode"] == "inspect"
     assert state["_frontdoor_greeting_reply"] == "你好，我是 Argus Manager。"
     assert "_frontdoor_fast_reply" not in state
 

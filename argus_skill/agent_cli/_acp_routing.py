@@ -25,6 +25,7 @@ _ACP_MANAGER_LABELS = frozenset(
         "manager-frontdoor-classify",
         "manager-classify-fast",
         "manager-classify-grounded",
+        "manager-quick-reply",
         "simple-1",
         "chat-1",
     }
@@ -33,6 +34,7 @@ _ACP_MANAGER_LABELS = frozenset(
 _ACP_LEAN_LABELS = frozenset({
     "manager-frontdoor-classify",
     "manager-classify-fast",
+    "manager-quick-reply",
 })
 
 

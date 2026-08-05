@@ -116,6 +116,19 @@ def build_chat_prompt(
     )
 
 
+def build_quick_reply_prompt(*, objective: str) -> str:
+    """Compact, tool-free Manager reply for message-only conversation."""
+    return (
+        "You are Argus Manager. Reply directly to the current operator message. "
+        "This turn was classified as answerable without project inspection or "
+        "tools: do not claim that you read files, checked runtime state, or ran "
+        "commands. Follow explicit wording/format requests, be concise, and do "
+        "not dispatch work or invent persistent side effects.\n\n"
+        f"{_IDENTITY_GUARD}"
+        f"Message:\n{objective.strip()}"
+    )
+
+
 def build_simple_prompt(
     *,
     objective: str,
@@ -243,7 +256,7 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
     """Merged cockpit front door: classify once and reuse every cheap decision."""
     cleaned = (text or "").strip()
     return (
-        "Classify ONLY the current operator message on eight independent axes. "
+        "Classify ONLY the current operator message on ten independent axes. "
         "You do NOT choose the task vertical or execution workflow; the Manager "
         "does that later for every formal task.\n"
         f"ACTIVE_MISSION: {'YES' if active_mission else 'NO'}\n\n"
@@ -272,6 +285,15 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
         "ROUTE: SELF for conversation, read-only inspection/explanation/status, or "
         "control. TEAM for persistent file/artifact changes, commands, research, or "
         "engineering. Small one-shot artifacts are TEAM. If unsure, TEAM.\n\n"
+        "SELF_MODE: for ROUTE SELF, choose REPLY only when the message can be "
+        "answered from its own text or general conversation with no file, project, "
+        "runtime, artifact, or tool inspection. Choose INSPECT whenever current "
+        "state or evidence must be read. For ROUTE TEAM use NONE. If unclear, "
+        "choose INSPECT.\n\n"
+        "REPLY: only for SELF_MODE REPLY with no config/abort/steer/authorization, "
+        "write the complete operator-facing response as one valid JSON string. "
+        "Follow exact wording requests. Otherwise write NONE. Never claim file or "
+        "runtime inspection in this field.\n\n"
         "LIFETIME: for ROUTE TEAM, choose BOUNDED when the request has a natural "
         "finish line such as one fix, artifact, report, benchmark, proof, or finite "
         "deliverable; choose STANDING only for explicitly open-ended optimization, "
@@ -285,12 +307,14 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
         "NAME: concise title in the message language; 2-12 Chinese characters or "
         "2-8 words, core subject/action only, no polite framing, quotes, punctuation, "
         "or session id.\n\n"
-        "Reply with EXACTLY eight lines and nothing else:\n"
+        "Reply with EXACTLY ten lines and nothing else:\n"
         "CONFIG: <SET <knob> <roles> <value> | NONE>\n"
         "CONTROL: <ABORT | NO_DISPATCH | STEER | NONE>\n"
         "AUTHORIZATION: <AUTHORIZE <allowed-action[,allowed-action]> | NONE>\n"
         "STEER_DIRECTIVE: <Manager-authored team directive | NONE>\n"
         "ROUTE: <SELF | TEAM>\n"
+        "SELF_MODE: <REPLY | INSPECT | NONE>\n"
+        "REPLY: <JSON string | NONE>\n"
         "LIFETIME: <BOUNDED | STANDING | NONE>\n"
         "GREETING: <GREETING | NONE>\n"
         "NAME: <concise conversation title>\n"
@@ -1187,6 +1211,7 @@ __all__ = [
     "STAGE_DECISION",
     "assemble_manager_prompt",
     "build_chat_prompt",
+    "build_quick_reply_prompt",
     "build_classify_prompt",
     "build_config_intent_prompt",
     "build_domain_author_prompt",

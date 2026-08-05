@@ -8,7 +8,11 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from ..core.knobs import resolve_manager_reply_model, resolve_role_reasoning_effort
+from ..core.knobs import (
+    resolve_manager_classify_model,
+    resolve_manager_reply_model,
+    resolve_role_reasoning_effort,
+)
 from ..core.models import RunnerOptions
 from ..core.ports import EventSink
 from ..core.progress_step import REPLY_KINDS, describe_progress_step
@@ -300,6 +304,7 @@ class SelfReplyMixin:
         seed_thread_id: str | None = None,
         phase_cb: Any = None,
         route: str | None = None,
+        self_mode: str = "inspect",
         root_task_id: str | None = None,
     ) -> _Outcome | None:
         workdir = (
@@ -406,6 +411,7 @@ class SelfReplyMixin:
                 objective=objective,
                 sink=_PhaseSink(sink),
                 seed_thread_id=seed_thread_id,
+                lean=str(self_mode or "inspect").strip().lower() == "reply",
             )
         _phase("Handing off to Planner / Engineer / Reviewer…")
         return None
@@ -419,6 +425,7 @@ class SelfReplyMixin:
         seed_thread_id: str | None = None,
         phase_cb: Any = None,
         route: str | None = None,
+        self_mode: str = "inspect",
         root_task_id: str | None = None,
     ) -> bool:
         with self.task_usage_context(root_task_id):
@@ -428,6 +435,7 @@ class SelfReplyMixin:
                 seed_thread_id=seed_thread_id,
                 phase_cb=phase_cb,
                 route=route,
+                self_mode=self_mode,
                 root_task_id=root_task_id,
             ) is not None
 
@@ -725,12 +733,20 @@ class SelfReplyMixin:
         objective: str,
         sink: EventSink,
         seed_thread_id: str | None = None,
+        lean: bool = False,
     ) -> _Outcome:
         from ..core.role_config import runner_backend_label
-        from ..roles.prompts.manager import build_simple_prompt
+        from ..roles.prompts.manager import (
+            build_quick_reply_prompt,
+            build_simple_prompt,
+        )
 
         args = self._args
-        seed = self._next_seed_thread_id if seed_thread_id is None else seed_thread_id
+        seed = (
+            None
+            if lean
+            else self._next_seed_thread_id if seed_thread_id is None else seed_thread_id
+        )
         backend_label = runner_backend_label()
         sink.handle_event({
             "type": "loop.start",
@@ -747,19 +763,23 @@ class SelfReplyMixin:
             if configured_workspace
             else Path(args.workdir).expanduser() if args.workdir else Path.cwd()
         )
-        prompt = build_simple_prompt(
-            objective=objective,
-            identity_card=self.manager.role_context(),
-            mission_status=self._live_mission_status_block(),
-            runtime_context=self._manager_reply_runtime_context("simple-1"),
-            operator_workspace=str(workdir),
-        )
-        session_root = getattr(self, "_manager_session_root", None)
-        read_dirs = (
-            [str(Path(session_root).expanduser())]
-            if session_root and Path(session_root).expanduser() != workdir
-            else None
-        )
+        if lean:
+            prompt = build_quick_reply_prompt(objective=objective)
+            read_dirs = None
+        else:
+            prompt = build_simple_prompt(
+                objective=objective,
+                identity_card=self.manager.role_context(),
+                mission_status=self._live_mission_status_block(),
+                runtime_context=self._manager_reply_runtime_context("simple-1"),
+                operator_workspace=str(workdir),
+            )
+            session_root = getattr(self, "_manager_session_root", None)
+            read_dirs = (
+                [str(Path(session_root).expanduser())]
+                if session_root and Path(session_root).expanduser() != workdir
+                else None
+            )
 
         def _self_inactivity(snapshot: Any) -> str | None:
             try:
@@ -790,16 +810,24 @@ class SelfReplyMixin:
             except Exception:  # noqa: BLE001 - UI sinks never own the turn
                 pass
 
-        reply_model = resolve_manager_reply_model()
-        options = RunnerOptions(
-            model=reply_model,
-            reasoning_effort=resolve_role_reasoning_effort(
+        reply_model = (
+            resolve_manager_classify_model() if lean else resolve_manager_reply_model()
+        )
+        reply_effort = (
+            "low"
+            if lean
+            else resolve_role_reasoning_effort(
                 "ARGUS_SKILL_SELF_REASONING_EFFORT",
                 default="xhigh",
-            ),
+            )
+        )
+        run_label = "manager-quick-reply" if lean else "simple-1"
+        options = RunnerOptions(
+            model=reply_model,
+            reasoning_effort=reply_effort,
             full_auto=False,
             skip_git_repo_check=True,
-            dangerous_yolo=True,
+            dangerous_yolo=not lean,
             sandbox_mode=None,
             working_dir=str(workdir),
             add_dirs=read_dirs,
@@ -818,7 +846,7 @@ class SelfReplyMixin:
                 self._backend,
                 prompt=prompt,
                 options=options,
-                run_label="simple-1",
+                run_label=run_label,
                 resume_thread_id=seed,
             )
             attempt_results.append(result)
@@ -835,7 +863,7 @@ class SelfReplyMixin:
                     self._backend,
                     prompt=prompt,
                     options=options,
-                    run_label="simple-1",
+                    run_label=run_label,
                     resume_thread_id=None,
                 )
                 attempt_results.append(result)
@@ -855,7 +883,7 @@ class SelfReplyMixin:
             self.last_thread_id = None
             self._next_seed_thread_id = None
             new_thread_id = None
-        elif new_thread_id:
+        elif new_thread_id and not lean:
             self.last_thread_id = new_thread_id
             self._next_seed_thread_id = new_thread_id
 

@@ -897,6 +897,7 @@ def _pre_provider_refusal_reply(exc: Exception, body: str) -> str:
 def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
                    *, on_phase: Any = None, on_fragment: Any = None,
                    route: str | None = None,
+                   self_mode: str = "inspect",
                    root_task_id: str | None = None,
                    ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
                    ) -> str | None:
@@ -1047,20 +1048,24 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
                 pass
 
     try:
+        quick_reply = str(self_mode or "inspect").strip().lower() == "reply"
         triage_kwargs: dict[str, Any] = {
             "objective": body,
             "sink": _Capture(progress_phases=False),
-            "seed_thread_id": chat_state.get("last_thread_id"),
+            "seed_thread_id": None if quick_reply else chat_state.get("last_thread_id"),
             "phase_cb": _runner_phase,
             "route": route,
         }
+        if _accepts_keyword(runner.chat_reply_if_conversational, "self_mode"):
+            triage_kwargs["self_mode"] = "reply" if quick_reply else "inspect"
         if root_task_id is not None and _accepts_keyword(
             runner.chat_reply_if_conversational,
             "root_task_id",
         ):
             triage_kwargs["root_task_id"] = root_task_id
         if runner.chat_reply_if_conversational(**triage_kwargs):
-            chat_state["last_thread_id"] = getattr(runner, "last_thread_id", None)
+            if not quick_reply:
+                chat_state["last_thread_id"] = getattr(runner, "last_thread_id", None)
             return captured[0] if captured else empty_reply
     except TypeError:
         # Older runner without phase_cb / route support — retry without them

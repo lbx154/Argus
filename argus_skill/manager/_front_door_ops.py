@@ -117,6 +117,8 @@ class _FrontDoorMixin:
         root_task_id: str | None = None,
         name_sink: Any = None,
         lifetime_sink: Any = None,
+        self_mode_sink: Any = None,
+        reply_sink: Any = None,
         greeting_sink: Any = None,
         steering_sink: Any = None,
         authorization_sink: Any = None,
@@ -127,7 +129,7 @@ class _FrontDoorMixin:
         Same discipline as ``classify_config_intent``: built FRESH on the raw
         backend (``self.runner``, NEVER ``self._session`` — no giant-session
         resume, no pollution), ``resume_thread_id=None``. Effort comes from
-        ``ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT`` (default ``low``): an eight-axis
+        ``ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT`` (default ``low``): a ten-axis
         classification needs no heavy reasoning, and ``low`` is what makes
         this cheap. Biases each axis to its own safe default on any error."""
         from ..life.router import classify_front_door
@@ -164,6 +166,8 @@ class _FrontDoorMixin:
                 run_exec=run_exec,
                 name_sink=name_sink,
                 lifetime_sink=lifetime_sink,
+                self_mode_sink=self_mode_sink,
+                reply_sink=reply_sink,
                 greeting_sink=greeting_sink,
                 steering_sink=steering_sink,
                 authorization_sink=authorization_sink,

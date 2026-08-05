@@ -27,7 +27,7 @@ def _exec(answer: str, exit_code: int = 0):
             label in prompt
             for label in (
                 "CONFIG:", "CONTROL:", "AUTHORIZATION:", "STEER_DIRECTIVE:",
-                "ROUTE:", "LIFETIME:", "GREETING:", "NAME:",
+                "ROUTE:", "SELF_MODE:", "REPLY:", "LIFETIME:", "GREETING:", "NAME:",
             )
         )
         return _FakeResult(answer, exit_code)
@@ -38,12 +38,12 @@ def _exec(answer: str, exit_code: int = 0):
 def test_front_door_prompt_has_a_strict_token_efficiency_budget() -> None:
     prompt = build_front_door_prompt("你好", active_mission=True)
 
-    assert len(prompt) <= 5_600
+    assert len(prompt) <= 7_000
     assert all(
         label in prompt
         for label in (
             "CONFIG:", "CONTROL:", "AUTHORIZATION:", "STEER_DIRECTIVE:",
-            "ROUTE:", "LIFETIME:", "GREETING:", "NAME:",
+            "ROUTE:", "SELF_MODE:", "REPLY:", "LIFETIME:", "GREETING:", "NAME:",
         )
     )
     assert "VERTICAL:" not in prompt
@@ -67,6 +67,37 @@ def test_name_axis_reports_concise_title_without_changing_route_contract() -> No
 
     assert decision == (None, None, "simple")
     assert names == ["勾股定理简证"]
+
+
+def test_front_door_selects_tool_free_reply_for_message_only_self_turn() -> None:
+    modes: list[str] = []
+    replies: list[str] = []
+    decision = classify_front_door(
+        "只回复 hello",
+        run_exec=_exec(
+            "CONFIG: NONE\nCONTROL: NO_DISPATCH\nROUTE: SELF\n"
+            'SELF_MODE: REPLY\nREPLY: "hello"\nLIFETIME: NONE\n'
+            "GREETING: NONE\nNAME: Reply"
+        ),
+        self_mode_sink=modes.append,
+        reply_sink=replies.append,
+    )
+
+    assert decision == (None, "no_dispatch", "simple")
+    assert modes == ["reply"]
+    assert replies == ["hello"]
+
+
+def test_front_door_defaults_self_turn_to_inspection() -> None:
+    modes: list[str] = []
+    decision = classify_front_door(
+        "inspect current files",
+        run_exec=_exec("CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\nNAME: Inspect"),
+        self_mode_sink=modes.append,
+    )
+
+    assert decision == (None, None, "simple")
+    assert modes == ["inspect"]
 
 
 def test_front_door_reuses_team_lifetime_from_the_same_model_call() -> None:
