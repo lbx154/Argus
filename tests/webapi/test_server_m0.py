@@ -10,6 +10,7 @@ import json
 import re
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -266,6 +267,47 @@ def test_snapshot_reuses_host_cost_and_usage_across_projects(
     assert server.build_snapshot("s-host-one", global_root=tmp_path) is not None
     assert server.build_snapshot("s-host-two", global_root=tmp_path) is not None
     assert calls == {"cost": 1, "usage": 1}
+
+
+def test_compact_snapshot_never_reports_global_usage_below_project_usage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _make_project(tmp_path, "s-usage-floor")
+    empty = project_state._empty_usage_summary()
+    project_usage = replace(
+        empty,
+        call_count=1,
+        known_cost_usd=0.25,
+        cost_usd=0.25,
+        pricing_status="priced",
+        priced_calls=1,
+    )
+    calls = 0
+
+    def global_usage(*, global_root, now=None):
+        nonlocal calls
+        calls += 1
+        return project_usage
+
+    import argus_skill.life.supervisor as supervisor_module
+
+    monkeypatch.setattr(project_state, "project_usage_summary", lambda _root: project_usage)
+    monkeypatch.setattr(supervisor_module, "global_daily_usage_summary", global_usage)
+    with project_state._GLOBAL_USAGE_CACHE_LOCK:
+        project_state._GLOBAL_USAGE_CACHE.clear()
+
+    snap = server.build_snapshot(
+        "s-usage-floor",
+        global_root=tmp_path,
+        compact=True,
+    )
+
+    assert snap is not None
+    assert snap["usage_summary"]["call_count"] == 1
+    assert snap["global_usage_summary"]["call_count"] == 1
+    assert snap["global_spend_usd"] == 0.25
+    assert calls >= 1
 
 
 def test_compact_snapshot_refreshes_host_projections_off_request_thread(

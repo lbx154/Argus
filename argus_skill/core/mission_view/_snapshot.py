@@ -70,7 +70,7 @@ def merge_mission_view_snapshot(
         mission["status"] = "complete"
     elif queued or (continuous or {}).get("enabled"):
         mission["status"] = "queued"
-    elif daemon.get("alive"):
+    elif daemon.get("alive") and not mission.get("completed_at"):
         mission["status"] = "idle"
     has_mission_context = bool(
         objective

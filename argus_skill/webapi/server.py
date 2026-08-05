@@ -498,6 +498,11 @@ def create_app(
     @app.on_event("startup")
     def _resume_pending_daemon_upgrades() -> None:
         reconcile_pending_daemon_upgrades(roots)
+        # Prime host-wide cost/usage projections before the first compact
+        # snapshot. Otherwise a completed inline Manager call can momentarily
+        # show project spend while global spend incorrectly appears empty.
+        for root in roots:
+            project_state._schedule_host_projection_refresh(root)
 
     @app.on_event("shutdown")
     def _shutdown_warm_manager_clients() -> None:

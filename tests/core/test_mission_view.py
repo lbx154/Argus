@@ -532,6 +532,32 @@ def test_snapshot_bootstraps_from_existing_event_log(tmp_path: Path) -> None:
     assert view["stage"]["id"] == "optimize"
 
 
+def test_snapshot_keeps_completed_mission_status_while_daemon_idles(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "events.jsonl").write_text(
+        "\n".join([
+            '{"type":"life.mission.started","ts":10,"item_id":"bounded-1",'
+            '"title":"Bounded task","objective":"finish once"}',
+            '{"type":"life.mission.completed","ts":20,"item_id":"bounded-1",'
+            '"status":"done","success":true}',
+        ]) + "\n",
+        encoding="utf-8",
+    )
+
+    view = snapshot_mission_view(
+        tmp_path,
+        session={"id": "s-done", "objective": ""},
+        daemon={"alive": True},
+        roles=[],
+        backlog=[],
+        continuous={"enabled": False, "objective": ""},
+    )
+
+    assert view["mission"]["status"] == "complete"
+    assert view["mission"]["completed_at"] == 20
+
+
 def test_snapshot_hides_stale_pipeline_stage_without_a_mission(tmp_path: Path) -> None:
     view = snapshot_mission_view(
         tmp_path,

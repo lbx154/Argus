@@ -622,6 +622,17 @@ def build_snapshot(
 
     try:
         global_spend = _cached_global_daily_usage_summary(root, nonblocking=compact)
+        # A stale host cache must never report less usage than the project
+        # currently being rendered. Refresh synchronously only on that
+        # contradiction; normal compact snapshots keep the nonblocking path.
+        if (
+            global_spend.call_count < spend.call_count
+            or global_spend.known_cost_usd + 1e-12 < spend.known_cost_usd
+        ):
+            from ..life.supervisor import global_daily_usage_summary
+
+            global_spend = global_daily_usage_summary(global_root=root)
+            _store_global_usage_cache(str(root.resolve()), global_spend)
     except Exception as exc:  # noqa: BLE001
         global_spend = _empty_usage_summary()
         diagnostics.append(diagnostic("global_usage", exc))

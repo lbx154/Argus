@@ -69,8 +69,33 @@ _RECO_PRIORITY = {
 # Individual checks — each fully fail-soft (return a Check, never raise)
 # ---------------------------------------------------------------------------
 
+def _executor_required(project_root: Path) -> bool:
+    """Whether durable work exists that needs a daemon right now."""
+    try:
+        from ..life.memory import Backlog
+
+        if any(
+            item.status in {"pending", "running", "in_progress", "claimed"}
+            for item in Backlog(project_root / "backlog.jsonl").all()
+        ):
+            return True
+    except Exception:  # noqa: BLE001 - diagnostics stay fail-soft
+        pass
+    return bool(_continuous_objective(project_root))
+
+
+def _daemon_is_alive(project_root: Path) -> bool:
+    try:
+        from ..daemon.life_worker import read_daemon_status
+
+        status = read_daemon_status(project_root)
+        return bool(getattr(status, "alive", False) and getattr(status, "pid", None))
+    except Exception:  # noqa: BLE001 - diagnostics stay fail-soft
+        return False
+
+
 def _check_daemon(project_root: Path) -> Check:
-    """(1) Is a daemon alive for *this* project? It is the sole executor."""
+    """(1) Is a daemon alive when this project currently needs one?"""
     from ..daemon.life_worker import read_daemon_status
 
     st = read_daemon_status(project_root)
@@ -82,6 +107,13 @@ def _check_daemon(project_root: Path) -> Check:
             "daemon",
             True,
             f"running (pid {st.pid}, backend={backend}{tail}) — draining backlog",
+            "",
+        )
+    if not _executor_required(project_root):
+        return Check(
+            "daemon",
+            True,
+            "not running (idle session; executor starts lazily on the first TEAM task)",
             "",
         )
     return Check(
@@ -344,10 +376,12 @@ def _check_empty_session(
             extra = ""
     return Check(
         "empty session",
-        False,
-        f"this is an empty session — no backlog, no events yet{extra}",
-        "run: argus --gc  (sweep empty shells)  ·  or relaunch with "
-        "--resume / --continue to attach to existing work",
+        True,
+        (
+            "fresh idle session — ready for the first message"
+            f"{extra}"
+        ),
+        "",
     )
 
 
@@ -431,7 +465,7 @@ def run_diagnostics(
         _run(
             "empty session",
             lambda: _check_empty_session(
-                root, global_root, daemon_alive=daemon_check.ok
+                root, global_root, daemon_alive=_daemon_is_alive(root)
             ),
         )
     )

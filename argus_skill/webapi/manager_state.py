@@ -30,6 +30,8 @@ _LOCKS: weakref.WeakValueDictionary[str, threading.RLock] = weakref.WeakValueDic
 _REGISTRY_LOCK = threading.Lock()
 _MANAGER_PREWARMING: set[str] = set()
 _MANAGER_PREWARMING_LOCK = threading.Lock()
+_DEFAULT_WARM_CONTEXT_LIMIT = 8
+_DEFAULT_WARM_CONTEXT_IDLE_SECONDS = 30 * 60
 
 
 def _lock_for(sid: str) -> threading.RLock:
@@ -167,9 +169,62 @@ def schedule_manager_prewarm(
     ).start()
 
 
+def _warm_context_limits() -> tuple[int, float]:
+    import os
+
+    try:
+        limit = max(
+            1,
+            int(
+                os.environ.get("ARGUS_SKILL_MANAGER_WARM_CONTEXT_LIMIT", "")
+                or _DEFAULT_WARM_CONTEXT_LIMIT
+            ),
+        )
+    except ValueError:
+        limit = _DEFAULT_WARM_CONTEXT_LIMIT
+    try:
+        idle = max(
+            60.0,
+            float(
+                os.environ.get("ARGUS_SKILL_MANAGER_WARM_CONTEXT_IDLE_SECONDS", "")
+                or _DEFAULT_WARM_CONTEXT_IDLE_SECONDS
+            ),
+        )
+    except ValueError:
+        idle = float(_DEFAULT_WARM_CONTEXT_IDLE_SECONDS)
+    return limit, idle
+
+
+def _evict_stale_manager_states(*, exclude_sid: str) -> None:
+    """Bound warm ACP processes without interrupting an active Manager turn."""
+    now = time.monotonic()
+    limit, idle_seconds = _warm_context_limits()
+    ordered = sorted(
+        (
+            (sid, float(state.get("last_access_monotonic") or 0.0))
+            for sid, state in list(_STATES.items())
+            if sid != exclude_sid
+        ),
+        key=lambda row: row[1],
+    )
+    stale = [sid for sid, touched in ordered if now - touched >= idle_seconds]
+    overflow = max(0, len(_STATES) - limit + (0 if exclude_sid in _STATES else 1))
+    candidates = list(dict.fromkeys([*stale, *(sid for sid, _ in ordered[:overflow])]))
+    for sid in candidates:
+        lock = _lock_for(sid)
+        if not lock.acquire(blocking=False):
+            continue
+        try:
+            _release_manager_state(sid)
+        finally:
+            lock.release()
+
+
 def _chat_state_for(sid: str) -> dict[str, Any]:
+    _evict_stale_manager_states(exclude_sid=sid)
     st = _STATES.get(sid)
     if st is not None:
+        st["last_access_monotonic"] = time.monotonic()
         return st
     from ..agent_cli.runner_backend import normalize_runner_backend
     from ..core.knobs import resolve_role_backend
@@ -188,6 +243,7 @@ def _chat_state_for(sid: str) -> dict[str, Any]:
         # the handoff.
         "needs_startup_handoff": True,
         "session_started_s": time.monotonic(),
+        "last_access_monotonic": time.monotonic(),
         "mission_count": 0,
         "config": dict(DEFAULT_MANAGER_CONFIG),
         "continuous_objective": "",

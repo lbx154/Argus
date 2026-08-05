@@ -60,6 +60,47 @@ def test_manager_prewarm_schedule_is_one_shot_after_success(
     assert manager_bridge._MANAGER_PREWARMING == set()
 
 
+def test_warm_manager_contexts_are_bounded_and_oldest_is_closed(
+    monkeypatch,
+) -> None:
+    manager_bridge._STATES.clear()
+    monkeypatch.setenv("ARGUS_SKILL_MANAGER_WARM_CONTEXT_LIMIT", "2")
+    monkeypatch.setenv("ARGUS_SKILL_MANAGER_WARM_CONTEXT_IDLE_SECONDS", "99999")
+    closed: list[str] = []
+
+    class Backend:
+        def __init__(self, sid: str) -> None:
+            self.sid = sid
+
+        def close_acp_clients(self) -> None:
+            closed.append(self.sid)
+
+    class Runner:
+        def __init__(self, sid: str) -> None:
+            self._backend = Backend(sid)
+
+        def reset_chat_session(self) -> None:
+            pass
+
+    now = time.monotonic()
+    manager_bridge._STATES.update({
+        "s-old": {
+            "manager_runner": Runner("s-old"),
+            "last_access_monotonic": now - 2,
+        },
+        "s-new": {
+            "manager_runner": Runner("s-new"),
+            "last_access_monotonic": now - 1,
+        },
+    })
+
+    manager_state._chat_state_for("s-third")
+
+    assert "s-old" not in manager_bridge._STATES
+    assert {"s-new", "s-third"} <= set(manager_bridge._STATES)
+    assert closed == ["s-old"]
+
+
 def test_manager_session_rotates_with_structured_handoff(tmp_path: Path, monkeypatch) -> None:
     _make_project(tmp_path)
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_ROTATE_TURNS", "4")

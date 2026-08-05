@@ -89,13 +89,13 @@ def _by_name(checks):
     return {c.name: c for c in checks}
 
 
-def test_no_daemon_flagged_with_daemon_fix(tmp_path):
+def test_fresh_idle_session_does_not_require_a_daemon(tmp_path):
     checks = run_diagnostics(tmp_path)
-    by_name = _by_name(checks)
-    daemon = by_name["daemon"]
-    assert daemon.ok is False
-    assert "argus --daemon" in daemon.fix
-    assert "NOT execute" in daemon.detail
+    daemon = _by_name(checks)["daemon"]
+
+    assert daemon.ok is True
+    assert "starts lazily" in daemon.detail
+    assert daemon.fix == ""
 
 
 def test_clean_project_has_sane_locks_and_empty_session(tmp_path):
@@ -103,10 +103,11 @@ def test_clean_project_has_sane_locks_and_empty_session(tmp_path):
     by_name = _by_name(checks)
     # No lock files at all -> lock sanity passes.
     assert by_name["lock sanity"].ok is True
-    # No backlog / events / objective and no daemon -> flagged as empty.
+    # A brand-new idle session is a valid first-use state, not a failure.
     sess = by_name["empty session"]
-    assert sess.ok is False
-    assert "--gc" in sess.fix
+    assert sess.ok is True
+    assert "ready for the first message" in sess.detail
+    assert sess.fix == ""
 
 
 def test_stale_daemon_lock_is_flagged(tmp_path):
@@ -125,12 +126,18 @@ def test_live_daemon_lock_is_not_flagged(tmp_path):
     assert _by_name(checks)["lock sanity"].ok is True
 
 
-def test_project_with_backlog_is_not_empty(tmp_path):
-    (tmp_path / "backlog.jsonl").write_text(
-        '{"id": "b-1", "title": "do thing"}\n', encoding="utf-8"
+def test_project_with_backlog_requires_an_executor(tmp_path):
+    from argus_skill.life.memory import Backlog, BacklogItem
+
+    Backlog(tmp_path / "backlog.jsonl").add(
+        BacklogItem.new(item_id="b-1", title="do thing", objective="execute it")
     )
     checks = run_diagnostics(tmp_path)
-    assert _by_name(checks)["empty session"].ok is True
+    by_name = _by_name(checks)
+
+    assert by_name["empty session"].ok is True
+    assert by_name["daemon"].ok is False
+    assert "argus --daemon" in by_name["daemon"].fix
 
 
 def test_run_diagnostics_returns_all_five_checks_and_never_raises(tmp_path):

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGsapMotion } from '../lib/motion';
 import type { EventMsg } from '../api';
 import { renderEvent, toneColor, isReasoning, eventKey, mergeFragment, type Rendered } from '../lib/eventRender';
@@ -391,7 +391,7 @@ export function EventStream({
     [rows.list],
   );
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (following && scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
   }, [rows.list.length, tailContentLength, following]);
 
