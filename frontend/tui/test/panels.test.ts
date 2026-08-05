@@ -612,6 +612,53 @@ test('19-row cockpit stays below Ink full-screen clear threshold', async () => {
   assert.doesNotMatch(finalFrame, /All quiet|Standing watch|Waiting, unhurried/);
 });
 
+test('28-33 row cockpit stays below Ink full-screen clear threshold', async () => {
+  const view = emptyMissionView();
+  view.mission.objective = 'Fast MiniMax kernel optimization';
+  view.stage = { id: 'environment', label: 'Environment' };
+  view.timeline = Array.from({ length: 6 }, (_, index) => ({
+    id: `timeline-${index}`,
+    ts: index,
+    type: 'test',
+    role: ['manager', 'planner', 'engineer', 'reviewer'][index % 4],
+    title: `Timeline item ${index}`,
+    detail: 'detailed current evidence and progress '.repeat(3),
+    tone: 'info',
+  }));
+  for (const height of [28, 33]) {
+    const output = await renderInteractiveNode(
+      React.createElement(
+        Box,
+        { flexDirection: 'column' },
+        React.createElement(Header, { width: 130 }),
+        React.createElement(MissionCockpit, {
+          view,
+          width: 130,
+          height,
+        }),
+        React.createElement(EventLog, {
+          events: [],
+          width: 130,
+          showIdle: false,
+        }),
+        React.createElement(PromptBox, {
+          edit: { value: '', cursor: 0 },
+          width: 130,
+          rowsBelow: 1,
+        }),
+        React.createElement(Footer, { width: 130 }),
+      ),
+      130,
+      height,
+    );
+
+    assert.doesNotMatch(output, /\u001B\[2J/);
+    assert.doesNotMatch(output, /\u001B\[3J/);
+    assert.match(output.replace(ANSI, ''), /MANAGER.*Waiting/);
+    assert.match(output.replace(ANSI, ''), /REVIEWER.*Waiting/);
+  }
+});
+
 test('pending Manager frame does not trigger Ink full-screen repaint', async () => {
   const now = Date.now() / 1000;
   const steps = Array.from({ length: 6 }, (_, index) => ({

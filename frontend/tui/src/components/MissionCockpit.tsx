@@ -84,7 +84,7 @@ export function MissionCockpit({
   const stage = view.stage.label || view.stage.id || '—';
   const round = view.round.max > 0 ? `${view.round.current} / ${view.round.max}` : view.round.current ? String(view.round.current) : '—';
   const outcome = outcomeDimensionSummary(view.outcome);
-  const compactHeight = height != null && height < 26;
+  const compactHeight = height != null && height < 36;
 
   // Ink clears and repaints the whole terminal whenever the live frame reaches
   // stdout.rows. A Manager turn adds up to nine animated rows below the
