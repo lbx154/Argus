@@ -23,7 +23,7 @@ from ._reduce_helpers import (
 )
 
 _MISSION_OUTCOME_PRESENTATIONS = {
-    "completed": ("complete", "done", "Mission completed", "success"),
+    "completed": ("complete", "done", "Task completed", "success"),
     "incomplete": ("incomplete", "done", "Mission incomplete", "info"),
     "stalled": ("stalled", "done", "Mission stalled", "info"),
     "blocked": ("blocked", "error", "Mission blocked", "error"),
@@ -51,7 +51,12 @@ def _mission_outcome_presentation(
     mission_status, role_status, label, tone = _MISSION_OUTCOME_PRESENTATIONS[
         outcome_class
     ]
-    if outcome_class == "ended":
+    if (
+        outcome_class == "completed"
+        and event.get("final_submission_certified") is True
+    ):
+        label = "Submission certified"
+    elif outcome_class == "ended":
         raw_status = _text(event, "status")
         if raw_status:
             label = f"{label} · {raw_status}"

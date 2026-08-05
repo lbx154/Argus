@@ -418,8 +418,8 @@ def test_review_deferral_projects_as_engineer_activity(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("status", "success", "mission_status", "role_status", "label", "tone"),
     [
-        ("done", True, "complete", "done", "Mission completed", "success"),
-        ("completed", False, "complete", "done", "Mission completed", "success"),
+        ("done", True, "complete", "done", "Task completed", "success"),
+        ("completed", False, "complete", "done", "Task completed", "success"),
         ("research_incomplete", False, "incomplete", "done", "Mission incomplete", "info"),
         ("no_progress", False, "stalled", "done", "Mission stalled", "info"),
         ("blocked", False, "blocked", "error", "Mission blocked", "error"),
@@ -476,6 +476,48 @@ def test_completed_mission_prefers_normalized_outcome_class(tmp_path: Path) -> N
 
     assert view["mission"]["status"] == "incomplete"
     assert view["timeline"][-1]["title"] == "Mission incomplete"
+
+
+def test_final_submission_projects_as_certified_not_merely_completed(
+    tmp_path: Path,
+) -> None:
+    view = emit(
+        tmp_path,
+        "life.mission.completed",
+        1,
+        item_id="task-final",
+        title="Prepare final ICLR submission",
+        status="done",
+        success=True,
+        final_submission_certified=True,
+    )
+
+    role = next(role for role in view["roles"] if role["role"] == "engineer")
+    assert role["label"] == "Submission certified"
+    assert view["timeline"][-1]["title"] == "Submission certified"
+
+
+def test_nested_submission_flag_does_not_claim_certification(
+    tmp_path: Path,
+) -> None:
+    view = emit(
+        tmp_path,
+        "life.mission.completed",
+        1,
+        item_id="task-draft",
+        title="Prepare draft",
+        status="done",
+        success=True,
+        outcome={
+            "execution_status": "completed",
+            "review_status": "done",
+            "stage_certification": "certified",
+            "final_submission_certified": True,
+        },
+    )
+
+    role = next(role for role in view["roles"] if role["role"] == "engineer")
+    assert role["label"] == "Task completed"
 
 
 def test_completed_mission_preserves_stage_outcome(tmp_path: Path) -> None:

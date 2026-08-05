@@ -40,7 +40,7 @@ const PRESENTATION: Record<MissionOutcomeClass, Omit<MissionOutcomePresentation,
 };
 
 const LABELS: Record<MissionOutcomeClass, string> = {
-  completed: 'Mission completed',
+  completed: 'Task completed',
   incomplete: 'Mission incomplete',
   stalled: 'Mission stalled',
   blocked: 'Mission blocked',
@@ -122,9 +122,14 @@ export function missionOutcomePresentation(
   const outcomeClass = normalizedOutcomeClass(event.outcome_class) ?? derivedOutcomeClass(event);
   const status = String(event.status ?? '').trim();
   const base = PRESENTATION[outcomeClass];
+  const label = outcomeClass === 'completed' && event.final_submission_certified === true
+    ? 'Submission certified'
+    : outcomeClass === 'ended' && status
+      ? `Mission ended · ${status}`
+      : LABELS[outcomeClass];
   return {
     outcomeClass,
-    label: outcomeClass === 'ended' && status ? `Mission ended · ${status}` : LABELS[outcomeClass],
+    label,
     glyph: base.glyph,
     tone: base.tone,
     missionStatus: base.missionStatus,

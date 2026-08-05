@@ -1091,14 +1091,26 @@ class LifeSupervisor(
             outcome = event.get("outcome")
             outcome = outcome if isinstance(outcome, dict) else {}
             review = str(outcome.get("review_status") or "").strip()
+            final_submission_certified = (
+                event.get("final_submission_certified") is True
+            )
             if success:
-                result = f"Team completed · {title}"
+                completion_label = (
+                    "Submission certified"
+                    if final_submission_certified
+                    else "Task completed"
+                )
+                result = f"{completion_label} · {title}"
                 if review and review not in {"none", "not_assessed"}:
                     result += f" · review={review}"
             else:
                 status = str(event.get("status") or event.get("outcome_class") or "ended")
                 result = f"Team ended · {title} · {status}"
-            if bool(getattr(self.config, "continuous", False)) and bool(
+            if final_submission_certified:
+                continuation = (
+                    "The final submission passed independent review."
+                )
+            elif bool(getattr(self.config, "continuous", False)) and bool(
                 getattr(self.config, "open_ended", False)
             ):
                 continuation = (

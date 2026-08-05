@@ -138,6 +138,23 @@ describe('renderEvent', () => {
   it('renders mission terminal outcomes truthfully for new and legacy events', () => {
     expect(renderEvent({
       type: 'life.mission.completed',
+      status: 'done',
+      success: true,
+    } as EventMsg)).toMatchObject({
+      text: 'Task completed',
+      tone: 'ok',
+    });
+    expect(renderEvent({
+      type: 'life.mission.completed',
+      status: 'done',
+      success: true,
+      final_submission_certified: true,
+    } as EventMsg)).toMatchObject({
+      text: 'Submission certified',
+      tone: 'ok',
+    });
+    expect(renderEvent({
+      type: 'life.mission.completed',
       status: 'research_incomplete',
       success: false,
     } as EventMsg)).toMatchObject({

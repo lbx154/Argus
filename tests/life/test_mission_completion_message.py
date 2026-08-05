@@ -43,7 +43,7 @@ def test_continuous_mission_completion_publishes_once(tmp_path) -> None:
     ]
     assert len(transcript) == 1
     assert transcript[0]["role"] == "argus"
-    assert "Team completed · Fix the first issue · review=done" in transcript[0]["text"]
+    assert "Task completed · Fix the first issue · review=done" in transcript[0]["text"]
     assert "Planner is selecting the next task" in transcript[0]["text"]
     ui_events = [
         event
@@ -68,13 +68,16 @@ def test_bounded_completion_says_the_task_is_finished(tmp_path) -> None:
         "title": "One bounded fix",
         "success": True,
         "status": "done",
-        "outcome": {"review_status": "not_assessed"},
+        "outcome": {
+            "review_status": "not_assessed",
+            "final_submission_certified": True,
+        },
     })
 
     text = json.loads(
         (tmp_path / "transcript.jsonl").read_text().splitlines()[-1]
     )["text"]
-    assert text == "Team completed · One bounded fix\nThis task is finished."
+    assert text == "Task completed · One bounded fix\nThis task is finished."
 
 
 def test_bounded_increment_does_not_claim_project_or_stage_completion(tmp_path) -> None:
@@ -101,7 +104,39 @@ def test_bounded_increment_does_not_claim_project_or_stage_completion(tmp_path) 
     text = json.loads(
         (tmp_path / "transcript.jsonl").read_text().splitlines()[-1]
     )["text"]
-    assert text.endswith(
+    assert text == (
+        "Task completed · Write the paper draft · review=done\n"
         "This bounded work item is finished; project and stage completion "
         "were not certified."
+    )
+
+
+def test_final_submission_completion_is_explicitly_certified(tmp_path) -> None:
+    memory = LifeMemory.open(tmp_path)
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=_Runner(),
+        sink=JsonlEventSink(None, life_dir=memory.root, verbosity="full"),
+        config=LifeSupervisorConfig(continuous=False, open_ended=False),
+    )
+
+    supervisor._emit({
+        "type": "life.mission.completed",
+        "item_id": "task-4",
+        "title": "Prepare final ICLR submission",
+        "success": True,
+        "status": "done",
+        "final_submission_certified": True,
+        "outcome": {
+            "review_status": "done",
+            "stage_certification": "certified",
+        },
+    })
+
+    text = json.loads(
+        (tmp_path / "transcript.jsonl").read_text().splitlines()[-1]
+    )["text"]
+    assert text == (
+        "Submission certified · Prepare final ICLR submission · review=done\n"
+        "The final submission passed independent review."
     )

@@ -378,7 +378,7 @@ describe('shared frontend core', () => {
       success: true,
     })).toMatchObject({
       outcomeClass: 'completed',
-      label: 'Mission completed',
+      label: 'Task completed',
       tone: 'ok',
       missionStatus: 'complete',
     });
@@ -386,7 +386,19 @@ describe('shared frontend core', () => {
     const cases = [
       [
         { outcome_class: 'completed', status: 'supervisor_error', success: false },
-        { outcomeClass: 'completed', label: 'Mission completed', tone: 'ok', missionStatus: 'complete' },
+        { outcomeClass: 'completed', label: 'Task completed', tone: 'ok', missionStatus: 'complete' },
+      ],
+      [
+        { status: 'done', success: true, final_submission_certified: true },
+        { outcomeClass: 'completed', label: 'Submission certified', tone: 'ok', missionStatus: 'complete' },
+      ],
+      [
+        {
+          status: 'done',
+          success: true,
+          outcome: { final_submission_certified: true },
+        },
+        { outcomeClass: 'completed', label: 'Task completed', tone: 'ok', missionStatus: 'complete' },
       ],
       [
         { status: 'research_incomplete', success: false },

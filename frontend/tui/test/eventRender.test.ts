@@ -8,6 +8,39 @@ test('renderEvent reports truthful terminal mission outcomes for new and legacy 
   assert.deepEqual(
     renderEvent({
       type: 'life.mission.completed',
+      status: 'done',
+      success: true,
+    } as EventMsg),
+    {
+      role: 'engineer',
+      label: 'Engineer',
+      glyph: '🎉',
+      text: 'Task completed',
+      tone: 'ok',
+      rule: true,
+    },
+  );
+
+  assert.deepEqual(
+    renderEvent({
+      type: 'life.mission.completed',
+      status: 'done',
+      success: true,
+      final_submission_certified: true,
+    } as EventMsg),
+    {
+      role: 'engineer',
+      label: 'Engineer',
+      glyph: '🎉',
+      text: 'Submission certified',
+      tone: 'ok',
+      rule: true,
+    },
+  );
+
+  assert.deepEqual(
+    renderEvent({
+      type: 'life.mission.completed',
       status: 'research_incomplete',
       success: false,
     } as EventMsg),
