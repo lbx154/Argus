@@ -120,7 +120,16 @@ export function useProjectActions(sid: string | null, commandRevision?: number) 
     }),
     deleteProject: useMutation({
       mutationFn: () => api.deleteProject(sid!),
-      onSuccess: invalidate,
+      onSuccess: async () => {
+        const deletedSid = sid;
+        if (deletedSid) {
+          const belongsToDeletedProject = (query: { queryKey: readonly unknown[] }) =>
+            query.queryKey.some((part) => part === deletedSid);
+          await qc.cancelQueries({ predicate: belongsToDeletedProject });
+          qc.removeQueries({ predicate: belongsToDeletedProject });
+        }
+        await qc.invalidateQueries({ queryKey: ['projects'] });
+      },
     }),
     disposeBacklog: useMutation({
       mutationFn: (a: { id: string; op: 'done' | 'skip' | 'rm' }) => api.disposeBacklog(sid!, a.id, a.op),
