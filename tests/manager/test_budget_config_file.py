@@ -25,6 +25,29 @@ def test_manager_budget_intent_writes_config_json(
     assert float(os.environ["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"]) == 42.0
 
 
+def test_manager_rejects_free_text_model_without_poisoning_environment(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from argus_skill.core.knob_store import read_persisted_knobs
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.delenv("ARGUS_SKILL_ENGINEER_MODEL", raising=False)
+    mem = SimpleNamespace(project=SimpleNamespace(root=tmp_path))
+    intent = SimpleNamespace(
+        knob="model",
+        roles=["engineer"],
+        value="please use whatever model is best for this task",
+    )
+    confirmations: list[str] = []
+
+    assert _apply_config_intent(mem, intent, {}, on_confirm=confirmations.append)
+
+    assert "ARGUS_SKILL_ENGINEER_MODEL" not in os.environ
+    assert "ARGUS_SKILL_ENGINEER_MODEL" not in read_persisted_knobs()
+    assert confirmations and "not a model id" in confirmations[0]
+
+
 def test_manager_config_failure_does_not_change_environment(
     tmp_path,
     monkeypatch,

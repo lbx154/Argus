@@ -249,11 +249,11 @@ def _apply_config_intent(
             return True
         if not _set(values):
             return True
-        value = values[names[0]]
+        model_value = values[names[0]]
         if roles:
-            _confirm(f"Set {' / '.join(r.title() for r in roles)} model to {value}.")
+            _confirm(f"Set {' / '.join(r.title() for r in roles)} model to {model_value}.")
         else:
-            _confirm(f"Set Argus default model to {value} "
+            _confirm(f"Set Argus default model to {model_value} "
                      "(roles without their own model follow).")
         chat_state.pop("manager_runner", None)
         return True
