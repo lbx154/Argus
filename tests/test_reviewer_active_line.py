@@ -43,7 +43,7 @@ def test_reviewer_final_handoff_requires_explicit_progress_fields():
 
     assert (
         "Return exactly STATUS, REASON, NEXT_ACTION, OPERATOR_QUESTION, "
-        "FORWARD_PROGRESS and PLAN_SIGNAL"
+        "CHECKPOINT_RECOMMENDED, FORWARD_PROGRESS and PLAN_SIGNAL"
     ) in p
     assert "Return only STATUS, REASON, NEXT_ACTION and OPERATOR_QUESTION" not in p
 

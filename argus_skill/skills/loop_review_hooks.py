@@ -33,6 +33,33 @@ class ReviewedRoundHooksMixin:
         )
 
     def _capture_reviewed_round(self, mission: MissionContext, record: RoundRecord) -> None:
+        if self.config.round_checkpoint_enabled and record.review.checkpoint_recommended:
+            from ..core.event_catalog import EventType
+            from .round_checkpoint import checkpoint_round
+
+            result = checkpoint_round(
+                mission.workdir,
+                mission_id=mission.run_id,
+                round_index=record.round_index,
+                message=(
+                    str(record.review.reason or "").splitlines()[0]
+                    or f"Reviewed round {record.round_index}"
+                ),
+            )
+            if result.recorded:
+                self._emit({
+                    "type": EventType.ROUND_CHECKPOINT_RECORDED,
+                    "run_id": mission.run_id,
+                    "round": record.round_index,
+                    "ref": result.ref,
+                })
+            elif result.error:
+                self._emit({
+                    "type": EventType.ROUND_CHECKPOINT_FAILED,
+                    "run_id": mission.run_id,
+                    "round": record.round_index,
+                    "error": result.error,
+                })
         if self.config.context_packet_path:
             try:
                 from ..life.context_packet import record_reviewed_handoff

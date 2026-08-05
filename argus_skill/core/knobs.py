@@ -122,6 +122,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_SUBAGENT_FAMILY_FAILURE_WINDOW_HOURS", "72.0", "trailing window (hours) the subagent family failure streak is computed over", "budget"),
     # --- mission / lifecycle ---
     Knob("ARGUS_SKILL_MAX_ROUNDS", "500", "max engineer rounds per mission", "mission"),
+    Knob("ARGUS_SKILL_ROUND_CHECKPOINT", "off", "record private git refs for Reviewer-recommended round checkpoints", "mission"),
     Knob("ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING", "1", "enable selective project-layer Skill maintenance for all four roles (default ON)", "mission"),
     Knob("ARGUS_SKILL_ENGINEER_FILE_READ_BUDGET", "12", "soft first-pass relevant-file inspection budget", "mission"),
     Knob("ARGUS_SKILL_ENGINEER_TEST_RUN_BUDGET", "3", "soft focused verification-run budget before the final verifier", "mission"),
@@ -193,6 +194,7 @@ _TOGGLE_KNOBS = frozenset(
         "ARGUS_SKILL_AUTO_INIT_WIKI",
         "ARGUS_SKILL_CROSS_PROJECT_PROPAGATION",
         "ARGUS_SKILL_NEAREST_TRANSFER_ENABLED",
+        "ARGUS_SKILL_ROUND_CHECKPOINT",
         "ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING",
         "ARGUS_SKILL_REQUIRE_RELEASE_MATCH",
         "ARGUS_SKILL_SAFE_MODE",

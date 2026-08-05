@@ -26,12 +26,16 @@
         "null"
       ],
       "maxLength": 500
+    },
+    "checkpoint_recommended": {
+      "type": "boolean"
     }
   },
   "required": [
     "status",
     "reason",
     "next_action",
-    "operator_question"
+    "operator_question",
+    "checkpoint_recommended"
   ]
 }

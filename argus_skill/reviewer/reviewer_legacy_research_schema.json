@@ -29,6 +29,9 @@
       ],
       "maxLength": 500
     },
+    "checkpoint_recommended": {
+      "type": "boolean"
+    },
     "round_summary_markdown": {
       "type": "string",
       "minLength": 1,
@@ -419,6 +422,7 @@
     "reason",
     "next_action",
     "operator_question",
+    "checkpoint_recommended",
     "round_summary_markdown",
     "completion_summary_markdown",
     "achievement",

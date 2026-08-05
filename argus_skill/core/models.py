@@ -190,6 +190,7 @@ class ReviewDecision:
     reason: str
     next_action: str
     operator_question: str = ""
+    checkpoint_recommended: bool = False
     # Strategic judgment is separate from bounded implementation acceptance.
     # A round may be correctly ``done`` yet still fail to move the operator's
     # objective; LifeSupervisor uses this signal to surface repeated hollow work.
@@ -225,6 +226,7 @@ class ReviewDecision:
             "reason": self.reason,
             "next_action": self.next_action,
             "operator_question": self.operator_question or "",
+            "checkpoint_recommended": bool(self.checkpoint_recommended),
             "review_source": self.review_source or "reviewer",
             "prompt_block_stats": {
                 str(name): dict(stats)

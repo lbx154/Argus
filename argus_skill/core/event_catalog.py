@@ -61,6 +61,8 @@ class EventType(StrEnum):
     ROUND_REVIEW_STARTED = "round.review.started"
     ROUND_REVIEW_DEFERRED = "round.review.deferred"
     ROUND_REVIEW_COMPLETED = "round.review.completed"
+    ROUND_CHECKPOINT_RECORDED = "round.checkpoint.recorded"
+    ROUND_CHECKPOINT_FAILED = "round.checkpoint.failed"
     ROUND_SECRET_REDACTED = "round.secret_redacted"
     ROUND_ESCALATED = "round.escalated"
     ROUND_STALL = "round.stall"
@@ -172,6 +174,8 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.ROUND_MAIN_COMPLETED,
     EventType.ROUND_REVIEW_DEFERRED,
     EventType.ROUND_REVIEW_COMPLETED,
+    EventType.ROUND_CHECKPOINT_RECORDED,
+    EventType.ROUND_CHECKPOINT_FAILED,
     EventType.ROUND_SECRET_REDACTED,
     EventType.ROUND_ESCALATED,
     EventType.ROUND_STALL,

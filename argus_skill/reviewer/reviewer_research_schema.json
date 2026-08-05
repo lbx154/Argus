@@ -31,6 +31,9 @@
       ],
       "maxLength": 500
     },
+    "checkpoint_recommended": {
+      "type": "boolean"
+    },
     "achievement": {
       "type": [
         "object",
@@ -557,6 +560,7 @@
     "reason",
     "next_action",
     "operator_question",
+    "checkpoint_recommended",
     "achievement",
     "failure_cause",
     "failure_source",

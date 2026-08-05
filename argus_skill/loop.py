@@ -90,6 +90,12 @@ class SkillLoopConfig:
     # Bootstrap one project wiki before the first mission.
     # Library callers remain opt-in; the daemon runtime enables this by default.
     auto_init_wiki: bool = False
+    round_checkpoint_enabled: bool = field(
+        default_factory=lambda: _knob_bool_setting(
+            "ARGUS_SKILL_ROUND_CHECKPOINT",
+            False,
+        )
+    )
     full_auto: bool = True
     skip_git_repo_check: bool = True
     dangerous_yolo: bool = False

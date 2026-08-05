@@ -138,6 +138,7 @@ def parse_decision_text(
                 reason=reason.strip(),
                 next_action=next_action.strip(),
                 operator_question=str(operator_question or "").strip(),
+                checkpoint_recommended=bool(parsed.get("checkpoint_recommended", False)),
                 planner_report=(
                     _planner_report(
                         forward_progress=raw_planner_report.get("forward_progress"),
@@ -157,6 +158,7 @@ _VERDICT_KEYS = (
     "REASON",
     "NEXT_ACTION",
     "OPERATOR_QUESTION",
+    "CHECKPOINT_RECOMMENDED",
     "FORWARD_PROGRESS",
     "PLAN_SIGNAL",
 )
@@ -185,6 +187,9 @@ def _parse_named_verdict(text: str) -> ReviewDecision | None:
             reason=reason.strip()[:5000],
             next_action=read_block(text, "NEXT_ACTION", _VERDICT_KEYS).strip()[:1500],
             operator_question=read_optional(values, "OPERATOR_QUESTION")[:500],
+            checkpoint_recommended=(
+                read_optional(values, "CHECKPOINT_RECOMMENDED").casefold() == "true"
+            ),
             planner_report=_planner_report(
                 forward_progress=(
                     True

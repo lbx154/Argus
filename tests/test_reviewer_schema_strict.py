@@ -16,6 +16,7 @@ def test_reviewer_schema_is_minimal_and_strict() -> None:
         "reason",
         "next_action",
         "operator_question",
+        "checkpoint_recommended",
     }
     assert set(schema["required"]) == set(schema["properties"])
 
@@ -40,7 +41,8 @@ def test_all_reviewer_schema_assets_resolve_next_to_loaded_module() -> None:
 def test_minimal_verdict_parses() -> None:
     decision = parse_decision_text(
         '{"status":"blocked","reason":"Need operator input.",'
-        '"next_action":"","operator_question":"Which route?"}'
+        '"next_action":"","operator_question":"Which route?",'
+        '"checkpoint_recommended":false}'
     )
 
     assert decision is not None
