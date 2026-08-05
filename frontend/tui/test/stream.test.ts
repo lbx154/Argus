@@ -90,6 +90,28 @@ test('a Manager message_id stays live only for the active request', () => {
   assert.equal(settled.committed[0]?.r.text, 'partial answer');
 });
 
+test('an interleaved event cannot prematurely commit the active Manager reply', () => {
+  const lines = buildEventLines([
+    { type: 'ui.argus', text: 'partial', message_id: 'reply-1' },
+    { type: 'ui.activity', text: 'Manager inspected the project' },
+    {
+      type: 'ui.argus',
+      text: 'partial answer with FINAL-MARKER',
+      message_id: 'reply-1',
+      fragment_mode: 'snapshot',
+    },
+  ] as never);
+
+  const streaming = partitionEventLines(lines, 'reply-1');
+
+  assert.equal(streaming.live?.mid, 'reply-1');
+  assert.match(streaming.live?.r.text ?? '', /FINAL-MARKER/);
+  assert.deepEqual(
+    streaming.committed.map((line) => line.ev.type),
+    ['ui.activity'],
+  );
+});
+
 test('event lines replace authoritative snapshots and append explicit blocks', () => {
   const snapshot = buildEventLines([
     {

@@ -124,8 +124,13 @@ def render_special_prompts_context(
         "operator of this box. Treat them as authoritative for HOW to operate "
         "this machine (paths, GPUs, schedulers, quotas): when they conflict "
         "with general workflow guidance, follow the directive. They do NOT "
-        "override your safety, security, or correctness obligations. Apply "
-        "them as a careful human running this box would.",
+        "override your safety, security, or correctness obligations. Historical "
+        "paths, GPU models, allocations, SSH aliases, tunnels, and service-health "
+        "claims do not prove current availability: probe mutable runtime facts "
+        "before depending on them. A failed probe leaves availability unconfirmed; "
+        "it does not prove that the hardware or service does not exist. Apply the "
+        "remaining operational constraints as a careful human running this box "
+        "would.",
     ]
     for name, body in prompts:
         parts.append(f"### {name}\n{body}")

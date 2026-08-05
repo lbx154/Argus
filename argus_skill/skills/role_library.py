@@ -48,7 +48,11 @@ def render_skill_library_paths(skill_store: object | None, *, role: str) -> str:
         "Skill files contain only `name`, `description`, and Markdown guidance. "
         "Choose what to read yourself; a listed library is not evidence that a "
         "relevant Skill exists. Read files from their source paths and do not "
-        "expect Skill bodies to be copied into this prompt."
+        "expect Skill bodies to be copied into this prompt. Skill guidance and "
+        "historical traces about paths, GPU models, allocations, host access, "
+        "tunnels, credentials, or service health do not prove current availability. "
+        "Probe mutable runtime facts before depending on them; a failed probe means "
+        "availability is unconfirmed, not that the resource does not exist."
     )
 
 

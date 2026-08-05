@@ -47,6 +47,29 @@ def test_render_has_authoritative_header_and_bodies(
     assert "### 10-gpu" in rendered
 
 
+def test_render_requires_live_probe_for_mutable_hardware_claims(
+    tmp_path: Path, monkeypatch
+) -> None:
+    d = tmp_path / "sp"
+    d.mkdir()
+    directive = d / "10-gpu.md"
+    directive.write_text(
+        "The benchmark GPUs are 8 NVIDIA B200 cards on host b200-nano.",
+        encoding="utf-8",
+    )
+    directive.chmod(0o644)
+    monkeypatch.setenv("ARGUS_SKILL_SPECIAL_PROMPTS_DIR", str(d))
+
+    rendered = special_prompts.render_special_prompts_context()
+
+    assert "do not prove current availability" in rendered
+    assert "probe mutable runtime facts" in rendered
+    assert "failed probe leaves availability unconfirmed" in rendered
+    assert rendered.index("do not prove current availability") < rendered.index(
+        "The benchmark GPUs are 8 NVIDIA B200"
+    )
+
+
 def test_explicit_paper_scope_is_omitted_from_bounded_missions(
     tmp_path: Path, monkeypatch
 ) -> None:

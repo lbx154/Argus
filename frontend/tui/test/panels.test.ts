@@ -663,6 +663,104 @@ test('pending Manager frame does not trigger Ink full-screen repaint', async () 
   assert.match(output.replace(ANSI, ''), /Manager step 5/);
 });
 
+test('long streaming Manager reply does not clear terminal scrollback', async () => {
+  const output = await renderInteractiveNode(
+    React.createElement(
+      Box,
+      { flexDirection: 'column' },
+      React.createElement(Header, { width: 100 }),
+      React.createElement(MissionCockpit, {
+        view: emptyMissionView(),
+        width: 100,
+        height: 19,
+        busy: true,
+      }),
+      React.createElement(EventLog, {
+        events: [{
+          type: 'ui.argus',
+          message_id: 'live-reply',
+          text: 'LONG_STREAMING_REPLY '.repeat(500),
+          ts: 1,
+        }],
+        width: 100,
+        liveMessageId: 'live-reply',
+        showIdle: false,
+      }),
+      React.createElement(PromptBox, {
+        edit: { value: '', cursor: 0 },
+        width: 100,
+        rowsBelow: 1,
+      }),
+      React.createElement(Footer, { width: 100 }),
+    ),
+    100,
+    19,
+  );
+
+  assert.doesNotMatch(
+    output,
+    /\u001B\[2J/,
+    'a growing live reply must not trigger Ink full-screen clearing',
+  );
+});
+
+test('interleaved activity stays single and the completed reply reaches Static', async () => {
+  const stdout = new PassThrough() as PassThrough & {
+    columns: number;
+    rows: number;
+    isTTY: boolean;
+  };
+  stdout.columns = 100;
+  stdout.rows = 24;
+  stdout.isTTY = false;
+  let output = '';
+  stdout.on('data', (chunk) => { output += String(chunk); });
+  const view = (events: EventMsg[], liveMessageId: string) => React.createElement(
+    EventLog,
+    {
+      events,
+      width: 100,
+      liveMessageId,
+      showIdle: false,
+    },
+  );
+  const partial: EventMsg[] = [
+    { type: 'ui.argus', text: 'partial', message_id: 'reply-1', ts: 1 },
+    { type: 'ui.activity', text: 'ACTIVITY-ONCE', ts: 2 },
+  ];
+  const completed: EventMsg[] = [
+    ...partial,
+    {
+      type: 'ui.argus',
+      text: 'complete FINAL-MARKER',
+      message_id: 'reply-1',
+      fragment_mode: 'snapshot',
+      ts: 3,
+    },
+  ];
+  const instance = render(
+    view(partial, 'reply-1'),
+    {
+      stdout: stdout as never,
+      debug: false,
+      exitOnCtrlC: false,
+      patchConsole: false,
+    },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  instance.rerender(view(completed, 'reply-1'));
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  instance.rerender(view(completed, ''));
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  instance.unmount();
+
+  const clean = output.replace(ANSI, '');
+  assert.equal(clean.split('ACTIVITY-ONCE').length - 1, 1);
+  // The final body appears once as the mutable live row and once when Static
+  // commits it permanently to terminal scrollback.
+  assert.equal(clean.split('FINAL-MARKER').length - 1, 2);
+});
+
 test('24-row operations panel stays below Ink full-screen clear threshold', async () => {
   const snap = {
     session: { id: 's-ops', display_name: '', objective: '', last_active: 0, cwd: '' },

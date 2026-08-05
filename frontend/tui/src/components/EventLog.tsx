@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { Box, Static, Text } from 'ink';
+import stringWidth from 'string-width';
 import { toneColor, roleColor, type Rendered } from '../eventRender.js';
 import type { EventMsg } from '../api.js';
 import { rotate, IDLE_LINES } from '../soul.js';
@@ -8,6 +9,32 @@ import {
   partitionEventLines,
   type EventLine,
 } from '../eventLines.js';
+
+const LIVE_PREVIEW_ROWS = 3;
+
+function livePreview(rendered: Rendered, width: number): Rendered {
+  const bodyWidth = Math.max(12, width - (width < 80 ? 8 : 15));
+  const maxCells = bodyWidth * LIVE_PREVIEW_ROWS;
+  const text = rendered.text.replace(/\s+/g, ' ').trim();
+  if (stringWidth(text) <= maxCells) {
+    return { ...rendered, text, expand: false };
+  }
+
+  const chars = Array.from(text);
+  let start = chars.length;
+  let cells = stringWidth('… ');
+  while (start > 0) {
+    const next = stringWidth(chars[start - 1]);
+    if (cells + next > maxCells) break;
+    cells += next;
+    start -= 1;
+  }
+  return {
+    ...rendered,
+    text: `… ${chars.slice(start).join('')}`,
+    expand: false,
+  };
+}
 
 function EventRow({ r, compact, width }: { r: Rendered; compact: boolean; width: number }) {
   const label = compact ? `${r.label.slice(0, 1)} ` : r.label.padEnd(9);
@@ -84,7 +111,9 @@ export function EventLog({
   return (
     <Box flexDirection="column" marginTop={collapsed || hideEmptyBody ? 0 : 1}>
       <Static items={committed}>{(line) => <EventRow key={line.key} r={line.r} compact={compact} width={width} />}</Static>
-      {!collapsed && live ? <EventRow r={live.r} compact={compact} width={width} /> : null}
+      {!collapsed && live ? (
+        <EventRow r={livePreview(live.r, width)} compact={compact} width={width} />
+      ) : null}
       {!collapsed && showIdle && clean.length === 0 ? <Text dimColor>{`  ${rotate(IDLE_LINES)}`}</Text> : null}
     </Box>
   );

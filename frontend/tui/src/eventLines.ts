@@ -37,7 +37,7 @@ export function buildEventLines(events: EventMsg[]): EventLine[] {
     const mid = messageId(ev);
     if (mid && idx.has(mid)) {
       const index = idx.get(mid)!;
-      list[index] = {
+      const updated = {
         ...list[index],
         ev: { ...list[index].ev, ...ev },
         r: {
@@ -46,6 +46,16 @@ export function buildEventLines(events: EventMsg[]): EventLine[] {
           text: mergeFragment(list[index].r.text, r.text, fragmentMode(ev)),
         },
       };
+      if (index === list.length - 1) {
+        list[index] = updated;
+        return;
+      }
+      list.splice(index, 1);
+      for (const [knownMid, position] of idx) {
+        if (position > index) idx.set(knownMid, position - 1);
+      }
+      list.push(updated);
+      idx.set(mid, list.length - 1);
       return;
     }
     const key = mid || eventKey(ev);
@@ -65,17 +75,24 @@ export function partitionEventLines(
   liveMessageId = '',
 ): EventLinePartition {
   const last = lines.at(-1);
+  const explicitLiveIndex = liveMessageId
+    ? lines.findIndex((line) => line.mid === liveMessageId)
+    : -1;
   const replaceableRoleProgress = Boolean(
     last?.mid
     && last.ev.type === 'engineer.progress'
     && last.ev.replace === true,
   );
-  const live = last && (
-    (liveMessageId && last.mid === liveMessageId)
-    || replaceableRoleProgress
-  ) ? last : null;
+  const liveIndex = explicitLiveIndex >= 0
+    ? explicitLiveIndex
+    : replaceableRoleProgress
+    ? lines.length - 1
+    : -1;
+  const live = liveIndex >= 0 ? lines[liveIndex] : null;
   return {
-    committed: live ? lines.slice(0, -1) : lines,
+    committed: live
+      ? lines.filter((_, index) => index !== liveIndex)
+      : lines,
     live,
   };
 }
