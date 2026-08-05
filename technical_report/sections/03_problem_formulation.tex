@@ -1,42 +1,125 @@
 \section{Problem Formulation}
 \label{sec:problem}
 
-\subsection{Dense-Intelligence Tasks}
+\subsection{Long-Horizon Tasks as Evolving Contracts}
 
-The public \systemname formulation defines a \emph{dense-intelligence task} as one that
-sustains high-frequency reasoning, tool use, verification, and iteration across a
-continuous time window until it produces a measurable result~\citep{argus_site}.
-Three conditions determine whether a task has this shape:
+The public \systemname formulation defines a \emph{dense-intelligence task} as one
+that sustains reasoning, tool use, verification, and iteration across a continuous
+time window until it produces measurable progress~\citep{argus_site}. Three
+conditions determine whether a task has this shape:
 
 \begin{enumerate}[label=\textbf{T\arabic*.}]
   \item \textbf{Invention.} The answer is not directly retrievable from a manual or
     database; it must be discovered through search and feedback.
   \item \textbf{Long horizon.} One pass is insufficient. Progress requires many
     dependent iterations over hours or days.
-  \item \textbf{Verifiability.} A task-native evaluator can distinguish genuine
-    improvement from a persuasive but incorrect claim.
+  \item \textbf{Progressive verifiability.} Task-native evidence can distinguish a
+    genuine frontier update from activity or a persuasive but incorrect claim,
+    even when terminal success is not yet available.
 \end{enumerate}
 
 The defining loop is therefore proposal $\rightarrow$ execution $\rightarrow$
-measurement $\rightarrow$ revised proposal. Performance engineering, security
-research, scientific search, and quantitative research differ in domain but share
-this operational structure. The task definition excludes both open-ended ideation
-without an evaluator and fixed workflows that require time but no new decisions.
+measurement $\rightarrow$ verification $\rightarrow$ contract refinement. The
+last transition is essential. Measurement may reveal that the proposed method is
+wrong, but it may also reveal that the stated objective is underspecified, a
+constraint is incompatible with the desired outcome, or the evaluator rewards the
+wrong behavior. Performance engineering, system verification, scientific search,
+and mathematical research differ in domain but share this operational structure.
 
-We model a campaign by an objective $o$, an initial artifact $y_0$, an evaluation
-procedure $f$, and a resource budget $B$. The artifact may be code, a model, a
-dataset, an experimental harness, a proof, or a manuscript. The campaign is divided
-into bounded missions indexed by $t$, each producing
+We represent the working task at mission $t$ by a contract
 
 \begin{equation}
-  \tau_t=(s_t,a_t,y_t,e_t,r_t),
+  K_t=(\iota,o_t,c_t,v_t),
+  \label{eq:task-contract}
+\end{equation}
+
+where $\iota$ is the standing user intent, $o_t$ is the current operational
+objective, $c_t$ is the set of known constraints and assumptions, and $v_t$ is the
+current verification procedure and acceptance criterion. The standing intent is
+durable; the other components are hypotheses about how to realize and recognize
+it. This distinction lets a campaign learn that a benchmark, specification, or
+requested implementation is wrong without silently abandoning why the user
+started the work.
+
+A campaign also contains an initial artifact $y_0$, a resource budget $B$, an
+user epistemic state $X_t$, and runtime state $H_t$. $X_t$ denotes the user's
+current understanding of feasible routes, tradeoffs, uncertainty, and desired
+constraints; it is not a psychological model inferred from private behavior, but
+the explicit decisions, clarifications, and priorities made visible at the
+interface. The artifact may be code, a model, a dataset, an experimental harness,
+a proof, a specification, or a manuscript. The campaign is divided into bounded
+missions indexed by $t$, each producing
+
+\begin{equation}
+  \tau_t=(K_t,s_t,a_t,y_t,e_t,r_t),
   \label{eq:trajectory}
 \end{equation}
 
 where $s_t$ is the mission state, $a_t$ the actions taken, $y_t$ the resulting
-artifact state, $e_t$ the observed measurements, and $r_t$ the review outcome. A mission
-must terminate, pause, or transfer control explicitly; continuity belongs to the
-persistent campaign state rather than an unbounded model session.
+artifact state, $e_t$ the observed measurements, and $r_t$ the review outcome. A
+mission must terminate, pause, or transfer control explicitly; continuity belongs
+to the persistent campaign state rather than an unbounded model session.
+
+\subsection{Verified Contract Refinement, Not Goal Drift}
+
+Evidence can propose a new contract $K'_t$, but change is admissible only through a
+guarded transition
+
+\begin{equation}
+  K_{t+1}=\mathcal{A}(K_t,K'_t,e_t,r_t,u_t),
+  \label{eq:contract-admission}
+\end{equation}
+
+where $u_t$ is the authorized expert or Manager decision. The admission operator
+$\mathcal{A}$ accepts a refinement only when four conditions hold:
+
+\begin{enumerate}[label=\textbf{R\arabic*.}]
+  \item \textbf{Evidence.} The proposed change cites a measurement, proof
+    obligation, counterexample, failing trace, artifact inspection, or explicit
+    user clarification.
+  \item \textbf{Intent preservation.} The update explains how the new objective,
+    constraint, or verifier better serves $\iota$, or explicitly records an
+    user-authorized change to that standing intent.
+  \item \textbf{Authority.} Reviewer can reject unsupported claims and recommend
+    replanning; Manager controls campaign and Stage transitions; the user
+    controls value judgments and material changes that cannot be settled by
+    task-native evidence alone.
+  \item \textbf{Provenance.} The old and new contracts, triggering evidence,
+    unresolved uncertainty, and decision owner remain inspectable.
+\end{enumerate}
+
+Goal drift changes what is optimized without a justified authority and evidence
+chain. A justified pivot changes the operational contract because verified work has made
+the original formulation more precise, less contradictory, or more faithful to the
+standing intent. A rollback is therefore not automatically regression, and
+preserving the exact initial wording is not automatically alignment.
+
+\subsection{Intermediate Progress as Task-Native Value}
+
+Terminal success is only one source of value. Let $F_t$ denote the accepted
+frontier---the set of claims, artifacts, constraints, and excluded routes that have
+survived the current verifier. We write mission value as
+
+\begin{equation}
+  R_t=R_t^{\mathrm{terminal}}
+    +w_I\Delta I_t+w_F\Delta F_t+w_C\Delta C_t+w_V\Delta V_t,
+  \label{eq:intermediate-value}
+\end{equation}
+
+where $\Delta I_t$ is information gain, $\Delta F_t$ is accepted frontier progress,
+$\Delta C_t$ is reduction in constraint or specification uncertainty, and
+$\Delta V_t$ is an improvement in the ability to detect false success. The weights
+and units are domain-specific; this is not a universal scalar leaderboard. In
+mathematics, a counterexample, bridge lemma, or tightened bound can increase
+$\Delta F_t$ before a final theorem is proved. In engineering, a measured
+bottleneck or rejected design can increase $\Delta I_t$. In system verification, a
+minimal trace showing that the code and specification disagree can increase both
+$\Delta C_t$ and $\Delta V_t$ even before either side is repaired.
+
+Only reviewed increments enter $F_t$. This prevents the framework from rewarding
+the production of plausible intermediate text. It also gives the user a sequence
+of grounded decision points rather than forcing a binary choice between accepting a
+final answer and restarting from the original prompt.
 
 Figure~\ref{fig:horizon-mountain} contrasts a session-limited trajectory with the
 persistent runtime model. A session-limited agent eventually spends its budget on
@@ -48,14 +131,15 @@ rejected branches change the route taken by later missions.
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.95\linewidth]{figures/horizon_mountain.pdf}
-  \caption{Operational model of long-horizon runtime self-evolution. The left card
+  \caption{Operational model of persistent, pivot-capable long-horizon reasoning. The left card
   shows a session-limited route ending in reset. The central recurrent role loop is
   reused across eight Manager-controlled research Stages, while the blue route,
   orange rollback, and red rejected branches show that progress need not be
-  monotone. Reviewed memory, Skills, tools, verifiers, and routing persist across
-  missions. The purple path to future SFT/RL is a research hypothesis; the current
-  runtime changes persistent state while keeping model parameters fixed. Geometry
-  is conceptual rather than an empirical scale.}
+  monotone. Reviewed memory, Skills, tools, verifiers, routing, and task-contract
+  refinements persist across missions and become user-visible decision state. The
+  purple path to future SFT/RL is a research hypothesis; the current runtime changes
+  persistent state while keeping model parameters fixed. Geometry is conceptual
+  rather than an empirical scale.}
   \label{fig:horizon-mountain}
 \end{figure}
 
@@ -74,6 +158,14 @@ Reviewer continuation returns work to Engineer; an accepted or blocked verdict
 returns control to Manager; and a Manager hold or rollback reopens planning. The
 relation is an explanatory state-machine model of the implemented control flow, not
 a claim that every transition must invoke a fresh model session.
+
+The user does not need to approve every low-level action. Instead, the
+runtime raises user-visible decision points when evidence exposes an ambiguous
+tradeoff, contradicts a standing assumption, requires a material change to
+$\iota$, or cannot determine the correct constraint from artifacts alone. This
+keeps repetitive execution autonomous while preserving human authority over the
+meaning of success. User clarification returns through Manager and becomes part
+of the next persisted contract rather than an ephemeral chat instruction.
 
 Let $g_n$ be the current stage after the $n$th Manager decision. Legal transitions
 are
@@ -151,18 +243,28 @@ factors as a multiplicative bottleneck model. Section~\ref{sec:vertical-trace}
 measures them in the mathematical campaign, and
 Appendix~\ref{app:formula-instantiation} gives the full calculation.
 
-\subsection{Online Life and Runtime Evolution}
+\subsection{Coupled Expert, Contract, and Runtime Evolution}
 
-The second website object separates model parameters from the operating state
-around the model:
+The original website object separates model parameters from the operating state
+around the model. We extend it to expose the coupled state central to this report:
 
 \begin{equation}
   \begin{aligned}
-    H_{t+1} &= U(H_t,\tau_t,E_t), \\
+    X_{t+1} &= F(X_t,e_t,r_t), \\
+    K_{t+1} &= \mathcal{A}(K_t,K'_t,e_t,r_t,u_t), \\
+    H_{t+1} &= U(H_t,\tau_t,E_t,K_{t+1}), \\
     \theta_{t+1} &= \theta_t.
   \end{aligned}
   \label{eq:runtime-update}
 \end{equation}
+
+$F$ denotes the user-facing update induced by inspected evidence, alternatives,
+and uncertainty; it does not assume that every mission requires synchronous human
+input. $\mathcal{A}$ is the guarded contract-admission operator from
+Equation~\ref{eq:contract-admission}. $U$ updates the persistent agent runtime using
+only admitted results $E_t$ and the current contract. The coupling is bidirectional:
+agent work gives the user better evidence about the task, while refined user
+judgment changes what later agent work attempts and verifies.
 
 with the public state definition
 
@@ -181,8 +283,8 @@ reusable component.
 
 \subsection{Capability-Set Expansion}
 
-Let $C_t$ denote the effective capability set available at time $t$. The website
-writes review-gated admission and the desired breadth/depth behavior as
+Let $C_t$ denote the effective agent capability set available at time $t$. The
+website writes review-gated admission and the desired breadth/depth behavior as
 
 \begin{equation}
   \begin{aligned}
@@ -200,10 +302,18 @@ Skills can become stale, verifiers can be revised, and performance can regress o
 harder instances. A negative result can still add value by excluding a failed branch even when the
 effective capability set does not grow.
 
+Capability expansion is only one half of the mechanism. The user-facing state can
+improve even when $C_t$ does not expand: a verified impossibility, contradictory
+specification, or cost tradeoff may reduce uncertainty about which objective is
+worth pursuing. Conversely, a new Skill is not useful if it accelerates work under
+an invalid contract. The framework therefore evaluates runtime reuse and contract
+quality together rather than equating self-evolution with a growing tool library.
+
 \subsection{Research Value}
 
-Dense activity matters only when it produces new, valid, reusable information. The
-website therefore defines the accumulated research value over horizon $T$ as
+Dense activity matters only when it produces new, valid, reusable information or
+improves the user's verified understanding of the task. The website therefore
+defines the accumulated research value over horizon $T$ as
 
 \begin{equation}
   V_R(T)
@@ -284,11 +394,11 @@ change the next optimal action, not merely because they occurred.
 
 Process data compounds only when an admitted state update improves later work. Let
 $H_t\oplus\Delta H_t$ denote the state after accepting mission $t$, and let
-$q_{t+1:t+K}$ be the next $K$ tasks. We define the discounted reuse value
+$q_{t+1:t+L}$ be the next $L$ tasks. We define the discounted reuse value
 
 \begin{equation}
-  G_K(\Delta H_t)
-  =\sum_{j=1}^{K}\gamma^{j-1}
+  G_L(\Delta H_t)
+  =\sum_{j=1}^{L}\gamma^{j-1}
   \left[
     \mathcal{R}_{q_{t+j}}(H_t)
     -\mathcal{R}_{q_{t+j}}(H_t\oplus\Delta H_t)
@@ -296,8 +406,8 @@ $q_{t+1:t+K}$ be the next $K$ tasks. We define the discounted reuse value
   \label{eq:reuse-gain}
 \end{equation}
 
-$G_K>0$ means that the accepted memory, skill, verifier, routing rule, or certified
-dead branch reduces future loss under a prespecified task distribution. $G_K<0$
+$G_L>0$ means that the accepted memory, skill, verifier, routing rule, or certified
+dead branch reduces future loss under a prespecified task distribution. $G_L<0$
 captures negative transfer. This definition turns ``compounding intelligence''
 from monotone rhetoric into a counterfactual claim: reuse must outperform a frozen
 state on matched future tasks. Workflow-memory experiments show that induced
@@ -312,7 +422,7 @@ protocol-specific \emph{verified reusable yield}:
   \mathcal{Y}_{\mathrm{PRI}}(W)
   =\frac{
     \sum_{t\in W}p_{\mathrm{valid},t}
-    \left[\Delta I_t+\lambda_g G_K(\Delta H_t)\right]
+    \left[\Delta I_t+\lambda_g G_L(\Delta H_t)\right]
   }{
     \sum_{t\in W}N_{\mathrm{tok},t}
   }.
@@ -322,7 +432,7 @@ protocol-specific \emph{verified reusable yield}:
 $\Delta I_t$ is immediate task-native information gain, such as a score
 improvement, theorem strengthening, or certified branch elimination;
 $p_{\mathrm{valid},t}$ is estimated by an external evaluator or a calibrated review
-procedure; and $G_K$ measures future reuse. $\lambda_g$ converts immediate and
+procedure; and $G_L$ measures future reuse. $\lambda_g$ converts immediate and
 future value into one protocol-specific unit. Equation~\ref{eq:verified-reusable-yield}
 connects immediate research output to future reuse. The current substitutions are
 reported in Appendix~\ref{app:formula-instantiation}.
@@ -358,14 +468,13 @@ the four role-owned actions
 
 where $m_t$ is the Manager's objective or stage decision, $p_t$ is the Planner's
 bounded task and dependency decision, $x_t$ is the Engineer's artifact-producing
-execution, $r_t$ is the structured completion decision together with its source,
+execution, $r_t$ is the independent Reviewer's structured completion decision,
 and $\Delta H_t$ is the durable state update exposed to later missions. The
 decomposition makes two authority constraints explicit: only the Manager changes
-campaign stage, while mission completion records either an allowed Engineer
-self-review or a required/requested independent Reviewer verdict. Vertical policy
-and stage-closing tasks prevent Engineer self-certification where independent
-review is mandatory; the Planner may propose future work but cannot certify the
-mission.
+campaign stage, while mission completion requires a fresh Reviewer verdict after
+every normal Engineer round. Historical self-review labels remain in older traces
+but do not describe the current production chain; the Planner may propose future
+work but cannot certify the mission.
 
 A vertical trace is useful when these tuples remain linked across many missions.
 It shows whether the objective survived failures, whether the Planner consumed

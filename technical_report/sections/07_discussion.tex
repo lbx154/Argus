@@ -1,6 +1,35 @@
 \section{Analysis and Discussion}
 \label{sec:discussion}
 
+\subsection{The Core Distinction: Completing a Task versus Discovering It}
+
+Most agent evaluations present a fixed prompt, environment, and success function.
+That abstraction is necessary for benchmarking but incomplete for open-ended reasoning. A
+long-horizon campaign can fail even when every action is competently executed if
+the initial objective optimizes the wrong quantity, a hidden constraint makes the
+requested solution infeasible, or the verifier encodes an invalid specification.
+The central design question is therefore not only how an agent reaches a goal, but
+how the runtime determines whether to persist, replan, or ask the user to clarify
+which goal and constraints should govern the next round.
+
+\systemname addresses this question by coupling persistent self-evolution with
+independent verification. Persistence alone can compound a false assumption.
+Verification alone can repeatedly diagnose the same issue without improving later
+work. Together, they create a reviewed frontier that supports an explicit choice:
+persist when evidence still supports the contract, pivot the technical approach
+when it does not, or surface evidence and alternatives when the correct objective
+or constraint requires user judgment.
+
+This is not goal drift. Equation~\ref{eq:contract-admission} requires evidence,
+intent preservation, authority, and provenance. The standing intent can remain
+stable while the operational objective changes substantially. A user asking for a
+particular optimization may learn that latency is dominated elsewhere. A
+verification engineer may learn that the implementation satisfies the written spec
+but the spec violates the intended safety property. A mathematician may replace an
+overbroad conjectural route with a sequence of reachable frontier claims. In each
+case, fidelity to the initial wording would be less aligned than a verified,
+authorized refinement.
+
 \subsection{System-Level Performance}
 
 The seven-benchmark suite shows one runtime operating across software repair,
@@ -16,7 +45,52 @@ startup W1--6. The curve remains non-monotone: W13--18 combines low Token use wi
 longer execution, while W23--24 contains a late concentration of difficult tasks. The operating profile changes
 over time as shared state expands, while task-dependent variation remains visible.
 
-\subsection{Reviewer as Selective Error Correction}
+\subsection{Autonomous Persistence with Selective User Involvement}
+
+User involvement is selective rather than continuous. The evidence shows that the
+same harness remains productive when the user supplies intent and constraints but
+does not occupy the inner loop. The six paper campaigns span 639.55 aggregate
+campaign-hours, 254 missions, 576 Engineer rounds, and 89 session rolls, with all
+six canonical pipelines reaching submission completion. The FLA case records an
+operator-supplied target and hardware constraint followed by autonomous profiling,
+implementation, benchmarking, and correctness validation; external human review
+then supplied a numerical-stability correction before merge. The 731-task
+SWE-Bench Pro trajectory provides a third, repeated-task view.
+
+These observations do not prove that human input is unnecessary. They show a more
+specific property: once the task contract is sufficiently actionable, continuity,
+experimentation, verification, recovery, and approach self-evolution are carried by
+the harness rather than by continual operator prompting. Human expertise can enter
+where it has the highest marginal value---contract ambiguity, domain judgment, and
+material tradeoffs---without becoming a hidden scheduler for ordinary rounds.
+
+\subsection{Honest Stopping as a Reliability Property}
+
+Informal trials with internal domain experts repeatedly highlighted a qualitative
+property that endpoint accuracy does not capture: \systemname often stops at an
+appropriate boundary instead of manufacturing progress. This feedback is
+anecdotal rather than a controlled user study, but it identifies an observable
+runtime property supported by both code and retained trajectories.
+
+The runtime separates \code{done}, \code{continue}, \code{blocked},
+\code{replan\_requested}, \code{no\_progress}, and \code{infra\_blocked}; it also
+keeps execution status, review status, Stage certification, interruption kind, and
+resumability as independent dimensions. Unknown progress is not guessed from prose:
+only the Reviewer's explicit structured negative judgment advances the semantic
+stall counter. In the archived SWE-Bench Pro run, 35 tasks were blocked on first
+external review rather than accepted. Across the six paper campaigns, Reviewer
+issued 88 blocked verdicts and Manager performed 16 Stage rollbacks, yet all six
+pipelines eventually completed. The mathematical trace retains a falsified route as
+a useful result rather than relabeling it as theorem progress.
+
+Honest stopping is therefore not conservative refusal. The same evidence contains
+43 SWE-Bench revision requests, 34 later official-verifier successes, 22 strict
+rescues, and repeated paper-stage recovery. The harness stops the current claim or
+approach while preserving enough state to revise, replan, or resume. This balance---
+neither endless continuation nor premature success---is central to unattended
+long-horizon reasoning.
+
+\subsection{Reviewer as Selective Error Correction and Contract Critic}
 
 The Reviewer requests revision on 43 SWE-Bench Pro tasks. After another Engineer
 round, 34 pass the official verifier and 22 complete the stricter
@@ -24,11 +98,32 @@ round, 34 pass the official verifier and 22 complete the stricter
 show the Reviewer functioning as an error-correction stage rather than a terminal
 commentary layer.
 
-Reviewer routing is adaptive: Reviewer-routed tasks use more Tokens and active time
-than self-reviewed tasks. The observed routing concentrates independent review on
-the more resource-intensive part of the workload.
+At longer horizons, error correction also applies to the task contract. A failed
+check can mean that the artifact is wrong, but it can also reveal an inconsistent
+constraint, an underpowered evaluator, or an acceptance criterion disconnected from
+expert value. Reviewer does not have unilateral authority to invent the replacement
+goal. Its role is to ground the contradiction, reject unsupported completion, and
+route the resulting decision to Planner, Manager, or the user at the proper
+boundary.
 
-\subsection{Autonomous Research Production}
+Reviewer routing is adaptive: Reviewer-routed tasks use more Tokens and active time
+than historically self-reviewed tasks. The observed routing concentrated independent
+review on the more resource-intensive part of that archived workload; it should not
+be read as the current routing policy, which independently reviews every normal
+round.
+
+\subsection{Artifact-Level Outcomes}
+
+The merged FLA kernel and ACE-1 prototype illustrate two different forms of
+real-world output. FLA PR \#1045 crossed an external repository boundary, received
+human review, was revised for numerical stability, and landed upstream. ACE-1
+crossed a hardware-artifact boundary by producing synthesizable RTL and a gate-level
+netlist, but the supplied report material exposes only the project-level score and
+artifact description. The first is externally auditable adoption; the second is a
+promising operator-reported system artifact pending reproduction from raw design and
+scoring inputs.
+
+\subsection{Research Production as Contract Refinement}
 
 The six-paper case study extends the endpoint results into a complete research
 lifecycle. All six canonical pipelines reach submission completion across six
@@ -46,13 +141,21 @@ rollbacks when submission checks expose scorer-provenance and telemetry defects.
 The role separation therefore changes the scientific trajectory: failure is
 retained as information, while only reviewed state controls the next Stage.
 
+The reframing is the empirical analogue of $K_t\rightarrow K_{t+1}$. The broad
+intent---produce a valid contribution about mitigation behavior---survives, while
+the operational objective changes from demonstrating a successful method to
+characterizing why candidate wrappers fail. Because the no-go measurements remain
+linked to the new claim, this transition is auditable. The system does not reward
+it merely for changing direction; it rewards the verified information gain and the
+more defensible contract that results.
+
 The case also separates artifact completion from process certification. Five final
 assurance snapshots pass; the compositional-matching project retains a stale blocked
 assurance snapshot after its canonical pipeline and final PDF complete. This is a
 useful systems distinction: derived quality metadata must be reconciled with the
 authoritative Stage state before it can serve as a public certificate.
 
-\subsection{Persistent State and Runtime Self-Evolution}
+\subsection{Persistent State Makes Pivots Cumulative}
 
 The long-lived object in \systemname is the campaign state rather than a provider
 transcript. Accepted results, failed routes, tools, skills, and current blockers
@@ -69,6 +172,14 @@ retained as evidence-backed exclusions. Evolution therefore occurs in the
 runtime's reviewed state and control policy, not in model weights or an unconstrained
 summary of prior conversation.
 
+Agent-side evolution improves execution under the current contract, but it cannot
+decide every contract change. The state in Equation~\ref{eq:runtime-update} also
+includes $X_t$ and $K_t$. A stronger Skill may reduce future execution cost; a
+stronger verifier may instead show the user that the current target is invalid; a
+negative result may do both. Retaining that evidence makes a pivot cumulative:
+later work starts from a better specification of what should be attempted next and
+why, rather than discarding the failed route or silently inventing a new goal.
+
 The two longitudinal views expose complementary parts of this claim. The SWE-Bench
 Pro trajectory measures how solve Tokens and active time vary as shared state
 accumulates, while the mathematical campaign shows direct semantic reuse: later
@@ -76,6 +187,31 @@ missions consume earlier definitions, bounds, rejected routes, and bridge lemmas
 Neither trace isolates a single update mechanism. A matched experiment that replays
 the same tasks with frozen versus accumulated runtime state would be required to
 attribute a causal gain to memory, Skills, verification, or routing separately.
+
+The current traces also do not directly measure how much a user's
+understanding improved. They expose the evidence, contract changes, and decision
+points that make such improvement possible. A prospective study should measure
+expert calibration, time to identify the true constraint, contract revision
+quality, and final task value against fixed-prompt and unverified-agent baselines.
+
+\subsection{Implications for Engineering and System Verification}
+
+Engineering requests frequently specify a desired implementation before the user
+knows the binding constraint. A verification-centered loop can treat prototypes and
+benchmarks as instruments for eliciting the real objective. The useful intermediate
+result may be a bottleneck decomposition, a rejected architecture, or a revised
+latency--memory tradeoff rather than the initially requested patch. Persistent
+state ensures that these discoveries constrain later implementation instead of
+being forgotten between sessions.
+
+System verification makes the need even sharper because there are at least three
+competing hypotheses after a failed obligation: the code is wrong, the specification
+is wrong, or their mapping is wrong. A completion-oriented agent is biased toward
+editing code until the current checker passes. \systemname's intended workflow
+retains the counterexample, audits both sides of the relation, strengthens the
+verifier when needed, and escalates normative ambiguity to the user. Passing a
+checker is evidence only under a contract whose assumptions and safety meaning have
+also survived review.
 
 \subsection{From Runtime Learning to Model Training}
 
@@ -103,7 +239,7 @@ progress is expressed through definitions, lemmas, counterexamples, and proofs.
 
 \subsection{Connecting Theory and Results}
 
-Table~\ref{tab:theory-results} connects the process-to-capability model to the
+Table~\ref{tab:theory-results} connects the verified persistence-and-pivot model to the
 measurements reported in Sections~\ref{sec:results} and~\ref{sec:vertical-trace}.
 
 \begin{table}[H]
@@ -116,13 +252,16 @@ measurements reported in Sections~\ref{sec:results} and~\ref{sec:vertical-trace}
 \textbf{Theory component} & \textbf{Measurement} & \textbf{Observed result} & \textbf{Interpretation} \\
 \midrule
 Process-data dominance & Mathematical trajectory & One dead route and six dependent theorem updates & The retained process changes the starting state of later missions. \\
+Intermediate value $R_t$ & Mathematical frontier & One falsification, one stronger bound, and bridge results before terminal closure & Reviewed intermediate states carry task-native value and redirect later missions. \\
 Review gate & 43 Reviewer revision requests & 34 verifier recoveries; 22 strict rescues & Independent review redirects initially unacceptable work into another implementation round. \\
-Reuse value $G_K$ & Startup W1--6 versus mature W19--22 & 21\% fewer solve input Tokens; 15\% less active time & Later operation reaches a lower resource regime while shared state expands. \\
-Recovery under persistent state & Paper-production trajectory & Seven early no-go rollbacks, two late submission repairs, and 29 session rolls & The campaign changes hypothesis and repairs evidence without losing accepted results or restarting the manuscript. \\
+Honest stopping & SWE-Bench and paper trajectories & 35 first-review blocks; 88 paper-review blocks; 16 Stage rollbacks & The runtime records non-success without discarding the state needed for recovery. \\
+Reuse value $G_L$ & Startup W1--6 versus mature W19--22 & 21\% fewer solve input Tokens; 15\% less active time & Later operation reaches a lower resource regime while shared state expands. \\
+Contract refinement $K_t$ & Paper-production trajectory & Seven early no-go rollbacks and a diagnostic reframing & The operational claim changes under retained evidence while the standing scientific intent remains stable. \\
+Recovery under persistent state & Paper-production trajectory & Two late submission repairs and 29 session rolls & The campaign repairs evidence without losing accepted results or restarting the manuscript. \\
 Token conversion & Rounds 12--17 role attribution & 56.0\% reasoning, 55.4\% verification, and 55.6\% action direct shares & The research trace separates frontier work, coordination, and interrupted work. \\
 \bottomrule
 \end{tabularx}
-\caption{Connection between the process-to-capability theory and measured system
+\caption{Connection between verified persistence-and-pivot theory and measured system
 behavior. Detailed substitutions appear in Appendix~\ref{app:formula-instantiation}.}
 \label{tab:theory-results}
 \end{table}

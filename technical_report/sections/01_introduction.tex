@@ -1,13 +1,25 @@
 \section{Introduction}
 \label{sec:introduction}
 
-Scientific research is a long-horizon activity. A useful result usually emerges
-from a sequence of dependent decisions: selecting a direction, modifying an
-artifact, running an experiment, interpreting the measurements, and deciding what to
-try next. The difficulty is therefore not only whether a model can solve an
-isolated reasoning problem, but whether a system can preserve the state of inquiry
-across many model calls, tool invocations, failures, restarts, and delayed
-measurements.
+Long-horizon reasoning is not a longer version of one-shot question answering. At the
+start of a mathematical investigation, neither the useful intermediate claims nor
+the reachable theorem frontier may be known. An engineering user may express a
+solution before understanding the actual performance, reliability, or integration
+constraint. In system verification, a failed proof obligation may reveal a defect
+in the implementation, an inconsistency in the specification, or a mistaken
+assumption shared by both. In each case, execution changes what the user knows
+about the problem itself.
+
+This creates a different systems objective from autonomous completion of a fixed
+prompt. The system must preserve a standing intent while allowing the operational
+goal, constraints, and acceptance criteria to become more precise. It must value
+verified intermediate progress---a counterexample, a stronger bound, a measured
+bottleneck, a minimal failing trace, or a corrected specification---even when no
+terminal artifact yet exists. It must also expose these updates to the user,
+whose judgment can revise priorities and constraints for the next mission. The
+system challenge is therefore not merely to persist, but to determine when evidence
+supports continuing the current route and when it warrants a pivot in approach,
+objective, constraints, or verification criteria.
 
 Large language model agents have progressed from tool use and software execution to
 complete research loops. ReAct, SWE-agent, and OpenHands established practical
@@ -18,10 +30,11 @@ research programs covering different combinations of planning, experiments, revi
 memory, and scientific
 communication~\citep{lu2024aiscientist,weng2025cycleresearcher,qian2026autosci,
 tang2026fars,jin2026arbor}. Their progress makes the central systems problem clear:
-long execution becomes research capability only when results accumulate across
-iterations and remain usable by later work.
+long execution becomes reasoning capability only when verified results accumulate
+across iterations and the runtime can change direction when those results invalidate
+the current route or task formulation.
 
-In practice, long-running agents fail in three recurrent ways, consistent with
+In practice, long-running agents fail in four recurrent ways, consistent with
 results showing that agent success declines as software-task horizons grow
 ~\citep{kwa2025longtasks}. First,
 \emph{continuity} is fragile: a growing transcript is eventually compacted or
@@ -34,56 +47,85 @@ workflow-oriented memory systems address parts of this problem
 ~\citep{packer2023memgpt,wang2024workflowmemory,xu2025amem}. A larger context window
 extends session continuity; durable institutional memory additionally requires
 explicit state, ownership, and update rules.
+Fourth, the task contract itself can be wrong or incomplete. A runtime that treats
+the initial prompt, specification, or evaluator as immutable may optimize the wrong
+quantity with increasing efficiency. Conversely, a runtime that freely rewrites
+its objective turns learning into unauditable goal drift. The missing mechanism is
+verified contract refinement: evidence must identify why a goal or constraint is
+insufficient, and an authorized decision must record what changed and what remains
+invariant.
 
 We present \systemname (Autonomous Research Generation and Understanding System), a
-general-purpose agentic runtime for long-horizon reasoning. Its central abstraction
-is a sequence of \emph{bounded missions} executed against a durable project state.
+verification-centered runtime for persistent and pivot-capable long-horizon reasoning. Its
+central abstraction is a sequence of \emph{bounded missions} executed against a
+durable, revisable task contract.
 Four model-driven roles divide authority: a Manager anchors the objective and
 campaign state, a Planner selects the next units of work, an Engineer implements
 and evaluates them, and a Reviewer inspects artifacts and run outputs before issuing
-the completion verdict. These roles operate across three planes---control,
+the completion verdict or identifying a contract-level contradiction. The user
+remains outside the repetitive round loop but retains authority at consequential
+boundaries. Manager-visible evidence, alternatives, and unresolved questions make
+clarification possible when the correct goal or constraint cannot be settled by
+artifacts alone. These roles operate across three planes---control,
 execution, and records---so that scheduling, work, and record keeping remain
 separable even though they participate in one continuous loop.
 
-The runtime is designed to accumulate useful experience without updating the base
-model. Each mission emits a trajectory and a set of reviewer-approved results. The
-system uses these records to update persistent memory, reusable
-skills, procedures, verifiers, routing, and evaluations while holding the model
-parameters fixed. We call this mechanism \emph{review-gated runtime evolution}.
+This report describes the system and evaluations available through August 4, 2026;
+historical benchmark traces are reported under the configurations that produced
+them.
+
+The runtime is designed to accumulate two coupled forms of state without updating
+the base model. First, it self-evolves the \emph{approach} between the current goal
+and constraints: each Stage retains attempted routes, measurements, Reviewer
+verdicts, accepted and rejected results, reusable skills, verifiers, and routing
+decisions, so later missions begin from a changed search policy rather than merely
+a longer transcript. Second, verified evidence can sharpen the user-facing task
+contract: goals can be decomposed or reframed, constraints can be discovered or
+corrected, and acceptance tests can be strengthened. Verifier-gated runtime
+self-evolution is the engine that improves execution under the current contract.
+Verification-guided pivoting changes that contract only when evidence exposes a
+material mismatch; user clarification or authorization governs changes that cannot
+be settled by task-native evidence alone.
 The term \emph{dense intelligence} describes the corresponding design goal: keep
 decision, execution, and verification connected over the research horizon rather
 than concentrating useful reasoning into isolated bursts. Section~\ref{sec:problem}
 formalizes this conversion and the experiments measure its operating factors.
 
-We sharpen this design language into a process-to-capability theory. The final
-artifact is a projection of a richer typed trajectory; reviewed compression retains
-the parts needed for later decisions; and an accepted update counts as compounding
-only when it reduces future task risk or resource cost. This separates three claims
-that are often conflated: more process information is available, a review gate
-improves admission quality, and retained state actually helps later work.
+We sharpen this design language into a verified-progress theory. The final artifact
+is a projection of a richer typed trajectory; intermediate states can carry
+task-native value; reviewed compression retains the parts needed for later
+decisions; and an accepted update counts as compounding only when it reduces future
+task risk or resource cost. Contract refinement is admissible only when it preserves
+the standing intent, cites new evidence, records the changed assumptions, and passes
+the appropriate user or Manager authority boundary. This separates a justified
+pivot from goal drift.
 
 We evaluate the resulting system across seven benchmark arenas covering software
 repair, GPU kernels, language-model training, training speed, research-assistant
-tasks, and data synthesis. SWE-Bench Pro is one row in this benchmark suite; its
+tasks, and mathematical data synthesis. Beyond the headline SWE-Bench result, the
+suite includes 76.8\% on AARRI-Bench and a 28.0 mathematical-data gap, both above
+their reported references. SWE-Bench Pro is one row in this benchmark suite; its
 731-task trajectory additionally enables analyses of Skill/Wiki evolution and
 Reviewer intervention. A de-duplicated inventory records 41 research artifacts
 across six programs as a separate breadth measure. We additionally report one
 mathematical campaign as a representative vertical trace, showing how the four
 roles hand off the same objective through recovery, route testing, proof
-production, revision, acceptance, and retained state. Finally, we reconstruct six
-Argus paper-production campaigns from their structured Stage and role logs, linking
-runtime behavior to final AAAI- and ACL-formatted manuscripts.
+production, revision, acceptance, and retained state; it preserves one falsified
+route and six proof-backed theorem-frontier updates. Finally, we reconstruct six
+Argus paper-production campaigns spanning 254 missions and 16 Stage rollbacks from
+their structured Stage and role logs. These traces are especially relevant to
+pivoting because several initial positive hypotheses fail and become narrower
+diagnostic or negative-results contributions through evidence-backed rollback.
 
-This report makes six contributions:
+This report makes seven contributions:
 
 \begin{enumerate}[label=\textbf{C\arabic*.}]
-  \item We formulate long-horizon reasoning as bounded missions over persistent
-    state and derive a process-to-capability model: process-data dominance,
-    selective review correction, counterfactual reuse value, and verified reusable
-    yield per Token.
-  \item We introduce a general-purpose, role-separated agentic runtime that combines durable objectives,
-    bounded context, independent review, append-only run records, and fixed-model
-    runtime evolution in one operational system.
+  \item We formulate long-horizon reasoning as verified progress over a revisable task
+    contract $K_t=(\iota,o_t,c_t,v_t)$ comprising standing intent, objectives, constraints, and
+    verification criteria, rather than completion against an immutable prompt.
+  \item We introduce a role-separated runtime for verification-guided persistence and pivoting that
+    combines durable intent, bounded execution, independent review, user-visible
+    contract refinement, append-only records, and fixed-model runtime evolution.
   \item We report one unified table across seven benchmark arenas, preserving each
     benchmark's backbone, backend, protocol, native metric, and reference.
   \item We analyze the SWE-Bench Pro row in depth: \systemname reaches approximately
@@ -91,15 +133,18 @@ This report makes six contributions:
     mature Waves are more efficient, and Reviewer intervention yields 34 verifier
     recoveries and 22 strict review-loop rescues.
   \item We reconstruct one mathematical campaign as a role-resolved Agent trace,
-    making the Manager, Planner, Engineer, and Reviewer actions visible across
-    multiple bounded missions and six accepted theorem-frontier updates.
+    showing why falsified routes and intermediate theorem-frontier updates are
+    valuable before a terminal proof and how they reshape subsequent work.
   \item We present a six-project autonomous paper-production case study covering
     \PaperCaseCampaignHours{} campaign-hours, \PaperCaseRounds{} Engineer rounds,
     \PaperCaseContinues{} Reviewer revisions, and \PaperCaseRollbacks{} Stage
     rollbacks, with all six canonical pipelines reaching submission completion. A
-    representative campaign uses seven no-go rollbacks to reframe a failed method
-    search as a 4,500-row negative-results study, then repairs two late submission
-    defects without resetting the research state.
+    representative campaign uses seven verified no-go decisions to reframe a failed
+    method search as a 4,500-row negative-results study, then repairs two late
+    submission defects without discarding the accumulated research state.
+  \item We document two artifact-level outcomes: a human-reviewed
+    TileLang kernel merged into Flash Linear Attention and the operator-reported
+    ACE-1 NPU prototype, while keeping their distinct evidence levels explicit.
 \end{enumerate}
 
 The remainder of the report follows a conventional research-paper organization.

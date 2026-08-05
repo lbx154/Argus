@@ -1,6 +1,14 @@
 \section{Results}
 \label{sec:results}
 
+The results answer two complementary questions. The seven benchmark rows test
+whether a verification-heavy persistent runtime can produce strong terminal
+outcomes. The longitudinal traces test why one-shot completion is an incomplete
+model: revisions recover failed solutions, mathematical intermediate states change
+the next theorem task, and paper campaigns alter claims when evidence invalidates
+their initial positive hypotheses. The latter are process observations, not a
+controlled human-subject demonstration of expert learning.
+
 \subsection{Benchmark Results}
 
 Table~\ref{tab:benchmark-results} is the primary empirical summary and reports all
@@ -38,6 +46,16 @@ merged into \code{fla-org:main}
 \href{https://github.com/fla-org/flash-linear-attention/commit/c70f11c5530142450525549cc96d13d9f5165f69}
 {commit \code{c70f11c}}); Appendix~\ref{app:upstream-kernel} records the technical
 details.
+
+A separate chip-design project record supplied with this revision reports ACE-1
+(Argus Compute Engine), a batch-one decode NPU prototype with synthesizable RTL, a
+Sky130 gate-level netlist produced through Yosys and ABC, a 128-bit DMA interface,
+an eight-bank 256 KiB scratchpad, and INT4 compute. Its project score is reported as
+75/80 against the stated area, power, and throughput comparison. This broadens the
+artifact surface from software kernels to digital design, but it has a different
+evidence level from the merged FLA contribution: the report bundle does not contain
+the ACE-1 raw score inputs or an independent reproduction. We therefore treat it as
+an operator-reported prototype rather than an eighth benchmark row.
 
 The table shows one runtime reaching competitive outcomes across heterogeneous
 tasks. The remainder of this section
@@ -86,16 +104,19 @@ causal claim that any individual memory or Skill update produced the reduction.
 
 \subsection{SWE-Bench Pro Analysis: Reviewer Routing and Recovery}
 
-Of \ReviewerTasks{} tasks, \ReviewerInvoked{} (\ReviewerInvokedPercent\%) invoke
-an independent Reviewer, while \ReviewerSkipped{} (\ReviewerSkippedPercent\%) use
-Engineer self-review. The Reviewer requests another implementation round on
+In the archived SWE-Bench Pro runtime, of \ReviewerTasks{} tasks,
+\ReviewerInvoked{} (\ReviewerInvokedPercent\%) invoke an independent Reviewer,
+while \ReviewerSkipped{} (\ReviewerSkippedPercent\%) carry the historical Engineer
+self-review route. The current production runtime reviews every normal round
+independently. The Reviewer requests another implementation round on
 \ReviewerRevisionRequested{} tasks. After revision, \ReviewerVerifierRecovered{}
 pass the official verifier and \ReviewerStrictRescues{} complete the strict
 \code{continue}$\rightarrow$revision$\rightarrow$\code{done} loop.
 
 Reviewer-routed tasks consume \ReviewerTokenRatio$\times$ as many solve input
-tokens and \ReviewerTimeRatio$\times$ as much active time as self-reviewed tasks on
-average, indicating that the routing policy selects a harder workload. The recovery
+tokens and \ReviewerTimeRatio$\times$ as much active time as historically
+self-reviewed tasks on average, indicating that the archived routing policy selects
+a harder workload. The recovery
 funnel is therefore more interpretable than a raw group-accuracy comparison.
 
 Figure~\ref{fig:reviewer-mechanism} separates the routing population from the
@@ -108,7 +129,7 @@ are nested recovery milestones among the 43 revision-requested tasks.
   \includegraphics[width=\linewidth]{figures/reviewer_mechanism.pdf}
   \caption{Adaptive Reviewer routing and revision recovery. Panel (a) shows that
   466 of 731 tasks invoke an independent Reviewer, while 265 use Engineer
-  self-review; routed tasks consume 2.75$\times$ the solve input Tokens and
+  the historical self-review route; routed tasks consume 2.75$\times$ the solve input Tokens and
   1.80$\times$ the active time on average. Panel (b) follows the routed workload:
   388 tasks are accepted on first review, 43 receive a revision request, 34 of
   those later pass the official verifier, and 22 complete the strict

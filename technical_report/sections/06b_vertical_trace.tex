@@ -2,12 +2,12 @@
 \label{sec:vertical-trace}
 
 Figure~\ref{fig:erdos-vertical-trace} follows the retained mathematical claim
-frontier inside one real campaign. The case begins with an open-ended research objective.
-The Manager preserves that goal through budget and process
-failures; the Planner turns the current reviewed state into bounded work; the
-Engineer retrieves sources, runs tools, and writes research artifacts; and the
-Reviewer decides whether the work is accepted, revised, or blocked before it can
-enter durable state.
+frontier inside one real campaign. The case begins with an open-ended standing
+intent rather than a fully specified theorem-production recipe. Manager preserves
+that intent through budget and process failures; Planner repeatedly re-expresses
+the reachable objective as bounded work; Engineer retrieves sources, runs tools,
+and writes research artifacts; and Reviewer decides which intermediate claims,
+counterexamples, and proof obligations can enter durable state.
 
 \begin{figure}[H]
   \centering
@@ -23,20 +23,23 @@ enter durable state.
   \label{fig:erdos-vertical-trace}
 \end{figure}
 
-The trace makes the work allocation concrete. The Manager recovers the campaign
-and owns stage transitions. The Planner first selects a cheap falsification test,
-then changes the success contract from ``collect observations'' to ``produce a proof,''
-and later requires new missions to advance the retained result rather than restart
-from an easier fact. The Engineer performs the domain work---source retrieval,
+The trace makes contract refinement concrete. Manager recovers the campaign and
+owns stage transitions. Planner first selects a cheap falsification test, then
+changes the operational success contract from ``collect observations'' to
+``produce a proof,'' and later requires new missions to advance the retained result
+rather than restart from an easier fact. These changes preserve the standing intent
+while sharpening what counts as progress. Engineer performs the domain work---source retrieval,
 executable checks, proof writing, and result packaging. The Reviewer rejects an
 overstated route, requests the missing checks, and certifies the bounded theorem
 recorded by the artifacts.
 
 In the reported trace, the campaign retains one falsified route and six proof-backed
-deltas, including one stricter bound and two bridge results. Accepted work changes
-the next Planner input, rejected work remains available as a dead branch, and open
-blockers become explicit future tasks. The trace therefore captures a continuous
-research path rather than a sequence of isolated answers.
+deltas, including one stricter bound and two bridge results. None needs to be the
+final proof to carry reward under Equation~\ref{eq:intermediate-value}: each changes
+the accepted frontier or excludes future work. Accepted work changes the next
+Planner input, rejected work remains available as a dead branch, and open blockers
+become explicit future tasks. The trace therefore captures an evolving problem
+understanding and agent state rather than a sequence of isolated answers.
 
 \subsection{Efficiency Attribution in the Mathematical Case}
 

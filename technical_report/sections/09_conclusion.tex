@@ -1,34 +1,70 @@
 \section{Conclusion}
 \label{sec:conclusion}
 
-\systemname is a general-purpose agentic runtime for sustained research across
-bounded missions. Persistent campaign state, four-role authority separation, and
-review-gated updates allow one objective to continue across model calls, tool runs,
-revisions, and restarts. Across seven benchmark arenas, the runtime reaches strong
-task-native results; on SWE-Bench Pro it attains approximately 78\% accuracy versus
-59\% for Direct Copilot at 1.41$\times$ aggregate Tokens. Mature operation uses
-21\% fewer solve input Tokens and 15\% less active time than startup, while Reviewer
-intervention produces 34 verifier recoveries and 22 strict review-loop rescues.
+\systemname is a verification-centered framework for persistent and pivot-capable
+long-horizon reasoning. Its premise is that success does not come from rushing in
+one direction for as long as possible. The runtime must persist while evidence
+supports the current contract, but pivot when verification reveals a failed route,
+hidden constraint, invalid evaluator, or incorrectly framed objective. Treating
+such evidence as failure to follow the initial prompt is too rigid; allowing an
+agent to rewrite its goal freely is unsafe. \systemname instead makes each material
+pivot a persistent, evidence-backed, authorized transition.
 
-The process-to-capability theory explains how this runtime converts Token activity
-into retained research progress. Typed trajectories contain more decision-relevant
-information than final artifacts alone, review separates proposal from admission,
-and reuse changes the starting point of future missions. The mathematical
-campaign makes this mechanism visible through one rejected route and six accepted
-theorem-frontier updates produced by the Manager, Planner, Engineer, and Reviewer.
+The framework separates standing intent from the revisable task contract
+$K_t=(\iota,o_t,c_t,v_t)$. Manager preserves intent and owns contract and Stage
+transitions; Planner converts the reviewed frontier into bounded work; Engineer
+produces artifacts and measurements; and a fresh independent Reviewer controls
+admission after every normal round. Users enter at consequential decision
+boundaries, where evidence and alternatives can refine value-laden goals or
+constraints. Verification is therefore not a final checkbox. It determines whether
+the runtime should continue, revise the approach, stop, or surface evidence and
+alternatives for user clarification or authorization.
 
-The six-paper production case provides a second vertical view. Across
-\PaperCaseCampaignHours{} aggregate campaign-hours, Argus repeatedly survives
-review rejection, Stage rollback, and session replacement while producing two
-AAAI- and four ACL-formatted manuscripts. In the representative campaign, seven
-rejected method routes become a 4,500-row negative-results study, and two late
-submission rollbacks repair the evidence package without resetting the paper. This
-demonstrates that the runtime can connect hypothesis revision, experiment
-execution, and sustained scientific communication, while the stale assurance
-snapshot in one project identifies a concrete synchronization failure for future
-work.
+Verifier-gated runtime self-evolution remains the execution engine of this framework. Across
+Stages, $\Pi_t$ records attempted approaches, measurements, accepted and rejected
+routes, Reviewer decisions, skills, and verifier changes. Later missions retrieve
+this reviewed state to choose a better approach between the current goal and
+constraints while model weights remain fixed. A verified pivot can refine the task
+contract; self-evolution prevents the runtime from restarting its search whenever
+that contract or Stage changes.
 
-These trajectories also define a natural interface to model training. Supervised,
-preference-based, and reinforcement-learning methods can use the accumulated
-objectives, actions, measurements, revisions, and state transitions to internalize
-parts of the long-horizon research loop.
+The empirical results remain strong under this framing. Across seven benchmark
+arenas, \systemname reaches task-native competitive outcomes; on SWE-Bench Pro it
+attains approximately 78\% accuracy versus 59\% for Direct Copilot at
+1.41$\times$ aggregate Tokens. Mature operation uses 21\% fewer solve input Tokens
+and 15\% less active time than startup, while Reviewer intervention produces 34
+verifier recoveries and 22 strict rescue loops. These endpoint results establish
+that persistence and verification do not prevent delivery.
+
+The longitudinal cases show why endpoints are not enough. The mathematical
+campaign retains one falsified route and six proof-backed frontier updates; a
+counterexample, bridge lemma, or stronger bound has value before terminal proof.
+The six-paper case survives \PaperCaseRollbacks{} Stage rollbacks, and its
+representative campaign turns seven verified no-go routes into a 4,500-row
+negative-results study rather than manufacturing a positive claim. These are
+examples of intermediate reward and contract refinement: the standing intent is
+preserved while the operational target becomes more faithful to evidence.
+
+The same harness does not require step-by-step human supervision once a contract is
+actionable. Six paper pipelines span 254 missions and 576 Engineer rounds; the FLA
+case proceeds from an operator-supplied target to an autonomously implemented and
+validated kernel before external review. Equally important, the runtime can decline
+to certify progress: structured blocked, stalled, incomplete, and replan outcomes,
+together with 35 first-review blocks, 88 paper-review blocks, and 16 Stage rollbacks,
+show honest stopping without preventing later recovery.
+
+Artifact-level outcomes extend the same loop beyond benchmark endpoints. A TileLang
+RWKV6 kernel was revised under external human review and merged into Flash Linear
+Attention. The supplied ACE-1 record reports synthesizable Sky130 NPU artifacts and
+a 75/80 project score; absent raw reproduction inputs, this report treats that
+result as operator-reported rather than independently validated.
+
+The current study does not yet prove a causal improvement in user
+understanding; that requires prospective collaboration studies. It does establish
+the runtime mechanisms, evidence surfaces, and observed trajectories needed to test
+that claim. More broadly, the retained objectives, contract revisions, actions,
+measurements, verifier decisions, and state transitions define a natural interface
+to supervised, preference-based, and reinforcement learning. The long-term goal is
+not an agent that merely persists longer on the initial prompt. It is a verified
+system that knows when to keep going, when to pivot, and when the meaning of success
+must be clarified or authorized by the user.

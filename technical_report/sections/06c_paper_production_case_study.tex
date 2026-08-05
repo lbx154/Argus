@@ -1,10 +1,10 @@
-\subsection{Autonomous Paper-Production Case Study}
+\subsection{Long-Horizon Paper-Production Case Study}
 \label{sec:paper-case-study}
 
 The benchmark suite evaluates task endpoints, while the mathematical trace follows
 one research objective in depth. A complementary question is whether the same
-runtime can carry multiple research programs through the complete paper-production
-lifecycle. We therefore reconstruct six projects spanning evaluation reliability,
+runtime can preserve evidence and refine the research contract across a complete
+paper-production lifecycle. We therefore reconstruct six projects spanning evaluation reliability,
 vision--language matching, test-time adaptation, GUI agents, multimodal
 hallucination, and model quantization. The initial objectives and compute
 environments were provided externally; the retained Argus records identify the
@@ -32,8 +32,8 @@ projects and are not calendar time because several projects overlap.
   \label{fig:paper-case-study}
 \end{figure}
 
-The trajectories are inconsistent with a one-pass account of autonomous paper
-writing. Each manuscript states a scoped research question and a task-native
+The trajectories are inconsistent with a one-pass account of either autonomous or
+human-directed paper writing. Each manuscript states a scoped research question and a task-native
 outcome rather than merely presenting a generated document. The portfolio includes
 uncertainty-aware leaderboard reporting, a failed compositional gate, an
 over-restrictive adaptation controller, a narrow GUI reliability gain, a
@@ -41,12 +41,18 @@ failure-mode audit of multimodal wrappers, and a negative result for static
 quantization proxies. Several projects therefore become diagnostic or negative
 results after their original positive hypothesis fails. Reviewer-gated state makes
 that scientific pivot explicit instead of silently replacing the failed branch.
+The persistent invariant is the standing intent to produce an evidence-grounded
+scientific contribution; the operational claim is allowed to narrow when the
+positive method hypothesis does not survive verification.
 
 Figure~\ref{fig:paper-case-trajectory} resolves the multimodal-hallucination
 campaign in greater detail. During a dense 12-hour search window, seven rollback
 decisions reject baseline coverage or proposed mechanisms that are unreproduced,
 base-identical, or missing their preregistered signal. Planner then changes the
 claim from a positive mitigation method to a diagnostic negative-results audit.
+This is the report's clearest example of refinement rather than goal drift: seven
+measured no-go decisions justify the change, the failed routes remain in the record,
+and the new claim is harder to overstate because it is bound to the canonical matrix.
 Engineer completes a five-method by three-benchmark matrix with 4,500
 official-scored rows; Reviewer binds the resulting no-op and degradation claims to
 those outputs. Two later submission checks return the project to benchmark to

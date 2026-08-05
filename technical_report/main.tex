@@ -50,7 +50,7 @@
   pdftitle={\systemname: A General-Purpose Agentic Runtime for Long-Horizon Reasoning},
   pdfauthor={Argus Team},
   pdfsubject={\systemname Technical Report},
-  pdfkeywords={general-purpose agentic runtime, long-horizon reasoning, compounding intelligence, persistent state, experimentation, review}
+  pdfkeywords={long-horizon reasoning, verified pivoting, user clarification, verification-centered agents, persistent state, runtime self-evolution}
 }
 
 \color{ink}
@@ -91,7 +91,7 @@
 \fancyhf{}
 \renewcommand{\headrulewidth}{0.35pt}
 \fancyhead[L]{\footnotesize\rmfamily\color{muted}\systemname}
-\fancyhead[R]{\footnotesize\rmfamily\color{muted}24$\times$7 Self-Evolving Agent System}
+\fancyhead[R]{\footnotesize\rmfamily\color{muted}Verification-Guided Persistence and Pivoting}
 \fancyfoot[C]{\footnotesize\sffamily\color{muted}\thepage}
 \fancypagestyle{firstpage}{
   \fancyhf{}
@@ -133,7 +133,7 @@
 \vspace{0.04in}
 
 \noindent{\sffamily\small\bfseries\color{muted}
-  \MakeUppercase{\systemname} TECHNICAL REPORT \enspace\textperiodcentered\enspace JULY 2026}\par
+  \MakeUppercase{\systemname} TECHNICAL REPORT \enspace\textperiodcentered\enspace AUGUST 2026}\par
 \vspace{0.12in}
 
 \noindent{\raggedright\sffamily\fontsize{23}{26}\selectfont\bfseries\color{ink}
@@ -141,7 +141,7 @@
   for Long-Horizon Reasoning}\par
 \vspace{0.07in}
 \noindent{\raggedright\sffamily\fontsize{13}{16}\selectfont\bfseries\color{argusdeep}
-  Compounding Intelligence through Persistent State, Experimentation, and Review}\par
+  Verification-Guided Persistence, Pivoting, and Runtime Self-Evolution}\par
 \vspace{0.08in}
 \noindent{\raggedright\sffamily\normalsize\bfseries\color{ink}
   Argus Team}\par
@@ -161,46 +161,46 @@
 \begin{abstractbox}
 \small
 \textbf{Abstract.}
-Long-horizon reasoning requires more than extending a single model
-session. A research system must preserve objectives across restarts, turn decisions
-into real experiments, separate execution from acceptance, and retain useful
-lessons for later work. We present \systemname, a persistent runtime organized around
-four model-driven roles---Manager, Planner, Engineer, and Reviewer---that operate
-over bounded missions and durable project state. The runtime records an append-only
-experiment trace, maintains curated cross-session memory, and updates reusable skills,
-procedures, verifiers, and routing while holding the underlying model parameters
-fixed. We formalize this process as dense intelligence and review-gated runtime
-evolution, and give a decision-theoretic account of how typed process data can
-become reviewed, reusable capability. Using GPT-5.5, we report task-native outcomes across seven benchmark
-arenas. On SWE-Bench Pro, Direct Copilot with GPT-5.5/xhigh reaches approximately
-\SWEProDirectAccuracy\% accuracy; \systemname reaches approximately
-\SWEProArgusAccuracy\% while using \SWEProTokenRatio$\times$ the aggregate Tokens.
-The same run supports an observational analysis of fixed-model runtime
-self-evolution: reviewed updates accumulate in memory, skills, procedures,
-verification state, and routing while the model parameters remain fixed.
-Relative to the W1--6 startup window,
-the mature W19--22 window uses \SWEProTokenReduction\% fewer solve input tokens and
-\SWEProTimeReduction\% less active workflow time per task. The trajectory is not
-monotone: task-composition shifts and late difficult-task Waves produce visible reversals.
-Reviewer feedback requests revision on \ReviewerRevisionRequested{} tasks;
-\ReviewerVerifierRecovered{} later pass the official verifier and
-\ReviewerStrictRescues{} complete the strict review-loop rescue.
-A complementary mathematical trace follows one objective across recovery, route
-rejection, proof production, revision, acceptance, and the next mission. Together,
-the benchmark trajectory and vertical case connect runtime organization to
-measured long-horizon behavior. A six-project paper-production case study further
-reconstructs \PaperCaseCampaignHours{} campaign-hours and six final manuscripts.
-Its representative 163.6-hour trace turns seven rejected method routes into a
-4,500-row negative-results study, then survives two submission-stage rollbacks
-before completion. The retained trajectories also form structured training data
-for future supervised and reinforcement learning.
+Long-horizon reasoning is not repeated one-shot completion. Intermediate proofs,
+measured bottlenecks, failed routes, and specification contradictions can be
+valuable before a terminal artifact exists. Only when verified against explicit
+criteria can such signals justify refining the initial goal, constraint, or verifier.
+
+We present \systemname, a verification-centered runtime for persistent,
+pivot-capable long-horizon reasoning. Manager, Planner, Engineer, and Reviewer execute bounded missions over
+a durable task contract. Long-horizon reasoning is not merely persistence:
+verification determines when to continue, stop, replan, or surface evidence and
+alternatives for user clarification or authorization. Any resulting pivot is
+recorded in the durable contract, separating evidence-backed refinement from goal
+drift. Meanwhile, staged records of attempted approaches, accepted and
+rejected results, skills, verifiers, and routing update the runtime while model
+weights remain fixed. This \emph{verifier-gated runtime self-evolution} improves how later missions
+navigate between the current goal and constraints. Between user decision boundaries,
+the harness remains fully autonomous.
+
+In fully autonomous runs with no human intervention during execution, the same
+harness remains effective across seven GPT-5.5 benchmark arenas. It reaches
+approximately \SWEProArgusAccuracy\% (behind only Mythos \& Fable 5) on
+SWE-Bench Pro versus \SWEProDirectAccuracy\% for Direct Copilot. After
+verifier-gated runtime evolution, mature SWE-Bench waves use \SWEProTokenReduction\% fewer solve
+input Tokens per task than startup waves. Across the broader suite, it reaches
+76.8\% on AARRI-Bench research tasks and a 28.0 gap on mathematical data synthesis,
+alongside competitive GPU-kernel and language-model-training results (Figure~1). Its artifacts extend beyond
+benchmark endpoints: an optimized RWKV6 kernel was merged into the upstream Flash
+Linear Attention repository, while the separately documented ACE-1 neural
+processing unit (NPU) remains operator-reported pending independent
+reproduction. A multi-day mathematical campaign retains one falsified route and
+six proof-backed frontier updates; six autonomous paper pipelines span 254 missions
+and 16 Stage rollbacks before reaching submission completion. These results show a
+general harness that can revise, recover, and accumulate verified approaches without
+forcing every long-horizon trajectory into a success claim.
 \end{abstractbox}
 
 \noindent
 \begin{minipage}[t]{0.66\linewidth}
   \footnotesize\color{muted}
-  \textbf{Keywords:} general-purpose agentic runtime; long-horizon reasoning;
-  compounding intelligence; persistent state; experimentation; review.
+  \textbf{Keywords:} long-horizon reasoning; verified pivoting; user clarification;
+  verification-centered agents; runtime self-evolution.
 \end{minipage}%
 \hfill
 \begin{minipage}[t]{0.31\linewidth}
