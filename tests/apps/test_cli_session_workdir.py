@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -49,6 +50,75 @@ def test_cli_resume_uses_persisted_workdir_not_shell_cwd(
     assert bundle.project_worktree == workspace.resolve()
     assert config.project_workdir == workspace.resolve()
     assert config.life_dir == state_dir
+
+
+def test_cli_management_auto_selects_newest_session_for_shell_workdir(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "state"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    for sid, active in (("s-older", 10.0), ("s-newer", 20.0)):
+        (root / "projects" / sid).mkdir(parents=True)
+        write_session_meta(
+            root,
+            SessionMeta(
+                id=sid,
+                created=active,
+                last_active=active,
+                workdir=str(workspace),
+            ),
+        )
+    monkeypatch.chdir(workspace)
+    monkeypatch.setattr(_core, "_resolve_global_root", lambda _args: root)
+    monkeypatch.setattr(
+        _core,
+        "_resolve_session_id",
+        lambda *_args, **_kwargs: (None, False),
+    )
+
+    bundle = _core._resolve_project_bundle(_args())
+
+    assert bundle.project.root == root / "projects" / "s-newer"
+    assert bundle.project_worktree == workspace.resolve()
+
+
+def test_cli_management_prefers_live_session_for_shell_workdir(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "state"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    for sid, active in (("s-live", 10.0), ("s-newer-stopped", 20.0)):
+        state_dir = root / "projects" / sid
+        state_dir.mkdir(parents=True)
+        write_session_meta(
+            root,
+            SessionMeta(
+                id=sid,
+                created=active,
+                last_active=active,
+                workdir=str(workspace),
+            ),
+        )
+    (root / "projects" / "s-live" / "daemon.pid").write_text(
+        f"{os.getpid()}\n",
+        encoding="ascii",
+    )
+    monkeypatch.chdir(workspace)
+    monkeypatch.setattr(_core, "_resolve_global_root", lambda _args: root)
+    monkeypatch.setattr(
+        _core,
+        "_resolve_session_id",
+        lambda *_args, **_kwargs: (None, False),
+    )
+
+    bundle = _core._resolve_project_bundle(_args())
+
+    assert bundle.project.root == root / "projects" / "s-live"
+    assert bundle.project_worktree == workspace.resolve()
 
 
 def test_cli_legacy_resume_persists_first_explicit_workdir(

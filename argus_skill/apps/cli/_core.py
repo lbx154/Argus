@@ -138,13 +138,49 @@ def _resolve_session_id(
         return None, False
 
 
+def _session_for_current_workdir(global_root: Path) -> str | None:
+    """Newest session bound to the shell cwd, preferring a live daemon.
+
+    Web/TUI sessions are keyed by session id rather than the legacy cwd
+    fingerprint. Without this bridge, running ``argus --status`` from the exact
+    execution directory can report a different empty project while that
+    session's daemon is visibly alive in the cockpit.
+    """
+    from ...core.session import (
+        list_sessions,
+        live_daemon_sessions,
+        resolve_session_workdir,
+    )
+
+    try:
+        current = Path.cwd().resolve(strict=True)
+    except (OSError, RuntimeError):
+        return None
+    live_ids = {meta.id for meta in live_daemon_sessions(global_root)}
+    matches: list[str] = []
+    for meta in list_sessions(global_root):
+        state_dir = core_paths.session_state_root(meta.id, root=global_root)
+        try:
+            workdir = resolve_session_workdir(meta, state_dir=state_dir).resolve(
+                strict=True
+            )
+        except (OSError, RuntimeError):
+            continue
+        if workdir == current:
+            matches.append(meta.id)
+    return next((sid for sid in matches if sid in live_ids), matches[0] if matches else None)
+
+
 def _resolve_project_bundle(args: argparse.Namespace):
     from ...life import MemoryBundle
 
     global_root = _resolve_global_root(args)
-    # Management commands keep the legacy cwd identity unless an explicit session
-    # flag (--resume/--continue) is given.
+    # Explicit session flags win. Otherwise, management commands attach to the
+    # newest session for this exact workdir (live first) before falling back to
+    # the legacy cwd fingerprint.
     sid, _is_new = _resolve_session_id(args, global_root, default_to_new=False)
+    if sid is None:
+        sid = _session_for_current_workdir(global_root)
     if sid is None:
         return MemoryBundle.for_cwd(Path.cwd(), global_root=global_root)
     from ...core.session import (
