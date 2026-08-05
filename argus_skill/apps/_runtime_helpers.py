@@ -173,7 +173,18 @@ def _should_run_stage_transition(
     require_independent_review: bool = False,
     review_source: str = "",
     skip_stage_transition: bool = False,
+    preplanned: bool = False,
+    stage_closing: bool = False,
 ) -> bool:
+    """Whether this mission may invoke the Manager's formal stage writer.
+
+    A Planner-authored bounded node carries an explicit ``stage_closing``
+    contract.  Reviewer acceptance of an ordinary node settles that node; it
+    must not turn every intermediate result into a solve/review transition.
+    Replans still reach the Manager through the planning-cycle reconciliation
+    path, while direct/legacy work keeps the historical reviewed-transition
+    behavior.
+    """
     normalized = str(status or "")
     normalized_scope = str(mission_scope or "").strip().lower().replace("-", "_")
     if (
@@ -186,9 +197,11 @@ def _should_run_stage_transition(
         return False
     if normalized.startswith("paused_"):
         return False
+    if preplanned and normalized_scope == "bounded" and not stage_closing:
+        return False
     return bool(
         require_independent_review
-        or str(mission_scope or "").strip().lower() == "final_submission"
+        or normalized_scope == "final_submission"
         or str(review_source or "").strip().lower()
         in {"engineer_self_review", "reviewer"}
     )

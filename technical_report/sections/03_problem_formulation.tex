@@ -38,6 +38,24 @@ artifact state, $e_t$ the observed measurements, and $r_t$ the review outcome. A
 must terminate, pause, or transfer control explicitly; continuity belongs to the
 persistent campaign state rather than an unbounded model session.
 
+\begin{paperbox}{Report-level contract model}
+For analysis, we summarize the working task as
+$K_t=(\iota,o_t,c_t,v_t)$: standing intent, current objective, known constraints,
+and verification criteria. $X_t$ denotes only the clarifications, priorities, and
+unresolved questions made explicit at the user interface. A material refinement is
+written compactly as
+\[
+  (X_{t+1},K_{t+1})
+  =\operatorname{ManagerAdmit}(X_t,K_t,K'_t,e_t,r_t,u_t),
+\]
+where $K'_t$ is the proposed contract, $e_t$ is evidence, $r_t$ the recorded
+review or verification outcome, and $u_t$ the authorized operator or Manager
+decision. \code{ManagerAdmit} is a normative operator, not one atomic production
+API: it projects over current \code{GoalContract} revisions, persisted operator
+questions, Planner replanning, Manager Stage/routing transitions, and append-only
+provenance.
+\end{paperbox}
+
 Figure~\ref{fig:horizon-mountain} contrasts a session-limited trajectory with the
 persistent runtime model. A session-limited agent eventually spends its budget on
 reconstruction and repeated work. \systemname instead instantiates a recurrent

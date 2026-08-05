@@ -435,11 +435,47 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
             _atomic_json(self.state_path, state)
 
     def _observations(self, limit: int = 24) -> list[dict[str, Any]]:
+        state = self._state()
+        adjudicated = {
+            str(value)
+            for value in (state.get("adjudicated_observation_ids") or [])
+            if str(value)
+        }
         return [
             value
-            for value in (self._state().get("observations") or [])[-limit:]
+            for value in (state.get("observations") or [])[-limit:]
             if isinstance(value, dict)
+            and str(value.get("id") or "") not in adjudicated
         ]
+
+    def _mark_observations_adjudicated(
+        self,
+        observations: list[dict[str, Any]],
+    ) -> None:
+        """Remember evidence for which Manager already returned ``no_action``.
+
+        Periodic audits are a recovery clock, not permission to spend a model
+        call re-adjudicating an unchanged incident forever. New observations
+        still set ``event_audit_pending`` and receive a fresh Manager decision.
+        """
+        with self._state_lock():
+            state = self._read_state_unlocked()
+            ids = [
+                str(value)
+                for value in (state.get("adjudicated_observation_ids") or [])
+                if str(value)
+            ]
+            ids.extend(
+                str(row.get("id") or "")
+                for row in observations
+                if str(row.get("id") or "")
+            )
+            state.update({
+                "schema_version": _STATE_SCHEMA,
+                "adjudicated_observation_ids": list(dict.fromkeys(ids))[-96:],
+                "updated_at": time.time(),
+            })
+            _atomic_json(self.state_path, state)
 
     def _active_item(self) -> BacklogItem | None:
         active_id = str(self._state().get("active_item_id") or "")
@@ -628,6 +664,7 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
             })
             return f"adopt:{worktree}"
         if getattr(decision, "action", "") != "repair":
+            self._mark_observations_adjudicated(observations)
             return ""
         affected_paths = tuple(getattr(decision, "affected_paths", ()))
         incident_id = hashlib.sha256(

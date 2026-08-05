@@ -73,6 +73,13 @@ Manager 是 `current_stage` 的**唯一语义决策者**（`manager/_stage_ops.p
 转移动作:`advance` / `hold` / `rollback` / `complete`,写盘在
 `_apply_stage_decision_to_disk`。
 
+Planner 创建的 bounded node 还带一个领域无关的边界合同：
+`stage_closing=false` 表示 Reviewer 的 `done` 只结算当前 mission，不调用正式阶段写入器；
+只有 `stage_closing=true` 的节点可在成功验收后触发 Manager 阶段裁决。Reviewer 的
+`replan_requested` 不会因此丢失，它经 planning-cycle reconciliation 交给 Manager。
+这一区分防止每个中间 lemma、负结果或局部实验都触发 `solve -> review -> solve` 往返。
+直接/旧式非 Planner 工作保留原有 reviewed-transition 行为。
+
 **该函数签名是 `(decision, cur, root)` —— 拿不到 reviewer verdict。** 这是刻意的：
 Manager 写盘路径里没有第二道科研质量闸。唯一额外写路径是 Supervisor 的
 `_apply_dynamic_plan_stage_guard`：如果 bounded DAG 仍有同计划未完成节点，却已发生

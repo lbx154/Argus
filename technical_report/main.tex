@@ -50,7 +50,7 @@
   pdftitle={\systemname: A General-Purpose Agentic Runtime for Long-Horizon Reasoning},
   pdfauthor={Argus Team},
   pdfsubject={\systemname Technical Report},
-  pdfkeywords={general-purpose agentic runtime, long-horizon reasoning, compounding intelligence, persistent state, experimentation, review}
+  pdfkeywords={objective revision, verification-gated review, long-horizon research, general-purpose agentic runtime, persistent state}
 }
 
 \color{ink}
@@ -133,7 +133,7 @@
 \vspace{0.04in}
 
 \noindent{\sffamily\small\bfseries\color{muted}
-  \MakeUppercase{\systemname} TECHNICAL REPORT \enspace\textperiodcentered\enspace JULY 2026}\par
+  \MakeUppercase{\systemname} TECHNICAL REPORT \enspace\textperiodcentered\enspace AUG 2026}\par
 \vspace{0.12in}
 
 \noindent{\raggedright\sffamily\fontsize{23}{26}\selectfont\bfseries\color{ink}
@@ -141,7 +141,7 @@
   for Long-Horizon Reasoning}\par
 \vspace{0.07in}
 \noindent{\raggedright\sffamily\fontsize{13}{16}\selectfont\bfseries\color{argusdeep}
-  Compounding Intelligence through Persistent State, Experimentation, and Review}\par
+  Verification-Guided Persistence, Pivoting, and Runtime Self-Evolution}\par
 \vspace{0.08in}
 \noindent{\raggedright\sffamily\normalsize\bfseries\color{ink}
   Argus Team}\par
@@ -161,17 +161,21 @@
 \begin{abstractbox}
 \small
 \textbf{Abstract.}
-Long-horizon reasoning requires more than extending a single model
-session. A research system must preserve objectives across restarts, turn decisions
-into real experiments, separate execution from acceptance, and retain useful
-lessons for later work. We present \systemname, a persistent runtime organized around
-four model-driven roles---Manager, Planner, Engineer, and Reviewer---that operate
-over bounded missions and durable project state. The runtime records an append-only
-experiment trace, maintains curated cross-session memory, and updates reusable skills,
-procedures, verifiers, and routing while holding the underlying model parameters
-fixed. We formalize this process as dense intelligence and review-gated runtime
-evolution, and give a decision-theoretic account of how typed process data can
-become reviewed, reusable capability. Using GPT-5.5, we report task-native outcomes across seven benchmark
+Long-horizon reasoning is not a race to push farther along a fixed route. A capable
+runtime must persist while evidence supports the current approach, but pivot when
+measurements expose a failed route, hidden constraint, or misspecified objective.
+Because unrestricted pivoting is indistinguishable from rationalized failure, a
+change of direction must be evidence-backed, admitted through a role-separated gate,
+and recorded with its justification. We present \systemname, a persistent runtime
+organized around Manager, Planner, Engineer, and Reviewer over bounded missions and
+durable project state. A compact report-level model represents the working contract
+as $K_t=(\iota,o_t,c_t,v_t)$ and explicit user decision state as $X_t$;
+\code{ManagerAdmit} denotes the evidence-and-authority gate for material refinement.
+These are analytical projections over current runtime surfaces, not one atomic API.
+Reviewer-gated outcomes feed fixed-model runtime self-evolution, so a verified pivot
+retains prior learning rather than resetting the campaign. After initial assignment,
+ordinary rounds can run unattended while operator-owned decisions remain explicit
+escalation points. Using GPT-5.5, we report task-native outcomes across seven benchmark
 arenas. On SWE-Bench Pro, Direct Copilot with GPT-5.5/xhigh reaches approximately
 \SWEProDirectAccuracy\% accuracy; \systemname reaches approximately
 \SWEProArgusAccuracy\% while using \SWEProTokenRatio$\times$ the aggregate Tokens.
@@ -199,8 +203,8 @@ for future supervised and reinforcement learning.
 \noindent
 \begin{minipage}[t]{0.66\linewidth}
   \footnotesize\color{muted}
-  \textbf{Keywords:} general-purpose agentic runtime; long-horizon reasoning;
-  compounding intelligence; persistent state; experimentation; review.
+  \textbf{Keywords:} verified pivoting; runtime self-evolution; long-horizon
+  research; general-purpose agentic runtime; persistent state.
 \end{minipage}%
 \hfill
 \begin{minipage}[t]{0.31\linewidth}
