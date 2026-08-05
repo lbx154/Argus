@@ -280,6 +280,22 @@ def test_manager_no_action_never_creates_make_work(tmp_path: Path) -> None:
 
     assert controller.audit_if_due(daemon_state={}) == ""
     assert controller.memory.backlog.all() == []
+    assert manager.calls == 1
+
+    # The periodic recovery clock must not ask Manager to adjudicate the exact
+    # same evidence every audit interval.
+    controller._write_state(last_audit_at=0.0)
+    assert controller.audit_if_due(daemon_state={}) == ""
+    assert manager.calls == 1
+
+    # A genuinely new observation remains edge-triggered and gets a new ruling.
+    controller.observe({
+        "type": "life.planner.error",
+        "ts": 11.0,
+        "error": "a distinct failure",
+    })
+    assert controller.audit_if_due(daemon_state={}) == ""
+    assert manager.calls == 2
 
 
 def test_unmerged_local_repair_blocks_a_new_maintenance_audit(

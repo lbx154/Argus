@@ -423,6 +423,7 @@ class SkillLoopExecuteMixin:
             usage_mission_id=usage_mission_id,
             maintenance_mission=maintenance_mission,
             skip_stage_transition=skip_stage_transition,
+            preplanned=preplanned,
             stage_closing=stage_closing,
         )
         return self._build_execute_outcome(ex_state)
@@ -1073,6 +1074,7 @@ class SkillLoopExecuteMixin:
         usage_mission_id: str | None,
         maintenance_mission: bool,
         skip_stage_transition: bool,
+        preplanned: bool,
         stage_closing: bool,
     ) -> None:
         """Hand this round's structured completion verdict to the Manager's
@@ -1094,23 +1096,33 @@ class SkillLoopExecuteMixin:
             ex_state.playground_workflow_guarded
             or ex_state.protected_playground_source_violation
         )
+        planned_node_holds_stage = (
+            preplanned
+            and ex_state.mission_scope.strip().lower().replace("-", "_")
+            == "bounded"
+            and not stage_closing
+        )
         effective_skip_stage_transition = (
             workflow_skips_stage_transition
             or (skip_stage_transition and not stage_closing)
         )
         # Direct workflow skips an extra planning pass, not Manager stage
-        # authority. Review-only tasks explicitly suppress the stage writer;
-        # every other eligible Reviewer verdict reaches it before planner-wait
-        # reconciliation.
+        # authority. Review-only tasks and ordinary non-stage-closing Planner
+        # nodes suppress the stage writer; Reviewer-requested replans still
+        # reach Manager through planning-cycle reconciliation.
         if (
             not maintenance_mission
             and not workflow_skips_stage_transition
             and _should_run_stage_transition(
-            effective_status,
-            mission_scope=ex_state.mission_scope,
-            require_independent_review=ex_state.effective_require_independent_review,
-            review_source=ex_state.review_source,
-            skip_stage_transition=effective_skip_stage_transition,
+                effective_status,
+                mission_scope=ex_state.mission_scope,
+                require_independent_review=(
+                    ex_state.effective_require_independent_review
+                ),
+                review_source=ex_state.review_source,
+                skip_stage_transition=effective_skip_stage_transition,
+                preplanned=preplanned,
+                stage_closing=stage_closing,
             )
         ):
             self._current_sink = sink
@@ -1137,6 +1149,7 @@ class SkillLoopExecuteMixin:
         ex_state.stage_transition = stage_transition
         ex_state.stage_transition_skipped = bool(
             workflow_skips_stage_transition
+            or planned_node_holds_stage
             or (
                 effective_skip_stage_transition
                 and ex_state.effective_require_independent_review
