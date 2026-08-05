@@ -405,6 +405,18 @@ def test_prewarm_starts_lean_process_and_session_without_model_turn(
     ]
 
 
+def test_new_session_rejects_a_different_selected_model(monkeypatch) -> None:
+    proc = _FakeAcpProc(_multi_session_script)
+    monkeypatch.setattr(copilot_acp.subprocess, "Popen", lambda *a, **k: proc)
+    client = CopilotAcpClient("copilot-bin", "requested-model", "xhigh")
+    client._ensure_started()
+
+    with pytest.raises(RuntimeError, match="selected 'small', expected 'requested-model'"):
+        client._new_session("/workspace")
+
+    assert "sess-1" not in client._sessions
+
+
 def test_manager_chat_is_isolated_then_resumed_on_same_process(monkeypatch) -> None:
     proc = _FakeAcpProc(_multi_session_script)
     monkeypatch.setattr(copilot_acp.subprocess, "Popen", lambda *a, **k: proc)
