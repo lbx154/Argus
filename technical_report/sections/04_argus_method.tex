@@ -3,31 +3,21 @@
 
 \subsection{System Overview}
 
-\systemname is a verification-centered runtime built around a user, four
-model-driven roles, and three system planes. The user supplies standing intent,
-domain judgment, and authority over material tradeoffs. The \emph{control plane}
-turns that intent into a durable task contract and schedules work; the
-\emph{execution plane} performs one bounded mission against real tools and
-artifacts; and the \emph{record plane} stores evidence, decisions, and contract
-history without deciding whether the work is scientifically complete. The
-distinction is operational: control owns scheduling and contract transitions,
-execution owns work and mission review, and the record plane owns the immutable
-record but no completion decision.
+\systemname is a general-purpose agentic runtime built around four model-driven roles
+and three system planes. The \emph{control plane} anchors the campaign and schedules
+work; the \emph{execution plane} performs one bounded mission against real tools
+and artifacts; and the \emph{record plane} stores what happened without deciding
+whether the work is scientifically complete. The distinction is operational:
+control owns scheduling, execution owns work and mission review, and the record plane owns
+the immutable record but no completion decision.
 
 The four roles divide research authority as summarized in
 Table~\ref{tab:roles}. The Manager spans the campaign rather than one execution
-round. The Manager is also the user-facing boundary: it preserves standing intent,
-surfaces consequential ambiguity, and commits authorized contract refinements. The
-Planner authors future work and the Engineer performs it. Every normal mission
-round then passes to a fresh independent Reviewer; historical
-Engineer-self-review fields remain only for compatibility with older traces. The
-interfaces are structured objects rather than untyped prose, which makes ownership
-and recovery behavior explicit.
-
-The notation $K_t$ is a report-level abstraction over persisted campaign identity,
-objectives, Stage state, constraints, verifier obligations, and decision records.
-The current implementation distributes these fields across runtime surfaces rather
-than storing one monolithic object named $K_t$.
+round. The Planner authors future work and the Engineer performs it. Mission-level
+completion has an explicit source: allowed low-risk bounded work may use Engineer
+self-review, while vertical policy, stage-closing tasks, or the Engineer's own
+request require an independent Reviewer. The interfaces are structured objects
+rather than untyped prose, which makes ownership and recovery behavior explicit.
 
 \begin{table}[H]
 \centering
@@ -37,15 +27,15 @@ than storing one monolithic object named $K_t$.
 \rowcolor{papersand}
 \textbf{Role} & \textbf{Primary responsibility} & \textbf{Authoritative output} \\
 \midrule
-Manager & Preserve standing intent; commit task contract, lifetime, route, and campaign stage & Contract refinement, user escalation, campaign division, and stage transition \\
-Planner & Decompose the current verified frontier into bounded tasks and dependencies & Task specifications, plan status, verifier obligations, and stage checklist updates \\
-Engineer & Modify artifacts, invoke tools, and run experiments for one round & Execution result, artifacts, measurements, and checkpoint handoff \\
-Reviewer & Independently inspect every normal round against the current contract & \code{done}, \code{continue}, \code{blocked}, or \code{replan\_requested}; verified frontier update; contradiction or expert-question report \\
+Manager & Commit the objective, lifetime, route, and campaign stage & Campaign division and stage transition \\
+Planner & Decompose the current research state into bounded tasks and dependencies & Task specifications, plan status, and stage checklist updates \\
+Engineer & Modify artifacts, invoke tools, and run experiments for one round & Execution result, artifacts, measurements, handoff, and structured \code{review=skip|required} selection \\
+Reviewer & Independently inspect artifacts and execution records when required or requested & \code{done}, \code{continue}, or \code{blocked}, plus grounded next action and retained-state edits \\
 \bottomrule
 \end{tabularx}
-\caption{Authority separation in \systemname. The Engineer executes; a fresh
-independent Reviewer controls admission after every normal mission round; Manager
-owns contract and Stage transitions at the user-facing boundary.}
+\caption{Role separation in \systemname. The Engineer executes and may self-review
+allowed low-risk bounded work; mandatory or requested independent review belongs to
+the Reviewer.}
 \label{tab:roles}
 \end{table}
 
@@ -53,47 +43,45 @@ owns contract and Stage transitions at the user-facing boundary.}
 \small
 \begin{tabbing}
 \quad\=\quad\=\quad\=\kill
-\textbf{Input:} standing intent $\iota$, contract $K_t$, user state $X_t$, runtime state $H_t$, backlog $B$, budget $b$ \\
-$c \leftarrow \operatorname{ManagerCommit}(\iota,K_t)$; persist campaign identity and contract \\
+\textbf{Input:} objective $o$, runtime state $H_t$, backlog $B$, budget $b$ \\
+$c \leftarrow \operatorname{ManagerCommit}(o)$; persist campaign identity \\
 \textbf{while} $b$ remains and $c$ is not complete \textbf{do} \\
 \> $q \leftarrow \operatorname{Planner}(B,H_t,c)$; claim one bounded task \\
 \> $\tau_t \leftarrow [\,]$ \\
 \> \textbf{repeat} \\
-\>\> $(y,e) \leftarrow \operatorname{Engineer}(q,H_t)$ \\
-\>\> $r \leftarrow \operatorname{Reviewer}(K_t,q,y,e)$ \\
-\>\> append $(q,y,e,r)$ to $\tau_t$ \\
+\>\> $(y,e,d) \leftarrow \operatorname{Engineer}(q,H_t)$ \\
+\>\> \textbf{if} $d=\code{skip}$ and $\operatorname{SelfReviewAllowed}(q)$ \\
+\>\>\> $r \leftarrow \operatorname{EngineerSelfReview}(q,y,e)$ \\
+\>\> \textbf{else} $r \leftarrow \operatorname{Reviewer}(q,y,e)$ \\
+\>\> append $(q,y,e,r,r.\code{source})$ to $\tau_t$ \\
 \>\> \textbf{if} $r=\code{continue}$ \textbf{then} $q \leftarrow r.\code{next\_action}$ \\
-\> \textbf{until} $r\in\{\code{done},\code{blocked},\code{paused},\code{replan\_requested}\}$ \\
+\> \textbf{until} $r\in\{\code{done},\code{blocked},\code{paused}\}$ \\
 \> $E_t \leftarrow \operatorname{AdmitResult}(e,r)$ \\
-\> $X_{t+1} \leftarrow \operatorname{SurfaceEvidence}(X_t,E_t,r)$ \\
-\> $K_{t+1} \leftarrow K_t$ \\
-\> \textbf{if} $r=\code{replan\_requested}$ or contract refinement is proposed \textbf{then} \\
-\>\> $K_{t+1} \leftarrow \operatorname{ManagerAdmit}(K_t,E_t,r,u_t)$ \\
-\> $H_{t+1} \leftarrow U(H_t,\tau_t,E_t,K_{t+1})$; persist outcome, trace, contract, and state \\
+\> $H_{t+1} \leftarrow U(H_t,\tau_t,E_t)$; persist outcome, trace, and state \\
 \> $t \leftarrow t+1$; refill $B$ when required \\
 \textbf{end while} \\
-\textbf{Output:} accepted frontier, inspectable trajectory, refined task contract, and updated expert/runtime state
+\textbf{Output:} accepted artifacts, inspectable trajectory, and updated runtime state
 \end{tabbing}
 \end{paperbox}
 
-\subsection{Bounded Missions over Durable Contracts}
+\subsection{Bounded Missions over Durable State}
 
 The long-lived object in \systemname is the campaign, not a provider transcript. A
-campaign has a persisted identity, standing intent, current task contract, accepted
-frontier, and explicit unresolved questions. Its work is divided into missions with
-explicit outcomes. The scheduler assigns one mission at a time, records its result,
-and advances only at a clean mission boundary. Mission assignment is transactional,
-preventing duplicate work under concurrency, and resumed execution is tied to the
-persistent campaign identity.
+campaign has a persisted identity and objective; its work is divided into missions
+that have explicit outcomes. The scheduler assigns one mission at a time, records
+its result, and advances only at a clean mission boundary. Mission assignment is
+transactional, preventing duplicate work under concurrency, and resumed execution
+is tied to the persistent campaign identity.
 
 Engineer and Reviewer calls use fresh provider sessions for each round. Cross-session
 continuity comes from an ordinary shared \code{CHECKPOINT.md} containing durable
 state, evidence references, open questions, and the next step. This follows the
 broader move from monolithic context toward managed memory tiers and reusable
 workflows~\citep{packer2023memgpt,wang2024workflowmemory,xu2025amem}. The Engineer
-updates the checkpoint after execution. The Reviewer then reads and corrects the
-same file and is its final editor for that round. The full history remains in
-artifacts and the event record.
+updates the checkpoint after execution. When independent review is invoked, the
+Reviewer reads and corrects the same file and is its final editor for that round;
+on an accepted self-review path, the Engineer's version remains the handoff. The
+full history remains in artifacts and the event record.
 
 This design makes restart and upgrade behavior part of the method. A running process
 hands off only at a mission boundary, and the replacement resumes from the same
@@ -101,34 +89,7 @@ persistent campaign identity. After an interruption, replay or reassignment begi
 from committed campaign state rather than reconstructing the task from a model
 transcript.
 
-The same persistence supports user interaction at a larger timescale. The user
-does not need to repeat the original context or monitor every tool call. When a
-Reviewer finds that the current verifier cannot distinguish alternatives, that a
-constraint conflicts with observed reality, or that multiple valid tradeoffs remain,
-the issue is surfaced with evidence and options. The resulting clarification is
-committed through Manager into the durable contract. Later missions therefore begin
-from the refined understanding rather than from either the original ambiguous prompt
-or an agent-invented replacement goal.
-
-\subsection{Autonomy between User Decision Boundaries}
-
-The runtime does not require a human to supervise each round. The harness assigns
-local authority to the four roles: Manager maintains the campaign and contract,
-Planner creates bounded executable work, Engineer acts on real artifacts, and an
-independent Reviewer decides whether evidence supports completion, continuation,
-blocking, or replanning. Checkpoints, event history, task claims, external-job
-state, and mission outcomes survive session replacement. Consequently, the runtime
-can execute for long intervals without synchronous human input and surface a user
-decision only when evidence exposes a material value tradeoff, missing information,
-or operator-owned constraint.
-
-This is stronger than adding a human-approval button. The autonomous path must
-remain capable of selecting routes, running experiments, rejecting invalid work,
-consolidating intermediate progress, and ending an unproductive mission. Human
-input refines the campaign at consequential boundaries; it is not the mechanism
-that keeps the ordinary loop alive.
-
-\subsection{Verification as the Pivot Gate}
+\subsection{Review and Completion}
 
 All role invocations pass through a common instrumentation layer that records usage
 and associates each call with the mission trace. The Engineer and Reviewer share
@@ -136,28 +97,18 @@ the same artifact state, allowing review of the actual outputs and execution rec
 rather than only the Engineer's summary. A typed, append-only trace is the canonical
 timeline; user interfaces are projections over that record.
 
-The source of a mission completion verdict is explicit: a fresh Reviewer returns a
-structured verdict after every normal Engineer round. Review evaluates more than
-terminal completeness. It can admit a bounded frontier increment, reject an
-unsupported claim, identify a faulty verifier or inconsistent specification,
-request another experiment, or ask Manager to replan and surface a user decision.
-Historical
-\code{review\_source=engineer\_self\_review} values describe earlier runtime
-versions and are retained only so longitudinal traces remain interpretable.
-Completion never comes from filenames, Token volume, content hashes, or prose
-keywords. The corresponding artifacts and execution records remain inspectable,
-while credential redaction preserves the evidence boundary.
+The source of a mission completion verdict is explicit. When self-review is enabled
+and no vertical or task policy requires independence, an Engineer may select
+\code{review=skip}; its prompt restricts that choice to low-risk bounded work with
+a passing verifier. The runtime accepts the explicit agent judgment without adding
+a second heuristic or validator and records
+\code{review\_source=engineer\_self\_review}. Otherwise a fresh Reviewer
+returns the structured verdict, and stage-closing or vertical-required review cannot
+be waived. Completion never comes from filenames, Token volume, or prose keywords.
+The corresponding artifacts and execution records remain inspectable, while
+credential redaction and result provenance preserve the selected verdict source.
 
-Verification is therefore the gate between persistence and pivoting. Agent
-execution externalizes hypotheses into artifacts and measurements; Reviewer turns
-those outputs into calibrated claims and unresolved alternatives; Manager presents
-material choices in terms the user can inspect; and user judgment updates the
-contract governing subsequent execution. Without verification, persistence can
-compound error. Without persistent self-evolution, verification repeatedly finds
-the same errors. Their combination converts a long trajectory into cumulative
-problem understanding and reusable capability.
-
-\subsection{Staged Approach Self-Evolution and Contract Pivoting}
+\subsection{Fixed-Model Runtime Self-Evolution}
 
 Equation~\ref{eq:runtime-update} separates the model from the state around it.
 Table~\ref{tab:runtime-ownership} identifies how each component can change and who
@@ -166,34 +117,17 @@ and skills use a work-versus-certification split: the Engineer or Scientist prod
 a candidate, and the Reviewer commits the retained form. Tools and procedures are
 system-configured. Stage checklists are Planner-owned, with Reviewer feedback rather
 than a second commit gate. Routing policy is Manager-committed, while task
-definitions are Planner-authored and scheduler-committed. The task contract is
-different from all of these: evidence and Reviewer findings may propose a change,
-Manager commits operational refinements, and the user retains authority
-over standing intent and value-laden tradeoffs that evidence alone cannot settle.
+definitions are Planner-authored and scheduler-committed.
 
-We use verifier-gated runtime self-evolution to mean the staged evolution of the approach
-used to move from the current objective toward satisfaction of the current
-constraints. The underlying model parameters remain fixed, while reviewed missions
-change the persistent search state available to later work. Each Stage maintains an
-approach record $\Pi_t$ containing route hypotheses, actions, task-native evidence,
-Reviewer verdicts, retained failures, and the next admissible frontier. A complete
-update cycle has four parts:
+We use \emph{runtime self-evolution} in a deliberately narrow sense. The underlying
+model parameters remain fixed, while reviewed missions can change the persistent
+runtime state available to later work. A complete update cycle has four parts:
 (1) an execution trajectory produces a candidate memory, skill, procedure,
 verification rule, routing decision, or task definition; (2) the responsible role
 checks the candidate against artifacts and task-native evidence; (3) the authorized
 owner commits, revises, or rejects the update; and (4) a later mission retrieves the
 retained state as part of its starting context or execution policy. Activity that
 does not survive this commit-and-reuse path is not counted as self-evolution.
-Contract pivoting is distinct: it is the evidence-backed refinement of $K_t$ and
-$X_t$, with user clarification or authorization where required. Neither mechanism implies that every
-mission improves the system or changes the contract.
-
-This preserves a strong self-evolution claim without conflating it with goal
-mutation. $K_t$ defines the current objective, constraints, and verifier;
-$\Pi_t$ records how the runtime has learned to navigate inside that envelope. If a
-verified contract refinement changes the envelope, the prior approach record
-remains staged evidence of which routes failed and which procedures or verifiers
-remain reusable.
 
 \begin{table}[H]
 \centering
@@ -209,13 +143,10 @@ $A$: tools and procedures & System configuration & System configuration & Versio
 $V$: verification & Planner & Planner & Stage checklist; Reviewer supplies feedback \\
 $R$: routing and roles & Runtime policy & Manager & Campaign routing policy \\
 $Q$: tasks and evaluations & Planner & Scheduler & Backlog task specifications and scopes \\
-$\Pi$: staged approach & Mission trajectories and Reviewer verdicts & Manager / Planner & Accepted frontier, rejected routes, route rationale, and next approach \\
-$K$: task contract & User clarification, evidence, and Reviewer findings & Manager / user & Versioned intent, objective, constraints, verifiers, and provenance \\
 \bottomrule
 \end{tabularx}
-\caption{Attributable ownership of persistent and revisable state. A mission usually updates only
-a subset of these components; material changes to standing user intent are not
-delegated to the runtime.}
+\caption{Attributable ownership of fixed-model runtime evolution. A mission usually
+updates only a subset of these components.}
 \label{tab:runtime-ownership}
 \end{table}
 
@@ -233,14 +164,6 @@ does not imply monotonic improvement. Some missions commit no reusable state,
 retained state can become stale, and a harder task distribution can increase cost
 even after useful state has accumulated.
 
-The user-facing benefit is complementary. A retained failure can show that a
-requested optimization is physically or economically irrelevant; a stronger
-verifier can expose that the original success metric was gameable; and a proof
-counterexample can replace a vague conjecture with a sharper reachable frontier.
-The runtime is not learning the user's preferences covertly. It is making the
-evidence and tradeoffs explicit enough for those preferences to be stated and
-revised deliberately.
-
 \subsection{Reliability and Resource Governance}
 
 Long-running systems fail through operational drift even when individual model
@@ -248,38 +171,8 @@ calls are strong. \systemname therefore combines round-level progress
 classification with mission-boundary replanning. Work that repeatedly produces no
 decision or artifact change is stopped or reformulated, while long-running external
 jobs are tracked separately from model reasoning. These mechanisms bound execution;
-scientific correctness remains with the task evaluator and independent Reviewer.
-
-Short Planner DAG nodes expose a subtle control problem: their default three-round
-budget is much smaller than the default absolute thresholds for semantic stall,
-soft escalation, and hard escalation. The current runtime fits each enabled guard
-to the reachable range when \code{max\_rounds} shrinks. For budget $m$, semantic
-stall and soft escalation must satisfy $g\leq m-1$, while hard escalation may fire
-on the final round and therefore satisfies $g\leq m$. Explicit zero still disables
-a guard, and the default 500-round configuration is unchanged. A two-round budget
-does not silently turn a configured multi-round stall detector into a one-strike
-policy: the impossible detector is disabled unless the caller explicitly requests
-threshold one. This coordination preserves meaningful stop and replan signals
-instead of falling through silently to the generic maximum-round outcome.
-
-These liveness guards do not decide scientific truth and do not freeze a mistaken
-contract. They create bounded points at which Reviewer and Planner can distinguish
-three cases: the current route is unproductive, the evidence frontier has advanced
-but terminal work remains, or the task contract itself needs user-visible
-refinement. This distinction is important because ``not done'' is not synonymous
-with ``no progress,'' and ``cannot verify'' is not synonymous with ``incorrect.''
-
-We call this property \emph{honest stopping}: the harness can end the current unit
-of work without converting uncertainty, exhaustion, or an external dependency into
-a success claim. The implementation keeps completion, incomplete research,
-stalling, blocking, infrastructure blocking, failure, and operator interruption as
-separate outcome dimensions. Reviewer may return \code{blocked} or
-\code{replan\_requested}; a hard escalation ends the mission with a
-planner-readable reason. Semantic stall accumulates only from the Reviewer's
-explicit structured \code{forward\_progress=false}; a missing or malformed signal
-is treated as unknown rather than inferred from prose or filesystem activity.
-Stopping therefore preserves both epistemic honesty and the information needed to
-resume, decompose, or change approach.
+scientific correctness remains with the task evaluator and the explicitly selected
+Engineer-self-review or independent-Reviewer judgment path.
 
 Resource accounting is centralized at model-call and external-job boundaries.
 Budgets are checked before work begins and reconciled after completion, preventing

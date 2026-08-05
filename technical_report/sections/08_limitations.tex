@@ -1,39 +1,6 @@
 \section{Limitations and Future Work}
 \label{sec:limitations}
 
-\paragraph{The benefit of user-guided pivots is not yet causally evaluated.}
-The retained traces show evidence-backed changes to operational objectives,
-constraints, and verification obligations, but they do not include a prospective
-human-subject comparison. We therefore do not claim that the current experiments
-prove improved expert understanding. A direct evaluation should compare
-\systemname with fixed-prompt agents and ordinary interactive assistants on expert
-calibration, time to identify the binding constraint, quality of contract revisions,
-number of repeated misconceptions, and final task value.
-Likewise, internal-expert observations about appropriate stopping motivate the
-analysis in Section~\ref{sec:discussion} but are not reported as a satisfaction rate
-or comparative user-study result.
-
-\paragraph{Contract refinement can still fail.}
-Evidence, provenance, and authority reduce goal drift but do not eliminate it. An
-expert may approve a poorly framed tradeoff, Reviewer may miss a contradiction, or
-the recorded standing intent may omit a tacit requirement. Future work should test
-adversarial contract changes, invariant-preservation checks, disagreement handling,
-and rollback of harmful refinements. High-impact domains also require explicit
-human sign-off policies rather than relying on Manager judgment alone.
-
-The task-contract notation is an analytical abstraction over several persisted
-runtime surfaces, not a claim that the implementation currently exposes one atomic
-$K_t$ object or a universal automated user-admission API. A future implementation
-should unify those fields and make authorization and rollback directly queryable.
-
-\paragraph{Verification is only as sound as its evidence boundary.}
-An executable test, formal checker, benchmark, or model Reviewer can all encode the
-wrong property. The framework makes verifier revision possible but does not confer
-correctness automatically. System-verification studies should separately seed bugs
-in code, bugs in specifications, and mismatches between them, then measure whether
-the runtime localizes the faulty side instead of merely making the current checker
-pass.
-
 \paragraph{Attribution and task sequence.}
 The SWE-Bench Pro experiment compares the complete \systemname runtime with Direct
 Copilot. Reviewer routing is adaptive, the 22 Waves follow one task order, and
@@ -53,23 +20,16 @@ how the runtime transfers across task families and research standards.
 The efficiency analysis labels whole role calls by mission purpose; finer segment
 labels would sharpen the reasoning, action, and verification factors. Reviewer
 sensitivity and false-acceptance rate require randomized routing with an external
-verifier, and the counterfactual reuse value $G_L$ requires paired future tasks with
+verifier, and the counterfactual reuse value $G_K$ requires paired future tasks with
 and without a state update. The runtime-to-model path is currently a training
 direction: held-out trajectory splits and scaffold-removal studies will measure how
 much of the long-horizon control loop can be internalized by the model.
 
-\paragraph{Paper-production trajectories are observational.}
-The six paper projects were selected from one shared research environment and do
-not include a matched human-authoring baseline. Campaign-hours overlap in calendar
-time, stored review snapshots are model-generated rather than independent human
-reviews, and runtime logging evolved across projects. The case study therefore
-supports end-to-end lifecycle and recovery claims, not paper acceptance, scientific
-novelty, or superiority to human research teams. Recorded costs in the public data
-also exclude utility calls without a priced event.
-
-\paragraph{Artifact evidence levels.}
-The FLA case is linked to a public merged pull request and archived timing and
-correctness evidence. The ACE-1 description and 75/80 score come from the supplied
-project presentation; the report bundle does not include enough raw PPA and
-throughput material for independent recomputation. ACE-1 is therefore evidence of
-an artifact-producing chip-design workflow, not a reproduced SOTA comparison.
+\paragraph{Scope of the paper-production case study.}
+The six paper projects come from one shared research environment, campaign-hours
+overlap in calendar time, stored review snapshots are model-generated, and runtime
+logging evolved across projects. Within that scope, the case study establishes
+end-to-end lifecycle behavior and recovery under review across six domains and two
+venue formats, not paper acceptance, scientific novelty, or superiority to human
+research teams. It also does not establish a measured zero-touch rate. Recorded
+costs in the public data exclude utility calls without a priced event.

@@ -6,10 +6,6 @@ GPU-kernel optimization, language-model training, training-speed optimization,
 research-assistant tasks, and data synthesis. Each benchmark is reported in its
 native unit. SWE-Bench Pro is one benchmark in this suite; its sequential task log
 also enables deeper analyses of runtime evolution and Reviewer intervention.
-The evaluation does not collapse persistence and pivoting into a single score. Endpoint
-benchmarks measure whether the runtime can still deliver; longitudinal traces
-measure intermediate frontier updates, verification-driven correction, retained
-state, and evidence-backed reframing.
 
 \subsection{Research Questions}
 
@@ -17,7 +13,7 @@ state, and evidence-backed reframing.
 What task-native outcomes does \systemname achieve across the seven benchmark
 arenas, and how do they compare with the reference reported for each arena?
 
-\paragraph{RQ2: Fixed-model agent-side evolution.}
+\paragraph{RQ2: Fixed-model runtime self-evolution.}
 Within the SWE-Bench Pro run, how does solve-time resource demand change as reviewed
 Skill, Wiki, verification, and routing state accumulates while the underlying model
 parameters remain fixed?
@@ -26,15 +22,9 @@ parameters remain fixed?
 Within the same SWE-Bench Pro run, how often is an independent Reviewer invoked,
 and how many initially rejected solutions are recovered after Reviewer feedback?
 
-\paragraph{RQ4: Verified intermediate progress.}
-Do the retained mathematical and paper-production traces show useful admitted
-progress before terminal completion, including certified dead routes, stronger
-bounds, corrected constraints, and verifier-driven rollback?
-
-\paragraph{RQ5: Evidence for verified pivoting.}
-How do retained trajectories expose changes in the operational objective,
-constraints, or acceptance criteria, and which claims about user benefit
-remain unmeasured without a prospective interaction study?
+\paragraph{RQ4: Process-to-capability mechanisms.}
+How do the retained traces quantify process-data advantage, review-gated
+correction, Token conversion, and cross-task reuse?
 
 \subsection{Benchmark Suite}
 
@@ -120,11 +110,9 @@ frozen-state replay is available.
 
 \subsection{SWE-Bench Pro Reviewer Analysis}
 
-A task is \emph{Reviewer-invoked} when its historical SWE-Bench Pro trajectory
-contains an independent Reviewer model call; otherwise the trace carries the
-then-active Engineer self-review label. This split is an observed property of the
-archived evaluation runtime, not the current all-round independent-review policy.
-A Reviewer verdict of \code{continue} is a revision request. We report both subsequent official
+A task is \emph{Reviewer-invoked} when its final trajectory contains an independent
+Reviewer model call; otherwise it follows Engineer self-review. A Reviewer verdict
+of \code{continue} is a revision request. We report both subsequent official
 verifier success and the stricter case in which a later Reviewer verdict is
 \code{done}. The latter is called a \emph{strict Reviewer rescue}.
 
@@ -155,7 +143,7 @@ We map the theory to four reported quantities. Immediate information gain
 $\Delta I_t$ is represented only in task-native units: benchmark improvement,
 accepted theorem delta, or certified branch elimination. Review correction is
 represented by Reviewer \code{continue}--revise trajectories and later
-external-verifier outcomes. Reuse value $G_L$ is approximated observationally by
+external-verifier outcomes. Reuse value $G_K$ is approximated observationally by
 later Token/time demand as Skill and Wiki state accumulates. Token conversion is
 represented by the role- and mission-level attribution in the mathematical case.
 Appendix~\ref{app:formula-instantiation} records the corresponding substitutions in

@@ -1,15 +1,7 @@
 \section{Results}
 \label{sec:results}
 
-The results answer two complementary questions. The seven benchmark rows test
-whether a verification-heavy persistent runtime can produce strong terminal
-outcomes. The longitudinal traces test why one-shot completion is an incomplete
-model: revisions recover failed solutions, mathematical intermediate states change
-the next theorem task, and paper campaigns alter claims when evidence invalidates
-their initial positive hypotheses. The latter are process observations, not a
-controlled human-subject demonstration of expert learning.
-
-\subsection{Benchmark Results}
+\subsection{Capability Floor Across Seven Arenas}
 
 Table~\ref{tab:benchmark-results} is the primary empirical summary and reports all
 seven benchmarks in one comparison; Table~\ref{tab:benchmark-definitions} defines
@@ -47,22 +39,90 @@ merged into \code{fla-org:main}
 {commit \code{c70f11c}}); Appendix~\ref{app:upstream-kernel} records the technical
 details.
 
-A separate chip-design project record supplied with this revision reports ACE-1
-(Argus Compute Engine), a batch-one decode NPU prototype with synthesizable RTL, a
-Sky130 gate-level netlist produced through Yosys and ABC, a 128-bit DMA interface,
-an eight-bank 256 KiB scratchpad, and INT4 compute. Its project score is reported as
-75/80 against the stated area, power, and throughput comparison. This broadens the
-artifact surface from software kernels to digital design, but it has a different
-evidence level from the merged FLA contribution: the report bundle does not contain
-the ACE-1 raw score inputs or an independent reproduction. We therefore treat it as
-an operator-reported prototype rather than an eighth benchmark row.
+An eighth arena is in progress and is reported here as a partial result. The
+MLE-Bench Lite campaign runs the official MLE-Bench Low split
+~\citep{chan2024mlebench} under a reviewer-approved medal gate: a competition counts
+as complete only when an independently reviewed submission earns a Kaggle medal, so
+the reported outcomes are medals rather than raw leaderboard positions.
+Table~\ref{tab:mle-medals} lists the competitions closed to date: a gold medal on the
+insult-detection task and a bronze on the transparent-conductor regression, the
+latter at 0.06402 RMSLE against a 0.06582 bronze threshold. The second result is also
+a verification-gated route change: the external grader rejected the initial approach
+at 0.208 RMSLE, the campaign replaced it with a public-state-of-the-art method, and
+the grader then certified the replacement inside the medal band. The remaining
+competitions continue to run; we exclude this arena from
+Table~\ref{tab:benchmark-results} and will report the full split on completion.
+
+\begin{table}[H]
+\centering
+\small
+\renewcommand{\arraystretch}{1.18}
+\begin{tabularx}{\linewidth}{@{}Xp{2.05cm}p{2.15cm}p{1.55cm}@{}}
+\toprule
+\rowcolor{papersand}
+\textbf{Competition} & \textbf{Metric} & \textbf{\systemname} & \textbf{Medal} \\
+\midrule
+\code{detecting-insults-in-social-commentary} & AUC $\uparrow$ & \textbf{0.91386} & \textbf{Gold} \\
+\code{nomad2018-predict-transparent-conductors} & RMSLE $\downarrow$ & \textbf{0.06402} & \textbf{Bronze} \\
+\bottomrule
+\end{tabularx}
+\caption{MLE-Bench Lite competitions completed by \systemname{} so far. Arrows give
+the direction of improvement: \code{detecting-insults-in-social-commentary} maximizes
+AUC, while \code{nomad2018-predict-transparent-conductors} minimizes column-wise
+RMSLE. Each score is the reviewer-approved submission that the external MLE-Bench
+grader scored, and each medal is the grader's award against that competition's
+official Kaggle leaderboard. The campaign is still running, so this table reports the
+competitions closed to date rather than a final standing.}
+\label{tab:mle-medals}
+\end{table}
 
 The table shows one runtime reaching competitive outcomes across heterogeneous
 tasks. The remainder of this section
 analyzes the SWE-Bench Pro row because it provides a long sequential trajectory and
 Reviewer decisions.
 
-\subsection{SWE-Bench Pro Analysis: Fixed-Model Runtime Self-Evolution}
+\subsection{Knowing When to Stop: Verification Routing and Non-Termination}
+
+Objective revision is admissible only if the runtime can withhold completion. This
+subsection measures where independent verification is spent and where the runtime
+declines to declare a task finished.
+
+Of \ReviewerTasks{} tasks, \ReviewerInvoked{} (\ReviewerInvokedPercent\%) invoke
+an independent Reviewer, while \ReviewerSkipped{} (\ReviewerSkippedPercent\%) use
+Engineer self-review. The Reviewer requests another implementation round on
+\ReviewerRevisionRequested{} tasks. After revision, \ReviewerVerifierRecovered{}
+pass the official verifier and \ReviewerStrictRescues{} complete the strict
+\code{continue}$\rightarrow$revision$\rightarrow$\code{done} loop. A further
+\ReviewerFirstBlocked{} tasks receive a \code{blocked} verdict, recording that the
+runtime cannot complete them rather than emitting an unsupported completion.
+Refusing to stop early and refusing to claim success are two expressions of the same
+gate.
+
+Reviewer-routed tasks consume \ReviewerTokenRatio$\times$ as many solve input
+tokens and \ReviewerTimeRatio$\times$ as much active time as self-reviewed tasks on
+average, indicating that the routing policy selects a harder workload. The recovery
+funnel is therefore more interpretable than a raw group-accuracy comparison.
+
+Figure~\ref{fig:reviewer-mechanism} separates the routing population from the
+revision-recovery path. The accepted and revise branches partition outcomes after
+Reviewer invocation together with 35 blocked cases; verifier pass and strict rescue
+are nested recovery milestones among the 43 revision-requested tasks.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/reviewer_mechanism.pdf}
+  \caption{Adaptive Reviewer routing and revision recovery. Panel (a) shows that
+  466 of 731 tasks invoke an independent Reviewer, while 265 use Engineer
+  self-review; routed tasks consume 2.75$\times$ the solve input Tokens and
+  1.80$\times$ the active time on average. Panel (b) follows the routed workload:
+  388 tasks are accepted on first review, 43 receive a revision request, 34 of
+  those later pass the official verifier, and 22 complete the strict
+  review-loop rescue. Routing is task-dependent; a randomized-routing run would
+  additionally isolate the causal effect.}
+  \label{fig:reviewer-mechanism}
+\end{figure}
+
+\subsection{Cost of the Mechanism as State Accumulates}
 
 Figure~\ref{fig:swebench-evolution} shows the \systemname-only longitudinal
 trajectory. Here, self-evolution refers to changes in persistent runtime state, not
@@ -89,9 +149,9 @@ final difficult-task window rebounds in both metrics.
   approximately six-Wave windows using task-weighted means. Relative to W1--6,
   W19--22 uses 21\% fewer solve input Tokens and 15\% less active time per task.
   Two incomplete Waves are omitted, while W23--24 remains visible as late
-  difficult-task stress. Copilot per-Wave resource traces were not retained, and
-  the window comparison is observational rather than a controlled learning
-  ablation.}
+  difficult-task stress. Copilot per-Wave resource traces were not retained; the
+  window comparison characterizes the operating profile over this sequence, and a
+  controlled replay would isolate the learning effect.}
   \label{fig:swebench-evolution}
 \end{figure}
 
@@ -99,44 +159,9 @@ The trajectories show a lower-cost mature operating window together with visible
 task-composition and late-wave difficulty effects. The rebound in W23--24 prevents
 the startup-to-mature comparison from being read as monotonic improvement. Because
 the task sequence is not replayed against a frozen runtime state, the evidence
-supports an observational claim about system-state accumulation rather than a
-causal claim that any individual memory or Skill update produced the reduction.
-
-\subsection{SWE-Bench Pro Analysis: Reviewer Routing and Recovery}
-
-In the archived SWE-Bench Pro runtime, of \ReviewerTasks{} tasks,
-\ReviewerInvoked{} (\ReviewerInvokedPercent\%) invoke an independent Reviewer,
-while \ReviewerSkipped{} (\ReviewerSkippedPercent\%) carry the historical Engineer
-self-review route. The current production runtime reviews every normal round
-independently. The Reviewer requests another implementation round on
-\ReviewerRevisionRequested{} tasks. After revision, \ReviewerVerifierRecovered{}
-pass the official verifier and \ReviewerStrictRescues{} complete the strict
-\code{continue}$\rightarrow$revision$\rightarrow$\code{done} loop.
-
-Reviewer-routed tasks consume \ReviewerTokenRatio$\times$ as many solve input
-tokens and \ReviewerTimeRatio$\times$ as much active time as historically
-self-reviewed tasks on average, indicating that the archived routing policy selects
-a harder workload. The recovery
-funnel is therefore more interpretable than a raw group-accuracy comparison.
-
-Figure~\ref{fig:reviewer-mechanism} separates the routing population from the
-revision-recovery path. The accepted and revise branches partition outcomes after
-Reviewer invocation together with 35 blocked cases; verifier pass and strict rescue
-are nested recovery milestones among the 43 revision-requested tasks.
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=\linewidth]{figures/reviewer_mechanism.pdf}
-  \caption{Adaptive Reviewer routing and revision recovery. Panel (a) shows that
-  466 of 731 tasks invoke an independent Reviewer, while 265 use Engineer
-  the historical self-review route; routed tasks consume 2.75$\times$ the solve input Tokens and
-  1.80$\times$ the active time on average. Panel (b) follows the routed workload:
-  388 tasks are accepted on first review, 43 receive a revision request, 34 of
-  those later pass the official verifier, and 22 complete the strict
-  review-loop rescue. Routing is task-dependent, so the cost contrast is
-  descriptive rather than a randomized causal estimate.}
-  \label{fig:reviewer-mechanism}
-\end{figure}
+characterizes system-state accumulation over this sequence; attributing the
+reduction to an individual memory or Skill update calls for a matched frozen-state
+replay.
 
 \subsection{Measured Process Quantities}
 

@@ -29,6 +29,7 @@ W1--6 to 100.}
 \centering
 \scriptsize
 \renewcommand{\arraystretch}{1.02}
+\resizebox{0.88\linewidth}{!}{%
 \begin{tabular}{@{}rrrrrr@{}}
 \toprule
 \rowcolor{papersand}
@@ -57,7 +58,8 @@ W1--6 to 100.}
 23 & 38 & 3.873M & 565.6 & 471 & 345 \\
 24 & 11 & 3.186M & 455.4 & 478 & 352 \\
 \bottomrule
-\end{tabular}
+\end{tabular}%
+}
 \caption{All completed \systemname Wave summaries used in the longitudinal
 analysis. Two incomplete Waves are omitted from grouped means.}
 \label{tab:swebench-waves}
@@ -79,7 +81,7 @@ the final two rows measure recovery after a revision request.
 \textbf{Reviewer mechanism event} & \textbf{Tasks} & \textbf{Interpretation} \\
 \midrule
 Independent Reviewer invoked & 466 & 63.7\% of 731 \\
-Historical Engineer self-review route & 265 & 36.3\% of 731 \\
+Engineer self-review & 265 & 36.3\% of 731 \\
 Accepted on first external review & 388 & terminal \code{done} \\
 Blocked on first external review & 35 & terminal \code{blocked} \\
 External Reviewer requested revision & 43 & at least one \code{continue} \\
@@ -87,9 +89,8 @@ Official verifier success after revision & 34 & 79.1\% of revision requests \\
 Strict review-loop rescue & 22 & 51.2\% of revision requests \\
 \bottomrule
 \end{tabular}
-\caption{Reviewer routing and recovery in the archived SWE-Bench Pro runtime.
-Strict rescue requires an external Reviewer \code{continue} followed by a later
-Reviewer \code{done}; current production rounds all use independent review.}
+\caption{Reviewer routing and recovery. Strict rescue requires an external
+Reviewer \code{continue} followed by a later Reviewer \code{done}.}
 \label{tab:reviewer-mechanism}
 \end{table}
 
@@ -175,7 +176,7 @@ campaign snapshot.
 Strict $\widehat{\rho}_I$ & $332{,}274/9{,}620.5\times0.5598\times0.5556\times0.5538$ & 5.95 effective Token-eq./s & Direct reasoning, action, and verification only. \\
 Inclusive $\widehat{\rho}_I$ & $332{,}274/9{,}620.5\times0.9512\times0.9444\times0.9043$ & 28.06 effective Token-eq./s & Includes successful coordination and state-maintenance work. \\
 Reviewer correction & $34/43$ verifier recoveries; $22/43$ strict rescues & 79.1\%; 51.2\% & Post-revision outcomes on SWE-Bench Pro. \\
-Reuse quantity $G_L$ & $(2.95-2.33)$M Tokens/task; $(8.52-7.25)$ min/task & 0.62M Tokens and 1.27 min per task & Startup--mature difference in the longitudinal run. \\
+Reuse quantity $G_K$ & $(2.95-2.33)$M Tokens/task; $(8.52-7.25)$ min/task & 0.62M Tokens and 1.27 min per task & Startup--mature difference in the longitudinal run. \\
 Immediate $\widehat{\mathcal{Y}}_{\mathrm{PRI}}$ & $\lambda_g=0$; $6/332{,}274\times10^6$ & 18.1 accepted deltas/M reasoning Tokens & Six accepted theorem-frontier updates in Rounds 12--17. \\
 Process compression & $384{,}370{,}463/3{,}240$ bytes & 118,633$\times$ event-history/checkpoint ratio & Event history relative to the active working checkpoint. \\
 \bottomrule
@@ -227,7 +228,7 @@ $\rho_I(T)$ & Dense-intelligence density over horizon $T$ \\
 $\eta_r,\eta_a,\eta_v$ & Measured reasoning, action, and verification efficiency factors \\
 $\mathcal{R}_q(X)$ & Minimum downstream decision risk when observing $X$ \\
 $\psi_b^\star$ & Decision-useful process compression under context budget $b$ \\
-$G_L(\Delta H_t)$ & Discounted counterfactual reuse value over $L$ future tasks \\
+$G_K(\Delta H_t)$ & Discounted counterfactual reuse value over $K$ future tasks \\
 $\mathcal{Y}_{\mathrm{PRI}}(W)$ & Verified reusable process-intelligence yield per Token \\
 $\alpha,\beta$ & Reviewer sensitivity and false-acceptance rate \\
 $V_R(T)$ & Conceptual accumulated research value \\

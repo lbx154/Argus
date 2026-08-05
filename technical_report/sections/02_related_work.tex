@@ -33,41 +33,12 @@ shared repository of prior work~\citep{schmidgall2025agentrxiv}, while Arbor use
 persistent hypothesis tree and isolated executors to refine long-running research
 programs~\citep{jin2026arbor}.
 
-These systems are strongest when the optimization target and evaluator are already
-trusted. Long-horizon expert reasoning often begins one step earlier: deciding which
-target, constraint set, and verifier correctly express the real problem.
-\systemname uses many mechanisms developed by this autonomous-research family but
-targets a different center of gravity. Its primary object is not an autonomous run
-against a fixed objective; it is the verified relationship among a user, a
-revisable task contract, and an evolving runtime. The framework carries accepted
-results, failed routes, tools, skills, task definitions, and contract revisions
-across bounded missions.
-
-\subsection{Human--Agent Collaboration and Task Refinement}
-
-Many agent systems model the human as the source of an initial instruction, an
-occasional approver, or the recipient of a final artifact. That interface is
-insufficient when task discovery is part of the work. Users contribute tacit
-preferences, domain constraints, risk judgments, and authority over acceptable
-tradeoffs. Agents contribute rapid search, implementation, measurement, and a
-larger explicit process record. Neither side necessarily possesses the complete
-task specification at the beginning.
-
-Our focus is verification-guided pivoting: verified agent work can expose a false
-assumption or missing constraint, while user clarification or authorization can
-change the goals, constraints, verifiers, or priorities governing later agent
-work. This is not unrestricted conversational adaptation. A contract update must
-be traceable to evidence, preserve declared invariants, expose alternatives and
-uncertainty, and pass an authorized decision boundary. \systemname places
-verification at the center because verification is the shared language through
-which both parties can distinguish discovery from drift.
-
-This positioning differs from three nearby patterns. A general agent harness mainly
-extends tool use and execution reliability. A fixed-evaluator autoresearch loop
-mainly improves a candidate under a known score. A fully autonomous research
-pipeline mainly reduces human intervention across a predefined lifecycle.
-\systemname can support all three, but its distinctive objective is to help users
-discover and reach better-specified goals through persistent, review-gated work.
+\systemname belongs to this autonomous-research family but targets the runtime
+layer beneath any single scientific workflow. It maintains a durable campaign,
+assigns separate authority to Manager, Planner, Engineer, and Reviewer, and carries
+accepted results, failed routes, tools, skills, and task definitions across bounded
+missions. The same runtime is evaluated in software engineering, GPU optimization,
+model training, research tasks, data synthesis, and mathematical proof.
 
 \subsection{Long-Horizon Agent Runtimes and Memory}
 
