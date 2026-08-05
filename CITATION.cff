@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use Argus in your research, please cite the technical report."
+title: "Argus: A General-Purpose Agentic Runtime for Long-Horizon Reasoning"
+abstract: >-
+  Argus is a persistent agentic runtime organized around Manager, Planner,
+  Engineer and Reviewer roles over bounded missions and durable project state.
+  A change of direction must be evidence-backed, admitted through a
+  role-separated gate, and recorded with its justification, so that verified
+  pivoting is distinguishable from rationalized failure. Reviewer-gated
+  outcomes feed fixed-model runtime self-evolution.
+type: software
+authors:
+  - name: "Argus Team"
+repository-code: "https://github.com/lbx154/Argus"
+url: "https://argusbot.cn/"
+license: MIT
+year: 2026
+keywords:
+  - agentic runtime
+  - long-horizon reasoning
+  - verified pivoting
+  - runtime self-evolution
+  - autonomous research
