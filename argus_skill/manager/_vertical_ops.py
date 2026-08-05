@@ -239,7 +239,7 @@ class _VerticalDecisionMixin:
 
         research_target_verticals = tuple(
             name
-            for name in vertical_select.VERTICALS
+            for name in vertical_select.available_verticals()
             if vertical_research_target_levels(
                 load_vertical(name, project_root=self.project_root)
             )
@@ -262,7 +262,7 @@ class _VerticalDecisionMixin:
             ):
                 fast_prompt = build_fast_vertical_decision_prompt(
                     task,
-                    verticals_with_purpose=vertical_select.VERTICAL_PURPOSES,
+                    verticals_with_purpose=vertical_select.available_vertical_purposes(),
                     domains_with_purpose=DOMAIN_PURPOSES,
                     existing_data_domains=existing,
                     research_target_verticals=research_target_verticals,
@@ -307,7 +307,7 @@ class _VerticalDecisionMixin:
                     )
                 fast_route = parse_fast_vertical_decision(
                     extract_answer(fast_result),
-                    known_verticals=list(vertical_select.VERTICALS),
+                    known_verticals=list(vertical_select.available_verticals()),
                     known_domains=list(BUILTIN_DOMAINS),
                     existing_data_domains=existing,
                     research_target_verticals=research_target_verticals,
@@ -352,7 +352,7 @@ class _VerticalDecisionMixin:
 
             prompt = build_vertical_decision_prompt(
                 task,
-                verticals_with_purpose=vertical_select.VERTICAL_PURPOSES,
+                verticals_with_purpose=vertical_select.available_vertical_purposes(),
                 domains_with_purpose=DOMAIN_PURPOSES,
                 existing_data_domains=existing,
                 research_target_verticals=research_target_verticals,
@@ -398,7 +398,7 @@ class _VerticalDecisionMixin:
         answer = extract_answer(result)
         decision = parse_vertical_decision(
             answer,
-            known_verticals=list(vertical_select.VERTICALS),
+            known_verticals=list(vertical_select.available_verticals()),
             known_domains=list(BUILTIN_DOMAINS),
             existing_data_domains=existing,
             research_target_verticals=research_target_verticals,

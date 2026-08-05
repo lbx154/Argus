@@ -165,6 +165,25 @@ class UnknownVerticalError(ValueError):
 
 
 
+def available_verticals() -> tuple[str, ...]:
+    """Built-ins followed by valid installed plugins."""
+    from ..verticals._registry import vertical_plugins
+
+    return (*VERTICALS, *(name for name in vertical_plugins() if name not in VERTICALS))
+
+
+def available_vertical_purposes() -> dict[str, str]:
+    from ..verticals._registry import vertical_plugins
+
+    purposes = dict(VERTICAL_PURPOSES)
+    purposes.update({
+        name: plugin.purpose
+        for name, plugin in vertical_plugins().items()
+        if name not in purposes
+    })
+    return purposes
+
+
 # --- normalization / read side --------------------------------------------
 
 
@@ -200,7 +219,7 @@ def _known_vertical(value: object, project_root: object = None) -> str | None:
     if not isinstance(value, str):
         return None
     cleaned = _strip_needed(value)
-    if cleaned in VERTICALS:
+    if cleaned in available_verticals():
         return cleaned
     if project_root is not None and cleaned:
         try:
@@ -236,7 +255,7 @@ def require_vertical(value: object, project_root: object = None) -> str:
     if known is None:
         raise UnknownVerticalError(
             f"{value!r} is not a known vertical "
-            f"(built-ins: {', '.join(VERTICALS)}) nor an existing project data domain"
+            f"(available: {', '.join(available_verticals())}) nor an existing project data domain"
         )
     return known
 
@@ -743,6 +762,8 @@ def reset_stage_for_new_intent(
 __all__ = [
     "VERTICALS",
     "VERTICAL_PURPOSES",
+    "available_verticals",
+    "available_vertical_purposes",
     "DEFAULT_VERTICAL",
     "ENV_VERTICAL",
     "VerticalResolutionError",

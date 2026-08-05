@@ -223,7 +223,7 @@ class _FrontDoorMixin:
         return _classify(
             content=content,
             task=task,
-            candidate_verticals=[*vertical_select.VERTICALS, *BUILTIN_DOMAINS],
+            candidate_verticals=[*vertical_select.available_verticals(), *BUILTIN_DOMAINS],
             runner=(self._session or self.runner),
         )
 
@@ -234,6 +234,6 @@ class _FrontDoorMixin:
 
         return _classify_batch(
             skills=skills,
-            candidate_verticals=[*vertical_select.VERTICALS, *BUILTIN_DOMAINS],
+            candidate_verticals=[*vertical_select.available_verticals(), *BUILTIN_DOMAINS],
             runner=(self._session or self.runner),
         )

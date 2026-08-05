@@ -79,9 +79,12 @@ def iter_vertical_skill_texts(vertical: str) -> Iterable[tuple[str, str]]:
     bundled builtins. Fail-open: an unknown vertical or one with no
     ``skills/`` dir yields nothing.
     """
+    from ..verticals._registry import vertical_plugin
+
     emitted: set[str] = set()
     for source_vertical in (*_VERTICAL_SKILL_INHERITANCE.get(vertical, ()), vertical):
-        root = vertical_skill_source_path(source_vertical)
+        plugin = vertical_plugin(source_vertical)
+        root = plugin.skills_root if plugin and plugin.skills_root is not None else vertical_skill_source_path(source_vertical)
         if not root.is_dir():
             continue
         for filename, text in _iter_builtin_skill_resources(root):
@@ -328,7 +331,7 @@ def remove_unmodified_inactive_context_skill_seeds(
 ) -> list[str]:
     """Remove unedited factory copies outside the active workflow/domain context."""
     from ..domains import BUILTIN_DOMAINS
-    from .vertical_select import VERTICALS
+    from .vertical_select import available_verticals
 
     root = Path(skills_dir)
     active_filenames = (
@@ -343,7 +346,7 @@ def remove_unmodified_inactive_context_skill_seeds(
         else set()
     )
     removed: set[str] = set()
-    for vertical in VERTICALS:
+    for vertical in available_verticals():
         if vertical == active_vertical:
             continue
         for filename, source_text in iter_vertical_skill_texts(vertical):

@@ -68,11 +68,12 @@ def load_vertical(name: object, project_root: object = None) -> VerticalDefiniti
        ``-needed`` sentinel). A REAL named vertical whose module exists but fails
        to import raises LOUDLY (never silently degrades a metric mission into the
        paper pipeline).
-    2. When ``project_root`` is given and ``name`` is NOT a Python package, a
+    2. A valid installed ``argus_skill.verticals`` plugin.
+    3. When ``project_root`` is given and ``name`` is NOT a Python package, a
        project-local DATA domain (``research/DOMAINS/<name>.json``) — returned as
        a duck-typed :class:`~argus_skill.verticals._data_domain.DataDomain` shim
        the optional-hook accessors below consume unchanged.
-    3. The ``research`` vertical's stages module (the safe fallback) — so a typo,
+    4. The ``research`` vertical's stages module (the safe fallback) — so a typo,
        a stale ``-needed`` placeholder, or a half-built vertical degrades to the
        paper pipeline instead of crashing the loop.
 
@@ -103,7 +104,16 @@ def load_vertical(name: object, project_root: object = None) -> VerticalDefiniti
                 f"back to {DEFAULT_VERTICAL!r} (that would turn this mission into the "
                 f"paper pipeline). Fix the vertical."
             ) from exc
-        # No Python package: try a project-local DATA domain before falling back.
+        # Only after proving no in-tree stages module exists may a plugin own
+        # the name. This keeps built-ins authoritative even when their import is
+        # temporarily broken.
+        if cleaned != DEFAULT_VERTICAL:
+            from ._registry import vertical_plugin
+
+            plugin = vertical_plugin(cleaned)
+            if plugin is not None:
+                return plugin.module
+        # No Python package/plugin: try a project-local DATA domain before falling back.
         if project_root is not None and cleaned != DEFAULT_VERTICAL:
             try:
                 domain = load_data_domain(cleaned, project_root)
