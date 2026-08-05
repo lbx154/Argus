@@ -28,7 +28,7 @@ _LOCKS_GUARD = threading.Lock()
 try:  # pragma: no cover - production daemons are POSIX
     import fcntl
 except ImportError:  # pragma: no cover
-    fcntl = None
+    fcntl = None  # type: ignore[assignment]
 
 _WEB_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"})
 _PROVIDERS = frozenset({"codex", "copilot", "claude", "opencode", "memory"})
@@ -68,7 +68,7 @@ def _normalize_labels(name: str, labels: dict[str, Any] | None) -> dict[str, str
         method = str(source.get("method") or "").strip().upper()
         raw_status = source.get("status")
         try:
-            status = int(raw_status)
+            status = int(raw_status) if raw_status is not None else 0
         except (TypeError, ValueError):
             status = 0
         path = str(source.get("path") or "<unmatched>").strip()

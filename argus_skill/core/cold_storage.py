@@ -10,12 +10,12 @@ import uuid
 from collections import defaultdict
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Callable, Iterator
+from typing import Any, Callable, Iterator
 
 try:  # pragma: no cover - production is POSIX
     import fcntl
 except ImportError:  # pragma: no cover
-    fcntl = None
+    fcntl = None  # type: ignore[assignment]
 
 _THREAD_LOCKS: dict[str, threading.Lock] = {}
 _THREAD_LOCKS_GUARD = threading.Lock()
@@ -48,7 +48,7 @@ def _compress_group(
     paths: list[Path],
     *,
     keep_hot: int,
-    sort_key: Callable[[Path], object],
+    sort_key: Callable[[Path], Any],
 ) -> list[Path]:
     compressed: list[Path] = []
     with _directory_lock(directory):

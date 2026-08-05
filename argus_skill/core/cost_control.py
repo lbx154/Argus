@@ -26,7 +26,7 @@ from .usage import UsageLedger, UsageRecord
 try:  # pragma: no cover - production daemons are POSIX
     import fcntl
 except ImportError:  # pragma: no cover
-    fcntl = None
+    fcntl = None  # type: ignore[assignment]
 
 COST_CONTROL_STATE_FILE = "cost-control.json"
 COST_CONTROL_LOCK_FILE = "cost-control.lock"

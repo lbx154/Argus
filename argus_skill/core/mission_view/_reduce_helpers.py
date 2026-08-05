@@ -30,7 +30,7 @@ def _number(event: Mapping[str, Any], key: str) -> float | None:
     if isinstance(value, bool):
         return None
     try:
-        number = float(value)
+        number = float(value) if value is not None else float("nan")
     except (TypeError, ValueError):
         return None
     return number if number == number else None

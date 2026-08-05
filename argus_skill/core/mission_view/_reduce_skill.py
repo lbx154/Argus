@@ -89,7 +89,7 @@ def reduce_skill_event(
         storage = view.setdefault("storage", {})
         storage["skill_history_compressed"] = int(
             storage.get("skill_history_compressed") or 0
-        ) + _integer(event, "count")
+        ) + (_integer(event, "count") or 0)
         storage["skill_history_bytes_saved"] = int(
             storage.get("skill_history_bytes_saved") or 0
-        ) + _integer(event, "bytes_saved")
+        ) + (_integer(event, "bytes_saved") or 0)

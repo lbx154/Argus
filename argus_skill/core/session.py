@@ -300,7 +300,7 @@ def _legacy_last_active(project_dir: Path) -> float:
         except OSError:
             continue
     try:
-        rotations = project_dir.glob("events.jsonl.*")
+        rotations: Iterable[Path] = project_dir.glob("events.jsonl.*")
     except OSError:
         rotations = ()
     for path in rotations:
@@ -457,10 +457,10 @@ def resolve_session(
         # `--continue` would attach to a litter session and the real daemon
         # stays buried. Fall back to plain most-recent when none are live.
         live = live_daemon_sessions(global_root)
-        sid = live[0].id if live else most_recent_session(global_root)
-        if not sid:
+        selected_sid = live[0].id if live else most_recent_session(global_root)
+        if not selected_sid:
             raise SessionResolutionError("no previous session to --continue")
-        return sid, False
+        return selected_sid, False
     if mode == "resume":
         if not session_id:
             raise SessionResolutionError("resume requires a session id (use the picker)")

@@ -39,10 +39,10 @@ def reduce_wiki_event(
         storage = view.setdefault("storage", {})
         storage["wiki_retired_compressed"] = int(
             storage.get("wiki_retired_compressed") or 0
-        ) + _integer(event, "count")
+        ) + (_integer(event, "count") or 0)
         storage["wiki_retired_bytes_saved"] = int(
             storage.get("wiki_retired_bytes_saved") or 0
-        ) + _integer(event, "bytes_saved")
+        ) + (_integer(event, "bytes_saved") or 0)
 
     elif event_type in {EventType.WIKI_CREATED, EventType.WIKI_UPDATED}:
         page_id = _text(event, "page_id")

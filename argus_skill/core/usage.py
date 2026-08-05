@@ -25,7 +25,7 @@ from .runner_errors import is_pre_provider_refusal_error
 try:  # pragma: no cover - production daemons are POSIX
     import fcntl
 except ImportError:  # pragma: no cover
-    fcntl = None
+    fcntl = None  # type: ignore[assignment]
 
 USAGE_FILE = "usage.jsonl"
 USAGE_LOCK_FILE = "usage.lock"
@@ -503,7 +503,7 @@ class UsageLedger:
         updated = 0
         with self._locked():
             rows = _read_usage_json_rows(self.path)
-            not_billed = {
+            not_billed: dict[str, Any] = {
                 "input_tokens": None,
                 "cached_input_tokens": None,
                 "cache_write_tokens": None,

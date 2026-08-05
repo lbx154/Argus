@@ -147,7 +147,8 @@ def reduce_planner_event(
 
     elif event_type == EventType.LIFE_PLANNER_TASK_ADDED:
         item_id = _text(event, "item_id")
-        deps = event.get("deps") if isinstance(event.get("deps"), list) else []
+        raw_deps = event.get("deps")
+        deps = list(raw_deps) if isinstance(raw_deps, list) else []
         _upsert(view.setdefault("dag", []), "id", item_id, {
             "id": item_id,
             "title": _text(event, "title", 240),
