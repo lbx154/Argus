@@ -13,7 +13,7 @@ from typing import Any
 log = logging.getLogger(__name__)
 ENTRY_POINT_GROUP = "argus_skill.verticals"
 VERTICAL_API_VERSION = 1
-_NAME = re.compile(r"^[a-z][a-z0-9_]{1,47}$")
+_NAME = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 
 
 @dataclass(frozen=True)
