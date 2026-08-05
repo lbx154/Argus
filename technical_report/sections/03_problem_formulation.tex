@@ -45,13 +45,15 @@ and verification criteria. $X_t$ denotes only the clarifications, priorities, an
 unresolved questions made explicit at the user interface. A material refinement is
 written compactly as
 \[
-  K_{t+1}=\operatorname{ManagerAdmit}(K_t,K'_t,e_t,r_t,u_t),
+  (X_{t+1},K_{t+1})
+  =\operatorname{ManagerAdmit}(X_t,K_t,K'_t,e_t,r_t,u_t),
 \]
-where $e_t$ is evidence, $r_t$ the Reviewer outcome, and $u_t$ the authorized
-operator or Manager decision. \code{ManagerAdmit} is a normative operator, not one
-atomic production API: it projects over current \code{GoalContract} revisions,
-persisted operator questions, Planner replanning, Manager Stage/routing transitions,
-and append-only provenance.
+where $K'_t$ is the proposed contract, $e_t$ is evidence, $r_t$ the recorded
+review or verification outcome, and $u_t$ the authorized operator or Manager
+decision. \code{ManagerAdmit} is a normative operator, not one atomic production
+API: it projects over current \code{GoalContract} revisions, persisted operator
+questions, Planner replanning, Manager Stage/routing transitions, and append-only
+provenance.
 \end{paperbox}
 
 Figure~\ref{fig:horizon-mountain} contrasts a session-limited trajectory with the

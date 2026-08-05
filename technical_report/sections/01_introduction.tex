@@ -101,10 +101,11 @@ This report makes seven contributions:
     report-level contract $K_t=(\iota,o_t,c_t,v_t)$ and explicit user decision state
     $X_t$. The analytical \code{ManagerAdmit} operator makes evidence, authority, and
     provenance requirements explicit without claiming one atomic implementation API.
-  \item We present a runtime in which objective revision is a typed, review-gated,
-    logged operation rather than an implicit consequence of replanning. Manager stage
-    transitions, no-go rollbacks, and recorded verdict sources give every change of
-    target an author, a precondition, and an audit trail.
+  \item We present a runtime in which contract refinement is represented through
+    typed, logged, role-owned surfaces rather than one atomic operation or an implicit
+    consequence of replanning. \code{GoalContract} revisions, Manager stage
+    transitions, no-go rollbacks, and recorded verdict sources give material changes
+    an author, a precondition, and an audit trail.
   \item We measure where the runtime spends verification and where it refuses to
     terminate. Of \ReviewerTasks{} SWE-Bench Pro tasks, \ReviewerInvoked{} invoke an
     independent Reviewer and \ReviewerSkipped{} use Engineer self-review. The Reviewer
