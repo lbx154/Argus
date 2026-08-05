@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 from dataclasses import dataclass
 from typing import Mapping
 
@@ -160,6 +161,11 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_SHOW_REASONING", "0", "stream the agent's reasoning to the cockpit", "telemetry", cockpit=True),
 )
 
+# A model knob carries a bare model id (``gpt-5.6-sol``, ``copilot/opus-5``) or a
+# sentinel (``auto``, ``inherit``). Free text reaches the agent CLI verbatim as
+# ``--model <text>``, so every call by that role fails until it is unset.
+_MODEL_KNOBS = frozenset(knob.name for knob in KNOBS if knob.group == "models")
+_MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,63}$")
 _BACKEND_KNOBS = frozenset(
     {
         "ARGUS_SKILL_RUNNER_BACKEND",
@@ -398,6 +404,13 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
         if effort not in {"low", "medium", "high", "xhigh", "max"}:
             raise ValueError(f"{name} must be low, medium, high, xhigh, or max")
         return effort
+    if name in _MODEL_KNOBS:
+        if not _MODEL_ID_RE.match(raw):
+            raise ValueError(
+                f"{name} must be a bare model id such as gpt-5.6-sol, not free "
+                f"text: {raw!r}"
+            )
+        return raw
     if name in _TOGGLE_KNOBS:
         toggle = raw.lower()
         if toggle in _TRUE_VALUES:
