@@ -568,10 +568,20 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
                 error = f"{type(exc).__name__}: {exc}"
         shutil.rmtree(probe, ignore_errors=True)
         previous = state.get("maintenance_available")
+        updates: dict[str, Any] = {
+            "maintenance_available": available,
+            "isolation_checked_at": now,
+            "isolation_error": error[:1000],
+        }
+        if not available:
+            try:
+                active_item = self._active_item()
+            except (AttributeError, OSError):
+                active_item = None
+            if active_item is None:
+                updates.update(phase="deferred", active_item_id="")
         self._write_state(
-            maintenance_available=available,
-            isolation_checked_at=now,
-            isolation_error=error[:1000],
+            **updates,
         )
         if previous is not available:
             self._emit({

@@ -115,6 +115,8 @@ def test_copilot_self_maintenance_defers_without_safe_isolated_auth(
     state = json.loads(controller.state_path.read_text(encoding="utf-8"))
     assert state["maintenance_available"] is False
     assert "safe isolated authentication" in state["isolation_error"]
+    assert state["phase"] == "deferred"
+    assert state["active_item_id"] == ""
     assert events[-1]["type"] == "manager.self_maintenance.availability"
 
 
