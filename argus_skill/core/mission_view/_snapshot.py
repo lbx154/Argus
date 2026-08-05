@@ -286,9 +286,14 @@ def snapshot_mission_view(
         view = _read_unlocked(path)
         if not view.get("bootstrapped"):
             view = _bootstrap_view(path)
-        view = merge_mission_view_snapshot(view, **kwargs)
-        _write_unlocked(path, view)
-        response = json.loads(json.dumps(view))
+            _write_unlocked(path, view)
+        # Daemon/role/backlog rows are a live overlay, not event-sourced facts.
+        # Merge them into the response copy only; persisting them corrupts role
+        # handoff state when a temporary Manager activity later goes idle.
+        response = merge_mission_view_snapshot(
+            json.loads(json.dumps(view)),
+            **kwargs,
+        )
         if enrich_skill_content:
             _enrich_skill_content(
                 path,

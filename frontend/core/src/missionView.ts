@@ -474,6 +474,12 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
 function mergeSnapshot(view: MissionView, snapshot: Snapshot, artifacts: ArtifactInfo[]): void {
   const active = snapshot.backlog.find((item) => ACTIVE_STATUSES.has(item.status));
   const queued = snapshot.backlog.find((item) => item.status === 'pending');
+  const liveMission = Boolean(
+    active
+    || queued
+    || snapshot.continuous?.enabled
+    || ['working', 'framed', 'queued'].includes(view.mission.status),
+  );
   const objective = snapshot.continuous?.objective
     || snapshot.session.objective
     || active?.objective
@@ -499,14 +505,15 @@ function mergeSnapshot(view: MissionView, snapshot: Snapshot, artifacts: Artifac
   snapshot.roles.forEach((role) => {
     if (role.active) {
       setRole(view, role.role, 'active', role.label || role.status || 'Working', Date.now() / 1000 - (role.age_s ?? 0));
-    } else {
+    } else if (!liveMission) {
       setRole(view, role.role, 'waiting', 'Waiting', Date.now() / 1000);
     }
     const row = view.roles.find((candidate) => candidate.role === role.role);
     if (row) Object.assign(row, { backend: role.backend, model: role.model, effort: role.effort });
   });
   const activeRoles = snapshot.roles.filter((role) => role.active);
-  view.active_role = activeRoles[activeRoles.length - 1]?.role ?? '';
+  if (activeRoles.length) view.active_role = activeRoles[activeRoles.length - 1].role;
+  else if (!liveMission) view.active_role = '';
   snapshot.backlog.forEach((item) => {
     const node: MissionDagNode = {
       id: item.id,

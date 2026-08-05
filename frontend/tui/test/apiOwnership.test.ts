@@ -296,5 +296,6 @@ test('removeOwnershipRecord deletes the file', async () => {
 });
 
 test('removeOwnershipRecord is a no-op when file does not exist', async () => {
-  await assert.doesNotReject(() => removeOwnershipRecord('/nonexistent/owner.json'));
+  const root = await mkdtemp(join(tmpdir(), 'argus-owner-missing-'));
+  await assert.doesNotReject(() => removeOwnershipRecord(join(root, 'owner.json')));
 });

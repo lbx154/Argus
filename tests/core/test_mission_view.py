@@ -614,6 +614,68 @@ def test_snapshot_hides_stale_pipeline_stage_without_a_mission(tmp_path: Path) -
     assert view["mission"]["status"] == "idle"
     assert view["stage"] == {"id": "", "label": ""}
 
+def test_live_role_overlay_does_not_corrupt_event_sourced_role_state(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "events.jsonl").write_text(
+        "\n".join([
+            '{"type":"life.manager.intent.completed","ts":1,'
+            '"item_id":"task-1","objective":"Write the paper",'
+            '"reason":"goal framed"}',
+            '{"type":"life.mission.started","ts":2,"item_id":"task-1",'
+            '"title":"Write the paper","objective":"Write the paper"}',
+        ]) + "\n",
+        encoding="utf-8",
+    )
+    backlog = [{
+        "id": "task-1",
+        "title": "Write the paper",
+        "objective": "Write the paper",
+        "status": "running",
+    }]
+
+    transient = snapshot_mission_view(
+        tmp_path,
+        session={"id": "s-live", "objective": ""},
+        daemon={"alive": True},
+        roles=[{
+            "role": "manager",
+            "active": True,
+            "label": "auditing framework health",
+            "backend": "copilot",
+            "model": "gpt",
+            "effort": "high",
+            "age_s": 0,
+        }],
+        backlog=backlog,
+        continuous={"enabled": False, "objective": ""},
+    )
+    assert next(
+        role for role in transient["roles"] if role["role"] == "manager"
+    )["status"] == "active"
+
+    resumed = snapshot_mission_view(
+        tmp_path,
+        session={"id": "s-live", "objective": ""},
+        daemon={"alive": True},
+        roles=[{
+            "role": "engineer",
+            "active": True,
+            "label": "editing manuscript",
+            "backend": "copilot",
+            "model": "gpt",
+            "effort": "high",
+            "age_s": 0,
+        }],
+        backlog=backlog,
+        continuous={"enabled": False, "objective": ""},
+    )
+    roles = {role["role"]: role for role in resumed["roles"]}
+
+    assert roles["manager"]["status"] == "done"
+    assert roles["manager"]["label"] == "Goal framed"
+    assert roles["engineer"]["status"] == "active"
+
 
 def test_evolution_events_project_skill_and_wiki_storage(tmp_path: Path) -> None:
     emit(

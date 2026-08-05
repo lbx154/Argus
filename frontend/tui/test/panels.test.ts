@@ -184,6 +184,37 @@ test('mission cockpit keeps mission, team, and timeline readable at 60 columns',
   assert.ok(output.split('\n').every((line) => stringWidth(line) <= 60));
 });
 
+test('compact cockpit always shows the engineering review handoff', async () => {
+  const view = emptyMissionView();
+  view.mission.objective = 'Draft an ICLR paper';
+  view.mission.status = 'working';
+  Object.assign(view.roles.find((role) => role.role === 'manager')!, {
+    status: 'done',
+    label: 'Goal framed',
+  });
+  Object.assign(view.roles.find((role) => role.role === 'planner')!, {
+    status: 'done',
+    label: 'Research branch added',
+  });
+  Object.assign(view.roles.find((role) => role.role === 'engineer')!, {
+    status: 'done',
+    label: 'Engineer handoff ready',
+  });
+  Object.assign(view.roles.find((role) => role.role === 'reviewer')!, {
+    status: 'active',
+    label: 'Reviewing evidence',
+  });
+
+  const output = await renderNode(
+    React.createElement(MissionCockpit, { view, width: 80, height: 19 }),
+    80,
+  );
+
+  assert.match(output, /ENGINEERING REVIEW/);
+  assert.match(output, /ENGINEER.*✓ Engineer handoff ready/);
+  assert.match(output, /REVIEWER.*● Reviewing evidence/);
+});
+
 test('operations panel owns cost, quota, pid, backend, and model details', async () => {
   const missionView = emptyMissionView();
   missionView.storage.project_skill_dir = '/state/project/skills';
@@ -605,8 +636,8 @@ test('19-row cockpit stays below Ink full-screen clear threshold', async () => {
   assert.ok(finalFrame.trimEnd().split('\n').length < 19);
   assert.match(finalFrame, /MISSION/);
   assert.match(finalFrame, /AI RESEARCH TEAM/);
-  assert.match(finalFrame, /MANAGER.*Waiting/);
-  assert.match(finalFrame, /PLANNER.*Waiting/);
+  assert.match(finalFrame, /DIRECTION MGR.*Waiting.*PLAN.*Waiting/);
+  assert.match(finalFrame, /ENGINEERING REVIEW/);
   assert.match(finalFrame, /ENGINEER.*Waiting/);
   assert.match(finalFrame, /REVIEWER.*Waiting/);
   assert.doesNotMatch(finalFrame, /All quiet|Standing watch|Waiting, unhurried/);

@@ -187,6 +187,54 @@ test('idle snapshot clears stale role activity from historical events', () => {
   assert.equal(view.roles.find((role) => role.role === 'manager')?.status, 'waiting');
 });
 
+test('live snapshot preserves authoritative completed pipeline roles', () => {
+  const live = snapshot();
+  live.roles = [
+    {
+      role: 'manager', backend: 'copilot', backend_label: 'Copilot', model: 'gpt',
+      effort: 'high', active: false, label: 'idle', status: 'idle', age_s: 200,
+    },
+    {
+      role: 'planner', backend: 'copilot', backend_label: 'Copilot', model: 'gpt',
+      effort: 'high', active: false, label: 'idle', status: 'idle', age_s: 100,
+    },
+    {
+      role: 'engineer', backend: 'copilot', backend_label: 'Copilot', model: 'gpt',
+      effort: 'high', active: true, label: 'editing manuscript', status: 'running', age_s: 1,
+    },
+    {
+      role: 'reviewer', backend: 'copilot', backend_label: 'Copilot', model: 'gpt',
+      effort: 'high', active: false, label: 'idle', status: 'idle', age_s: null,
+    },
+  ];
+  live.mission_view = emptyMissionView();
+  live.mission_view.mission.status = 'working';
+  Object.assign(live.mission_view.roles.find((role) => role.role === 'manager')!, {
+    status: 'done',
+    label: 'Goal framed',
+  });
+  Object.assign(live.mission_view.roles.find((role) => role.role === 'planner')!, {
+    status: 'done',
+    label: 'Research branch added',
+  });
+  Object.assign(live.mission_view.roles.find((role) => role.role === 'reviewer')!, {
+    status: 'waiting',
+    label: 'Awaiting engineer handoff',
+  });
+
+  const view = projectMissionView(live);
+
+  assert.deepEqual(
+    view.roles.map((role) => [role.role, role.status, role.label]),
+    [
+      ['manager', 'done', 'Goal framed'],
+      ['planner', 'done', 'Research branch added'],
+      ['engineer', 'active', 'editing manuscript'],
+      ['reviewer', 'waiting', 'Awaiting engineer handoff'],
+    ],
+  );
+});
+
 test('budget summary is always visible with global spend and cap', () => {
   assert.equal(
     budgetSummary(0.26285125, 'priced', 300),

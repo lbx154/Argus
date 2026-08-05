@@ -85,6 +85,51 @@ export function MissionCockpit({
   const round = view.round.max > 0 ? `${view.round.current} / ${view.round.max}` : view.round.current ? String(view.round.current) : '—';
   const outcome = outcomeDimensionSummary(view.outcome);
   const compactHeight = height != null && height < 26;
+  const roleState = (name: string) => {
+    const role = roleByName.get(name);
+    const status = role?.status ?? 'waiting';
+    const glyph = status === 'active'
+      ? '●'
+      : status === 'done'
+      ? '✓'
+      : status === 'rejected' || status === 'error'
+      ? '!'
+      : '○';
+    const color = status === 'rejected' || status === 'error'
+      ? theme.error
+      : status === 'done'
+      ? theme.success
+      : status === 'active'
+      ? theme.role[name] ?? theme.info
+      : 'gray';
+    return {
+      role,
+      status,
+      glyph,
+      color,
+      label: role?.label || (status === 'waiting' ? 'Waiting' : cap(status)),
+    };
+  };
+  const direction = ['manager', 'planner']
+    .map((name) => {
+      const state = roleState(name);
+      return `${name === 'manager' ? 'MGR' : 'PLAN'} ${state.glyph} ${state.label}`;
+    })
+    .join(' · ');
+  const roleRow = (name: string) => {
+    const state = roleState(name);
+    return (
+      <Box key={name}>
+        <Box width={11}>
+          <Text color={theme.role[name] ?? 'white'} bold>{name.toUpperCase()}</Text>
+        </Box>
+        <Text color={state.color}>{state.glyph} </Text>
+        <Text color={state.status === 'waiting' ? 'gray' : undefined} dimColor={state.status === 'waiting'}>
+          {compact(state.label, Math.max(20, width - 16))}
+        </Text>
+      </Box>
+    );
+  };
 
   // Ink clears and repaints the whole terminal whenever the live frame reaches
   // stdout.rows. A Manager turn adds up to nine animated rows below the
@@ -138,35 +183,13 @@ export function MissionCockpit({
         ) : null}
         <Box flexDirection="column">
           <Text dimColor>AI RESEARCH TEAM</Text>
-          {ROLE_ORDER.map((name) => {
-            const role = roleByName.get(name);
-            const status = role?.status ?? 'waiting';
-            const glyph = status === 'active'
-              ? '●'
-              : status === 'done'
-              ? '✓'
-              : status === 'rejected' || status === 'error'
-              ? '!'
-              : '○';
-            const color = status === 'rejected' || status === 'error'
-              ? theme.error
-              : status === 'done'
-              ? theme.success
-              : status === 'active'
-              ? theme.role[name] ?? theme.info
-              : 'gray';
-            return (
-              <Box key={name}>
-                <Box width={11}>
-                  <Text color={theme.role[name] ?? 'white'} bold>{name.toUpperCase()}</Text>
-                </Box>
-                <Text color={color}>{glyph} </Text>
-                <Text color={status === 'waiting' ? 'gray' : undefined} dimColor={status === 'waiting'}>
-                  {compact(role?.label || (status === 'waiting' ? 'Waiting' : cap(status)), Math.max(20, width - 16))}
-                </Text>
-              </Box>
-            );
-          })}
+          <Text wrap="truncate-end">
+            <Text dimColor>DIRECTION </Text>
+            <Text>{compact(direction, Math.max(18, width - 12))}</Text>
+          </Text>
+          <Text dimColor>ENGINEERING REVIEW</Text>
+          {roleRow('engineer')}
+          {roleRow('reviewer')}
         </Box>
         <Text wrap="truncate-end">
           <Text dimColor>TIMELINE </Text>
@@ -219,33 +242,13 @@ export function MissionCockpit({
       <Box flexDirection="column" marginTop={1}>
         <Text dimColor>AI RESEARCH TEAM</Text>
         {handoff ? <Text dimColor>{`handoff · ${handoff}`}</Text> : null}
-        {ROLE_ORDER.map((name) => {
-          const role = roleByName.get(name);
-          const status = role?.status ?? 'waiting';
-          const glyph = status === 'active'
-            ? '●'
-            : status === 'done'
-            ? '✓'
-            : status === 'rejected' || status === 'error'
-            ? '!'
-            : '○';
-          const color = status === 'rejected' || status === 'error'
-            ? theme.error
-            : status === 'done'
-            ? theme.success
-            : status === 'active'
-            ? theme.role[name] ?? theme.info
-            : 'gray';
-          return (
-            <Box key={name}>
-              <Box width={11}><Text color={theme.role[name] ?? 'white'} bold>{name.toUpperCase()}</Text></Box>
-              <Text color={color}>{glyph} </Text>
-              <Text color={status === 'waiting' ? 'gray' : undefined} dimColor={status === 'waiting'}>
-                {compact(role?.label || (status === 'waiting' ? 'Waiting' : cap(status)), Math.max(20, width - 16))}
-              </Text>
-            </Box>
-          );
-        })}
+        <Text wrap="truncate-end">
+          <Text dimColor>DIRECTION </Text>
+          <Text>{compact(direction, Math.max(18, width - 12))}</Text>
+        </Text>
+        <Text dimColor>ENGINEERING REVIEW</Text>
+        {roleRow('engineer')}
+        {roleRow('reviewer')}
       </Box>
 
       <Box flexDirection="column" marginTop={1}>
