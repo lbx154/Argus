@@ -1,7 +1,0 @@
-{
-  "files": ["frontend/web/index.html"],
-  "exclude": ["frontend/web/dist/**"],
-  "insertBefore": "</body>",
-  "commentSyntax": "html",
-  "cspChecked": true
-}

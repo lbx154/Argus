@@ -1,8 +1,0 @@
-step,claim_id,relation,review_status,novelty,label,detail,source_artifact
-0,C5,branch_prune,reviewer_verified,not_applicable,Route falsified,"No C4/C8 does not imply the P13-free reduction; a checked 24-vertex witness has induced P13/P17 and a C16.",Initial route-analysis note
-1,C20,baseline_theorem,reviewer_verified,known,C4 degree bound,"If delta(delta-1)>n-1 then a C4 exists; this is an independently re-derived known-style baseline.",Baseline theorem note
-2,C21,structural_reformulation,reviewer_verified,known,Rooted path exclusion,"No C4/C8 is expressed as exclusion of internally disjoint equal-endpoint paths of lengths 2 and 4.",Path-exclusion note
-3,C22,frontier_strengthening,reviewer_verified,unverified,Blocker or 27,"For fixed roots, length-4 paths share an internal blocker or the family has size at most 27.",Length-4 path dichotomy note
-4,C23,quantitative_improvement,reviewer_verified,unverified,Blocker or 25,"Under identical hypotheses, the bound improves from 27 to 25 and the forced-blocker threshold from 28 to 26.",Improved blocker-bound note
-5,C24,bridge_lemma,reviewer_verified,unverified,Simple internal triples,"Under no C4, the internal-set map is injective; repeated internal triples and the repeated-Fano multiset obstruction are not graph-realizable.",Graph-realizability note
-6,C25,gap_closure,reviewer_verified,unverified,Simple Fano excluded,"Under no C4, the seven-line simple Fano internal-set pattern is not realizable for fixed-root length-4 paths.",Fano-realizability note

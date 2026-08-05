@@ -155,8 +155,8 @@ argus = "argus_skill.apps.tui_launcher:main"
 argus-skill = "argus_skill.__main__:main"
 
 [project.urls]
-Homepage = "https://github.com/lbx154/argus-skill"
-Repository = "https://github.com/lbx154/argus-skill"
+Homepage = "https://github.com/lbx154/Argus"
+Repository = "https://github.com/lbx154/Argus"
 
 [tool.hatch.build.targets.wheel]
 packages = ["argus_skill"]
@@ -179,10 +179,8 @@ artifacts = [
 include = [
   "argus_skill/**",
   "tests/**",
-  "docs/**",
   "frontend/tui/bundle/**",
   "README.md",
-  "LICENSE",
 ]
 
 [tool.hatch.metadata]

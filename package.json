@@ -1,9 +1,0 @@
-{
-  "name": "argus-private-monorepo",
-  "private": true,
-  "description": "Private Argus source repository. Never publish from this directory.",
-  "scripts": {
-    "prepublishOnly": "node -e \"console.error('Refusing to publish the private Argus repository root. Publish only audited dist-binary/packs/*.tgz files.'); process.exit(1)\""
-  },
-  "license": "UNLICENSED"
-}
