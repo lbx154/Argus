@@ -1,1 +1,2 @@
-Hello Argus
+Hello Argus!
+Make Argus great!
