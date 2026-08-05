@@ -46,9 +46,8 @@ def _front_door_classify(
     """ONE merged LLM call for the Manager front-door: returns
     ``(ConfigIntent | None, control | None, route)``.
 
-    TEAM lifetime is cached from the same call as ``bounded`` or ``standing``;
-    no second classifier call is needed. Classifier output is never treated as
-    an operator-facing reply: every SELF message reaches
+    TEAM work is always cached as standing/continuous. It never treats
+    classifier output as an operator-facing reply: every SELF message reaches
     the real Manager model.
     Fail-soft: no runner, no manager, or any error → ``(None, None, "complex")``
     so the message flows through the normal task path unchanged (never swallow
@@ -234,14 +233,26 @@ def _apply_config_intent(
         return True
 
     if knob == "model":
-        value = intent.value
+        from ..core.knobs import normalize_cockpit_knob_value
+
+        names = [_ROLE_MODEL_ENVS[r] for r in roles] if roles else ["ARGUS_SKILL_MODEL"]
+        try:
+            values = {n: normalize_cockpit_knob_value(n, intent.value) for n in names}
+        except ValueError:
+            # An unparsed instruction must never reach _set(): it would also land
+            # in os.environ, be inherited by every child process, and outrank the
+            # knob store for the rest of this process's life.
+            _confirm(
+                f"“{intent.value}” is not a model id, so I left the model unchanged. "
+                "Name the model on its own, e.g. “engineer change to claude-opus-5”."
+            )
+            return True
+        if not _set(values):
+            return True
+        value = values[names[0]]
         if roles:
-            if not _set({_ROLE_MODEL_ENVS[role]: value for role in roles}):
-                return True
             _confirm(f"Set {' / '.join(r.title() for r in roles)} model to {value}.")
         else:
-            if not _set({"ARGUS_SKILL_MODEL": value}):
-                return True
             _confirm(f"Set Argus default model to {value} "
                      "(roles without their own model follow).")
         chat_state.pop("manager_runner", None)
