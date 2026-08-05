@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { transcriptEvents } from '../src/transcript.js';
+import { mergeTranscriptReplay, transcriptEvents } from '../src/transcript.js';
 
 test('transcriptEvents restores operator and Argus turns for resume', () => {
   assert.deepEqual(
@@ -24,5 +24,35 @@ test('transcriptEvents ignores empty and internal turns', () => {
       { role: 'argus', text: ' visible ' },
     ]),
     [{ type: 'ui.argus', text: 'visible' }],
+  );
+});
+
+test('late transcript replay preserves live keys instead of reprinting rows', () => {
+  const live = [
+    {
+      type: 'ui.operator',
+      text: '你好',
+      ts: 10.2,
+      message_id: 'local-operator',
+    },
+    {
+      type: 'ui.argus',
+      text: '你好，我是 Argus Manager。',
+      ts: 11.2,
+      message_id: 'web-turn-argus',
+    },
+  ];
+
+  const merged = mergeTranscriptReplay(live, [
+    { role: 'operator', text: '你好', ts: 10 },
+    { role: 'argus', text: '你好，我是 Argus Manager。', ts: 11 },
+  ]);
+
+  assert.equal(merged.length, 2);
+  assert.equal(merged[0], live[0]);
+  assert.equal(merged[1], live[1]);
+  assert.deepEqual(
+    merged.map((event) => event.message_id),
+    ['local-operator', 'web-turn-argus'],
   );
 });

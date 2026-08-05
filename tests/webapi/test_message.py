@@ -900,6 +900,74 @@ def test_team_message_validates_continuous_before_resume_and_enqueue(
     assert result["continuous"] is True
 
 
+def test_finite_staged_paper_request_does_not_enter_bounded_dag(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    sid = "s-staged-paper"
+    life = _make_project(tmp_path, sid)
+    manager_bridge._STATES.clear()
+    decisions: list[str] = []
+
+    class _StagedResearchManager:
+        def decide_vertical(self, text, **_kwargs):
+            decisions.append(text)
+            return SimpleNamespace(
+                execution_task=text,
+                workflow_mode="staged",
+                vertical="research",
+                research_target_level="publishable",
+                target_venue="ICLR",
+            )
+
+        def commit_vertical_decision(self, text, decision, **_kwargs):
+            return SimpleNamespace(
+                execution_task=decision.execution_task,
+                workflow_mode=decision.workflow_mode,
+                vertical=decision.vertical,
+                kind="research",
+                stages=[
+                    "research", "plan", "benchmark", "run",
+                    "analysis", "draft", "review", "submission",
+                ],
+                headline=lambda: "research staged workflow",
+            )
+
+    def classify(_mem, _text, chat_state, **_kwargs):
+        # This is the exact regression: the finish line is finite, so the cheap
+        # front door says BOUNDED, while Manager correctly says STAGED.
+        chat_state["_frontdoor_lifetime"] = "bounded"
+        return None, None, "complex"
+
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
+    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        front_door,
+        "_ensure_manager_runner",
+        lambda *_args, **_kwargs: SimpleNamespace(manager=_StagedResearchManager()),
+    )
+    monkeypatch.setattr(
+        dispatch,
+        "_plan_bounded_execution",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("staged paper must not be collapsed into a bounded DAG")
+        ),
+    )
+
+    objective = "给我写个论文 iclr的 我要投稿"
+    result = manager_bridge.manager_message(sid, objective, global_root=tmp_path)
+
+    assert result["kind"] == "task"
+    assert result["item"] is None
+    assert result["continuous"] is True
+    assert decisions == [objective]
+    assert LifeMemory.open(life).backlog.all() == []
+    continuous = json.loads((life / "continuous.json").read_text(encoding="utf-8"))
+    assert continuous["enabled"] is True
+    assert continuous["objective"] == objective
+
+
 def test_manager_decided_math_vertical_web_enqueue_enters_backlog(
     tmp_path: Path,
     monkeypatch,

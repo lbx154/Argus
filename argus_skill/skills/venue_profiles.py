@@ -500,14 +500,20 @@ def _venue_key_from_pipeline_state(project_root: Path) -> str | None:
     return str(value) if value else None
 
 
-def resolve_venue_profile(project_root: Path) -> VenueProfile:
+def resolve_venue_profile(
+    project_root: Path | str | os.PathLike[str],
+) -> VenueProfile:
     """Resolve the active venue profile for a project.
 
     Precedence: ``ARGUS_SKILL_VENUE`` env override > a project-local researched
     ``research/VENUE_PROFILE.json`` (dynamic venue) > ``target_venue`` in
     ``research/PIPELINE_STATE.json`` (built-in registry). Missing selection raises
     ``KeyError`` so venue-dependent work cannot silently use the wrong template.
+
+    Accept ordinary path-like inputs because the documented validation command
+    intentionally calls this resolver as ``resolve_venue_profile('.')``.
     """
+    project_root = Path(project_root)
     env_key = os.environ.get(_VENUE_ENV)
     if env_key:
         return get_venue_profile(env_key)

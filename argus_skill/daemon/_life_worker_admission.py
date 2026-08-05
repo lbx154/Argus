@@ -300,13 +300,30 @@ def spawn_detached_daemon_clean(
         return spawn_detached_daemon(config, quiet=quiet)
     env = os.environ.copy()
     env["ARGUS_BINARY_MODE"] = "cli"
+    # The helper is framework control-plane code, not project code. Starting it
+    # in the project workspace lets a generated ``argus_skill/`` package or
+    # ``sitecustomize.py`` shadow the running Argus release during an upgrade
+    # restart. Pin both cwd and PYTHONPATH to the package root that loaded this
+    # WebAPI process; the daemon receives ``project_workdir`` in its payload and
+    # exposes it to agents only after control-plane boot succeeds.
+    import_root = Path(__file__).resolve().parents[2]
+    pythonpath = [
+        str(import_root),
+        *[
+            part
+            for part in env.get("PYTHONPATH", "").split(os.pathsep)
+            if part and Path(part).expanduser().resolve() != import_root
+        ],
+    ]
+    env["PYTHONPATH"] = os.pathsep.join(pythonpath)
+    env["PYTHONSAFEPATH"] = "1"
     try:
         completed = subprocess.run(  # noqa: S603
             [sys.executable, "-m", "argus_skill.daemon.spawn_helper"],
             input=json.dumps(_config_payload(config)),
             text=True,
             capture_output=True,
-            cwd=str(config.project_workdir or Path.cwd()),
+            cwd=str(import_root),
             env=env,
             close_fds=True,
             timeout=15.0,

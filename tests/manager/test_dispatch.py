@@ -353,11 +353,31 @@ def test_lifetime_promotion_repairs_stale_continuous_cache(memory, monkeypatch):
     assert state["continuous_objective"] == ""
 
 
-def test_lifetime_promotion_keeps_explicit_bounded_task_finite(memory):
+def test_lifetime_promotion_keeps_explicit_bounded_direct_task_finite(memory):
     state = {"backend": "codex", "_frontdoor_lifetime": "bounded"}
 
-    assert not dispatch.maybe_promote_to_continuous(memory, "one report", state)
+    assert not dispatch.maybe_promote_to_continuous(
+        memory,
+        "one report",
+        state,
+        workflow_mode="direct",
+    )
     assert state["config"]["continuous"] is False
+    assert "_frontdoor_lifetime" not in state
+
+
+def test_finite_staged_task_uses_durable_campaign_supervisor(memory, monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
+    state = {"backend": "codex", "_frontdoor_lifetime": "bounded"}
+
+    assert dispatch.maybe_promote_to_continuous(
+        memory,
+        "给我写个论文 iclr的 我要投稿",
+        state,
+        workflow_mode="staged",
+    )
+    assert state["config"]["continuous"] is True
+    assert state["_continuous_pending_manager_handoff"] is True
     assert "_frontdoor_lifetime" not in state
 
 

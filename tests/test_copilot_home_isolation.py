@@ -180,6 +180,8 @@ def _child_env_for(backend: str, **option_kwargs):
     options = SimpleNamespace(
         sandbox_mode=option_kwargs.get("sandbox_mode", ""),
         isolate_workdir=option_kwargs.get("isolate_workdir", False),
+        dangerous_yolo=option_kwargs.get("dangerous_yolo", False),
+        full_auto=option_kwargs.get("full_auto", False),
     )
     return mixin._child_env(holder, options)
 

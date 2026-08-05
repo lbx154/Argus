@@ -649,6 +649,7 @@ def manager_bounded_handoff(
     ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
     prepare_persist: Callable[[str], None] | None = None,
     validate_persist: Callable[[str], None] | None = None,
+    prepared_handoff: PreparedManagerHandoff | None = None,
 ) -> Any:
     """Commit Manager state and durable task enqueue under one pipeline lock.
 
@@ -657,13 +658,23 @@ def manager_bounded_handoff(
     into a role-clean execution handoff, but it must not replace the standing
     campaign's vertical, stage, target level, or workflow mode.
     """
-    prepared = prepare_manager_execution_task(
-        mem,
-        body,
-        chat_state,
-        root_task_id=root_task_id,
-        ensure_runner=ensure_runner,
-    )
+    prepared = prepared_handoff
+    if prepared is None:
+        prepared = prepare_manager_execution_task(
+            mem,
+            body,
+            chat_state,
+            root_task_id=root_task_id,
+            ensure_runner=ensure_runner,
+        )
+    elif (
+        prepared.mem is not mem
+        or prepared.body != body
+        or prepared.root_task_id != root_task_id
+    ):
+        raise ManagerHandoffError(
+            "prepared Manager handoff does not match the bounded dispatch"
+        )
     lock_factory = getattr(prepared.manager, "pipeline_lock", None)
     pipeline_lock = lock_factory() if callable(lock_factory) else nullcontext()
     try:
@@ -727,6 +738,7 @@ def manager_continuous_handoff(
     root_task_id: str | None = None,
     ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
     cancelled: Callable[[], bool] | None = None,
+    prepared_handoff: PreparedManagerHandoff | None = None,
 ) -> str:
     """Atomically enable a Manager-authored continuous objective."""
     from ..daemon.state import (
@@ -739,13 +751,23 @@ def manager_continuous_handoff(
     body = requested_objective.strip() or expected.objective.strip()
     if not body:
         raise ValueError("continuous mode requires a non-empty objective")
-    prepared = prepare_manager_execution_task(
-        mem,
-        body,
-        chat_state,
-        root_task_id=root_task_id,
-        ensure_runner=ensure_runner,
-    )
+    prepared = prepared_handoff
+    if prepared is None:
+        prepared = prepare_manager_execution_task(
+            mem,
+            body,
+            chat_state,
+            root_task_id=root_task_id,
+            ensure_runner=ensure_runner,
+        )
+    elif (
+        prepared.mem is not mem
+        or prepared.body != body
+        or prepared.root_task_id != root_task_id
+    ):
+        raise ManagerHandoffError(
+            "prepared Manager handoff does not match the continuous dispatch"
+        )
     committed: dict[str, Any] = {}
     replacement_intent = bool(
         expected.objective.strip()

@@ -337,6 +337,12 @@ def test_clean_spawn_execs_helper_without_inheriting_parent_fds(
 ) -> None:
     workdir = tmp_path / "workdir"
     workdir.mkdir()
+    shadow = workdir / "argus_skill"
+    shadow.mkdir()
+    (shadow / "__init__.py").write_text(
+        "raise RuntimeError('workspace package shadow was imported')\n",
+        encoding="utf-8",
+    )
     config = LifeWorkerConfig(
         life_dir=tmp_path / "life",
         global_root=tmp_path,
@@ -361,10 +367,33 @@ def test_clean_spawn_execs_helper_without_inheriting_parent_fds(
         "argus_skill.daemon.spawn_helper",
     ]
     assert captured["close_fds"] is True
-    assert captured["cwd"] == str(workdir)
+    import_root = Path(life_worker_mod.__file__).resolve().parents[2]
+    assert captured["cwd"] == str(import_root)
+    assert captured["env"]["PYTHONSAFEPATH"] == "1"
+    assert captured["env"]["PYTHONPATH"].split(os.pathsep)[0] == str(import_root)
     payload = json.loads(captured["input"])
     assert payload["life_dir"] == str(config.life_dir)
     assert payload["continuous_objective"] == "continue research"
+
+    # Exercise the captured clean-import context with a fresh interpreter. The
+    # workspace package would raise immediately if cwd/PYTHONPATH were unsafe.
+    import subprocess
+
+    probe = subprocess.Popen(  # noqa: S603
+        [
+            life_worker_mod.sys.executable,
+            "-c",
+            "import argus_skill; print(argus_skill.__file__)",
+        ],
+        cwd=captured["cwd"],
+        env=captured["env"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    stdout, stderr = probe.communicate(timeout=10)
+    assert probe.returncode == 0, stderr
+    assert str(shadow) not in stdout
 
 
 def test_stop_daemon_does_not_sigkill_after_pid_identity_is_lost(

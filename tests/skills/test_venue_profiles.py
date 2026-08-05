@@ -94,6 +94,16 @@ def test_resolve_reads_target_venue(tmp_path: Path) -> None:
     assert resolve_venue_profile(tmp_path) is AAAI_PROFILE
 
 
+def test_documented_validation_command_accepts_string_project_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_state(tmp_path, {"current_stage": "research", "target_venue": "AAAI"})
+    monkeypatch.chdir(tmp_path)
+
+    assert resolve_venue_profile(".") is AAAI_PROFILE
+
+
 def test_env_override_wins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _write_state(tmp_path, {"current_stage": "plan", "target_venue": "EMNLP"})
     monkeypatch.setenv("ARGUS_SKILL_VENUE", "aaai")

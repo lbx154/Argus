@@ -183,6 +183,7 @@ def enqueue_mission(
     max_cycles: int = 6,
     root_task_id: str | None = None,
     cancelled: Callable[[], bool] | None = None,
+    prepared_handoff: front_door.PreparedManagerHandoff | None = None,
 ) -> tuple[Any | None, bool, int | None]:
     """Persist one Manager-authored mission and report executor availability."""
     if chat_state.get("blocked_item_id"):
@@ -218,6 +219,7 @@ def enqueue_mission(
                 chat_state,
                 root_task_id=root_task_id,
                 cancelled=cancelled,
+                prepared_handoff=prepared_handoff,
             )
         except Exception:
             if pending_auto_promote:
@@ -404,6 +406,7 @@ def enqueue_mission(
         root_task_id=root_task_id,
         prepare_persist=_prepare_persist,
         validate_persist=_validate_persist,
+        prepared_handoff=prepared_handoff,
     )
     chat_state["last_objective"] = item.original_objective or item.objective
     alive, pid = _daemon_status(life_dir)
@@ -416,18 +419,22 @@ def maybe_promote_to_continuous(
     chat_state: dict[str, Any],
     *,
     root_task_id: str | None = None,
+    workflow_mode: str = "",
 ) -> bool:
-    """Apply the Manager's cached BOUNDED/STANDING decision.
+    """Resolve finite lifetime and Manager workflow into a dispatch topology.
 
-    The decision comes from the merged front-door call, so this function never
-    spends another model call. Missing or malformed metadata defaults to
-    STANDING; an explicit BOUNDED verdict selects the existing bounded-DAG path.
+    The front door decides whether the requested outcome is finite (BOUNDED) or
+    standing. The Manager independently decides whether satisfying that outcome
+    requires staged progression. A finite direct task uses the bounded DAG;
+    staged work still needs the durable campaign supervisor so its stage gates
+    can advance. Both decisions are reused from calls the request already makes.
     """
     del root_task_id
     lifetime = str(
         chat_state.pop("_frontdoor_lifetime", "standing") or "standing"
     ).strip().lower()
-    if lifetime == "bounded":
+    normalized_workflow = str(workflow_mode or "").strip().lower()
+    if lifetime == "bounded" and normalized_workflow != "staged":
         chat_state.setdefault("config", dict(DEFAULT_MANAGER_CONFIG))[
             "continuous"
         ] = False

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type
 import type { WebSocket } from 'ws';
 import type { ApiClient, EventMsg, Snapshot } from './api.js';
 import { reduceOperatorEvent } from '../../core/src/activity.js';
-import { transcriptEvents } from './transcript.js';
+import { mergeTranscriptReplay } from './transcript.js';
 
 const MAX_EVENTS = 400;
 const STREAM_RENDER_INTERVAL_MS = 50;
@@ -96,15 +96,7 @@ export function useProjectFeed(api: ApiClient, project: string): ProjectFeedStat
     api.getTranscript(MAX_EVENTS).then(
       (turns) => {
         if (!active) return;
-        const persisted = transcriptEvents(turns);
-        setEvents((live) => (
-          [...persisted, ...live]
-            .sort((left, right) => Number(left.ts ?? 0) - Number(right.ts ?? 0))
-            .reduce(
-              (current, event) => reduceOperatorEvent(current, event, MAX_EVENTS),
-              [] as EventMsg[],
-            )
-        ));
+        setEvents((live) => mergeTranscriptReplay(live, turns, MAX_EVENTS));
       },
       () => {
         // Event streaming remains usable when an old project has no transcript.

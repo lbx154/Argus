@@ -792,19 +792,39 @@ def _dispatch_team_mission(
         maybe_promote_to_continuous,
         resume_done_lifecycle_for_team_dispatch,
     )
+    from ..manager.front_door import prepare_manager_execution_task
 
-    emitter.phase("Manager · validating task lifetime")
-    maybe_promote_to_continuous(
+    # Lifetime and workflow are independent axes. A publication campaign has a
+    # finite finish line, but Manager may still require staged progression. Run
+    # the normal vertical/workflow decision once, use it to choose topology,
+    # then reuse the sealed handoff during the eventual commit.
+    emitter.phase("Manager · choosing workflow and task lifetime")
+    prepared = prepare_manager_execution_task(
         mem,
         body,
         chat_state,
         root_task_id=root_task_id,
     )
-    resume_done_lifecycle_for_team_dispatch(mem)
+    workflow_mode = str(
+        getattr(prepared.decision, "workflow_mode", "") or ""
+    )
+    try:
+        maybe_promote_to_continuous(
+            mem,
+            body,
+            chat_state,
+            root_task_id=root_task_id,
+            workflow_mode=workflow_mode,
+        )
+        resume_done_lifecycle_for_team_dispatch(mem)
+    except Exception as exc:
+        prepared.failed(exc)
+        raise
     return enqueue_mission(
         mem,
         body,
         chat_state,
         root_task_id=root_task_id,
         cancelled=cancelled,
+        prepared_handoff=prepared,
     )

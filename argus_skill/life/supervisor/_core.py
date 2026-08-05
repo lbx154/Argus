@@ -1098,12 +1098,22 @@ class LifeSupervisor(
             else:
                 status = str(event.get("status") or event.get("outcome_class") or "ended")
                 result = f"Team ended · {title} · {status}"
-            continuation = (
-                "Continuous campaign remains active; Planner is selecting the next task."
-                if bool(getattr(self.config, "continuous", False))
-                and bool(getattr(self.config, "open_ended", False))
-                else "This task is finished."
-            )
+            if bool(getattr(self.config, "continuous", False)) and bool(
+                getattr(self.config, "open_ended", False)
+            ):
+                continuation = (
+                    "Continuous campaign remains active; Planner is selecting "
+                    "the next task."
+                )
+            elif str(outcome.get("stage_certification") or "").strip() == (
+                "intentionally_skipped"
+            ):
+                continuation = (
+                    "This bounded work item is finished; project and stage "
+                    "completion were not certified."
+                )
+            else:
+                continuation = "This task is finished."
             publish_operator_message(
                 life_dir,
                 text=f"{result}\n{continuation}",

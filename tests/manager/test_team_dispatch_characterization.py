@@ -1,9 +1,10 @@
 """Characterization of the operator-visible TEAM lifetime contract.
 
-The merged front-door call decides BOUNDED versus STANDING once. Dispatch must
-reuse that answer: finite work enters the bounded DAG path, while genuinely
-open-ended work becomes a durable campaign. Missing or malformed metadata keeps
-the conservative STANDING default without paying for another model call.
+The merged front-door call decides BOUNDED versus STANDING once, while the
+normal Manager decision independently chooses direct versus staged workflow.
+Finite direct work enters the bounded DAG path; standing or staged work uses the
+durable campaign supervisor. Missing or malformed lifetime metadata keeps the
+conservative STANDING default without paying for another lifetime model call.
 """
 
 from __future__ import annotations

@@ -75,3 +75,33 @@ def test_bounded_completion_says_the_task_is_finished(tmp_path) -> None:
         (tmp_path / "transcript.jsonl").read_text().splitlines()[-1]
     )["text"]
     assert text == "Team completed · One bounded fix\nThis task is finished."
+
+
+def test_bounded_increment_does_not_claim_project_or_stage_completion(tmp_path) -> None:
+    memory = LifeMemory.open(tmp_path)
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=_Runner(),
+        sink=JsonlEventSink(None, life_dir=memory.root, verbosity="full"),
+        config=LifeSupervisorConfig(continuous=False, open_ended=False),
+    )
+
+    supervisor._emit({
+        "type": "life.mission.completed",
+        "item_id": "task-3",
+        "title": "Write the paper draft",
+        "success": True,
+        "status": "done",
+        "outcome": {
+            "review_status": "done",
+            "stage_certification": "intentionally_skipped",
+        },
+    })
+
+    text = json.loads(
+        (tmp_path / "transcript.jsonl").read_text().splitlines()[-1]
+    )["text"]
+    assert text.endswith(
+        "This bounded work item is finished; project and stage completion "
+        "were not certified."
+    )
