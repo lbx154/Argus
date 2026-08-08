@@ -187,6 +187,141 @@ def _extract_version(text: str) -> tuple[str, tuple[int, int, int], str] | None:
     )
 
 
+def _parse_pi_model_catalog(stdout: str) -> dict[str, set[str]]:
+    """Parse ``pi --list-models`` into ``{provider: {model_id, ...}}``.
+
+    Pi prints one ``provider model context max-out thinking images`` row per
+    AUTHENTICATED model, so the parsed table is exactly the set of selectors
+    that can actually be bought right now — which is what readiness must judge.
+    """
+    catalog: dict[str, set[str]] = {}
+    for line in stdout.splitlines():
+        row = line.strip()
+        if not row or set(row) <= {"-", " "}:
+            continue
+        fields = row.split()
+        if len(fields) < 2:
+            continue
+        provider = fields[0]
+        if provider.casefold() in {"provider", "warning:", "error:"}:
+            continue
+        catalog.setdefault(provider, set()).add(fields[1])
+    return catalog
+
+
+def _probe_pi_catalog(
+    executable: str, timeout_s: float
+) -> tuple[dict[str, set[str]], str]:
+    """Read Pi's authenticated model catalog without spending a model turn."""
+    try:
+        result = _run_text((executable, "--list-models"), timeout_s=timeout_s)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {}, f"{type(exc).__name__}: {exc}"
+    catalog = _parse_pi_model_catalog(result.stdout)
+    if result.returncode == 0 and catalog:
+        return catalog, ""
+    detail = (result.stderr or result.stdout or "no authenticated Pi models").strip()
+    return {}, detail[:300]
+
+
+#: Roles whose configured model Argus will hand to the backend verbatim.
+_PI_MODEL_ROLES: tuple[tuple[str, str], ...] = (
+    ("manager", "ARGUS_SKILL_MANAGER_MODEL"),
+    ("planner", "ARGUS_SKILL_PLAN_MODEL"),
+    ("engineer", "ARGUS_SKILL_ENGINEER_MODEL"),
+    ("reviewer", "ARGUS_SKILL_REVIEWER_MODEL"),
+)
+
+
+def _check_pi_model_routing(
+    report: BackendReadiness,
+    catalog: dict[str, set[str]],
+    *,
+    env: Mapping[str, str] | None = None,
+) -> None:
+    """Verify the selectors Argus will actually send resolve against Pi's catalog.
+
+    ``pi --list-models`` exiting non-empty only proves SOME provider is
+    authenticated. Readiness used to stop there, so a deployment whose provider
+    prefix named a catalog it had no key for reported ``ready: yes`` and then
+    failed every single call with ``No API key found for <provider>`` — the
+    exact shape of the hardcoded-``github-copilot`` bug. Judge the effective
+    selector, not the CLI's general health.
+
+    Severity is deliberately split. An unauthenticated PROVIDER is a hard
+    problem: the failure is deterministic and the message Pi returns is exactly
+    the one above. An unmatched MODEL is only a warning, because Pi's
+    ``--model`` takes fuzzy patterns as well as exact ids, so an id missing
+    from the table can still resolve — a false red doctor would be worse than
+    an unheeded warning.
+
+    中文：``--list-models`` 成功只说明「有某个 provider 已认证」。这里校验 Argus
+    真正下发的 provider/model：provider 未认证 = 硬失败（必然报 No API key）；
+    model 对不上只给 warning（Pi 的 --model 支持模糊匹配，避免误报）。
+    """
+    from .knobs import resolve_knob, resolve_role_model
+
+    env_map = env if env is not None else os.environ
+    providers = sorted(catalog)
+    configured = resolve_knob(
+        "ARGUS_SKILL_PI_PROVIDER", "", env=env_map
+    ).value.strip().strip("/")
+    if configured and configured not in catalog:
+        report.problems.append(
+            ReadinessProblem(
+                "pi provider",
+                (
+                    f"ARGUS_SKILL_PI_PROVIDER={configured!r} is not an "
+                    f"authenticated Pi provider; `pi --list-models` offers: "
+                    f"{', '.join(providers)}"
+                ),
+                (
+                    "set ARGUS_SKILL_PI_PROVIDER to one of the providers above "
+                    "(or unset it to let Pi resolve bare model ids itself), "
+                    "then re-run `argus --doctor`"
+                ),
+            )
+        )
+        return
+
+    # Roles usually share one model id; warn once per distinct selector rather
+    # than four times over.
+    seen: set[str] = set()
+    for route, role_env in _PI_MODEL_ROLES:
+        model = str(
+            resolve_role_model(route, role_env=role_env, env=env_map) or ""
+        ).strip()
+        if not model or model in seen:
+            continue
+        seen.add(model)
+        provider, separator, model_id = model.partition("/")
+        if not separator:
+            provider, model_id = configured, model
+        if provider:
+            if model_id not in catalog.get(provider, set()):
+                report.warnings.append(
+                    f"the {route} model {model_id!r} is not listed for the Pi "
+                    f"provider {provider!r}; check `pi --list-models` or change "
+                    f"it with {role_env}"
+                )
+            continue
+        carriers = sorted(
+            name for name, models in catalog.items() if model_id in models
+        )
+        if not carriers:
+            report.warnings.append(
+                f"no authenticated Pi provider lists the {route} model "
+                f"{model_id!r} (providers: {', '.join(providers)}); check "
+                f"`pi --list-models` or set {role_env} / ARGUS_SKILL_MODEL"
+            )
+        elif len(carriers) > 1:
+            report.warnings.append(
+                f"the {route} model {model_id!r} exists on more than one "
+                f"authenticated Pi provider ({', '.join(carriers)}); Pi picks "
+                f"one — set ARGUS_SKILL_PI_PROVIDER to choose deliberately"
+            )
+
+
 def _probe_copilot_auth(executable: str, timeout_s: float) -> tuple[bool, str]:
     """Create an ACP session without sending a prompt or spending model tokens."""
     try:
@@ -212,22 +347,8 @@ def _probe_cli_auth(
     if backend == "copilot":
         return _probe_copilot_auth(executable, timeout_s)
     if backend == "pi":
-        try:
-            result = _run_text((executable, "--list-models"), timeout_s=timeout_s)
-        except (OSError, subprocess.SubprocessError) as exc:
-            return False, f"{type(exc).__name__}: {exc}"
-        lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-        model_rows = [
-            line
-            for line in lines
-            if len(line.split()) >= 2
-            and line.split()[0].casefold() not in {"provider", "warning:", "error:"}
-            and not set(line) <= {"-", " "}
-        ]
-        if result.returncode == 0 and model_rows:
-            return True, ""
-        detail = (result.stderr or result.stdout or "no authenticated Pi models").strip()
-        return False, detail[:300]
+        _catalog, detail = _probe_pi_catalog(executable, timeout_s)
+        return (bool(_catalog), detail)
     suffix = _AUTH_COMMANDS.get(backend)
     if suffix is None:
         return False, f"no read-only authentication probe is defined for {backend}"
@@ -441,11 +562,18 @@ def check_backend_readiness(
         )
     elif probe_auth:
         report.auth_checked = True
-        ok, detail = _probe_cli_auth(
-            profile.backend,
-            executable,
-            timeout_s=timeout_s,
-        )
+        # Pi's auth probe already reads the full authenticated catalog; reuse
+        # that one subprocess to also validate the selectors Argus will send.
+        pi_catalog: dict[str, set[str]] = {}
+        if profile.backend == "pi":
+            pi_catalog, detail = _probe_pi_catalog(executable, timeout_s)
+            ok = bool(pi_catalog)
+        else:
+            ok, detail = _probe_cli_auth(
+                profile.backend,
+                executable,
+                timeout_s=timeout_s,
+            )
         if not ok:
             report.problems.append(
                 ReadinessProblem(
@@ -454,6 +582,8 @@ def check_backend_readiness(
                     f"run `{_LOGIN_COMMANDS[profile.backend]}`, then `argus --doctor`",
                 )
             )
+        elif pi_catalog:
+            _check_pi_model_routing(report, pi_catalog, env=env_map)
     return report
 
 

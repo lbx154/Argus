@@ -68,7 +68,8 @@ KNOBS: tuple[Knob, ...] = (
     ),
     Knob("ARGUS_SKILL_RUNNER_BIN", "(agent CLI on PATH)", "absolute path to the agent CLI binary", "backend"),
     Knob("ARGUS_SKILL_PI_SESSION_DIR", "(~/.argus-skill/pi-sessions)", "Argus-owned Pi session storage, separate from interactive Pi history", "backend"),
-    Knob("ARGUS_SKILL_PI_PROVIDER", "github-copilot", "provider prefix for bare model ids passed to the Pi backend", "backend"),
+    Knob("ARGUS_SKILL_PI_PROVIDER", "(unset — Pi resolves the id itself)", "provider prefix for bare model ids on the Pi backend; set it only to disambiguate an id two authenticated Pi catalogs both carry", "backend", cockpit=True),
+    Knob("ARGUS_SKILL_OPENCODE_PROVIDER", "(unset — model is dropped)", "provider prefix for bare model ids on the OpenCode backend; `opencode run --model` needs provider/id, so without this the configured model has no effect", "backend", cockpit=True),
     Knob("ARGUS_SKILL_ENGINEER_BACKEND", "(=LIFE_BACKEND)", "per-role backend override for the engineer", "backend", cockpit=True),
     Knob("ARGUS_SKILL_REVIEWER_BACKEND", "(=LIFE_BACKEND)", "per-role backend override for the reviewer", "backend", cockpit=True),
     Knob("ARGUS_SKILL_PLANNER_BACKEND", "(=LIFE_BACKEND)", "per-role backend override for the planner", "backend", cockpit=True),
@@ -95,10 +96,10 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.5", "model for the L1 engineer", "models", cockpit=True),
     Knob("ARGUS_SKILL_REVIEWER_MODEL", "gpt-5.5", "model for the L2 reviewer", "models", cockpit=True),
     Knob("ARGUS_SKILL_PLAN_MODEL", "gpt-5.5", "model for the L4 planner", "models", cockpit=True),
-    Knob("ARGUS_SKILL_PLAN_PREVIEW_MODEL", "auto", "interactive /plan model: gpt-5.4-mini on codex/copilot/pi, planner model otherwise; set an id to override", "models"),
-    Knob("ARGUS_SKILL_REWRITE_MODEL", "gpt-5.5", "interactive prompt rewrite model", "models"),
+    Knob("ARGUS_SKILL_PLAN_PREVIEW_MODEL", "auto", "interactive /plan model: gpt-5.4-mini on codex/copilot, planner model otherwise; set an id to override", "models"),
+    Knob("ARGUS_SKILL_REWRITE_MODEL", "auto", "interactive prompt rewrite model: gpt-5.5 on codex/copilot, Manager model otherwise; set an id to override", "models"),
     Knob("ARGUS_SKILL_MANAGER_REPLY_MODEL", "inherit", "operator-facing Manager SELF model; inherit uses the configured Manager/shared route model", "models", cockpit=True),
-    Knob("ARGUS_SKILL_FRONTDOOR_MODEL", "auto", "cheap front-door classification model: gpt-5.4-mini on codex/copilot/pi, Manager model otherwise", "models"),
+    Knob("ARGUS_SKILL_FRONTDOOR_MODEL", "auto", "cheap front-door classification model: gpt-5.4-mini on codex/copilot, Manager model otherwise", "models"),
     # --- reasoning effort ---
     Knob("ARGUS_SKILL_MANAGER_REASONING_EFFORT", "xhigh", "manager reasoning effort", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_PLANNER_REASONING_EFFORT", "xhigh", "planner reasoning effort", "reasoning", cockpit=True),
@@ -128,7 +129,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING", "1", "enable selective project-layer Skill maintenance for all four roles (default ON)", "mission"),
     Knob("ARGUS_SKILL_ENGINEER_FILE_READ_BUDGET", "12", "soft first-pass relevant-file inspection budget", "mission"),
     Knob("ARGUS_SKILL_ENGINEER_TEST_RUN_BUDGET", "3", "soft focused verification-run budget before the final verifier", "mission"),
-    Knob("ARGUS_SKILL_BOUNDED_DAG_MODEL", "auto", "compact model for decomposing Manager bounded tasks into backlog DAG nodes", "mission"),
+    Knob("ARGUS_SKILL_BOUNDED_DAG_MODEL", "auto", "compact model for decomposing Manager bounded tasks into backlog DAG nodes: gpt-5.4-mini on codex/copilot, planner model otherwise", "mission"),
     Knob("ARGUS_SKILL_BOUNDED_DAG_REASONING_EFFORT", "low", "reasoning effort for bounded DAG decomposition", "mission"),
     Knob("ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS", "0", "optional wall-clock cap for one Engineer turn; disabled by default", "mission"),
     Knob("ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS", "600", "model stream inactivity before a diagnostic warning (0=off)", "mission"),
@@ -175,6 +176,13 @@ KNOBS: tuple[Knob, ...] = (
 # ``--model <text>``, so every call by that role fails until it is unset.
 _MODEL_KNOBS = frozenset(knob.name for knob in KNOBS if knob.group == "models")
 _MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,63}$")
+_PROVIDER_KNOBS = frozenset(
+    {
+        "ARGUS_SKILL_PI_PROVIDER",
+        "ARGUS_SKILL_OPENCODE_PROVIDER",
+    }
+)
+_PROVIDER_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")
 _BACKEND_KNOBS = frozenset(
     {
         "ARGUS_SKILL_RUNNER_BACKEND",
@@ -417,6 +425,17 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
         if effort not in {"low", "medium", "high", "xhigh", "max"}:
             raise ValueError(f"{name} must be low, medium, high, xhigh, or max")
         return effort
+    if name in _PROVIDER_KNOBS:
+        # A provider is one catalog name as the backend CLI spells it
+        # (``deepseek``, ``anthropic``, ``copilot-forward``) — never a
+        # provider/model pair, which would produce ``a/b/model`` downstream.
+        provider = raw.strip("/")
+        if not _PROVIDER_ID_RE.match(provider):
+            raise ValueError(
+                f"{name} must be a single provider id such as deepseek, "
+                f"not {raw!r}"
+            )
+        return provider
     if name in _MODEL_KNOBS:
         # Natural-language cockpit requests often omit separators
         # (``gpt5.6sol``). Canonicalize only the unambiguous GPT family while
@@ -581,25 +600,64 @@ def resolve_manager_reply_model(*, env: Mapping[str, str] | None = None) -> str:
     )
 
 
-def resolve_manager_classify_model(*, env: Mapping[str, str] | None = None) -> str:
-    """Resolve the cheap stateless front-door classification model."""
+#: Backends whose model catalog IS the OpenAI catalog, so Argus may name a
+#: specific OpenAI id for its cheap control-plane routes without asking the
+#: operator. ``codex`` and ``copilot`` qualify by construction. ``pi`` /
+#: ``opencode`` / ``claude`` deliberately do NOT: they are provider-agnostic
+#: fronts whose catalog is whatever the operator authenticated (DeepSeek,
+#: Anthropic, a local vLLM), so naming an OpenAI id there misses on every call.
+_OPENAI_CATALOG_BACKENDS = frozenset({"codex", "copilot"})
+
+#: Knob values that mean "decide for me" rather than naming a model.
+_AUTO_MODEL_SENTINELS = frozenset({"", "auto", "inherit", "default"})
+
+
+def resolve_cheap_route_model(
+    *,
+    knob: str,
+    catalog_default: str,
+    role: str,
+    role_env: str,
+    env: Mapping[str, str] | None = None,
+) -> str:
+    """Resolve one cheap control-plane route's model.
+
+    Four routes want a small model rather than the role's full-strength one:
+    Manager front-door classify, bounded-DAG decomposition, ``/plan`` preview,
+    and interactive prompt rewrite. Each used to carry its own copy of this
+    rule, and the copies agreed on the wrong thing — they counted ``pi`` as an
+    OpenAI-catalog backend. A Pi fronting DeepSeek therefore asked its provider
+    for ``gpt-5.4-mini`` and all four routes hard-failed, no matter how
+    carefully the operator had configured Argus's documented model knobs.
+
+    Precedence: an explicit knob value wins; an OpenAI-catalog backend gets
+    ``catalog_default`` (each route passes its own historical id, so codex and
+    copilot behaviour is unchanged); every other backend falls back to the
+    role's own model — the only id an arbitrary provider is known to carry.
+
+    中文：四条「廉价路由」原先各自硬编码 ``gpt-5.4-mini``，并把 ``pi`` 误当作
+    OpenAI 目录后端；此处统一规则，非 OpenAI 目录的后端回落到角色 model。
+    """
     env_map = env if env is not None else os.environ
-    configured = resolve_knob(
-        "ARGUS_SKILL_FRONTDOOR_MODEL",
-        "auto",
-        env=env_map,
-    ).value.strip()
-    if configured.lower() not in {"", "auto", "inherit", "default"}:
+    configured = resolve_knob(knob, "auto", env=env_map).value.strip()
+    if configured.lower() not in _AUTO_MODEL_SENTINELS:
         return configured
     from ..agent_cli.runner_backend import normalize_runner_backend
 
-    backend = normalize_runner_backend(resolve_role_backend("manager", env=env_map))
-    if backend in {"codex", "copilot", "pi"}:
-        return "gpt-5.4-mini"
-    return resolve_role_model(
-        "manager",
+    backend = normalize_runner_backend(resolve_role_backend(role, env=env_map))
+    if backend in _OPENAI_CATALOG_BACKENDS:
+        return catalog_default
+    return resolve_role_model(role, role_env=role_env, env=env_map)
+
+
+def resolve_manager_classify_model(*, env: Mapping[str, str] | None = None) -> str:
+    """Resolve the cheap stateless front-door classification model."""
+    return resolve_cheap_route_model(
+        knob="ARGUS_SKILL_FRONTDOOR_MODEL",
+        catalog_default="gpt-5.4-mini",
+        role="manager",
         role_env="ARGUS_SKILL_MANAGER_MODEL",
-        env=env_map,
+        env=env,
     )
 
 

@@ -96,6 +96,30 @@ argus --setup --non-interactive \
 
 `--backend` 可使用 `copilot`、`pi`、`codex`、`claude` 或 `opencode`。
 
+#### 为多 provider 的 CLI 指定 provider
+
+Pi 与 OpenCode 是与 provider 无关的前端：具体走哪个账户，取决于你给它认证了什么
+（原生 DeepSeek key、Anthropic、Azure、本地 vLLM、Copilot 代理）。Argus 会把你配置
+的 model id 原样透传，因此 `deepseek-chat` 这样的裸 id 由 CLI 自己解析。
+
+只有在裸 id 有歧义、或 CLI 本身要求限定时才需要指定 provider：
+
+```bash
+# Pi —— 仅当两个已认证目录里存在同名 model 时才需要
+export ARGUS_SKILL_PI_PROVIDER=deepseek
+
+# OpenCode —— 必需：`opencode run --model` 只接受 provider/id
+export ARGUS_SKILL_OPENCODE_PROVIDER=deepseek
+```
+
+两者也可以在座舱 `/config` 里设置，在那里设置后会持久化、重启依然生效。
+
+`argus --doctor` 会读取 CLI 的已认证目录：配置的 provider 你并没有 key，或选定的
+model 不在目录中时，会直接告诉你。
+
+完整说明（含对依赖旧的隐式 `github-copilot` 前缀的 Pi 部署的不兼容变更）：
+**[后端 provider 说明](docs/backend-providers.md)**。
+
 ### 启动
 
 ```bash

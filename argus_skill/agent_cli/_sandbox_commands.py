@@ -10,6 +10,7 @@ flag ordering, or sandbox-mode semantics changed.
 """
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
@@ -21,6 +22,8 @@ from .runner_backend import (
     BACKEND_PI,
     RunnerBackend,
 )
+
+log = logging.getLogger(__name__)
 
 # Shared with ``_prompt_delivery.py`` (the read-only OpenCode agent config
 # injected into the child env must name the same agent this builder selects
@@ -40,17 +43,91 @@ def _pi_session_dir() -> str:
 
 
 def _pi_model(model: str) -> str:
-    """Qualify a bare Pi model so duplicate provider catalogs are unambiguous."""
+    """Qualify a bare Pi model id ONLY when the operator named a provider.
+
+    Pi is a provider-agnostic front: ``--model`` resolves against whichever
+    catalogs are authenticated (DeepSeek, Anthropic, Azure, a local vLLM, a
+    Copilot proxy). This used to force a ``github-copilot/`` prefix, so every
+    Pi deployment that was NOT fronting Copilot failed on every single call
+    with ``No API key found for github-copilot`` — while ``pi --list-models``,
+    and therefore ``argus --doctor``, still reported the backend healthy.
+
+    Passing a bare id through is both correct and provider-neutral. The knob
+    stays for the one case Pi cannot resolve alone: two authenticated catalogs
+    carrying the same id (``claude-opus-5`` lives on both ``anthropic`` and a
+    Copilot proxy). ``argus --doctor`` names that collision — see
+    ``core.backend_readiness``.
+
+    中文：Pi 的 provider 由运维认证决定，Argus 不再替它假设 ``github-copilot``；
+    仅当运维显式配置 ``ARGUS_SKILL_PI_PROVIDER`` 时才加前缀。
+    """
     value = str(model or "").strip()
     if not value or "/" in value:
         return value
+    provider = _configured_provider("ARGUS_SKILL_PI_PROVIDER")
+    return f"{provider}/{value}" if provider else value
+
+
+def _opencode_model(model: str) -> str:
+    """Qualify a bare OpenCode model id, or return ``""`` when it must be dropped.
+
+    ``opencode run --model`` only accepts ``provider/id``, so a bare id cannot
+    be forwarded at all. Dropping it SILENTLY (the previous behaviour) made
+    every Argus model knob a no-op on this backend: OpenCode ran its own
+    default and nothing distinguished that from Argus honouring the setting.
+    Qualify when the operator named a provider; otherwise still drop, but say
+    so once.
+    """
+    value = str(model or "").strip()
+    if not value:
+        return ""
+    provider_part, separator, model_id = value.partition("/")
+    if separator:
+        # Already qualified — forward verbatim. A malformed half ("a/" or
+        # "/b") is not a usable selector, so it falls through to the warning.
+        if provider_part and model_id:
+            return value
+    else:
+        provider = _configured_provider("ARGUS_SKILL_OPENCODE_PROVIDER")
+        if provider:
+            return f"{provider}/{value}"
+    _warn_unqualified_model_once(BACKEND_OPENCODE, value)
+    return ""
+
+
+def _configured_provider(knob: str) -> str:
+    """Operator-configured provider prefix for a backend, or ``""`` if unset."""
     from ..core.knobs import resolve_knob
 
-    provider = resolve_knob(
-        "ARGUS_SKILL_PI_PROVIDER",
-        "github-copilot",
-    ).value.strip() or "github-copilot"
-    return f"{provider}/{value}"
+    return resolve_knob(knob, "").value.strip().strip("/")
+
+
+# Command construction runs once per provider call, so an unqualified model id
+# must not narrate itself into every log line. Warn once per (backend, model).
+_UNQUALIFIED_MODEL_WARNED: set[tuple[str, str]] = set()
+
+
+def _warn_unqualified_model_once(backend: str, model: str) -> None:
+    key = (backend, model)
+    if key in _UNQUALIFIED_MODEL_WARNED:
+        return
+    _UNQUALIFIED_MODEL_WARNED.add(key)
+    log.warning(
+        "%s cannot use the configured model %r: its `--model` requires a "
+        "provider-qualified id. Set ARGUS_SKILL_%s_PROVIDER, or configure the "
+        "model as 'provider/%s'. Until then %s runs its OWN default model and "
+        "the Argus model setting has no effect.",
+        backend,
+        model,
+        backend.upper(),
+        model,
+        backend,
+    )
+
+
+def reset_unqualified_model_warnings() -> None:
+    """Test seam: forget which unqualified-model warnings were already issued."""
+    _UNQUALIFIED_MODEL_WARNED.clear()
 
 
 _READ_ONLY_FLAG_SWITCHES = frozenset({
@@ -425,9 +502,8 @@ class CommandBuilderMixin:
         options,
     ) -> list[str]:
         command = [self.agent_bin, "run", "--format", "json"]
-        model = str(options.model or "").strip()
-        provider, separator, model_id = model.partition("/")
-        if separator and provider and model_id:
+        model = _opencode_model(options.model)
+        if model:
             command.extend(["--model", model])
         if options.reasoning_effort:
             command.extend(["--variant", options.reasoning_effort])

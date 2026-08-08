@@ -76,6 +76,23 @@ def _merge_context_refs(
     return merged
 
 
+def _bounded_dag_model() -> str:
+    """Model for decomposing a bounded Manager task into backlog DAG nodes.
+
+    Deliberately compact — this is a structural decomposition, not the plan
+    itself. See ``core.knobs.resolve_cheap_route_model`` for why the backend,
+    not just the knob, decides the fallback.
+    """
+    from ..core.knobs import resolve_cheap_route_model
+
+    return resolve_cheap_route_model(
+        knob="ARGUS_SKILL_BOUNDED_DAG_MODEL",
+        catalog_default="gpt-5.4-mini",
+        role="planner",
+        role_env="ARGUS_SKILL_PLAN_MODEL",
+    )
+
+
 def _plan_bounded_execution(
     mem: Any,
     execution_body: str,
@@ -90,29 +107,11 @@ def _plan_bounded_execution(
             "bounded Planner backend unavailable; refusing an atomic fallback "
             "that cannot preserve review and stage-transition semantics"
         )
-    from ..agent_cli.runner_backend import normalize_runner_backend
-    from ..core.knobs import (
-        resolve_knob,
-        resolve_role_backend,
-        resolve_role_model,
-        resolve_role_reasoning_effort,
-    )
+    from ..core.knobs import resolve_role_reasoning_effort
     from ..planner.bounded_dag import plan_bounded_dag
 
     workdir = _resolve_manager_workdir(mem)
-    configured_model = resolve_knob(
-        "ARGUS_SKILL_BOUNDED_DAG_MODEL",
-        "auto",
-    ).value.strip()
-    if configured_model.lower() in {"", "auto", "inherit", "default"}:
-        planner_backend = normalize_runner_backend(resolve_role_backend("planner"))
-        model = (
-            "gpt-5.4-mini"
-            if planner_backend in {"codex", "copilot", "pi"}
-            else resolve_role_model("planner", role_env="ARGUS_SKILL_PLAN_MODEL")
-        )
-    else:
-        model = configured_model
+    model = _bounded_dag_model()
     usage_scope = getattr(runner, "task_usage_context", None)
     scope = usage_scope(root_task_id) if callable(usage_scope) and root_task_id else nullcontext()
     with scope:

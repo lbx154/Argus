@@ -51,28 +51,52 @@ def test_pi_command_uses_json_stdin_and_exact_session(
     ]
 
 
-def test_pi_bare_model_uses_configured_provider_prefix(
+def test_pi_bare_model_is_passed_through_when_no_provider_is_configured(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Argus must not name a provider the operator never chose.
+
+    This used to hardcode a ``github-copilot/`` prefix, so a Pi authenticated
+    against ANY other provider — a native DeepSeek key, Anthropic, a local vLLM
+    — died on every single call with ``No API key found for github-copilot``,
+    while ``pi --list-models`` (and therefore ``argus --doctor``) happily showed
+    the model as available. Pi resolves a bare id against its own authenticated
+    catalog, so passing it through is both correct and provider-neutral.
+    """
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
     monkeypatch.delenv("ARGUS_SKILL_PI_PROVIDER", raising=False)
 
     command = _runner()._build_pi_command(
         resume_thread_id=None,
-        options=RunnerOptions(model="gpt-5.6-sol"),
+        options=RunnerOptions(model="deepseek-chat"),
     )
 
-    assert command[command.index("--model") + 1] == (
-        "github-copilot/gpt-5.6-sol"
-    )
+    assert command[command.index("--model") + 1] == "deepseek-chat"
 
-    monkeypatch.setenv("ARGUS_SKILL_PI_PROVIDER", "openai")
+
+def test_pi_bare_model_uses_configured_provider_prefix(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The knob still exists: two authenticated catalogs can carry the same id
+    (``claude-opus-5`` on both ``anthropic`` and a Copilot proxy), and naming
+    the provider is how an operator disambiguates."""
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
+    monkeypatch.setenv("ARGUS_SKILL_PI_PROVIDER", "deepseek")
+
     command = _runner()._build_pi_command(
         resume_thread_id=None,
-        options=RunnerOptions(model="gpt-5.6-sol"),
+        options=RunnerOptions(model="deepseek-chat"),
     )
-    assert command[command.index("--model") + 1] == "openai/gpt-5.6-sol"
+    assert command[command.index("--model") + 1] == "deepseek/deepseek-chat"
+
+    # An already-qualified id is never re-qualified.
+    command = _runner()._build_pi_command(
+        resume_thread_id=None,
+        options=RunnerOptions(model="anthropic/claude-opus-5"),
+    )
+    assert command[command.index("--model") + 1] == "anthropic/claude-opus-5"
 
 
 def test_pi_read_only_allows_only_builtin_read_tools_and_strips_overrides(

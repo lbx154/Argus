@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from argus_skill.adapters.agent_cli_backend import _needed_for_live_progress
+from argus_skill.agent_cli import _sandbox_commands as sandbox_commands
 from argus_skill.agent_cli import agent_cli_runner as runner_mod
 from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
 from argus_skill.agent_cli.runner_backend import BACKEND_OPENCODE
@@ -58,13 +59,44 @@ def test_opencode_full_auto_uses_explicit_full_access_agent() -> None:
     assert config["agent"]["argus-full-access"]["permission"] == {"*": "allow"}
 
 
-def test_opencode_defers_bare_model_to_its_own_config() -> None:
-    command = _runner()._build_opencode_command(
-        resume_thread_id=None,
-        options=RunnerOptions(model="gpt-5.5"),
-    )
+def test_opencode_defers_bare_model_to_its_own_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Still dropped — ``opencode run --model`` only accepts ``provider/id`` —
+    but no longer SILENTLY. Dropping it means the operator's configured model
+    knob is a no-op and OpenCode quietly runs its own default instead, which is
+    indistinguishable from Argus honouring the setting."""
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
+    monkeypatch.delenv("ARGUS_SKILL_OPENCODE_PROVIDER", raising=False)
+    sandbox_commands.reset_unqualified_model_warnings()
+
+    with caplog.at_level("WARNING"):
+        command = _runner()._build_opencode_command(
+            resume_thread_id=None,
+            options=RunnerOptions(model="gpt-5.5"),
+        )
 
     assert "--model" not in command
+    assert "ARGUS_SKILL_OPENCODE_PROVIDER" in caplog.text
+
+
+def test_opencode_bare_model_uses_configured_provider_prefix(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Symmetric with ``ARGUS_SKILL_PI_PROVIDER``: naming the provider makes the
+    operator's model knob actually reach OpenCode."""
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
+    monkeypatch.setenv("ARGUS_SKILL_OPENCODE_PROVIDER", "deepseek")
+
+    command = _runner()._build_opencode_command(
+        resume_thread_id=None,
+        options=RunnerOptions(model="deepseek-chat"),
+    )
+
+    assert command[command.index("--model") + 1] == "deepseek/deepseek-chat"
 
 
 def test_opencode_read_only_uses_restricted_agent_and_strips_override() -> None:

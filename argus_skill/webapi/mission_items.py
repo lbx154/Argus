@@ -452,6 +452,12 @@ _CONFIG_ALIASES = {
     "reviewer_backend": "ARGUS_SKILL_REVIEWER_BACKEND",
     "planner_backend": "ARGUS_SKILL_PLANNER_BACKEND",
     "manager_backend": "ARGUS_SKILL_MANAGER_BACKEND",
+    # Which provider catalog the multi-provider CLIs buy from. Without these
+    # the operator can pick the backend from the cockpit but not the account
+    # behind it, which is how a Pi pointed at a non-default provider ends up
+    # unusable with no visible setting to blame.
+    "pi_provider": "ARGUS_SKILL_PI_PROVIDER",
+    "opencode_provider": "ARGUS_SKILL_OPENCODE_PROVIDER",
     "model": "ARGUS_SKILL_MODEL",
     "engineer_model": "ARGUS_SKILL_ENGINEER_MODEL",
     "reviewer_model": "ARGUS_SKILL_REVIEWER_MODEL",

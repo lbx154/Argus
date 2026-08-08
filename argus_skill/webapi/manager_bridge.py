@@ -370,13 +370,7 @@ def manager_plan(
     global_root: Path | str | None = None,
 ) -> dict[str, Any]:
     """Draft one bounded execution plan through the configured Planner role."""
-    from ..agent_cli.runner_backend import normalize_runner_backend
-    from ..core.knobs import (
-        resolve_knob,
-        resolve_role_backend,
-        resolve_role_model,
-        resolve_role_reasoning_effort,
-    )
+    from ..core.knobs import resolve_role_reasoning_effort
     from ..life.memory import MemoryBundle
     from ..manager.front_door import _ensure_manager_runner
     from ..manager.plan_mode import draft_plan
@@ -397,25 +391,7 @@ def manager_plan(
         state = _chat_state_for(sid)
         runner = _ensure_manager_runner(state, mem)
         backend = getattr(runner, "planner_backend", None) if runner is not None else None
-        planner_model = resolve_role_model(
-            "planner",
-            role_env="ARGUS_SKILL_PLAN_MODEL",
-        )
-        preview_model = resolve_knob(
-            "ARGUS_SKILL_PLAN_PREVIEW_MODEL",
-            "auto",
-        ).value.strip()
-        if preview_model.lower() in {"", "auto", "inherit", "default"}:
-            planner_backend = normalize_runner_backend(
-                resolve_role_backend("planner")
-            )
-            model = (
-                "gpt-5.4-mini"
-                if planner_backend in {"codex", "copilot", "pi"}
-                else planner_model
-            )
-        else:
-            model = preview_model
+        model = _plan_preview_model()
         effort = resolve_role_reasoning_effort(
             "ARGUS_SKILL_PLAN_PREVIEW_REASONING_EFFORT",
             default="low",
@@ -487,33 +463,40 @@ def _rewrite_project_context(mem: Any, sid: str) -> str:
     return "\n".join(lines)
 
 
+def _plan_preview_model() -> str:
+    """Resolve the interactive ``/plan`` preview route.
+
+    The preview is a fast sketch shown while the operator is still typing, so
+    it wants a compact model — but only a backend that actually serves the
+    OpenAI catalog can be handed an OpenAI id. See
+    ``core.knobs.resolve_cheap_route_model``.
+    """
+    from ..core.knobs import resolve_cheap_route_model
+
+    return resolve_cheap_route_model(
+        knob="ARGUS_SKILL_PLAN_PREVIEW_MODEL",
+        catalog_default="gpt-5.4-mini",
+        role="planner",
+        role_env="ARGUS_SKILL_PLAN_MODEL",
+    )
+
+
 def _rewrite_model_and_effort() -> tuple[str, str]:
     """Resolve the interactive prompt-rewrite route independently of Manager chat."""
-    from ..agent_cli.runner_backend import normalize_runner_backend
     from ..core.knobs import (
-        resolve_knob,
-        resolve_role_backend,
-        resolve_role_model,
+        resolve_cheap_route_model,
         resolve_role_reasoning_effort,
     )
 
-    manager_model = resolve_role_model(
-        "manager",
+    model = resolve_cheap_route_model(
+        knob="ARGUS_SKILL_REWRITE_MODEL",
+        # Rewrite has always used the full mid-tier id here rather than the
+        # mini the other three cheap routes take; keep that on the backends
+        # where it resolves, and fall back to the Manager model elsewhere.
+        catalog_default="gpt-5.5",
+        role="manager",
         role_env="ARGUS_SKILL_MANAGER_MODEL",
     )
-    preview_model = resolve_knob(
-        "ARGUS_SKILL_REWRITE_MODEL",
-        "gpt-5.5",
-    ).value.strip()
-    if preview_model.lower() in {"", "auto", "inherit", "default"}:
-        manager_backend = normalize_runner_backend(resolve_role_backend("manager"))
-        model = (
-            "gpt-5.4-mini"
-            if manager_backend in {"codex", "copilot", "pi"}
-            else manager_model
-        )
-    else:
-        model = preview_model
     effort = resolve_role_reasoning_effort(
         "ARGUS_SKILL_REWRITE_REASONING_EFFORT",
         default="high",

@@ -228,3 +228,104 @@ def test_profile_persistence_only_accepts_ready_report(monkeypatch) -> None:
             "ARGUS_SKILL_BACKEND_VALIDATED_VERSION": "1.0.74",
         }
     ]
+
+
+def _fake_pi(monkeypatch, catalog: str, *, version: str = "0.83.0") -> None:
+    monkeypatch.setattr(readiness, "resolve_runner_bin", lambda *_args: "/bin/pi")
+
+    def run(command, *, timeout_s, input_text=None):
+        del timeout_s, input_text
+        if command[-1] == "--version":
+            return _completed(f"{version}\n")
+        assert command[-1] == "--list-models"
+        return _completed(catalog)
+
+    monkeypatch.setattr(readiness, "_run_text", run)
+
+
+_PI_CATALOG = (
+    "provider model context max-out thinking images\n"
+    "deepseek deepseek-chat 128K 8K yes no\n"
+    "deepseek deepseek-reasoner 128K 64K yes no\n"
+    "anthropic claude-opus-5 1M 128K yes yes\n"
+    "copilot-forward claude-opus-5 1M 64K yes yes\n"
+)
+
+
+def test_pi_readiness_flags_a_provider_that_is_not_authenticated(
+    monkeypatch, tmp_path
+) -> None:
+    """The gap this closes: ``--list-models`` succeeding meant READY, so a stale
+    or mistyped provider prefix passed the doctor and then failed EVERY call
+    with ``No API key found for <provider>``."""
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
+    monkeypatch.setenv("ARGUS_SKILL_PI_PROVIDER", "github-copilot")
+    _fake_pi(monkeypatch, _PI_CATALOG)
+
+    report = readiness.check_backend_readiness("pi", "subscription_cli")
+
+    assert not report.ok
+    problem = next(p for p in report.problems if p.capability == "pi provider")
+    assert "github-copilot" in problem.detail
+    assert "deepseek" in problem.detail  # names the providers that DO exist
+    assert "ARGUS_SKILL_PI_PROVIDER" in problem.remediation
+
+
+def test_pi_readiness_accepts_an_authenticated_provider(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
+    monkeypatch.setenv("ARGUS_SKILL_PI_PROVIDER", "deepseek")
+    monkeypatch.setenv("ARGUS_SKILL_MODEL", "deepseek-chat")
+    _fake_pi(monkeypatch, _PI_CATALOG)
+
+    report = readiness.check_backend_readiness("pi", "subscription_cli")
+
+    assert report.ok, [p.detail for p in report.problems]
+    assert not report.warnings
+
+
+def test_pi_readiness_warns_when_a_bare_model_is_ambiguous(
+    monkeypatch, tmp_path
+) -> None:
+    """Pi still resolves it, so this is a warning rather than a hard failure —
+    but the operator should know which catalog they are actually buying from."""
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
+    monkeypatch.delenv("ARGUS_SKILL_PI_PROVIDER", raising=False)
+    monkeypatch.setenv("ARGUS_SKILL_MODEL", "claude-opus-5")
+    _fake_pi(monkeypatch, _PI_CATALOG)
+
+    report = readiness.check_backend_readiness("pi", "subscription_cli")
+
+    assert report.ok
+    assert any(
+        "claude-opus-5" in warning and "ARGUS_SKILL_PI_PROVIDER" in warning
+        for warning in report.warnings
+    ), report.warnings
+
+
+def test_pi_readiness_warns_when_no_catalog_carries_the_model(
+    monkeypatch, tmp_path
+) -> None:
+    """A warning, not a failure: ``pi --model`` also accepts fuzzy patterns, so
+    an id missing from the table can still resolve. The operator gets the
+    diagnostic without a false red doctor."""
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
+    monkeypatch.delenv("ARGUS_SKILL_PI_PROVIDER", raising=False)
+    monkeypatch.setenv("ARGUS_SKILL_MODEL", "gpt-5.4-mini")
+    _fake_pi(monkeypatch, _PI_CATALOG)
+
+    report = readiness.check_backend_readiness("pi", "subscription_cli")
+
+    assert report.ok
+    assert any("gpt-5.4-mini" in warning for warning in report.warnings)
+
+
+def test_pi_readiness_warns_once_per_distinct_model(monkeypatch, tmp_path) -> None:
+    """Four roles usually share one id — say it once, not four times."""
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
+    monkeypatch.delenv("ARGUS_SKILL_PI_PROVIDER", raising=False)
+    monkeypatch.setenv("ARGUS_SKILL_MODEL", "claude-opus-5")
+    _fake_pi(monkeypatch, _PI_CATALOG)
+
+    report = readiness.check_backend_readiness("pi", "subscription_cli")
+
+    assert len(report.warnings) == 1, report.warnings
