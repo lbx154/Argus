@@ -5,18 +5,19 @@ import shutil
 from pathlib import Path
 from typing import Literal
 
-RunnerBackend = Literal["codex", "claude", "copilot", "opencode", "pi"]
+RunnerBackend = Literal["codex", "claude", "copilot", "opencode", "pi", "grok"]
 
 BACKEND_CODEX: RunnerBackend = "codex"
 BACKEND_CLAUDE: RunnerBackend = "claude"
 BACKEND_COPILOT: RunnerBackend = "copilot"
 BACKEND_OPENCODE: RunnerBackend = "opencode"
 BACKEND_PI: RunnerBackend = "pi"
+BACKEND_GROK: RunnerBackend = "grok"
 DEFAULT_RUNNER_BACKEND: RunnerBackend = BACKEND_CODEX
 
 
 def normalize_runner_backend(raw: str | None) -> RunnerBackend:
-    value = str(raw or "").strip().lower()
+    value = str(raw or "").strip().lower().replace("_", "-")
     if value == BACKEND_CLAUDE:
         return BACKEND_CLAUDE
     if value == BACKEND_COPILOT:
@@ -25,6 +26,8 @@ def normalize_runner_backend(raw: str | None) -> RunnerBackend:
         return BACKEND_OPENCODE
     if value == BACKEND_PI:
         return BACKEND_PI
+    if value in (BACKEND_GROK, "grok-build"):
+        return BACKEND_GROK
     return BACKEND_CODEX
 
 
@@ -37,6 +40,8 @@ def default_runner_bin(backend: RunnerBackend) -> str:
         return "opencode"
     if backend == BACKEND_PI:
         return "pi"
+    if backend == BACKEND_GROK:
+        return "grok"
     return "codex"
 
 
@@ -59,6 +64,10 @@ def resolve_runner_bin(
         opencode_home = Path.home() / ".opencode" / "bin" / expanded
         if opencode_home.is_file() and os.access(opencode_home, os.X_OK):
             return str(opencode_home)
+    if chosen == BACKEND_GROK:
+        grok_home = Path.home() / ".grok" / "bin" / expanded
+        if grok_home.is_file() and os.access(grok_home, os.X_OK):
+            return str(grok_home)
     user_local = Path.home() / ".local" / "bin" / expanded
     if user_local.is_file() and os.access(user_local, os.X_OK):
         return str(user_local)

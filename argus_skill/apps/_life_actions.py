@@ -11,7 +11,7 @@ from typing import Any, Mapping, Sequence
 
 from ..life import BacklogItem
 
-_LIFE_BACKENDS = ("codex", "claude", "copilot", "opencode", "pi", "memory")
+_LIFE_BACKENDS = ("codex", "claude", "copilot", "opencode", "pi", "grok", "memory")
 
 
 def format_backlog_list(mem: Any, *, include_all: bool) -> str:
@@ -354,6 +354,8 @@ def render_backend_cmd(tokens: Sequence[str], chat_state: dict[str, Any]) -> str
     new = tokens[0].lower()
     if new == "opencod":
         new = "opencode"
+    if new in {"grok-build", "grok_build"}:
+        new = "grok"
     if new in _LIFE_BACKENDS:
         state = chat_state.get("continuous_state")
         if isinstance(state, ContinuousConfigState):

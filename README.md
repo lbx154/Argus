@@ -99,7 +99,7 @@ argus --setup --non-interactive \
   --accept-house-rules
 ```
 
-Use `copilot`, `pi`, `codex`, `claude`, or `opencode` for `--backend`.
+Use `copilot`, `pi`, `codex`, `claude`, `opencode`, or `grok` for `--backend`.
 
 #### Choosing a provider on the multi-provider CLIs
 

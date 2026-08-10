@@ -52,7 +52,7 @@ class AgentCliBackend:
     """``RunnerBackend`` implementation that shells out to a real CLI.
 
     Construct once with the runner backend choice ("codex" / "claude" /
-    "copilot" / "opencode" / "pi") and any cross-call defaults (e.g. ``default_extra_args``
+    "copilot" / "opencode" / "pi" / "grok") and any cross-call defaults (e.g. ``default_extra_args``
     for ``-c "config_profile=..."``), then pass the same instance to
     every ``SkillLoop`` actor (author / engineer / reviewer). Each
     ``run_exec`` call spawns a fresh subprocess.
@@ -65,10 +65,10 @@ class AgentCliBackend:
     enough).
 
     Args:
-        backend: which CLI to drive ("codex" / "claude" / "copilot" / "opencode" / "pi").
+        backend: which CLI to drive ("codex" / "claude" / "copilot" / "opencode" / "pi" / "grok").
             Defaults to the bundled runner's default (codex).
         runner_bin: explicit path to the CLI binary. Default: resolve
-            from ``$PATH`` (e.g. ``codex`` / ``claude`` / ``copilot`` / ``opencode`` / ``pi``).
+            from ``$PATH`` (e.g. ``codex`` / ``claude`` / ``copilot`` / ``opencode`` / ``pi`` / ``grok``).
         default_extra_args: appended to every command (after
             ``options.extra_args``). Useful for global ``-c`` flags.
         before_exec: called before each subprocess spawn — used to reset

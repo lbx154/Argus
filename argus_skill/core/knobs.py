@@ -63,7 +63,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob(
         "ARGUS_SKILL_LIFE_BACKEND",
         "codex",
-        "agent backend: codex | copilot | claude | opencode | pi | memory (test only)",
+        "agent backend: codex | copilot | claude | opencode | pi | grok | memory (test only)",
         "backend",
     ),
     Knob("ARGUS_SKILL_RUNNER_BIN", "(agent CLI on PATH)", "absolute path to the agent CLI binary", "backend"),
@@ -421,9 +421,11 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
         backend = raw.lower()
         if backend == "opencod":
             backend = "opencode"
-        if backend not in {"codex", "claude", "copilot", "opencode", "pi"}:
+        if backend in {"grok-build", "grok_build"}:
+            backend = "grok"
+        if backend not in {"codex", "claude", "copilot", "opencode", "pi", "grok"}:
             raise ValueError(
-                f"{name} must be codex, claude, copilot, opencode, or pi"
+                f"{name} must be codex, claude, copilot, opencode, pi, or grok"
             )
         return backend
     if name in _EFFORT_KNOBS:
@@ -557,7 +559,7 @@ def resolve_role_model(
 
 
 def resolve_role_backend(role: str, *, env: Mapping[str, str] | None = None) -> str:
-    """Resolve a role's agent-CLI backend (codex / claude / copilot / opencode / pi / memory)
+    """Resolve a role's agent-CLI backend (codex / claude / copilot / opencode / pi / grok / memory)
     using Argus's runtime precedence.
 
     Precedence: role-specific override (``ARGUS_SKILL_<ROLE>_BACKEND``) ->

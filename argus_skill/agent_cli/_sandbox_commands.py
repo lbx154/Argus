@@ -18,6 +18,7 @@ from .runner_backend import (
     BACKEND_CLAUDE,
     BACKEND_CODEX,
     BACKEND_COPILOT,
+    BACKEND_GROK,
     BACKEND_OPENCODE,
     BACKEND_PI,
     RunnerBackend,
@@ -247,6 +248,10 @@ class CommandBuilderMixin:
             return self._build_pi_command(
                 resume_thread_id=resume_thread_id, options=options
             )
+        if self.backend == BACKEND_GROK:
+            return self._build_grok_command(
+                resume_thread_id=resume_thread_id, options=options
+            )
         return self._build_codex_command(resume_thread_id=resume_thread_id, options=options)
 
     def _apply_sandbox_policy(self, options):
@@ -269,6 +274,7 @@ class CommandBuilderMixin:
             BACKEND_COPILOT,
             BACKEND_OPENCODE,
             BACKEND_PI,
+            BACKEND_GROK,
         ):
             return options
         if options.sandbox_mode is not None:
@@ -579,4 +585,49 @@ class CommandBuilderMixin:
             command.extend(["--session", resume_thread_id])
         # Pi reads non-TTY stdin into the initial message in JSON mode. Keeping
         # the prompt out of argv avoids E2BIG and process-list disclosure.
+        return command
+
+    def _build_grok_command(
+        self,
+        *,
+        resume_thread_id: str | None,
+        options,
+    ) -> list[str]:
+        """Build a Grok Build headless turn.
+
+        Prompt text is injected later via ``--prompt-file`` in
+        ``_prepare_prompt_delivery`` so large role prompts never hit ARG_MAX.
+        Stream format reuses the Claude-compatible Messages NDJSON dialect.
+        """
+        command = [
+            self.agent_bin,
+            "--output-format",
+            "streaming-messages-json",
+            "--no-auto-update",
+        ]
+        if options.model:
+            command.extend(["--model", options.model])
+        if options.reasoning_effort:
+            command.extend(["--reasoning-effort", options.reasoning_effort])
+        if options.working_dir:
+            command.extend(["--cwd", options.working_dir])
+        if options.sandbox_mode == "read-only":
+            # Tool ids from Grok's headless init payload (not Claude names).
+            command.extend(["--tools", "read_file,grep,list_dir"])
+        elif options.dangerous_yolo:
+            command.extend(["--permission-mode", "bypassPermissions"])
+        elif options.full_auto:
+            command.extend(["--permission-mode", "acceptEdits"])
+        merged_extra_args = [*self.default_extra_args]
+        if options.extra_args:
+            merged_extra_args.extend(options.extra_args)
+        if options.sandbox_mode == "read-only":
+            merged_extra_args = _read_only_extra_args(
+                merged_extra_args,
+                backend=BACKEND_GROK,
+            )
+        if merged_extra_args:
+            command.extend(merged_extra_args)
+        if resume_thread_id:
+            command.extend(["--resume", resume_thread_id])
         return command

@@ -96,7 +96,7 @@ argus --setup --non-interactive \
   --accept-house-rules
 ```
 
-`--backend` 可使用 `copilot`、`pi`、`codex`、`claude` 或 `opencode`。
+`--backend` 可使用 `copilot`、`pi`、`codex`、`claude`、`opencode` 或 `grok`。
 
 #### 为多 provider 的 CLI 指定 provider
 

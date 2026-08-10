@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import tempfile
+from pathlib import Path
 
 from ..core.sandbox import sandboxed_child_env
 from ._sandbox_commands import (
@@ -14,6 +16,7 @@ from .copilot_home import apply_copilot_home
 from .runner_backend import (
     BACKEND_CLAUDE,
     BACKEND_COPILOT,
+    BACKEND_GROK,
     BACKEND_OPENCODE,
     BACKEND_PI,
 )
@@ -125,11 +128,66 @@ class PromptDeliveryMixin:
         except OSError:
             return
 
+    def _cleanup_ephemeral_prompt_files(self) -> None:
+        """Remove temporary prompt files written for backends such as Grok."""
+        paths = getattr(self, "_ephemeral_prompt_files", None)
+        if not paths:
+            return
+        remaining: list[str] = []
+        for raw in paths:
+            try:
+                Path(raw).unlink(missing_ok=True)
+            except OSError:
+                remaining.append(raw)
+        self._ephemeral_prompt_files = remaining
+
+    def _write_grok_prompt_file(self, prompt: str) -> str:
+        """Persist the role prompt for ``grok --prompt-file`` delivery."""
+        try:
+            from ..core.paths import global_root
+
+            directory = global_root() / "tmp"
+            directory.mkdir(parents=True, exist_ok=True)
+            fd, path = tempfile.mkstemp(
+                prefix="grok-prompt-",
+                suffix=".txt",
+                dir=str(directory),
+            )
+        except OSError:
+            fd, path = tempfile.mkstemp(prefix="grok-prompt-", suffix=".txt")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(prompt)
+                if not prompt.endswith("\n"):
+                    handle.write("\n")
+        except Exception:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            try:
+                Path(path).unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
+        files = getattr(self, "_ephemeral_prompt_files", None)
+        if files is None:
+            self._ephemeral_prompt_files = [path]
+        else:
+            files.append(path)
+        return path
+
     def _prepare_prompt_delivery(
         self,
         command: list[str],
         prompt: str,
     ) -> tuple[list[str], str | None]:
+        if self.backend == BACKEND_GROK:
+            prepared = list(command)
+            path = self._write_grok_prompt_file(prompt)
+            prepared.extend(["--prompt-file", path])
+            # Prompt lives on disk; close stdin without writing it.
+            return prepared, None
         if self.backend != BACKEND_CLAUDE:
             return command, prompt
         prepared = list(command)

@@ -27,14 +27,19 @@ SETUP_EXIT_USAGE = 2
 SETUP_EXIT_NOT_READY = 3
 SETUP_EXIT_PERSISTENCE = 4
 
-_SUPPORTED_BACKENDS = frozenset({"codex", "copilot", "claude", "opencode", "pi"})
+_SUPPORTED_BACKENDS = frozenset(
+    {"codex", "copilot", "claude", "opencode", "pi", "grok"}
+)
 _VERSION_RE = re.compile(
     r"(?<!\d)(\d+)\.(\d+)\.(\d+)(?:[-+]([0-9A-Za-z.-]+))?"
 )
+# Also accept two-part versions such as "grok 1.0.0" or bare "1.0".
+_VERSION_RE_LOOSE = re.compile(r"(?<!\d)(\d+)\.(\d+)(?:\.(\d+))?(?:[-+]([0-9A-Za-z.-]+))?")
 _AUTH_COMMANDS: dict[str, tuple[str, ...]] = {
     "codex": ("login", "status"),
     "claude": ("auth", "status"),
     "opencode": ("auth", "list"),
+    "grok": ("models",),
 }
 _INSTALL_COMMANDS = {
     "codex": "npm install -g @openai/codex@latest",
@@ -42,6 +47,7 @@ _INSTALL_COMMANDS = {
     "claude": "npm install -g @anthropic-ai/claude-code",
     "opencode": "curl -fsSL https://opencode.ai/install | bash",
     "pi": "npm install -g --ignore-scripts @earendil-works/pi-coding-agent",
+    "grok": "install the official Grok Build CLI (binary name: grok)",
 }
 _LOGIN_COMMANDS = {
     "codex": "codex login",
@@ -49,6 +55,7 @@ _LOGIN_COMMANDS = {
     "claude": "claude auth login",
     "opencode": "opencode auth login",
     "pi": "pi, then /login",
+    "grok": "grok login",
 }
 
 
@@ -130,7 +137,8 @@ def resolve_backend_profile(
     raw_backend = str(backend_value or "codex").strip().lower()
     normalized_backend = (
         normalize_runner_backend(raw_backend)
-        if raw_backend in _SUPPORTED_BACKENDS or raw_backend == "opencod"
+        if raw_backend in _SUPPORTED_BACKENDS
+        or raw_backend in {"opencod", "grok-build", "grok_build"}
         else raw_backend
     )
 
@@ -177,14 +185,23 @@ def _run_text(
 
 def _extract_version(text: str) -> tuple[str, tuple[int, int, int], str] | None:
     match = _VERSION_RE.search(text)
-    if match is None:
+    if match is not None:
+        version = match.group(0)
+        return (
+            version,
+            (int(match.group(1)), int(match.group(2)), int(match.group(3))),
+            str(match.group(4) or ""),
+        )
+    # Grok prints "grok 1.0.0 (hash)"; accept two- or three-part forms.
+    loose = _VERSION_RE_LOOSE.search(text)
+    if loose is None:
         return None
-    version = match.group(0)
-    return (
-        version,
-        (int(match.group(1)), int(match.group(2)), int(match.group(3))),
-        str(match.group(4) or ""),
-    )
+    major = int(loose.group(1))
+    minor = int(loose.group(2))
+    patch = int(loose.group(3) or 0)
+    prerelease = str(loose.group(4) or "")
+    rendered = f"{major}.{minor}.{patch}" if loose.group(3) is not None else f"{major}.{minor}.0"
+    return rendered, (major, minor, patch), prerelease
 
 
 def _parse_pi_model_catalog(stdout: str) -> dict[str, set[str]]:
@@ -450,7 +467,7 @@ def check_backend_readiness(
             ReadinessProblem(
                 "backend",
                 f"unsupported backend {profile.backend!r}",
-                "choose one of: codex, copilot, claude, opencode, pi",
+                "choose one of: codex, copilot, claude, opencode, pi, grok",
             )
         )
         return report

@@ -1,4 +1,4 @@
-"""Vendored low-level codex/claude/copilot/opencode/pi CLI driver.
+"""Vendored low-level codex/claude/copilot/opencode/pi/grok CLI driver.
 
 ``AgentCliRunner`` and ``RunnerOptions`` are the two public names callers
 import from this module (``argus_skill.adapters.agent_cli_backend`` wraps
@@ -94,7 +94,7 @@ class AgentCliRunner(
     OpenCodeRecoveryMixin,
     ProcessControlMixin,
 ):
-    """Drives one codex/claude/copilot/opencode/pi CLI turn.
+    """Drives one codex/claude/copilot/opencode/pi/grok CLI turn.
 
     This class itself only owns construction and ACP-scope state; every other
     behavior comes from the mixins above (each documented in its own module):

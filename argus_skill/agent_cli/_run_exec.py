@@ -87,37 +87,44 @@ class RunExecMixin:
     ) -> AgentRunResult:
         if self.before_exec is not None:
             self.before_exec()
-        gated = self._run_exec_start_gate(resume_thread_id=resume_thread_id, options=options)
-        if gated is not None:
-            return gated
-        # Warm-copilot fast path: Manager front-door classify + direct replies go
-        # through a persistent ``copilot --acp`` process.  The ACP client keeps
-        # the classifier and conversation in separate logical sessions.
-        if self._acp_enabled(run_label, options):
-            acp_result = self._run_exec_acp(
-                prompt=prompt,
-                resume_thread_id=resume_thread_id,
+        try:
+            gated = self._run_exec_start_gate(
+                resume_thread_id=resume_thread_id, options=options
+            )
+            if gated is not None:
+                return gated
+            # Warm-copilot fast path: Manager front-door classify + direct replies go
+            # through a persistent ``copilot --acp`` process.  The ACP client keeps
+            # the classifier and conversation in separate logical sessions.
+            if self._acp_enabled(run_label, options):
+                acp_result = self._run_exec_acp(
+                    prompt=prompt,
+                    resume_thread_id=resume_thread_id,
+                    options=options,
+                    run_label=run_label,
+                )
+                if acp_result is not None:
+                    return acp_result
+            options = self._apply_sandbox_policy(options)
+            command, process, spawn_failure = self._spawn_turn_process(
+                prompt=prompt, resume_thread_id=resume_thread_id, options=options
+            )
+            if spawn_failure is not None:
+                return spawn_failure
+            state = self._stream_turn_output(
+                process=process,
+                command=command,
                 options=options,
                 run_label=run_label,
+                thread_id=resume_thread_id,
             )
-            if acp_result is not None:
-                return acp_result
-        options = self._apply_sandbox_policy(options)
-        command, process, spawn_failure = self._spawn_turn_process(
-            prompt=prompt, resume_thread_id=resume_thread_id, options=options
-        )
-        if spawn_failure is not None:
-            return spawn_failure
-        state = self._stream_turn_output(
-            process=process,
-            command=command,
-            options=options,
-            run_label=run_label,
-            thread_id=resume_thread_id,
-        )
-        return self._finalize_turn_result(
-            process=process, command=command, options=options, state=state
-        )
+            return self._finalize_turn_result(
+                process=process, command=command, options=options, state=state
+            )
+        finally:
+            cleanup = getattr(self, "_cleanup_ephemeral_prompt_files", None)
+            if callable(cleanup):
+                cleanup()
 
     @classmethod
     def _cleanup_orphan_process_group(

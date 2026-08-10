@@ -7,7 +7,13 @@ from __future__ import annotations
 
 import json
 
-from .runner_backend import BACKEND_CLAUDE, BACKEND_COPILOT, BACKEND_OPENCODE, BACKEND_PI
+from .runner_backend import (
+    BACKEND_CLAUDE,
+    BACKEND_COPILOT,
+    BACKEND_GROK,
+    BACKEND_OPENCODE,
+    BACKEND_PI,
+)
 
 
 class EventConsumerMixin:
@@ -110,6 +116,17 @@ class EventConsumerMixin:
         fatal_error: str | None,
     ) -> tuple[str | None, bool, bool, str | None]:
         if self.backend == BACKEND_CLAUDE:
+            return self._consume_claude_event(
+                event=event,
+                thread_id=thread_id,
+                agent_messages=agent_messages,
+                turn_completed=turn_completed,
+                turn_failed=turn_failed,
+                fatal_error=fatal_error,
+            )
+        if self.backend == BACKEND_GROK:
+            # Grok --output-format streaming-messages-json matches the Claude
+            # Messages NDJSON dialect (assistant / result events).
             return self._consume_claude_event(
                 event=event,
                 thread_id=thread_id,
