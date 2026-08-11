@@ -35,7 +35,7 @@ NATIVE_WINDOWS_SHELL_CONTRACT = (
 )
 
 NATIVE_WINDOWS_SHELL_SUMMARY = (
-    "Native Windows: use PowerShell 5.1, no POSIX chains, and npm.cmd/npx.cmd."
+    "Win PS5.1: no ||; npm.cmd/npx.cmd."
 )
 
 

@@ -25,7 +25,7 @@ def test_windows_contract_requires_powershell_51_and_cmd_shims() -> None:
     assert "Do not change or bypass the PowerShell execution policy" in contract
     assert native_shell_contract(platform_name="posix") == ""
     assert native_shell_summary(platform_name="nt") == (
-        "Native Windows: use PowerShell 5.1, no POSIX chains, and npm.cmd/npx.cmd."
+        "Win PS5.1: no ||; npm.cmd/npx.cmd."
     )
     assert native_shell_summary(platform_name="posix") == ""
 
@@ -43,7 +43,9 @@ def test_windows_command_formatter_uses_call_operator_and_powershell_quotes() ->
 
 def test_engineer_and_bounded_planner_receive_windows_contract(monkeypatch) -> None:
     contract = native_shell_contract(platform_name="nt")
+    summary = native_shell_summary(platform_name="nt")
     monkeypatch.setattr(engineer_prompts, "native_shell_contract", lambda: contract)
+    monkeypatch.setattr(engineer_prompts, "native_shell_summary", lambda: summary)
     monkeypatch.setattr(planner_prompts, "native_shell_contract", lambda: contract)
 
     engineer = engineer_prompts.build_mission_prompt(
@@ -59,7 +61,8 @@ def test_engineer_and_bounded_planner_receive_windows_contract(monkeypatch) -> N
     )
     planner = planner_prompts.build_bounded_dag_prompt("repair the command path")
 
-    assert contract in engineer
+    assert summary in engineer
+    assert contract not in engineer
     assert contract in continuation
     assert contract in planner
 
