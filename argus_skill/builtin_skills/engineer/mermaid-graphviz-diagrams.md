@@ -48,12 +48,25 @@ deliverable is an editable presentation or publication-specific figure.
 
 ## Rendering
 
+POSIX shell:
+
 ```bash
 # Mermaid: use a project-local package when possible
 npx --yes @mermaid-js/mermaid-cli \
   -i docs/architecture.mmd -o docs/architecture.svg -b transparent
 
 # Graphviz
+dot -Tsvg docs/dependencies.dot -o docs/dependencies.svg
+dot -Tpdf docs/dependencies.dot -o docs/dependencies.pdf
+```
+
+Windows PowerShell:
+
+```powershell
+# Use the .cmd shim explicitly so PowerShell never selects npx.ps1.
+npx.cmd --yes @mermaid-js/mermaid-cli `
+  -i docs/architecture.mmd -o docs/architecture.svg -b transparent
+
 dot -Tsvg docs/dependencies.dot -o docs/dependencies.svg
 dot -Tpdf docs/dependencies.dot -o docs/dependencies.pdf
 ```

@@ -27,16 +27,28 @@ dependency to satisfy the checklist.
 - Record the interpreter/runtime/compiler executable and version.
 - Confirm dependencies import or execute from the project environment rather
   than the Argus framework environment.
-- For Python projects, prefer `./.venv/bin/python` when the project uses a venv.
+- For Python projects with a venv, prefer `./.venv/bin/python` on POSIX or
+  `.\.venv\Scripts\python.exe` on Windows.
 - Record package-lock and configuration versions when they are claim-relevant.
 
-Example:
+POSIX-shell example:
 
 ```bash
 pwd
 command -v python || true
 python -V || true
 test -x .venv/bin/python && .venv/bin/python -V || true
+```
+
+Windows PowerShell example (compatible with Windows PowerShell 5.1):
+
+```powershell
+Get-Location
+Get-Command python -ErrorAction SilentlyContinue
+python -V
+if (Test-Path -LiteralPath '.\.venv\Scripts\python.exe') {
+  & '.\.venv\Scripts\python.exe' -V
+}
 ```
 
 ### 2. Public evidence source
@@ -83,6 +95,14 @@ nvidia-smi --query-gpu=index,name,memory.free --format=csv,noheader
 import torch
 print(torch.__version__, torch.cuda.is_available(), torch.cuda.device_count())
 PY
+```
+
+On Windows PowerShell, use the project interpreter and `-c` instead of a
+POSIX heredoc:
+
+```powershell
+nvidia-smi --query-gpu=index,name,memory.free --format=csv,noheader
+& '.\.venv\Scripts\python.exe' -c 'import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.device_count())'
 ```
 
 GPU checks are `NOT_APPLICABLE` for CPU-only, API-only, theoretical, or

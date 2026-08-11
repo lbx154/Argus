@@ -31,6 +31,7 @@ from argus_skill.engineer.runner import (
     SupervisedEngineer,
 )
 from argus_skill.reviewer import Reviewer, ReviewerConfig
+from argus_skill.roles.task_contract import format_native_shell_command
 from argus_skill.skills.vertical_select import persist_vertical
 
 _LOG_PATH = "/abs/global/projects/deadbeef/events.jsonl"
@@ -100,8 +101,19 @@ def test_audit_recipes_scope_searches_to_current_engineer_call(monkeypatch) -> N
     )
 
     assert f"Current engineer call id: `{_CALL_ID}`" in p
-    assert f"'{sys.executable}' -I -m argus_skill.tools.event_log_query" in p
-    assert f"--log '{_LOG_PATH}' --call-id '{_CALL_ID}'" in p
+    expected = format_native_shell_command(
+        [
+            sys.executable,
+            "-I",
+            "-m",
+            "argus_skill.tools.event_log_query",
+            "--log",
+            _LOG_PATH,
+            "--call-id",
+            _CALL_ID,
+        ]
+    )
+    assert expected in p
     assert "rg -F" not in p
     assert "\n    grep -nE 'use_attach" not in p
     assert "\n    grep -nE 'pytest" not in p

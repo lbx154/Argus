@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import shlex
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -11,6 +10,7 @@ from ...core.model_visible_text import (
     MODEL_INTEGRITY_BOUNDARY,
     sanitize_model_visible_text,
 )
+from ..task_contract import format_native_shell_command
 from .types import ChecklistMode, RoleName, RolePromptRequest
 
 FRONT_DOOR = "front_door"
@@ -852,11 +852,16 @@ def manager_workspace_capability_prompt(
         project_root,
         manifest_root=manifest_root,
     )
-    workspace_q = shlex.quote(str(context["workspace"]))
-    state_q = shlex.quote(str(context["state_root"]))
-    tool = (
-        "python -m argus_skill.tools.manager_live_view "
-        f"--workspace {workspace_q} --state-dir {state_q}"
+    tool = format_native_shell_command(
+        [
+            "python",
+            "-m",
+            "argus_skill.tools.manager_live_view",
+            "--workspace",
+            str(context["workspace"]),
+            "--state-dir",
+            str(context["state_root"]),
+        ]
     )
     return (
         "## Manager workspace and rendering authority\n"
