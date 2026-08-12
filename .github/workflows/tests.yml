@@ -160,6 +160,16 @@ jobs:
         run: |
           ./desktop/scripts/build-backend.ps1 -SkipInstall
           npm --prefix desktop run build
-      - name: Validate unsigned Windows package layout
+      - name: Build unsigned Windows packages
         working-directory: desktop
-        run: npx electron-builder --win --dir --publish never --config.win.signAndEditExecutable=false
+        run: npx electron-builder --win --publish never --config.win.signAndEditExecutable=false
+      - name: Upload unsigned Windows packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: Argus-Windows-unsigned
+          path: |
+            desktop/release/Argus-*-setup.exe
+            desktop/release/Argus-*-portable.exe
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
