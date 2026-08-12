@@ -162,7 +162,7 @@ jobs:
           npm --prefix desktop run build
       - name: Build unsigned Windows packages
         working-directory: desktop
-        run: npx electron-builder --win --publish never --config.win.signAndEditExecutable=false
+        run: npx electron-builder --win --publish never --config.win.signExecutable=false
       - name: Upload unsigned Windows packages
         uses: actions/upload-artifact@v4
         with:
