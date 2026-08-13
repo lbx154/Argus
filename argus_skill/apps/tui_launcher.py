@@ -26,7 +26,6 @@ _PYTHON_ADMIN_FLAGS = frozenset(
         "--gc",
         "--watch",
         "--follow",
-        "--web",
         "--pair-plan",
         "--notify",
         "--init-identity",
@@ -138,6 +137,15 @@ def _run_python_admin(argv: list[str]) -> int:
 
 
 def _uses_python_admin(argv: list[str]) -> bool:
+    # `argus --web` is a cockpit surface: it needs the TUI's automatic port
+    # selection and browser launch. Keep the legacy raw WebAPI spelling on the
+    # Python path only when its backend-specific options are present.
+    if "--web" in argv and any(
+        arg == option or arg.startswith(f"{option}=")
+        for arg in argv
+        for option in ("--web-host", "--web-port")
+    ):
+        return True
     i = 0
     while i < len(argv):
         arg = argv[i]

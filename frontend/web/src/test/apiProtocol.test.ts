@@ -252,7 +252,8 @@ describe('web API protocol handshake', () => {
   it('times out a stalled compact snapshot and succeeds on retry', async () => {
     vi.useFakeTimers();
     let snapshotAttempts = 0;
-    const snapshotPath = '/api/projects/s-stalled/snapshot?compact=true&events_limit=1';
+    const snapshotPath =
+      '/api/projects/s-stalled/snapshot?compact=true&events_limit=1';
     const fetchMock = vi.fn((path: string, init?: RequestInit): Promise<Response> => {
       if (path === '/api/meta') return Promise.resolve(Response.json(currentMeta));
       if (path === snapshotPath) {
@@ -284,6 +285,25 @@ describe('web API protocol handshake', () => {
       partial: false,
     });
     expect(snapshotAttempts).toBe(2);
+  });
+
+  it('prewarms an active project once instead of on every snapshot poll', async () => {
+    const paths: string[] = [];
+    vi.stubGlobal('fetch', vi.fn((path: string): Promise<Response> => {
+      paths.push(path);
+      if (path === '/api/meta') return Promise.resolve(Response.json(currentMeta));
+      return Promise.resolve(Response.json(currentSnapshot));
+    }));
+    const { api } = await import('../api');
+
+    await api.activeSnapshot('s-active');
+    await api.activeSnapshot('s-active');
+
+    expect(paths).toEqual([
+      '/api/meta',
+      '/api/projects/s-active/snapshot?compact=true&events_limit=1&prewarm=true',
+      '/api/projects/s-active/snapshot?compact=true&events_limit=1',
+    ]);
   });
 
   it('times out when response headers arrive but the JSON body stalls', async () => {

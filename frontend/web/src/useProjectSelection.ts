@@ -90,7 +90,7 @@ export function useProjectSelection({
   const prefetchProject = useCallback((id: string) => {
     void queryClient.prefetchQuery({
       queryKey: ['snapshot', id],
-      queryFn: ({ signal }) => api.snapshot(id, signal),
+      queryFn: ({ signal }) => api.prefetchSnapshot(id, signal),
       staleTime: 3_000,
     });
   }, [queryClient]);

@@ -170,6 +170,34 @@ def test_public_admin_flags_stay_on_python_admin_path(monkeypatch) -> None:
     ]
 
 
+def test_web_launch_uses_tui_unless_raw_backend_options_are_requested(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    bundle = tmp_path / "argus.mjs"
+    bundle.write_text("// bundle", encoding="utf-8")
+    seen = {}
+    admin = []
+    monkeypatch.setattr(tui_launcher, "_bundle_path", lambda: bundle)
+    monkeypatch.setattr(tui_launcher.shutil, "which", lambda name: "/usr/bin/node")
+    monkeypatch.setattr(tui_launcher, "_node_major", lambda node: 20)
+    monkeypatch.setattr(tui_launcher, "_needs_foreground_spawn", lambda: False)
+    monkeypatch.setattr(
+        tui_launcher.os,
+        "execv",
+        lambda executable, argv: seen.update(executable=executable, argv=argv),
+    )
+    monkeypatch.setattr(
+        tui_launcher,
+        "_run_python_admin",
+        lambda argv: admin.append(argv) or 7,
+    )
+
+    assert tui_launcher.main(["--web", "--no-open"]) == 0
+    assert seen["argv"] == ["/usr/bin/node", str(bundle), "--web", "--no-open"]
+    assert tui_launcher.main(["--web", "--web-port", "8800"]) == 7
+    assert admin == [["--web", "--web-port", "8800"]]
+
+
 def test_admin_subcommands_stay_on_python_admin_path(monkeypatch) -> None:
     seen = []
     monkeypatch.setattr(

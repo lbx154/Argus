@@ -40,6 +40,7 @@ _DEFAULT_MANAGER_TIMEOUT_S = 300.0
 _CANCEL_GRACE_S = 5.0
 _DEFAULT_SESSION_RECYCLE = 12
 _FRONT_DOOR_LABEL = "manager-frontdoor-classify"
+_WINDOWS = os.name == "nt"
 _TRANSPORT_CANCEL_NOTICE = "Info: Operation cancelled by user"
 _CONTENT_FILTER_NOTICE = (
     "The model returned no content because the response was blocked by content filtering."
@@ -48,6 +49,21 @@ _TRANSPORT_INFO_PREFIXES = (
     "Info: Disabled tools:",
     "Info: Unknown tool name in the tool allowlist:",
 )
+
+
+def _terminate_windows_tree(proc: subprocess.Popen[str]) -> bool:
+    pid = int(getattr(proc, "pid", 0) or 0)
+    if pid <= 0:
+        return False
+    try:
+        from ..daemon.state import _terminate_windows_process_tree
+
+        return _terminate_windows_process_tree(
+            pid,
+            identity_check=lambda: proc.poll() is None,
+        )
+    except (ImportError, OSError, TypeError, ValueError):
+        return False
 
 
 def _prompt_timeout(run_label: str | None) -> float:
@@ -284,6 +300,9 @@ class CopilotAcpClient:
             self._alive = False
             self._active_turn = None
             if proc is not None and proc.poll() is None:
+                if _WINDOWS and _terminate_windows_tree(proc):
+                    self._on_dead()
+                    return
                 try:
                     proc.terminate()
                     proc.wait(timeout=2.0)

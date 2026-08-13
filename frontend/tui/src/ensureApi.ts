@@ -58,6 +58,10 @@ export interface ApiProbeResult {
   meta?: ApiMeta;
 }
 
+function startupPollAttempts(platform: NodeJS.Platform = process.platform): number {
+  return platform === 'win32' ? 120 : 20;
+}
+
 function localRuntimeExpectation(
   env: NodeJS.ProcessEnv = process.env,
 ): ApiRuntimeExpectation {
@@ -511,7 +515,7 @@ export async function ensureApi(opts: {
     const spawned = await doSpawn();
 
     // Poll for the new backend to come online.
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < startupPollAttempts(); i++) {
       await doSleep(500);
       const probe = await doProbe();
       if (probe.state === 'compatible') {
@@ -596,7 +600,7 @@ export async function ensureApi(opts: {
     };
   }
 
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < startupPollAttempts(); i++) {
     await doSleep(500);
     const probe = await doProbe();
     if (probe.state === 'compatible') {

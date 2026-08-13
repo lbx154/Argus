@@ -154,6 +154,37 @@ def test_pure_greeting_uses_one_frontdoor_model_call(
     assert LifeMemory.open(life).backlog.all() == []
 
 
+def test_pure_greeting_after_startup_handoff_still_uses_one_model_call(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    sid = "s-one-call-greeting-handoff"
+    life = _make_project(tmp_path, sid)
+    (life / "transcript.jsonl").write_text(
+        '{"ts":1,"role":"operator","text":"earlier"}\n'
+        '{"ts":2,"role":"argus","text":"earlier reply"}\n',
+        encoding="utf-8",
+    )
+    manager_state._STATES.clear()
+
+    def classify(mem, text, chat_state, **kwargs):
+        chat_state["_frontdoor_greeting_reply"] = "你好，我是 Argus Manager。"
+        return None, None, "simple"
+
+    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+    monkeypatch.setattr(
+        front_door,
+        "manager_triage",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("startup handoff must not force a second greeting call")
+        ),
+    )
+
+    result = manager_bridge.manager_message(sid, "你好", global_root=tmp_path)
+
+    assert result == {"kind": "chat", "reply": "你好，我是 Argus Manager。"}
+    assert LifeMemory.open(life).backlog.all() == []
+
+
 def test_message_only_fast_reply_uses_only_frontdoor_call(
     tmp_path: Path,
     monkeypatch,

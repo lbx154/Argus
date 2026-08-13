@@ -538,17 +538,15 @@ def _maybe_greeting_reply(
 ) -> dict[str, Any] | None:
     """Short-circuit a safe message-only reply from the merged classifier.
 
-    Only fires when no stateful action was decided and the classifier did not
-    need the startup/rotation handoff to
-    answer it (``send_body == body``) — otherwise the greeting reply could be
-    stale relative to the actual enriched turn sent to the Manager.
+    Only fires when no stateful action was decided. A greeting token is based
+    solely on the current message passed to the stateless classifier, so a
+    startup/rotation handoff must not force a second full Manager turn.
     """
     if (
         classify.greeting_reply
         and classify.intent is None
         and classify.control is None
         and classify.route == "simple"
-        and classify.send_body == body
     ):
         return emitter.respond(classify.greeting_reply, {"kind": "chat"})
     if (

@@ -112,7 +112,7 @@ def test_front_door_classify_route_uses_the_shared_rule(monkeypatch) -> None:
     assert resolve_manager_classify_model() == "deepseek-chat"
 
     monkeypatch.setenv("ARGUS_SKILL_LIFE_BACKEND", "codex")
-    assert resolve_manager_classify_model() == "gpt-5.4-mini"
+    assert resolve_manager_classify_model() == "gpt-5.6-sol"
 
 
 def test_bounded_dag_route_uses_the_shared_rule(monkeypatch) -> None:

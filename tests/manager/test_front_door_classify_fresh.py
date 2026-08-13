@@ -40,7 +40,7 @@ def _manager(answer: str, tmp_path) -> tuple[Manager, _RecordingBackend]:
     return mgr, backend
 
 
-def test_front_door_runs_fresh_medium_effort(tmp_path, monkeypatch) -> None:
+def test_front_door_runs_fresh_low_effort(tmp_path, monkeypatch) -> None:
     monkeypatch.delenv("ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT", raising=False)
     monkeypatch.setattr(
         "argus_skill.core.knobs.resolve_manager_classify_model",
@@ -60,7 +60,7 @@ def test_front_door_runs_fresh_medium_effort(tmp_path, monkeypatch) -> None:
     call = backend.calls[0]
     assert call["resume_thread_id"] is None                    # fresh, no session
     assert call["run_label"] == "manager-frontdoor-classify"
-    assert call["options"].reasoning_effort == "medium"
+    assert call["options"].reasoning_effort == "low"
     assert call["options"].model == "fast-manager"
 
 

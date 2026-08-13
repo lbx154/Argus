@@ -138,6 +138,7 @@ export default function App() {
   const [taskItemId, setTaskItemId] = useState<string | null>(null);
   const [newDaemonOpen, setNewDaemonOpen] = useState(false);
   const [daemonManageOpen, setDaemonManageOpen] = useState(false);
+  const messageSubmitLockRef = useRef(false);
   const messageRequestRef = useRef<ActiveMessageRequest | null>(null);
   const messageEpochRef = useRef(0);
   const [notice, setNotice] = useState<UiNotice | null>(null);
@@ -376,20 +377,28 @@ export default function App() {
 
   const sendMessage = async (text: string, attachments: File[] = []): Promise<boolean> => {
     const requestSid = activeSid;
-    if (!requestSid || messageRequestRef.current) return false;
+    if (!requestSid || messageSubmitLockRef.current || messageRequestRef.current) return false;
 
-    if (!attachments.length) {
-      const command = await dispatchWebCommand(text, commandHandlers);
-      if (command.kind === 'handled') return true;
-      if (command.kind === 'error') {
-        notify('error', command.message);
-        return false;
+    messageSubmitLockRef.current = true;
+    let requestId: number;
+    let controller: AbortController;
+    try {
+      if (!attachments.length) {
+        const command = await dispatchWebCommand(text, commandHandlers);
+        if (command.kind === 'handled') return true;
+        if (command.kind === 'error') {
+          notify('error', command.message);
+          return false;
+        }
       }
+
+      requestId = ++messageEpochRef.current;
+      controller = new AbortController();
+      messageRequestRef.current = { id: requestId, sid: requestSid, controller };
+    } finally {
+      messageSubmitLockRef.current = false;
     }
 
-    const requestId = ++messageEpochRef.current;
-    const controller = new AbortController();
-    messageRequestRef.current = { id: requestId, sid: requestSid, controller };
     const isCurrent = () => {
       const request = messageRequestRef.current;
       return Boolean(

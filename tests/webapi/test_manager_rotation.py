@@ -10,7 +10,6 @@ project path is prepended to the first post-rotation turn.
 from __future__ import annotations
 
 import json
-import threading
 import time
 from pathlib import Path
 
@@ -28,78 +27,6 @@ def _make_project(root: Path, sid: str = "s-rot00001") -> Path:
         encoding="utf-8",
     )
     return life
-
-
-def test_manager_prewarm_schedule_is_one_shot_after_success(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    manager_state._STATES.clear()
-    manager_state._MANAGER_PREWARMING.clear()
-    calls: list[tuple[str, Path | None]] = []
-
-    def fake_prewarm(sid: str, *, global_root=None) -> None:
-        calls.append((sid, Path(global_root) if global_root is not None else None))
-        manager_state._STATES.setdefault(sid, {})["_manager_acp_prewarmed"] = True
-
-    class InlineThread:
-        def __init__(self, *, target, name: str, daemon: bool) -> None:  # noqa: ANN001
-            self.target = target
-            self.name = name
-            self.daemon = daemon
-
-        def start(self) -> None:
-            self.target()
-
-    monkeypatch.setattr(manager_state, "_prewarm_manager_context", fake_prewarm)
-    monkeypatch.setattr(manager_state.threading, "Thread", InlineThread)
-
-    manager_state.schedule_manager_prewarm("s-prewarm01", global_root=tmp_path)
-    manager_state.schedule_manager_prewarm("s-prewarm01", global_root=tmp_path)
-
-    assert calls == [("s-prewarm01", tmp_path)]
-    assert manager_state._MANAGER_PREWARMING == set()
-
-
-def test_manager_prewarm_schedule_does_not_wait_for_busy_manager_turn(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    """A compact snapshot must not queue behind a long-running Manager call."""
-    sid = "s-prewarm-busy"
-    manager_state._STATES.clear()
-    manager_state._MANAGER_PREWARMING.clear()
-    lock_held = threading.Event()
-    release_lock = threading.Event()
-    schedule_returned = threading.Event()
-    prewarm_started = threading.Event()
-
-    def hold_manager_lock() -> None:
-        with manager_state.manager_context_lock(sid):
-            lock_held.set()
-            release_lock.wait(2)
-
-    def fake_prewarm(_sid: str, *, global_root=None) -> None:  # noqa: ANN001
-        prewarm_started.set()
-
-    holder = threading.Thread(target=hold_manager_lock)
-    holder.start()
-    assert lock_held.wait(1)
-    monkeypatch.setattr(manager_state, "_prewarm_manager_context", fake_prewarm)
-
-    def schedule() -> None:
-        manager_state.schedule_manager_prewarm(sid, global_root=tmp_path)
-        schedule_returned.set()
-
-    caller = threading.Thread(target=schedule)
-    caller.start()
-    try:
-        assert schedule_returned.wait(0.5), "prewarm scheduling blocked on the Manager lock"
-        assert prewarm_started.wait(0.5)
-    finally:
-        release_lock.set()
-        holder.join(timeout=1)
-        caller.join(timeout=1)
 
 
 def test_warm_manager_contexts_are_bounded_and_oldest_is_closed(
@@ -141,6 +68,26 @@ def test_warm_manager_contexts_are_bounded_and_oldest_is_closed(
     assert "s-old" not in manager_state._STATES
     assert {"s-new", "s-third"} <= set(manager_state._STATES)
     assert closed == ["s-old"]
+
+
+def test_prewarm_owner_does_not_thrash_between_polling_projects(
+    monkeypatch,
+) -> None:
+    now = [100.0]
+    monkeypatch.setattr(manager_state.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(manager_state, "_MANAGER_PREWARM_OWNER", None)
+    monkeypatch.setattr(manager_state, "_MANAGER_PREWARM_OWNER_TOUCHED", 0.0)
+
+    assert manager_state._claim_manager_prewarm_owner("s-first") is True
+    now[0] += 1
+    assert manager_state._claim_manager_prewarm_owner("s-second") is False
+
+    manager_state._mark_manager_activity("s-second")
+    assert manager_state._claim_manager_prewarm_owner("s-second") is True
+    assert manager_state._claim_manager_prewarm_owner("s-first") is False
+
+    now[0] += manager_state._MANAGER_PREWARM_OWNER_IDLE_SECONDS + 1
+    assert manager_state._claim_manager_prewarm_owner("s-first") is True
 
 
 def test_manager_session_rotates_with_structured_handoff(tmp_path: Path, monkeypatch) -> None:

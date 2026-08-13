@@ -14,6 +14,7 @@ import type {
   ProjectCostRow,
   RequestUsage,
   Role,
+  Snapshot,
 } from '../../core/src/types';
 import { ensureResponseOk } from '../../core/src/http';
 import {
@@ -495,6 +496,8 @@ export function parseSSEFrames(buf: string): { frames: SSEFrame[]; rest: string 
   return { frames, rest: buf };
 }
 
+let activeSnapshotPrewarmSid: string | null = null;
+
 export const api = {
   meta: compatibleApiMeta,
   projectIndex: async () => {
@@ -558,15 +561,29 @@ export const api = {
       workdir: string;
       workdir_preserved: boolean;
     }>('DELETE', P(sid)),
-  snapshot: async (sid: string, signal?: AbortSignal) => {
+  snapshot: async (sid: string, signal?: AbortSignal, prewarm = false) => {
     await compatibleApiMeta();
     const value = await getJson<unknown>(
-      P(sid, '/snapshot?compact=true&events_limit=1'),
+      P(sid, `/snapshot?compact=true&events_limit=1${prewarm ? '&prewarm=true' : ''}`),
       signal,
       API_LOCAL_READ_TIMEOUT_MS,
     );
     return requireSnapshotContract(value);
   },
+  activeSnapshot: async (sid: string, signal?: AbortSignal): Promise<Snapshot> => {
+    const prewarm = activeSnapshotPrewarmSid !== sid;
+    if (prewarm) activeSnapshotPrewarmSid = sid;
+    try {
+      return await api.snapshot(sid, signal, prewarm);
+    } catch (error) {
+      if (prewarm && activeSnapshotPrewarmSid === sid) {
+        activeSnapshotPrewarmSid = null;
+      }
+      throw error;
+    }
+  },
+  prefetchSnapshot: (sid: string, signal?: AbortSignal) =>
+    api.snapshot(sid, signal, false),
   status: (sid: string, signal?: AbortSignal) =>
     getJson<StatusView>(P(sid, '/status'), signal),
   journal: (sid: string, n = 20, signal?: AbortSignal) =>

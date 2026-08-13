@@ -43,7 +43,7 @@ class _FrontDoorMixin:
         Built FRESH on the raw backend (``self.runner``, NEVER
         ``self._session`` — no giant-session resume, no pollution),
         ``resume_thread_id=None``. Effort comes from
-        ``ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT`` (default ``medium``). Biases
+        ``ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT`` (default ``low``). Biases
         each axis to its own safe default on any error."""
         from ..life.router import classify_front_door
 
@@ -56,8 +56,8 @@ class _FrontDoorMixin:
             _backend = self.runner
             _effort = resolve_knob(
                 "ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT",
-                "medium",
-            ).value.strip() or "medium"
+                "low",
+            ).value.strip() or "low"
 
             def run_exec(prompt: str) -> Any:  # noqa: ANN401
                 return gateway_run_exec(

@@ -172,6 +172,10 @@ argus
 ```
 
 Use the terminal cockpit to talk to the Manager, follow live work, inspect state, and resume projects.
+Without an explicit `--port`, Argus reuses a compatible backend or selects the
+first available port starting at `8799` when another program or stale backend
+occupies it. On Windows, a plain `argus` launch also opens the Web UI; use
+`argus --no-open` for the terminal cockpit only.
 
 ### Web UI
 
@@ -181,7 +185,8 @@ Start Argus and open the Web UI in your default browser:
 argus --web
 ```
 
-Default address: [http://127.0.0.1:8799](http://127.0.0.1:8799)
+Preferred address: [http://127.0.0.1:8799](http://127.0.0.1:8799); Argus advances
+to the next available port when needed.
 
 The Web UI follows the browser language on first launch and supports English
 and Simplified Chinese. Use the language button in the session sidebar to

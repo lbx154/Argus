@@ -964,3 +964,33 @@ def test_acp_registry_isolates_manager_scopes() -> None:
         )
         is second
     )
+
+
+def test_acp_close_terminates_the_windows_process_tree(monkeypatch) -> None:
+    class Proc:
+        pid = 123
+        terminated = False
+
+        def poll(self):
+            return None
+
+        def terminate(self) -> None:
+            self.terminated = True
+
+    proc = Proc()
+    terminated: list[int] = []
+    monkeypatch.setattr(copilot_acp, "_WINDOWS", True)
+    monkeypatch.setattr(
+        copilot_acp,
+        "_terminate_windows_tree",
+        lambda candidate: terminated.append(candidate.pid) or True,
+    )
+    client = CopilotAcpClient("copilot-bin")
+    client._proc = proc
+    client._alive = True
+
+    client.close()
+
+    assert terminated == [123]
+    assert proc.terminated is False
+    assert client._proc is None

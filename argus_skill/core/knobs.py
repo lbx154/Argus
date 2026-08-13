@@ -103,7 +103,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_REWRITE_MODEL", "auto", "interactive prompt rewrite model: gpt-5.5 on codex/copilot, Manager model otherwise; set an id to override", "models"),
     Knob("ARGUS_SKILL_MANAGER_REPLY_MODEL", "inherit", "operator-facing Manager SELF model; inherit uses the configured Manager/shared route model", "models", cockpit=True),
     Knob("ARGUS_SKILL_FRONTDOOR_MODEL", "auto", "cheap front-door classification model: gpt-5.4-mini on codex/copilot, Manager model otherwise", "models"),
-    Knob("ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT", "medium", "reasoning effort for the LLM-only front-door and STEER confirmation", "models"),
+    Knob("ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT", "low", "reasoning effort for the LLM-only front-door and STEER confirmation", "models"),
     # --- reasoning effort ---
     Knob("ARGUS_SKILL_MANAGER_REASONING_EFFORT", "high", "manager reasoning effort", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_PLANNER_REASONING_EFFORT", "high", "planner reasoning effort", "reasoning", cockpit=True),
@@ -677,7 +677,7 @@ def resolve_manager_classify_model(*, env: Mapping[str, str] | None = None) -> s
     """Resolve the cheap stateless front-door classification model."""
     return resolve_cheap_route_model(
         knob="ARGUS_SKILL_FRONTDOOR_MODEL",
-        catalog_default="gpt-5.4-mini",
+        catalog_default="gpt-5.6-sol",
         role="manager",
         role_env="ARGUS_SKILL_MANAGER_MODEL",
         env=env,

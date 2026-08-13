@@ -126,24 +126,37 @@ def test_repeated_snapshot_polls_reuse_one_build(
     assert builds == [1]
 
 
-def test_repeated_compact_snapshot_polls_reuse_one_manager_prewarm(
-    home: Path, monkeypatch: pytest.MonkeyPatch
+def test_repeated_compact_snapshot_polls_do_not_start_manager_contexts(
+    home: Path,
 ) -> None:
-    prewarms: list[tuple[str, Path | None]] = []
+    from argus_skill.webapi import manager_state
 
-    def counting_prewarm(sid: str, *, global_root=None) -> None:  # noqa: ANN001
-        prewarms.append((sid, Path(global_root) if global_root is not None else None))
-
-    monkeypatch.setattr(
-        "argus_skill.webapi.manager_state.schedule_manager_prewarm",
-        counting_prewarm,
-    )
+    manager_state._STATES.clear()
     client = TestClient(server.create_app(global_root=home))
 
     for _ in range(10):
         response = client.get("/api/projects/s-cachetest/snapshot?compact=true&events_limit=30")
         assert response.status_code == 200
 
+    assert manager_state._STATES == {}
+
+
+def test_active_snapshot_polls_schedule_one_manager_prewarm(
+    home: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prewarms: list[tuple[str, Path]] = []
+    monkeypatch.setattr(
+        "argus_skill.webapi.manager_state.schedule_manager_prewarm",
+        lambda sid, *, global_root=None: prewarms.append((sid, Path(global_root))),
+    )
+    client = TestClient(server.create_app(global_root=home))
+
+    response = client.get(
+        "/api/projects/s-cachetest/snapshot"
+        "?compact=true&events_limit=30&prewarm=true"
+    )
+
+    assert response.status_code == 200
     assert prewarms == [("s-cachetest", home)]
 
 

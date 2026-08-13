@@ -177,20 +177,18 @@ def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
         sid: str,
         events_limit: int = Query(80, ge=1, le=500),
         compact: bool = Query(False),
+        prewarm: bool = Query(False),
     ) -> dict[str, Any]:
         root = ctx.project_root_or_404(sid)
+        if prewarm:
+            try:
+                from ..manager_state import schedule_manager_prewarm
+
+                schedule_manager_prewarm(sid, global_root=root)
+            except Exception:  # noqa: BLE001 - snapshot must remain read-available
+                pass
 
         def _build_snapshot() -> dict[str, Any] | None:
-            if compact:
-                try:
-                    from ..manager_state import schedule_manager_prewarm
-
-                    schedule_manager_prewarm(
-                        sid,
-                        global_root=root,
-                    )
-                except Exception:  # noqa: BLE001 - snapshot must remain read-available
-                    pass
             return server_mod.build_snapshot(
                 sid,
                 global_root=root,
