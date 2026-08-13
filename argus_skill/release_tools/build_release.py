@@ -25,7 +25,11 @@ def run(*argv: str, cwd: Path = ROOT) -> None:
     with tempfile.TemporaryDirectory(prefix="argus-python-") as shim_dir:
         shim = Path(shim_dir) / ("python.cmd" if os.name == "nt" else "python")
         if os.name == "nt":
-            shim.write_text(f'@"{sys.executable}" %*\n', encoding="utf-8")
+            # Keep the batch file ASCII-only. cmd.exe decodes .cmd files with
+            # the active OEM code page, so embedding a Unicode checkout path
+            # here corrupts it before Python can start.
+            env["ARGUS_RELEASE_PYTHON"] = sys.executable
+            shim.write_text('@"%ARGUS_RELEASE_PYTHON%" %*\n', encoding="ascii")
         else:
             shim.symlink_to(sys.executable)
         env["PATH"] = os.pathsep.join((shim_dir, env.get("PATH", "")))

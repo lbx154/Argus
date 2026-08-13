@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -78,6 +79,7 @@ def test_legacy_cert_is_valid_only_while_project_is_unchanged(tmp_path: Path):
     source.parent.mkdir()
     source.write_text("legacy certified\n", encoding="utf-8")
     certified_at = time.time()
+    os.utime(source, (certified_at - 1, certified_at - 1))
     events = tmp_path / "life" / "events.jsonl"
     events.write_text(json.dumps({
         "type": "life.mission.completed",
@@ -89,6 +91,7 @@ def test_legacy_cert_is_valid_only_while_project_is_unchanged(tmp_path: Path):
 
     assert sup._journal_has_final_certification() is True
     source.write_text("changed\n", encoding="utf-8")
+    os.utime(source, (certified_at + 1, certified_at + 1))
     assert sup._journal_has_final_certification() is False
 
 

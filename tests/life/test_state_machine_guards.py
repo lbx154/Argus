@@ -11,6 +11,7 @@ These tests cover invariants that prevent the entire class of
 """
 from __future__ import annotations
 
+import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -126,7 +127,8 @@ def test_concurrent_claims_are_unique_and_finish_without_deadlock(
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         futures = [pool.submit(mem.backlog.claim_next) for _ in range(40)]
-        claimed = [future.result(timeout=5) for future in futures]
+        timeout = 15 if os.name == "nt" else 5
+        claimed = [future.result(timeout=timeout) for future in futures]
 
     ids = [item.id for item in claimed if item is not None]
     assert len(ids) == 32

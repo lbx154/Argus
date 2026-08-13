@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from argus_skill.tools import setup as _wizard
@@ -46,9 +47,10 @@ def test_seed_codex_config_writes_files(tmp_path: Path, monkeypatch) -> None:
     assert "gpt-engineer" in cfg.read_text()
     auth_data = json.loads(auth.read_text())
     assert auth_data["OPENAI_API_KEY"] == "sk-test-1234"
-    # auth.json should be 0600
-    mode = auth.stat().st_mode & 0o777
-    assert mode == 0o600, f"auth.json mode should be 0600, got {oct(mode)}"
+    # POSIX exposes mode bits; Windows protects the file through its user ACL.
+    if os.name != "nt":
+        mode = auth.stat().st_mode & 0o777
+        assert mode == 0o600, f"auth.json mode should be 0600, got {oct(mode)}"
 
 
 def test_seed_codex_config_requires_inputs(tmp_path: Path, monkeypatch) -> None:

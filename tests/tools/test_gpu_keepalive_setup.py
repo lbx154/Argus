@@ -1,6 +1,7 @@
 """Tests for the setup wizard's GPU keep-alive (anti-reclaim) integration."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -45,7 +46,8 @@ def test_save_keepalive_is_readable_by_gpu_lease(tmp_path: Path, monkeypatch) ->
     )
     path = _wizard._save_gpu_keepalive(cfg)
     assert path.exists()
-    assert (path.stat().st_mode & 0o777) == 0o600
+    if os.name != "nt":
+        assert (path.stat().st_mode & 0o777) == 0o600
     loaded = gpu_lease.load_config()
     assert loaded["match"] == _wizard._KEEPALIVE_TOKEN
     assert loaded["command"][1].endswith("gpu_load.py")
@@ -60,9 +62,9 @@ def test_special_prompt_passes_trust_check(tmp_path: Path, monkeypatch) -> None:
     body = _wizard._render_gpu_keepalive_prompt("0,1")
     path = _wizard._write_special_prompt("20-gpu-keepalive.md", body)
     assert path.exists()
-    assert (path.stat().st_mode & 0o777) == 0o644
-    # not group/world-writable -> accepted by the trust check
-    assert (path.stat().st_mode & 0o022) == 0
+    if os.name != "nt":
+        assert (path.stat().st_mode & 0o777) == 0o644
+        assert (path.stat().st_mode & 0o022) == 0
     loaded = dict(special_prompts.load_special_prompts())
     assert "20-gpu-keepalive" in loaded
 
@@ -76,7 +78,8 @@ def test_setup_creates_trusted_default_house_rules(tmp_path: Path, monkeypatch) 
 
     assert path == sp_dir / "10-house-rules.md"
     assert path is not None
-    assert (path.stat().st_mode & 0o777) == 0o644
+    if os.name != "nt":
+        assert (path.stat().st_mode & 0o777) == 0o644
     assert "unrelated jobs" in path.read_text(encoding="utf-8")
     assert special_prompts.describe_special_prompt_gate() == (True, "")
 
@@ -107,10 +110,13 @@ def test_setup_does_not_overwrite_untrusted_house_rules(
 
     generated = _wizard._ensure_default_house_rules_prompt()
 
-    assert generated is not None
-    assert generated == sp_dir / "10-house-rules-setup-1.md"
+    if os.name == "nt":
+        assert generated is None
+    else:
+        assert generated == sp_dir / "10-house-rules-setup-1.md"
+        assert generated is not None
+        assert (generated.stat().st_mode & 0o022) == 0
     assert existing.read_text(encoding="utf-8") == "Operator draft; do not overwrite.\n"
-    assert (generated.stat().st_mode & 0o022) == 0
     from argus_skill.life import special_prompts
 
     assert special_prompts.describe_special_prompt_gate() == (True, "")
@@ -132,7 +138,8 @@ def test_save_and_load_author_roundtrip(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
     path = _wizard._save_author("Example User", "author@example.invalid")
     assert path.exists()
-    assert (path.stat().st_mode & 0o777) == 0o600
+    if os.name != "nt":
+        assert (path.stat().st_mode & 0o777) == 0o600
     loaded = _wizard._load_existing_author()
     assert loaded == {"name": "Example User", "email": "author@example.invalid"}
 
@@ -293,7 +300,8 @@ def test_configure_experiment_api_writes_prompt(tmp_path: Path, monkeypatch) -> 
     assert ok is True
     path = sp_dir / "30-experiment-api.md"
     assert path.exists()
-    assert (path.stat().st_mode & 0o022) == 0  # not group/world-writable
+    if os.name != "nt":
+        assert (path.stat().st_mode & 0o022) == 0
     assert "30-experiment-api" in dict(special_prompts.load_special_prompts())
 
 

@@ -30,7 +30,7 @@ def test_pi_command_uses_json_stdin_and_exact_session(
         ),
     )
 
-    assert Path(command[0]).name == "pi"
+    assert Path(command[0]).stem.casefold() == "pi"
     assert command[1:] == [
         "--mode",
         "json",

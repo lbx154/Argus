@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner
@@ -15,49 +16,58 @@ from argus_skill.agent_cli.runner_backend import (
 )
 
 
+def _same_path(actual: str | None, expected: Path) -> bool:
+    return bool(actual) and os.path.normcase(str(Path(actual).resolve())) == os.path.normcase(
+        str(expected.resolve())
+    )
+
+
+def _fake_executable(path: Path, *, exit_code: int = 0) -> Path:
+    if os.name == "nt":
+        path = path.with_suffix(".cmd")
+        path.write_text(f"@exit /b {exit_code}\n", encoding="ascii")
+    else:
+        path.write_text(f"#!/bin/sh\nexit {exit_code}\n", encoding="utf-8")
+        path.chmod(0o755)
+    return path
+
+
 def test_runner_resolves_user_local_bin_when_service_path_omits_it(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     executable = tmp_path / ".local" / "bin" / "copilot"
     executable.parent.mkdir(parents=True)
-    executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    executable.chmod(0o755)
-    monkeypatch.setenv("HOME", str(tmp_path))
+    executable = _fake_executable(executable)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
     monkeypatch.setenv("PATH", str(tmp_path / "service-bin"))
 
-    assert resolve_runner_bin(BACKEND_COPILOT) == str(executable)
-    assert AgentCliRunner(backend=BACKEND_COPILOT).agent_bin == str(executable)
+    assert _same_path(resolve_runner_bin(BACKEND_COPILOT), executable)
+    assert _same_path(AgentCliRunner(backend=BACKEND_COPILOT).agent_bin, executable)
 
 
 def test_opencode_runner_uses_opencode_binary(tmp_path: Path, monkeypatch) -> None:
-    executable = tmp_path / "opencode"
-    executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    executable.chmod(0o755)
+    executable = _fake_executable(tmp_path / "opencode")
     monkeypatch.setenv("PATH", str(tmp_path))
 
-    assert resolve_runner_bin(BACKEND_OPENCODE) == str(executable)
-    assert AgentCliRunner(backend=BACKEND_OPENCODE).agent_bin == str(executable)
+    assert _same_path(resolve_runner_bin(BACKEND_OPENCODE), executable)
+    assert _same_path(AgentCliRunner(backend=BACKEND_OPENCODE).agent_bin, executable)
 
 
 def test_pi_runner_uses_pi_binary(tmp_path: Path, monkeypatch) -> None:
-    executable = tmp_path / "pi"
-    executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    executable.chmod(0o755)
+    executable = _fake_executable(tmp_path / "pi")
     monkeypatch.setenv("PATH", str(tmp_path))
 
-    assert resolve_runner_bin(BACKEND_PI) == str(executable)
-    assert AgentCliRunner(backend=BACKEND_PI).agent_bin == str(executable)
+    assert _same_path(resolve_runner_bin(BACKEND_PI), executable)
+    assert _same_path(AgentCliRunner(backend=BACKEND_PI).agent_bin, executable)
 
 
 def test_grok_runner_uses_grok_binary(tmp_path: Path, monkeypatch) -> None:
-    executable = tmp_path / "grok"
-    executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    executable.chmod(0o755)
+    executable = _fake_executable(tmp_path / "grok")
     monkeypatch.setenv("PATH", str(tmp_path))
 
-    assert resolve_runner_bin(BACKEND_GROK) == str(executable)
-    assert AgentCliRunner(backend=BACKEND_GROK).agent_bin == str(executable)
+    assert _same_path(resolve_runner_bin(BACKEND_GROK), executable)
+    assert _same_path(AgentCliRunner(backend=BACKEND_GROK).agent_bin, executable)
 
 
 def test_qoder_runner_uses_qodercli_binary(tmp_path: Path, monkeypatch) -> None:
@@ -76,13 +86,12 @@ def test_opencode_runner_resolves_standard_install_directory(
 ) -> None:
     executable = tmp_path / ".opencode" / "bin" / "opencode"
     executable.parent.mkdir(parents=True)
-    executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    executable.chmod(0o755)
-    monkeypatch.setenv("HOME", str(tmp_path))
+    executable = _fake_executable(executable)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
     monkeypatch.setenv("PATH", str(tmp_path / "service-bin"))
 
-    assert resolve_runner_bin(BACKEND_OPENCODE) == str(executable)
-    assert AgentCliRunner(backend=BACKEND_OPENCODE).agent_bin == str(executable)
+    assert _same_path(resolve_runner_bin(BACKEND_OPENCODE), executable)
+    assert _same_path(AgentCliRunner(backend=BACKEND_OPENCODE).agent_bin, executable)
 
 
 def test_missing_codex_falls_back_to_available_copilot(
@@ -91,15 +100,13 @@ def test_missing_codex_falls_back_to_available_copilot(
 ) -> None:
     copilot = tmp_path / "bin" / "copilot"
     copilot.parent.mkdir()
-    copilot.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    copilot.chmod(0o755)
+    copilot = _fake_executable(copilot)
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("PATH", str(copilot.parent))
 
-    assert resolve_available_runner(BACKEND_CODEX) == (
-        BACKEND_COPILOT,
-        str(copilot),
-    )
+    backend, resolved = resolve_available_runner(BACKEND_CODEX)
+    assert backend == BACKEND_COPILOT
+    assert _same_path(resolved, copilot)
 
 
 def test_existing_codex_never_falls_back_on_runtime_failure(
@@ -108,28 +115,21 @@ def test_existing_codex_never_falls_back_on_runtime_failure(
 ) -> None:
     bindir = tmp_path / "bin"
     bindir.mkdir()
-    codex = bindir / "codex"
-    codex.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
-    codex.chmod(0o755)
-    copilot = bindir / "copilot"
-    copilot.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    copilot.chmod(0o755)
+    codex = _fake_executable(bindir / "codex", exit_code=1)
+    _fake_executable(bindir / "copilot")
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("PATH", str(bindir))
 
-    assert resolve_available_runner(BACKEND_CODEX) == (
-        BACKEND_CODEX,
-        str(codex),
-    )
+    backend, resolved = resolve_available_runner(BACKEND_CODEX)
+    assert backend == BACKEND_CODEX
+    assert _same_path(resolved, codex)
 
 
 def test_unknown_backend_typo_does_not_fall_back(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    copilot = tmp_path / "copilot"
-    copilot.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    copilot.chmod(0o755)
+    _fake_executable(tmp_path / "copilot")
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("PATH", str(tmp_path))
 

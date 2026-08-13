@@ -501,7 +501,11 @@ def run_watch(life: Any, *, refresh_hz: float = 2.0) -> int:
 
     previous_handlers: dict[int, Any] = {}
     try:
-        for signum in (signal.SIGINT, getattr(signal, "SIGTERM", None)):
+        for signum in (
+            signal.SIGINT,
+            getattr(signal, "SIGTERM", None),
+            getattr(signal, "SIGBREAK", None),
+        ):
             if signum is None:
                 continue
             previous_handlers[int(signum)] = signal.getsignal(signum)

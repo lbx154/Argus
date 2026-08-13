@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 from pathlib import Path
 
@@ -108,7 +109,8 @@ def test_save_and_load_model_api_grant_uses_private_vault(tmp_path: Path) -> Non
     assert loaded.api_key == "dummy-key"
     assert loaded.base_url == "https://example.invalid/openai/v1/"
     assert loaded.image_model == "gpt-image-2"
-    assert stat.S_IMODE(saved.stat().st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(saved.stat().st_mode) == 0o600
 
 
 def test_load_model_api_grant_honors_codex_model_provider(tmp_path: Path) -> None:

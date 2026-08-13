@@ -189,8 +189,9 @@ def _claim_run_dir(
     claim_path = _claim_path(run_dir)
     key = (claim_owner, str(run_dir))
     with _CLAIMS_LOCK:
-        if key in _HELD_CLAIMS:
-            return f"experiment run directory is already claimed by task {task_id}: {run_dir}"
+        for (owner, claimed_dir), _handle in _HELD_CLAIMS.items():
+            if claimed_dir == str(run_dir):
+                return f"experiment run directory is already claimed by task {owner}: {run_dir}"
         claim_path.parent.mkdir(parents=True, exist_ok=True)
         handle = claim_path.open("a+", encoding="utf-8")
         try:

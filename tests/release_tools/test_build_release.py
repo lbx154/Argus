@@ -13,8 +13,13 @@ def test_release_uses_the_platform_npm_launcher() -> None:
 
 def test_release_subprocesses_use_current_python_bin(monkeypatch) -> None:
     captured = {}
-    monkeypatch.setattr(build_release.sys, "executable", "/opt/argus-venv/bin/python")
-    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    interpreter = (
+        r"G:\workspace\测试\argus-venv\Scripts\python.exe"
+        if os.name == "nt"
+        else "/opt/argus-venv/bin/python"
+    )
+    monkeypatch.setattr(build_release.sys, "executable", interpreter)
+    monkeypatch.setenv("PATH", os.pathsep.join(("/usr/bin", "/bin")))
 
     def fake_run(argv, **kwargs):
         captured["argv"] = argv
@@ -33,5 +38,10 @@ def test_release_subprocesses_use_current_python_bin(monkeypatch) -> None:
 
     assert captured["argv"] == ("npm", "run", "build")
     assert captured["check"] is True
-    assert "/opt/argus-venv/bin/python" in captured["python_target"]
+    if os.name == "nt":
+        assert captured["python_target"] == '@"%ARGUS_RELEASE_PYTHON%" %*\n'
+        assert captured["env"]["ARGUS_RELEASE_PYTHON"] == interpreter
+        captured["python_target"].encode("ascii")
+    else:
+        assert captured["python_target"] == interpreter
     assert captured["env"]["PYTHONPATH"].split(os.pathsep)[0] == str(build_release.ROOT)

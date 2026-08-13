@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -74,7 +76,8 @@ def test_grok_prompt_uses_private_temporary_file() -> None:
         assert prepared[-2:] == ["--prompt-file", str(cleanup_path)]
         assert prompt not in prepared
         assert cleanup_path.read_text(encoding="utf-8") == prompt
-        assert cleanup_path.stat().st_mode & 0o077 == 0
+        if os.name != "nt":
+            assert cleanup_path.stat().st_mode & 0o077 == 0
     finally:
         if cleanup_path is not None:
             cleanup_path.unlink(missing_ok=True)
@@ -201,11 +204,13 @@ def test_grok_result_usage_is_accounted() -> None:
     assert usage.provider_cost_usd == pytest.approx(0.03)
 
 
-def test_grok_run_exec_removes_prompt_file(tmp_path: Path) -> None:
-    executable = tmp_path / "grok"
-    executable.write_text(
-        """#!/usr/bin/env python3
-import json
+def test_grok_run_exec_removes_prompt_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = tmp_path / "grok.py"
+    script.write_text(
+        """import json
 import pathlib
 import sys
 
@@ -221,7 +226,20 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": False,
 """,
         encoding="utf-8",
     )
-    executable.chmod(0o755)
+    if os.name == "nt":
+        executable = tmp_path / "grok.cmd"
+        monkeypatch.setenv("ARGUS_TEST_PYTHON", sys.executable)
+        executable.write_text(
+            '@"%ARGUS_TEST_PYTHON%" "%~dp0grok.py" %*\n',
+            encoding="ascii",
+        )
+    else:
+        executable = tmp_path / "grok"
+        executable.write_text(
+            f"#!/bin/sh\nexec {sys.executable!r} {str(script)!r} \"$@\"\n",
+            encoding="utf-8",
+        )
+        executable.chmod(0o755)
 
     result = _runner(str(executable)).run_exec(
         prompt="hello from Argus",

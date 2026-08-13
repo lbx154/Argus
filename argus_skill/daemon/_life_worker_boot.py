@@ -13,12 +13,11 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 import time
 from contextlib import nullcontext
-from pathlib import Path
 from typing import Any
 
+from ..core.runtime_env import configure_framework_python_env
 from ..life.memory import GlobalMemory, LifeMemory, MemoryBundle, ProjectMemory
 from ._life_worker_identity import (
     _apply_continuous_suppression,
@@ -103,20 +102,12 @@ class LifeWorkerBootMixin:
         self._install_signal_handlers()
         self._started_at = time.time()
 
-        # Ensure ARGUS_SKILL_PYTHON is set in the process environment so
-        # all child processes can find the argus_skill package. Without this,
-        # shells spawned by codex exec fall back to /usr/bin/python which cannot
-        # import argus_skill.
-        _argus_python = os.environ.get("ARGUS_SKILL_PYTHON") or sys.executable
-        os.environ.setdefault("ARGUS_SKILL_PYTHON", _argus_python)
+        # Keep every child shell on the same framework interpreter even when
+        # Argus was launched through a Windows console script without activating
+        # its virtual environment first.
+        configure_framework_python_env()
         if self.config.global_root is not None:
             os.environ["ARGUS_SKILL_HOME"] = str(self.config.global_root.resolve())
-        # Also prepend the venv bin dir to PATH so bare `python` resolves
-        # to the venv interpreter in child shells.
-        _venv_bin = str(Path(_argus_python).resolve().parent)
-        _current_path = os.environ.get("PATH", "")
-        if _venv_bin not in _current_path:
-            os.environ["PATH"] = f"{_venv_bin}:{_current_path}"
 
         # Make the project's ``code/`` importable in every child shell so inline
         # scripts and ``code/*.py`` helpers can ``import benchmark_loaders`` /

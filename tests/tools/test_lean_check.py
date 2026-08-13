@@ -51,9 +51,10 @@ def _fake_lean(tmp_path: Path, behavior: str) -> Path:
         script = path.with_suffix(".py")
         script.write_text(body, encoding="utf-8")
         launcher = path.with_suffix(".cmd")
+        os.environ["ARGUS_TEST_PYTHON"] = sys.executable
         launcher.write_text(
-            f'@echo off\r\n"{sys.executable}" "{script}" %*\r\n',
-            encoding="utf-8",
+            '@echo off\n"%ARGUS_TEST_PYTHON%" "%~dp0' + script.name + '" %*\n',
+            encoding="ascii",
         )
         return launcher
     path.write_text("#!/usr/bin/env python3\n" + body, encoding="utf-8")
@@ -82,9 +83,10 @@ def _fake_lake_with_versions(tmp_path: Path) -> Path:
         script = path.with_suffix(".py")
         script.write_text(body, encoding="utf-8")
         launcher = path.with_suffix(".cmd")
+        os.environ["ARGUS_TEST_PYTHON"] = sys.executable
         launcher.write_text(
-            f'@echo off\r\n"{sys.executable}" "{script}" %*\r\n',
-            encoding="utf-8",
+            '@echo off\n"%ARGUS_TEST_PYTHON%" "%~dp0' + script.name + '" %*\n',
+            encoding="ascii",
         )
         return launcher
     path.write_text("#!/usr/bin/env python3\n" + body, encoding="utf-8")

@@ -90,7 +90,7 @@ def test_figure_renderer_script_is_present_and_importable() -> None:
     proc = subprocess.run(
         [sys.executable, "-c",
          f"import importlib.util, sys; "
-         f"spec = importlib.util.spec_from_file_location('fr', '{renderer}'); "
+         f"spec = importlib.util.spec_from_file_location('fr', {str(renderer)!r}); "
          f"mod = importlib.util.module_from_spec(spec); "
          f"spec.loader.exec_module(mod); "
          f"print('OK')"],
@@ -173,9 +173,10 @@ def test_seed_builtin_skills_copies_bundled_scripts(tmp_path: Path) -> None:
         "figure_renderer.py was NOT seeded into the workspace — the "
         "bundled-script copy path is broken"
     )
-    # Sanity: the seeded copy is byte-identical to the in-tree source
+    # Sanity: the seeded copy has identical source content. Git may check out
+    # the source with CRLF on Windows while importlib.resources yields LF.
     in_tree = BUILTIN_ROOT / "engineer" / "figure_spec_scripts" / "figure_renderer.py"
-    assert renderer.read_bytes() == in_tree.read_bytes()
+    assert renderer.read_text(encoding="utf-8") == in_tree.read_text(encoding="utf-8")
 
 
 def test_plan_review_skill_has_rl_config_sanity_section() -> None:

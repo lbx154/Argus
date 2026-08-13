@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shlex
 import stat as stat_module
+import sys
 from collections.abc import MutableMapping
 from pathlib import Path
 
@@ -15,6 +16,58 @@ _ALLOWED_KEYS = frozenset({
     "DISABLE_AUTOUPDATER",
     "ARGUS_SKILL_RUNNER_BIN",
 })
+
+
+def _path_key(value: str) -> str:
+    """Return a platform-aware comparison key without changing the PATH entry."""
+    return os.path.normcase(os.path.abspath(os.path.expanduser(value)))
+
+
+def configure_framework_python_env(
+    env: MutableMapping[str, str] | None = None,
+    *,
+    executable: str | os.PathLike[str] | None = None,
+) -> MutableMapping[str, str]:
+    """Expose the owning Argus interpreter and make bare ``python`` prefer it.
+
+    Console-script launchers and unactivated Windows virtual environments can
+    run Argus with a correct interpreter while leaving an unrelated Anaconda or
+    system Python first on ``PATH``. Agent CLIs inherit that mismatch and then
+    fail to import Argus helpers. Preserve an explicit framework interpreter,
+    keep frozen-runtime command shims first, and de-duplicate PATH using the
+    host platform's separator and case rules.
+    """
+    target_env = env if env is not None else os.environ
+    framework_python = str(
+        target_env.get("ARGUS_SKILL_PYTHON") or executable or sys.executable
+    ).strip()
+    target_env["ARGUS_SKILL_PYTHON"] = framework_python
+    if os.name == "nt":
+        target_env.setdefault("PYTHONUTF8", "1")
+        target_env.setdefault("PYTHONIOENCODING", "utf-8")
+
+    preferred: list[str] = []
+    runtime_bin = str(target_env.get("ARGUS_SKILL_RUNTIME_BIN") or "").strip()
+    if runtime_bin:
+        preferred.append(runtime_bin)
+    python_path = Path(framework_python).expanduser()
+    if python_path.parent != Path(".") or python_path.is_absolute():
+        preferred.append(str(python_path.resolve().parent))
+
+    existing = str(target_env.get("PATH") or "").split(os.pathsep)
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for entry in [*preferred, *existing]:
+        clean = entry.strip()
+        if not clean:
+            continue
+        key = _path_key(clean)
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(clean)
+    target_env["PATH"] = os.pathsep.join(ordered)
+    return target_env
 
 
 def load_backend_runtime_env(
@@ -62,4 +115,4 @@ def load_backend_runtime_env(
     return loaded
 
 
-__all__ = ["load_backend_runtime_env"]
+__all__ = ["configure_framework_python_env", "load_backend_runtime_env"]

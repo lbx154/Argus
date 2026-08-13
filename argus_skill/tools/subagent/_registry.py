@@ -6,6 +6,7 @@ ledger, structured RunWriter signal readers, and usage accounting helpers.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -55,13 +56,24 @@ _QUIET_LOGS_ENV = "ARGUS_SUBAGENT_QUIET_LOGS"
 # Registry paths
 # ---------------------------------------------------------------------------
 
+def _task_file_component(task_id: str) -> str:
+    text = str(task_id)
+    windows_unsafe = os.name == "nt" and (
+        any(ord(char) < 32 or char in '<>:"|?*' for char in text)
+        or text.endswith((" ", "."))
+    )
+    if windows_unsafe or any(char in text for char in "/\\\0"):
+        return f"id-{hashlib.sha256(text.encode('utf-8')).hexdigest()}"
+    return text
+
+
 def _registry_path(task_id: str) -> Path:
-    return REGISTRY_DIR / f"{task_id}.json"
+    return REGISTRY_DIR / f"{_task_file_component(task_id)}.json"
 
 
 def _exit_status_path(task_id: str, run_id: str | None = None) -> Path:
     name = f"exit_code.{run_id}" if run_id else "exit_code"
-    return REGISTRY_DIR / f"{task_id}_logs" / name
+    return REGISTRY_DIR / f"{_task_file_component(task_id)}_logs" / name
 
 
 # ---------------------------------------------------------------------------

@@ -276,8 +276,12 @@ _FOLLOW_HEARTBEAT_SECONDS = 20.0
 
 
 def main(argv: list[str] | None = None) -> int:
-    from ...core.runtime_env import load_backend_runtime_env
+    from ...core.runtime_env import (
+        configure_framework_python_env,
+        load_backend_runtime_env,
+    )
 
+    configure_framework_python_env()
     load_backend_runtime_env()
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -374,6 +378,10 @@ def main(argv: list[str] | None = None) -> int:
             "are mutually exclusive.\n"
         )
         return 2
+    if args.command == "doctor":
+        return _run_with_path_resolution_errors(lambda: _cmd_doctor(args))
+    if args.command == "repair":
+        return _run_with_path_resolution_errors(lambda: _cmd_repair(args))
     if getattr(args, "update", False) or args.command == "update":
         from ..update import run_update
 
@@ -654,20 +662,125 @@ def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
     return int(receipt.result.get("rc", 3 if receipt.status != "applied" else 0))
 
 
-def _cmd_doctor(args: argparse.Namespace) -> int:
-    from ...webapi.diagnostics import render_report, run_diagnostics
+def _doctor_checks(args: argparse.Namespace):
+    from ...webapi.diagnostics import run_diagnostics
 
     bundle = _resolve_project_bundle(args)
-    checks = run_diagnostics(
+    legacy = bool(getattr(args, "doctor", False))
+    return bundle, run_diagnostics(
         bundle.project.root,
         global_root=bundle.global_root,
         backend=getattr(args, "backend", None),
         auth_mode=getattr(args, "auth_mode", None),
-        probe_auth=True,
+        probe_auth=legacy or bool(getattr(args, "deep", False)),
         allow_prerelease=bool(getattr(args, "allow_prerelease", False)),
     )
-    sys.stdout.write(render_report(checks) + "\n")
+
+
+def _doctor_payload(checks, *, verification: bool = False) -> dict[str, Any]:
+    codes = {
+        "backend preflight": "ARGUS-BACKEND-001",
+        "model API capability": "ARGUS-BACKEND-002",
+        "daemon": "ARGUS-DAEMON-001",
+        "lock sanity": "ARGUS-STATE-001",
+        "empty session": "ARGUS-STATE-002",
+    }
+    return {
+        "schema_version": 1,
+        "ok": all(check.ok for check in checks),
+        "verification": verification,
+        "checks": [
+            {
+                "code": codes.get(check.name, "ARGUS-CHECK-001"),
+                "name": check.name,
+                "ok": check.ok,
+                "detail": check.detail,
+                "fix": check.fix,
+            }
+            for check in checks
+        ],
+    }
+
+
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    import json
+
+    from ...webapi.diagnostics import render_report
+
+    _bundle, checks = _doctor_checks(args)
+    if bool(getattr(args, "json", False)):
+        sys.stdout.write(
+            json.dumps(
+                _doctor_payload(
+                    checks,
+                    verification=bool(getattr(args, "verify", False)),
+                ),
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n"
+        )
+    else:
+        sys.stdout.write(render_report(checks) + "\n")
     return 0 if all(check.ok for check in checks) else 3
+
+
+def _cmd_repair(args: argparse.Namespace) -> int:
+    import json
+
+    from ...core.daemon_lock import is_pid_running, read_daemon_pid
+    from ...webapi.diagnostics import render_report
+
+    bundle, before = _doctor_checks(args)
+    actions: list[dict[str, str]] = []
+    pid_path = bundle.project.root / "daemon.pid"
+    pid = read_daemon_pid(pid_path)
+    if pid is not None and not is_pid_running(pid):
+        action = {
+            "id": "remove_verified_stale_daemon_pid",
+            "risk": "safe",
+            "target": str(pid_path),
+        }
+        if bool(getattr(args, "safe", False)):
+            pid_path.unlink(missing_ok=True)
+            action["status"] = "applied"
+        else:
+            action["status"] = "planned"
+        actions.append(action)
+
+    if bool(getattr(args, "plan", False)):
+        for check in before:
+            if not check.ok and check.fix and check.name != "lock sanity":
+                actions.append({
+                    "id": "manual_required",
+                    "risk": "manual",
+                    "target": check.name,
+                    "status": "planned",
+                    "detail": check.fix,
+                })
+        after = before
+    else:
+        _bundle, after = _doctor_checks(args)
+
+    payload = {
+        "schema_version": 1,
+        "mode": "safe" if bool(getattr(args, "safe", False)) else "plan",
+        "actions": actions,
+        "verification": _doctor_payload(after, verification=True),
+    }
+    if bool(getattr(args, "json", False)):
+        sys.stdout.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+    else:
+        if actions:
+            for action in actions:
+                sys.stdout.write(
+                    f"{action['status']}: {action['id']} ({action['risk']}) "
+                    f"→ {action['target']}\n"
+                )
+        else:
+            sys.stdout.write("no registered repair action is needed\n")
+        sys.stdout.write(render_report(after) + "\n")
+    return 0 if all(check.ok for check in after) else 3
 
 
 def _cmd_daemon_stop(args: argparse.Namespace) -> int:

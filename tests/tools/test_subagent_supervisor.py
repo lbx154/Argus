@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import time
 import types
@@ -38,6 +39,11 @@ from argus_skill.tools.subagent import (
     _supervisor_discuss,
     _write_task,
     cmd_reply,
+)
+
+requires_fork = pytest.mark.skipif(
+    not hasattr(os, "fork"),
+    reason="subagent daemonization uses POSIX fork",
 )
 
 _ORIGINAL_RUN_BACKEND_TURN = _sub._llm._run_backend_turn
@@ -1002,6 +1008,7 @@ def _submit_args(**kw) -> argparse.Namespace:
     return argparse.Namespace(**base)
 
 
+@requires_fork
 def test_cmd_submit_blocks_on_open_discussion(monkeypatch, tmp_path, capsys) -> None:
     monkeypatch.chdir(tmp_path)
     me = __import__("os").getpid()
@@ -1017,6 +1024,7 @@ def test_cmd_submit_blocks_on_open_discussion(monkeypatch, tmp_path, capsys) -> 
     assert "truncation" in out["supervisor_concern"]
 
 
+@requires_fork
 def test_cmd_submit_rejects_same_id_while_discussion_worker_lives(
     monkeypatch,
     tmp_path,
@@ -1052,6 +1060,7 @@ def test_cmd_submit_rejects_same_id_while_discussion_worker_lives(
     assert "already discussing" in out["error"]
 
 
+@requires_fork
 def test_cmd_submit_rejects_terminal_record_while_report_worker_lives(
     monkeypatch,
     tmp_path,
@@ -1082,6 +1091,7 @@ def test_cmd_submit_rejects_terminal_record_while_report_worker_lives(
     assert "already done" in out["error"]
 
 
+@requires_fork
 def test_cmd_submit_override_records_and_proceeds(monkeypatch, tmp_path, capsys) -> None:
     monkeypatch.chdir(tmp_path)
     me = __import__("os").getpid()
@@ -1096,6 +1106,7 @@ def test_cmd_submit_override_records_and_proceeds(monkeypatch, tmp_path, capsys)
     assert "I checked, proceed" in ledger
 
 
+@requires_fork
 def test_cmd_submit_refuses_poisoned_stop(monkeypatch, tmp_path, capsys) -> None:
     monkeypatch.chdir(tmp_path)
     rd = tmp_path / "runs" / "r1"
@@ -1112,6 +1123,7 @@ def test_cmd_submit_refuses_poisoned_stop(monkeypatch, tmp_path, capsys) -> None
     assert not (rd / "STOP").exists()
 
 
+@requires_fork
 def test_cmd_submit_rejects_insufficient_cpus_before_artifacts(
     monkeypatch, tmp_path, capsys
 ) -> None:
@@ -1138,6 +1150,7 @@ def test_cmd_submit_rejects_insufficient_cpus_before_artifacts(
     assert not run_dir.exists()
 
 
+@requires_fork
 def test_cmd_submit_rejects_cpu_conflict_before_new_task_record(
     monkeypatch, tmp_path, capsys
 ) -> None:
@@ -1169,6 +1182,7 @@ def test_cmd_submit_rejects_cpu_conflict_before_new_task_record(
     assert not _sub._registry_path("new").exists()
 
 
+@requires_fork
 def test_cmd_submit_reserves_disjoint_cpus_before_fork(
     monkeypatch, tmp_path, capsys
 ) -> None:
@@ -1199,6 +1213,7 @@ def test_cmd_submit_reserves_disjoint_cpus_before_fork(
     assert record["cpu_count"] == 2
 
 
+@requires_fork
 def test_cmd_submit_normalizes_relative_cwd_and_run_dir(
     monkeypatch,
     tmp_path,

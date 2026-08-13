@@ -66,6 +66,14 @@ def test_task_ids_cannot_escape_task_storage(tmp_path: Path, task_id: str) -> No
     assert not any((tmp_path / "tasks").glob("*.json"))
 
 
+def test_windows_unsafe_logical_id_round_trips_without_unsafe_filename(tmp_path: Path) -> None:
+    tb.form(tmp_path, [{"task_id": "team::task", "objective": "portable"}])
+
+    assert [task["task_id"] for task in tb.snapshot(tmp_path)] == ["team::task"]
+    if __import__("os").name == "nt":
+        assert all(":" not in path.name for path in (tmp_path / "tasks").iterdir())
+
+
 def test_form_stores_priority(tmp_path: Path) -> None:
     tb.form(tmp_path, [
         {"task_id": "a", "objective": "x", "owns_paths": ["a/**"]},

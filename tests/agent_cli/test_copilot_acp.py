@@ -686,7 +686,9 @@ def test_acp_soft_idle_heartbeat_resets_on_real_event_and_stops(monkeypatch) -> 
                 )
                 + "\n"
             )
-            time.sleep(0.035)
+            # Leave enough post-tool quiet time for two 20ms watchdog samples
+            # even on Windows' coarser thread scheduler.
+            time.sleep(0.08)
             proc._q.put(
                 json.dumps(
                     {
@@ -735,7 +737,7 @@ def test_acp_soft_idle_heartbeat_resets_on_real_event_and_stops(monkeypatch) -> 
 
     assert result.turn_completed
     assert len(snapshots) >= 2  # once before and once after the real tool event
-    assert all(snapshot.idle_seconds < 0.05 for snapshot in snapshots)
+    assert all(snapshot.idle_seconds < 0.1 for snapshot in snapshots)
     count_at_completion = len(snapshots)
     time.sleep(0.04)
     assert len(snapshots) == count_at_completion  # completion stops heartbeats

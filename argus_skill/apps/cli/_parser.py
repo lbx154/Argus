@@ -13,7 +13,8 @@ Human cockpit:
 
 First-time setup and diagnostics:
   argus --setup
-  argus --doctor
+  argus doctor
+  argus repair --plan
   argus update
 
 Automation:
@@ -431,6 +432,45 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers = parser.add_subparsers(dest="command")
+    doctor_parser = subparsers.add_parser(
+        "doctor",
+        help="Run read-only Argus diagnostics",
+    )
+    doctor_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="print a stable machine-readable diagnostic report",
+    )
+    doctor_parser.add_argument(
+        "--deep",
+        action="store_true",
+        help="include backend authentication probes",
+    )
+    doctor_parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="label this run as post-repair verification",
+    )
+    repair_parser = subparsers.add_parser(
+        "repair",
+        help="Plan or apply registered Argus recovery actions",
+    )
+    repair_mode = repair_parser.add_mutually_exclusive_group(required=True)
+    repair_mode.add_argument(
+        "--plan",
+        action="store_true",
+        help="show deterministic repair recommendations without modifying state",
+    )
+    repair_mode.add_argument(
+        "--safe",
+        action="store_true",
+        help="apply only registered SAFE actions, then verify",
+    )
+    repair_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="print a stable machine-readable repair result",
+    )
     subparsers.add_parser(
         "update",
         help="Safely fast-forward and reinstall this source checkout",

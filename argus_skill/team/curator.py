@@ -40,10 +40,41 @@ from . import completion, leaderboard, pool, registry, roster, task_board
 log = logging.getLogger(__name__)
 
 
+def _windows_process_command_line(pid: int) -> str:
+    script = (
+        "$OutputEncoding=[Console]::OutputEncoding=[Text.UTF8Encoding]::new();"
+        f"$p=Get-CimInstance Win32_Process -Filter 'ProcessId = {int(pid)}';"
+        "if($null -ne $p){[Console]::Out.Write($p.CommandLine)}"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=3.0,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _terminate_windows_tree(pid: int) -> None:
+    subprocess.run(
+        ["taskkill.exe", "/PID", str(int(pid)), "/T", "/F"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+
+
 def _pid_is_teammate(pid: int, member_id: str, root: Path | None = None) -> bool:
     """Verify an adopted PID against exact teammate command-line arguments."""
-    if os.name == "nt":
-        return False
+    command_line = _windows_process_command_line(pid) if os.name == "nt" else ""
     try:
         argv = [
             part.decode("utf-8", "replace")
@@ -52,8 +83,7 @@ def _pid_is_teammate(pid: int, member_id: str, root: Path | None = None) -> bool
         ]
     except OSError:
         argv = []
-    command_line = ""
-    if not argv:
+    if not argv and not command_line:
         ps = "/bin/ps" if Path("/bin/ps").is_file() else "/usr/bin/ps"
         try:
             result = subprocess.run(
@@ -87,7 +117,7 @@ def _pid_is_teammate(pid: int, member_id: str, root: Path | None = None) -> bool
             rf"(?:^|\s){re.escape(name)}\s+(.+?)(?=\s+--[\w-]+(?:\s|$)|$)",
             command_line,
         )
-        return match.group(1).strip() if match else ""
+        return match.group(1).strip().strip('"') if match else ""
 
     if option("--member-id") != member_id:
         return False
@@ -124,6 +154,15 @@ class _AdoptedProc:
                 raise subprocess.TimeoutExpired(self._member_id, timeout or 0)
             time.sleep(0.1)
         return 0
+
+    def terminate(self) -> None:
+        if os.name == "nt" and self.poll() is None:
+            _terminate_windows_tree(self.pid)
+        elif self.poll() is None:
+            os.kill(self.pid, signal.SIGTERM)
+
+    def kill(self) -> None:
+        self.terminate()
 
 
 class TrackedTeammate:
@@ -348,11 +387,9 @@ class Curator:
         if proc.poll() is not None:
             return
         if os.name == "nt":
-            proc.terminate()
-            try:
-                proc.wait(timeout=grace)
-            except subprocess.TimeoutExpired:
-                proc.kill()
+            _terminate_windows_tree(proc.pid)
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                proc.wait(timeout=max(grace, 5.0))
             return
         try:
             os.killpg(os.getpgid(proc.pid), signal.SIGTERM)

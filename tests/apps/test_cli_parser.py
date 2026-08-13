@@ -23,7 +23,8 @@ def test_public_help_distinguishes_human_and_automation_surfaces() -> None:
     assert "supervised foreground worker" in help_text
     assert "argus --daemon" in help_text
     assert "persistent unattended background worker" in help_text
-    assert "argus --doctor" in help_text
+    assert "argus doctor" in help_text
+    assert "argus repair --plan" in help_text
     assert "argus update" in help_text
     assert "--status" not in help_text
     assert "dashboard" not in help_text.lower()
@@ -44,6 +45,18 @@ def test_debug_help_still_exposes_internal_flags(monkeypatch: pytest.MonkeyPatch
     assert "--daemon" in help_text
     assert "--status" in help_text
     assert "wiki" in help_text
+
+
+def test_parser_exposes_doctor_and_repair_subcommands() -> None:
+    doctor = build_parser().parse_args(["doctor", "--json", "--deep"])
+    assert doctor.command == "doctor"
+    assert doctor.json is True
+    assert doctor.deep is True
+
+    repair = build_parser().parse_args(["repair", "--safe", "--json"])
+    assert repair.command == "repair"
+    assert repair.safe is True
+    assert repair.json is True
 
 
 def test_parser_exposes_update_subcommand():

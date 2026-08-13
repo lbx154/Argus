@@ -111,7 +111,8 @@ def test_auth_fields_refresh_without_overwriting_argus_state(tmp_path: Path) -> 
     assert config["loggedInUsers"] == [{"login": "operator"}]
     assert config["lastLoggedInUser"] == {"login": "operator"}
     assert "trustedFolders" not in config
-    assert (home / "config.json").stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":
+        assert (home / "config.json").stat().st_mode & 0o777 == 0o600
 
 
 def test_operator_logout_removes_stale_isolated_auth(tmp_path: Path) -> None:
