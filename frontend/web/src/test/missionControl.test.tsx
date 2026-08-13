@@ -128,6 +128,19 @@ describe('MissionControl', () => {
     expect(markup).not.toContain('\\*\\*问题');
   });
 
+  it('offers the complete mission output when the compact summary is clipped', () => {
+    const view = emptyMissionView();
+    view.mission.summary = '**Report** starts here and ends early';
+    view.mission.final_output = '# Complete report\n\nThe final section remains visible.';
+
+    const markup = renderToStaticMarkup(<MissionControl view={view} />);
+
+    expect(markup).toContain('View full output');
+    expect(markup).toContain('>Report</strong>');
+    expect(markup).toContain('Complete report');
+    expect(markup).toContain('The final section remains visible.');
+  });
+
   it('collapses old DAG history while retaining the active branch', () => {
     const view = emptyMissionView();
     view.dag = Array.from({ length: 30 }, (_, index) => ({

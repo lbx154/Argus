@@ -171,6 +171,7 @@ export interface LifeMissionCompletedEvent extends EventMsg {
   "scope"?: string;
   "status": string;
   "summary"?: string;
+  "final_output"?: string;
   "outcome_class"?: "completed" | "incomplete" | "stalled" | "blocked" | "failed" | "ended";
   "outcome"?: { "execution_status": string; "review_status": string; "stage_certification": string; "interruption_kind": string; "resumable": boolean; };
   "success"?: boolean;

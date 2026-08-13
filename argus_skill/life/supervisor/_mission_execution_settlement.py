@@ -749,6 +749,11 @@ class MissionExecutionSettlementMixin:
                 or ""
             ).split()
         )[:1200]
+        final_output = str(
+            getattr(outcome, "final_output", "")
+            or getattr(outcome, "final_message", "")
+            or ""
+        ).strip()
         try:
             from ...core.metrics import metrics_root_for_project, record_metric
 
@@ -789,6 +794,7 @@ class MissionExecutionSettlementMixin:
             "success": success,
             "status": status,
             "summary": mission_summary,
+            "final_output": final_output,
             "outcome_class": mission_outcome_class(status=status, success=success),
             "outcome": state.outcome_dimensions,
             "planner_report": planner_report,

@@ -59,6 +59,9 @@ class _Outcome:
     final_review_reason: str = ""
     final_review_next_action: str = ""
     summary: str = ""
+    # Full operator-facing Engineer handoff. ``summary`` stays compact for
+    # status surfaces, while this field preserves long-form deliverables.
+    final_output: str = ""
     research_result: dict | None = None
     final_planner_report: dict = field(default_factory=dict)
     plan_challenge: dict = field(default_factory=dict)

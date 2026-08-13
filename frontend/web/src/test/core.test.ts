@@ -587,6 +587,40 @@ describe('shared frontend core', () => {
     now.mockRestore();
   });
 
+  it('recovers a historical full handoff even when the snapshot is newer', () => {
+    const view = emptyMissionView();
+    view.mission.id = 'task-long';
+    view.mission.title = 'Write report';
+    view.mission.summary = 'Compact summary ending early';
+    view.mission.status = 'complete';
+    view.last_event_ts = 10;
+    const snapshot = {
+      session: { id: 's', display_name: '', objective: '', created: 1, last_active: 0, cwd: '' },
+      daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x', global_daily_cap_usd: 3 },
+      roles: [],
+      backlog: [],
+      recent_events: [],
+      continuous: { enabled: false, objective: '' },
+      mission_view: view,
+    };
+    const fullOutput = '# Complete report\n\n' + 'full detail\n'.repeat(300);
+
+    const result = projectMissionView(snapshot, [
+      { type: 'life.mission.started', ts: 1, item_id: 'task-long' },
+      {
+        type: 'engineer.progress',
+        ts: 2,
+        agent_layer: 'engineer',
+        kind: 'agent_message',
+        text: `${fullOutput}\nMILESTONE_STATUS=done\nOPERATOR_QUESTION=none`,
+      },
+      { type: 'life.mission.completed', ts: 3, item_id: 'task-long' },
+    ], []);
+
+    expect(result.mission.summary).toBe('Compact summary ending early');
+    expect(result.mission.final_output).toBe(fullOutput.trim());
+  });
+
   it('renders conversation Markdown without executing raw HTML', () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownContent, null, '## Result\n\n- **passed**\n\n`score = 1`\n\n```\nraw block\n```\n\n<script>alert(1)</script>'),

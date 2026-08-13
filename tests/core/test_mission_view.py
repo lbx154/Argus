@@ -148,6 +148,39 @@ def test_v3_snapshot_rebuilds_to_include_completion_summary(tmp_path: Path) -> N
     )
 
 
+def test_mission_view_preserves_full_engineer_output_beyond_summary(tmp_path: Path) -> None:
+    body = "# Complete report\n\n" + ("full detail\n" * 300)
+    emit(
+        tmp_path,
+        "life.mission.started",
+        1,
+        item_id="task-long",
+        title="Write report",
+        objective="Deliver the complete report",
+    )
+    emit(
+        tmp_path,
+        "engineer.progress",
+        2,
+        agent_layer="engineer",
+        kind="agent_message",
+        text=f"{body}\nMILESTONE_STATUS=done\nOPERATOR_QUESTION=none",
+    )
+    view = emit(
+        tmp_path,
+        "life.mission.completed",
+        3,
+        item_id="task-long",
+        title="Write report",
+        status="done",
+        success=True,
+        summary=body[:1200],
+    )
+
+    assert view["mission"]["summary"] == body[:1200].strip()
+    assert view["mission"]["final_output"] == body.strip()
+
+
 def test_venue_and_idea_research_are_visible_as_engineer_work(tmp_path: Path) -> None:
     emit(
         tmp_path,
