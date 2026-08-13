@@ -107,6 +107,7 @@ dev = [
 
 [project.scripts]
 argus = "argus_skill.apps.tui_launcher:main"
+argus-doctor = "argus_doctor:main"
 argus-skill = "argus_skill.__main__:main"
 argus-plugin-server = "argus_skill.plugin.mcp_server:main"
 
@@ -119,6 +120,7 @@ packages = ["argus_skill"]
 # Package Markdown and JSON files are runtime Skill data.
 
 [tool.hatch.build.targets.wheel.force-include]
+"argus_doctor.py" = "argus_doctor.py"
 "frontend/tui/bundle/argus.mjs" = "argus_skill/_frontend/tui/bundle/argus.mjs"
 "frontend/web/dist" = "argus_skill/_frontend/web/dist"
 
