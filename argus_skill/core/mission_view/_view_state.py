@@ -44,6 +44,7 @@ def empty_mission_view() -> dict[str, Any]:
             "title": "",
             "objective": "",
             "summary": "",
+            "final_output": "",
             "status": "idle",
             "started_at": None,
             "completed_at": None,
@@ -152,6 +153,7 @@ def _read_unlocked(root: Path) -> dict[str, Any]:
             skill.pop("content_truncated", None)
     mission = payload.setdefault("mission", {})
     mission.setdefault("summary", "")
+    mission.setdefault("final_output", "")
     mission.setdefault("campaign_started_at", None)
     mission.setdefault("campaign_elapsed_seconds", 0.0)
     for role in payload.setdefault("roles", []):

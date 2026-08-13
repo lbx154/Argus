@@ -83,6 +83,10 @@ export function MissionControl({
   const objective = displayObjective(
     view.mission.objective || view.mission.title || t('mission.waiting'),
   );
+  const finalOutput = view.mission.final_output?.trim() || '';
+  const hasFullOutput = Boolean(
+    finalOutput && finalOutput !== view.mission.summary.trim(),
+  );
   const [replayIndex, setReplayIndex] = useState(Math.max(0, view.timeline.length - 1));
   const [selectedRole, setSelectedRole] = useState(view.active_role || 'planner');
   const [selectedTaskId, setSelectedTaskId] = useState(activeNode?.id || '');
@@ -131,9 +135,19 @@ export function MissionControl({
             <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ok">
               {t('mission.summary')}
             </div>
-            <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-ink-dim">
-              {view.mission.summary}
-            </p>
+            <div className="mt-1 text-xs leading-relaxed text-ink-dim">
+              <MarkdownContent>{view.mission.summary}</MarkdownContent>
+            </div>
+            {hasFullOutput ? (
+              <details className="mt-2 border-t border-ok/20 pt-2 text-xs text-ink-dim">
+                <summary className="cursor-pointer font-medium text-ok hover:text-ink">
+                  {t('mission.showFullOutput')}
+                </summary>
+                <div className="mt-3 break-words text-sm leading-relaxed text-ink">
+                  <MarkdownContent>{finalOutput}</MarkdownContent>
+                </div>
+              </details>
+            ) : null}
           </div>
         ) : null}
         {view.frontier.change ? (

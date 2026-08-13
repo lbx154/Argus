@@ -1,5 +1,10 @@
 import { canonicalEventType, EVENT_TYPES } from './eventCatalog.js';
-import { eventKey, isReasoning, isStructuredAgentPayload } from './events.js';
+import {
+  eventKey,
+  isReasoning,
+  isStructuredAgentPayload,
+  visibleAgentText,
+} from './events.js';
 import {
   missionOutcomeDimensions,
   missionOutcomePresentation,
@@ -40,6 +45,7 @@ export function emptyMissionView(): MissionView {
       title: '',
       objective: '',
       summary: '',
+      final_output: '',
       status: 'idle',
       started_at: null,
       completed_at: null,
@@ -290,6 +296,7 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
       title: S(event, 'title'),
       objective: S(event, 'objective'),
       summary: '',
+      final_output: '',
       status: 'working',
       started_at: ts,
       completed_at: null,
@@ -308,6 +315,15 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
     const kind = S(event, 'kind');
     const label = PROGRESS_LABELS[kind] ?? 'Working';
     setRole(view, role, 'active', label, ts);
+    if (
+      role === 'engineer'
+      && ['assistant_message', 'agent_message', 'message'].includes(kind)
+    ) {
+      const candidate = visibleAgentText(event.text);
+      if (candidate.length >= (view.mission.final_output?.length ?? 0)) {
+        view.mission.final_output = candidate;
+      }
+    }
     const detail = S(event, 'action_summary') || S(event, 'text');
     if (detail && !isReasoning(event) && !isStructuredAgentPayload(event)) {
       addRoleWork(view, event, role, kind || 'progress', label, detail, 'active');
@@ -479,6 +495,9 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
     view.mission.title = S(event, 'title') || view.mission.title;
     view.mission.objective = S(event, 'objective') || view.mission.objective;
     view.mission.summary = S(event, 'summary');
+    view.mission.final_output = visibleAgentText(event.final_output)
+      || view.mission.final_output
+      || '';
     view.mission.status = presentation.missionStatus;
     view.mission.completed_at = ts;
     view.outcome = missionOutcomeDimensions(event);
@@ -665,8 +684,49 @@ export function projectMissionView(
     .filter((event) => event.ts == null || Number(event.ts) > seedTs)
     .sort((left, right) => Number(left.ts ?? 0) - Number(right.ts ?? 0))
     .forEach((event) => reduceMissionViewEvent(view, event));
+  if (!view.mission.final_output) {
+    view.mission.final_output = recoverMissionFinalOutput(events, view.mission.id);
+  }
   finalizeSnapshot(view, snapshot, artifacts, missionContext);
   return view;
+}
+
+/** Recover full handoffs produced before ``life.mission.completed`` gained a
+ * dedicated ``final_output`` field.  The compact snapshot can be newer than
+ * the REST event window, so inspect that window explicitly instead of relying
+ * on the incremental reducer to replay older rows. */
+function recoverMissionFinalOutput(events: EventMsg[], missionId: string): string {
+  let completionIndex = -1;
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (canonicalEventType(event.type) !== EVENT_TYPES.LIFE_MISSION_COMPLETED) continue;
+    if (missionId && S(event, 'item_id') !== missionId) continue;
+    completionIndex = index;
+    break;
+  }
+  if (completionIndex < 0) return '';
+
+  let startIndex = 0;
+  for (let index = completionIndex - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (canonicalEventType(event.type) !== EVENT_TYPES.LIFE_MISSION_STARTED) continue;
+    if (missionId && S(event, 'item_id') !== missionId) continue;
+    startIndex = index + 1;
+    break;
+  }
+
+  let output = '';
+  for (let index = startIndex; index < completionIndex; index += 1) {
+    const event = events[index];
+    if (canonicalEventType(event.type) !== EVENT_TYPES.ENGINEER_PROGRESS) continue;
+    const role = S(event, 'agent_layer') || S(event, 'actor');
+    const kind = S(event, 'kind');
+    if (!['engineer', 'main'].includes(role)) continue;
+    if (!['assistant_message', 'agent_message', 'message'].includes(kind)) continue;
+    const candidate = visibleAgentText(event.text);
+    if (candidate.length >= output.length) output = candidate;
+  }
+  return output;
 }
 
 /**

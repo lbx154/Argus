@@ -1262,6 +1262,7 @@ class SkillLoopExecuteMixin:
                 continue
             summary_lines.append(cleaned.lstrip("#").strip())
         summary = " ".join(summary_lines)[:1200]
+        final_output = visible_engineer_message.strip()
         return _Outcome(
             success=bool(outcome.successful and ex_state.effective_status == "done"),
             status=ex_state.effective_status,
@@ -1284,6 +1285,7 @@ class SkillLoopExecuteMixin:
             ),
             final_review_next_action=ex_state.final_review_next_action,
             summary=summary,
+            final_output=final_output,
             research_result=(
                 getattr(
                     rounds[-1].review,
