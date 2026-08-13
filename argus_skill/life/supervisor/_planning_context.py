@@ -15,6 +15,8 @@ from ...core.event_catalog import EventType
 from ...core.planner_verdict import PlannerVerdictStatus
 from ..memory import BacklogItem
 from ._constants import (
+    MANAGER_FEEDBACK_INSTRUCTION_VERSION,
+    MANAGER_FEEDBACK_REPLAN_LIMIT,
     PLAN_AWAITING,
     PLAN_RETRY,
     PLANNER_SCOPE_BOUNDED,
@@ -792,6 +794,7 @@ class PlanningContextMixin:
         return self._write_manager_planner_feedback(
             {
                 "version": 1,
+                "instruction_version": MANAGER_FEEDBACK_INSTRUCTION_VERSION,
                 "active": True,
                 "objective_fingerprint": self._planner_waiting_objective_fingerprint(),
                 "stage": stage,
@@ -803,6 +806,38 @@ class PlanningContextMixin:
                 "updated_at": time.time(),
             }
         )
+
+    def _migrate_manager_planner_feedback_instruction(
+        self,
+        state: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Give persisted feedback one retry when its routing contract changes."""
+        diagnostic = str(state.get("diagnostic") or "")
+        try:
+            instruction_version = int(state.get("instruction_version") or 1)
+        except (TypeError, ValueError):
+            instruction_version = 1
+        if (
+            diagnostic != "research_target_incomplete"
+            or instruction_version >= MANAGER_FEEDBACK_INSTRUCTION_VERSION
+        ):
+            return state
+
+        migrated = dict(state)
+        migrated["instruction_version"] = MANAGER_FEEDBACK_INSTRUCTION_VERSION
+        migrated["attempts"] = min(
+            max(1, int(state.get("attempts") or 1)),
+            max(1, MANAGER_FEEDBACK_REPLAN_LIMIT - 1),
+        )
+        migrated["updated_at"] = time.time()
+        if not self._write_manager_planner_feedback(migrated):
+            return state
+        self._reset_idle_backoff()
+        self._emit_status(
+            "migrated Manager→Planner research certification routing; "
+            "allowing one bounded retry"
+        )
+        return migrated
 
     def _clear_manager_planner_feedback(self) -> None:
         state = self._load_manager_planner_feedback()

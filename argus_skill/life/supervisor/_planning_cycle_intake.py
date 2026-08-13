@@ -87,6 +87,9 @@ class PlanningCycleIntakeMixin:
         if revision_request is None:
             feedback = self._load_manager_planner_feedback()
             if feedback is not None:
+                feedback = self._migrate_manager_planner_feedback_instruction(
+                    feedback
+                )
                 recorded_signature = str(
                     feedback.get("evidence_signature") or ""
                 )

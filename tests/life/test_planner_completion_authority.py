@@ -132,3 +132,37 @@ def test_finite_research_target_keeps_final_submission_transport(tmp_path) -> No
     assert "scope:final_submission" in tags
     assert "scope:bounded" not in tags
     assert "review:required" in tags
+
+
+def test_exhausted_research_feedback_gets_one_new_instruction_retry() -> None:
+    class MigrationHarness(PlanningContextMixin):
+        def __init__(self) -> None:
+            self.written = None
+            self.statuses: list[str] = []
+            self.reset = False
+
+        def _write_manager_planner_feedback(self, payload) -> bool:
+            self.written = payload
+            return True
+
+        def _reset_idle_backoff(self) -> None:
+            self.reset = True
+
+        def _emit_status(self, text: str) -> None:
+            self.statuses.append(text)
+
+    harness = MigrationHarness()
+    migrated = harness._migrate_manager_planner_feedback_instruction(
+        {
+            "version": 1,
+            "active": True,
+            "diagnostic": "research_target_incomplete",
+            "attempts": 3,
+        }
+    )
+
+    assert migrated["instruction_version"] == 2
+    assert migrated["attempts"] == 2
+    assert harness.written == migrated
+    assert harness.reset is True
+    assert "allowing one bounded retry" in harness.statuses[-1]
