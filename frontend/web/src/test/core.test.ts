@@ -167,6 +167,28 @@ describe('shared frontend core', () => {
     ])).toEqual(first);
   });
 
+  it('closes orphaned provider requests at mission completion', () => {
+    const orphaned = {
+      type: 'provider.request.started',
+      call_id: 'orphaned-manager-call',
+      run_label: 'manager-classify-grounded',
+    };
+    expect(activeProviderRequest([
+      orphaned,
+      { type: 'life.mission.completed', item_id: 'mission-1', status: 'done' },
+    ])).toBeNull();
+    const next = {
+      type: 'provider.request.started',
+      call_id: 'next-manager-call',
+      run_label: 'manager-classify-grounded',
+    };
+    expect(activeProviderRequest([
+      orphaned,
+      { type: 'life.mission.completed', item_id: 'mission-1', status: 'done' },
+      next,
+    ])).toEqual(next);
+  });
+
   it('uses the canonical event catalog and explicit legacy aliases', () => {
     expect(EVENT_TYPES.USAGE_RECORDED).toBe('usage.recorded');
     expect(typedUsageEvent.payload_schema_version).toBe(2);

@@ -21,6 +21,14 @@ export function activeProviderRequest(events: EventMsg[]): EventMsg | null {
   const active = new Map<string, EventMsg>();
   events.forEach((event) => {
     const type = String(event.type ?? '');
+    if (type === 'life.mission.completed' || type === 'mission.completed') {
+      // A Web/daemon restart can leave a provider.request.started event with
+      // no matching completion. Mission settlement is a stronger terminal
+      // boundary, so requests from before it must not keep the cockpit's live
+      // banner running. A later request is inserted normally below.
+      active.clear();
+      return;
+    }
     const callId = String(event.call_id ?? '');
     if (!callId) return;
     if (type === 'provider.request.started') active.set(callId, event);

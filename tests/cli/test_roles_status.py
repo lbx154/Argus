@@ -288,6 +288,32 @@ def test_completed_venue_call_is_not_active(tmp_path):
     assert engineer.label == "researching target venue done"
 
 
+def test_mission_completion_closes_orphaned_inflight_role_call(tmp_path):
+    now = time.time()
+    _write_events(
+        tmp_path,
+        [
+            {
+                "type": "agent.io.start",
+                "call_id": "orphaned-manager-call",
+                "run_label": "manager-classify-grounded",
+                "ts": now - 220,
+            },
+            {
+                "type": "life.mission.completed",
+                "item_id": "mission-1",
+                "status": "done",
+                "success": True,
+                "ts": now - 1,
+            },
+        ],
+    )
+
+    manager = role_activity(tmp_path, now=now)["manager"]
+
+    assert manager.active is False
+
+
 def test_activity_has_only_one_fresh_active_role(tmp_path):
     now = time.time()
     _write_events(tmp_path, [
