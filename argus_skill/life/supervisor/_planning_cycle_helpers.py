@@ -122,6 +122,28 @@ def _research_project_done_issue(
     return f"missing_{target_level}_reviewer_certification"
 
 
+def _research_target_certification_required(project_root: object) -> bool:
+    """Whether the persisted research target needs final Reviewer evidence."""
+    from ...core.research_contract import (
+        research_target_contract,
+        resolve_research_target_level,
+    )
+    from ...skills.vertical_select import resolve_checklist_vertical
+    from ...verticals._base import load_vertical_contract
+
+    vertical = resolve_checklist_vertical(project_root)
+    if vertical is None:
+        return False
+    contract = research_target_contract(
+        supported_levels=load_vertical_contract(
+            vertical,
+            project_root=project_root,
+        ).research_target_levels,
+        selected_level=resolve_research_target_level(project_root),
+    )
+    return contract.required and contract.selected_level is not None
+
+
 def _staged_goal_completion_issue(project_root: object) -> str:
     """Require the ordinary Reviewer/Manager final-stage certificate."""
     from ...skills.stage_machine import current_stage

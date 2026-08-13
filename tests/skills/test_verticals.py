@@ -122,6 +122,46 @@ def test_persist_vertical_records_explicit_target_venue(tmp_path: Path) -> None:
     assert state["target_venue"] == "AAAI 2026"
 
 
+def test_reasserting_same_research_target_preserves_evidence_epoch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = iter((100.0, 200.0, 300.0))
+    monkeypatch.setattr(
+        "argus_skill.skills.vertical_select.time.time",
+        lambda: next(clock),
+    )
+
+    persist_vertical(
+        tmp_path,
+        "research",
+        research_target_level="exploratory",
+    )
+    persist_vertical(
+        tmp_path,
+        "research",
+        research_target_level="exploratory",
+    )
+    state = json.loads(
+        (tmp_path / "research" / "PIPELINE_STATE.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert state["research_target_set_at"] == 100.0
+
+    persist_vertical(
+        tmp_path,
+        "research",
+        research_target_level="publishable",
+    )
+    state = json.loads(
+        (tmp_path / "research" / "PIPELINE_STATE.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert state["research_target_set_at"] == 200.0
+
+
 def test_explicit_staged_mode_overrides_research_vertical_default(
     tmp_path: Path,
 ) -> None:

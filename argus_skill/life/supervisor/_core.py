@@ -993,7 +993,7 @@ class LifeSupervisor(
         """
         if self._planner_scope_from_item(item) != _PLANNER_SCOPE_FINAL_SUBMISSION:
             return None
-        if self._effective_final_certification_gate(self._artifact_root()):
+        if self._final_submission_scope_is_applicable(self._artifact_root()):
             return None
 
         reason = (

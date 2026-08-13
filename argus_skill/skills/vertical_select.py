@@ -530,6 +530,7 @@ def persist_vertical(
                 f"PIPELINE_STATE.json at {path} is not a JSON object"
             )
 
+    previous_vertical = str(payload.get("vertical") or "").strip().lower()
     payload["vertical"] = vert
     if domain is not None:
         from ..domains import require_domain
@@ -571,8 +572,27 @@ def persist_vertical(
             raise ValueError(
                 f"invalid research target level: {research_target_level!r}"
             )
+        previous_target = normalize_research_target_level(
+            payload.get("research_target_level")
+        )
+        try:
+            previous_target_set_at = float(
+                payload.get("research_target_set_at") or 0.0
+            )
+        except (TypeError, ValueError):
+            previous_target_set_at = 0.0
         payload["research_target_level"] = normalized_target
-        payload["research_target_set_at"] = time.time()
+        # Reclassification commonly reasserts the same Manager decision after
+        # every mission.  Refreshing this timestamp would make certification
+        # evidence from the just-finished mission look stale and can wedge the
+        # completion gate forever.  Start a new evidence epoch only when the
+        # vertical/target actually changes (or legacy state lacks an epoch).
+        if (
+            previous_vertical != vert
+            or previous_target != normalized_target
+            or previous_target_set_at <= 0.0
+        ):
+            payload["research_target_set_at"] = time.time()
     else:
         from ..verticals._base import load_vertical, vertical_research_target_levels
 

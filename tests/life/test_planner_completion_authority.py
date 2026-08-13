@@ -8,7 +8,8 @@ from argus_skill.life.supervisor._planning_cycle_completion import (
     PlanningCycleCompletionMixin,
 )
 from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
-from argus_skill.planner import PlannerVerdict
+from argus_skill.planner import PlannerVerdict, TaskSpec
+from argus_skill.skills.vertical_select import persist_vertical
 
 
 class _CompletionHarness(PlanningCycleCompletionMixin):
@@ -84,3 +85,84 @@ def test_final_certification_feedback_requires_final_submission_scope() -> None:
     assert "`TASK_SCOPE=final_submission`" in note
     assert "successful Reviewer verdict" in note
     assert "which bounded tasks" not in note
+
+
+def test_research_target_feedback_requires_final_submission_scope() -> None:
+    class FeedbackHarness(PlanningContextMixin):
+        def _load_manager_planner_feedback(self):
+            return {
+                "stage": "research",
+                "diagnostic": "research_target_incomplete",
+                "attempts": 1,
+                "reason": "missing_exploratory_reviewer_certification",
+            }
+
+    note = FeedbackHarness()._manager_planner_feedback_runtime_note()
+
+    assert "`TASK_SCOPE=final_submission`" in note
+    assert "successful Reviewer verdict" in note
+
+
+def test_finite_research_target_keeps_final_submission_transport(tmp_path) -> None:
+    persist_vertical(
+        tmp_path,
+        "research",
+        research_target_level="exploratory",
+    )
+
+    class ScopeHarness(PlanningContextMixin):
+        def _artifact_root(self):
+            return tmp_path
+
+        def _effective_final_certification_gate(self, _root) -> bool:
+            return False
+
+        def _normalize_planner_scope(self, value: str) -> str:
+            return value or "bounded"
+
+    tags = ScopeHarness()._planner_task_tags(
+        TaskSpec(
+            title="Certify exploratory target",
+            objective="Independently review the completed research target.",
+            scope="final_submission",
+            stage_closing=True,
+        )
+    )
+
+    assert "scope:final_submission" in tags
+    assert "scope:bounded" not in tags
+    assert "review:required" in tags
+
+
+def test_exhausted_research_feedback_gets_one_new_instruction_retry() -> None:
+    class MigrationHarness(PlanningContextMixin):
+        def __init__(self) -> None:
+            self.written = None
+            self.statuses: list[str] = []
+            self.reset = False
+
+        def _write_manager_planner_feedback(self, payload) -> bool:
+            self.written = payload
+            return True
+
+        def _reset_idle_backoff(self) -> None:
+            self.reset = True
+
+        def _emit_status(self, text: str) -> None:
+            self.statuses.append(text)
+
+    harness = MigrationHarness()
+    migrated = harness._migrate_manager_planner_feedback_instruction(
+        {
+            "version": 1,
+            "active": True,
+            "diagnostic": "research_target_incomplete",
+            "attempts": 3,
+        }
+    )
+
+    assert migrated["instruction_version"] == 2
+    assert migrated["attempts"] == 2
+    assert harness.written == migrated
+    assert harness.reset is True
+    assert "allowing one bounded retry" in harness.statuses[-1]
