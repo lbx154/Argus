@@ -1,8 +1,8 @@
 # Argus Bootstrap Doctor & Recovery 设计规范
 
-> 状态：已批准；Phase 1–2 已实现  
+> 状态：已批准；Phase 1–2 与 Desktop Bootstrap Recovery 基础闭环已实现  
 > 日期：2026-08-13  
-> 当前实现：`argus doctor` / `argus --doctor` / `argus -doctor` 只读诊断、`--json`、`--deep`、`--verify`，以及 `argus repair --plan|--safe`。`--safe` 首批仅注册并执行“删除已验证死亡 PID 的 stale daemon.pid”；其余修改仍明确标为人工操作。独立标准库入口 `argus-doctor` 已可在不导入 Argus Core 的情况下检查主机、源码、venv、Core import、Git、Node 与 Web/TUI 资产。Desktop Recovery Screen 和 CONSENT/MANUAL Repair Provider 仍按后续阶段实施。  
+> 当前实现：`argus doctor` / `argus --doctor` / `argus -doctor` 只读诊断、`--json`、`--deep`、`--verify`，以及 `argus repair --plan|--safe`。`--safe` 首批仅注册并执行“删除已验证死亡 PID 的 stale daemon.pid”；其余修改仍明确标为人工操作。独立标准库入口 `argus-doctor` 已可在不导入 Argus Core 的情况下检查主机、源码、venv、Core import、Git、Node 与 Web/TUI 资产。Desktop 在 Python/Web 后端失败时已有独立错误页，可重试、修改设置并导出脱敏诊断；版本恢复与签名更新器仍按后续阶段实施。CONSENT/MANUAL Repair Provider 仍保持只规划、不自动越权执行。  
 > 适用项目：Argus  
 > 目标平台：Windows、Linux、macOS  
 > 目标入口：CLI、TUI、Web、Desktop、外层 AI Terminal / Agent  

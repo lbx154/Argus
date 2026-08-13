@@ -102,6 +102,7 @@ const detailEl = document.getElementById('detail') as HTMLParagraphElement;
 const barEl = document.getElementById('bar') as HTMLSpanElement;
 const retryEl = document.getElementById('retry') as HTMLButtonElement;
 const setupEl = document.getElementById('setup') as HTMLButtonElement;
+const diagnosticsEl = document.getElementById('diagnostics') as HTMLButtonElement;
 const stepsEl = document.getElementById('steps') as HTMLOListElement;
 
 const wizardEl = document.getElementById('wizard') as HTMLElement;
@@ -218,6 +219,7 @@ function render(status: DesktopStatus): void {
   if (status.detail) detailEl.textContent = status.detail;
   retryEl.hidden = status.state !== 'error';
   setupEl.hidden = status.state !== 'error';
+  diagnosticsEl.hidden = status.state !== 'error';
   updateSteps(status);
 
   let width = 16;
@@ -386,6 +388,20 @@ setupEl.addEventListener('click', () => {
   void reopenWizard();
 });
 
+diagnosticsEl.addEventListener('click', () => {
+  diagnosticsEl.disabled = true;
+  void captureIpc(() => window.argusDesktop.exportDiagnostics()).then((result) => {
+    if (!result.ok) {
+      renderIpcFailure('无法导出诊断', result.detail);
+      return;
+    }
+    detailEl.hidden = false;
+    detailEl.textContent = `脱敏诊断已导出：${result.value}`;
+  }).finally(() => {
+    diagnosticsEl.disabled = false;
+  });
+});
+
 chooseRunnerEl.addEventListener('click', async () => {
   chooseRunnerEl.disabled = true;
   const result = await captureIpc(() => window.argusDesktop.chooseRunner(runnerKind));
@@ -463,6 +479,7 @@ wizardFinish.addEventListener('click', async () => {
   detailEl.hidden = true;
   retryEl.hidden = true;
   setupEl.hidden = true;
+  diagnosticsEl.hidden = true;
   barEl.style.width = '72%';
 
   const invocation = await captureIpc(() => window.argusDesktop.completeSetup({
@@ -480,6 +497,7 @@ wizardFinish.addEventListener('click', async () => {
     detailEl.hidden = false;
     retryEl.hidden = false;
     setupEl.hidden = false;
+    diagnosticsEl.hidden = false;
     return;
   }
   applying = false;
