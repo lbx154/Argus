@@ -302,7 +302,9 @@ class PlanningCycleEnqueueMixin:
             )
             if (
                 canonical_scope == PLANNER_SCOPE_FINAL_SUBMISSION
-                and not self._effective_final_certification_gate(self._artifact_root())
+                and not self._final_submission_scope_is_applicable(
+                    self._artifact_root()
+                )
             ):
                 canonical_scope = PLANNER_SCOPE_BOUNDED
             canonical_acceptance = str(

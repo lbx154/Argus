@@ -24,6 +24,7 @@ from ._constants import (
     VERIFICATION_PROBE_COOLDOWN_SECONDS,
 )
 from ._helpers import _operator_only_external_blocker_wait_reason_for_project
+from ._planning_cycle_helpers import _research_target_certification_required
 
 log = logging.getLogger(__name__)
 
@@ -43,14 +44,16 @@ class PlanningContextMixin:
 
     def _planner_task_tags(self, task: Any) -> list[str]:
         scope = self._normalize_planner_scope(getattr(task, "scope", ""))
-        if scope == PLANNER_SCOPE_FINAL_SUBMISSION and not self._effective_final_certification_gate(
-            self._artifact_root()
+        if (
+            scope == PLANNER_SCOPE_FINAL_SUBMISSION
+            and not self._final_submission_scope_is_applicable(
+                self._artifact_root()
+            )
         ):
-            # ``final_submission`` is a paper-only transport scope. A Planner
-            # may still choose it for another vertical's terminal review task,
-            # but persisting that tag makes ``tick()`` retire the task as stale
-            # and re-plan it forever. Normalize at the enqueue boundary; the
-            # old skip path remains as migration support for persisted rows.
+            # ``final_submission`` is reserved for an active authoritative
+            # completion gate. Persisting it elsewhere makes ``tick()`` retire
+            # the task as stale and re-plan it forever. Normalize at the enqueue
+            # boundary; the old skip path remains for persisted rows.
             scope = PLANNER_SCOPE_BOUNDED
         tags = ["planner", f"scope:{scope}"]
         if scope == PLANNER_SCOPE_BOUNDED:
@@ -373,6 +376,18 @@ class PlanningContextMixin:
         return load_vertical_contract(
             vertical, project_root=workdir
         ).completion_gate == "certified"
+
+    def _final_submission_scope_is_applicable(self, workdir: object) -> bool:
+        """Keep final-review transport for either supported completion gate.
+
+        A finite campaign may disable the legacy paper gate while still having
+        a persisted research-quality target.  That target has the same need for
+        authoritative final Reviewer evidence, so its certification task must
+        not be normalized to ``bounded``.
+        """
+        return self._effective_final_certification_gate(
+            workdir
+        ) or _research_target_certification_required(workdir)
 
     def _final_submission_signature(self) -> str:
         from ..terminal_state import build_project_state_signature
@@ -807,7 +822,10 @@ class PlanningContextMixin:
             "next executable certification task with "
             "`TASK_SCOPE=final_submission`, so its successful Reviewer verdict can "
             "be recorded as project-final evidence."
-            if diagnostic == "final_certification_missing"
+            if diagnostic in {
+                "final_certification_missing",
+                "research_target_incomplete",
+            }
             else (
                 "You decide which tasks, if any, are appropriate; the harness does "
                 "not prescribe a repair or delivery task."
