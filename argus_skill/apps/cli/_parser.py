@@ -283,6 +283,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="run backend/auth, capability, daemon, and state diagnostics",
     )
     capability_grp.add_argument(
+        "-doctor",
+        dest="doctor",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    capability_grp.add_argument(
         "--backend",
         choices=("copilot", "codex", "claude", "opencode", "pi", "grok", "qoder"),
         default=None,

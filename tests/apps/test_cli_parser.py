@@ -132,6 +132,11 @@ def test_parser_exposes_cli_doctor() -> None:
     assert args.backend == "copilot"
 
 
+def test_parser_accepts_hidden_single_dash_doctor_alias() -> None:
+    args = build_parser().parse_args(["-doctor"])
+    assert args.doctor is True
+
+
 def test_parser_accepts_wiki_ingest_subcommand(tmp_path: Path):
     p = build_parser()
     wiki = tmp_path / ".autors" / "demo" / "wiki"

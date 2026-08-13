@@ -14,6 +14,7 @@ _PYTHON_ADMIN_FLAGS = frozenset(
     {
         "-h",
         "--help",
+        "-doctor",
         "--version",
         "--update",
         "--daemon",
