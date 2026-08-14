@@ -542,6 +542,17 @@ class _VerticalDecisionMixin:
         restore_paths = [pipeline_state]
         if adapted:
             restore_paths.extend((domain_path, index_path))
+        refresh_research_target_epoch = bool(
+            force_stage_reset
+            or adapted
+            or (
+                old_vertical
+                and vertical_select.vertical_reached_own_terminal_stage(
+                    self.project_root,
+                    old_vertical,
+                )
+            )
+        )
         with _restore_files_on_error(restore_paths):
             if adapted:
                 revise_data_domain_stages(
@@ -558,6 +569,7 @@ class _VerticalDecisionMixin:
                 research_target_level=decision.research_target_level or None,
                 workflow_mode=decision.workflow_mode,
                 target_venue=decision.target_venue or None,
+                refresh_research_target_epoch=refresh_research_target_epoch,
             )
             vertical_select.reset_stage_for_new_intent(
                 self.project_root,

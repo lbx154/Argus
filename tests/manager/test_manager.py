@@ -887,14 +887,23 @@ def test_divide_resets_stage_when_new_intent_supersedes_finished_prior_vertical(
     assert current_stage(tmp_path) == "research"
 
 
-def test_divide_reopens_finished_pipeline_for_new_same_vertical_task(tmp_path):
+def test_divide_reopens_finished_pipeline_for_new_same_vertical_task(
+    tmp_path,
+    monkeypatch,
+):
     """Regression: a second research task must not immediately become planner done."""
     from argus_skill.skills.vertical_select import vertical_reached_own_terminal_stage
 
+    monkeypatch.setattr(
+        "argus_skill.skills.vertical_select.time.time",
+        lambda: 200.0,
+    )
     (tmp_path / "research").mkdir(parents=True, exist_ok=True)
     (tmp_path / "research" / "PIPELINE_STATE.json").write_text(
         json.dumps({
             "vertical": "research",
+            "research_target_level": "publishable",
+            "research_target_set_at": 100.0,
             "current_stage": "submission",
             "stages": {stage: {"status": "done"} for stage in RESEARCH_STAGES},
         }),
@@ -909,6 +918,7 @@ def test_divide_reopens_finished_pipeline_for_new_same_vertical_task(tmp_path):
 
     state = json.loads((tmp_path / "research" / "PIPELINE_STATE.json").read_text())
     assert division.vertical == "research"
+    assert state["research_target_set_at"] == 200.0
     assert state["current_stage"] == "research"
     assert vertical_reached_own_terminal_stage(tmp_path, "research") is False
 

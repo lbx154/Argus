@@ -489,6 +489,7 @@ def persist_vertical(
     research_target_level: str | None = None,
     workflow_mode: str | None = None,
     target_venue: str | None = None,
+    refresh_research_target_epoch: bool = False,
 ) -> None:
     """Persist the chosen ``vertical`` into ``research/PIPELINE_STATE.json``.
 
@@ -498,6 +499,7 @@ def persist_vertical(
     persisting the Manager's decision is load-bearing, not best-effort.
     A target-capable vertical may carry ``research_target_level``; vertical, target,
     and target revision timestamp are then committed by the same atomic replace.
+    A confirmed replacement intent can explicitly start a new evidence epoch.
 
     STAGE AUTHORITY — the harness must NOT control ``current_stage``; only the
     reviewer agent moves it (advance via its verdict, or roll back via
@@ -585,10 +587,11 @@ def persist_vertical(
         # Reclassification commonly reasserts the same Manager decision after
         # every mission.  Refreshing this timestamp would make certification
         # evidence from the just-finished mission look stale and can wedge the
-        # completion gate forever.  Start a new evidence epoch only when the
-        # vertical/target actually changes (or legacy state lacks an epoch).
+        # completion gate forever. Start a new evidence epoch only for a
+        # replacement intent, a changed vertical/target, or legacy state.
         if (
-            previous_vertical != vert
+            refresh_research_target_epoch
+            or previous_vertical != vert
             or previous_target != normalized_target
             or previous_target_set_at <= 0.0
         ):
