@@ -320,9 +320,7 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
       && ['assistant_message', 'agent_message', 'message'].includes(kind)
     ) {
       const candidate = visibleAgentText(event.text);
-      if (candidate.length >= (view.mission.final_output?.length ?? 0)) {
-        view.mission.final_output = candidate;
-      }
+      if (candidate) view.mission.final_output = candidate;
     }
     const detail = S(event, 'action_summary') || S(event, 'text');
     if (detail && !isReasoning(event) && !isStructuredAgentPayload(event)) {
@@ -706,7 +704,7 @@ function recoverMissionFinalOutput(events: EventMsg[], missionId: string): strin
   }
   if (completionIndex < 0) return '';
 
-  let startIndex = 0;
+  let startIndex = -1;
   for (let index = completionIndex - 1; index >= 0; index -= 1) {
     const event = events[index];
     if (canonicalEventType(event.type) !== EVENT_TYPES.LIFE_MISSION_STARTED) continue;
@@ -714,8 +712,10 @@ function recoverMissionFinalOutput(events: EventMsg[], missionId: string): strin
     startIndex = index + 1;
     break;
   }
+  if (startIndex < 0) return '';
 
   let output = '';
+  let finalOutput = '';
   for (let index = startIndex; index < completionIndex; index += 1) {
     const event = events[index];
     if (canonicalEventType(event.type) !== EVENT_TYPES.ENGINEER_PROGRESS) continue;
@@ -724,9 +724,11 @@ function recoverMissionFinalOutput(events: EventMsg[], missionId: string): strin
     if (!['engineer', 'main'].includes(role)) continue;
     if (!['assistant_message', 'agent_message', 'message'].includes(kind)) continue;
     const candidate = visibleAgentText(event.text);
-    if (candidate.length >= output.length) output = candidate;
+    if (!candidate) continue;
+    output = candidate;
+    if (event.final_delivery === true) finalOutput = candidate;
   }
-  return output;
+  return finalOutput || output;
 }
 
 /**

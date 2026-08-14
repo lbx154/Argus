@@ -249,7 +249,7 @@ def reduce_round_event(
                 str(event.get("text") or ""),
                 ("MILESTONE_STATUS", "OPERATOR_QUESTION", "OPERATOR_OPTIONS"),
             ).strip()
-            if len(candidate) >= len(str(mission.get("final_output") or "")):
+            if candidate:
                 mission["final_output"] = candidate
         detail = (
             _text(event, "action_summary", 4000)

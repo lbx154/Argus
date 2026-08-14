@@ -148,8 +148,11 @@ def test_v3_snapshot_rebuilds_to_include_completion_summary(tmp_path: Path) -> N
     )
 
 
-def test_mission_view_preserves_full_engineer_output_beyond_summary(tmp_path: Path) -> None:
-    body = "# Complete report\n\n" + ("full detail\n" * 300)
+def test_mission_view_preserves_final_engineer_output_beyond_summary(
+    tmp_path: Path,
+) -> None:
+    superseded_draft = "# Superseded draft\n\n" + ("obsolete detail\n" * 400)
+    body = "# Complete report\n\n" + ("final detail\n" * 100)
     emit(
         tmp_path,
         "life.mission.started",
@@ -164,12 +167,21 @@ def test_mission_view_preserves_full_engineer_output_beyond_summary(tmp_path: Pa
         2,
         agent_layer="engineer",
         kind="agent_message",
+        text=superseded_draft,
+    )
+    emit(
+        tmp_path,
+        "engineer.progress",
+        3,
+        agent_layer="engineer",
+        kind="agent_message",
+        final_delivery=True,
         text=f"{body}\nMILESTONE_STATUS=done\nOPERATOR_QUESTION=none",
     )
     view = emit(
         tmp_path,
         "life.mission.completed",
-        3,
+        4,
         item_id="task-long",
         title="Write report",
         status="done",
