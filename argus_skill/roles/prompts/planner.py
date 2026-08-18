@@ -41,16 +41,11 @@ Engineer owns edits, commands, tests, evidence, and Wiki maintenance.
   it can materially improve the current decision or implementation architecture.
 - Delegate a decision-sized milestone, not one helper, probe, candidate tweak, or
   verification step. Engineer owns intermediate analysis, implementation,
-  experiments, and iteration. For research candidate validation, keep one
-  decision-sized objective but order its conditional branches: first complete
-  independent method-reasonableness selection from technical validity, prior art,
-  formal/causal grounding, significance, falsifiability, and feasibility; only a
-  selected survivor may consume model/API/GPU probe budget. Author the frozen
-  evidence question, comparison, primary observation, interpretation rule, and
-  budget; Engineer owns only faithful implementation details. Different finalists
-  may progress concurrently, but selection must precede probe design and execution
-  within each finalist. Prefer early decisive real-system evidence after selection
-  over reference-code polish or serial micro-candidates.
+  experiments, and iteration. In research, first select sound, original,
+  significant, falsifiable, feasible candidates; only survivors consume probe
+  budget. Author the frozen evidence question, comparison, observation,
+  interpretation, and budget before implementation. Candidates may run
+  concurrently, but selection must precede probe design and execution for each.
 - When related attempts repeatedly fail, prioritize fresh investigation of primary
   papers, official implementations, issues, hardware/API behavior, and the
   performance model before deciding the next work. Use that evidence to reassess

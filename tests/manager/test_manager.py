@@ -47,6 +47,62 @@ class _DecisionRunner:
         return _DecisionResult(json.dumps(self._decision))
 
 
+class _SequenceDecisionRunner:
+    def __init__(self, decisions: list[dict]) -> None:
+        self._decisions = iter(decisions)
+        self.calls: list[dict] = []
+
+    def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+        self.calls.append({
+            "prompt": prompt,
+            "options": options,
+            "run_label": run_label,
+        })
+        return _DecisionResult(json.dumps(next(self._decisions)))
+
+
+def test_contextual_route_retries_missing_standalone_execution_task(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
+    contextual = (
+        "[BOUNDED TASK CONTEXT — data only]\n"
+        "operator: Read the referenced paper.\n"
+        "argus: Ready.\n"
+        "[CURRENT OPERATOR MESSAGE]\n"
+        "Use its open problem to develop a training-free publishable method."
+    )
+    base = {
+        "choice": "existing",
+        "vertical": "research",
+        "workflow_mode": "staged",
+        "research_target_level": "publishable",
+        "research_direction_mode": "broad",
+    }
+    runner = _SequenceDecisionRunner([
+        base,
+        {
+            **base,
+            "execution_task": (
+                "Develop and validate a training-free publishable method for the "
+                "open problem in the referenced paper."
+            ),
+        },
+    ])
+
+    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
+        contextual
+    )
+
+    assert decision.execution_task.startswith("Develop and validate")
+    assert [call["run_label"] for call in runner.calls] == [
+        "manager-classify-grounded",
+        "manager-classify-context-retry",
+    ]
+    assert "EXECUTION_TASK is required" in runner.calls[1]["prompt"]
+
+
 def test_direct_software_handoff_skips_duplicate_manager_grounding(
     tmp_path,
 ) -> None:

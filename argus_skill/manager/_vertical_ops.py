@@ -609,17 +609,29 @@ class _VerticalDecisionMixin:
                 run_label="manager-classify-grounded",
             )
         except VerticalDecisionError as exc:
-            if "repeated tool call detected" not in str(exc):
+            if contextual_task and "not a valid existing/new choice" in str(exc):
+                result, decision = invoke_grounded_route(
+                    prompt
+                    + "\n\n## Context handoff correction\n"
+                    "The prior reply was incomplete or invalid. Return the complete "
+                    "named decision lines again. Because the Task contains bounded "
+                    "conversation context, EXECUTION_TASK is required: rewrite only "
+                    "the current intended work as a standalone handoff, preserving "
+                    "every explicit constraint and excluding the context markers.",
+                    run_label="manager-classify-context-retry",
+                )
+            elif "repeated tool call detected" not in str(exc):
                 raise
-            result, decision = invoke_grounded_route(
-                prompt
-                + "\n\n## Tool-loop correction\n"
-                "The prior turn repeated one failed tool call. Do not repeat it. "
-                "Use manager_tool_root for any further repository inspection, or "
-                "return the routing decision now if the Host snapshot and Task are "
-                "already sufficient.",
-                run_label="manager-classify-tool-loop-retry",
-            )
+            else:
+                result, decision = invoke_grounded_route(
+                    prompt
+                    + "\n\n## Tool-loop correction\n"
+                    "The prior turn repeated one failed tool call. Do not repeat it. "
+                    "Use manager_tool_root for any further repository inspection, or "
+                    "return the routing decision now if the Host snapshot and Task are "
+                    "already sufficient.",
+                    run_label="manager-classify-tool-loop-retry",
+                )
         tool_activity = bool(getattr(result, "tool_activity_observed", False))
         grounding_required = _decision_requires_agent_grounding(
             decision,
