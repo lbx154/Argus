@@ -46,6 +46,7 @@ _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         ),
         r"\1 <REDACTED:secret>\2",
     ),
+    (re.compile(r"\bsk-[A-Za-z0-9_\-]{16,}"), "<REDACTED:openai-key>"),
     (re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"), "<REDACTED:github-token>"),
     (re.compile(r"xox[baprs]-[A-Za-z0-9\-]{10,}"), "<REDACTED:slack-token>"),
     (re.compile(r"AKIA[0-9A-Z]{16}"), "<REDACTED:aws-key>"),
