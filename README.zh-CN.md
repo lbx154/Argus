@@ -10,7 +10,7 @@
 
 让长期 Agent 能够规划、执行、验证、暂停，并在一次模型调用之后继续推进。
 
-**当前为 Preview v0.1.2 · 正式开源版正在路上。**
+**当前为 Preview v0.1.2 · 用于提前发布 Argus 的后续更新。**
 
 [![GitHub Stars](https://img.shields.io/github/stars/lbx154/Argus?style=flat-square)](https://github.com/lbx154/Argus/stargazers)
 [![License](https://img.shields.io/github/license/lbx154/Argus?style=flat-square)](LICENSE)
@@ -24,6 +24,11 @@
 </div>
 
 ---
+
+> [!IMPORTANT]
+> **仓库定位：**这是 Argus 的 Preview 仓库；正式版维护在
+> **[microsoft/ArgusAgent](https://github.com/microsoft/ArgusAgent)**。
+> 两个仓库后续会保持同步更新，关注或 Star 任意一个仓库都可以持续了解项目动态。
 
 ## Argus 是什么？
 
