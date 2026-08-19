@@ -41,14 +41,11 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="research.literature",
             statement=(
-                "The canonical literature ledger covers the claims the project "
-                "actually depends on: the nearest competing methods, the relevant "
-                "AI-venue/recent-arXiv frontier, lineage/classic foundations, "
-                "contradictory evidence, and unresolved frontier. The Reviewer flags "
-                "source-mix imbalance as an advisory risk, not a fixed quota or "
-                "completion blocker. Each retained source has a verifiable primary URL "
-                "and project implication; judge connected coverage and documented "
-                "limitations, not category counts."
+                "The literature ledger covers claim-critical competitors, the "
+                "AI-venue/recent-arXiv frontier, foundations, and contradictions. "
+                "Source-mix imbalance is an advisory risk, not a fixed quota or "
+                "completion blocker. Retained sources need primary URLs and project "
+                "implications; judge connected coverage."
             ),
             evidence_hint=(
                 "research/LITERATURE_GROUNDING.json (canonical); "
@@ -95,17 +92,13 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "The selected thesis has a plausible nontrivial technical core, "
                 "originality, formal/causal structure, field-level potential, and an "
-                "evidence path sized for the claimed publication contribution. It is "
-                "either a high-novelty method/architecture/training objective/algorithm "
-                "or a large-scale empirical study across multiple model families, "
-                "datasets/tasks, strongest current baselines, and robust repeated trials. "
-                "A small diagnostic or benchmark audit is insufficient unless its "
-                "planned evidence is publication-scale and field-changing. Research "
-                "review is qualitative: no finished theorem, "
-                "fixed implementation, or reliable effect size is required. Reject only "
-                "clear duplicates, trivial prompt/schema/wrapper/scale variants, "
-                "incoherent mechanisms, or decorative math. Before any probe is designed "
-                "or executed, lock method reasonableness; the thesis may evolve later."
+                "evidence path sized to the contribution: a high-novelty method or a "
+                "publication-scale empirical study, not merely a small diagnostic. "
+                "Research review is qualitative: no finished theorem, fixed implementation, "
+                "or reliable effect size is required. Reject clear duplicates, trivial "
+                "prompt/schema/wrapper/scale variants, incoherent mechanisms, or decorative "
+                "math. Before any probe is designed or executed, lock method reasonableness; "
+                "the thesis may evolve later."
             ),
             evidence_hint=(
                 "research/RESEARCH_BRIEF.md and research/ideation/{routes,debates}/"
@@ -119,10 +112,12 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "feasibility observation only when it checks plumbing, data shape, or "
                 "evaluator availability without masquerading as a hypothesis test. For "
                 "training-heavy or large-scale empirical work, explicitly skip the probe "
-                "as untested and advance to plan/benchmark/run. Preserve any commands/raw "
-                "outputs honestly. A weak, null, absent, failed, or inconclusive probe "
-                "cannot kill, block, downgrade, or re-rank a qualified idea. Later stages "
-                "own scientific outcomes, scale, and decisive benchmarks. "
+                "as untested and advance to plan/benchmark/run. The Planner authors the "
+                "evidence contract. Preserve raw evidence honestly. A weak, failed, or "
+                "inconclusive probe cannot kill, block, downgrade, or re-rank a qualified "
+                "idea or become a mechanical routing decision. Infrastructure failures, "
+                "saturation, and missing predeclared power or headroom are limitations; "
+                "later stages own scientific outcomes and decisive benchmarks. "
                 "`argus_skill.verticals.research.signal_derisk validate` is available "
                 "only for "
                 "the default scalar-comparison shape and never decides quality."
@@ -686,9 +681,9 @@ def _apply_venue_to_checklist_body(body: str, venue: VenueProfile) -> str:
     )
     body = body.replace(
         "The title, abstract, introduction, method, and experiments all serve "
-        "the same thesis;",
+        "the same thesis.",
         f"Required venue end matter: {venue.draft_section_tail()}. The title, "
-        "abstract, introduction, method, and experiments all serve the same thesis;",
+        "abstract, introduction, method, and experiments all serve the same thesis.",
     )
     if venue.key == "FRONTIERS_SLEEP":
         replacements = {
@@ -905,19 +900,15 @@ _PROGRESS_ORIENTED_RESEARCH_POLICY = (
 )
 
 _REVIEWER_ENGINEERING_AUDIT = (
-    _PROGRESS_ORIENTED_RESEARCH_POLICY +
     "For experiment claims, inspect implementation and raw rows once, then reuse "
     "them until a dependency changes. Separate method results from infrastructure "
     "or evaluator failure. Research-stage smoke probes are short advisory "
     "observations, not miniature benchmarks or idea-kill gates: judge the idea "
-    "primarily from current-frontier novelty, mechanism, generality, and whether "
-    "the publication contribution is a high-novelty method or publication-scale "
-    "empirical study. No-training convenience, shortest evidence path, cheapness, "
-    "and single-GPU fit confer no scientific credit. Weak, null, noisy, underpowered, "
-    "misconfigured, or inconclusive "
+    "primarily from current-frontier novelty, mechanism, generality, and professional "
+    "plausibility. No-training convenience or local ease confers no scientific credit. "
+    "Weak, null, noisy, underpowered, misconfigured, or inconclusive "
     "smoke results cannot by themselves trigger replan or reject a review-qualified "
-    "idea; record limitations for later iterative engineering. Source-mix imbalance "
-    "between AI-frontier and foundational work is advisory, never a quota.\n"
+    "idea; record limitations for later iterative engineering.\n"
 )
 
 _PLANNER_RESEARCH_ORCHESTRATION = (
