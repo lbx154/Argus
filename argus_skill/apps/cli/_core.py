@@ -1950,6 +1950,13 @@ def _cmd_gc(args: argparse.Namespace) -> int:
     days = getattr(args, "gc_days", None)
     if days is None:
         days = retention_days_default()
+    if days < 0:
+        sys.stderr.write(
+            f"argus-skill: --gc-days must not be negative (got {days}). A "
+            "negative retention window puts the cutoff in the future, so every "
+            "project would be trashed.\n"
+        )
+        return 2
     dry = bool(getattr(args, "gc_dry_run", False))
     pruned = gc_stale_projects(root, retention_days=days, dry_run=dry)
     verb = "would prune" if dry else "moved to projects_trash/"

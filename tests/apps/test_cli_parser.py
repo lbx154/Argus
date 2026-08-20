@@ -786,3 +786,27 @@ def test_a_missing_web_dependency_is_reported_not_raised(
     assert "uvicorn is missing" in err
     assert "Traceback" not in err
     assert "http://" not in err, "no URL may be offered when the server cannot start"
+
+
+def test_a_negative_gc_window_is_refused_before_anything_moves(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The CLI must name the mistake rather than let the sweep run.
+
+    `argus --gc --gc-days -5` reached the collector, which trusted the value,
+    and 50 projects were moved to trash on a real global root — 42 of them
+    ones the same run's `--gc-dry-run` had not listed.
+    """
+    from argus_skill.core import project_gc
+
+    monkeypatch.setattr(
+        project_gc,
+        "gc_stale_projects",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not sweep")),
+    )
+
+    assert main(["--gc", "--gc-days", "-5"]) == 2
+    err = capsys.readouterr().err
+    assert "--gc-days must not be negative" in err
+    assert "every project would be trashed" in err

@@ -117,3 +117,31 @@ def test_excluded_session_is_never_pruned(tmp_path):
     assert pruned == ["other00000001"]                                  # the other stale one goes
     assert (tmp_path / "projects" / "resuming00001").exists()           # the resumed one survives
     assert not (tmp_path / "projects" / "other00000001").exists()
+
+
+def test_a_negative_retention_window_is_refused(tmp_path):
+    """`--gc-days -5` for `--gc-days 5` used to trash every project.
+
+    A negative window puts the cutoff in the future, so every project reads as
+    untouched for longer than it — including one modified a second ago. The
+    env spelling was already clamped by ``retention_days_default``; the
+    explicit argument was not, and this is the destructive path.
+
+    Measured on a real global root before the guard: 50 projects moved to
+    trash, 42 of which the same run's ``--gc-dry-run`` had not listed.
+    """
+    import pytest
+
+    _make_project(tmp_path, "fresh", age_days=0.0)
+
+    with pytest.raises(ValueError, match="must not be negative"):
+        gc_stale_projects(tmp_path, retention_days=-5)
+
+    assert (tmp_path / "projects" / "fresh").is_dir()
+    assert not (tmp_path / "projects_trash").exists()
+
+
+def test_a_zero_retention_window_is_still_allowed(tmp_path):
+    """Zero means "prune anything not live", which is a real operator choice."""
+    _make_project(tmp_path, "stale", age_days=1.0)
+    assert gc_stale_projects(tmp_path, retention_days=0) == ["stale"]
