@@ -296,7 +296,9 @@ def test_setup_smoke_failure_is_actionable(monkeypatch, capsys) -> None:
     output = capsys.readouterr().out
     assert "Step 2" in output
     assert "not authenticated" in output
-    assert "argus doctor --deep --advisor auto" in output
+    assert "argus --backend claude doctor --deep --advisor claude" in output
+    assert "argus --setup --backend claude" in output
+    assert "--advisor auto" not in output
 
 
 def test_pi_provider_rejects_non_http_url(tmp_path: Path, monkeypatch) -> None:

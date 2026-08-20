@@ -96,16 +96,6 @@ _SUPPORTED_AGENT_BACKENDS = (
     "qoder",
     "dsh",
 )
-_BACKEND_LOGIN_COMMANDS = {
-    "copilot": "copilot login",
-    "codex": "codex login",
-    "claude": "run `claude` and complete `/login`",
-    "opencode": "opencode auth login",
-    "pi": "run `pi` and complete `/login`",
-    "grok": "grok login",
-    "qoder": "qodercli login",
-    "dsh": "configure DEEPSEEK_API_KEY for dsh",
-}
 
 
 def _backend_install_hint(
@@ -298,16 +288,13 @@ def _verify_setup_smoke(
         return False
 
     print(_bold("  Step 2: End-to-end smoke test"))
-    print(_dim("  Argus requires one read-only reply with no tool activity."))
+    print(_dim("  Argus requires one successful read-only Agent reply."))
     probe = run_read_only_agent_prompt(
         backend=backend,
         executable=executable,
         model=model,
         run_label="setup-smoke",
-        prompt=(
-            "This is an Argus setup smoke test. Do not use tools. "
-            "Reply with exactly: ARGUS_SETUP_OK"
-        ),
+        prompt="This is an Argus setup smoke test. Reply with exactly: ARGUS_SETUP_OK",
     )
     if probe.ok and probe.output.strip().rstrip(".") == "ARGUS_SETUP_OK":
         print(f"  {_green('✓')} Real Agent turn completed")
@@ -322,9 +309,11 @@ def _verify_setup_smoke(
     elif probe.output:
         print(f"    Unexpected reply: {probe.output[:240]}")
     print("    Next:")
-    print(f"      1. Authenticate with: {_BACKEND_LOGIN_COMMANDS[backend]}")
-    print("      2. Run: argus doctor --deep --advisor auto")
-    print("      3. Re-run: argus --setup")
+    print(
+        f"      1. Run: argus --backend {backend} doctor "
+        f"--deep --advisor {backend}"
+    )
+    print(f"      2. Re-run: argus --setup --backend {backend}")
     print()
     return False
 

@@ -23,7 +23,6 @@ def _probe_result(
     *,
     backend: str,
     executable: str,
-    reject_tool_activity: bool,
     require_tool_activity: bool = False,
 ) -> AgentProbeResult:
     output = str(getattr(result, "last_agent_message", "") or "").strip()
@@ -46,14 +45,11 @@ def _probe_result(
         exit_code == 0
         and completion_ok
         and bool(output)
-        and not (reject_tool_activity and tool_activity)
         and not (require_tool_activity and not tool_activity)
     )
     error = ""
     if not ok:
-        if reject_tool_activity and tool_activity:
-            error = "Agent used a tool during the tool-free verification turn"
-        elif require_tool_activity and not tool_activity:
+        if require_tool_activity and not tool_activity:
             error = "Agent returned without inspecting or repairing with tools"
         else:
             error = fatal_error
@@ -82,24 +78,12 @@ def run_read_only_agent_prompt(
     prompt: str,
     model: str = "",
     run_label: str,
-    disable_tools: bool = False,
 ) -> AgentProbeResult:
-    """Run one real, tool-restricted Agent CLI turn."""
+    """Run one real Agent CLI turn in a read-only sandbox."""
     from ..adapters.agent_cli_backend import AgentCliBackend
-    from ..agent_cli.runner_backend import normalize_runner_backend
     from .models import RunnerOptions
     from .run_gateway import run_exec
 
-    if disable_tools and normalize_runner_backend(backend) == "codex":
-        return AgentProbeResult(
-            backend=backend,
-            executable=executable,
-            ok=False,
-            error=(
-                "Codex CLI does not expose a tool-free prompt mode; "
-                "choose another Doctor advisor"
-            ),
-        )
     try:
         with tempfile.TemporaryDirectory(prefix="argus-agent-probe-") as workdir:
             runner = AgentCliBackend(
@@ -118,7 +102,6 @@ def run_read_only_agent_prompt(
                     working_dir=workdir,
                     sandbox_mode="read-only",
                     force_safe_mode=True,
-                    disable_tools=disable_tools,
                     skip_git_repo_check=True,
                 ),
                 run_label=run_label,
@@ -135,7 +118,6 @@ def run_read_only_agent_prompt(
         result,
         backend=backend,
         executable=executable,
-        reject_tool_activity=True,
     )
 
 
@@ -189,7 +171,6 @@ def run_agent_repair_prompt(
         result,
         backend=backend,
         executable=executable,
-        reject_tool_activity=False,
         require_tool_activity=True,
     )
 

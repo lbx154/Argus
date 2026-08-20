@@ -96,7 +96,7 @@ def _opencode_read_only_env() -> dict[str, str]:
 def _opencode_no_tools_env() -> dict[str, str]:
     return _opencode_agent_env(
         agent_name=_OPENCODE_NO_TOOLS_AGENT,
-        description="Argus tool-free diagnostic agent.",
+        description="Argus restricted noninteractive agent.",
         permission={"*": "deny"},
     )
 

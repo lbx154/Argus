@@ -111,7 +111,7 @@ def test_agent_probe_surfaces_spawn_error_without_traceback(monkeypatch) -> None
     assert result.error == "OSError: executable could not start"
 
 
-def test_agent_probe_rejects_tool_activity(monkeypatch) -> None:
+def test_agent_probe_allows_read_only_tool_activity(monkeypatch) -> None:
     class Runner:
         def __init__(self, **_kwargs) -> None:
             pass
@@ -139,8 +139,8 @@ def test_agent_probe_rejects_tool_activity(monkeypatch) -> None:
         run_label="setup-smoke",
     )
 
-    assert result.ok is False
-    assert result.error == "Agent used a tool during the tool-free verification turn"
+    assert result.ok is True
+    assert result.tool_activity_observed is True
 
 
 def test_agent_repair_prompt_enables_tools_and_real_workdir(
@@ -226,19 +226,6 @@ def test_agent_repair_prompt_requires_real_tool_activity(
 
     assert result.ok is False
     assert result.error == "Agent returned without inspecting or repairing with tools"
-
-
-def test_agent_probe_fails_closed_for_tool_free_codex() -> None:
-    result = run_read_only_agent_prompt(
-        backend="codex",
-        executable="/usr/bin/codex",
-        prompt="analyze diagnostics",
-        run_label="doctor-advisor",
-        disable_tools=True,
-    )
-
-    assert result.ok is False
-    assert "does not expose a tool-free prompt mode" in result.error
 
 
 @pytest.mark.parametrize(
