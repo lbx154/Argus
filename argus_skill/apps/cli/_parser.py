@@ -49,6 +49,24 @@ class _ArgusArgumentParser(argparse.ArgumentParser):
         return _PUBLIC_HELP
 
 
+def _tcp_port(value: str) -> int:
+    """Reject a port the kernel can never bind, before anything offers a URL.
+
+    An out-of-range `--web-port` used to reach uvicorn, which printed the
+    pairing banner's URL first and then raised `OverflowError: bind(): port
+    must be 0-65535` as a traceback.
+    """
+    try:
+        port = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{value!r} is not a whole number") from None
+    if not 0 <= port <= 65535:
+        raise argparse.ArgumentTypeError(
+            f"{port} is outside the TCP port range 0-65535"
+        )
+    return port
+
+
 def build_parser() -> argparse.ArgumentParser:
     from ... import __version__
     from ...release import release_manifest
@@ -280,7 +298,7 @@ def build_parser() -> argparse.ArgumentParser:
     cockpit_grp.add_argument(
         "--web-port",
         "--port",
-        type=int,
+        type=_tcp_port,
         default=8799,
         help="port for --web (default 8799)",
     )

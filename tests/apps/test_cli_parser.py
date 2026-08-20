@@ -810,3 +810,22 @@ def test_a_negative_gc_window_is_refused_before_anything_moves(
     err = capsys.readouterr().err
     assert "--gc-days must not be negative" in err
     assert "every project would be trashed" in err
+
+
+@pytest.mark.parametrize("value", ["99999", "-1", "abc"])
+def test_an_unbindable_web_port_is_refused_by_the_parser(value: str) -> None:
+    """uvicorn would raise `OverflowError: bind(): port must be 0-65535`.
+
+    It raised it *after* the pairing banner had already printed a URL on that
+    port, so the operator was offered an address that could never exist and
+    then shown a traceback.
+    """
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--web", "--web-port", value])
+
+
+@pytest.mark.parametrize("value", ["0", "8799", "65535"])
+def test_a_bindable_web_port_is_accepted(value: str) -> None:
+    """Zero is legal: it asks the kernel for any free port."""
+    args = build_parser().parse_args(["--web", "--web-port", value])
+    assert args.web_port == int(value)
