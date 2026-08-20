@@ -76,6 +76,21 @@ def test_paper_is_claim_driven_and_selective() -> None:
     assert "not a chronological experiment report" in draft["draft.tex"]
 
 
+def test_publishable_boundary_results_cannot_be_underpowered_pilots() -> None:
+    analysis_skill = _skill("engineer/research-results-analysis-and-figures.md")
+    peer_review = _skill("reviewer/academic-paper-peer-review-benchmark.md")
+    analysis = {item.id: item.statement for item in STAGE_CHECKLISTS["analysis"]}
+    plan = {item.id: item.statement for item in STAGE_CHECKLISTS["plan"]}
+    review = {item.id: item.statement for item in STAGE_CHECKLISTS["review"]}
+
+    assert "official acceptance" in plan["plan.publication_scale"]
+    assert "not universal numeric quotas" in analysis_skill
+    assert "pilot_only" in analysis_skill
+    assert "claim narrowing" in " ".join(peer_review.lower().split())
+    assert "publication-scale evidence" in review["review.publication_value"]
+    assert "failed small method experiment" in analysis["analysis.publication_scale"]
+
+
 def test_live_checklist_requires_thesis_and_implementation_adequacy() -> None:
     run = {item.id: item.statement for item in STAGE_CHECKLISTS["run"]}
     analysis = {item.id: item.statement for item in STAGE_CHECKLISTS["analysis"]}

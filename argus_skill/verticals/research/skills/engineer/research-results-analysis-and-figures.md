@@ -97,6 +97,16 @@ chronological experiment report:
   an appendix when useful;
 - return to research/plan if no independently valuable thesis survives.
 
+For publishable/doctoral targets, write
+`paper/PUBLICATION_SCALE_ASSESSMENT.json` before drafting. Use official
+acceptance pages and full papers for recent same-area comparators, then compare
+the executed local evidence across models/systems, public sources, evaluation
+units, repeats or proof obligations, strongest comparisons, and
+uncertainty/formal guarantees. These dimensions calibrate the claim; they are
+not universal numeric quotas. Mark `pilot_only` or `proxy_only` truthfully. If either is
+true, return to run/plan: a narrower title, a boundary label, or an honest
+limitations section cannot make that evidence publication-scale.
+
 ## 4. Route and build figures
 
 For every figure write a brief: claim, reader takeaway, role, canonical inputs,

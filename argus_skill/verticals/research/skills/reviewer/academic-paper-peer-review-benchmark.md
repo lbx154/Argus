@@ -77,6 +77,10 @@ Score each dimension 1–5.
    - Is evidence breadth, task count, model count, seed count, or proof coverage
      justified by the claim rather than a universal quota?
    - Are uncertainty and repeatability handled appropriately?
+   - For publishable/doctoral work, does
+     `paper/PUBLICATION_SCALE_ASSESSMENT.json` accurately compare the real
+     claim-bearing artifacts with recent accepted same-area papers? Claim
+     narrowing does not repair underpowered, tiny-slice, or proxy-only evidence.
 
 4. **Literature and novelty**
    - Are material premises, nearest competitors, foundations, contradictions,
@@ -145,6 +149,10 @@ and no hard blocker.
 - private infrastructure/secrets leaked into rendered prose;
 - paper value depends only on relabeling a weak result rather than a genuine
   insight.
+- missing, false, or unsupported publication-scale assessment for a
+  publishable/doctoral target;
+- an underpowered pilot, tiny evaluation slice, or proxy-only diagnostic is the
+  primary evidence and is made to look sufficient only by narrowing the claim;
 - shallow prompt/schema/wrapper/scale contributions, decorative claimed theory,
   or no field-level consequence beyond a local metric;
 - the paper proposes a method as its contribution while its own evidence defeats
@@ -152,8 +160,9 @@ and no hard blocker.
 - underperformance is treated as scientific evidence without a credible
   implementation-adequacy audit.
 
-A negative, null, diagnostic, or boundary result is not a blocker by sign; lack
-of standalone insight is.
+A negative, null, diagnostic, or boundary result is not a blocker by sign. It
+still needs standalone publication-scale evidence and independent value; lack
+of either is a blocker.
 
 ## Output contract
 

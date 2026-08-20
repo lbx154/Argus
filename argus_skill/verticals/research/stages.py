@@ -183,6 +183,23 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             evidence_hint="research/BASELINE_AND_BENCHMARK_PLAN.md, experiments/BENCHMARK_PROVENANCE.json",
         ),
         ChecklistItem(
+            id="plan.publication_scale",
+            statement=(
+                "Calibrate the claim-bearing experiment plan against recent accepted "
+                "same-area papers from the selected venue or a comparable top venue. "
+                "Record official acceptance URLs and compare models/systems, public "
+                "sources, evaluation units, repeats or proof obligations, strongest "
+                "comparisons, and uncertainty/formal guarantees. Do not copy their "
+                "exact scale as a quota; explain what evidence this claim needs. A "
+                "small pilot may de-risk implementation, but it cannot be the planned "
+                "final evidence merely because the claim could later be narrowed."
+            ),
+            evidence_hint=(
+                "research/EXPERIMENT_PLAN.md publication-scale section + accepted "
+                "paper official/PDF sources"
+            ),
+        ),
+        ChecklistItem(
             id="plan.code_reuse",
             statement=(
                 "Code-reuse plan lists every external repo we will run, fork, or "
@@ -339,7 +356,10 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "Final empirical claims include executed public benchmark/data "
                 "evidence at a scale justified by the claim and uncertainty method. "
                 "Synthetic/generated diagnostics are labeled supplementary and are "
-                "not the sole final evidence."
+                "not the sole final evidence. A run marked full is not publication-"
+                "scale merely because its manifest says so: compare the executed "
+                "evidence dimensions with recent accepted same-area work. Claim "
+                "narrowing cannot convert an underpowered pilot into final evidence."
             ),
             evidence_hint="experiments/**/manifest.json declares scale=full",
         ),
@@ -407,6 +427,22 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "with numbers grounded in raw experiment files."
             ),
             evidence_hint="paper/RESULTS_REPORT.md",
+        ),
+        ChecklistItem(
+            id="analysis.publication_scale",
+            statement=(
+                "Write `paper/PUBLICATION_SCALE_ASSESSMENT.json` from current "
+                "accepted-paper comparators and real local artifacts. For publishable "
+                "or doctoral targets, the primary evidence must not be pilot-only or "
+                "proxy-only and must have independent value at a scale credible for "
+                "the claim. Negative, null, diagnostic, or boundary findings remain "
+                "eligible only when the finding itself is publication-scale; a failed "
+                "small method experiment plus narrower prose is not a contribution."
+            ),
+            evidence_hint=(
+                "`python -m argus_skill.verticals.research.publication_scale "
+                "--project-root .` + paper/PUBLICATION_SCALE_ASSESSMENT.json"
+            ),
         ),
         ChecklistItem(
             id="analysis.figure1",
@@ -587,7 +623,12 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "size, or a changed thesis is not by itself a rejection reason. Positive "
                 "or negative original research may contribute a method/system, theorem, "
                 "mechanism, scaling law, robust boundary, benchmark lesson, or "
-                "decision-relevant finding. Request at most the few claim-critical "
+                "decision-relevant finding only when that contribution has standalone "
+                "publication-scale evidence. Do not let claim narrowing or a new "
+                "`boundary` label turn an underpowered/proxy-only pilot into a "
+                "publishable result. Compare the evidence dimensions in "
+                "`paper/PUBLICATION_SCALE_ASSESSMENT.json` with its accepted-paper "
+                "comparators and the actual artifacts. Request at most the few claim-critical "
                 "repairs that would change the decision; keep lesser concerns advisory "
                 "and do not reopen settled stages. A "
                 "literature review must deliver valuable coverage, synthesis, critique, "
@@ -653,11 +694,21 @@ def get_stage_checklist(stage: str) -> tuple[ChecklistItem, ...]:
 
 def stage_completion_issues(stage: str, project_root: Path) -> tuple[str, ...]:
     normalized = str(stage or "").strip().lower()
+    issues: list[str] = []
+    if normalized in {"analysis", "draft", "review", "submission"}:
+        from .publication_scale import publication_scale_issues
+
+        issues.extend(
+            f"[publication_scale] {issue}"
+            for issue in publication_scale_issues(project_root)
+        )
     if normalized in {"draft", "review", "submission"}:
         from .paper_structural_minimums import validate_paper_structural_minimums
 
         report = validate_paper_structural_minimums(project_root)
-        return tuple(f"[{issue.code}] {issue.detail}" for issue in report.issues)
+        issues.extend(f"[{issue.code}] {issue.detail}" for issue in report.issues)
+    if issues:
+        return tuple(issues)
     if normalized != "research":
         return ()
     from .idea_portfolio import idea_portfolio_completion_issues
@@ -961,7 +1012,10 @@ _PROGRESS_ORIENTED_RESEARCH_POLICY = (
     "actively pursue evidence-based implementation, optimization, data, scale, evaluator, "
     "and method repairs toward a genuine positive result. Only after independent "
     "engineering-adequacy review and exhausted credible repairs may the remaining "
-    "boundary, mechanism, scaling, or decision finding become the paper. Metrics, "
+    "boundary, mechanism, scaling, or decision finding become the paper, and only "
+    "when that finding itself has accepted-paper-calibrated publication-scale "
+    "evidence. Claim narrowing cannot convert an underpowered pilot, tiny slice, or "
+    "proxy-only diagnostic into a publishable contribution. Metrics, "
     "seeds, slices, and baselines may evolve for documented scientific reasons; keep "
     "the final claim scoped to the resulting evidence. "
 )
@@ -975,7 +1029,10 @@ _REVIEWER_ENGINEERING_AUDIT = (
     "plausibility. No-training convenience or local ease confers no scientific credit. "
     "Weak, null, noisy, underpowered, misconfigured, or inconclusive "
     "smoke results cannot by themselves trigger replan or reject a review-qualified "
-    "idea; record limitations for later iterative engineering.\n"
+    "idea; record limitations for later iterative engineering. At publishable or "
+    "doctoral final review, inspect `paper/PUBLICATION_SCALE_ASSESSMENT.json` "
+    "against its official accepted-paper sources and local artifacts. Do not certify "
+    "a small failed pilot by renaming it a boundary or diagnostic contribution.\n"
 )
 
 _PLANNER_RESEARCH_ORCHESTRATION = (
@@ -990,8 +1047,9 @@ _PLANNER_RESEARCH_ORCHESTRATION = (
     "can verify feasibility without pretending to decide the full hypothesis; otherwise "
     "record it untested and advance. Never use a full benchmark, training run, broad "
     "sweep, or publication-scale multi-seed study as a research probe. Research-stage "
-    "outcomes cannot kill or block the selected idea. Keep the resulting critical path "
-    "below one hour when default resources allow it. A failed hypothesis or rejected "
+    "outcomes cannot kill or block the selected idea. Keep only research-stage route "
+    "selection and feasibility probing below one hour when default resources allow it; "
+    "claim-bearing publication-scale runs are not subject to that time box. A failed "
     "direction is project memory, not automatic completion or a forced next action; "
     "only the independently reviewed research target closes the project.\n"
 )

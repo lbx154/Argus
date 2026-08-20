@@ -179,7 +179,11 @@ def test_stage_checklist_completeness() -> None:
     analysis_ids = {item.id for item in STAGE_CHECKLISTS["analysis"]}
     assert "analysis.claims" in analysis_ids
     assert "analysis.figure1" in analysis_ids
+    assert "analysis.publication_scale" in analysis_ids
     assert "analysis.thesis" in analysis_ids
+
+    plan_ids = {item.id for item in STAGE_CHECKLISTS["plan"]}
+    assert "plan.publication_scale" in plan_ids
 
     draft_ids = {item.id for item in STAGE_CHECKLISTS["draft"]}
     assert "draft.pdf" in draft_ids

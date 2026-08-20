@@ -32,7 +32,15 @@ Non-negotiable research bar: choose an important, falsifiable problem grounded
 in current primary sources. Final empirical claims must include appropriate
 public benchmark/data/task evidence. Synthetic/local diagnostics may supplement
 but not replace public evidence. Positive, negative, diagnostic, and boundary
-contributions are all valid when they have research value.
+contributions are all valid when they have research value at publication scale.
+An underpowered pilot, tiny evaluation slice, or proxy-only diagnostic cannot
+become publishable merely by narrowing the claim or renaming it a boundary
+result. Before analysis closes, write
+`paper/PUBLICATION_SCALE_ASSESSMENT.json`: compare the real claim-bearing
+evidence with recent accepted same-area papers using official acceptance URLs,
+and document models/systems, public sources, evaluation units, repeats or proof
+obligations, strongest comparisons, and uncertainty/formal guarantees. These
+are claim-calibrated dimensions, not universal numeric quotas.
 
 **Research taste is mandatory.** The operator gives you a research DIRECTION, not a paper plan. You must find your own insight:
 - Survey the field first. Read code, not just abstracts. Find what existing methods miss.
