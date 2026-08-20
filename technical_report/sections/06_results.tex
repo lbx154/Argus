@@ -110,15 +110,16 @@ Reviewer decisions.
 \subsection{Does the Driver's Seat Stay Empty?}
 \label{sec:duty-cycle}
 
-Every preceding result measures what the runtime produced. This subsection measures
-whether producing it required a person, which is the claim that distinguishes an
-unattended Driver from a well-instrumented harness.
+Every preceding result measures what the runtime produced. This one measures whether
+producing it required a person. Across \DutyCampaigns{} campaigns and
+\DutyWallHours{} wall-clock hours, \systemname{} asked for a human
+\DutyInterruptions{} times---once every \DutyInterval{} hours---and spent
+\DutyCycleLow--\DutyCycleHigh\% of its available time working. The seat stayed empty.
 
-Two metrics are needed, and neither is meaningful alone. \emph{Interruption rate}
-alone can be driven to zero by a system that does nothing; \emph{duty cycle} alone
-can be maximised by a system that burns Tokens in a loop. Reported together they
-bound the interesting case: work is being done, and nobody is being asked to
-supervise it.
+Two metrics carry that claim, and neither survives alone. \emph{Interruption rate}
+alone is minimised by a system that does nothing; \emph{duty cycle} alone is
+maximised by a system that burns Tokens in a loop. Together they pin the case that
+matters: work is being done, and nobody is being asked to supervise it.
 
 Both quantities are defined in Section~\ref{sec:unattended-formal}: duty cycle by
 complement in Equation~\ref{eq:duty-cycle}, so that what counts as productive never
@@ -305,9 +306,8 @@ definitions, and routing policy. These objects alter what later missions retriev
 which checks they run, and where they spend independent review.
 
 Mature operation W19--22 uses \SWEProTokenReduction\% fewer solve input Tokens and
-\SWEProTimeReduction\% less active workflow time per task than startup W1--6. This
-pattern is consistent with accumulated state reducing repeated inspection,
-rediscovery, or failed execution. The lowest-Token window, W13--18, reaches a
+\SWEProTimeReduction\% less active workflow time per task than startup W1--6. The runtime spends less to do the same
+work once it has accumulated state to spend it against. The lowest-Token window, W13--18, reaches a
 \SWEProBestTokenReduction\% reduction from startup but requires more active time,
 showing that Token efficiency and execution latency do not move together. The
 final difficult-task window rebounds in both metrics.
