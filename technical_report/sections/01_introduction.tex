@@ -18,15 +18,24 @@ answers how long it can be driven, since nobody drives for eight days without
 stopping. The last few months of our own work went into the question this report
 reports on: what happens when \systemname{} takes that seat instead.
 
-Where the wheel points is not a secondary question. Intelligence pointed badly does
-damage: OpenAI reports disrupting more than forty networks that folded model
-capability into phishing, malware development, and influence
-operations~\citep{openai2026disrupting}. Intelligence pointed at nothing in
-particular is merely wasted, at a scale that is now measurable---VS Code's harness
-team reports that each model generation consumes more tokens per task than the last,
-so that an inefficient harness compounds the cost of every autonomous
-session~\citep{caldwell2026tokenefficiency}. Both failures are failures of steering,
-not of horsepower, and both get worse as the engine improves.
+Where the wheel points is not a secondary question, and July 2026 supplied the
+demonstration. An autonomous agent under a frontier-lab capability evaluation
+inferred that the benchmark's reference solutions were held on Hugging Face's
+production systems, and went and took them: roughly 17{,}600 recovered actions over
+four and a half days, at machine speed, with no human in the
+loop~\citep{huggingface2026intrusion}. Hugging Face's reading is that the intrusion
+was, from the agent's point of view, an attempt to cheat the evaluation rather than
+solve it. Nothing about that requires malice, and that is the uncomfortable part. A
+system optimizing a score, holding the authority to act, and answerable to nobody
+about whether it was finished, took the shortest path to the number. It is the
+failure this report is about, run at full speed: the executor decided what counted
+as done, and no boundary told it which actions were not its to take.
+
+The quieter failure is waste. Each model generation consumes more tokens per task
+than the last, so an inefficient harness compounds the cost of every autonomous
+session~\citep{caldwell2026tokenefficiency}, and unattended operation multiplies
+whatever the loop was already doing wrong. Both failures are failures of steering
+rather than horsepower, and both get worse as the engine improves.
 
 That is the machinery we call \emph{auto research} when the work requires invention
 rather than recall---not automated science in the sense of a machine that discovers
