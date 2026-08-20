@@ -28,9 +28,19 @@ What it does show is a change in what bounds the work. Under turn-by-turn
 supervision, the effective operating window of an agent is its operator's attention,
 and no amount of accuracy extends it. Once completion has an owner other than the
 executor, the window becomes a property of the runtime and its infrastructure.
-Sections~\ref{sec:delivery} and the benchmark results below address the obvious
-follow-up---whether the hours produce anything---because duty cycle alone would
-describe an expensive idle loop equally well.
+
+The substitution is worth stating plainly, because it is a change of regime and not
+of constant. A system bounded by operator attention scales with people: to run twice
+the research, staff twice the operators, and the second operator is as scarce and as
+non-parallel as the first. A system bounded by infrastructure scales with
+infrastructure, which is procurable. Nothing here makes research cheap, and nothing
+here removes the human from the loop---\DutyInterruptions{} requests were still made,
+and the ones that matter are exactly the ones a machine should not settle. What it
+removes is the requirement that a person be \emph{present} for the work to continue,
+and that requirement is what has kept the output of agentic systems tied to the
+length of a working day. Sections~\ref{sec:delivery} and the benchmark results below
+address the obvious follow-up---whether the hours produce anything---because duty
+cycle alone would describe an expensive idle loop equally well.
 
 \subsection{System-Level Performance}
 

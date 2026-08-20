@@ -27,11 +27,34 @@ operator reads the diff, decides it is not what they meant, types the correction
 and the loop advances one step. When the operator goes to dinner, the project stops.
 Not because the model is out of capacity, and not because the machine is tired, but
 because the only component authorized to say ``that is not right, do this instead''
-has gone home. \emph{Human intelligence therefore arrives in discrete bursts},
-and every long-horizon agent trajectory is stitched together from the waking hours of
-whoever is babysitting it. Measured on the systems available today, that stitching is
-dense: a strong coding agent driven turn by turn sustains roughly
-\CodexEndurance{} hour before it needs its operator back.
+has gone home. \emph{Human intelligence is discrete}: it arrives in bursts bounded
+by attention and sleep, and every long-horizon agent trajectory is stitched together
+from the waking hours of whoever is babysitting it. Measured on the systems available
+today, that stitching is fine-grained: a strong coding agent driven turn by turn
+sustains roughly \CodexEndurance{} hour before it needs its operator back.
+
+The work this report is about has the opposite shape. A \emph{dense-intelligence
+task}---one that sustains reasoning, tool use, verification, and revision
+continuously until it produces a measurable result (Section~\ref{sec:problem})---is
+precisely a task that will not hold still between bursts. Supplying such a task from
+a discrete source is the mismatch that has bounded this field. The work wants days of
+uninterrupted judgment; the only component licensed to supply it goes home at six,
+and what it left running is stale by morning.
+
+\emph{Driver intelligence is dense.} It does not rest, so the campaign's clock and
+the calendar's clock are the same clock. It also compounds, because a premise adopted
+on day one is still under revision on day eight by the same accumulated state instead
+of being re-established each morning by a person reading yesterday's log. That
+compounding is what a discrete supply cannot buy at any level of individual
+brilliance, and it is measurable: Section~\ref{sec:duty-cycle} reports
+\DutyCycleLow--\DutyCycleHigh\% of available time spent working, against a ceiling of
+33\% for any harness whose Driver has to sleep.
+
+This changes what is being automated. A harness automates execution---the model does
+what a person already decided to do. A Driver automates the deciding, and deciding
+under evidence, repeatedly, over days, is most of what research is. The step from
+automating execution to automating research is not a matter of a stronger model
+executing more; it is a matter of who holds the seat, and for how long.
 
 We report what happens when the Driver's seat is handed to the machine. The task the
 seat performs is not monolithic, and separating it is the first contribution of this
@@ -232,7 +255,8 @@ reporting an unsupported success, which is the same gate viewed from the other s
 a system that can leave the room is a system that can also refuse to claim it
 finished.
 
-This report makes six contributions:
+One task, four questions, six contributions. The task is dense-intelligence work;
+the four questions are the Driver's; the contributions are these:
 
 \begin{enumerate}[label=\textbf{C\arabic*.}]
   \item \textbf{The Driver.} We identify the previously unautomated role above the
