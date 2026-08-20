@@ -4,6 +4,10 @@ import json
 from pathlib import Path
 
 from argus_skill.skills.vertical_select import persist_vertical
+from argus_skill.verticals._base import (
+    load_vertical,
+    vertical_stage_completion_issues,
+)
 from argus_skill.verticals.research.publication_scale import (
     ASSESSMENT_PATH,
     publication_scale_issues,
@@ -110,6 +114,24 @@ def test_publishable_analysis_blocks_without_assessment(tmp_path: Path) -> None:
         "[publication_scale]" in issue
         for issue in stage_completion_issues("analysis", tmp_path)
     )
+
+
+def test_external_state_root_target_cannot_bypass_assessment(
+    tmp_path: Path,
+) -> None:
+    workdir = tmp_path / "workdir"
+    state_root = tmp_path / "state" / "projects" / "session"
+    workdir.mkdir()
+    _target(state_root)
+
+    issues = vertical_stage_completion_issues(
+        load_vertical("research", project_root=state_root),
+        stage="analysis",
+        project_root=workdir,
+        state_root=state_root,
+    )
+
+    assert any("missing paper/PUBLICATION_SCALE_ASSESSMENT.json" in issue for issue in issues)
 
 
 def test_valid_accepted_paper_calibrated_assessment_passes(tmp_path: Path) -> None:

@@ -692,15 +692,25 @@ def get_stage_checklist(stage: str) -> tuple[ChecklistItem, ...]:
     return STAGE_CHECKLISTS.get(str(stage).strip().lower(), ())
 
 
-def stage_completion_issues(stage: str, project_root: Path) -> tuple[str, ...]:
+def stage_completion_issues(
+    stage: str,
+    project_root: Path,
+    *,
+    state_root: Path | None = None,
+) -> tuple[str, ...]:
     normalized = str(stage or "").strip().lower()
     issues: list[str] = []
     if normalized in {"analysis", "draft", "review", "submission"}:
+        from ...core.research_contract import resolve_research_target_level
         from .publication_scale import publication_scale_issues
 
+        target = resolve_research_target_level(state_root or project_root)
         issues.extend(
             f"[publication_scale] {issue}"
-            for issue in publication_scale_issues(project_root)
+            for issue in publication_scale_issues(
+                project_root,
+                research_target_level=target,
+            )
         )
     if normalized in {"draft", "review", "submission"}:
         from .paper_structural_minimums import validate_paper_structural_minimums

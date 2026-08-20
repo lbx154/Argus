@@ -230,9 +230,14 @@ def vertical_stage_completion_issues(
     *,
     stage: str,
     project_root: Path,
+    state_root: Path | None = None,
 ) -> tuple[str, ...]:
     """Run the provider's deterministic pre-completion validator, if any."""
-    return _contract(mod).completion_issues(stage, project_root)
+    return _contract(mod).completion_issues(
+        stage,
+        project_root,
+        state_root=state_root,
+    )
 
 
 def vertical_adopt_operator_objective(

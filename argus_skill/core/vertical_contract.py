@@ -6,6 +6,7 @@ view instead of probing module attributes or branching on vertical names.
 """
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Protocol
@@ -100,7 +101,7 @@ class VerticalContract:
     search_altitude: Callable[[object], str] | None = None
     mission_prelude: MissionPrelude | None = None
     library_preparer: Callable[[VerticalLibraryContext], None] | None = None
-    stage_completion_validator: Callable[[str, Path], object] | None = None
+    stage_completion_validator: Callable[..., object] | None = None
     planner_task_validator: Callable[[str, Path, Any], object] | None = None
     # Optional: records the operator's stated objective at project setup, for a
     # vertical that cannot pick a completion bar on its own. See
@@ -174,10 +175,28 @@ class VerticalContract:
             return default
         return self.engineer_live_search_stages
 
-    def completion_issues(self, stage: str, project_root: Path) -> tuple[str, ...]:
+    def completion_issues(
+        self,
+        stage: str,
+        project_root: Path,
+        *,
+        state_root: Path | None = None,
+    ) -> tuple[str, ...]:
         if self.stage_completion_validator is None:
             return ()
-        value = self.stage_completion_validator(stage, project_root)
+        validator = self.stage_completion_validator
+        accepts_state_root = False
+        if state_root is not None:
+            try:
+                parameter = inspect.signature(validator).parameters.get("state_root")
+                accepts_state_root = parameter is not None
+            except (TypeError, ValueError):
+                accepts_state_root = False
+        value = (
+            validator(stage, project_root, state_root=state_root)
+            if accepts_state_root
+            else validator(stage, project_root)
+        )
         if value is None:
             return ()
         if isinstance(value, str):

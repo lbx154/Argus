@@ -14,7 +14,10 @@ import re
 from pathlib import Path
 from typing import Any
 
-from ...core.research_contract import resolve_research_target_level
+from ...core.research_contract import (
+    normalize_research_target_level,
+    resolve_research_target_level,
+)
 
 ASSESSMENT_PATH = Path("paper/PUBLICATION_SCALE_ASSESSMENT.json")
 SCHEMA_VERSION = 1
@@ -83,10 +86,18 @@ def _load(project_root: Path) -> tuple[dict[str, Any] | None, str]:
     return payload, ""
 
 
-def publication_scale_issues(project_root: Path) -> tuple[str, ...]:
+def publication_scale_issues(
+    project_root: Path,
+    *,
+    research_target_level: str | None = None,
+) -> tuple[str, ...]:
     """Return fail-closed issues for publishable/doctoral research targets."""
     root = project_root.resolve()
-    target = resolve_research_target_level(root)
+    target = (
+        normalize_research_target_level(research_target_level)
+        if research_target_level is not None
+        else resolve_research_target_level(root)
+    )
     if target not in _FINAL_TARGETS:
         return ()
 

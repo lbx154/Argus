@@ -168,6 +168,7 @@ def _ensure_stage_completion(
             load_vertical(vertical, project_root=project_root),
             stage=_normalize_stage(stage),
             project_root=Path(evidence_root or project_root),
+            state_root=Path(project_root),
         )
     except StageCompletionError:
         raise
