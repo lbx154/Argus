@@ -88,7 +88,16 @@ def test_publishable_boundary_results_cannot_be_underpowered_pilots() -> None:
     assert "pilot_only" in analysis_skill
     assert "claim narrowing" in " ".join(peer_review.lower().split())
     assert "publication-scale evidence" in review["review.publication_value"]
-    assert "failed small method experiment" in analysis["analysis.publication_scale"]
+    # The bar is unchanged; the sentence carrying it is not. Stated as a
+    # prohibition ("a failed small experiment plus narrower prose is not a
+    # contribution") it taught the safest move — claim less — and the drafts
+    # read like audit reports. Stated as the standard a boundary finding is
+    # held to, it asks for the run instead of the hedge.
+    assert (
+        "same terms as a positive one"
+        in analysis["analysis.publication_scale"]
+    )
+    assert "at that scale" in analysis["analysis.publication_scale"]
 
 
 def test_accepted_paper_and_code_organization_is_learned_without_copying() -> None:
