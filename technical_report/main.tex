@@ -268,12 +268,15 @@ weights rather than supplied by scaffolding is the question they exist to answer
   system: a harness cannot outlast its operator's working day, which bounds it near
   a third of wall-clock time however capable its model becomes. Bars use independent scales and indicate comparison direction with
   arrows; they are breadth evidence rather than a single normalized leaderboard. The
-  lower band summarizes delivered work in three domains where the deciding evaluator
-  is external to the runtime: a compiler and a reference implementation for
-  infrastructure, an independent chemistry validator and a proof checker for science,
-  and a static-timing engine for silicon. The silicon card also records the human
-  cost of that campaign---eight days, six interruptions, two of them caused by the
-  server failing rather than by the runtime asking.}
+  lower band summarizes delivered work where the deciding evaluator is external to the
+  runtime: a compiler and a reference implementation for infrastructure, an
+  independent chemistry validator and a proof checker for science, and a
+  static-timing engine for silicon. The silicon card also records the human cost of
+  that campaign---eight days, six interruptions, two of them caused by the server
+  failing rather than by the runtime asking. The pretraining card is the runtime
+  pointed at its own supply chain: an eight-GPU B200 node taken from raw data to a
+  trained 1B model, built and operated by \systemname{} rather than by the person
+  who commissioned it (Section~\ref{sec:rsi-vertical}).}
   \label{fig:overview}
 \end{figure}
 

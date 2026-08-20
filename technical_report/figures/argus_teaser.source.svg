@@ -200,15 +200,14 @@
         <text x="414" y="373" text-anchor="middle" font-size="9" fill="#66717D">Codex</text>
       </g>
 
-      <g id="result-upstream" data-pptx-bounds="462 316 250 59">
+      <g id="result-pretrain" data-pptx-bounds="462 316 250 59">
         <rect x="462" y="316" width="250" height="59" rx="8" fill="#FFFDF8" stroke="#C38A20" stroke-width="1.2"/>
-        <text x="474" y="335" font-size="12" font-weight="bold" fill="#173B70">Upstream review</text>
-        <text x="700" y="335" text-anchor="end" font-size="10" font-weight="bold" fill="#C38A20">fla-org</text>
-        <text x="474" y="356" font-size="15" font-weight="bold" fill="#C38A20">4 kernels</text>
-        <text x="474" y="371" font-size="9" fill="#66717D">accepted · no blocking changes</text>
-        <rect x="620" y="345" width="80" height="7" rx="3" fill="#D8E0E8"/>
-        <rect x="620" y="345" width="80" height="7" rx="3" fill="#C38A20"/>
-        <text x="700" y="366" text-anchor="end" font-size="9" fill="#66717D">outside maintainers</text>
+        <text x="474" y="335" font-size="12" font-weight="bold" fill="#173B70">Pretraining stack</text>
+        <text x="700" y="335" text-anchor="end" font-size="10" font-weight="bold" fill="#C38A20">8×B200</text>
+        <text x="474" y="356" font-size="15" font-weight="bold" fill="#C38A20">1B from scratch</text>
+        <text x="474" y="371" font-size="9" fill="#66717D">data · stability · utilization · recovery</text>
+        <text x="700" y="356" text-anchor="end" font-size="9" font-weight="bold" fill="#24465D">built by Argus</text>
+        <text x="700" y="368" text-anchor="end" font-size="9" fill="#66717D">runs end to end</text>
       </g>
     </g>
 
