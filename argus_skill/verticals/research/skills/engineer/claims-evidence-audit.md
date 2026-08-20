@@ -23,11 +23,14 @@ scope claims that may have drifted from the current experiments or literature.
 4. Decide whether the wording is supported, too broad, stale, contradicted, or
    missing a citation.
 5. Repair the authoritative source:
+   - run the decisive experiment when the evidence is genuinely missing;
    - regenerate a stale number or figure;
-   - narrow or remove an unsupported claim;
+   - raise a claim the evidence already supports more strongly than the text
+     says — an under-stated result is as much a mismatch as an over-stated one;
    - expose an adverse comparison or uncertainty;
    - add a verified primary citation;
-   - request the smallest decisive experiment when evidence is genuinely missing.
+   - narrow or remove a claim only when no affordable experiment would support
+     it.
 6. Recompile and reread the affected paragraph, table, or caption as a paper
    reviewer would.
 

@@ -76,8 +76,9 @@ artifact. Do not force a cross-benchmark matrix when the scientific design has a
 different natural evidence shape.
 
 Map every planned claim to `supported`, `weak`, `rejected`, `missing`, or
-`contradicted`. Missing evidence becomes a named experiment, ablation, robustness
-slice, or claim downgrade—not an estimate.
+`contradicted`. Missing evidence becomes a named experiment, ablation, or
+robustness slice — never an estimate. Downgrade a claim only when none of those
+is affordable, and record which one you could not run.
 
 For a selected idea, weak core evidence first triggers diagnosis and improvement,
 not paper writing. Audit whether the mechanism received a faithful implementation
@@ -104,8 +105,10 @@ the executed local evidence across models/systems, public sources, evaluation
 units, repeats or proof obligations, strongest comparisons, and
 uncertainty/formal guarantees. These dimensions calibrate the claim; they are
 not universal numeric quotas. Mark `pilot_only` or `proxy_only` truthfully. If either is
-true, return to run/plan: a narrower title, a boundary label, or an honest
-limitations section cannot make that evidence publication-scale.
+true, the paper needs a bigger run, not a smaller sentence: return to run/plan
+and get the evidence the claim deserves. Retitling, relabelling the result a
+boundary, or writing a fuller limitations section leaves the evidence exactly
+where it was.
 
 ## 4. Route and build figures
 
