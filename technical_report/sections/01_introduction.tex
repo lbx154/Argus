@@ -35,22 +35,36 @@ dense: a strong coding agent driven turn by turn sustains roughly
 
 We report what happens when the Driver's seat is handed to the machine. The task the
 seat performs is not monolithic, and separating it is the first contribution of this
-report. A Driver answers exactly three questions, over and over:
+report. A Driver answers four questions, over and over, and they nest---each is asked
+about the answer to the one before it:
 
 \begin{enumerate}[label=\textbf{Q\arabic*.}]
-  \item \textbf{Is this actually done?} Not whether a command exited zero, but
-    whether the artifact discharges the obligation that motivated it.
+  \item \textbf{Is this done, and is it any good?} Not whether a command exited zero,
+    and not whether an artifact exists, but whether it discharges the obligation that
+    motivated it at the standard its claim requires. Finished and good are different
+    verdicts, and a system that conflates them will ship the first one forever.
   \item \textbf{What is worth doing next?} Given everything now known, including
     what just failed, where should the next unit of effort go?
+  \item \textbf{How does the system get better at this?} What did this round teach
+    that should change how the next one is attempted---and does that lesson hold for
+    this project, for the whole field, or everywhere?
   \item \textbf{Does this need a person?} Which of the remaining obstacles are the
     machine's to resolve, and which belong to someone with authority it does not
     have?
 \end{enumerate}
 
+The four are ordered by scope. Q1 judges an artifact, Q2 a trajectory, Q3 the
+capability that produces both, and Q4 draws the boundary around all three. Each is
+answerable only if the one before it was answered honestly: a system that cannot tell
+finished from good cannot tell which lesson is worth keeping, and a system that keeps
+the wrong lessons gets confidently worse.
+
 It is worth noticing when these questions are hard. Given a dense reward---a test to
-turn green, a leaderboard to climb, a latency to halve---all three collapse. Q1 is
-answered by reading the number, Q2 by whatever raises it, and Q3 never arises because
-nothing is ambiguous enough to escalate. This is why recursive self-improvement has
+turn green, a leaderboard to climb, a latency to halve---all four collapse into it.
+Q1 is answered by reading the number, Q2 by whatever raises it, Q3 by keeping
+whatever raised it before, and Q4 never arises because nothing is ambiguous enough to
+escalate. Q3 is the one a dense reward answers most completely, since keeping what
+moved the number is what training already does. This is why recursive self-improvement has
 progressed fastest exactly where such signals exist, and why that progress has not
 transferred: \textbf{the Driver's seat is not a separate problem from the missing
 score. It is what the missing score leaves behind.}
@@ -71,10 +85,12 @@ impossible---most importantly, that an experiment which never ran can never be
 recorded as a refuted idea.
 
 Automating Q2 alone yields an agent that confidently executes a plan nobody checked.
-Automating Q1 and Q2 without Q3 yields an agent that spends a credential or force
-pushes a branch because no rule told it that this class of decision is not its to
-make. The three have to be answered together, by different parties, or the seat
-cannot be delegated safely.
+Automating Q1 and Q2 without Q3 yields an agent that solves the same problem the same
+way forever, paying full price each time for a lesson it already had. Automating the
+first three without Q4 yields an agent that spends a credential or force pushes a
+branch because no rule told it that this class of decision is not its to make. The
+four have to be answered together, by different parties, or the seat cannot be
+delegated safely.
 
 \systemname answers them with four model-driven roles over durable state. A
 \emph{Reviewer} answers Q1 and is deliberately weak: it runs read-only, so it
@@ -83,7 +99,12 @@ look better, and it can return \code{blocked}, refusing to certify work rather t
 manufacturing a completion. A \emph{Planner} answers Q2 by decomposing the current
 research state into bounded tasks, while a \emph{Manager} holds sole authority over
 campaign stage transitions so that a single round cannot quietly redefine the
-campaign. Q3 is answered by an explicit authority boundary: credentials, payment,
+campaign. Q3 is answered by promotion under that same gate: the Engineer proposes
+what the round taught, and a separate Manager pass decides whether the lesson stays
+with this project, is written into the field's own contract so that every future
+campaign in that domain inherits it, or becomes global---which is how the runtime
+grows expert in a field without anyone editing the runtime. Q4 is answered by an
+explicit authority boundary: credentials, payment,
 irreversible actions, and publication stop for a human in every autonomy mode, while
 an ordinary timeout, failed test, or unavailable backend does not.
 
@@ -228,9 +249,10 @@ This report makes eleven contributions:
     which never executed cannot refute an idea, naming the honest non-terminal
     outcomes, and scaling the evidence bar to the maturity of the claim.
   \item We identify the \emph{Driver} as a distinct, previously unautomated role
-    sitting above the harness, and decompose it into three separable questions---is
-    this done, what is next, does this need a person---each of which must be owned by
-    a different party for the seat to be delegated safely.
+    sitting above the harness, and decompose it into four nested questions---is this
+    done and any good, what is next, how does the system get better at this, does
+    this need a person---each of which must be owned by a different party for the
+    seat to be delegated safely.
   \item We show that independent verification is the enabling condition for
     unattended operation rather than a quality feature added after it. A read-only
     Reviewer that cannot edit the evidence it judges, and that may return

@@ -182,8 +182,9 @@ An agent harness lets a model reach the real world. Something still has to decid
 where to reach, when the result is good enough, and when to stop and ask. That seat
 has always held a person, which bounds agentic progress by a resource nobody can
 scale: human waking hours. We call its occupant the \emph{Driver} and hand it to the
-machine. Its three questions---is this done, what is worth doing next, does this need
-a person---are trivial under a dense reward and hard without one, which is why
+machine. Its four nested questions---is this done and any good, what is worth doing
+next, how does the system get better at this, does this need a person---are trivial
+under a dense reward and hard without one, which is why
 self-improving agents have advanced fastest where scores exist and why that progress
 has not transferred. \systemname{} answers all three without one. The result is
 unattended multi-day research: campaigns that run for days at a time with nobody in
@@ -254,12 +255,14 @@ be trained into the weights is the question these traces exist to answer.
   \centering
   \includegraphics[width=\linewidth]{figures/argus_teaser.pdf}
   \caption{\systemname runtime, autonomy profile, and delivered work. The central
-  diagram shows how the three Driver questions are distributed. The Reviewer answers
+  diagram shows how the four Driver questions are distributed. The Reviewer answers
   Q1 and runs read-only, so it cannot edit the evidence it judges; its four verdicts
   include \code{blocked}, which withholds completion outright. The Planner answers Q2
-  under a Manager that holds sole authority over Stage transitions. Q3 is an explicit
-  boundary: credentials, budget, publication, and irreversible actions stop for the
-  operator, while ordinary technical failure does not. The dashed return path exists because a
+  under a Manager that holds sole authority over Stage transitions. Q3 is answered in
+  the shared workspace, where a certified lesson is promoted to the project, to the
+  domain's vertical contract, or to every campaign. Q4 is an explicit boundary:
+  credentials, budget, publication, and irreversible actions stop for the operator,
+  while ordinary technical failure does not. The dashed return path exists because a
   Reviewer sees evidence the Planner did not have: holding a result that contradicts
   the plan, it may mark that plan for reconsideration rather than only judging the
   work done under it, and the Manager decides whether to keep, revise, or replace it,
