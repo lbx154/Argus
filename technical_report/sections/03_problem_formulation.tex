@@ -35,6 +35,17 @@ are therefore both the tasks that most demand a Driver and the only tasks where 
 seat can responsibly be delegated.} Sections~\ref{sec:method} and \ref{sec:results}
 develop that delegation and measure whether the seat stays empty.
 
+This section separates two kinds of formal statement, and the distinction matters
+more than any individual equation. Equations~\ref{eq:duty-cycle},
+\ref{eq:interruption-rate}, \ref{eq:interruption-partition},
+\ref{eq:progress-set}, \ref{eq:refutation-invariant}, and \ref{eq:review-funnel}
+define quantities and invariants this report measures or mechanically enforces;
+every term in them is reported in Section~\ref{sec:results}. The remainder---density,
+research value, process-data dominance, typed compression, reuse value---are
+definitions that make claims falsifiable without yet being tested here, and we mark
+each as such at the point it appears. A reader who wants only what we can defend with
+data should read the first group and skip the second.
+
 We model a campaign by an objective $o$, an initial artifact $y_0$, a resource budget
 $B$, and an evidence structure $\mathcal{E}$. The artifact may be code, a model, a
 dataset, an experimental harness, a proof, or a manuscript. We write $\mathcal{E}$
@@ -269,6 +280,10 @@ add value by excluding a failed branch even when $C_t$ does not grow at all.
 
 \subsection{Research Value}
 
+\emph{Not measured as defined.} The terms below are not separately estimated in
+this report; the de-duplicated artifact inventory of Section~\ref{sec:results} is a
+count, not an instantiation of this integral.
+
 Dense activity matters only when it produces new, valid, reusable information. The
 website therefore defines the accumulated research value over horizon $T$ as
 
@@ -286,6 +301,79 @@ $\eta_{\mathrm{reuse}}(t)$ is the fraction that remains useful for later work.
 Equation~\ref{eq:research-value} separates Token volume from the properties that
 make a result useful: information gain, validity, and reuse. The experiments measure
 these components in their native task units.
+
+\subsection{Unattended Operation: the Two Quantities We Measure}
+\label{sec:unattended-formal}
+
+The quantities defined below are the ones this report measures directly, from
+ledgers the runtime writes during ordinary operation. We state them here, with the
+rest of the formalism, rather than only at the point of use, because they are the
+report's primary empirical claim and because their definitions contain the choices a
+reader should be able to contest.
+
+Fix a campaign with wall-clock span $W=[w_0,w_1]$. Let $\{[s_i,c_i]\}$ be the
+model-call intervals recorded in the settled usage ledger, and let $U\subseteq W$ be
+their union. Let $G\subseteq W$ be the time in which no work was available---an empty
+backlog awaiting assignment---or the execution environment was unusable. Duty cycle
+is the occupied fraction of the time that remains:
+
+\begin{equation}
+  \mathrm{DutyCycle}=\frac{|U|}{|W|-|G|}.
+  \label{eq:duty-cycle}
+\end{equation}
+
+Three choices in Equation~\ref{eq:duty-cycle} are load-bearing and each is
+contestable. First, $U$ is a union of call \emph{intervals} rather than a count of
+log events: a single reasoning call can exceed two hours, during which the event
+stream is legitimately silent, so any silence threshold would score deep reasoning as
+idleness. Second, external work---synthesis, static timing, a training run---consumes
+no Tokens and appears in neither $U$ nor $G$, so it is neither credited nor
+penalised; a campaign dominated by external jobs will report a low duty cycle for a
+reason that has nothing to do with autonomy. Third, subtracting $G$ answers ``how
+well does it use time it could have used'' rather than ``how much of the calendar did
+it occupy''; we report the undivided form, $|U|/|W|$, alongside it, and the two
+differ substantially.
+
+Let $\mathcal{A}$ be the set of system-initiated requests for a human---events the
+runtime emits when it will not proceed without an answer. The interruption rate is
+
+\begin{equation}
+  \mathrm{IR}=\frac{|\mathcal{A}|}{|W|},
+  \qquad\text{reported as its reciprocal } |W|/|\mathcal{A}| \text{ in hours.}
+  \label{eq:interruption-rate}
+\end{equation}
+
+The membership condition is what makes $\mathrm{IR}$ meaningful. An operator who
+volunteers a status question is not in $\mathcal{A}$, because the runtime was not
+waiting on them; conversely a request that blocks progress counts even if the
+operator never answers it. This is measurable precisely because the runtime must
+already distinguish the two cases in order to decide whether to keep working.
+
+Neither quantity is interpretable alone, and the failure modes are symmetric: a
+system that does nothing achieves $\mathrm{IR}=0$, and a system looping uselessly
+achieves $\mathrm{DutyCycle}=1$. Reported together they bound the case of interest.
+We therefore also partition $\mathcal{A}$ by what was asked, since a request the
+runtime should not have needed to make and a request no autonomy improvement could
+eliminate are different facts:
+
+\begin{equation}
+  \mathcal{A}=\mathcal{A}_{\mathrm{infra}}\ \sqcup\
+  \mathcal{A}_{\mathrm{auth}}\ \sqcup\
+  \mathcal{A}_{\mathrm{ctx}}\ \sqcup\
+  \mathcal{A}_{\mathrm{judg}}\ \sqcup\
+  \mathcal{A}_{\mathrm{defect}},
+  \label{eq:interruption-partition}
+\end{equation}
+
+for broken infrastructure, operator-owned authority, missing context, research
+judgment, and framework defect respectively. Only
+$|\mathcal{A}_{\mathrm{judg}}|/|\mathcal{A}|$ measures the thing the Driver framing
+is about---work was available and the runtime could not decide how to proceed. The
+authority share is bounded below by design rather than by capability, since
+Section~\ref{sec:method} makes those escalations mandatory, and the infrastructure
+share is a property of the deployment rather than of the agent. A single aggregate
+interruption rate conceals all three distinctions, which is why we report the
+partition and not only the rate.
 
 \subsection{Ordering Progress Without a Scalar}
 \label{sec:evidence-order}
@@ -357,6 +445,9 @@ exploration, set at \code{explore} it admits unsupported claims---which is why t
 profile is a parameter of the gate rather than a constant of the system.
 
 \subsection{The Information Advantage of Process Data}
+
+\emph{Not measured.} What follows bounds what retention could be worth; nothing here
+is an empirical claim about \systemname.
 
 Finally, we distinguish the accepted artifact from the
 trajectory that produced it:
@@ -435,6 +526,10 @@ merely because it occurred.
 
 \subsection{Reusable State and Compounding Intelligence}
 
+\emph{Not measured as defined.} The quantity below is a counterfactual; what
+Section~\ref{sec:results} reports is a confounded observational proxy, and the two
+are kept under separate names for that reason.
+
 Process data compounds only when an admitted state update improves later work. Let
 $H_t\oplus\Delta H_t$ denote the state after accepting mission $t$, and let
 $q_{t+1:t+L}$ be the next $L$ tasks. We define the discounted reuse value
@@ -487,7 +582,33 @@ reported in Appendix~\ref{app:formula-instantiation}.
 
 \subsection{Review as Selective Error Correction}
 
-Let $C$ denote whether a proposed state increment is correct, $A$ whether the
+The observable structure of review is a nested funnel, and stating it as one prevents
+a arithmetic error the counts otherwise invite. Over a task population $\mathcal{T}$,
+routing partitions it into independently reviewed and self-reviewed work,
+$\mathcal{T}=\mathcal{T}_R\sqcup\mathcal{T}_S$. The routed set partitions again by
+first verdict into accepted, revision-requested, and blocked,
+$\mathcal{T}_R=\mathcal{T}_{\mathrm{acc}}\sqcup\mathcal{T}_{\mathrm{rev}}\sqcup
+\mathcal{T}_{\mathrm{blk}}$. Recovery is then measured \emph{inside}
+$\mathcal{T}_{\mathrm{rev}}$ rather than beside it:
+
+\begin{equation}
+  \mathcal{T}_{\mathrm{strict}}\ \subseteq\
+  \mathcal{T}_{\mathrm{pass}}\ \subseteq\
+  \mathcal{T}_{\mathrm{rev}},
+  \label{eq:review-funnel}
+\end{equation}
+
+where $\mathcal{T}_{\mathrm{pass}}$ are the tasks that subsequently clear the
+official verifier and $\mathcal{T}_{\mathrm{strict}}$ those that additionally
+complete the \code{continue}$\rightarrow$revision$\rightarrow$\code{done} loop. The
+inclusions are the point: verifier pass and strict rescue are milestones within the
+revision-requested group, not sibling outcome classes, so their counts must not be
+added to the partition above. Section~\ref{sec:results} reports every term of both
+Equation~\ref{eq:review-funnel} and the partition preceding it, which is what makes
+the funnel checkable rather than a summary statistic.
+
+What the funnel cannot show is the other side of the channel. Let $C$ denote whether
+a proposed state increment is correct, $A$ whether the
 Reviewer accepts it, $p=\Pr(C=1)$ the proposal base rate,
 $\alpha=\Pr(A=1\mid C=1)$ Reviewer sensitivity, and
 $\beta=\Pr(A=1\mid C=0)$ false-acceptance rate. Bayes' rule gives

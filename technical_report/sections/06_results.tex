@@ -120,22 +120,13 @@ can be maximised by a system that burns Tokens in a loop. Reported together they
 bound the interesting case: work is being done, and nobody is being asked to
 supervise it.
 
-We define duty cycle by complement, which avoids the unfalsifiable question of what
-counts as productive:
-\begin{equation}
-\mathrm{DutyCycle} = \frac{\bigcup_i [\,s_i, c_i\,]}{W - G},
-\label{eq:duty-cycle}
-\end{equation}
-where $[s_i,c_i]$ are model-call intervals from the settled usage ledger, $W$ is the
-campaign wall-clock span, and $G$ is time in which no work was available or the
-execution environment was unusable. Using the union of call intervals rather than
-gaps between log events is not a detail: a single reasoning call can run for over two
-hours, during which the event stream is legitimately silent, so a silence threshold
-would systematically score deep reasoning as idleness. External jobs such as
-synthesis, timing analysis, or training runs consume no Tokens and are likewise not
-penalised, because they fall into neither subtracted term. Interruption rate counts
-only system-initiated requests for a human; an operator who volunteers a status
-question does not count, because the system was not waiting for them.
+Both quantities are defined in Section~\ref{sec:unattended-formal}: duty cycle by
+complement in Equation~\ref{eq:duty-cycle}, so that what counts as productive never
+has to be adjudicated, and interruption rate in
+Equation~\ref{eq:interruption-rate} over system-initiated requests only. We report
+the partition of Equation~\ref{eq:interruption-partition} alongside the rate, because
+a request for a credential and a request arising from indecision are different facts
+about the system.
 
 \begin{figure}[H]
   \centering
