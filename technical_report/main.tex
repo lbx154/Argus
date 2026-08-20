@@ -189,13 +189,11 @@ Reviewer that cannot edit the evidence it judges and may withhold completion, th
 second with Manager-owned stage authority over a durable campaign, and the third with
 a boundary that stops for credentials, money, and irreversible actions while
 absorbing ordinary technical failure. Verification is therefore not a quality filter
-bolted onto execution; it is what makes the seat delegable at all. Where no score
-exists the runtime does not manufacture one, since that would have the same system
-produce both the work and its grade. It records progress as a typed transition in
-which an informative failure still moves the frontier, refuses to let an experiment
-that never ran count as a refuted hypothesis, and treats the stated objective as a
-revisable hypothesis rather than a target to defend---if the objective is wrong,
-departing from it is correct.
+bolted onto execution; it is what makes the seat delegable at all. Where no score exists the runtime does not manufacture one, since that would have the
+same system produce both the work and its grade. It records progress as a typed
+transition in which informative failure still counts, refuses to let an experiment
+that never ran refute a hypothesis, and holds the objective as revisable---if the
+objective is wrong, departing from it is correct.
 
 We measure the delegation. Across \DutyCampaigns{} campaigns spanning
 \DutyWallHours{} wall-clock hours, \systemname{} asked for a human
@@ -212,20 +210,30 @@ Those hours produced work, most stringently where the verifier is unforgiving.
 \systemname{} carried six diffusion-LLM mask families into a FlashAttention-4 kernel
 across two GPU architectures, passing all \FlashDAParity{} parity cases within
 \FlashDAGapLow--\FlashDAGapHigh\% of native for under \FlashDACostCNY{} CNY of model
-spend, after abandoning a first route that ran slower than the baseline and retaining
-it as evidence. It finished a SenseNova U1 integration into SGLang that one engineer
-had not completed in over \SGLangHumanHours{} hours. \FLAPRTotal{} kernels it
-authored were reviewed by outside maintainers of \code{flash-linear-attention} and
-accepted with no blocking changes. Against an external chemistry validator it raised
-MOF structural discrimination from 0.594 to 0.833 AUC and showed a \emph{simpler}
-sampler beating the published one at matched compute. Pointed inward, it built a
-from-scratch 1B pretraining stack---the entry condition for a ceiling that retained
-state alone cannot move. Across seven benchmark arenas the same runtime reaches
+spend, after abandoning a first route that ran slower than the baseline and keeping
+it as evidence. It finished an SGLang integration that one engineer had not completed
+in over \SGLangHumanHours{} hours, and \FLAPRTotal{} kernels it authored were
+accepted by outside maintainers of \code{flash-linear-attention} with no blocking
+changes. Judged by an external chemistry validator, it raised MOF structural
+discrimination from 0.594 to 0.833 AUC and showed a \emph{simpler} sampler beating
+the published one at matched compute. Across seven benchmark arenas the same runtime reaches
 approximately \SWEProArgusAccuracy\% on SWE-Bench Pro against
 \SWEProDirectAccuracy\% for direct Copilot, and declares \ReviewerFirstBlocked{}
-tasks blocked rather than reporting an unsupported success. Unattended operation is
-not a longer leash on the same loop; it is what becomes possible once completion has
-an owner other than the executor.
+tasks blocked rather than reporting an unsupported success.
+
+Unattended operation is not a longer leash on the same loop; it is what becomes
+possible once completion has an owner other than the executor. It also leaves
+something behind. Multi-day autonomy is a capability the harness reached before the
+models did, and the runtime records reaching it at length:
+\CampaignsOverWeek{} campaigns beyond a week, the longest \LongestCampaignDays{}
+days, one trace of \LargestTraceEvents{} events, each a typed record of a premise
+adopted early, contradicted days later, and revised with every intermediate verdict
+retained. Scraped corpora contain the artifacts of such work and almost none of the
+deliberation, because nobody was ever paid to write down the reasoning that failed.
+Pointed inward, \systemname{} has also built the from-scratch 1B pretraining stack
+such traces would feed. Whether long-horizon judgment can be trained into a model
+rather than supplied to it by scaffolding is the direction this work points at, and
+not a result we report.
 \end{abstractbox}
 
 \noindent{\footnotesize\color{muted}
