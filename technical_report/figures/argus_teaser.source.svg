@@ -94,13 +94,13 @@
     <text x="220" y="262" text-anchor="middle" font-size="8" font-weight="bold" fill="#FFFDF8">Q3</text>
     <text x="283" y="265" text-anchor="middle" font-size="10" font-weight="bold" fill="#173B70">Knowledge</text>
     <text x="277.5" y="278" text-anchor="middle" font-size="9" fill="#66717D">Wiki · Skills · project→vertical→global</text>
-    <text x="449.5" y="265" text-anchor="middle" font-size="10" font-weight="bold" fill="#173B70">Log</text>
-    <text x="449.5" y="278" text-anchor="middle" font-size="10" fill="#66717D">Events · Decisions</text>
+    <text x="449.5" y="265" text-anchor="middle" font-size="10" font-weight="bold" fill="#173B70">Memory</text>
+    <text x="449.5" y="278" text-anchor="middle" font-size="9" fill="#66717D">Events · Backlog · Context</text>
     <text x="622" y="265" text-anchor="middle" font-size="10" font-weight="bold" fill="#173B70">Artifacts</text>
     <text x="622" y="278" text-anchor="middle" font-size="10" fill="#66717D">Code · Results</text>
 
     <rect x="202" y="291" width="496" height="13" rx="4" fill="#FFFDF8" stroke="#24465D" stroke-width="1.1"/>
-    <text x="450" y="301" text-anchor="middle" font-size="10" font-weight="bold" fill="#173B70">LifeSupervisor · Backlog · Budget · Daemon · Memory</text>
+    <text x="450" y="301" text-anchor="middle" font-size="10" font-weight="bold" fill="#173B70">LifeSupervisor · Scheduler · Budget · Daemon · Recovery</text>
   </g>
 
   <g id="results" data-pptx-bounds="8 8 884 367">
