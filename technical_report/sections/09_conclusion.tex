@@ -5,7 +5,7 @@ An agent harness lets a model act. Someone still has to decide what is worth
 attempting, whether the attempt succeeded, and when the answer belongs to a person.
 That seat---the Driver---has held a human in every deployed agent system, which is
 why agent progress has been rate-limited by waking hours rather than by capability.
-\systemname{} is our attempt to hand it over.
+\systemname{} hands it to the machine.
 
 The enabling condition was not a stronger model. It was giving the completion
 decision an owner other than the executor, and giving that owner something to decide
@@ -43,10 +43,9 @@ self-evolves while recording how it did so assembles its own supervision as a
 byproduct of working. Training on that corpus, and measuring whether the resulting
 model improves the runtime that built it, is what remains.
 
-These results come from production campaigns rather than a controlled protocol, and
-Section~\ref{sec:limitations} sets out what that costs us. What the evidence supports is narrower than
-the framing and more useful than it sounds: one
-runtime carried research-level work across software, kernels, silicon, mathematics,
-materials, and manuscripts while a person was not watching, and the mechanism that
-made that acceptable was not autonomy granted to the executor but authority withheld
-from it.
+These results come from production campaigns, not a controlled protocol, and
+Section~\ref{sec:limitations} sets out what that costs. What survives the accounting
+is the part worth keeping: one runtime carried research-level work across software,
+kernels, silicon, mathematics, materials, and manuscripts while a person was not
+watching---and the mechanism that made that acceptable was not autonomy granted to
+the executor but authority withheld from it.

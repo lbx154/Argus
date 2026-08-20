@@ -234,11 +234,10 @@ interval two orders of magnitude below the \DutyInterval{}-hour figure above. Th
 consequence for duty cycle follows from arithmetic rather than measurement: a harness
 whose Driver is a person cannot exceed that person's working hours, so even an
 operator devoting eight hours a day to a single campaign bounds it at
-33\%---and that ceiling is unaffected by how capable the underlying model becomes. That
-comparison is not a controlled experiment, and we do not present it as one; the two
-systems differ in scaffolding, task assignment, and stopping policy. It is reported
-because the gap is large enough to be qualitative: one system's clock follows its
-operator's waking hours, and the other's does not.
+33\%---and that ceiling is unaffected by how capable the underlying model becomes. The part
+that matters needs no experiment at all: it is arithmetic, and no scaffolding
+difference between the two systems touches it. One system's clock follows its
+operator's waking hours; the other's does not.
 
 \subsection{What the Unattended Hours Delivered}
 \label{sec:delivery}
@@ -260,10 +259,9 @@ families across two GPU architectures, the runtime reached
 three months. Against an external reviewer, \FLAPRTotal{} kernels submitted to
 \code{flash-linear-attention} were accepted with no blocking changes requested.
 
-The first two are bounding observations rather than controlled trials, with their
-asymmetries set out in Section~\ref{sec:limitations}. The third is different in kind:
-it was decided by people who did not write the work and had no stake in its
-acceptance.
+The first two are bounds, not controlled trials, and Section~\ref{sec:limitations}
+sets out their asymmetries. The third answers to nobody here: it was decided by
+people who did not write the work and had no stake in its acceptance.
 
 \subsection{Knowing When to Stop: Verification Routing and Non-Termination}
 
