@@ -189,22 +189,23 @@ Reviewer that cannot edit the evidence it judges and may withhold completion, th
 second with Manager-owned stage authority over a durable campaign, and the third with
 a boundary that stops for credentials, money, and irreversible actions while
 absorbing ordinary technical failure. Verification is therefore not a quality filter
-bolted onto execution; it is what makes the seat delegable at all. Where no score exists the runtime does not manufacture one, since that would have the
-same system produce both the work and its grade. It records progress as a typed
+bolted onto execution; it is what makes the seat delegable at all. Where no score exists it does not manufacture one; that would have the same system
+produce both the work and its grade. It records progress as a typed
 transition in which informative failure still counts, refuses to let an experiment
 that never ran refute a hypothesis, and holds the objective as revisable---if the
-objective is wrong, departing from it is correct.
+objective is wrong, departing from it is correct. That is what \emph{evidence-driven}
+control means, as against goal-driven: the next step follows from what the campaign
+has established, not from what the plan asserted before any of it was known.
 
 We measure the delegation. Across \DutyCampaigns{} campaigns spanning
 \DutyWallHours{} wall-clock hours, \systemname{} asked for a human
-\DutyInterruptions{} times, once every \DutyInterval{} hours. Composition matters
-more than rate: \DutyInfraPercent\% reported broken infrastructure and
-\DutyAuthorityPercent\% requested credentials or budget, while only
-\DutyJudgmentPercent\% were research judgment. With work in hand, duty cycle runs
-\DutyCycleLow--\DutyCycleHigh\%, and the campaign that fell to
-\DutyDegradedCycle\% is the one whose GPU driver failed---the ceiling is
-infrastructure, not autonomy. A turn-by-turn coding agent sustains roughly
-\CodexEndurance{} hour unattended by comparison.
+\DutyInterruptions{} times---once every \DutyInterval{} hours. The rest of the time
+it was working rather than waiting: given work in hand, it was computing for
+\DutyCycleLow--\DutyCycleHigh\% of the time available to it. The one campaign that
+fell to \DutyDegradedCycle\% is the one whose GPU driver failed, which is where the
+real ceiling sits---broken infrastructure, not an agent running out of things to do.
+A turn-by-turn coding agent sustains roughly \CodexEndurance{} hour unattended by
+comparison.
 
 Those hours produced work, most stringently where the verifier is unforgiving.
 \systemname{} carried six diffusion-LLM mask families into a FlashAttention-4 kernel
@@ -223,8 +224,8 @@ tasks blocked rather than reporting an unsupported success.
 
 Unattended operation is not a longer leash on the same loop; it is what becomes
 possible once completion has an owner other than the executor. It also leaves
-something behind. Multi-day autonomy is a capability the harness reached before the
-models did, and the runtime records reaching it at length:
+something behind. Multi-day autonomy is what an AI Driver reaches first, ahead of
+the models it drives, and the runtime records reaching it at length:
 \CampaignsOverWeek{} campaigns beyond a week, the longest \LongestCampaignDays{}
 days, one trace of \LargestTraceEvents{} events, each a typed record of a premise
 adopted early, contradicted days later, and revised with every intermediate verdict
