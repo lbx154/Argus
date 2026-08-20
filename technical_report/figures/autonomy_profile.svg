@@ -40,7 +40,6 @@
 
   <text x="144" y="222" text-anchor="end" font-size="10" fill="#24465D">Local inference</text>
   <rect x="150" y="213" width="126.0" height="13" rx="3" fill="#C38A20"/>
-  <text x="432" y="223" font-size="10" font-weight="bold" fill="#C38A20">45.0%</text>
 
   <!-- annotations -->
   <rect x="150" y="234" width="8" height="8" rx="2" fill="#315BCE"/>

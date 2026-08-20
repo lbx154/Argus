@@ -180,15 +180,15 @@
 \textbf{Abstract.}
 An agent harness lets a model reach the real world. Something still has to decide
 where to reach, when the result is good enough, and when to stop and ask. That seat
-has always held a person, and human intelligence is discrete---it arrives in bursts
-and stops---while the work that justifies this machinery runs for days without
-pausing. We call the occupant the \emph{Driver} and hand it to the machine. Its four
+has always held a person, which bounds progress by a resource nobody can scale: human
+waking hours. Human intelligence is discrete---it arrives in bursts and stops---while
+the work that justifies this machinery runs for days without pausing. We call the occupant the \emph{Driver} and hand it to the machine. Its four
 nested questions---is this done and any good, what is next, how does the system get
 better at this, does this need a person---are trivial under an explicit numeric
 reward and hard without one, which is why self-improvement advanced fastest where
-scores exist and stalled elsewhere. \systemname{} answers all four without one,
-running unattended for days under \emph{evidence-driven} control: the next step
-follows from what the campaign established, not from what the plan assumed.
+scores exist and stalled elsewhere. \systemname{} answers all four without one and runs for days
+with nobody in the seat, under \emph{evidence-driven} control: the next step follows
+from what the campaign established, not from what the plan assumed.
 
 Each question goes to a different party: a read-only Reviewer that cannot edit what
 it judges and may withhold completion; Manager-owned stage authority over a durable
@@ -204,10 +204,8 @@ decides who may certify, and none can widen its own authority.
 Across \DutyCampaigns{} campaigns spanning \DutyWallHours{} wall-clock hours,
 \systemname{} asked for a human \DutyInterruptions{} times, once every
 \DutyInterval{} hours, and spent the rest working rather than waiting:
-\DutyCycleLow--\DutyCycleHigh\% of available time computing, with work in hand. The
-campaign that fell to \DutyDegradedCycle\% is the one whose GPU driver failed---the
-ceiling is broken infrastructure, not an agent out of things to do. A turn-by-turn
-coding agent sustains roughly \CodexEndurance{} hour by comparison.
+\DutyCycleLow--\DutyCycleHigh\% of available time computing, with work in hand. A
+turn-by-turn coding agent sustains roughly \CodexEndurance{} hour by comparison.
 
 Those hours produced work, most stringently where the verifier is unforgiving.
 \systemname{} carried six diffusion-LLM mask families into a FlashAttention-4 kernel
@@ -215,10 +213,12 @@ across two GPU architectures, within \FlashDAGapLow--\FlashDAGapHigh\% of native
 under \FlashDACostCNY{} CNY, after abandoning a first route slower than baseline and
 keeping it as evidence. It finished an SGLang integration one engineer had not
 completed in over \SGLangHumanHours{} hours, and \FLAPRTotal{} kernels it authored
-were accepted by outside maintainers of \code{flash-linear-attention}. Across seven
-arenas it reaches \SWEProArgusAccuracy\% on SWE-Bench Pro against
-\SWEProDirectAccuracy\% for direct Copilot, and declares \ReviewerFirstBlocked{}
-tasks blocked rather than claiming success it cannot support.
+were accepted by outside maintainers of \code{flash-linear-attention}. Judged by an
+external chemistry validator, it raised MOF structural discrimination from 0.594 to
+0.833 AUC and found a \emph{simpler} sampler beating the published one at matched
+compute. It clears a capability floor across seven benchmark arenas---%
+\SWEProArgusAccuracy\% on SWE-Bench Pro---and declares \ReviewerFirstBlocked{} tasks
+blocked rather than claiming success it cannot support.
 
 The hours leave something behind besides the work. Multi-day autonomy is what an AI
 Driver reaches first, ahead of the models it drives, and the traces are long:

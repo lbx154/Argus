@@ -228,10 +228,9 @@ which is the boundary behaving as designed. \DutyContextPercent\% reported missi
 context files. Only \DutyJudgmentPercent\%---\DutyJudgmentCount{} requests in
 \DutyWallHours{} hours---were research judgment, the case where the system had work
 available and could not decide how to proceed. With work in hand, duty cycle runs
-\DutyCycleLow--\DutyCycleHigh\%. The lowest observed campaign,
-\DutyDegradedCycle\%, is the one whose GPU driver and container storage failed
-repeatedly: \textbf{the binding constraint on unattended operation is infrastructure
-availability, not agent autonomy.}
+\DutyCycleLow--\DutyCycleHigh\%, and where it falls short the interruption logs
+record failed drivers and corrupted storage: \textbf{the binding constraint on
+unattended operation is infrastructure availability, not agent autonomy.}
 
 \paragraph{Do the unattended hours produce anything?}
 Duty cycle alone would only prove an expensive idle loop, so we pair it with
