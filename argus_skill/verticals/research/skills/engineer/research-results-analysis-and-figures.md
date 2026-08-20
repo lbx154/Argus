@@ -111,6 +111,8 @@ table, boxed paragraph, or `\rule` bar display inside a `figure` environment is
 not Figure 1. If no image route exists, deterministic rendering is mandatory,
 not a blocker: use PPT Master, HTML/SVG, FigureSpec, Draw.io,
 Mermaid/Graphviz, or another route selected below.
+Run the renderer-neutral `Paper Framework Figure Studio` S0-S7 workflow before
+authoring the chosen renderer's source; the Router alone is not a design brief.
 
 Then use `Research Visualization Router`:
 

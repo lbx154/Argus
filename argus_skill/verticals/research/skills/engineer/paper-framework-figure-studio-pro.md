@@ -6,6 +6,10 @@ description: "Image-2-specific S0-S7 conceptual-figure workflow adapted from pap
 # Paper Framework Figure Studio Pro
 
 Argus-native adaptation of `paper-framework-figure-studio-pro-v3.1.4a`.
+This is the image-2 renderer-specific extension for Figure 1. First execute the
+renderer-neutral `Paper Framework Figure Studio` S0-S4 contract. Use this skill
+only for image-2 candidate generation, cache, provenance, and raster review; it
+does not replace the shared design pass.
 The original skill uses strict human-in-the-loop step alternation; this
 version replaces the human with the engineer agent, who executes S0-S7
 autonomously in sequence. The agent reads the paper artifacts, extracts

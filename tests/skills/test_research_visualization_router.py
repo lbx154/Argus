@@ -33,6 +33,8 @@ def test_research_vertical_bundles_visual_router_and_renderer() -> None:
     assert "ECharts" in body
     assert "Recharts" in body
     assert "PPT Master" in body
+    assert "Paper Framework Figure Studio" in body
+    assert "engineer/paper-framework-figure-studio.md" in texts
     assert "engineer/research_visual_scripts/browser_render.py" in texts
 
 
@@ -57,6 +59,11 @@ def test_router_requires_real_deterministic_figure1_fallback() -> None:
     assert "deterministic html/svg" in content
     assert "a latex table" in content
     assert "\\includegraphics" in body
+    studio = texts["engineer/paper-framework-figure-studio.md"]
+    assert "S0" in studio and "S7" in studio
+    assert "Renderer-neutral design system" in studio
+    assert "PPT Master" in studio
+    assert "image-2 only when configured" in studio
 
 
 def test_results_figures_keep_claim_checks_agent_owned_and_risk_based() -> None:

@@ -20,6 +20,12 @@ not count. image-2 is optional: when it is unavailable, use PPT Master,
 deterministic HTML/SVG, FigureSpec, Draw.io, Mermaid/Graphviz, or another
 truthful deterministic route and keep the editable source.
 
+Before rendering Figure 1, open and execute the renderer-neutral
+`Paper Framework Figure Studio` S0-S7 workflow. It owns factual extraction,
+reader path, layout exploration, caption co-design, the shared visual design
+system, manuscript integration, and final-size audit. This Router then selects
+the concrete renderer; renderer skills do not replace the Studio design pass.
+
 This Argus synthesis draws on permissively licensed official workflows:
 
 - Vega CLI deterministic SVG/PDF/PNG export (BSD-3-Clause).
