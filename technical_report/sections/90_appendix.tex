@@ -175,7 +175,7 @@ campaign snapshot.
 Strict $\widehat{\rho}_I$ & $332{,}274/9{,}620.5\times0.5598\times0.5556\times0.5538$ & 5.95 effective Token-eq./s & Direct reasoning, action, and verification only. \\
 Inclusive $\widehat{\rho}_I$ & $332{,}274/9{,}620.5\times0.9512\times0.9444\times0.9043$ & 28.06 effective Token-eq./s & Includes successful coordination and state-maintenance work. \\
 Reviewer correction & $34/43$ verifier recoveries; $22/43$ strict rescues & 79.1\%; 51.2\% & Post-revision outcomes on SWE-Bench Pro. \\
-Reuse quantity $G_L$ & $(2.95-2.33)$M Tokens/task; $(8.52-7.25)$ min/task & 0.62M Tokens and 1.27 min per task & Startup--mature difference in the longitudinal run. \\
+Observational proxy $\hat{G}_{\mathrm{obs}}$ & $(2.95-2.33)$M Tokens/task; $(8.52-7.25)$ min/task & 0.62M Tokens and 1.27 min per task & \textbf{Not} the counterfactual $G_L$ of Eq.~\ref{eq:reuse-value}: a startup-versus-mature difference confounded by task composition. The counterfactual requires a frozen-state replay. \\
 Immediate $\widehat{\mathcal{Y}}_{\mathrm{PRI}}$ & $\lambda_g=0$; $6/332{,}274\times10^6$ & 18.1 accepted deltas/M reasoning Tokens & Six accepted theorem-frontier updates in Rounds 12--17. \\
 Process compression & $384{,}370{,}463/3{,}240$ bytes & 118,633$\times$ event-history/checkpoint ratio & Event history relative to the active working checkpoint. \\
 \bottomrule
