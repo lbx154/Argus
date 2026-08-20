@@ -235,6 +235,16 @@ This report makes eleven contributions:
     unattended operation rather than a quality feature added after it. A read-only
     Reviewer that cannot edit the evidence it judges, and that may return
     \code{blocked}, is what makes it acceptable for the operator to be absent.
+  \item We separate domain expertise from decision authority architecturally. A
+    \emph{vertical} declares what counts as evidence in a field---stage order,
+    checklists, required artifacts, completion gates---and may raise the evidence
+    bar but never lower it; the authority boundary, the review requirement, and the
+    escalation path live in a core no domain package can reach, which we verify by
+    inspection across all \VerticalTotalLoc{} lines of vertical code.
+    \VerticalCount{} verticals ship against a \VerticalCoreLoc{}-line core that does
+    not change when a domain is added, the smallest costing \VerticalSmallest{}
+    lines, and runtime self-evolution is scoped along the same seam: what proves
+    general to a domain is promoted into that domain's contract, not into the core.
   \item We introduce two paired metrics for unattended operation and report them
     from runtime ledgers: \emph{duty cycle}, the fraction of available time in which
     the system is producing, and \emph{interruption rate}, how often a human is

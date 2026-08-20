@@ -160,12 +160,55 @@ Neither the roles nor the domain logic are bound to one provider. Eight coding-a
 backends are supported, and per-role model selection is resolved at the role
 boundary, so a single campaign can run its Manager, Planner, and Engineer on
 different vendors' models. The FlashAttention-4 campaign in
-Section~\ref{sec:delivery} did exactly this. Domain behavior is likewise pluggable:
-the runtime ships twenty-four verticals defining their own stage order, evidence
-requirements, and completion gates, spanning software, chip design, mathematics,
-materials, medicine, quantitative finance, and literary work. A Manager that finds no
-suitable vertical can author a new one at runtime as an ordinary stage list, and a
-data domain that proves durable can later be promoted into a first-class package.
+Section~\ref{sec:delivery} did exactly this. Domain behavior is pluggable on the same
+principle, and the next subsection treats it as load-bearing rather than as a
+configuration detail.
+
+\subsection{Domain Depth Without Core Change}
+\label{sec:vertical-core}
+
+Being useful in a specialist field is mostly a matter of knowing what counts as
+evidence there. A kernel is fast or it is not, and a profiler settles it; a synthesis
+route is plausible only against a validator; a theorem is proved or it is not, and a
+proof assistant settles that. These standards differ completely across domains and
+have nothing to do with how a campaign should be scheduled, who may certify
+completion, or when a person must be asked. \systemname{} separates them at exactly
+that line.
+
+A \emph{vertical} is the declaration of a domain's evidence standard: its stage
+order, its checklists, what artifacts a stage must produce, what the completion gate
+demands, and whether missions require an independent Reviewer at all. The runtime
+ships \VerticalCount{} of them---software, GPU kernels, chip design, digital
+circuits, mathematics, physics, materials, medicine, quantitative finance, and
+several classes of writing. They are declarations, not forks: the shared core is
+\VerticalCoreLoc{} lines and does not change when a domain is added. What a domain
+costs is what its evidence standard actually demands, and the spread is wide---the
+software vertical is \VerticalSmallest{} lines, the median is \VerticalMedian{}, and
+mathematics and quantitative finance run past \VerticalLargest{} because Lean
+integration, citation checking, and market-data handling are genuinely that much
+machinery. Verticals need not live in this tree at all; they register through Python
+entry points against a versioned contract, and a registration that fails to declare a
+compatible version is rejected rather than loaded.
+
+The seam is asymmetric, and that asymmetry is the point. A vertical can raise the
+evidence bar---it can require independent review for every mission, add stage-closing
+checks, or demand a specific artifact before a stage closes---and the core enforces
+what it declares. A vertical cannot lower the bar. It cannot grant itself
+credentials, widen the autonomy mode, decide that an irreversible action needs no
+approval, or let an Engineer certify its own work where policy requires a Reviewer.
+This is not a convention: across all \VerticalTotalLoc{} lines of vertical code there
+are \VerticalAuthorityRefs{} references to the autonomy mode, the operator-escalation
+path, or the approval boundary, because that logic lives in the core and is not
+reachable from a domain package.
+
+Self-evolution runs along the same seam. What the runtime learns is scoped to where
+it was shown to hold: a procedure that works in one project stays project-local, one
+that proves general to a domain is promoted into that vertical's contract as a
+revised checklist, and only what survives beyond a domain becomes global. A vertical
+therefore accumulates the specialist judgment of the field it describes while the
+core accumulates none of it. Domain expertise deepens where the evidence standard
+lives; the rules about who may decide stay where they cannot be edited by the party
+being judged.
 
 \subsection{Review and Completion}
 
