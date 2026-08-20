@@ -1,26 +1,28 @@
 \section{Introduction}
 \label{sec:introduction}
 
-A language model is an engine and tokens are its working fluid, but an engine is not
-a factory. What made the steam engine consequential was not the discovery that steam
-carries energy; it was the century of machinery built to convert that energy into
-rotation, and rotation into manufactured goods. Intelligence is at the equivalent
-stage. Capability is abundant, and the machinery that converts it reliably into
-delivered value is not. \emph{Auto research} is our name for that machinery when the
-work requires invention rather than recall---not automated science in the sense of a
-machine that discovers unaided, but the pipeline that turns tokens into intelligence
-and intelligence into artifacts worth having. Intelligence is not the terminal good;
-value is.
+A language model is an engine. It converts tokens into power, and the last few years
+have been spent making that engine remarkable. An engine bolted to a bench does no
+work, so we built the car around it: an agent \emph{harness} gives the model wheels
+and hands---files, shells, compilers, GPUs, test suites---and turns raw capability
+into motion against the real world. Building good harnesses is most of what the last
+two years of agent engineering produced, and the results are real.
 
-An agent harness is the part of that machinery that lets a language model touch the
-real world: files, shells, compilers, GPUs, test suites. Building good harnesses is
-most of what the last two years of agent engineering produced, and the results are
-real. But a harness only executes. Something else has to decide what to attempt,
-judge whether the attempt worked, and choose whether the next step is another
-attempt, a different route, or a question for a human. We call that role the
-\emph{Driver}. In every deployed agent system we know of, the answer to who drives
-the harness is that a person does---which also answers how long it can be driven,
-since nobody drives anything for eight days without stopping.
+But a car with no one at the wheel does not go anywhere worth going. Motion is not
+progress. Something has to choose the destination, read the road, decide whether the
+last turn was right, and know when to pull over and ask. We call that role the
+\emph{Driver}, and it is the part nobody automated. In every deployed agent system we
+know of, the answer to who drives the harness is that a person does---which also
+answers how long it can be driven, since nobody drives for eight days without
+stopping.
+
+This report is about handing over the wheel. The machinery that converts capability
+into delivered value is what we call \emph{auto research} when the work requires
+invention rather than recall---not automated science in the sense of a machine that
+discovers unaided, but the pipeline that turns tokens into intelligence and
+intelligence into artifacts worth having. Engines are abundant; so are cars.
+Intelligence is not the terminal good, and neither is motion. Value is, and value is
+a matter of where you point the thing.
 
 This is why agent progress is bounded by a resource that cannot be scaled. The
 operator reads the diff, decides it is not what they meant, types the correction,
@@ -55,7 +57,10 @@ This changes what is being automated. A harness automates execution---the model 
 what a person already decided to do. A Driver automates the deciding, and deciding
 under evidence, repeatedly, over days, is most of what research is. The step from
 automating execution to automating research is not a matter of a stronger model
-executing more; it is a matter of who holds the seat, and for how long.
+executing more; it is a matter of who holds the seat, and for how long. Assisted
+driving keeps a person's hands on the wheel and measures how much less they have to
+steer. What we report is the other thing: the car going somewhere useful overnight,
+with the seat empty and the destination chosen on the way.
 
 We report what happens when the Driver's seat is handed to the machine. The task the
 seat performs is not monolithic, and separating it is the first contribution of this
