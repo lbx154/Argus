@@ -169,6 +169,29 @@ obtained~\citep{lightman2023verify}. What has been missing is a source that gene
 such data at volume without a human authoring each example. A working auto researcher
 is that source.
 
+The property that makes it a distinctive source is not volume but \emph{span}. Agent
+corpora are assembled from short episodes, because an episode that requires a human
+to sit through it is expensive to collect and an episode that runs unattended has not
+until now been reliable enough to harvest. The campaigns in this report are
+individually days long---\CampaignsOverWeek{} exceed a week and the longest runs
+\LongestCampaignDays{} days, with a single trace reaching
+\LargestTraceEvents{} recorded events. What accumulates over that span is not more
+examples of the same kind; it is a kind that short episodes structurally cannot
+contain: a hypothesis proposed on day one, contradicted by a measurement on day
+three, and revised on day five, with every intermediate state, verdict, and discarded
+alternative recorded in between. Supervision for long-horizon judgment---when to
+persist, when to abandon a route, what evidence licenses changing the target---is
+carried by exactly those long-range dependencies, and an episode that ends in an hour
+has none of them to exhibit.
+
+This is the concrete form the second axis would take. Rather than train on a public
+corpus, train on the runtime's own multi-day traces, with the verdicts supplying
+labels the trajectories already carry: the \code{blocked} that withheld a completion,
+the transition that recorded an informative failure as progress, the plan challenge
+that overturned an earlier decision. We have not done this. We report it as the
+direction because the runtime now produces the data as a byproduct of operating, and
+because generating that data was the part that had no obvious path.
+
 The second is capability. Parameter self-evolution requires something that can
 actually train models: process the data, modify the code, design the ablation, read
 the curve, and decide what to change. That is not a capability a model has by virtue

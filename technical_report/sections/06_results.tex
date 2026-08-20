@@ -221,6 +221,15 @@ proceed. One of those is a mathematical campaign reporting that it had exhausted
 analytic and structural bounding methods within its current scope---an escalation we
 would want a research system to make.
 
+These campaigns are also long individually, which matters for a reason separate from
+autonomy. \CampaignsOverWeek{} of the \DutyCampaigns{} exceed a week of wall-clock
+time and the longest runs \LongestCampaignDays{} days, with a single trace recording
+\LargestTraceEvents{} events. A trajectory of that span contains dependencies no
+short episode can: a premise adopted early, contradicted by a measurement days later,
+and revised with both states still on the record.
+Section~\ref{sec:limitations} returns to why that is the interesting property of this
+data.
+
 The remaining \DutyContextPercent\% are the runtime's own fault in a specific and
 fixable way: canonical handoff files went missing and the system correctly refused to
 proceed from an inferred state rather than guess. Together with the infrastructure
