@@ -113,6 +113,54 @@ def test_an_uncertified_review_still_cannot_move_the_project(tmp_path) -> None:
     assert state["current_stage"] == "research"
 
 
+def test_publishable_completion_rechecks_publication_scale_artifact(
+    tmp_path,
+) -> None:
+    state_root = tmp_path / "state"
+    workdir = tmp_path / "worktree"
+    workdir.mkdir()
+    persist_vertical(
+        state_root,
+        "research",
+        workflow_mode="staged",
+        research_target_level="publishable",
+    )
+    review = ReviewDecision(
+        status="done",
+        reason="Reviewer accepted the paper.",
+        next_action="",
+        research_result={
+            "result_class": "verified_new_result",
+            "correctness_status": "verified",
+            "novelty_status": "verified_new",
+            "significance_status": "publishable",
+            "statement_fidelity_status": "verified",
+            "evidence": ["paper/main.pdf"],
+            "limitations": [],
+        },
+    )
+
+    decision = Manager(
+        project_root=state_root,
+        execution_workdir=workdir,
+        runner=object(),
+    ).decide_stage_transition(
+        review=review,
+        project_root=state_root,
+        mission_scope="final_submission",
+        open_ended=False,
+        run_exec=lambda _prompt: SimpleNamespace(
+            last_agent_message=(
+                '{"action":"complete","target_stage":"research",'
+                '"reason":"reviewer certification establishes the objective"}'
+            )
+        ),
+    )
+
+    assert decision.action == "hold"
+    assert "PUBLICATION_SCALE_ASSESSMENT.json" in decision.reason
+
+
 def test_the_blockers_report_every_refusal_not_just_the_first() -> None:
     """A short-circuiting list cannot tell "only position" from "position too"."""
     blockers = final_stage_completion_blockers(

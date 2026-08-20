@@ -328,6 +328,27 @@ class _StageDecisionMixin:
 
         _completion_vertical = resolve_vertical(root)
         _research_target_level = resolve_research_target_level(root)
+        _completion_blockers = [
+            blocker
+            for blocker in (external_completion_gate_issue(self.execution_workdir),)
+            if blocker
+        ]
+        if (
+            _completion_vertical == "research"
+            and _research_target_level in {"publishable", "doctoral"}
+        ):
+            from ..verticals.research.publication_scale import (
+                publication_scale_issues,
+            )
+
+            _completion_blockers.extend(
+                "publication_scale: " + issue
+                for issue in publication_scale_issues(
+                    self.execution_workdir,
+                    research_target_level=_research_target_level,
+                )
+            )
+        _completion_blocker = "; ".join(_completion_blockers)
         if decision.action == "complete":
             final_decision = final_stage_completion_decision(
                 review,
@@ -338,9 +359,7 @@ class _StageDecisionMixin:
                 project_root=root,
                 research_target_level=_research_target_level,
                 checklist_contract=checklist_contract,
-                completion_blocker=external_completion_gate_issue(
-                    self.execution_workdir
-                ),
+                completion_blocker=_completion_blocker,
                 trigger_diagnostic=decision.diagnostic,
                 trigger_reason=completion_trigger_reason(
                     decision.action,
@@ -372,9 +391,7 @@ class _StageDecisionMixin:
                     project_root=root,
                     research_target_level=_research_target_level,
                     checklist_contract=checklist_contract,
-                    completion_blocker=external_completion_gate_issue(
-                        self.execution_workdir
-                    ),
+                    completion_blocker=_completion_blocker,
                     allow_early_completion=_allow_early_completion,
                 )
                 if stage_position_is_the_only_completion_blocker(blockers):
