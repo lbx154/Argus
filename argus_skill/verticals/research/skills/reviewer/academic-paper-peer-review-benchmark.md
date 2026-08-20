@@ -102,6 +102,10 @@ Score each dimension 1–5.
      implication honestly?
    - Does the paper have one coherent thesis?
    - Does every major section strengthen or explain the same thesis?
+   - Does `paper/style_ref/ARGUMENT_ORGANIZATION.json` show that accepted
+     same-area full papers and available official code were actually read?
+     Judge whether their argument/code organization was intelligently adapted
+     to local evidence without copied prose or a reproduction requirement.
 
 7. **Venue format and visual evidence**
    - Does the paper follow the selected venue's current official template,

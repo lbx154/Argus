@@ -91,6 +91,22 @@ def test_publishable_boundary_results_cannot_be_underpowered_pilots() -> None:
     assert "failed small method experiment" in analysis["analysis.publication_scale"]
 
 
+def test_accepted_paper_and_code_organization_is_learned_without_copying() -> None:
+    exemplar = _skill("engineer/paper-exemplar-pdf-learning.md")
+    peer_review = _skill("reviewer/academic-paper-peer-review-benchmark.md")
+    plan = {item.id: item.statement for item in STAGE_CHECKLISTS["plan"]}
+
+    statement = plan["plan.argument_organization"]
+    assert "accepted same-area full papers" in statement
+    assert "official code" in statement
+    assert "Reproduction is not required" in statement
+    assert "copying prose" in statement
+    assert "ARGUMENT_ORGANIZATION.json" in exemplar
+    assert "problem setup" in exemplar
+    assert "config/evaluation flow" in exemplar
+    assert "without copied prose or a reproduction requirement" in peer_review
+
+
 def test_live_checklist_requires_thesis_and_implementation_adequacy() -> None:
     run = {item.id: item.statement for item in STAGE_CHECKLISTS["run"]}
     analysis = {item.id: item.statement for item in STAGE_CHECKLISTS["analysis"]}

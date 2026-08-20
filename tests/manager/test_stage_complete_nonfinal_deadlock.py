@@ -159,6 +159,7 @@ def test_publishable_completion_rechecks_publication_scale_artifact(
 
     assert decision.action == "hold"
     assert "PUBLICATION_SCALE_ASSESSMENT.json" in decision.reason
+    assert "ARGUMENT_ORGANIZATION.json" in decision.reason
 
 
 def test_the_blockers_report_every_refusal_not_just_the_first() -> None:

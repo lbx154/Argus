@@ -139,7 +139,10 @@ def test_valid_accepted_paper_calibrated_assessment_passes(tmp_path: Path) -> No
     _write(tmp_path, _assessment(tmp_path))
 
     assert publication_scale_issues(tmp_path) == ()
-    assert stage_completion_issues("analysis", tmp_path) == ()
+    assert not any(
+        "[publication_scale]" in issue
+        for issue in stage_completion_issues("analysis", tmp_path)
+    )
 
 
 def test_claim_narrowing_cannot_rescue_pilot_or_proxy_only_evidence(

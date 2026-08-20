@@ -1,13 +1,18 @@
 ---
 name: "Paper Exemplar PDF Learning"
-description: "Download open-access top-conference paper PDFs, extract structural evidence, and build a thick style profile before drafting an EMNLP/ACL submission."
+description: "Download accepted same-area top-conference paper PDFs, inspect available official code, and extract argument, code, visual, and structural organization before drafting; reproduction is not required and prose copying is forbidden."
 ---
 
 ## Title
 Paper Exemplar PDF Learning
 
 ## Description
-Use real top-conference papers as formatting and structure references before writing a new paper. URL-only exemplars are not enough: an agent that has not inspected a real PDF often cannot infer what a reviewable EMNLP/ACL paper looks like.
+Use real accepted top-conference papers and available official code as
+organization references before writing a new paper. URL-only exemplars are not
+enough. Learn how strong work sets up the problem, moves from prior work to the
+gap, states the organizing insight, decomposes the method, sequences evidence,
+uses Figure 1, and structures code/config/evaluation artifacts. Reproduction is
+not required; organization learning never licenses copying prose or code.
 
 ## Structural-gate contract (BLOCKING at draft / review / submission)
 
@@ -22,6 +27,7 @@ The `exemplar_grounding` harness gate hard-blocks the round unless every artifac
 | `paper/style_ref/STYLE_PROFILE.md` | draft+ | ≥2000 chars (no one-line stubs) |
 | `paper/style_ref/EXEMPLAR_SUITABILITY.json` | draft+ | `verdict=="PASS"`, `primary_exemplar` matches a slug in EXEMPLAR.json, `no_prose_copy_attestation=true` |
 | `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md` | draft+ | ≥1500 chars |
+| `paper/style_ref/ARGUMENT_ORGANIZATION.json` | plan+ | ≥2 accepted same-area full papers; argument maps for each; inspect available official code at a pinned revision; project-specific transfer plan; no-prose-copy and no-reproduction-required attestations |
 | `paper/style_ref/STRUCTURE_CONFORMANCE.json` | submission | `conformance_schema_version=1`, `verdict=="PASS"`, `section_mappings` non-empty |
 
 **Format-facts workflow** — run **once per exemplar at fetch time** and **after every paper PDF rebuild**:
@@ -96,6 +102,34 @@ Accepted `pdf_storage_policy` values:
 8. **Transfer plan**: how those structural lessons will change this paper.
 9. **No prose copy policy**: explicit statement that the exemplar is for structure only.
 
+## Argument and official-code organization requirements
+
+Write `paper/style_ref/ARGUMENT_ORGANIZATION.json` before drafting. For every
+accepted exemplar, record the official acceptance URL, local PDF/text, why it
+matches the area and contribution shape, and:
+
+1. problem setup;
+2. gap move from prior work;
+3. organizing insight;
+4. contribution sequence;
+5. Method decomposition;
+6. evidence/ablation/failure-analysis sequence;
+7. Figure 1's argumentative job;
+8. limitations placement;
+9. conclusion move.
+
+For available official code, pin a revision and inspect at least two real files.
+Map entry points, module boundaries, config/evaluation flow, artifact ownership,
+and reusable organization lessons. Do not require the code to reproduce; a
+paper can be accepted without locally reproducible results. The purpose is to
+learn how the authors make the research object legible. If code is unavailable,
+record that fact rather than substituting an unofficial implementation.
+
+Finally write a transfer plan for this paper's argument arc, section roles,
+Method narrative, experiment narrative, Figure 1 job, code organization, and
+evidence-based deviations. Transfer roles and sequencing only. Never copy
+sentences, examples, figure composition, terminology, or implementation.
+
 `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md` must turn the selected exemplar into a concrete writing scaffold for this project: section order, page budget, paragraph roles, figure/table plan, related-work grouping, evaluation sequence, local evidence mapping, and a no-prose-copy policy. Start by mirroring the primary exemplar's paper skeleton and page rhythm directly, then make only evidence-justified adaptations such as renaming a section title for this project's thesis or merging/splitting a role when the local evidence truly requires it. Use this reference page budget as the default anchor, then justify any paper-specific changes: Abstract 0.3 pages; Introduction 1 page; Related Work 0.5--0.8 pages; Method 1--1.5 pages; Experimental Setup 0.5--1 page; Main Results 1--1.5 pages; Analysis/Ablation 1 page; Failure Cases 0.3--0.5 pages; Conclusion 0.2 pages. This blueprint is the pre-draft paper organizer; do not let the agent improvise body sections from memory.
 
 After the manuscript exists, write `paper/style_ref/STRUCTURE_CONFORMANCE.md` and `paper/style_ref/STRUCTURE_CONFORMANCE.json`. The JSON must use `conformance_schema_version: 1`, `verdict: "PASS"`, `no_prose_copy_attestation: true`, at least two `exemplar_lessons`, and `section_mappings` for every final top-level section before references/appendix. Each mapping must include `section`, `maps_to_exemplar_phase`, `evidence_sources`, `exemplar_lesson`, and a `deviation_rationale` for any paper-specific or nonstandard section. This allows the paper to vary from the exemplars when the local thesis/evidence requires it, but blocks unmapped filler sections such as protocol notes, track mechanics, and release details.
@@ -106,11 +140,13 @@ After the manuscript exists, write `paper/style_ref/STRUCTURE_CONFORMANCE.md` an
 3. Extract text into `paper/style_ref/exemplars/<slug>/paper.txt`.
 4. Record the local PDF path, source URL, retrieval date, and license/storage policy.
 5. Write or update `paper/style_ref/EXEMPLAR.json`.
-6. Read the PDFs/text extracts and write `paper/style_ref/STYLE_PROFILE.md` from structural observations only.
-7. Write `paper/style_ref/EXEMPLAR_SUITABILITY.json`; do not lock the primary exemplar until the candidate passes the suitability dimensions and matches a downloaded slug in `EXEMPLAR.json`.
-8. Write `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md` by adapting the primary exemplar skeleton to this project's thesis, evidence, figures, tables, and section/page plan. Keep title/section wording flexible but not freeform: every rename, merge, or split needs a local-evidence rationale.
-9. After the final body draft exists, write `paper/style_ref/STRUCTURE_CONFORMANCE.md` and `paper/style_ref/STRUCTURE_CONFORMANCE.json` from the actual `paper/main.tex` section order.
-10. Run:
+6. Read the PDFs/text extracts and inspect available official code at pinned revisions.
+7. Write `paper/style_ref/ARGUMENT_ORGANIZATION.json` with per-paper argument/code maps and the local transfer plan.
+8. Write `paper/style_ref/STYLE_PROFILE.md` from structural observations only.
+9. Write `paper/style_ref/EXEMPLAR_SUITABILITY.json`; do not lock the primary exemplar until the candidate passes the suitability dimensions and matches a downloaded slug in `EXEMPLAR.json`.
+10. Write `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md` by adapting the primary exemplar skeleton to this project's thesis, evidence, figures, tables, and section/page plan. Keep title/section wording flexible but not freeform: every rename, merge, or split needs a local-evidence rationale.
+11. After the final body draft exists, write `paper/style_ref/STRUCTURE_CONFORMANCE.md` and `paper/style_ref/STRUCTURE_CONFORMANCE.json` from the actual `paper/main.tex` section order.
+12. Run:
    - self-audit the exemplar-grounding and structure-blueprint requirement; the L2 reviewer verifies these artifacts directly against the draft stage checklist.
 11. If validation fails, fix the missing PDF/text/hash/profile/suitability/blueprint evidence before paper drafting continues. Final readiness later self-audits the selected venue's full submission contract, which also checks structure conformance.
 

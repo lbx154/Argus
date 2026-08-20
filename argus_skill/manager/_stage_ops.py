@@ -337,10 +337,20 @@ class _StageDecisionMixin:
             _completion_vertical == "research"
             and _research_target_level in {"publishable", "doctoral"}
         ):
+            from ..verticals.research.argument_organization import (
+                argument_organization_issues,
+            )
             from ..verticals.research.publication_scale import (
                 publication_scale_issues,
             )
 
+            _completion_blockers.extend(
+                "argument_organization: " + issue
+                for issue in argument_organization_issues(
+                    self.execution_workdir,
+                    research_target_level=_research_target_level,
+                )
+            )
             _completion_blockers.extend(
                 "publication_scale: " + issue
                 for issue in publication_scale_issues(

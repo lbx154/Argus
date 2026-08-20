@@ -200,6 +200,24 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             ),
         ),
         ChecklistItem(
+            id="plan.argument_organization",
+            statement=(
+                "Read at least two accepted same-area full papers with a similar "
+                "contribution shape and inspect available official code at pinned "
+                "revisions. Extract each paper's problem setup, gap move, organizing "
+                "insight, contribution order, Method decomposition, evidence sequence, "
+                "Figure 1 role, limitations role, and conclusion move. For code, map "
+                "entry points, modules, config/evaluation flow, and artifact ownership. "
+                "Write `paper/style_ref/ARGUMENT_ORGANIZATION.json` and transfer those "
+                "roles to this paper's own claims/evidence. Reproduction is not "
+                "required; copying prose, examples, figure design, or code is forbidden."
+            ),
+            evidence_hint=(
+                "`python -m argus_skill.verticals.research.argument_organization "
+                "--project-root .` + downloaded PDFs/text + official code URLs/revisions"
+            ),
+        ),
+        ChecklistItem(
             id="plan.code_reuse",
             statement=(
                 "Code-reuse plan lists every external repo we will run, fork, or "
@@ -501,7 +519,10 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "paper/main.tex uses the selected venue's official structure and tells "
                 "one coherent argument, not a chronological experiment report. The "
                 "title, abstract, introduction, method, and experiments all serve the "
-                "same thesis. If a proposed method does not win, write the paper around "
+                "same thesis. Its paragraph/section roles follow the accepted-paper "
+                "argument transfer plan in `ARGUMENT_ORGANIZATION.json`, adapted to "
+                "local claims and evidence without copied prose. If a proposed method "
+                "does not win, write the paper around "
                 "the robustly characterized boundary, mechanism, scaling behavior, "
                 "failure mode, or practical decision that the experiments establish; "
                 "do not write an apologetic failure log and do not abandon a truthful "
@@ -700,6 +721,18 @@ def stage_completion_issues(
 ) -> tuple[str, ...]:
     normalized = str(stage or "").strip().lower()
     issues: list[str] = []
+    if normalized in {"plan", "analysis", "draft", "review", "submission"}:
+        from ...core.research_contract import resolve_research_target_level
+        from .argument_organization import argument_organization_issues
+
+        target = resolve_research_target_level(state_root or project_root)
+        issues.extend(
+            f"[argument_organization] {issue}"
+            for issue in argument_organization_issues(
+                project_root,
+                research_target_level=target,
+            )
+        )
     if normalized in {"analysis", "draft", "review", "submission"}:
         from ...core.research_contract import resolve_research_target_level
         from .publication_scale import publication_scale_issues
@@ -1042,7 +1075,10 @@ _REVIEWER_ENGINEERING_AUDIT = (
     "idea; record limitations for later iterative engineering. At publishable or "
     "doctoral final review, inspect `paper/PUBLICATION_SCALE_ASSESSMENT.json` "
     "against its official accepted-paper sources and local artifacts. Do not certify "
-    "a small failed pilot by renaming it a boundary or diagnostic contribution.\n"
+    "a small failed pilot by renaming it a boundary or diagnostic contribution. "
+    "Also inspect `paper/style_ref/ARGUMENT_ORGANIZATION.json`: the manuscript "
+    "should reuse accepted-paper argument and code-organization lessons without "
+    "copying prose or requiring reproduction.\n"
 )
 
 _PLANNER_RESEARCH_ORCHESTRATION = (
