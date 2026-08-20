@@ -15,7 +15,6 @@ on a declared line-count/language/banned-word/empty violation, nothing more.
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -23,6 +22,9 @@ from ..literary.shared.artifact_manifest import (
     ManifestError,
     assert_content_present,
     normalize_manifest,
+)
+from ..literary.shared.artifact_manifest import (
+    load_json_artifact as _load_json,
 )
 from ..literary.shared.provenance import ProvenanceError, normalize_usage
 from ..literary.shared.review_contract import (
@@ -39,16 +41,6 @@ from .intake import ModernPoetryIntakeError, brief_from_envelope
 _SOURCE_REGISTRY = Path(__file__).resolve().parent / "sources.yaml"
 _ERRORS = (EnvelopeError, ModernPoetryIntakeError, ReviewError, ManifestError,
            RegistryError, ProvenanceError, FormError)
-
-
-def _load_json(path: str):
-    p = Path(path)
-    if not p.is_file():
-        raise ManifestError(f"file not found: {path}")
-    try:
-        return json.loads(p.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ManifestError(f"{path} is not valid JSON: {exc}") from exc
 
 
 def _cmd_intake_validate(a) -> int:

@@ -2,26 +2,18 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import re
 import sys
 from pathlib import Path
 
+from ...core.file_digest import sha256_file as _sha256
 from ..metric_evidence import EvidenceError, validate_nanogpt_evidence
 
 FREEZE_RELPATH = Path("research/NANOGPT_FREEZE.json")
 REQUIRED_ROLES = frozenset({"harness", "metric", "data", "budget"})
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def validate_frozen_protocol(project_root: object) -> list[str]:

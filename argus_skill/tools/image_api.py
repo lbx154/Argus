@@ -33,6 +33,7 @@ try:
 except ImportError:  # pragma: no cover
     fcntl = None  # type: ignore[assignment]
 
+from ..core.file_digest import sha256_file as _sha256_file
 from .capability_vault import ModelApiGrant, ModelApiRoute, load_model_api_route
 
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
@@ -248,14 +249,6 @@ def _sha256_bytes(data: bytes) -> str:
 
 def _sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _sha256_prompt_file(path: Path) -> str:

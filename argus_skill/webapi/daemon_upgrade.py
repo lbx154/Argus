@@ -19,6 +19,7 @@ from typing import Any
 
 from ..core import paths as core_paths
 from . import project_state
+from ._server_module import server_module as _srv
 
 log = logging.getLogger(__name__)
 
@@ -27,18 +28,6 @@ project_life_dir = project_state.project_life_dir
 
 _SCHEDULED_DAEMON_UPGRADES: set[str] = set()
 _SCHEDULED_DAEMON_UPGRADES_LOCK = threading.Lock()
-
-
-def _srv():
-    """Lazily resolve the ``server`` module so tests that monkeypatch
-    ``server.<dep>`` (e.g. ``read_daemon_status``, ``stop_daemon``,
-    ``runtime_identity``, ``daemon_command_execution_lock``) still take
-    effect for this module's internal calls, matching pre-split monkeypatch
-    semantics.
-    """
-    from . import server
-
-    return server
 
 
 def upgrade_project_daemon(

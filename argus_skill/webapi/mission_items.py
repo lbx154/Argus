@@ -28,6 +28,7 @@ from ..daemon.life_worker import read_continuous_state
 from ..life.memory import BacklogItem, LifeMemory
 from ..life.role_activity import role_activity
 from . import project_state
+from ._server_module import server_module as _srv
 from .diagnostics import run_diagnostics
 
 _global_root = project_state.resolve_global_root
@@ -35,16 +36,6 @@ _roles_list = project_state.roles_list
 _daemon_dict = project_state.daemon_dict
 _stat_signature = project_state.stat_signature
 project_life_dir = project_state.project_life_dir
-
-
-def _srv():
-    """Lazily resolve the ``server`` module so tests that monkeypatch
-    ``server.read_daemon_status`` still take effect for this module's
-    internal calls, matching pre-split monkeypatch semantics.
-    """
-    from . import server
-
-    return server
 
 
 # Duplicated trivial literal (matches server.py's ``EVENT_FILE``) to avoid a

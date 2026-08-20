@@ -39,6 +39,7 @@ from ..daemon.life_worker import (
 from ..life.memory import LifeMemory
 from ..life.role_activity import role_activity
 from . import project_state
+from ._server_module import server_module as _srv
 
 log = logging.getLogger(__name__)
 
@@ -48,18 +49,6 @@ _daemon_dict = project_state.daemon_dict
 _DAEMON_ADMISSION_FILE = project_state.DAEMON_ADMISSION_FILE
 project_life_dir = project_state.project_life_dir
 list_projects = project_state.list_projects
-
-
-def _srv():
-    """Lazily resolve the ``server`` module so tests that monkeypatch
-    ``server.<dep>`` (e.g. ``read_daemon_status``, ``spawn_detached_daemon``,
-    ``stop_daemon``, ``runtime_identity``, ``daemon_command_execution_lock``,
-    ``_max_active_daemons``, ``_active_daemon_count``) still take effect for
-    this module's internal calls, matching pre-split monkeypatch semantics.
-    """
-    from . import server
-
-    return server
 
 
 def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConfig:

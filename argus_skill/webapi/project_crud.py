@@ -23,19 +23,10 @@ from ..core.session import (
 )
 from ..daemon.life_worker import read_continuous_state
 from . import project_state
+from ._server_module import server_module as _srv
 
 _global_root = project_state.resolve_global_root
 project_life_dir = project_state.project_life_dir
-
-
-def _srv():
-    """Lazily resolve the ``server`` module so tests that monkeypatch
-    ``server.read_daemon_status`` still take effect for this module's
-    internal calls, matching pre-split monkeypatch semantics.
-    """
-    from . import server
-
-    return server
 
 
 def update_project(

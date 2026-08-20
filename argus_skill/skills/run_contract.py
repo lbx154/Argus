@@ -66,6 +66,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TypeGuard
 
+from ..core.file_digest import sha256_file as _sha256_file
+
 CONTRACT_SCHEMA_VERSION = 1
 PACKET_SCHEMA_VERSION = 1
 SUPERVISED_PACKET_SCHEMA_VERSION = 2
@@ -550,14 +552,6 @@ def _supervised_low_diversity_issue(
         f"{MAX_PROMPT_REPETITION:.0f}x — expand unique examples or shorten the "
         "run, or label the run smoke_only",
     )
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _read_json_object(path: Path) -> dict:

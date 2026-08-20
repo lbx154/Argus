@@ -59,6 +59,20 @@ class ManifestError(ValueError):
     """Raised when an artifact manifest is structurally or semantically invalid."""
 
 
+def load_json_artifact(path: str | Path) -> Any:
+    """Read one JSON artifact, reporting both failures as ``ManifestError``.
+
+    Five literary verticals each carried a byte-identical copy of this, all of
+    them raising the ``ManifestError`` defined right here.
+    """
+    resolved = Path(path)
+    if not resolved.is_file():
+        raise ManifestError(f"file not found: {path}")
+    try:
+        return json.loads(resolved.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ManifestError(f"{path} is not valid JSON: {exc}") from exc
+
 def _lineage_edges(artifact: dict[str, Any]) -> list[str]:
     """The ids an artifact directly derives from: its parents plus what it
     supersedes (both are strictly-earlier nodes in the lineage DAG)."""
@@ -236,6 +250,7 @@ def assert_content_present(manifest: dict[str, Any], base_dir: str | Path) -> No
 
 
 __all__ = [
+    "load_json_artifact",
     "ARTIFACT_MANIFEST_SCHEMA",
     "ManifestError",
     "validate_manifest",

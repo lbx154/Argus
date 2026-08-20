@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import sys
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+
+from ...core.file_digest import sha256_file as _sha256
 
 DELIVERY_LEVELS = {"rtl_ip", "fpga", "gds", "pre_tapeout", "tapeout"}
 PASS_STATUSES = {"pass", "passed", "ready", "success", "proved"}
@@ -91,14 +92,6 @@ def _require_project_files(project_root: Path, payload: Mapping[str, Any], *keys
     if not values:
         raise EvidenceError(f"one of {keys!r} must reference at least one project file")
     return [_project_file(project_root, value) for value in values]
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _require_current_source_hashes(

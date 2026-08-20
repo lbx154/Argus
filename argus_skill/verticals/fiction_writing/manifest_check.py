@@ -25,7 +25,6 @@ Exit 1 with a diagnostic on any violation, so the STAGE_CHECK fails the stage.
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -35,19 +34,12 @@ from ..literary.shared.artifact_manifest import (
     lineage,
     normalize_manifest,
 )
+from ..literary.shared.artifact_manifest import (
+    load_json_artifact as _load_json,
+)
 from .artifacts import FICTION_ARTIFACT_KINDS
 
 _REQUIRED_ANCESTOR_KINDS = frozenset({"draft", "review"})
-
-
-def _load_json(path: str) -> object:
-    p = Path(path)
-    if not p.is_file():
-        raise ManifestError(f"file not found: {path}")
-    try:
-        return json.loads(p.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ManifestError(f"{path} is not valid JSON: {exc}") from exc
 
 
 def _load_manifest(path: str) -> dict:
