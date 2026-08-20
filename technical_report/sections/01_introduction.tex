@@ -6,8 +6,8 @@ the power---the last few years have been spent making that output remarkable. Bu
 engine bolted to a bench only spins. Something has to transmit its power to the
 ground, so we built the car around it: an agent \emph{harness} couples that output to
 files, shells, compilers, GPUs, and test suites, turning tokens into motion against
-the real world. Building good harnesses is most of what the last
-two years of agent engineering produced, and the results are real.
+the real world. Building good harnesses is most of what the last two years of agent
+engineering produced, and the results are real.
 
 But a car with no one at the wheel does not go anywhere worth going. Motion is not
 progress. Something has to choose the destination, read the road, decide whether the
@@ -15,15 +15,25 @@ last turn was right, and know when to pull over and ask. We call that role the
 \emph{Driver}, and it is the part nobody automated. In every deployed agent system we
 know of, the answer to who drives the harness is that a person does---which also
 answers how long it can be driven, since nobody drives for eight days without
-stopping.
+stopping. The last few months of our own work went into the question this report
+reports on: what happens when \systemname{} takes that seat instead.
 
-This report is about handing over the wheel. The machinery that converts capability
-into delivered value is what we call \emph{auto research} when the work requires
-invention rather than recall---not automated science in the sense of a machine that
-discovers unaided, but the pipeline that turns tokens into intelligence and
-intelligence into artifacts worth having. Engines are abundant; so are cars.
-Intelligence is not the terminal good, and neither is motion. Value is, and value is
-a matter of where you point the thing.
+Where the wheel points is not a secondary question. Intelligence pointed badly does
+damage: OpenAI reports disrupting more than forty networks that folded model
+capability into phishing, malware development, and influence
+operations~\citep{openai2026disrupting}. Intelligence pointed at nothing in
+particular is merely wasted, at a scale that is now measurable---VS Code's harness
+team reports that each model generation consumes more tokens per task than the last,
+so that an inefficient harness compounds the cost of every autonomous
+session~\citep{caldwell2026tokenefficiency}. Both failures are failures of steering,
+not of horsepower, and both get worse as the engine improves.
+
+That is the machinery we call \emph{auto research} when the work requires invention
+rather than recall---not automated science in the sense of a machine that discovers
+unaided, but the pipeline that turns tokens into intelligence and intelligence into
+artifacts worth having. Engines are abundant; so are cars. Intelligence is not the
+terminal good, and neither is motion. Value is, and value is a matter of where you
+point the thing.
 
 This is why agent progress is bounded by a resource that cannot be scaled. The
 operator reads the diff, decides it is not what they meant, types the correction,
