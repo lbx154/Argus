@@ -259,14 +259,10 @@ families across two GPU architectures, the runtime reached
 three months. Against an external reviewer, \FLAPRTotal{} kernels submitted to
 \code{flash-linear-attention} were accepted with no blocking changes requested.
 
-Each comparison is a bounding observation rather than a controlled trial, and
-Section~\ref{sec:limitations} states the specific asymmetries: the human attempt
-could consult an already-public implementation, the specialist-team figure comes from
-an interview covering different scope, and maintainer acceptance establishes that
-particular artifacts met an outside standard rather than that unattended output meets
-it in general. The distinction that matters for the argument is nonetheless
-available: the third comparison is decided by people who did not write the work and
-had no stake in its acceptance.
+The first two are bounding observations rather than controlled trials, with their
+asymmetries set out in Section~\ref{sec:limitations}. The third is different in kind:
+it was decided by people who did not write the work and had no stake in its
+acceptance.
 
 \subsection{Knowing When to Stop: Verification Routing and Non-Termination}
 
@@ -334,11 +330,8 @@ final difficult-task window rebounds in both metrics.
 
 The trajectories show a lower-cost mature operating window together with visible
 task-composition and late-wave difficulty effects. The rebound in W23--24 prevents
-the startup-to-mature comparison from being read as monotonic improvement. Because
-the task sequence is not replayed against a frozen runtime state, the evidence
-characterizes system-state accumulation over this sequence; attributing the
-reduction to an individual memory or Skill update calls for a matched frozen-state
-replay.
+the startup-to-mature comparison from being read as monotonic improvement, and the
+sequence characterizes state accumulation rather than isolating any single update.
 
 \subsection{Measured Process Quantities}
 
