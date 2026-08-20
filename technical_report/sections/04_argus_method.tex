@@ -373,7 +373,7 @@ does not survive this commit-and-reuse path is not counted as self-evolution.
 \rowcolor{papersand}
 \textbf{State} & \textbf{Change source} & \textbf{Commit owner} & \textbf{Persistent form} \\
 \midrule
-$M$: memory & Engineer trajectory & Reviewer & Curated checkpoint and event-derived journal \\
+$M$: memory & Engineer trajectory & Reviewer & Curated checkpoint, event-derived journal, and source-linked wiki pages \\
 $S$: skills & Engineer post-task authoring & Manager placement review & Versioned skill library \\
 $A$: tools and procedures & System configuration & System configuration & Versioned tool and procedure registry \\
 $V$: verification & Vertical stage contract & Manager stage decision & Stage checklist and certificate; Reviewer supplies feedback \\
@@ -386,11 +386,17 @@ updates only a subset of these components.}
 \label{tab:runtime-ownership}
 \end{table}
 
-Two knowledge surfaces carry reusable experience. Versioned skills store procedures
-that can be matched to later tasks. A project knowledge base stores source-linked
-records and synthesized pages derived from reviewed outcomes. Neither surface is
-treated as automatically correct: entries can be revised, archived, or retired when
-later results contradict them.
+\emph{Knowledge} in \systemname{} is a two-part object, and both parts are required.
+A \emph{wiki} of source-linked semantic pages, synthesized from reviewed outcomes,
+records what the campaign has come to know about its domain. A versioned
+\emph{skill library} stores executable procedures that can be matched to later tasks.
+The distinction is the ordinary one between knowing that and knowing how, and
+neither substitutes for the other: a procedure with no account of why it works
+cannot be revised when conditions change, and a finding no mission can act on is
+inert. Together they are what the runtime carries forward; when this report says
+knowledge accumulates, it means both surfaces. Neither is treated as automatically
+correct---entries can be revised, archived, or retired when later results contradict
+them.
 
 This mechanism can improve a later mission without changing the model itself. A
 verified retained failure can prevent a repeated dead end; an admitted procedure can shorten
