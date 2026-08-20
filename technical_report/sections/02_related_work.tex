@@ -21,6 +21,22 @@ search to mathematical, algorithmic, and systems problems
 ~\citep{romera2024funsearch,novikov2025alphaevolve}. These systems show how a clear
 objective and an executable evaluator can turn model calls into sustained search.
 
+Recursive's automated research system is the sharpest current demonstration of that
+principle and reports state-of-the-art results on three benchmarks this report also
+runs---fixed-budget language-model training, training-speed optimization, and GPU
+kernel optimization---exceeding our numbers on the first
+two~\citep{recursive2026firststeps}. Its account of why those benchmarks were chosen
+is the part we want to draw attention to: they have ``clear metrics, relatively low
+variance, and evaluators that can be hardened against reward hacks.'' That is the
+regime in which the Driver's questions are answerable by reading a number, and it is
+where automated research has advanced fastest. The tasks this report is about are
+selected the other way, by the absence of that evaluator---an open conjecture, a
+kernel port whose acceptance criteria are discovered during the port, a materials
+question whose measurement is itself under construction---and Section~\ref{sec:no-score}
+is about what replaces the number when there is not one. The two lines of work are
+complementary: one pushes on how far a hardened evaluator can carry a search, the
+other on what a runtime does before an evaluator exists.
+
 Full-lifecycle systems add problem selection, planning, experimentation, review,
 and scientific communication. The AI Scientist introduced an end-to-end research
 pipeline, while AI Scientist-v2 added agentic tree search and produced a
