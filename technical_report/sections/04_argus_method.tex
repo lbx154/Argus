@@ -1,6 +1,14 @@
 \section{\systemname Runtime}
 \label{sec:method}
 
+Every mechanism in this section serves one end: making it safe to leave the Driver's
+seat empty. The organizing principle is not that the executor eventually becomes
+trustworthy enough to certify its own work. It is that the executor never gets to
+decide. What follows is how that decision is routed instead---to a reviewer that
+cannot edit what it judges, to a manager that owns the campaign rather than the turn,
+and to a boundary that stops for a person on the few questions a machine should not
+settle for itself.
+
 \subsection{System Overview}
 
 \systemname is a general-purpose agentic runtime built around four model-driven roles
