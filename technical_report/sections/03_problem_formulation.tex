@@ -40,10 +40,12 @@ more than any individual equation. Equations~\ref{eq:duty-cycle},
 \ref{eq:interruption-rate}, \ref{eq:interruption-partition},
 \ref{eq:progress-set}, \ref{eq:refutation-invariant}, and \ref{eq:review-funnel}
 define quantities and invariants this report measures or mechanically enforces;
-every term in them is reported in Section~\ref{sec:results}. The remainder---density,
-research value, process-data dominance, typed compression, reuse value---are
-definitions that make claims falsifiable without yet being tested here, and we mark
-each as such at the point it appears. A reader who wants only what we can defend with
+every term in them is reported in Section~\ref{sec:results}. Equation~\ref{eq:process-data} is measured in
+one direction---how much of what the runtime did leaves no trace in what it
+produced---while its decision-theoretic strengthening is not. The remainder---density,
+research value, typed compression, reuse value---are definitions that make claims
+falsifiable without yet being tested here, and we mark each as such at the point it
+appears. A reader who wants only what we can defend with
 data should read the first group and skip the second.
 
 We model a campaign by an objective $o$, an initial artifact $y_0$, a resource budget
@@ -399,7 +401,15 @@ count as forward motion. The essential property is that $\Delta^{+}$ is
 
 so a round that refutes a route, or that accepts a bounded and budgeted cost in
 exchange for retiring a risk, advances the campaign exactly as a round that produced
-a faster kernel does. What $\Delta^{+}$ excludes is repetition without change
+a faster kernel does. This is measurable, and the measurement is the reason the
+vocabulary exists rather than a single score. Across the campaigns of
+Section~\ref{sec:duty-cycle} the runtime recorded \FrontierTotal{} frontier
+transitions, of which \FrontierProgress{} fall in $\Delta^{+}$. Only
+\FrontierArtifact{} of those---\FrontierArtifactPct\%---are
+\code{artifact\_improved}. \textbf{The remaining \FrontierInvisiblePct\% of recorded
+progress consists of reduced uncertainty, information gained from failure, retired
+risk, and bounded repair}: real advances that a scalar objective registers as zero or
+as loss. What $\Delta^{+}$ excludes is repetition without change
 (\code{unchanged\_failure}) and regressions that are unbounded or unexplained. A
 campaign is therefore progressing when its frontier keeps moving through
 $\Delta^{+}$, whether or not any measured quantity has improved---and this is the
@@ -422,7 +432,12 @@ unavailable devices, denied permissions, underpowered pilots. The runtime enforc
 \end{equation}
 
 which is checked mechanically rather than left to the judgement of whichever role
-writes the record. The invariant is what makes an unattended campaign safe to run
+writes the record---the validator rejects the record instead of trusting the author,
+so the invariant cannot be violated by a role that would prefer a cleaner story. We
+report it as an enforced property of the implementation rather than as a measured
+rate: the campaigns of Section~\ref{sec:duty-cycle} ran under verticals that do not
+emit the four-state record, so we have no field data on how often the invariant
+binds, only the guarantee that where it applies it cannot be bypassed. The invariant is what makes an unattended campaign safe to run
 against a flaky environment: without it, a system that cannot distinguish ``the
 experiment did not run'' from ``the idea is wrong'' will discard correct hypotheses
 at the rate its infrastructure fails, and the resulting record will be confidently
@@ -446,8 +461,17 @@ profile is a parameter of the gate rather than a constant of the system.
 
 \subsection{The Information Advantage of Process Data}
 
-\emph{Not measured.} What follows bounds what retention could be worth; nothing here
-is an empirical claim about \systemname.
+The inclusion in Equation~\ref{eq:process-data} is strict by a measurable margin in
+these campaigns. Of \MissionTotal{} bounded missions recorded across them,
+\MissionDone{} reached a \code{done} verdict and \MissionNonDone{}---%
+\MissionNonDonePct\%---did not, including \MissionBlocked{} that the runtime
+explicitly declared blocked. Those missions produced no accepted artifact and are
+therefore absent from $D_{\mathrm{final}}$ entirely, while their objectives,
+attempts, measurements, and verdicts remain in $D_{\mathrm{process}}$. Nearly a fifth
+of what the runtime did is invisible to any record of what it produced.
+
+\emph{The decision-theoretic reading below is not measured.} It bounds what retention
+could be worth; nothing in it is an empirical claim about \systemname.
 
 Finally, we distinguish the accepted artifact from the
 trajectory that produced it:
