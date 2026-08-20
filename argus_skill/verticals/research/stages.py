@@ -485,8 +485,9 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="analysis.gaps",
             statement=(
-                "Known evidence gaps are explicitly enumerated with a planned "
-                "supplement, ablation, or claim downgrade — no missing evidence "
+                "Known evidence gaps are explicitly enumerated, each with the "
+                "supplement or ablation that would close it — and a claim "
+                "downgrade only where none is affordable. No missing evidence "
                 "is silently absorbed."
             ),
             evidence_hint="paper/main.tex limitations + Reviewer notes + raw results",
