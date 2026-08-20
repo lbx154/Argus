@@ -18,6 +18,7 @@ from argus_skill.verticals.research.paper_structural_minimums import (
     MIN_RELATED_WORK_CHARS,
     validate_paper_structural_minimums,
 )
+from argus_skill.verticals.research.stages import stage_completion_issues
 
 
 def _seed_venue(root: Path) -> None:
@@ -191,6 +192,61 @@ We conclude.
     assert "no_related_work_section" in codes
     assert "no_appendix_section" in codes
     assert "missing_figure_provenance_manifest" not in codes
+
+
+def test_result_plot_does_not_substitute_for_figure1_overview(tmp_path: Path) -> None:
+    _seed_minimal_passing_paper(tmp_path)
+    paper = tmp_path / "paper"
+    (paper / "figures" / "result_accuracy.pdf").write_bytes(b"%PDF result\n")
+    main = paper / "main.tex"
+    main.write_text(
+        main.read_text(encoding="utf-8").replace(
+            "figures/fig1.pdf",
+            "figures/result_accuracy.pdf",
+        ),
+        encoding="utf-8",
+    )
+
+    report = validate_paper_structural_minimums(tmp_path)
+
+    assert report.figures_found == 1
+    assert report.included_overview_figures == []
+    assert "missing_figure1_overview" in {issue.code for issue in report.issues}
+
+
+def test_deterministic_method_overview_needs_no_image2_manifest(
+    tmp_path: Path,
+) -> None:
+    _seed_minimal_passing_paper(tmp_path)
+    paper = tmp_path / "paper"
+    (paper / "figures" / "IMAGE2_FIGURES.json").unlink()
+    (paper / "figures" / "method_framework.svg").write_text(
+        "<svg viewBox='0 0 100 60'><text x='5' y='20'>Method</text></svg>\n",
+        encoding="utf-8",
+    )
+    main = paper / "main.tex"
+    main.write_text(
+        main.read_text(encoding="utf-8").replace(
+            r"\includegraphics{figures/fig1.pdf}",
+            r"\includesvg{figures/method_framework.svg}",
+        ),
+        encoding="utf-8",
+    )
+
+    report = validate_paper_structural_minimums(tmp_path)
+
+    assert report.ok, report.to_text()
+    assert report.included_overview_figures == [
+        "paper/figures/method_framework.svg"
+    ]
+
+
+def test_late_research_stages_run_the_structural_gate(tmp_path: Path) -> None:
+    for stage in ("draft", "review", "submission"):
+        issues = stage_completion_issues(stage, tmp_path)
+        assert any("[no_main_tex]" in issue for issue in issues), (stage, issues)
+
+    assert stage_completion_issues("analysis", tmp_path) == ()
 
 
 def test_missing_teaser_is_reviewer_judgment_not_structural_failure(
@@ -508,7 +564,7 @@ def test_section_files_are_scanned(tmp_path: Path) -> None:
     _seed_venue(tmp_path)
     sections.mkdir(parents=True)
     figures.mkdir()
-    (figures / "f.pdf").write_bytes(b"%PDF\n")
+    (figures / "method_overview.pdf").write_bytes(b"%PDF\n")
     (figures / "teaser.png").write_bytes(b"\x89PNG\r\n")
     (figures / "pipeline.png").write_bytes(b"\x89PNG\r\n")
     (figures / "IMAGE2_FIGURES.json").write_text(
@@ -530,7 +586,7 @@ def test_section_files_are_scanned(tmp_path: Path) -> None:
     cite_block = ", ".join(f"\\cite{{k{i}}}" for i in range(MIN_INTEXT_CITES))
     (sections / "intro.tex").write_text(
         r"\section{Introduction}" + "\n"
-        + r"\includegraphics{figures/f.pdf}" + "\n"
+        + r"\includegraphics{figures/method_overview.pdf}" + "\n"
         + cite_block,
         encoding="utf-8",
     )
@@ -652,7 +708,7 @@ def test_alt_section_titles_recognised(tmp_path: Path) -> None:
     paper = tmp_path / "paper"
     _seed_venue(tmp_path)
     (paper / "figures").mkdir(parents=True)
-    (paper / "figures" / "f.pdf").write_bytes(b"%PDF\n")
+    (paper / "figures" / "method_overview.pdf").write_bytes(b"%PDF\n")
     (paper / "figures" / "teaser.png").write_bytes(b"\x89PNG\r\n")
     (paper / "figures" / "pipeline.png").write_bytes(b"\x89PNG\r\n")
     (paper / "figures" / "IMAGE2_FIGURES.json").write_text(
@@ -665,7 +721,7 @@ def test_alt_section_titles_recognised(tmp_path: Path) -> None:
     cite_block = ", ".join(f"\\cite{{c{i}}}" for i in range(MIN_INTEXT_CITES))
     (paper / "main.tex").write_text(
         r"""\documentclass{article}\begin{document}
-\includegraphics{figures/f.pdf}
+\includegraphics{figures/method_overview.pdf}
 """ + cite_block + r"""
 \section*{Background and Related Work}
 """ + ("Padding. " * 120) + r"""

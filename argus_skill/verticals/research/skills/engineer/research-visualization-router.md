@@ -9,6 +9,17 @@ One figure contract, many renderers. Choose from the figure's semantics and the
 capabilities actually available; never force image-2 merely because an old
 template named it, and never fake image-2 provenance when no image route exists.
 
+## Figure 1 is a paper deliverable
+
+Every submission-quality research paper must have a reader-facing Figure 1
+teaser, method/framework overview, architecture, or taxonomy that communicates
+the problem, core mechanism, and claim-bearing flow at a glance. It must be a
+real exported SVG/PDF/PNG embedded by `\includegraphics` or `\includesvg`.
+A LaTeX table, boxed paragraph, or `\rule` bars inside a `figure` environment do
+not count. image-2 is optional: when it is unavailable, use PPT Master,
+deterministic HTML/SVG, FigureSpec, Draw.io, Mermaid/Graphviz, or another
+truthful deterministic route and keep the editable source.
+
 This Argus synthesis draws on permissively licensed official workflows:
 
 - Vega CLI deterministic SVG/PDF/PNG export (BSD-3-Clause).

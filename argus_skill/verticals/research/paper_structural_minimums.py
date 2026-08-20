@@ -2,8 +2,9 @@
 
 Anti-fab structural gate (the same class as evidence_chain / F4). Rejects
 draft/review/submission rounds whose ``paper/main.tex`` is structurally
-not-a-paper: zero figures, zero in-text citations, zero references,
-missing Related Work, missing Conclusion.
+not-a-paper: zero real external figures, no reader-facing Figure 1 overview,
+zero in-text citations, zero references, missing Related Work, or missing
+Conclusion.
 
 **This is a venue-minimum check, not a quality judgment.** EMNLP/ACL
 papers without ≥1 figure, in-text citations, or a Related Work section
@@ -40,13 +41,16 @@ MIN_INTEXT_CITES = 8
 MIN_CITED_BIB_ENTRIES = 8
 MIN_RELATED_WORK_CHARS = 800
 
-# Figure roles are reported to the reviewer, not used by the harness to choose
-# a renderer or prescribe a paper story. The canonical manifest is renderer
-# neutral; legacy IMAGE2_FIGURES.json remains readable for existing projects.
+# Figure roles do not prescribe a renderer. They ensure the paper has a real
+# reader-facing Figure 1 overview rather than a table, prose box, or ``\rule``
+# bars placed inside a LaTeX ``figure`` environment. The canonical manifest is
+# renderer neutral; legacy IMAGE2_FIGURES.json remains readable for existing
+# projects.
 _TEASER_KEYWORDS = ("teaser", "hero", "figure1", "figure_1", "fig1", "fig_1")
 _PIPELINE_KEYWORDS = (
     "pipeline", "method", "architecture", "framework",
-    "overview", "system", "workflow", "schematic",
+    "overview", "system", "workflow", "schematic", "taxonomy",
+    "mechanism", "approach", "concept",
 )
 
 # Section heading variants we accept. Case-insensitive substring match
@@ -60,6 +64,11 @@ _APPENDIX_TITLES = ("appendix", "appendices", "supplementary material",
 
 _RE_INCLUDEGRAPHICS = re.compile(
     r"\\(?:includegraphics|includesvg)\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}"
+)
+_RE_FIGURE_ENV = re.compile(
+    r"\\begin\s*\{\s*figure\*?\s*\}(.*?)"
+    r"\\end\s*\{\s*figure\*?\s*\}",
+    re.DOTALL,
 )
 _RE_CITE = re.compile(r"\\cite[a-zA-Z*]*\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}")
 _RE_SECTION = re.compile(r"\\section\*?\s*\{([^}]+)\}")
@@ -109,6 +118,7 @@ class StructuralReport:
     figure_manifest_path: Path | None = None
     figure_role_summary: dict[str, str] = field(default_factory=dict)
     figure_renderer_summary: dict[str, str] = field(default_factory=dict)
+    included_overview_figures: list[str] = field(default_factory=list)
     issues: list[StructuralIssue] = field(default_factory=list)
 
     @property
@@ -145,6 +155,14 @@ class StructuralReport:
         lines.append(
             f"  reported teaser/hero figure: {self.has_teaser_figure}; "
             f"pipeline/method figure: {self.has_pipeline_figure}"
+        )
+        lines.append(
+            "  included Figure 1 overview assets: "
+            + (
+                ", ".join(self.included_overview_figures)
+                if self.included_overview_figures
+                else "(none)"
+            )
         )
         if self.figure_role_summary:
             lines.append(
@@ -417,6 +435,7 @@ class _VisualManifestScan:
     roles: dict[str, str] = field(default_factory=dict)
     renderers: dict[str, str] = field(default_factory=dict)
     outputs: set[str] = field(default_factory=set)
+    overview_outputs: set[str] = field(default_factory=set)
     issues: list[StructuralIssue] = field(default_factory=list)
     canonical: bool = False
 
@@ -482,6 +501,10 @@ def _scan_visual_manifest_locked(
             scan.renderers[figure_id] = renderer
             scan.has_teaser = scan.has_teaser or role == "teaser"
             scan.has_pipeline = scan.has_pipeline or role == "pipeline"
+            if role in {"teaser", "pipeline"}:
+                output = str(entry.get("output_path") or "").strip()
+                if output:
+                    scan.overview_outputs.add(output)
         image2_entries = [
             entry
             for entry in provenance.entries
@@ -547,7 +570,7 @@ def _scan_visual_manifest_locked(
                     )
         return scan
 
-    legacy_path, has_teaser, has_pipeline, roles, legacy_issues, _records = (
+    legacy_path, has_teaser, has_pipeline, roles, legacy_issues, records = (
         _scan_image2_manifest(paper_dir)
     )
     if legacy_path is not None:
@@ -561,6 +584,11 @@ def _scan_visual_manifest_locked(
                 figure_id: "image2"
                 for figure_id, role in roles.items()
                 if role != "missing_file"
+            },
+            overview_outputs={
+                records[figure_id][0]
+                for figure_id, role in roles.items()
+                if role in {"teaser", "pipeline"} and figure_id in records
             },
         )
         scan.issues.extend(
@@ -641,6 +669,7 @@ def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
 
     # Figures.
     figure_refs = [m.group(1) for m in _RE_INCLUDEGRAPHICS.finditer(tex)]
+    resolved_figure_paths: dict[str, str] = {}
     for ref in figure_refs:
         resolved = _resolve_figure(paper_dir, ref)
         if resolved is None:
@@ -648,7 +677,8 @@ def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
         else:
             report.figures_found += 1
             try:
-                resolved.resolve().relative_to(project_root.resolve())
+                relative = resolved.resolve().relative_to(project_root.resolve()).as_posix()
+                resolved_figure_paths[ref] = relative
             except ValueError:
                 report.issues.append(
                     StructuralIssue(
@@ -701,6 +731,44 @@ def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
     report.figure_role_summary = visual_scan.roles
     report.figure_renderer_summary = visual_scan.renderers
     report.image2_role_summary = visual_scan.roles
+    inferred_overview_paths: set[str] = set()
+    role_keywords = _TEASER_KEYWORDS + _PIPELINE_KEYWORDS
+    for ref, relative in resolved_figure_paths.items():
+        signal = re.sub(r"[^a-z0-9]+", " ", ref.lower())
+        if any(keyword.replace("_", " ") in signal for keyword in role_keywords):
+            inferred_overview_paths.add(relative)
+    for match in _RE_FIGURE_ENV.finditer(tex):
+        block = match.group(1)
+        signal = re.sub(r"[^a-z0-9]+", " ", block.lower())
+        if not any(keyword.replace("_", " ") in signal for keyword in role_keywords):
+            continue
+        for ref_match in _RE_INCLUDEGRAPHICS.finditer(block):
+            relative = resolved_figure_paths.get(ref_match.group(1))
+            if relative:
+                inferred_overview_paths.add(relative)
+    report.included_overview_figures = sorted(
+        inferred_overview_paths
+        | (
+            set(resolved_figure_paths.values())
+            & visual_scan.overview_outputs
+        )
+    )
+    if not report.included_overview_figures:
+        report.issues.append(
+            StructuralIssue(
+                code="missing_figure1_overview",
+                detail=(
+                    "no real external figure embedded in the paper is identified "
+                    "as a teaser, method, pipeline, architecture, framework, "
+                    "taxonomy, or mechanism overview. Author a reader-facing "
+                    "Figure 1 through the Research Visualization Router. image-2 "
+                    "is optional: PPT Master, deterministic HTML/SVG, FigureSpec, "
+                    "Draw.io, Mermaid/Graphviz, or another truthful renderer is "
+                    "valid. A LaTeX table, prose box, or \\rule bar chart inside "
+                    "a figure environment does not satisfy this gate"
+                ),
+            )
+        )
     # Figure provenance is advisory metadata for reproducibility and renderer
     # handoff. It is deliberately not a structural completion gate: the L2
     # Reviewer judges whether the rendered figures are clear and attractive
@@ -929,6 +997,7 @@ def main(argv: list[str] | None = None) -> int:
             "main_tex": str(report.main_tex_path) if report.main_tex_path else None,
             "figures_found": report.figures_found,
             "figures_missing_files": report.figures_missing_files,
+            "included_overview_figures": report.included_overview_figures,
             "unique_cite_keys": sorted(report.cite_keys),
             "bib_entries": report.bib_entries,
             "bib_entries_cited": report.bib_entries_cited,

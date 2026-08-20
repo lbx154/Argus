@@ -409,6 +409,26 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             evidence_hint="paper/RESULTS_REPORT.md",
         ),
         ChecklistItem(
+            id="analysis.figure1",
+            statement=(
+                "Design and render the paper's reader-facing Figure 1 teaser or "
+                "framework overview from a written communication brief. It must "
+                "show the problem, core mechanism/architecture or taxonomy, and "
+                "claim-bearing flow in one coherent visual. Route it through the "
+                "Research Visualization Router: prefer PPT Master for polished "
+                "editable composition, or deterministic HTML/SVG, FigureSpec, "
+                "Draw.io, Mermaid/Graphviz as appropriate. image-2 is optional and "
+                "its absence is never a reason to omit Figure 1. Preserve editable "
+                "source, export SVG/PDF/PNG, inspect it at final paper size, and "
+                "plan its caption and in-text callout. A LaTeX table, prose box, "
+                "or rule-bar diagnostic is not a framework figure."
+            ),
+            evidence_hint=(
+                "paper/figures editable source + exported Figure 1 asset + "
+                "paper/DRAFT_OUTLINE.md figure slot"
+            ),
+        ),
+        ChecklistItem(
             id="analysis.gaps",
             statement=(
                 "Known evidence gaps are explicitly enumerated with a planned "
@@ -483,11 +503,15 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="draft.figures",
             statement=(
-                "The paper's figures are clear, readable at final size, visually "
-                "coherent, and attractive enough for the venue. Use a good-enough "
-                "standard: minor stylistic imperfections are not blockers, and do "
-                "not request repeated regeneration unless a figure is unreadable, "
-                "factually wrong, visibly broken, or seriously harms the paper."
+                "The paper embeds a real external Figure 1 teaser/method/framework "
+                "overview plus any claim-bearing result visuals needed by the "
+                "argument. Figure 1 communicates the problem, mechanism and flow at "
+                "a glance; it is not a LaTeX table, prose box, or rule-bar diagnostic "
+                "inside a figure environment. image-2 is optional: when unavailable, "
+                "use PPT Master, deterministic HTML/SVG, FigureSpec, Draw.io, "
+                "Mermaid/Graphviz, or another truthful editable route. All figures "
+                "are clear, readable at final size, coherent, and attractive enough "
+                "for the venue. Minor stylistic imperfections are not blockers."
             ),
             evidence_hint=(
                 "paper/main.pdf rendered pages and the actual figure files; optional "
@@ -628,7 +652,13 @@ def get_stage_checklist(stage: str) -> tuple[ChecklistItem, ...]:
 
 
 def stage_completion_issues(stage: str, project_root: Path) -> tuple[str, ...]:
-    if str(stage or "").strip().lower() != "research":
+    normalized = str(stage or "").strip().lower()
+    if normalized in {"draft", "review", "submission"}:
+        from .paper_structural_minimums import validate_paper_structural_minimums
+
+        report = validate_paper_structural_minimums(project_root)
+        return tuple(f"[{issue.code}] {issue.detail}" for issue in report.issues)
+    if normalized != "research":
         return ()
     from .idea_portfolio import idea_portfolio_completion_issues
 

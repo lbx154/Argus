@@ -47,6 +47,18 @@ def test_router_makes_image2_capability_conditional() -> None:
     assert "independent of model api status" in content
 
 
+def test_router_requires_real_deterministic_figure1_fallback() -> None:
+    texts = dict(iter_vertical_skill_texts("research"))
+    _front, body = _front_and_body(texts["engineer/research-visualization-router.md"])
+    content = body.lower()
+
+    assert "figure 1 is a paper deliverable" in content
+    assert "ppt master" in content
+    assert "deterministic html/svg" in content
+    assert "a latex table" in content
+    assert "\\includegraphics" in body
+
+
 def test_results_figures_keep_claim_checks_agent_owned_and_risk_based() -> None:
     text = (ROOT / "engineer" / "research-results-analysis-and-figures.md").read_text(
         encoding="utf-8"

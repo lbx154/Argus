@@ -102,6 +102,16 @@ chronological experiment report:
 For every figure write a brief: claim, reader takeaway, role, canonical inputs,
 final physical size, uncertainty, editability, and forbidden invention.
 
+Before analysis handoff, render the paper's Figure 1 teaser/framework overview.
+For a method or system paper it should show the problem/input, the load-bearing
+mechanism or architecture, and the output/evidence path. For a theory or survey
+paper use an explanatory geometry, taxonomy, or conceptual map. Preserve an
+editable source and export a real SVG/PDF/PNG that the draft embeds. A LaTeX
+table, boxed paragraph, or `\rule` bar display inside a `figure` environment is
+not Figure 1. If no image route exists, deterministic rendering is mandatory,
+not a blocker: use PPT Master, HTML/SVG, FigureSpec, Draw.io,
+Mermaid/Graphviz, or another route selected below.
+
 Then use `Research Visualization Router`:
 
 - data/result charts normally use matplotlib;

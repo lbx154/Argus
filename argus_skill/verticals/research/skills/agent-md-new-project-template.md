@@ -504,6 +504,13 @@ checklist to be ticked off by the reviewer.
 3. Data figures and tables trace to canonical raw data/results. Deterministic SVG/HTML/React/diagram/PPT figures trace to editable source.
 4. Image-2 is optional. When selected, preserve prompt, generation provenance, inspect/review artifacts, accepted raster SHA-256, width/height, and `IMAGE2_FIGURES.json`; never wrap a local file in image-2 metadata.
 5. Conceptual figures must be adaptive/landscape and readable at final paper size regardless of renderer. Avoid cramped squares, weird/sketchy fonts, tiny text, heavy gradients, photorealism, excessive logos, or decorative clutter.
+6. Figure 1 is mandatory for a submission-quality paper: render a real external
+   teaser/method/framework/architecture/taxonomy overview that communicates the
+   problem, core mechanism, and claim-bearing flow. image-2 is optional; when it
+   is unavailable, use PPT Master, deterministic HTML/SVG, FigureSpec, Draw.io,
+   Mermaid/Graphviz, or another truthful deterministic route. Preserve editable
+   source and embed the exported SVG/PDF/PNG in the manuscript. A LaTeX table,
+   boxed paragraph, or `\rule` bars inside a `figure` environment do not count.
 
 ## Final paper review
 1. Compile and read the current paper as a venue reviewer.

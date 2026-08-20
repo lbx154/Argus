@@ -357,7 +357,11 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 - Do not hand-edit manifests, reviews, calibration, or readiness files to contradict source or validator output.
 - Do not remove tests, citations, figures, benchmark cases, or paper sections solely to avoid a failure.
 - Do not claim a blocker is fixed while a stale artifact is still being validated.
-- Do not replace image-2 conceptual figures with local redraws.
+- Do not overwrite an accepted image-2 raster with an untracked local redraw.
+  A deliberate replacement may use PPT Master, deterministic HTML/SVG,
+  FigureSpec, Draw.io, Mermaid/Graphviz, or another router-selected route when
+  its editable source, exported asset, manuscript reference, and visual review
+  are updated together; never fake image-2 metadata.
 - Do not satisfy academic-language review by making the writing bland, repetitive, defensive, or non-paper-like.
 
 ## Completion contract
