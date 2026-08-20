@@ -232,97 +232,75 @@ reporting an unsupported success, which is the same gate viewed from the other s
 a system that can leave the room is a system that can also refuse to claim it
 finished.
 
-This report makes eleven contributions:
+This report makes six contributions:
 
 \begin{enumerate}[label=\textbf{C\arabic*.}]
-  \item We frame \emph{auto research} as the machinery converting tokens into
-    intelligence and intelligence into value, argue that what current systems---ours
-    included---actually automate is execution and the human attention bundled with
-    invention rather than invention itself, and fix its relationship to
-    \emph{recursive self-improvement} as containment: RSI is auto research pointed at
-    the production of AI, and inherits every constraint of the general case.
-  \item We show how a runtime can iterate and self-improve where no dense reward,
-    well-formed objective, or reliable numeric feedback exists---the regime in which
-    recursive self-improvement has previously stalled---by replacing the scalar with
-    a typed vocabulary of frontier transitions in which informative failure counts as
-    progress, separating execution failure from hypothesis refutation so that a run
-    which never executed cannot refute an idea, naming the honest non-terminal
-    outcomes, and scaling the evidence bar to the maturity of the claim.
-  \item We identify the \emph{Driver} as a distinct, previously unautomated role
-    sitting above the harness, and decompose it into four nested questions---is this
-    done and any good, what is next, how does the system get better at this, does
-    this need a person---each of which must be owned by a different party for the
-    seat to be delegated safely.
-  \item We show that independent verification is the enabling condition for
-    unattended operation rather than a quality feature added after it. A read-only
-    Reviewer that cannot edit the evidence it judges, and that may return
-    \code{blocked}, is what makes it acceptable for the operator to be absent.
-  \item We separate domain expertise from decision authority architecturally. A
-    \emph{vertical} declares what counts as evidence in a field---stage order,
-    checklists, required artifacts, completion gates---and may raise the evidence
-    bar but never lower it; the authority boundary, the review requirement, and the
-    escalation path live in a core no domain package can reach, which we verify by
-    inspection across all \VerticalTotalLoc{} lines of vertical code.
-    \VerticalCount{} verticals ship against a \VerticalCoreLoc{}-line core that does
-    not change when a domain is added, the smallest costing \VerticalSmallest{}
-    lines, and runtime self-evolution is scoped along the same seam: what proves
-    general to a domain is promoted into that domain's contract, not into the core.
-  \item We introduce two paired metrics for unattended operation and report them
-    from runtime ledgers: \emph{duty cycle}, the fraction of available time in which
-    the system is producing, and \emph{interruption rate}, how often a human is
-    required. Neither is meaningful alone; together they separate a productive
-    unattended system from both an idle loop and a babysat one.
-  \item We measure both across \DutyCampaigns{} campaigns, \DutyWallHours{}
-    wall-clock hours, and \DutyEvents{} events: \DutyInterruptions{} human requests,
-    one every \DutyInterval{} hours, of which only \DutyJudgmentPercent\% are
-    research judgment; duty cycle of \DutyCycleLow--\DutyCycleHigh\% with work in
-    hand. We further show the residual gap is dominated by infrastructure failure
-    rather than agent hesitation.
-  \item We argue that long-horizon research requires evidence-driven rather than
-    goal-driven control---since an objective written before the work begins can
-    itself be wrong, and suppressing departure from it preserves the error---and
-    formulate this as evidence-admitted revision over a compact report-level contract
-    $K_t=(\iota,o_t,c_t,v_t)$ with explicit user decision state $X_t$. The analytical \code{ManagerAdmit} operator makes evidence, authority, and
-    provenance requirements explicit without claiming one atomic implementation API.
-    Contract refinement is represented through typed, logged, role-owned surfaces:
-    \code{GoalContract} revisions, Manager stage transitions, abandoned approaches,
-    and recorded verdict sources give material changes an author, a precondition, and
-    an audit trail.
-  \item We measure where the runtime spends verification and where it refuses to
-    terminate. Of \ReviewerTasks{} SWE-Bench Pro tasks, \ReviewerInvoked{} invoke an
-    independent Reviewer and \ReviewerSkipped{} use Engineer self-review. The Reviewer
-    withholds completion on \ReviewerRevisionRequested{} tasks, of which
-    \ReviewerVerifierRecovered{} later pass the official verifier and
-    \ReviewerStrictRescues{} complete the strict review loop; a further
-    \ReviewerFirstBlocked{} tasks are declared blocked rather than reported complete.
-  \item We report delivery from the unattended hours against human effort on the same
-    work. One engineer with a turn-by-turn coding agent spent over
-    \SGLangHumanHours{} hours on an SGLang integration without completing it, which
-    \systemname finished within a \SGLangArgusHours{}-hour envelope; a
-    FlashAttention-4 diffusion-LLM mask adaptation reached
-    \FlashDAGapLow--\FlashDAGapHigh\% of native kernel performance for under
-    \FlashDACostCNY{} CNY of model spend. We additionally present a six-project paper
-    case study spanning \PaperCaseMissions{} missions and \PaperCaseRollbacks{} Stage
-    rollbacks, and a mathematical campaign retaining one falsified route alongside six
-    accepted theorem-frontier updates.
-  \item We separate self-improvement into a parameter-invariant axis, which
-    compounds retained state under a fixed backbone and which this report measures,
-    and a parameter-changing axis, which moves the capability ceiling itself. We
-    report the runtime building and running a from-scratch 1B pretraining stack on an
-    eight-GPU B200 node as the entry condition for the second axis, and state
-    precisely what remains: training on its own retained trajectories rather than a
-    public corpus, and measuring whether a model produced this way improves the
-    runtime that built it.
-  \item We present frontier GPU and serving infrastructure as the vertical with the
-    least forgiving verifier and the most external scrutiny: six diffusion-LLM mask
-    families carried into a FlashAttention-4 CuTe DSL kernel within
+  \item \textbf{The Driver.} We identify the previously unautomated role above the
+    harness and decompose it into four nested questions---is this done and any good,
+    what is next, how does the system get better at this, does this need a
+    person---each of which must be owned by a different party for the seat to be
+    delegated safely. This also locates \emph{auto research}: what current systems,
+    ours included, automate is execution, not invention. \emph{Recursive
+    self-improvement} is the same machinery aimed at the production of AI, and
+    inherits every constraint of the general case.
+
+  \item \textbf{Progress without a score.} We show how a runtime iterates where no
+    dense reward, well-formed objective, or reliable numeric feedback exists---the
+    regime in which self-improvement has previously stalled. Rather than manufacture
+    a score, which would have one system produce both the work and its grade,
+    \systemname{} records progress as a typed frontier transition in which
+    informative failure counts, makes a run that never executed incapable of refuting
+    a hypothesis, names the honest non-terminal outcomes, and scales the evidence bar
+    to the maturity of the claim. We formalize this as evidence-driven rather than
+    goal-driven control---evidence-admitted revision over a report-level contract
+    $K_t$---so an objective that turns out to be wrong can be departed from on the
+    record, with an author, a precondition, and an audit trail.
+
+  \item \textbf{Verification as the enabling condition.} Independent review is not a
+    quality feature added after execution; it is what makes the seat delegable. A
+    read-only Reviewer that cannot edit the evidence it judges, and that may return
+    \code{blocked}, is what makes the operator's absence acceptable. Of
+    \ReviewerTasks{} SWE-Bench Pro tasks it withholds completion on
+    \ReviewerRevisionRequested{}, \ReviewerVerifierRecovered{} of which later pass the
+    official verifier, and declares \ReviewerFirstBlocked{} blocked rather than
+    reporting an unsupported success.
+
+  \item \textbf{Domain depth without core change.} We separate domain expertise from
+    decision authority architecturally. A \emph{vertical} declares what counts as
+    evidence in a field and may raise the evidence bar but never lower it, while the
+    authority boundary and the escalation path live in a core no domain package can
+    reach---\VerticalAuthorityRefs{} references to either across all
+    \VerticalTotalLoc{} lines of vertical code. \VerticalCount{} verticals ship
+    against a \VerticalCoreLoc{}-line core that does not change when a domain is
+    added, the smallest costing \VerticalSmallest{} lines. Self-improvement is scoped
+    along the same seam: a parameter-invariant axis that compounds retained state
+    under a fixed backbone, which this report measures, and a parameter-changing
+    axis, for which we report a from-scratch 1B pretraining stack as the entry
+    condition and state what remains.
+
+  \item \textbf{Measuring the delegation.} We introduce two paired metrics and report
+    them from runtime ledgers: \emph{duty cycle}, the share of available time the
+    system is producing, and \emph{interruption rate}, how often a human is required.
+    Neither is meaningful alone; together they separate a productive unattended system
+    from both an idle loop and a babysat one. Across \DutyCampaigns{} campaigns,
+    \DutyWallHours{} wall-clock hours, and \DutyEvents{} events: \DutyInterruptions{}
+    human requests, one every \DutyInterval{} hours, of which only
+    \DutyJudgmentPercent\% are research judgment, at
+    \DutyCycleLow--\DutyCycleHigh\% duty cycle with work in hand. The residual gap is
+    dominated by infrastructure failure, not agent hesitation.
+
+  \item \textbf{What the unattended hours delivered.} Against a capability floor
+    across seven benchmark arenas showing the verification machinery does not cost
+    end-task performance, we report delivery where the verifier is least forgiving
+    and the scrutiny most external: six diffusion-LLM mask families carried into a
+    FlashAttention-4 CuTe DSL kernel within
     \FlashDAGapLow--\FlashDAGapHigh\% of native across two architectures for under
-    \FlashDACostCNY{} CNY; a unified-model integration into SGLang validated on real
-    hardware; and TileLang and correctness-fix kernels reviewed by outside
-    maintainers of \code{flash-linear-attention} and accepted with no blocking
-    changes requested. We report this alongside a capability floor across seven
-    benchmark arenas showing that the verification machinery does not cost end-task
-    performance.
+    \FlashDACostCNY{} CNY; an SGLang integration one engineer had not completed in
+    over \SGLangHumanHours{} hours, finished within a \SGLangArgusHours{}-hour
+    envelope; and \FLAPRTotal{} kernels accepted by outside maintainers of
+    \code{flash-linear-attention} with no blocking changes. Case studies in paper
+    production and mathematics show the same machinery retaining falsified routes
+    rather than discarding them.
 \end{enumerate}
 
 The remainder of the report follows a conventional research-paper organization.
