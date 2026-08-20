@@ -156,7 +156,7 @@ rejected branches change the route taken by later missions.
   shows a session-limited route ending in reset. The central recurrent role loop is
   reused across eight Manager-controlled research Stages, while the blue route,
   orange rollback, and red rejected branches show that progress need not be
-  monotone. Reviewed memory, Skills, tools, verifiers, and routing persist across
+  monotone. Certified knowledge, tools, verifiers, and routing persist across
   missions. The purple path to future supervised fine-tuning and reinforcement
   learning (SFT/RL) is a research hypothesis; the current
   runtime changes persistent state while keeping model parameters fixed. Geometry
@@ -265,8 +265,8 @@ Appendix~\ref{app:formula-instantiation} gives the full calculation.
 
 \subsection{Online Life and Runtime Evolution}
 
-The second website object separates model parameters from the operating state
-around the model:
+The second object of the public formulation separates model parameters from the
+operating state around the model:
 
 \begin{equation}
   \begin{aligned}
@@ -276,13 +276,32 @@ around the model:
   \label{eq:runtime-update}
 \end{equation}
 
-with the public state definition
+with the state definition
 
 \begin{equation}
-  H_t=\left\{\text{Memory},\text{Skills},\text{Tools},
-  \text{Verifiers},\text{Routing}\right\}.
+  H_t=\left\{\underbrace{\text{Knowledge}}_{\text{wiki}\,+\,\text{skills}},
+  \text{Memory},\text{Tools},\text{Verifiers},\text{Routing}\right\}.
   \label{eq:website-state}
 \end{equation}
+
+\emph{Knowledge} and \emph{Memory} are separated deliberately, and this report
+treats the distinction as load-bearing. \textbf{Knowledge} is what the runtime has
+established and may reuse: a wiki of source-linked pages recording what a domain
+turned out to be like, and a versioned library of executable skills. It is admitted
+only through certification, it is scoped to where it was shown to hold, and it is
+intended to outlive the campaign that produced it. \textbf{Memory} is what the
+runtime needs in order to keep working: the append-only event journal, the mission
+backlog, durable artifacts and files on disk, and the per-role session context
+carried across a rolling window. Memory is written as a byproduct of running and is
+not certified, because it records what happened rather than what is true.
+
+The separation matters because the two fail differently. Memory loss is an
+availability failure---a lost context file costs a mission its bearings, which
+Section~\ref{sec:duty-cycle} shows as interruptions and lost duty cycle---while
+uncertified knowledge is a correctness failure that propagates into every later
+campaign that reuses it. They therefore warrant different gates: memory must be
+durable, and knowledge must be earned. A system that conflates them either certifies
+its scratch space or trusts its conclusions the way it trusts a log line.
 
 $E_t$ is the subset of results admitted from mission $t$. The equality for
 $\theta$ is a scope condition: online evolution does not require a gradient update
@@ -290,7 +309,7 @@ to the underlying model. Section~\ref{sec:method} refines $H_t$ into named owner
 surfaces, including task/evaluation definitions $Q_t$; subsequent updates treat
 $Q_t$ as a component of $H_t$.
 The contract argument records the admitted report-level projection. The update $U$
-is partial; many missions change only memory, and some change no reusable component.
+is partial; many missions write only memory, and some change no reusable component.
 
 \subsection{Capability-Set Expansion}
 
@@ -602,8 +621,8 @@ $q_{t+1:t+L}$ be the next $L$ tasks. We define the discounted reuse value
   \label{eq:reuse-value}
 \end{equation}
 
-$G_L>0$ means that the accepted memory, skill, verifier, routing rule, or certified
-dead branch reduces future loss under a prespecified task distribution. $G_L<0$
+$G_L>0$ means that the accepted wiki page, skill, verifier, routing rule, or
+certified dead branch reduces future loss under a prespecified task distribution. $G_L<0$
 captures negative transfer. This definition turns ``compounding intelligence''
 from monotone rhetoric into a counterfactual claim: reuse must outperform a frozen
 state on matched future tasks. We are explicit that this report does not measure

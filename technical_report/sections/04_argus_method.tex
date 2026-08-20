@@ -324,10 +324,11 @@ grade itself.
 
 Equation~\ref{eq:runtime-update} separates the model from the state around it.
 Table~\ref{tab:runtime-ownership} identifies how each component can change and who
-owns the committed update. The ownership model is intentionally not uniform. Memory
-and skills use a work-versus-certification split: the Engineer authors a candidate
-after its own task completes, and a separate Manager pass decides whether it stays
-project-local, is promoted to a vertical, or becomes global. Tools and procedures are
+owns the committed update. The ownership model is intentionally not uniform. Both
+knowledge surfaces use a work-versus-certification split: the Engineer authors a
+candidate after its own task completes, and a separate Manager pass decides whether
+it stays project-local, is promoted to a vertical, or becomes global. Memory takes no
+such pass, because it is not a claim about the world. Tools and procedures are
 system-configured. Stage checklists belong to the vertical contract and are certified
 by the Manager stage decision, with Reviewer feedback rather than a second commit
 gate. Routing policy is Manager-committed, while task
@@ -358,7 +359,7 @@ Four terms recur and are used strictly.
 \end{itemize}
 
 A complete update cycle has four parts:
-(1) an execution trajectory produces a candidate memory, skill, procedure,
+(1) an execution trajectory produces a candidate wiki page, skill, procedure,
 verification rule, routing decision, or task definition; (2) the responsible role
 checks the candidate against artifacts and task-native evidence; (3) the authorized
 owner commits, revises, or rejects the update; and (4) a later mission retrieves the
@@ -373,12 +374,20 @@ does not survive this commit-and-reuse path is not counted as self-evolution.
 \rowcolor{papersand}
 \textbf{State} & \textbf{Change source} & \textbf{Commit owner} & \textbf{Persistent form} \\
 \midrule
-$M$: memory & Engineer trajectory & Reviewer & Curated checkpoint, event-derived journal, and source-linked wiki pages \\
-$S$: skills & Engineer post-task authoring & Manager placement review & Versioned skill library \\
-$A$: tools and procedures & System configuration & System configuration & Versioned tool and procedure registry \\
-$V$: verification & Vertical stage contract & Manager stage decision & Stage checklist and certificate; Reviewer supplies feedback \\
-$R$: routing and roles & Runtime policy & Manager & Campaign routing policy \\
-$Q$: tasks and evaluations & Planner & Scheduler & Backlog task specifications and scopes \\
+\rowcolor{white}
+\multicolumn{4}{@{}l}{\emph{Knowledge}---certified, reusable, scoped} \\
+\;wiki & Engineer authoring from reviewed outcomes & Reviewer & Source-linked semantic pages \\
+\;skills & Engineer post-task authoring & Manager placement review & Versioned skill library \\
+\midrule
+\rowcolor{white}
+\multicolumn{4}{@{}l}{\emph{Memory}---durable, uncertified, campaign-scoped} \\
+\;journal and backlog & Runtime execution & Runtime (append-only) & \code{events.jsonl}, mission backlog, durable artifacts \\
+\;session context & Role invocation & Runtime & Per-role rolling window \\
+\midrule
+tools and procedures & System configuration & System configuration & Versioned tool and procedure registry \\
+verification & Vertical stage contract & Manager stage decision & Stage checklist and certificate; Reviewer supplies feedback \\
+routing and roles & Runtime policy & Manager & Campaign routing policy \\
+tasks and evaluations & Planner & Scheduler & Backlog task specifications and scopes \\
 \bottomrule
 \end{tabularx}
 \caption{Attributable ownership of fixed-model runtime evolution. A mission usually
@@ -386,17 +395,12 @@ updates only a subset of these components.}
 \label{tab:runtime-ownership}
 \end{table}
 
-\emph{Knowledge} in \systemname{} is a two-part object, and both parts are required.
-A \emph{wiki} of source-linked semantic pages, synthesized from reviewed outcomes,
-records what the campaign has come to know about its domain. A versioned
-\emph{skill library} stores executable procedures that can be matched to later tasks.
-The distinction is the ordinary one between knowing that and knowing how, and
-neither substitutes for the other: a procedure with no account of why it works
-cannot be revised when conditions change, and a finding no mission can act on is
-inert. Together they are what the runtime carries forward; when this report says
-knowledge accumulates, it means both surfaces. Neither is treated as automatically
-correct---entries can be revised, archived, or retired when later results contradict
-them.
+Knowledge is the pair defined in Section~\ref{sec:problem}: a wiki recording what a
+domain turned out to be like, and a skill library holding procedures that can be
+matched to later tasks. Neither substitutes for the other---a procedure with no
+account of why it works cannot be revised when conditions change, and a finding no
+mission can act on is inert---and neither is treated as automatically correct, since
+entries can be revised, archived, or retired when later results contradict them.
 
 This mechanism can improve a later mission without changing the model itself. A
 verified retained failure can prevent a repeated dead end; an admitted procedure can shorten
