@@ -299,24 +299,14 @@ tokens and \ReviewerTimeRatio$\times$ as much active time as self-reviewed tasks
 average, indicating that the routing policy selects a harder workload. The recovery
 funnel is therefore more interpretable than a raw group-accuracy comparison.
 
-Figure~\ref{fig:reviewer-mechanism} separates the routing population from the
-revision-recovery path. The accepted and revise branches partition outcomes after
-Reviewer invocation together with 35 blocked cases; verifier pass and strict rescue
-are nested recovery milestones among the 43 revision-requested tasks.
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=\linewidth]{figures/reviewer_mechanism.pdf}
-  \caption{Adaptive Reviewer routing and revision recovery. Panel (a) shows that
-  466 of 731 tasks invoke an independent Reviewer, while 265 use Engineer
-  self-review; routed tasks consume 2.75$\times$ the solve input Tokens and
-  1.80$\times$ the active time on average. Panel (b) follows the routed workload:
-  388 tasks are accepted on first review, 43 receive a revision request, 34 of
-  those later pass the official verifier, and 22 complete the strict
-  review-loop rescue. Routing is task-dependent; a randomized-routing run would
-  additionally isolate the causal effect.}
-  \label{fig:reviewer-mechanism}
-\end{figure}
+The two populations should not be conflated. Of the Reviewer-routed workload,
+\ReviewerFirstAccepted{} tasks are accepted on first review and
+\ReviewerRevisionRequested{} receive a revision request, alongside
+\ReviewerFirstBlocked{} declared blocked; verifier pass
+(\ReviewerVerifierRecovered{}) and strict rescue (\ReviewerStrictRescues{}) are
+nested recovery milestones \emph{within} the revision-requested group rather than
+separate outcome classes. Panel~(a) of Figure~\ref{fig:swebench-evolution} shows
+this partition together with the accuracy comparison.
 
 \subsection{Cost of the Mechanism as State Accumulates}
 
