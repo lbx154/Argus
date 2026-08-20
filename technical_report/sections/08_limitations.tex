@@ -16,6 +16,20 @@ snapshot of a system still moving quickly rather than a characterization of a ma
 one, and should expect the specific mechanisms described in
 Section~\ref{sec:method} to keep changing.
 
+\paragraph{The model may absorb the Driver.}
+A serious counterargument holds that scaffolding is temporary: each generation of
+models absorbs what the previous generation's harness had to supply, so the model
+eats the harness~\citep{sequoia2026trainingdata}. We expect that to keep happening,
+and Section~\ref{sec:runtime-to-training} argues the runtime should feed it. But
+absorption does not settle the question this report asks. Two of the four Driver
+questions are not capability problems at all: who may certify completion is a
+question about authority, not about reasoning, and a model that judged its own work
+perfectly would still be judging its own work. The same holds for the boundary that
+stops for credentials and irreversible actions. If a future model internalizes Q2 and
+Q3 entirely, Q1 and Q4 remain structural, and the mechanisms here would become
+cheaper rather than unnecessary. What we cannot say is where that line finally
+settles.
+
 \paragraph{User-guided pivots are not publicly evaluated prospectively.}
 Internal system-verification use has produced concrete cases in which stopping or
 surfacing a contradiction helped real researchers refine the operational task.
@@ -172,7 +186,12 @@ patch, not the four approaches abandoned before it; the published theorem, not t
 route that was falsified on the way; the accepted paper, not the reframing that
 happened after the method search failed. \textbf{Process data is the scarce
 resource}, and it is scarce for a structural reason: nobody was ever paid to write
-down the reasoning that did not work. An auto research runtime operating under
+down the reasoning that did not work. The pattern is visible in the reporting itself.
+When a frontier lab announced solutions to ten long-open mathematical problems at
+under \$2{,}000 of tokens each, the first question a careful reader
+asked was how many problems absorbed the same spend and produced
+nothing~\citep{willison2026tenadvances}---and that number is not published by anyone,
+because the incentive to publish it has never existed. An auto research runtime operating under
 verification produces exactly this, continuously and in typed form---objectives,
 actions, measurements, verdicts, the routes that were refuted, and the evidence that
 refuted them---as a byproduct of doing its job. The trajectories in this report were
