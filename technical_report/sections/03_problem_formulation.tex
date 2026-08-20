@@ -20,15 +20,18 @@ Three conditions determine whether a task has this shape:
     database; it must be discovered through search and feedback.
   \item \textbf{Long horizon.} One pass is insufficient. Progress requires many
     dependent iterations over hours or days.
-  \item \textbf{Verifiability.} A task-native evaluator can distinguish genuine
-    improvement from a persuasive but incorrect claim.
+  \item \textbf{Constructible verification.} Evidence that discriminates a genuine
+    result from a persuasive but incorrect one can be \emph{obtained}---by running
+    something, measuring something, or checking something against the world. It need
+    not exist when the campaign starts.
 \end{enumerate}
 
 The defining loop is therefore proposal $\rightarrow$ execution $\rightarrow$
 measurement $\rightarrow$ revised proposal. Performance engineering, security
 research, scientific search, and quantitative research differ in domain but share
-this operational structure. The task definition excludes both open-ended ideation
-without an evaluator and fixed workflows that require time but no new decisions.
+this operational structure. The task definition excludes ideation that no
+evidence could ever settle, and fixed workflows that require time but no new
+decisions.
 
 Two of these conditions explain why such tasks have historically required a human in
 the loop. Because the answer must be invented rather than retrieved (T1), no fixed
@@ -36,8 +39,24 @@ plan survives contact with the evidence, so someone must keep deciding what to
 attempt next. Because progress spans many dependent iterations (T2), that someone
 must keep deciding for hours or days. The result is a supervision load that scales
 with the horizon precisely where the horizon matters most. Condition T3 is what makes
-the load transferable: a task-native evaluator gives the runtime a basis for judging
-its own output that does not reduce to self-assertion. \emph{Dense-intelligence tasks
+the load transferable: if discriminating evidence can be obtained, the runtime has a
+basis for judging its own output that does not reduce to self-assertion.
+
+T3 is deliberately weaker than the requirement of a ready evaluator, because that
+requirement would exclude most research. A campaign frequently opens with a question
+that is not yet well posed---which mask families a kernel must carry, whether an
+open conjecture admits a proof at all, what property of a candidate material would
+even settle the matter---and the first several missions do not optimize anything.
+They establish what would count as an answer. \emph{Constructing the evaluator is
+part of the work, not a precondition for starting it}, and this is the sharpest
+reason control must be evidence-driven rather than goal-driven: a goal-driven system
+needs its target specified in advance, which is exactly what an underdefined problem
+cannot supply. An evidence-driven one can begin with a premise, discover in week two
+that the question was wrong, and revise the objective on the record---which is what
+the campaigns in Section~\ref{sec:results} repeatedly do. What T3 rules out is not
+the underdefined problem; it is the problem where no amount of work could ever
+produce discriminating evidence, since there the runtime's only remaining basis for a
+completion claim is its own assertion. \emph{Dense-intelligence tasks
 are therefore both the tasks that most demand a Driver and the only tasks where the
 seat can responsibly be delegated.}
 

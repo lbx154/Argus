@@ -291,8 +291,10 @@ underdefined at the start---no one could specify in advance which mask families 
 tile scheduler would tolerate, or that a determinism defect would appear only at
 batch size eight---and it is maximally verifiable at the end, because parity is
 bit-exact, latency is measured on the same hardware with the same shapes, and a
-compilation that crashes is not a matter of opinion. That combination is exactly the
-regime in which a Driver is both necessary and safe to delegate.
+compilation that crashes is not a matter of opinion. That combination---underdefined
+at the start, decidable at the end---is what condition T3 of
+Section~\ref{sec:problem} asks for, and it is exactly the regime in which a Driver is
+both necessary and safe to delegate.
 
 It also supplies the strongest external check available to us. Benchmarks and papers
 in this report are, ultimately, evaluated by harnesses and standards we selected.
