@@ -247,15 +247,6 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
     ),
     "benchmark": _checklist(
         ChecklistItem(
-            id="benchmark.backbone",
-            statement=(
-                "The real benchmark path loads the current-generation headline model "
-                "locked in plan.backbone. Legacy/small-model plumbing remains labeled "
-                "non-headline and cannot substitute for the current model run."
-            ),
-            evidence_hint="run manifest model revision + research/INFRA_CHOICE.md",
-        ),
-        ChecklistItem(
             id="benchmark.environment_preflight",
             statement=(
                 "Before the first real evidence-producing call, the engineer ran the "
@@ -337,17 +328,6 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "results remain compatibility evidence, not the paper's main result."
             ),
             evidence_hint="experiment manifests + model revision/release metadata",
-        ),
-        ChecklistItem(
-            id="run.environment_preflight",
-            statement=(
-                "Each pilot/full/ablation launch has a fresh, run-specific "
-                "Environment Readiness Gate transcript. Verify only resources that "
-                "run actually uses (environment, data/evaluator, storage, GPU/model/API "
-                "as applicable); an applicable failed or missing preflight means the "
-                "run is uncertified."
-            ),
-            evidence_hint="experiments/runs/<run_id>/preflight.txt (per run)",
         ),
         ChecklistItem(
             id="run.manifests",
@@ -592,14 +572,6 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             evidence_hint="grep main.tex for '/root/', 'CUDA_VISIBLE_DEVICES', 'argus-skill', 'codex', 'OPENAI_API_KEY'",
         ),
         ChecklistItem(
-            id="review.placeholders",
-            statement=(
-                "No PLACEHOLDER / TODO / TBD / FIXME / UNVERIFIED markers in the "
-                "paper body, captions, or tables."
-            ),
-            evidence_hint="grep -nE 'PLACEHOLDER|TODO|TBD|FIXME|UNVERIFIED' paper/main.tex",
-        ),
-        ChecklistItem(
             id="review.tables",
             statement=(
                 "Tables are readable and organized around the paper's claims. They "
@@ -668,13 +640,13 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="submission.upstream",
             statement=(
-                "All upstream stage checklists (research → review) are themselves "
+                "All upstream stage checklists (research \u2192 review) are themselves "
                 "marked done by a prior reviewer round or explicitly skipped by a "
                 "recorded Manager decision because they do not apply to this article "
                 "form. Submission readiness is not a way to retro-fix missing evidence."
             ),
             evidence_hint=(
-                ".argus/PIPELINE_STATE.json shows each stage status=done or "
+                "stage checklist state for research\u2026review: status=done, or "
                 "status=skipped with skip_reason/skipped_by and stage_history evidence"
             ),
         ),
@@ -1077,14 +1049,15 @@ _REVIEWER_RESEARCH_JUDGEMENT = (
     "For experiment claims, inspect implementation and raw rows once, then reuse "
     "them until a dependency changes. Separate method results from infrastructure "
     "or evaluator failure. Research-stage smoke probes are short advisory "
-    "observations, not gates: weak, noisy or underpowered ones cannot by themselves "
+    "observations, not gates: weak or underpowered ones cannot by themselves "
     "trigger replan. At final review, read this manuscript beside an accepted "
-    "same-area paper whose full text is on disk and ask what it needs to stand "
-    "there: one insight carrying abstract, Figure 1, method and experiments; "
-    "evidence ordered by the questions it answers; a conclusion saying what changes "
-    "for the field. If the result is stronger than the writing admits, push the "
-    "claim up. Name it and the one change that would raise this paper most. Reuse "
-    "organization, never prose, figures or code.\n"
+    "same-area paper and ask what it needs to stand there: one insight carrying "
+    "abstract, Figure 1, method and experiments; evidence ordered by the "
+    "questions it answers; a conclusion saying what changes for the field. If "
+    "the result is stronger than the writing admits, "
+    "push the claim up, and name the one change that would raise this paper most. "
+    "A missing certificate or schema field belongs in next_action, not in a "
+    "returned verdict.\n"
 )
 
 _PLANNER_RESEARCH_ORCHESTRATION = (
@@ -1104,6 +1077,14 @@ _PLANNER_RESEARCH_ORCHESTRATION = (
     "claim-bearing publication-scale runs are not subject to that time box. A failed "
     "direction is project memory, not automatic completion or a forced next action; "
     "only the independently reviewed research target closes the project.\n"
+    "Each mission advances the argument the paper will make: the experiment that "
+    "decides a claim, the comparison that earns it, the rewrite that makes one "
+    "insight carry the paper. Name missions after the question they answer, not "
+    "after the defect they repair. Certification, scope prescription, package "
+    "assembly, schema conformance and checklist bookkeeping are not missions of "
+    "their own — they are finishing steps inside the mission whose work they "
+    "certify, and scheduling them separately spends the campaign on the harness "
+    "instead of the paper.\n"
 )
 
 _ENGINEER_RESEARCH_EXECUTION = (

@@ -211,7 +211,11 @@ def test_research_plan_and_run_require_current_generation_backbone() -> None:
     assert "current open model generation" in plan["plan.backbone"]
     assert "live model catalog" in plan["plan.backbone"]
     assert "never the primary publication evidence" in plan["plan.backbone"]
-    assert "current-generation headline model" in benchmark["benchmark.backbone"]
+    # The backbone requirement was written into plan, benchmark and run. The
+    # middle copy only restated the plan lock, and every restatement is one
+    # more box an agent can open a mission to go tick. Planning locks it and
+    # the run proves it was executed.
+    assert "benchmark.backbone" not in benchmark
     assert "actually execute" in run["run.backbone"]
     assert "plumbing-only" in runner
     assert "cannot become headline evidence by inertia" in runner
@@ -419,3 +423,28 @@ def test_research_protocol_rejects_unsupported_magic_thresholds() -> None:
     assert "unsupported round-number gains" in plan["plan.experiment"]
     assert "continuous evidence" in brief
     assert "cost-quality frontier" in results_review
+
+
+def test_process_artifacts_are_finishing_steps_not_missions() -> None:
+    """Measured on four live ICLR campaigns: 44% of missions were bookkeeping.
+
+    Of 125 completed missions the titles broke down as 55 certification, scope,
+    checklist and package missions against 41 that ran an experiment — roughly
+    ten hours spent on the harness agreeing with itself. The mechanism is that
+    any unsatisfied artifact reads as schedulable work, so process competes with
+    science for mission slots and the analysis directories end up named after
+    repairs rather than questions.
+
+    Both roles now say the same thing from their own side: the Planner does not
+    schedule an artifact as its own mission, and the Reviewer does not return
+    work for a missing one.
+    """
+    from argus_skill.verticals.research.stages import role_banner
+
+    planner = role_banner("planner")
+    assert "Each mission advances the argument the paper will make" in planner
+    assert "Name missions after the question they answer" in planner
+    assert "are not missions of" in planner
+
+    reviewer = role_banner("reviewer")
+    assert "belongs in next_action, not in a returned verdict" in reviewer
