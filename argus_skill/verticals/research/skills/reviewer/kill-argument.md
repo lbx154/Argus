@@ -79,6 +79,14 @@ per issue in the project backlog with a specific repair plan.
 The reviewer at `review` stage will gate on whether these are
 addressed before re-running `kill-argument`.
 
+A repair plan answers the attack; it does not retreat from it. The
+cheapest way to survive any memo is to claim less, and a draft that
+survives by shrinking its thesis has lost the paper to its own red
+team. Prefer the run, the control, or the ablation that defeats the
+attack on the evidence. Narrow the claim only when the evidence
+genuinely does not reach and no affordable experiment would get it
+there — and say which experiment that was.
+
 If verdict was `KILLED`, the paper does NOT proceed to submission —
 the planner is told to consider structural rework (different
 framing, different headline result, possibly a different paper
@@ -91,6 +99,8 @@ entirely).
   the "commit to one knockout" point
 - ❌ Soft-pedal the rejection memo — "be nice" produces useless
   attacks. The hostile prompt is the entire point
+- ❌ Answer an attack by weakening the claim it targeted — the memo
+  wins that exchange and the paper is smaller for it
 - ❌ Run more than once on the same draft — by the second run, the
   attacks become predictable. Run once, fix the must-fixes, run
   again only if the draft has materially changed
