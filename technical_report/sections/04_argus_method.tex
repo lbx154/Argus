@@ -257,27 +257,29 @@ by the Manager stage decision, with Reviewer feedback rather than a second commi
 gate. Routing policy is Manager-committed, while task
 definitions are Planner-authored and scheduler-committed.
 
-We use \emph{evidence-driven} for the overall control policy that decides whether to
-persist, stop, or pivot, and \emph{verification-gated} for the narrower admission
-condition on reusable updates. The first term is chosen deliberately over
-goal-driven. A goal-driven controller treats the stated objective as the authority
-and every departure from it as error to be suppressed; an evidence-driven controller
-treats the objective as the current best hypothesis about what should be built, and
-allows evidence to overturn it. On tasks whose objective was underdefined at the
-start, the second is the correct posture, because the objective a human expert wrote
-before the work began is itself a claim that can be wrong. We use \emph{runtime self-evolution} in a deliberately
-narrow, fixed-model sense.
-The underlying model parameters remain unchanged; what evolves is the persistent
-state that later missions retrieve or obey. \emph{Verification-gated} is the
-umbrella term used in this report: a
-generated candidate is not reusable merely because a role produced it. Admission
-requires the task-native evidence that exists for that surface and a commit by its
-authorized owner. Depending on policy and risk, this can combine an official
-executable verifier with independent Reviewer judgment, permitted Engineer
-self-review, or a Manager, Planner, Scheduler, or system-configuration commit. It
-does not mean that every low-risk update requires an independent Reviewer. We use
-\emph{Reviewer-gated} only for the independent-Reviewer path and \emph{external
-grader} only for a task-native evaluator outside the role loop.
+Four terms recur and are used strictly.
+
+\begin{itemize}[leftmargin=1.3em,itemsep=2pt]
+  \item \emph{Evidence-driven} describes the control policy that decides whether to
+    persist, stop, or pivot. It is chosen against \emph{goal-driven}: that
+    controller treats the stated objective as authority and every departure as error
+    to suppress, whereas this one treats the objective as the current best hypothesis
+    and lets evidence overturn it. Where the objective was underdefined at the start,
+    the second is the only defensible posture, because what the expert wrote before
+    the work began is itself a claim that can be wrong.
+  \item \emph{Verification-gated} is the narrower admission condition on reusable
+    updates, and the umbrella term of this report: a candidate is not reusable
+    because a role produced it, but because the task-native evidence for that surface
+    exists and its authorized owner committed it. That gate may be an executable
+    verifier, an independent Reviewer, permitted Engineer self-review, or a
+    system-configuration commit---it does not mean every low-risk update needs a
+    Reviewer.
+  \item \emph{Reviewer-gated} is reserved for the independent-Reviewer path alone,
+    and \emph{external grader} for a task-native evaluator outside the role loop.
+  \item \emph{Runtime self-evolution} is used in a deliberately narrow, fixed-model
+    sense: parameters do not change, and what evolves is the persistent state that
+    later missions retrieve or obey.
+\end{itemize}
 
 A complete update cycle has four parts:
 (1) an execution trajectory produces a candidate memory, skill, procedure,

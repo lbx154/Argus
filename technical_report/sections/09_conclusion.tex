@@ -3,101 +3,53 @@
 
 An agent harness lets a model act. Someone still has to decide what is worth
 attempting, whether the attempt succeeded, and when the answer belongs to a person.
-That seat---the Driver---has been occupied by a human in every deployed agent system,
-which is why agent progress has been rate-limited by human waking hours rather than
-by model capability. \systemname{} is our attempt to hand that seat over.
+That seat---the Driver---has held a human in every deployed agent system, which is
+why agent progress has been rate-limited by waking hours rather than by capability.
+\systemname{} is our attempt to hand it over.
 
-The enabling condition turned out not to be a stronger model. It was giving the
-completion decision an owner other than the executor---and, where no dense reward
-exists, giving that owner something other than a number to decide with. Given a test
-to turn green, all three Driver questions collapse into reading a score, which is why
-self-improving agents have advanced fastest exactly there. Where the score is absent,
-\systemname{} does not manufacture one. It records progress as a typed transition in
-which an informative failure moves the frontier, refuses to let an experiment that
-never ran count as a refuted hypothesis, and scales the evidence it demands to the
-maturity of the claim. A campaign can improve for days with no number improving,
-which is the ordinary condition of research rather than an edge case. A Reviewer that runs read-only
-cannot repair the evidence it judges even when that would make the round look
-better; a Reviewer that can return \code{blocked} can decline to certify rather than
-manufacture a success; an authority boundary that stops for credentials, money, and
-irreversible actions while absorbing ordinary technical failure keeps the escalations
-rare and meaningful. These are usually described as quality features. They are more
-accurately described as the load-bearing wall of unattended operation: without them,
-a person has to stay in the room, because nothing else can be trusted to say when the
-work is done.
+The enabling condition was not a stronger model. It was giving the completion
+decision an owner other than the executor, and giving that owner something to decide
+with where no score exists. A Reviewer that runs read-only cannot repair the evidence
+it judges; one that can return \code{blocked} can decline to certify rather than
+manufacture a success; a boundary that stops for credentials and irreversible actions
+keeps escalations rare and meaningful. These are usually called quality features.
+They are more accurately the load-bearing wall of unattended operation: without them
+someone has to stay in the room, because nothing else can be trusted to say when the
+work is done. Where the dense reward is absent, the runtime records progress as a
+typed transition in which informative failure still counts, refuses to let an
+experiment that never ran refute a hypothesis, and holds the objective as a
+hypothesis rather than a target---so a campaign can improve for days with no number
+improving, which is the ordinary condition of research rather than an edge case.
 
-The delegation is measurable, so we measured it. Across \DutyCampaigns{} campaigns,
-\DutyWallHours{} wall-clock hours, and \DutyEvents{} events, the runtime asked for a
-human \DutyInterruptions{} times---one every \DutyInterval{} hours---and only
-\DutyJudgmentPercent\% of those requests were research judgment; the rest were broken
-infrastructure, authorizations the machine should not grant itself, and missing
-context. With work in hand, duty cycle runs \DutyCycleLow--\DutyCycleHigh\%, and the
-worst campaign we observed was throttled by a failed GPU driver rather than by
-hesitation. The unattended hours produced artifacts rather than uptime, most sharply in the
-domain with the least forgiving verifier. Section~\ref{sec:infra-vertical} records
-the detail: a FlashAttention-4 adaptation landing within
-\FlashDAGapLow--\FlashDAGapHigh\% of the native kernel for under
-\FlashDACostCNY{} CNY; an SGLang integration finished after more than
-\SGLangHumanHours{} hours of human effort had not finished it; and \FLAPRTotal{}
-kernels accepted by outside maintainers with no blocking changes requested, one of
-them a correctness fix with no speedup to report because before it the test suite
-could not run at all. Across seven benchmark arenas the same runtime reaches
-approximately \SWEProArgusAccuracy\% on SWE-Bench Pro against
-\SWEProDirectAccuracy\% for direct Copilot, while declaring \ReviewerFirstBlocked{}
-tasks blocked rather than reporting an unsupported success---the same gate seen from
-the other side.
+The delegation is measurable, so we measured it: \DutyInterruptions{} human requests
+across \DutyWallHours{} hours, one every \DutyInterval{} hours, of which only
+\DutyJudgmentPercent\% were research judgment, at
+\DutyCycleLow--\DutyCycleHigh\% duty cycle with work in hand. The hours produced
+artifacts rather than uptime---a FlashAttention-4 adaptation within
+\FlashDAGapLow--\FlashDAGapHigh\% of native for under \FlashDACostCNY{} CNY, an
+SGLang integration that had defeated more than \SGLangHumanHours{} hours of human
+effort, and \FLAPRTotal{} kernels accepted by outside maintainers with no blocking
+changes, one of them a correctness fix with no speedup to report because before it
+the test suite could not run at all.
 
-Long-horizon research also requires the Driver to do something a fixed-target executor
-cannot: change the target. The objective an expert states before the work begins is a
-hypothesis formed with the least information anyone will ever have, so a runtime that
-treats it as authority will execute faithfully toward a destination the evidence has
-already refuted. \systemname{} is evidence-driven instead: the current objective
-stands while evidence supports it and yields when evidence does not, with revision
-admitted only through an explicit role boundary and recorded with its justification.
-That last requirement is what separates a warranted pivot from a rationalized
-failure, since a rationalizing system can supply the narrative but not the refuting
-measurement. Persistent campaign state, four-role authority separation, and
-verification-gated updates carry that progress across model calls, tool runs,
-revisions, and restarts.
+Self-improvement here has two axes, and separating them is what keeps the claim
+falsifiable. The parameter-invariant axis compounds retained skills, verifiers, and
+refuted routes under a fixed backbone; this report measures it. The
+parameter-changing axis moves the ceiling that the first cannot, and requires
+producing weights---\systemname{} has built the pretraining stack, which is the entry
+condition rather than the closed loop. The two are coupled: operating on the first
+generates the typed trajectories the second would train on, so a runtime that
+self-evolves while recording how it did so assembles its own supervision as a
+byproduct of working. Training on that corpus, and measuring whether the resulting
+model improves the runtime that built it, is what remains.
 
-The self-improvement claim separates into two axes. The parameter-invariant axis is
-what this report measures and is deliberately verification-gated: candidate memories,
-skills, procedures, verifiers, routing decisions, and rejected routes alter future
-work only after evidence checks and an authorized commit, while model parameters stay
-fixed. A failed branch thus becomes reusable progress without letting an unverified
-narrative rewrite the campaign. That axis compounds, but within a ceiling---no
-accumulation of state makes a frozen backbone reason past its limit. The
-parameter-changing axis moves the ceiling, and reaching it requires producing
-weights; \systemname{} built and ran a from-scratch 1B pretraining stack on an
-eight-GPU B200 node, which is the entry condition rather than the closed loop. The
-two axes are coupled: operating on the first produces the typed trajectories the
-second would train on, so a runtime that self-evolves while recording how it did so
-is assembling its own supervision as a byproduct of working. Training on that corpus,
-and measuring whether the resulting model improves the runtime that built it, is what
-remains.
-
-The report-level $K_t/X_t$ model and \code{ManagerAdmit} operator make the
-evidence-and-authority requirements for contract refinement explicit; they summarize
-distributed runtime surfaces rather than one atomic API. The process-to-capability
-theory explains how this runtime converts Token activity
-into retained research progress. Typed trajectories contain more decision-relevant
-information than final artifacts alone, review separates proposal from admission,
-and reuse changes the starting point of future missions. The mathematical
-campaign makes this mechanism visible through one rejected route and six accepted
-theorem-frontier updates produced by the Manager, Planner, Engineer, and Reviewer.
-
-The six-paper production case provides a second vertical view. Across
-\PaperCaseCampaignHours{} aggregate campaign-hours, Argus repeatedly survives
-review rejection, Stage rollback, and session replacement while producing two
-AAAI- and four ACL-formatted manuscripts. In the representative campaign, seven
-rejected method routes become a 4,500-row negative-results study, and two late
-submission rollbacks repair the evidence package without resetting the paper. This
-illustrates how the runtime can connect hypothesis revision, experiment
-execution, and sustained scientific communication, while the stale assurance
-snapshot in one project identifies a concrete synchronization failure for future
-work.
-
-These trajectories also define a natural interface to model training. Supervised,
-preference-based, and reinforcement-learning methods can use the accumulated
-objectives, actions, measurements, revisions, and state transitions to internalize
-parts of the long-horizon research loop.
+The report is deliberate about what it does not establish. Duty cycle and
+interruption rate come from production campaigns rather than a controlled protocol.
+The delivery comparisons are bounding observations against human effort, not matched
+trials. The counterfactual value of retained state requires a frozen-state replay we
+have not run, and the false-acceptance rate of review requires randomized routing
+with an external grader. What the evidence does support is narrower and, we think,
+more useful: one runtime carried research-level work across software, kernels,
+silicon, mathematics, materials, and manuscripts while a person was not watching, and
+the mechanism that made that acceptable was not autonomy granted to the executor but
+authority withheld from it.

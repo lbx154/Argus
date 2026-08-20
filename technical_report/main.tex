@@ -179,85 +179,53 @@
 \textbf{Abstract.}
 An agent harness lets a model reach the real world. Something still has to decide
 where to reach, when the result is good enough, and when to stop and ask. That seat
-has always been occupied by a person, which is why agentic progress is bounded by a
-resource nobody can scale: human waking hours. The work pauses when its operator
-sleeps, so human intelligence is delivered in discrete bursts. We call the occupant
-of that seat the \emph{Driver}, and we hand it to the machine. The Driver's job
-decomposes into three questions: \emph{is this actually done}, \emph{what is worth
-doing next}, and \emph{does this need a person}. \systemname answers the first with
-an independent read-only Reviewer that cannot edit the evidence it judges and can
-withhold completion outright, the second with a Manager-owned stage authority over
-a durable campaign, and the third with an authority boundary that stops for
-credentials, money, and irreversible actions while absorbing ordinary technical
-failure. Verification is therefore not a quality filter bolted onto execution; it is
-the load-bearing wall that makes the seat delegable at all. It also makes the runtime
-\emph{evidence-driven} rather than goal-driven: on work that is underdefined at the
-outset, the objective an expert states first is a hypothesis formed with the least
-information anyone will ever have, so departure from it is not automatically drift to
-be suppressed---if the objective is wrong, departing from it is correct. What must be
-disciplined is not the revision but its justification, and \systemname{} admits one
-only when evidence refutes the prior framing, an explicit role boundary is crossed,
-and the reason is recorded.
+has always held a person, which bounds agentic progress by a resource nobody can
+scale: human waking hours. We call its occupant the \emph{Driver} and hand it to the
+machine. Its three questions---is this done, what is worth doing next, does this need
+a person---are trivial under a dense reward and hard without one, which is why
+self-improving agents have advanced fastest where scores exist and why that progress
+has not transferred. \systemname{} answers the first with an independent read-only
+Reviewer that cannot edit the evidence it judges and may withhold completion, the
+second with Manager-owned stage authority over a durable campaign, and the third with
+a boundary that stops for credentials, money, and irreversible actions while
+absorbing ordinary technical failure. Verification is therefore not a quality filter
+bolted onto execution; it is what makes the seat delegable at all. Where no score
+exists the runtime does not manufacture one, since that would have the same system
+produce both the work and its grade. It records progress as a typed transition in
+which an informative failure still moves the frontier, refuses to let an experiment
+that never ran count as a refuted hypothesis, and treats the stated objective as a
+revisable hypothesis rather than a target to defend---if the objective is wrong,
+departing from it is correct.
 
-This matters most where no dense reward exists. Given a test to turn green or a
-leaderboard to climb, all three Driver questions collapse into reading a number,
-which is why self-improving agents have advanced fastest exactly there and why that
-progress has not transferred. Rather than manufacture a score---which would have the
-same system produce both the work and its grade---\systemname{} replaces the scalar
-with a typed vocabulary of frontier transitions in which an informative failure is
-recorded as forward motion, separates execution failure from hypothesis refutation so
-that a run which never executed cannot refute an idea, and scales the required
-evidence to the maturity of the claim. A campaign can therefore improve for days
-without any number improving.
+We measure the delegation. Across \DutyCampaigns{} campaigns spanning
+\DutyWallHours{} wall-clock hours, \systemname{} asked for a human
+\DutyInterruptions{} times, once every \DutyInterval{} hours. Composition matters
+more than rate: \DutyInfraPercent\% reported broken infrastructure and
+\DutyAuthorityPercent\% requested credentials or budget, while only
+\DutyJudgmentPercent\% were research judgment. With work in hand, duty cycle runs
+\DutyCycleLow--\DutyCycleHigh\%, and the campaign that fell to
+\DutyDegradedCycle\% is the one whose GPU driver failed---the ceiling is
+infrastructure, not autonomy. A turn-by-turn coding agent sustains roughly
+\CodexEndurance{} hour unattended by comparison.
 
-We measure the delegation directly. Across \DutyCampaigns{} campaigns spanning
-\DutyWallHours{} wall-clock hours and \DutyEvents{} logged events, \systemname{}
-raised \DutyInterruptions{} requests for a human---one every \DutyInterval{} hours.
-Their composition matters more than their rate: \DutyInfraPercent\% reported broken
-infrastructure and \DutyAuthorityPercent\% requested credentials or budget, while
-only \DutyJudgmentPercent\% were research judgment. With work in hand, duty cycle
-runs \DutyCycleLow--\DutyCycleHigh\%; the sole campaign that fell to
-\DutyDegradedCycle\% is the one whose GPU driver and container storage failed
-repeatedly, which locates the ceiling in infrastructure rather than autonomy. A
-coding agent driven turn-by-turn sustains roughly \CodexEndurance{} hour unattended
-by comparison.
-
-Uptime alone would describe an expensive idle loop, so we pair it with delivery, and
-the least forgiving evidence comes from GPU and serving infrastructure, where a claim
-survives only until someone runs the tool that contradicts it. \systemname{} carried
-six diffusion-LLM mask families into a FlashAttention-4 CuTe DSL kernel across two
-GPU architectures, passing all \FlashDAParity{} parity cases and landing within
-\FlashDAGapLow--\FlashDAGapHigh\% of the native kernel---\FlashDAVsTriton$\times$
-faster than the production Triton path---for under \FlashDACostCNY{} CNY of model
-spend, after abandoning a first route that ran 4.9--\FlashDAWorstRoute$\times$ slower than
-native and retaining it as evidence. It completed a SenseNova U1 integration into
-SGLang (\SGLangFiles{} files, \code{+\SGLangLines{}} lines, exact parity on 160 of
-160 tokens, \SGLangThroughput$\times$ throughput at batch size 8) that one engineer
-working with a turn-by-turn agent had not finished in over \SGLangHumanHours{} hours,
-and it ran a frontier audio-video model whose weights exceed 62\,GiB on a 24\,GB
-laptop. \FLAPRTotal{} kernels it authored---a TileLang RWKV6 backend, a KDA training
-acceleration, a long-sequence reduction rewrite, and a two-line Blackwell fix for an
-illegal memory access that had rendered a test suite uncompletable---were reviewed by
-outside maintainers of \code{flash-linear-attention} and accepted with no blocking
-changes requested. In
-materials science, judged by an external chemistry validator it does not own, it
-added discrete chemical control to a published MOF generator, raised structural
-discrimination from 0.594 to 0.833 AUC, and then showed that a \emph{simpler}
-sampling method outperforms the published one at matched compute---a finding that
-became admissible only after a confound in the original comparison was removed.
-
-Self-improvement here has two axes. On the parameter-invariant one, which this report
-measures, retained skills, verifiers, and routing let mature waves run on
-\SWEProTokenReduction\% fewer solve input Tokens under an unchanged backbone. On the
-parameter-changing one, the runtime built and ran a from-scratch 1B pretraining stack
-on an eight-GPU B200 node---the entry condition for moving a ceiling no accumulation
-of state can move, with training on its own trajectories and measuring the result in
-a role still ahead. Across seven benchmark arenas the same runtime reaches
+Those hours produced work, most stringently where the verifier is unforgiving.
+\systemname{} carried six diffusion-LLM mask families into a FlashAttention-4 kernel
+across two GPU architectures, passing all \FlashDAParity{} parity cases within
+\FlashDAGapLow--\FlashDAGapHigh\% of native for under \FlashDACostCNY{} CNY of model
+spend, after abandoning a first route that ran slower than the baseline and retaining
+it as evidence. It finished a SenseNova U1 integration into SGLang that one engineer
+had not completed in over \SGLangHumanHours{} hours. \FLAPRTotal{} kernels it
+authored were reviewed by outside maintainers of \code{flash-linear-attention} and
+accepted with no blocking changes. Against an external chemistry validator it raised
+MOF structural discrimination from 0.594 to 0.833 AUC and showed a \emph{simpler}
+sampler beating the published one at matched compute. Pointed inward, it built a
+from-scratch 1B pretraining stack---the entry condition for a ceiling that retained
+state alone cannot move. Across seven benchmark arenas the same runtime reaches
 approximately \SWEProArgusAccuracy\% on SWE-Bench Pro against
 \SWEProDirectAccuracy\% for direct Copilot, and declares \ReviewerFirstBlocked{}
-tasks blocked rather than reporting an unsupported success. Unattended operation, on
-this evidence, is not a longer leash on the same loop. It is what becomes possible
-once completion has an owner other than the executor.
+tasks blocked rather than reporting an unsupported success. Unattended operation is
+not a longer leash on the same loop; it is what becomes possible once completion has
+an owner other than the executor.
 \end{abstractbox}
 
 \noindent{\footnotesize\color{muted}

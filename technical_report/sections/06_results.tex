@@ -48,30 +48,26 @@ merged into \code{fla-org:main}
 {commit \code{c70f11c}}); Appendix~\ref{app:upstream-kernel} records the technical
 details.
 
-An eighth arena is in progress and is reported here as a partial result. The
-MLE-Bench Lite campaign runs the official MLE-Bench Low split
-~\citep{chan2024mlebench} under a reviewer-approved medal gate: a competition counts
-as complete only when an independently reviewed submission earns a Kaggle medal, so
-the reported outcomes are medals rather than raw leaderboard positions.
-Table~\ref{tab:mle-medals} lists the competitions closed to date: \MLEMedals{}
-medals from \MLEGraded{} graded competitions, a \MLEMedalRate\% medal rate, evenly
-split into three gold, three silver, and three bronze. The gate is narrow
-rather than nominal. On \code{denoising-dirty-documents} the campaign settled
-0.00009 RMSE short of the silver band, and on
-\code{jigsaw-toxic-comment-classification-challenge} it cleared the bronze
-threshold by 0.00018 AUC; both outcomes were awarded by the external grader
-against the official Kaggle leaderboard, not by internal review. The remaining four
-graded competitions closed without a medal; two are documented in detail, with
-\code{dog-breed-identification} finishing above the median after twelve submissions
-and \code{new-york-city-taxi-fare-prediction} remaining below it after four. We
-report the denominator rather than the medal count alone because a medal rate stated
-without its graded total is not interpretable. The
-transparent-conductor result is also a verification-gated route change: the
-external grader rejected the initial approach at 0.208 RMSLE, the campaign
-replaced it with a public-state-of-the-art method, and the grader then certified
-the replacement inside the medal band at 0.06402 against a 0.06582 bronze
-threshold. The remaining competitions continue to run; we exclude this arena from
-Table~\ref{tab:benchmark-results} and will report the full split on completion.
+An eighth arena is in progress and reported as partial. The MLE-Bench Lite campaign
+runs the official Low split~\citep{chan2024mlebench} under a reviewer-approved medal
+gate: a competition closes only when an independently reviewed submission earns a
+Kaggle medal, so outcomes are medals rather than leaderboard positions.
+Table~\ref{tab:mle-medals} lists those closed to date---\MLEMedals{} medals from
+\MLEGraded{} graded competitions, a \MLEMedalRate\% rate, evenly split across gold,
+silver, and bronze. We report the denominator because a medal rate without its graded
+total is not interpretable; the remaining four closed without a medal, two of them
+documented in detail.
+
+The gate is narrow rather than nominal. On \code{denoising-dirty-documents} the
+campaign settled 0.00009 RMSE short of the silver band, and on
+\code{jigsaw-toxic-comment-classification-challenge} it cleared bronze by 0.00018
+AUC---both awarded by the external grader against the official leaderboard, not by
+internal review. The transparent-conductor result is also a route change under that
+gate: the grader rejected the initial approach at 0.208 RMSLE, the campaign replaced
+it with a published state-of-the-art method, and the grader certified the replacement
+at 0.06402 against a 0.06582 bronze threshold. Remaining competitions continue; we
+exclude this arena from Table~\ref{tab:benchmark-results} and will report the full
+split on completion.
 
 \begin{table}[H]
 \centering
