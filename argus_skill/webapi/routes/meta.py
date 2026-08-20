@@ -86,7 +86,10 @@ def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
             )
         }
 
-    @app.get("/api/projects/{sid}/doctor")
+    @app.get(
+        "/api/projects/{sid}/doctor",
+        dependencies=[Depends(ctx.require_auth)],
+    )
     def _doctor(sid: str) -> dict[str, Any]:
         return ctx.not_found_if_none(
             server_mod.get_doctor(sid, global_root=ctx.project_root_or_404(sid)), sid

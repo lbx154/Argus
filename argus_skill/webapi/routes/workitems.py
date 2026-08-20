@@ -130,13 +130,19 @@ def register_workitem_routes(app, ctx: ServerContext, server_mod) -> None:
             )
         return result
 
-    @app.get("/api/projects/{sid}/status")
+    @app.get(
+        "/api/projects/{sid}/status",
+        dependencies=[Depends(ctx.require_auth)],
+    )
     def _status(sid: str) -> dict[str, Any]:
         return ctx.not_found_if_none(
             server_mod.get_status(sid, global_root=ctx.project_root_or_404(sid)), sid
         )
 
-    @app.get("/api/projects/{sid}/journal")
+    @app.get(
+        "/api/projects/{sid}/journal",
+        dependencies=[Depends(ctx.require_auth)],
+    )
     def _journal(sid: str, n: int = Query(10, ge=1, le=500)) -> dict[str, Any]:
         return {
             "journal": ctx.not_found_if_none(
@@ -147,7 +153,10 @@ def register_workitem_routes(app, ctx: ServerContext, server_mod) -> None:
             )
         }
 
-    @app.get("/api/projects/{sid}/transcript")
+    @app.get(
+        "/api/projects/{sid}/transcript",
+        dependencies=[Depends(ctx.require_auth)],
+    )
     def _transcript(sid: str, n: int = Query(20, ge=1, le=500)) -> dict[str, Any]:
         return {
             "turns": ctx.not_found_if_none(
@@ -158,7 +167,10 @@ def register_workitem_routes(app, ctx: ServerContext, server_mod) -> None:
             )
         }
 
-    @app.get("/api/projects/{sid}/backlog/{item_id}")
+    @app.get(
+        "/api/projects/{sid}/backlog/{item_id}",
+        dependencies=[Depends(ctx.require_auth)],
+    )
     def _backlog_item(sid: str, item_id: str) -> dict[str, Any]:
         item = server_mod.get_backlog_item(
             sid, item_id, global_root=ctx.project_root_or_404(sid)

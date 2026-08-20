@@ -23,7 +23,7 @@ from .models import LaunchCwdIn, ProjectUpdateIn, WorkdirIn
 
 
 def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
-    @app.get("/api/projects")
+    @app.get("/api/projects", dependencies=[Depends(ctx.require_auth)])
     def _projects(
         limit: int = Query(100, ge=1, le=2000),
         include_empty: bool = Query(False),
@@ -172,7 +172,10 @@ def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
             raise HTTPException(status_code=409, detail=result.get("error", "project is busy"))
         return result
 
-    @app.get("/api/projects/{sid}/snapshot")
+    @app.get(
+        "/api/projects/{sid}/snapshot",
+        dependencies=[Depends(ctx.require_auth)],
+    )
     def _snapshot(
         sid: str,
         events_limit: int = Query(80, ge=1, le=500),
@@ -204,7 +207,10 @@ def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
             sid,
         )
 
-    @app.get("/api/projects/{sid}/events")
+    @app.get(
+        "/api/projects/{sid}/events",
+        dependencies=[Depends(ctx.require_auth)],
+    )
     def _events(
         sid: str,
         limit: int = Query(80, ge=1, le=1000),

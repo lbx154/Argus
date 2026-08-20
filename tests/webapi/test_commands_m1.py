@@ -1839,8 +1839,18 @@ def test_bearer_auth_on_posts(ctx) -> None:
         f"/api/projects/{sid}/tasks", json=body, headers={"Authorization": "Bearer secret123"}
     )
     assert ok.status_code == 200
-    # reads stay open (no auth on GET)
-    assert client.get(f"/api/projects/{sid}/snapshot").status_code == 200
+    # Reads are protected too. The line here used to read "reads stay open (no
+    # auth on GET)" directly above a note that artifact reads are protected
+    # "because they expose project files" — and the transcript, journal and
+    # snapshot expose more than the artifacts do.
+    assert client.get(f"/api/projects/{sid}/snapshot").status_code == 401
+    assert (
+        client.get(
+            f"/api/projects/{sid}/snapshot",
+            headers={"Authorization": "Bearer secret123"},
+        ).status_code
+        == 200
+    )
     # Artifact reads are deliberately protected because they expose project files.
     assert client.get(f"/api/projects/{sid}/artifacts").status_code == 401
     assert (
@@ -1882,3 +1892,41 @@ def test_ws_requires_token_when_configured(ctx) -> None:
         with tc.websocket_connect(f"/api/projects/{sid}/stream?token=secret123&replay=0") as ws:
             assert ws is not None
             ws.close()
+
+
+def test_a_configured_token_also_guards_the_reads(ctx) -> None:
+    """A LAN bind mints a token and says it protects the surface. It must.
+
+    `argus --web --web-host 0.0.0.0` prints "a token was generated for this
+    run" and the flag help promises that a non-loopback bind always requires a
+    bearer token. Every POST honoured that; the reads did not, so any host on
+    the network could fetch the project list, the journal, the events, the
+    snapshot and the full agent transcript by asking. `/api/system/doctor` was
+    guarded while `/api/projects/{sid}/doctor` beside it was not, which is what
+    an omission looks like rather than a decision.
+    """
+    root, sid, _ = ctx
+    client = TestClient(server.create_app(global_root=root, auth_token="secret123"))
+    reads = (
+        "/api/projects",
+        f"/api/projects/{sid}/snapshot",
+        f"/api/projects/{sid}/events",
+        f"/api/projects/{sid}/status",
+        f"/api/projects/{sid}/journal",
+        f"/api/projects/{sid}/transcript",
+        f"/api/projects/{sid}/doctor",
+    )
+    for path in reads:
+        assert client.get(path).status_code == 401, f"{path} served without a token"
+        assert (
+            client.get(path, headers={"Authorization": "Bearer secret123"}).status_code
+            != 401
+        ), f"{path} refused the configured token"
+
+
+def test_the_default_localhost_bind_stays_open(ctx) -> None:
+    """No token configured is the ordinary `argus --web` case; nothing changes."""
+    root, sid, _ = ctx
+    client = TestClient(server.create_app(global_root=root))
+    for path in ("/api/projects", f"/api/projects/{sid}/journal"):
+        assert client.get(path).status_code == 200
