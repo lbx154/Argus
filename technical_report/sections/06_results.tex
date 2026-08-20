@@ -17,7 +17,7 @@ the task and metric for each row.
 \textbf{Benchmark} & \textbf{Backbone} & \textbf{Backend} & \textbf{Protocol} & \textbf{\systemname result} & \textbf{Comparison} \\
 \midrule
 SWE-Bench Pro & GPT-5.5/xhigh & Copilot & 731 software-repair tasks & $\approx$78\% accuracy & Direct Copilot $\approx$59\%; 1.41$\times$ aggregate Tokens \\
-SOL-ExecBench & GPT-5.5 & Codex & B200; 101 kernels & Global \#6; 2$\times$\#1; 7 top-3 & Two head-to-head wins over Recursive \\
+SOL-ExecBench & GPT-5.5 & Codex & B200; 101 kernels & Rank \#6 globally; 7 kernels in the top 3 & Beat the \#1-ranked entrant on 2 kernels head to head \\
 nanochat B200 & GPT-5.5 & Codex & 5 min; 1$\times$B200 & 0.9636 BPB & Human best 0.9646 \\
 nanochat H100 & GPT-5.5 & Codex & 5 min; 1$\times$H100 & 0.9855 BPB & Human best 0.9879 \\
 nanoGPT speedrun & GPT-5.5 & Codex & 8$\times$H100; $N{=}10$ & 79.77 s & Same-device human 80.18 s \\
@@ -384,7 +384,7 @@ with narrative.
 \midrule
 \multicolumn{3}{@{}l}{\textit{Benchmark harnesses (Section~\ref{sec:results})}} \\
 SWE-Bench Pro & $\approx$\SWEProArgusAccuracy\% vs \SWEProDirectAccuracy\% direct; \ReviewerFirstBlocked{} declared blocked & Official verifier \\
-SOL-ExecBench & Global \#6; $2\times$ the \#1 score; 7 top-3 placements & Official scorer \\
+SOL-ExecBench & Rank \#6 globally; 7 kernels placed top-3; beat the \#1 entrant on 2 & Official scorer \\
 nanochat B200 / H100 & 0.9636 / 0.9855 BPB vs 0.9646 / 0.9879 human best & Fixed protocol \\
 nanoGPT speedrun & 79.77\,s vs 80.18\,s same-device human & Verifier runs \\
 AARRI-Bench & 63/82 (76.8\%) vs 68.3\% paper best & Task rubric \\

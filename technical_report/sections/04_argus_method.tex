@@ -14,6 +14,20 @@ what happened without deciding whether the work is scientifically complete. The
 distinction is operational: control owns scheduling, execution owns work and mission
 review, and the record plane owns the immutable record but no completion decision.
 
+Four nested scopes recur throughout this report and are worth fixing once. A
+\emph{vertical} is a domain configuration---it declares the stage order, the evidence
+each stage requires, and what counts as completion; the runtime ships twenty-four of
+them, covering software, chip design, mathematics, materials, and others. A
+\emph{campaign} is one long-running project under a vertical, with a persistent
+identity that survives restarts; the campaigns measured in
+Section~\ref{sec:duty-cycle} run for days. A campaign advances through
+\emph{Stages}, which are the vertical's declared phases and whose transitions only
+the Manager may authorize. Work inside a Stage is divided into \emph{bounded
+missions}, each assigned singly and each ending in an explicit outcome. A mission
+runs as a sequence of \emph{rounds}, one Engineer turn plus its review. Vertical
+selects the rules, campaign is the thing that persists, Stage is where it currently
+is, mission is what it is doing now.
+
 The four roles divide research authority as summarized in
 Table~\ref{tab:roles}. The Manager spans the campaign rather than one execution
 round. The Planner authors future work and the Engineer performs it. Mission-level

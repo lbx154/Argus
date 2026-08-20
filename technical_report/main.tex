@@ -249,9 +249,10 @@ not a result we report.
   include \code{blocked}, which withholds completion outright. The Planner answers Q2
   under a Manager that holds sole authority over Stage transitions. Q3 is an explicit
   boundary: credentials, budget, publication, and irreversible actions stop for the
-  operator, while ordinary technical failure does not. The dashed return path is the
-  plan-challenge channel---a Reviewer holding disconfirming evidence may mark the plan
-  for reconsideration, and the Manager decides whether to keep, revise, or replace it,
+  operator, while ordinary technical failure does not. The dashed return path exists because a
+  Reviewer sees evidence the Planner did not have: holding a result that contradicts
+  the plan, it may mark that plan for reconsideration rather than only judging the
+  work done under it, and the Manager decides whether to keep, revise, or replace it,
   which prevents an early decision from binding better-informed rounds
   (Section~\ref{sec:endogenous-harness}). All roles operate over a shared workspace
   whose knowledge, event log, artifacts, backlog, budget, daemon, and memory persist
