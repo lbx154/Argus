@@ -110,7 +110,9 @@ def _runner_for(backend: str, agent_bin: str) -> Any | None:
 
 
 def _ask(seat: tuple[str, str], prompt: str, workdir: str, label: str) -> str:
-    from ...core.models import RunnerOptions
+    # The runner's own options type, not the core one: only this carries the
+    # fields the per-backend command builders read.
+    from ...agent_cli.agent_cli_runner import RunnerOptions
     from ...core.run_gateway import run_exec as gateway_run_exec
     from .idea_search import _extract_message
 
@@ -122,21 +124,34 @@ def _ask(seat: tuple[str, str], prompt: str, workdir: str, label: str) -> str:
     if runner is None:
         return ""
     options = RunnerOptions(
+        model=model or None,
         reasoning_effort="high",
         working_dir=workdir,
         skip_git_repo_check=True,
         full_auto=True,
         live_search=True,
     )
-    if model:
-        options = options.__class__(**{**vars(options), "model": model})
     try:
+        # Every seat argues from a clean session: a bare runner also wants the
+        # thread stated, where the campaign's wrapper defaults it.
         return _extract_message(
-            gateway_run_exec(runner, prompt=prompt, options=options, run_label=label)
+            gateway_run_exec(
+                runner,
+                prompt=prompt,
+                options=options,
+                run_label=label,
+                resume_thread_id=None,
+            )
         ).strip()
     except Exception:  # noqa: BLE001 — one silent panellist must not end the panel
         log.debug("idea-panel: %s produced nothing", backend, exc_info=True)
         return ""
+
+
+def _seat_id(seat: tuple[str, str]) -> str:
+    """Name a seat by the model it speaks for, falling back to its CLI."""
+    backend, model = seat
+    return f"{backend}:{model}" if model else backend
 
 
 def _cross_examination_prompt(direction: str, others: str) -> str:
@@ -179,37 +194,44 @@ def run_panel(
             return ""
         cwd = str(workdir)
         log.info(
-            "idea-panel: seating %d cross-vendor models (%s)",
+            "idea-panel: seating %d models (%s)",
             len(seats),
-            ", ".join(b for b, _ in seats),
+            ", ".join(_seat_id(seat) for seat in seats),
         )
 
-        proposals: list[tuple[str, str]] = []
+        proposals: list[tuple[tuple[str, str], str]] = []
         for seat in seats:
             body = _ask(seat, proposal_prompt, cwd, "idea-panel-propose")
             if "## Candidate" in body:
-                proposals.append((seat[0], body))
+                proposals.append((seat, body))
         if len(proposals) < 2:
             return ""
 
         sections = [
-            f"\n## Candidates from `{backend}`\n\n{body}\n" for backend, body in proposals
+            f"\n## Candidates from `{_seat_id(seat)}`\n\n{body}\n" for seat, body in proposals
         ]
 
-        for backend, _ in proposals:
+        for seat, _ in proposals:
+            # Identity is the seat, not the launcher: two models reached through
+            # one CLI are still two labs, and each must be handed the other's
+            # candidates rather than an empty page.
             others = "\n\n".join(
-                f"### From {other}\n\n{body}"
+                f"### From {_seat_id(other)}\n\n{body}"
                 for other, body in proposals
-                if other != backend
+                if other != seat
             )
+            if not others:
+                continue
             review = _ask(
-                (backend, dict(seats).get(backend, "")),
+                seat,
                 _cross_examination_prompt(direction, others),
                 cwd,
                 "idea-panel-review",
             )
             if review:
-                sections.append(f"\n## Cross-examination by `{backend}`\n\n{review}\n")
+                sections.append(
+                    f"\n## Cross-examination by `{_seat_id(seat)}`\n\n{review}\n"
+                )
 
         log.info("idea-panel: %d proposal set(s) and their reviews", len(proposals))
         return "".join(sections)

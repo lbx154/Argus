@@ -94,6 +94,32 @@ def test_proposals_and_cross_examination_are_both_recorded(monkeypatch) -> None:
     assert "## Cross-examination by `claude`" in out
 
 
+def test_two_models_on_one_backend_still_see_each_other(monkeypatch) -> None:
+    """The single-subscription panel: both seats share a launcher, so keying
+    identity on the backend handed each of them an empty page and they reviewed
+    candidates they had invented."""
+    monkeypatch.setattr(idea_panel, "_resolve_bin", lambda backend: "/usr/bin/x")
+    reviews: list[str] = []
+
+    def _ask(seat, prompt, workdir, label):
+        if label == "idea-panel-propose":
+            return f"## Candidate from {seat[1]}"
+        reviews.append(prompt)
+        return "### Panel bet\nx"
+
+    monkeypatch.setattr(idea_panel, "_ask", _ask)
+    out = idea_panel.run_panel(
+        ".", direction="d", proposal_prompt="p",
+        configured="copilot:gpt-5.5,copilot:gemini-3.1-pro-preview",
+    )
+
+    assert len(reviews) == 2
+    assert "## Candidate from gemini-3.1-pro-preview" in reviews[0]
+    assert "## Candidate from gpt-5.5" in reviews[1]
+    assert "## Cross-examination by `copilot:gpt-5.5`" in out
+    assert "## Cross-examination by `copilot:gemini-3.1-pro-preview`" in out
+
+
 def test_a_reviewer_never_cross_examines_itself(monkeypatch) -> None:
     """The value is in being argued with by a model that shares none of your
     training, so a seat must not be handed back its own candidates."""
@@ -138,7 +164,7 @@ def test_one_backend_produces_exactly_the_old_single_model_call(tmp_path, monkey
 
     labels: list[str] = []
 
-    def _gateway(runner, *, prompt, options, run_label):
+    def _gateway(runner, *, prompt, options, run_label, **_kw):
         labels.append(run_label)
         return _runner_result("## Candidate A: something")
 
@@ -161,7 +187,7 @@ def test_two_backends_debate_instead(tmp_path, monkeypatch) -> None:
 
     labels: list[str] = []
 
-    def _gateway(runner, *, prompt, options, run_label):
+    def _gateway(runner, *, prompt, options, run_label, **_kw):
         labels.append(run_label)
         return _runner_result("## Candidate A: something")
 
