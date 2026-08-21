@@ -7,7 +7,7 @@ description: "Generate and audit a research-paper illustration with the configur
 
 This is the **image-2 renderer-specific procedure**, not the global research
 figure policy. The research vertical's `Research Visualization Router` decides
-whether image-2, deterministic SVG/HTML, a diagram tool, a data-chart tool, or
+whether image-2, browser-rendered HTML, a diagram tool, a data-chart tool, or
 PPT Master best fits the figure.
 
 ## Preconditions

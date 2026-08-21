@@ -73,17 +73,17 @@ selected venue profile and official author kit.
 
 | Current blocker / task | Read this skill first | Use it to decide or produce |
 | --- | --- | --- |
-| Stage order, readiness state, pivots, or "what next?" | `argus_builtin_skills/auto-research-pipeline.md` | `.argus/PIPELINE_STATE.json`, stage gates, when to move backward from paper drafting to experiments |
-| Experiment implementation, public-benchmark runs, comparisons, controls, progress files | `argus_builtin_skills/engineer/research-experiment-runner.md` | runnable harnesses, manifests, status/progress, raw evidence, cancellation |
-| Results analysis, result tables, and research figures | `argus_builtin_skills/engineer/research-results-analysis-and-figures.md` + research vertical `research-visualization-router.md` | `RESULTS_REPORT.md`, result-to-claim tables, figure source/render/review artifacts, `FIGURE_PROVENANCE.json`; image-2 outputs also retain `IMAGE2_FIGURES.json` |
-| Exemplar PDFs, page rhythm, structure blueprint, conformance | `argus_builtin_skills/paper-exemplar-pdf-learning.md` | exemplar PDFs/text, `STYLE_PROFILE.md`, `PAPER_STRUCTURE_BLUEPRINT.md`, structure conformance artifacts |
-| Accepted-paper argument and official-code organization | `argus_builtin_skills/paper-exemplar-pdf-learning.md` | `ARGUMENT_ORGANIZATION.json`: problem/gap/insight/contribution/method/evidence maps, available official-code module/config/eval maps, and a local transfer plan; no reproduction or prose copying |
+| Stage order, readiness state, pivots, or "what next?" | `the `auto-research-pipeline.md` skill` | `.argus/PIPELINE_STATE.json`, stage gates, when to move backward from paper drafting to experiments |
+| Experiment implementation, public-benchmark runs, comparisons, controls, progress files | `the `research-experiment-runner.md` skill` | runnable harnesses, manifests, status/progress, raw evidence, cancellation |
+| Results analysis, result tables, and research figures | `the `research-results-analysis-and-figures.md` skill` + research vertical `research-visualization-router.md` | `RESULTS_REPORT.md`, result-to-claim tables, figure source/render/review artifacts, `FIGURE_PROVENANCE.json`; image-2 outputs also retain `IMAGE2_FIGURES.json` |
+| Exemplar PDFs, page rhythm, structure blueprint, conformance | `the `paper-exemplar-pdf-learning.md` skill` | exemplar PDFs/text, `STYLE_PROFILE.md`, `PAPER_STRUCTURE_BLUEPRINT.md`, structure conformance artifacts |
+| Accepted-paper argument and official-code organization | `the `paper-exemplar-pdf-learning.md` skill` | `ARGUMENT_ORGANIZATION.json`: problem/gap/insight/contribution/method/evidence maps, available official-code module/config/eval maps, and a local transfer plan; no reproduction or prose copying |
 | First LaTeX draft, citations, bibliography, narrative | selected venue drafting skill + official author kit | `paper/main.tex`, page/word budget, draft report, BibTeX connected to claims |
 | Format, page/word budget, references, appendix/checklist flow | selected venue format preflight | classify whether to fix layout/prose or route back to evidence |
-| Weak claims, unsupported numbers, evidence gaps, stale artifacts | `argus_builtin_skills/engineer/claims-evidence-audit.md` | source-level claim/result corrections and the smallest missing experiment |
+| Weak claims, unsupported numbers, evidence gaps, stale artifacts | `the `claims-evidence-audit.md` skill` | source-level claim/result corrections and the smallest missing experiment |
 | Academic tone and model-backed prose critique after evidence is stable | selected venue academic-language review | fresh `ACADEMIC_LANGUAGE_REVIEW.json` and concrete directives |
-| Iterative paper repair after review feedback | `argus_builtin_skills/paper-review-revision-loop.md` | source-level revisions plus review reruns, without hand-editing stale generated outputs |
-| Final paper review | `argus_builtin_skills/engineer/final-paper-review.md` | independent reading of the current manuscript, PDF, and claim-critical sources |
+| Iterative paper repair after review feedback | `the `paper-review-revision-loop.md` skill` | source-level revisions plus review reruns, without hand-editing stale generated outputs |
+| Final paper review | `the `final-paper-review.md` skill` | independent reading of the current manuscript, PDF, and claim-critical sources |
 
 Routing rule: if the blocker is "paper is too short", "format looks fake", "references look bad", or "figure is wrong", first determine whether evidence/full-scale runs/claim support are missing. Missing evidence routes to benchmark execution or analysis before prose/layout polish.
 
@@ -306,7 +306,7 @@ plan stage after the idea survives de-risk. Clone and inspect the selected
 framework plus any decision-critical runner-up; do not clone every search hit.
 
 1. **Anchor against the bundled baseline:** read
-   `argus_builtin_skills/training-infrastructure-guide.md` first. It is
+   `the `training-infrastructure-guide.md` skill` first. It is
    the operator-curated starting point covering LLM SFT/DPO/RLHF, agent
    RL, diffusion (T2I), LLM inference, and API inference.
 2. **Search further only when needed** for method compatibility or an
@@ -516,7 +516,7 @@ checklist to be ticked off by the reviewer.
 6. Figure 1 is mandatory for a submission-quality paper: render a real external
    teaser/method/framework/architecture/taxonomy overview that communicates the
    problem, core mechanism, and claim-bearing flow. image-2 is optional; when it
-   is unavailable, use PPT Master, deterministic HTML/SVG, FigureSpec, Draw.io,
+   is unavailable, use PPT Master, browser-rendered HTML, FigureSpec, Draw.io,
    Mermaid/Graphviz, or another truthful deterministic route. Preserve editable
    source and embed the exported SVG/PDF/PNG in the manuscript. A LaTeX table,
    boxed paragraph, or `\rule` bars inside a `figure` environment do not count.

@@ -358,7 +358,7 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 - Do not remove tests, citations, figures, benchmark cases, or paper sections solely to avoid a failure.
 - Do not claim a blocker is fixed while a stale artifact is still being validated.
 - Do not overwrite an accepted image-2 raster with an untracked local redraw.
-  A deliberate replacement may use PPT Master, deterministic HTML/SVG,
+  A deliberate replacement may use PPT Master, browser-rendered HTML,
   FigureSpec, Draw.io, Mermaid/Graphviz, or another router-selected route when
   its editable source, exported asset, manuscript reference, and visual review
   are updated together; never fake image-2 metadata.

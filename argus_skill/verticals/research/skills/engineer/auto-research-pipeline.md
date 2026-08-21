@@ -166,7 +166,7 @@ while credible fixes remain.
 - When the router selects image-2, generate/review its required candidate set,
   register through `sync-paper-metadata`, reuse a valid frozen cache, and preserve
   exact accepted raster bytes. These image-2-specific rules do not apply to
-  deterministic SVG/HTML/diagram/PPT renderers, which repair their own source and
+  browser-rendered HTML/diagram/PPT renderers, which repair their own source and
   re-render.
 
 ## Stage guidance

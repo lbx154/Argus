@@ -56,7 +56,8 @@ def test_router_requires_real_deterministic_figure1_fallback() -> None:
 
     assert "figure 1 is a paper deliverable" in content
     assert "ppt master" in content
-    assert "deterministic html/svg" in content
+    assert "browser-rendered html" in content
+    assert "hand-authoring raw svg is not on this table" in content
     assert "a latex table" in content
     assert "\\includegraphics" in body
     studio = texts["engineer/paper-framework-figure-studio.md"]
@@ -90,3 +91,27 @@ def test_agents_receive_visual_library_paths_without_matcher(tmp_path: Path) -> 
     paths = [path.replace("\\", "/") for path in store.list_paths()]
     assert any(path.endswith("engineer/research-visualization-router.md") for path in paths)
     assert any(path.endswith("engineer/presentation-master.md") for path in paths)
+
+
+def test_router_points_at_a_renderer_that_exists() -> None:
+    """The published route must be runnable: a path the agent cannot resolve is
+    why figures got hand-drawn instead."""
+    texts = dict(iter_vertical_skill_texts("research"))
+    router = texts["engineer/research-visualization-router.md"]
+
+    assert "argus_builtin_skills/" not in router
+    assert "browser_render.py" in router
+
+    root = Path(__file__).resolve().parents[2]
+    skills = root / "argus_skill/verticals/research/skills/engineer"
+    assert (skills / "research_visual_scripts/browser_render.py").is_file()
+
+
+def test_router_matches_output_format_to_build_route() -> None:
+    """`--output *.svg` extracts an existing <svg>, so a CSS layout must be told
+    to ask for PDF rather than hand-writing SVG to satisfy the renderer."""
+    texts = dict(iter_vertical_skill_texts("research"))
+    router = texts["engineer/research-visualization-router.md"].lower()
+
+    assert "--output paper/figures/<id>.pdf" in router
+    assert "figure root contains no svg" in router

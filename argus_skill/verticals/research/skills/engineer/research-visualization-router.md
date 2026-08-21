@@ -17,7 +17,7 @@ the problem, core mechanism, and claim-bearing flow at a glance. It must be a
 real exported SVG/PDF/PNG embedded by `\includegraphics` or `\includesvg`.
 A LaTeX table, boxed paragraph, or `\rule` bars inside a `figure` environment do
 not count. image-2 is optional: when it is unavailable, use PPT Master,
-deterministic HTML/SVG, FigureSpec, Draw.io, Mermaid/Graphviz, or another
+browser-rendered HTML, FigureSpec, Draw.io, Mermaid/Graphviz, or another
 truthful deterministic route and keep the editable source.
 
 Before rendering Figure 1, open and execute the renderer-neutral
@@ -83,8 +83,16 @@ hashes, and provenance.
 | Bespoke HTML/D3/Observable Plot | Native SVG plus structural snapshot and browser screenshot |
 | Polished conceptual/method/architecture figure with visual hierarchy, icons, callouts, or grouped modules | Installed PPT Master; retain source SVG/design spec, editable PPTX, and rendered paper asset |
 | Simple exact method/architecture topology | FigureSpec, Mermaid/Graphviz, or Draw.io after comparing the richer routes |
-| Expressive conceptual teaser | image-2 when configured and evidence-faithful; otherwise installed PPT Master or deterministic HTML/SVG |
+| Expressive conceptual teaser | image-2 when configured and evidence-faithful; otherwise installed PPT Master or browser-rendered HTML |
 | Visual that inherently requires unavailable generative media | Mark blocked or redesign the claim; never fabricate an output |
+
+Hand-authoring raw SVG is not on this table. Typing `<rect>` and `<line>`
+yourself produces a whiteboard sketch, and it is never the shortest path to a
+good figure anyway — every route above already draws boxes and arrows for you,
+with layout, spacing and type handled. Pick one of them.
+
+Give each figure its own subagent, carrying the brief, the canonical numbers and
+the chosen renderer, so one drawing gets one undivided attempt.
 
 Do not introduce React for a simple line plot. Do not use a dashboard screenshot
 as a paper figure when the underlying SVG or declarative spec can be exported.
@@ -113,16 +121,25 @@ Requirements:
 - Recharts must receive seeded data and `isAnimationActive={false}`.
 - Mark the final root `data-figure-root data-figure-ready="true"` only after
   fonts and chart layout are complete.
-- Prefer SVG. Use PDF for exact page/physical sizing and PNG only when Canvas or
-  raster content is essential.
+- Choose the output by how the figure was built. `--output *.svg` extracts an
+  `<svg>` that already exists in the page, so it fits a chart library's own
+  output (Vega, ECharts, D3). A figure laid out in CSS has no such element, and
+  `--output *.pdf` is its vector route — LaTeX includes PDF directly. Use PNG
+  only when Canvas or raster content is essential. Asking for `.svg` from a CSS
+  layout fails with `figure root contains no SVG`; that error means the wrong
+  output extension, never that you should go and write the SVG by hand.
 
 Seed the packaged renderer into the project with the vertical skills, then run:
 
 ```bash
-python argus_builtin_skills/engineer/research_visual_scripts/browser_render.py \
+# The renderer ships beside this skill. Resolve it from the skill directory
+# rather than guessing a package path:
+RENDER=$(find "$ARGUS_SKILL_HOME" . -name browser_render.py \
+  -path '*research_visual_scripts*' 2>/dev/null | head -1)
+python "$RENDER" \
   --input paper/figures/src/<id>/index.html \
   --selector '[data-figure-root]' \
-  --output paper/figures/<id>.svg \
+  --output paper/figures/<id>.pdf \
   --width 1200 --height 720
 ```
 

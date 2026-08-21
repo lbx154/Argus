@@ -199,7 +199,7 @@ For PPO/GRPO/RLVR/DPO/reasoning-RL plans, reject before any GPU spend if:
   is so small the run is only a smoke yet is presented as paper evidence.
 - Reasoning/format RL on a base (non-instruct) checkpoint with no SFT/format
   warm-start, so the format/correctness reward never fires from a cold start.
-See `argus_builtin_skills/engineer/rl-training-collapse-diagnosis.md` for the
+See `the `rl-training-collapse-diagnosis.md` skill` for the
 matching in-flight collapse signatures these configs produce.
 
 ## Infrastructure check

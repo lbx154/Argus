@@ -1,6 +1,6 @@
 ---
 name: "Paper Framework Figure Studio"
-description: "Design and audit a publication-grade Figure 1 teaser, method, framework, architecture, or taxonomy before rendering it with PPT Master, HTML/SVG, FigureSpec, Draw.io, Mermaid/Graphviz, or optional image-2. Renderer-neutral S0-S7 workflow; use after the Research Visualization Router identifies a conceptual paper figure."
+description: "Design and audit a publication-grade Figure 1 teaser, method, framework, architecture, or taxonomy before rendering it with PPT Master, browser-rendered HTML, FigureSpec, Draw.io, Mermaid/Graphviz, or optional image-2. Renderer-neutral S0-S7 workflow; use after the Research Visualization Router identifies a conceptual paper figure."
 ---
 
 # Paper Framework Figure Studio
@@ -86,7 +86,7 @@ specific mechanism.
 Return to the Research Visualization Router and use one renderer:
 
 - PPT Master for rich editable composition and native PPTX;
-- HTML/SVG for bespoke exact layouts;
+- browser-rendered HTML for bespoke exact layouts;
 - FigureSpec, Draw.io, Mermaid/Graphviz for explicit topology;
 - image-2 only when configured and semantically appropriate.
 

@@ -762,7 +762,7 @@ def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
                     "as a teaser, method, pipeline, architecture, framework, "
                     "taxonomy, or mechanism overview. Author a reader-facing "
                     "Figure 1 through the Research Visualization Router. image-2 "
-                    "is optional: PPT Master, deterministic HTML/SVG, FigureSpec, "
+                    "is optional: PPT Master, browser-rendered HTML, FigureSpec, "
                     "Draw.io, Mermaid/Graphviz, or another truthful renderer is "
                     "valid. A LaTeX table, prose box, or \\rule bar chart inside "
                     "a figure environment does not satisfy this gate"
