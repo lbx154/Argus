@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from argus_skill.life.supervisor._constants import PLAN_RETRY
 from argus_skill.life.supervisor._helpers import _resolve_task_dep_ids
 from argus_skill.life.supervisor._planning_cycle_enqueue import (
     PlanningCycleEnqueueMixin,
     _apply_planner_stage_request,
 )
+from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
 
 
 def test_resolve_dep_ids_maps_local_keys() -> None:
@@ -84,3 +87,58 @@ def test_planner_stage_request_rolls_back_an_earlier_target(
             "evidence_root": tmp_path,
         },
     }]
+
+
+def test_rejected_stage_request_is_returned_to_planner(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from argus_skill.life.supervisor import _planning_cycle_enqueue
+
+    feedback: list[dict[str, str]] = []
+    events: list[dict[str, object]] = []
+
+    class Harness(PlanningCycleEnqueueMixin):
+        _planning_cycles = 4
+
+        def _project_workdir(self) -> Path:
+            return tmp_path
+
+        def _artifact_root(self) -> Path:
+            return tmp_path
+
+        def _current_pipeline_stage(self) -> str:
+            return "plan"
+
+        def _persist_manager_planner_feedback(self, **payload: str) -> bool:
+            feedback.append(payload)
+            return True
+
+        def _reset_idle_backoff(self) -> None:
+            pass
+
+        def _emit(self, event: dict[str, object]) -> None:
+            events.append(event)
+
+    def reject_stage_request(**_kwargs: object) -> None:
+        raise ValueError("missing plan evidence")
+
+    monkeypatch.setattr(
+        _planning_cycle_enqueue,
+        "_apply_planner_stage_request",
+        reject_stage_request,
+    )
+    state = _PlanCycleState(None)
+    state.verdict = SimpleNamespace(
+        new_tasks=[],
+        advance_to_stage="draft",
+        reason="advance to manuscript drafting",
+    )
+
+    assert Harness()._pc_build_pending_items(state) == PLAN_RETRY
+    assert feedback == [{
+        "stage": "plan",
+        "reason": "ValueError: missing plan evidence",
+        "diagnostic": "stage_completion_gate_failed",
+    }]
+    assert events[-1]["skip_category"] == "invalid_stage_transition_request"

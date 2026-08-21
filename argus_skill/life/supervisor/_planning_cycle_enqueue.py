@@ -368,13 +368,25 @@ class PlanningCycleEnqueueMixin:
                     evidence_root=Path(context_root).resolve(),
                 )
             except Exception as exc:  # noqa: BLE001 - invalid requests replan safely
+                failure_reason = f"{type(exc).__name__}: {exc}"
+                stage = str(self._current_pipeline_stage() or "")
                 self._emit({
                     "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
                     "cycle": self._planning_cycles,
                     "skip_category": "invalid_stage_transition_request",
-                    "reason": f"{type(exc).__name__}: {exc}",
+                    "reason": failure_reason,
                     "requested_stage": requested_stage,
                 })
+                if not self._persist_manager_planner_feedback(
+                    stage=stage,
+                    reason=failure_reason,
+                    diagnostic="stage_completion_gate_failed",
+                ):
+                    self._emit_status(
+                        "failed to persist stage-transition rejection; retry later"
+                    )
+                    return PLAN_ERROR
+                self._reset_idle_backoff()
                 return PLAN_RETRY
         auto_close_research = (
             _research_stage_ready_for_close(
