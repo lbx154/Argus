@@ -103,6 +103,55 @@ def test_contextual_route_retries_missing_standalone_execution_task(
     assert "EXECUTION_TASK is required" in runner.calls[1]["prompt"]
 
 
+def test_standalone_route_retries_project_domain_in_domain_field(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
+    domain_dir = tmp_path / "research" / "DOMAINS"
+    domain_dir.mkdir(parents=True)
+    (domain_dir / "apple_mlx_inference.json").write_text(
+        json.dumps({
+            "name": "apple_mlx_inference",
+            "purpose": "Apple Silicon deployment and inference optimization",
+            "status": "formal",
+            "stages": ["deploy", "profile", "benchmark"],
+        }),
+        encoding="utf-8",
+    )
+    runner = _SequenceDecisionRunner([
+        {
+            "choice": "existing",
+            "vertical": "research",
+            "domain": "apple_mlx_inference",
+            "workflow_mode": "staged",
+            "research_target_level": "publishable",
+            "research_direction_mode": "broad",
+        },
+        {
+            "choice": "existing",
+            "vertical": "research",
+            "domain": "",
+            "workflow_mode": "staged",
+            "research_target_level": "publishable",
+            "research_direction_mode": "broad",
+            "target_venue": "ICLR",
+        },
+    ])
+
+    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
+        "Produce a complete original ICLR paper about on-device computer-use agents."
+    )
+
+    assert decision.vertical == "research"
+    assert decision.domain == ""
+    assert [call["run_label"] for call in runner.calls] == [
+        "manager-classify-grounded",
+        "manager-classify-field-retry",
+    ]
+    assert "project domain" in runner.calls[1]["prompt"]
+
+
 def test_direct_software_handoff_skips_duplicate_manager_grounding(
     tmp_path,
 ) -> None:

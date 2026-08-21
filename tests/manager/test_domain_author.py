@@ -500,6 +500,8 @@ def test_vertical_prompts_prefer_matching_formal_project_domain() -> None:
     assert "status=formal" in grounded
     assert "Apple Silicon MLX/Metal deployment" in grounded
     assert "Prefer a matching formal project domain" in grounded
+    assert "put its exact slug in `vertical`" in grounded
+    assert "leave `domain` empty" in grounded
 
 
 def test_a_string_of_earlier_stages_is_not_rendered_letter_by_letter() -> None:

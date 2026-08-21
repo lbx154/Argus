@@ -637,6 +637,17 @@ class _VerticalDecisionMixin:
                     "every explicit constraint and excluding the context markers.",
                     run_label="manager-classify-context-retry",
                 )
+            elif "not a valid existing/new choice" in str(exc):
+                result, decision = invoke_grounded_route(
+                    prompt
+                    + "\n\n## Decision-field correction\n"
+                    "The prior decision event used an invalid capability identity. "
+                    "Record one complete Manager decision event again. If choosing an "
+                    "existing project domain, put its exact slug in `vertical` and "
+                    "leave `domain` empty. `domain` may only name an optional research "
+                    "domain listed above.",
+                    run_label="manager-classify-field-retry",
+                )
             elif "repeated tool call detected" not in str(exc):
                 raise
             else:
