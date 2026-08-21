@@ -1114,7 +1114,7 @@ _ENGINEER_RESEARCH_EXECUTION = (
     "Research execution: keep independent work file-disjoint and parallel. Respect "
     "the route/review/selector/probe time boxes, stop searching once the novelty "
     "boundary is credible, and treat source-balance gaps and smoke outcomes as "
-    "documented limitations rather than reasons to stall. When a method is short of its baseline, `engineer/research-grind.md` is how the gap gets closed: the first number is a first draft, the loop is measure-diagnose-fix-measure, flat stretches are the middle of the problem rather than a verdict, and the method you end up with is the one the paper is about.\n"
+    "documented limitations rather than reasons to stall. Any checkpoint, library version, benchmark split or baseline number you can name from memory is a hypothesis about a world that moved after training: probe it before the plan hardens, per `engineer/stale-world-model.md`. A checkpoint that will not download is a substitution to record, not a mission to block on. When a method is short of its baseline, `engineer/research-grind.md` is how the gap gets closed: the first number is a first draft, the loop is measure-diagnose-fix-measure, flat stretches are the middle of the problem rather than a verdict, and the method you end up with is the one the paper is about.\n"
 )
 
 

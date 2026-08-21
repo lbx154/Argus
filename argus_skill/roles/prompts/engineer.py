@@ -18,6 +18,18 @@ MISSION = "mission"
 OPERATIONS = frozenset({MISSION})
 _MANAGER_GROUNDING_HEADER = "\n\n## Manager project grounding (advisory evidence)\n"
 
+_STALE_WORLD_RULE = (
+    "Your picture of every field stopped updating at training time, and it does "
+    "not feel stale from the inside — a superseded model, a changed API or a "
+    "beaten benchmark number still arrives with the confidence it had when it "
+    "was current. So open work in an area by finding out what it looks like "
+    "now rather than by recalling it, and treat any specific external name you "
+    "produced without checking — a checkpoint, a library version, an endpoint, "
+    "a baseline, a price — as a hypothesis to probe. One HTTP call up front "
+    "costs less than a mission that blocks on a dependency that moved. See "
+    "`engineer/stale-world-model.md`. Something unavailable is a substitution "
+    "to record, not a reason to stop."
+)
 _POSIX_LONG_EXPERIMENT_RULE = (
     "For commands over two minutes, use Argus's durable runner: "
     "`\"${ARGUS_SKILL_PYTHON:-python3}\" -m "
@@ -85,11 +97,15 @@ _WINDOWS_LONG_EXPERIMENT_RULE = (
 
 
 def _long_experiment_rule() -> str:
-    return (
+    # Every mission in every vertical passes through here, which is where the
+    # staleness rule belongs: naming a checkpoint from memory is not a research
+    # habit, it is what any domain does when nobody tells it to look first.
+    shell_rule = (
         _WINDOWS_LONG_EXPERIMENT_RULE
         if native_shell_contract()
         else _POSIX_LONG_EXPERIMENT_RULE
     )
+    return f"{shell_rule} {_STALE_WORLD_RULE}"
 
 
 def append_live_guidance(prompt: str, guidance: list[str]) -> str:
