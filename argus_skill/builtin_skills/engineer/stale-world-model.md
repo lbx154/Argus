@@ -1,6 +1,6 @@
 ---
 name: "Orient Before You Work"
-description: "Open any piece of domain work by finding out what the field looks like now, because your picture of it stopped updating at training time. Assume the landscape moved: check models, versions, APIs, benchmarks, baselines and prices instead of recalling them. Use at the start of work in any domain, and before naming any specific external thing."
+description: "Use at the start of work in ANY domain, and before naming any specific external thing: a model or checkpoint, a library or framework version, an API endpoint, a benchmark or split, a baseline number, a price, a SOTA result, or the current standard tooling. Your knowledge of what exists stopped at training time and the field moved on, so find out what it looks like now instead of recalling it, and probe names before the plan hardens. Also use when a dependency is unavailable or a checkpoint is gated."
 ---
 
 # Orient Before You Work

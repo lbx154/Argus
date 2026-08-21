@@ -53,16 +53,17 @@ def test_the_research_engineer_is_pointed_at_it() -> None:
     assert "probe it before the plan hardens" in engineer
 
 
-def test_every_mission_in_every_vertical_carries_the_rule() -> None:
+def test_it_is_discoverable_from_any_domain() -> None:
     """Naming a checkpoint from memory is not a research habit — it is what any
-    domain does when nobody tells it to look first. So the rule rides the
-    shared mission path rather than one vertical's banner."""
-    from argus_skill.roles.prompts.engineer import _long_experiment_rule
+    domain does when nobody says look first. The engineer's fixed prompt is a
+    hard 2500-char contract, so the rule reaches every vertical through skill
+    matching: the description has to name the triggers rather than a field."""
+    front = _skill().split("---")[1]
 
-    rule = _long_experiment_rule()
-    assert "stopped updating at training time" in rule
-    assert "stale-world-model.md" in rule
-    assert "substitution to record, not a reason to stop" in rule
+    assert "ANY domain" in front
+    for trigger in ("checkpoint", "version", "API endpoint", "benchmark",
+                    "baseline number", "gated"):
+        assert trigger in front
 
 
 def test_it_opens_with_the_stance_not_a_lookup_table() -> None:
