@@ -13,6 +13,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable
 
+from ..core import process_stop
 from ..core.daemon_lock import is_pid_running
 
 EXTERNAL_WORK_REGISTRY = ".argus_external_work"
@@ -328,6 +329,8 @@ def wait_for_external_work_cadence(
         chunk = min(step, budget - waited)
         sleeper(chunk)
         waited += chunk
+        if process_stop.stop_requested():
+            return ("stop_requested", waited)
         current = inspect_external_work(workdir, work_id, now=clock())
         if current is None:
             return ("unknown", waited)

@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core import paths as core_paths  # noqa: F401 — compatibility monkeypatch seam
+from ..core import process_stop
 from ..core.daemon_lock import (
     DaemonAlreadyRunning,
     acquire_global_daemon_lock,  # noqa: F401 — re-exported, monkeypatch seam
@@ -264,6 +265,7 @@ class LifeWorker(LifeWorkerBootMixin, LifeWorkerRunMixin):
         termination and cannot invoke Python's signal handler.
         """
         self._operator_stop_requested = True
+        process_stop.request_stop()
         self._stop.set()
         if not drain:
             self._mission_stop.set()

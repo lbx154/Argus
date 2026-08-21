@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
+from ..core import process_stop
 from .external_work import inspect_external_work, parse_external_wait_request
 from .round_signals import _pause_decision_clock
 from .round_state import RoundControl, RoundLoopState, control_continue_loop, control_proceed
@@ -61,6 +62,8 @@ class RoundWaitsMixin:
                 )
                 waited_s += cadence_waited_s
                 if wait_reason != "cadence_elapsed":
+                    break
+                if process_stop.stop_requested():
                     break
             state.last_decision_progress_at = _pause_decision_clock(
                 state.last_decision_progress_at,
