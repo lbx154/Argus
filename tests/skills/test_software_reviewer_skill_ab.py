@@ -68,8 +68,10 @@ def test_software_reviewer_skill_is_agent_native_and_discoverable(tmp_path) -> N
     text = skill_path.read_text(encoding="utf-8")
     assert "exact positional/keyword arguments" in " ".join(text.split())
     assert [line for line in text.split("---", 2)[1].splitlines() if line] == [
-        "name: Software Change Review",
-        "description: Independently review a software patch for real call-path behavior, compatibility, and honest verification without access to a reference answer.",
+        'name: "Software Change Review"',
+        'description: "Independently review a software patch for real call-path'
+        ' behavior, compatibility, and honest verification without access to a'
+        ' reference answer."',
     ]
 
     control_backend = _LibraryAwareBackend()

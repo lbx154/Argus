@@ -1,6 +1,6 @@
 ---
-name: Argus Maintenance Review
-description: Review an Argus maintenance patch for real simplification, reuse, decoupling, and verified behavior.
+name: "Argus Maintenance Review"
+description: "Review an Argus maintenance patch for real simplification, reuse, decoupling, and verified behavior."
 ---
 
 # Argus maintenance review

@@ -1,6 +1,6 @@
 ---
-name: Dependency-Aware Task Decomposition
-description: Convert a project objective and current evidence into a minimal dependency-aware set of executable tasks with decisive acceptance checks.
+name: "Dependency-Aware Task Decomposition"
+description: "Convert a project objective and current evidence into a minimal dependency-aware set of executable tasks with decisive acceptance checks."
 ---
 
 # Dependency-Aware Task Decomposition

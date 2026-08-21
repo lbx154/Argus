@@ -1,6 +1,6 @@
 ---
 name: "NanoGPT Speedrun H100 SOTA"
-description: "{'Playbook for Recursive Task 2 / NanoGPT speedrun on 8×H100': 'use the frozen scorer, preserve environment parity, maintain a certified global-best floor, run basin-hopping/co-tuning experiments, and document real verifier results toward SOTA.'}"
+description: "Playbook for Recursive Task 2 / NanoGPT speedrun on 8×H100: use the frozen scorer, preserve environment parity, maintain a certified global-best floor, run basin-hopping/co-tuning experiments, and document real verifier results toward SOTA."
 ---
 
 ## Title

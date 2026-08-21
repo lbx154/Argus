@@ -1,6 +1,6 @@
 ---
-name: Argus Maintenance
-description: Inspect and simplify Argus with small reusable changes and clear core/vertical ownership.
+name: "Argus Maintenance"
+description: "Inspect and simplify Argus with small reusable changes and clear core/vertical ownership."
 ---
 
 # Argus maintenance

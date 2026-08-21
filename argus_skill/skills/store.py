@@ -53,6 +53,26 @@ def role_of_path(path: str | os.PathLike[str], skills_dir: Path) -> str:
     return parts[0] if len(parts) > 1 and parts[0] in _ROLE_SUBDIRS else "general"
 
 
+def _scalar(value: object, field: str) -> str:
+    """Return a non-empty frontmatter string, refusing anything else.
+
+    A caller that rebuilds a Skill from an existing document can hand back the
+    YAML parse of an unquoted ``description: some prefix: some suffix`` line,
+    which is a one-entry mapping rather than a string. Rendering that mapping
+    produces a valid document whose description is a JSON object, so the damage
+    survives every later round. Refusing it here keeps the failure at the write
+    that caused it.
+    """
+    if not isinstance(value, str):
+        raise TypeError(
+            f"Skill {field} must be a string, got {type(value).__name__}: {value!r}"
+        )
+    text = value.strip()
+    if not text:
+        raise ValueError(f"Skill {field} must not be empty")
+    return text
+
+
 @dataclass
 class Skill:
     """An in-memory Skill authored by an Agent.
@@ -69,11 +89,14 @@ class Skill:
 
     def render(self) -> str:
         # JSON string literals are valid YAML scalars and safely preserve colons,
-        # quotes, and non-ASCII text without expanding the schema.
+        # quotes, and non-ASCII text without expanding the schema. The scalars
+        # must be strings: a mapping reaching this point renders as a JSON object
+        # and silently replaces the field with its own parse, which is how a
+        # description containing ": " has previously become a one-entry dict.
         return (
             "---\n"
-            f"name: {json.dumps(self.name, ensure_ascii=False)}\n"
-            f"description: {json.dumps(self.description, ensure_ascii=False)}\n"
+            f"name: {json.dumps(_scalar(self.name, 'name'), ensure_ascii=False)}\n"
+            f"description: {json.dumps(_scalar(self.description, 'description'), ensure_ascii=False)}\n"
             "---\n\n"
             f"{self.content.rstrip()}\n"
         )

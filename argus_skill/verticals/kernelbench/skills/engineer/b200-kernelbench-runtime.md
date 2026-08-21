@@ -1,6 +1,6 @@
 ---
 name: "B200 KernelBench Runtime"
-description: "{'Operational playbook for B200 KernelBench/SOL runs': 'verify the configured B200 remote, scorer endpoint, frozen official scorer, artifact capture, and the common infrastructure/correctness traps before optimizing kernels.'}"
+description: "Operational playbook for B200 KernelBench/SOL runs: verify the configured B200 remote, scorer endpoint, frozen official scorer, artifact capture, and the common infrastructure/correctness traps before optimizing kernels."
 ---
 
 # B200 KernelBench Runtime

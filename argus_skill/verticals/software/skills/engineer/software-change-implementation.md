@@ -1,6 +1,6 @@
 ---
-name: Software Change Implementation
-description: Implement a bounded software change with proportional inspection, repository-aware tooling, and decisive verification.
+name: "Software Change Implementation"
+description: "Implement a bounded software change with proportional inspection, repository-aware tooling, and decisive verification."
 ---
 
 # Software Change Implementation

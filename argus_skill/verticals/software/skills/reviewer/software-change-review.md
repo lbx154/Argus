@@ -1,6 +1,6 @@
 ---
-name: Software Change Review
-description: Independently review a software patch for real call-path behavior, compatibility, and honest verification without access to a reference answer.
+name: "Software Change Review"
+description: "Independently review a software patch for real call-path behavior, compatibility, and honest verification without access to a reference answer."
 ---
 
 # Software Change Review
