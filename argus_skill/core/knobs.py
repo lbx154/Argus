@@ -87,6 +87,7 @@ KNOBS: tuple[Knob, ...] = (
     # --- team Curator (resident pool + leaderboard strategy) ---
     Knob("ARGUS_SKILL_CURATOR_BACKEND", "(=LIFE_BACKEND)", "per-role backend override for the team Curator", "backend"),
     Knob("ARGUS_SKILL_CURATOR_RUNNER_BIN", "(=RUNNER_BIN)", "per-role CLI binary for the team Curator", "backend"),
+    Knob("ARGUS_SKILL_IDEA_PANEL", "(installed cross-vendor CLIs)", "models that propose and then cross-examine research ideas, as 'backend' or 'backend:model', comma separated (e.g. 'codex,copilot:gemini-3.1-pro-preview'); different labs disagree usefully, missing CLIs are skipped, and fewer than two leaves single-model ideation unchanged", "models", cockpit=True),
     Knob("ARGUS_SKILL_CURATOR_MODEL", "auto", "model for Curator strategy distillation; auto uses the selected backend's default", "models"),
     Knob("ARGUS_SKILL_CURATOR_REASONING_EFFORT", "high", "Curator distillation reasoning effort", "reasoning"),
     Knob("ARGUS_SKILL_CURATOR_DISTILL_INTERVAL_S", "1260", "minimum seconds between Curator strategy updates", "team"),

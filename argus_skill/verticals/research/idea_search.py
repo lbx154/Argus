@@ -228,6 +228,23 @@ def augment_idea_candidates(
         resolved = _resolve_direction(workdir, direction)
         if not resolved:
             return 0
+
+        # Several labs' models, asked separately and then set against each
+        # other, beat one model asked once — when this box has them.
+        from .idea_panel import run_panel
+
+        panel = run_panel(
+            Path(workdir).expanduser().resolve(),
+            direction=resolved,
+            proposal_prompt=_build_prompt(resolved, n),
+        )
+        if panel:
+            path = _candidates_path(workdir)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(f"\n\n{SOURCE_MARKER}\n# Panel ideation\n{panel}")
+            return panel.count("## Candidate ")
+
         log.info(
             "idea-search: running codex live web-search (model=%s, n=%d) for %r",
             model, n, resolved[:80],
