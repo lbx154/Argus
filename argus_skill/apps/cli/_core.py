@@ -844,7 +844,10 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     report = run_full_doctor(
         context,
         include_backend=True,
-        probe_auth=bool(getattr(args, "deep", False)),
+        # A backend whose CLI is installed but not logged in is the first
+        # thing a new user needs told. Reporting "ready" and hiding the
+        # login behind --deep sends them off to fail on their first task.
+        probe_auth=True,
     )
     repair_payload = None
     if bool(getattr(args, "fix_safe", False)):
@@ -854,7 +857,10 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         report = run_full_doctor(
             context,
             include_backend=True,
-            probe_auth=bool(getattr(args, "deep", False)),
+            # A backend whose CLI is installed but not logged in is the first
+        # thing a new user needs told. Reporting "ready" and hiding the
+        # login behind --deep sends them off to fail on their first task.
+        probe_auth=True,
         )
     from ...maintenance.advisor import run_doctor_advisor
 
@@ -862,13 +868,19 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         report,
         context,
         requested=str(getattr(args, "advisor", "auto") or "auto"),
-        probe_auth=bool(getattr(args, "deep", False)),
+        # A backend whose CLI is installed but not logged in is the first
+        # thing a new user needs told. Reporting "ready" and hiding the
+        # login behind --deep sends them off to fail on their first task.
+        probe_auth=True,
     )
     if advisor.get("attempts"):
         report = run_full_doctor(
             context,
             include_backend=True,
-            probe_auth=bool(getattr(args, "deep", False)),
+            # A backend whose CLI is installed but not logged in is the first
+        # thing a new user needs told. Reporting "ready" and hiding the
+        # login behind --deep sends them off to fail on their first task.
+        probe_auth=True,
         )
     repaired_with_tools = any(
         bool(item.get("tool_activity_observed"))
@@ -937,7 +949,7 @@ def _cmd_repair(args: argparse.Namespace) -> int:
     context = _maintenance_context(args)
     json_output = bool(getattr(args, "json", False))
     if bool(getattr(args, "plan", False)) or bool(getattr(args, "safe", False)):
-        before = run_full_doctor(context, include_backend=True)
+        before = run_full_doctor(context, include_backend=True, probe_auth=True)
         plan = create_plan(context, [item for item in before.findings if not item.ok])
         if bool(getattr(args, "plan", False)):
             payload = {
