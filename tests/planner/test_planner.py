@@ -592,8 +592,11 @@ def test_plan_next_repairs_not_done_empty_task_response(monkeypatch) -> None:
     assert NO_CONCRETE_TASKS_ERROR in runner.calls[1]["prompt"]
     assert "ARGUS_ROLE_DECISION=" in runner.calls[1]["prompt"]
     assert "If work remains, include concrete tasks" in runner.calls[1]["prompt"]
-    assert '"title":"title"' in runner.calls[1]["prompt"]
-    assert '"objective":"work and decisive check"' in runner.calls[1]["prompt"]
+    # The schema example must read as a slot to fill, not as a mission the
+    # Planner can copy through verbatim — every campaign shipped one titled
+    # "title" whose objective was "work and decisive check".
+    assert '"title":"<question>"' in runner.calls[1]["prompt"]
+    assert '"objective":"<work+decisive check>"' in runner.calls[1]["prompt"]
     assert runner.calls[1]["options"].working_dir == "/tmp/project"
 
 

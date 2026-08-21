@@ -448,3 +448,39 @@ def test_process_artifacts_are_finishing_steps_not_missions() -> None:
 
     reviewer = role_banner("reviewer")
     assert "belongs in next_action, not in a returned verdict" in reviewer
+
+
+def test_a_settled_method_can_be_retired_instead_of_written_up() -> None:
+    """Every campaign so far shipped a boundary study, because the policy's only
+    two endings were a positive result and a write-up of what survived. A method
+    that loses to the baseline it was chosen against now has somewhere to go."""
+    from argus_skill.verticals._base import load_vertical, vertical_role_banner
+
+    research = load_vertical("research")
+    planner = vertical_role_banner(research, "planner")
+    reviewer = vertical_role_banner(research, "reviewer")
+
+    # The campaign commits to the question, not to the mechanism guessing at it.
+    assert "the problem" in planner
+    assert "disposable bets" in planner
+
+    # Selection fixes what would settle the bet, before the method is scaled.
+    for named in ("end-task claim", "resource-matched baseline", "finite rescue budget"):
+        assert named in planner
+
+    # The Reviewer owns the verdict, and it routes through the real signal.
+    assert "replan_requested" in reviewer
+    assert "project memory" not in reviewer or "belief it" in reviewer
+
+
+def test_probes_still_cannot_veto_a_selected_idea() -> None:
+    """Retirement must not hand a ten-minute smoke test the power to kill an
+    idea: only claim-bearing evidence at the scale named at selection settles."""
+    from argus_skill.verticals._base import load_vertical, vertical_role_banner
+
+    research = load_vertical("research")
+    planner = vertical_role_banner(research, "planner")
+    reviewer = vertical_role_banner(research, "reviewer")
+
+    assert "cannot by themselves" in reviewer
+    assert "claim-bearing evidence at " in planner

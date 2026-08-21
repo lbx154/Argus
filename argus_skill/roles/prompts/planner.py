@@ -28,8 +28,8 @@ OPERATIONS = frozenset(
 
 _PLANNER_DECISION_PAYLOAD_EXAMPLE = (
     '{"project_done":false,"reason":"why","advance_to_stage":"run",'
-    '"tasks":[{"key":"task-key","deps":[],"title":"title",'
-    '"objective":"work and decisive check","scope":"bounded"}]}'
+    '"tasks":[{"key":"task-key","deps":[],"title":"<question>",'
+    '"objective":"<work+decisive check>","scope":"bounded"}]}'
 )
 _PLANNER_DECISION_EVENT = decision_event_instruction(
     "planner",
