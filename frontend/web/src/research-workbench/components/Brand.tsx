@@ -27,7 +27,7 @@ export function ArgusWordmark({ compact = false }: { compact?: boolean }) {
       {!compact ? (
         <span className="argus-wordmark__copy">
           <strong>Argus</strong>
-          <small>Research Workbench</small>
+          <small>Workbench</small>
         </span>
       ) : null}
     </span>

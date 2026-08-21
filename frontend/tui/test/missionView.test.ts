@@ -122,6 +122,44 @@ test('manager routing persists all execution axes', () => {
 });
 
 
+test('planner task labels are research-specific only for research routes', () => {
+  let software = reduceMissionViewEvent(emptyMissionView(), {
+    type: 'life.manager.intent.completed',
+    ts: 1,
+    item_id: 'software-task',
+    vertical: 'software',
+  });
+  software = reduceMissionViewEvent(software, {
+    type: 'life.planner.task_added',
+    ts: 2,
+    item_id: 'software-task',
+    title: 'Fix the CLI',
+  });
+
+  let research = reduceMissionViewEvent(emptyMissionView(), {
+    type: 'life.manager.intent.completed',
+    ts: 1,
+    item_id: 'research-task',
+    vertical: 'research',
+  });
+  research = reduceMissionViewEvent(research, {
+    type: 'life.planner.task_added',
+    ts: 2,
+    item_id: 'research-task',
+    title: 'Test a hypothesis',
+  });
+
+  assert.equal(
+    software.roles.find((role) => role.role === 'planner')?.label,
+    'Task added',
+  );
+  assert.equal(
+    research.roles.find((role) => role.role === 'planner')?.label,
+    'Research branch added',
+  );
+});
+
+
 test('partial Manager intent events preserve existing routing axes', () => {
   const current = emptyMissionView();
   current.routing = {

@@ -764,6 +764,26 @@ def test_every_supported_backend_is_selectable_and_documented() -> None:
         assert backend in backend_line, f"{backend} is selectable but undocumented"
 
 
+def test_config_help_reports_the_backend_selected_by_setup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from argus_skill.core.knob_store import write_persisted_knob
+    from argus_skill.core.knobs import format_config_help
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
+    write_persisted_knob("ARGUS_SKILL_RUNNER_BACKEND", "pi")
+
+    help_text = format_config_help(env={})
+
+    assert (
+        "ARGUS_SKILL_RUNNER_BACKEND  (default: codex)  = pi (persisted)"
+        in help_text
+    )
+    assert "ARGUS_SKILL_ENGINEER_BACKEND  (default: (=RUNNER_BACKEND))" in help_text
+
+
 def test_a_missing_web_dependency_is_reported_not_raised(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

@@ -297,8 +297,9 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
       parent_branch_id: S(event, 'parent_branch_id') || null,
     };
     upsert(view.dag as Array<MissionDagNode & Record<string, unknown>>, 'id', id, node as MissionDagNode & Record<string, unknown>);
-    setRole(view, 'planner', 'done', 'Research branch added', ts);
-    addTimeline(view, event, 'planner', 'Research branch added', node.title, 'info');
+    const label = view.routing.vertical === 'research' ? 'Research branch added' : 'Task added';
+    setRole(view, 'planner', 'done', label, ts);
+    addTimeline(view, event, 'planner', label, node.title, 'info');
     addRoleWork(view, event, 'planner', 'task', node.title || 'Task added', node.objective, 'pending');
   } else if (type === EVENT_TYPES.LIFE_PLANNER_VERDICT) {
     const projectDone = Boolean(event.project_done);

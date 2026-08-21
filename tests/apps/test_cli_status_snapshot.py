@@ -17,6 +17,7 @@ from argus_skill.apps.cli._core import (
     _render_lifecycle_status_lines,
     _resolve_research_workdir,
 )
+from argus_skill.life import MemoryBundle
 
 # ---------------------------------------------------------------------------
 # _resolve_research_workdir
@@ -141,6 +142,7 @@ def test_status_subprocess_includes_lifecycle_block(tmp_path: Path, monkeypatch)
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(home))
     repo = tmp_path / "repo"
     repo.mkdir()
+    MemoryBundle.for_cwd(repo, global_root=home).init()
 
     proc = subprocess.run(
         [sys.executable, "-m", "argus_skill", "--status"],

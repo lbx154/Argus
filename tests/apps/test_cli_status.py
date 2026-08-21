@@ -63,6 +63,24 @@ def project_with_active_and_history(
     return home, repo
 
 
+def test_status_does_not_create_a_project_for_a_fresh_workdir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    home = tmp_path / "home"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(home))
+    monkeypatch.chdir(repo)
+
+    rc = _cmd_status(Namespace(life_dir=str(home)))
+
+    assert rc == 0
+    assert "project  : no session for this workdir" in capsys.readouterr().out
+    assert not (home / "projects").exists()
+
+
 def test_status_separates_active_queue_from_history(
     monkeypatch: pytest.MonkeyPatch,
     project_with_history: tuple[Path, Path],

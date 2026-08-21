@@ -210,7 +210,11 @@ def _session_for_current_workdir(
     return next((sid for sid in matches if sid in live_ids), matches[0] if matches else None)
 
 
-def _resolve_project_bundle(args: argparse.Namespace):
+def _resolve_project_bundle(
+    args: argparse.Namespace,
+    *,
+    create_if_missing: bool = True,
+):
     from ...life import MemoryBundle
 
     global_root = _resolve_global_root(args)
@@ -242,6 +246,13 @@ def _resolve_project_bundle(args: argparse.Namespace):
     else:
         selected_workdir = Path.cwd()
     if sid is None:
+        if not create_if_missing:
+            from ...core.project import project_fingerprint
+
+            fingerprint = project_fingerprint(selected_workdir).fingerprint
+            state_dir = core_paths.session_state_root(fingerprint, root=global_root)
+            if not state_dir.is_dir():
+                return None
         return MemoryBundle.for_cwd(selected_workdir, global_root=global_root)
     from ...core.session import (
         migrate_legacy_session_workdir,
@@ -250,6 +261,8 @@ def _resolve_project_bundle(args: argparse.Namespace):
     )
 
     state_dir = core_paths.session_state_root(sid, root=global_root)
+    if not create_if_missing and not state_dir.is_dir():
+        return None
     meta = read_session_meta(global_root, sid)
     try:
         if meta is None:
@@ -1982,7 +1995,13 @@ def _cmd_status(args: argparse.Namespace) -> int:
         read_continuous_state,
         read_daemon_status,
     )
-    bundle = _resolve_project_bundle(args)
+    bundle = _resolve_project_bundle(args, create_if_missing=False)
+    if bundle is None:
+        print(f"argus-skill — global-root: {_resolve_global_root(args)}")
+        print("  project  : no session for this workdir")
+        print("  daemon   : not running")
+        print("  next     : run `argus` to create a session")
+        return 0
     status = read_daemon_status(bundle.project.root)
     all_items = bundle.backlog.all()
     pending, running, paused, done, failed, skipped = count_backlog_statuses(all_items)
