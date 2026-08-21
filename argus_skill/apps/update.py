@@ -111,8 +111,23 @@ def update_source_checkout(
         ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
         cwd=checkout,
     )
+    remote = _checked(
+        runner,
+        ["git", "config", "--get", f"branch.{branch}.remote"],
+        cwd=checkout,
+    )
+    merge_ref = _checked(
+        runner,
+        ["git", "config", "--get", f"branch.{branch}.merge"],
+        cwd=checkout,
+    )
     before = _checked(runner, ["git", "rev-parse", "HEAD"], cwd=checkout)
-    _checked(runner, ["git", "pull", "--ff-only"], cwd=checkout, timeout=300.0)
+    _checked(
+        runner,
+        ["git", "pull", "--ff-only", remote, merge_ref],
+        cwd=checkout,
+        timeout=300.0,
+    )
     after = _checked(runner, ["git", "rev-parse", "HEAD"], cwd=checkout)
 
     if before != after:

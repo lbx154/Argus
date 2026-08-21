@@ -42,7 +42,17 @@ def test_update_fast_forwards_and_reinstalls(tmp_path: Path) -> None:
             "--symbolic-full-name",
             "@{upstream}",
         ): (0, "origin/main\n", ""),
-        ("git", "pull", "--ff-only"): (0, "updated\n", ""),
+        ("git", "config", "--get", "branch.main.remote"): (0, "origin\n", ""),
+        ("git", "config", "--get", "branch.main.merge"): (
+            0,
+            "refs/heads/main\n",
+            "",
+        ),
+        ("git", "pull", "--ff-only", "origin", "refs/heads/main"): (
+            0,
+            "updated\n",
+            "",
+        ),
         (python, "-m", "pip", "install", "-e", str(tmp_path)): (0, "", ""),
     }
     revision_reads = 0
@@ -71,6 +81,13 @@ def test_update_fast_forwards_and_reinstalls(tmp_path: Path) -> None:
 
     assert result.changed is True
     assert result.upstream == "origin/main"
+    assert (
+        "git",
+        "pull",
+        "--ff-only",
+        "origin",
+        "refs/heads/main",
+    ) in calls
     assert (python, "-m", "pip", "install", "-e", str(tmp_path)) in calls
 
 
@@ -110,8 +127,18 @@ def test_update_skips_reinstall_when_current(tmp_path: Path) -> None:
             "--symbolic-full-name",
             "@{upstream}",
         ): (0, "origin/main\n", ""),
+        ("git", "config", "--get", "branch.main.remote"): (0, "origin\n", ""),
+        ("git", "config", "--get", "branch.main.merge"): (
+            0,
+            "refs/heads/main\n",
+            "",
+        ),
         ("git", "rev-parse", "HEAD"): (0, "same\n", ""),
-        ("git", "pull", "--ff-only"): (0, "Already up to date.\n", ""),
+        ("git", "pull", "--ff-only", "origin", "refs/heads/main"): (
+            0,
+            "Already up to date.\n",
+            "",
+        ),
     }
 
     result = update_source_checkout(
