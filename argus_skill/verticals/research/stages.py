@@ -645,6 +645,25 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
     ),
     "submission": _checklist(
         ChecklistItem(
+            id="submission.result_stands",
+            statement=(
+                "The result this paper is about beat the baseline it was chosen "
+                "against, at the scale named at selection. If it did not, say which "
+                "of implementation, optimization, data, scale or evaluator the "
+                "shortfall is made of and what the next round buys — a "
+                "shortfall is a gap to close, not a finding to package. No number "
+                "here judges the idea until the baseline reproduces in this "
+                "harness and the method does what it says, because an unfinished "
+                "implementation looks exactly like a wrong idea. Scoping a "
+                "diagnostic down until it certifies is how a campaign delivers a "
+                "paper without delivering a result."
+            ),
+            evidence_hint=(
+                "the endpoint number beside the baseline it was measured against, "
+                "and the margin declared at selection"
+            ),
+        ),
+        ChecklistItem(
             id="submission.upstream",
             statement=(
                 "All upstream stage checklists (research \u2192 review) are themselves "

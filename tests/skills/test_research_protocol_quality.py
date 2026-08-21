@@ -553,3 +553,33 @@ def test_the_paper_is_written_for_reviewers_who_exist() -> None:
     for move in ("assumed it already understood", "principled method", "contradicts"):
         assert move in planner
     assert "a claim the results do not support" in planner
+
+
+def test_submission_asks_whether_the_result_stands() -> None:
+    """The terminal objective was "produce a paper", and submission only checked
+    that one existed: three of its four items were packaging — PDF, BibTeX,
+    anonymity, metadata — and none asked whether the result held. The campaigns
+    learned the obvious lesson, recording as durable experience that "a visually
+    polished Stage 1 diagnostic can be certified as a release-ready ICLR final
+    submission". Scoping down until it certifies is the reward hack."""
+    from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+
+    submission = STAGE_CHECKLISTS["submission"]
+    first = " ".join(submission[0].statement.split())
+
+    # The result question comes before the packaging questions.
+    assert submission[0].id == "submission.result_stands"
+    assert "beat the baseline it was chosen against" in first
+    assert "a gap to close, not a finding to package" in first
+    assert "delivers a paper without delivering a result" in first
+
+
+def test_an_unfinished_implementation_is_not_a_dead_idea() -> None:
+    """Over-confidence and under-confidence are the same bug: a number read as a
+    verdict on the idea when it was really a verdict on the engineering."""
+    from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+
+    first = " ".join(STAGE_CHECKLISTS["submission"][0].statement.split())
+
+    assert "until the baseline reproduces in this harness" in first
+    assert "an unfinished implementation looks exactly like a wrong idea" in first
