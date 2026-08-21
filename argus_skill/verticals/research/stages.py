@@ -1106,7 +1106,7 @@ _ENGINEER_RESEARCH_EXECUTION = (
     "Research execution: keep independent work file-disjoint and parallel. Respect "
     "the route/review/selector/probe time boxes, stop searching once the novelty "
     "boundary is credible, and treat source-balance gaps and smoke outcomes as "
-    "documented limitations rather than reasons to stall.\n"
+    "documented limitations rather than reasons to stall. When a method is short of its baseline, `engineer/research-grind.md` is how the gap gets closed: the first number is a first draft, the loop is measure-diagnose-fix-measure, flat stretches are the middle of the problem rather than a verdict, and the method you end up with is the one the paper is about.\n"
 )
 
 
@@ -1124,7 +1124,7 @@ _MANAGER_RESEARCH_STEWARDSHIP = (
     "wearing the costume of judgement — the shortfall is still an engineering "
     "shortfall until the engineering has actually been done. When you do retire "
     "an idea, roll back to selection with the accumulated evidence; what a dead "
-    "idea never becomes is the paper.\n"
+    "idea never becomes is the paper. `engineer/research-grind.md` is what a campaign is supposed to look like between the first measurement and the result.\n"
 )
 
 

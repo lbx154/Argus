@@ -501,3 +501,34 @@ def test_only_the_manager_retires_an_idea_and_only_reluctantly() -> None:
 
     # No other role may make that call.
     assert "the Manager's call" in reviewer
+
+
+def test_the_grind_skill_says_what_a_campaign_does_between_rounds() -> None:
+    """Argus grinds well on its own infrastructure and stops after two rounds on
+    the science. The skill exists to carry that appetite across, and the roles
+    that would need it have to be able to find it."""
+    from argus_skill.skills.builtins import iter_vertical_skill_texts
+    from argus_skill.verticals._base import load_vertical, vertical_role_banner
+
+    skill = dict(iter_vertical_skill_texts("research"))["engineer/research-grind.md"]
+
+    # A first miss is a draft, not a verdict, and the causes are enumerated.
+    assert "first implementation is a first draft" in skill
+    for cause in ("implementation", "optimizer", "data slice", "scale", "evaluator"):
+        assert cause in skill
+
+    # Flat stretches are the middle of the problem, not a signal.
+    assert "Troughs are part of the shape" in skill
+    assert "lowering the target" in skill
+
+    # The method mutates while it is ground, and the paper follows the method.
+    assert "not the method you started" in skill
+    assert "That is the research happening." in skill
+
+    # Judgement over procedure.
+    assert "None of this is a procedure to execute" in skill
+    assert "Follow the surprising thing" in skill
+
+    research = load_vertical("research")
+    for role in ("engineer", "manager"):
+        assert "research-grind.md" in vertical_role_banner(research, role)
