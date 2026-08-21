@@ -42,6 +42,32 @@ def _resolve_bin(backend: str) -> str | None:
     return resolved if resolved and Path(resolved).exists() else None
 
 
+_usable: dict[str, bool] = {}
+
+
+def _is_usable(backend: str) -> bool:
+    """Answer whether this box can actually buy tokens from a backend.
+
+    An installed CLI is not a subscription. Someone who pays for one vendor
+    still has the other launchers on PATH, and seating them would spend an
+    ideation round discovering they cannot log in. Ask the readiness check
+    Argus already owns, once per process, and treat anything it cannot
+    confirm as no seat.
+    """
+    if backend in _usable:
+        return _usable[backend]
+    from ...core.backend_readiness import check_backend_readiness
+
+    try:
+        ok = bool(check_backend_readiness(backend, probe_auth=True, timeout_s=15).ok)
+    except Exception:  # noqa: BLE001 — unverifiable is not usable
+        ok = False
+    if not ok:
+        log.debug("idea-panel: %s is installed but not usable here", backend)
+    _usable[backend] = ok
+    return ok
+
+
 def parse_panel(raw: str | None) -> list[tuple[str, str]]:
     """Read ``backend:model`` entries, or bare backends, from operator config."""
     seats: list[tuple[str, str]] = []
@@ -66,7 +92,11 @@ def available_panel(configured: str | None = None) -> list[tuple[str, str]]:
     seats = parse_panel(configured if configured is not None else os.environ.get(PANEL_KNOB))
     if not seats:
         seats = [(backend, "") for backend in _CROSS_VENDOR_BACKENDS]
-    return [seat for seat in seats if _resolve_bin(seat[0])]
+    return [
+        seat
+        for seat in seats
+        if _resolve_bin(seat[0]) and _is_usable(seat[0])
+    ]
 
 
 def _runner_for(backend: str, agent_bin: str) -> Any | None:

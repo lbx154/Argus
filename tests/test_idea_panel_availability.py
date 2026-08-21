@@ -8,7 +8,21 @@ as it was rather than half-running a debate.
 
 from __future__ import annotations
 
+import pytest
+
 from argus_skill.verticals.research import idea_panel
+
+_real_is_usable = idea_panel._is_usable
+
+
+@pytest.fixture(autouse=True)
+def _assume_installed_backends_work(monkeypatch):
+    """Usability is cached per process, and most tests are about resolution
+    rather than subscriptions. Tests that care override this."""
+    idea_panel._usable.clear()
+    monkeypatch.setattr(idea_panel, "_is_usable", lambda backend: True)
+    yield
+    idea_panel._usable.clear()
 
 
 def test_an_unsupported_name_is_not_a_seat() -> None:
@@ -165,3 +179,63 @@ def test_two_backends_debate_instead(tmp_path, monkeypatch) -> None:
     assert "idea-panel-review" in labels
     assert "idea-search" not in labels
     assert "Panel ideation" in body
+
+
+def test_an_installed_cli_without_a_subscription_is_not_a_seat(monkeypatch) -> None:
+    """The case that would have hurt: someone pays for one vendor and has the
+    other launchers on PATH anyway. Seating them spends an ideation round
+    discovering they cannot log in."""
+    monkeypatch.setattr(idea_panel, "_resolve_bin", lambda backend: "/usr/bin/x")
+    monkeypatch.setattr(idea_panel, "_is_usable", lambda backend: backend == "codex")
+
+    assert idea_panel.available_panel("codex,claude,copilot,grok") == [("codex", "")]
+    # One usable seat is not a panel, so ideation is untouched.
+    assert idea_panel.run_panel(".", direction="d", proposal_prompt="p") == ""
+
+
+def test_usability_is_probed_once_per_backend(monkeypatch) -> None:
+    """The readiness probe spawns a CLI. Asking twice per campaign is waste."""
+    calls: list[str] = []
+
+    class _Report:
+        ok = True
+
+    monkeypatch.setattr(idea_panel, "_resolve_bin", lambda backend: "/usr/bin/x")
+    monkeypatch.setattr(idea_panel, "_is_usable", idea_panel._is_usable.__wrapped__
+                        if hasattr(idea_panel._is_usable, "__wrapped__") else _real_is_usable)
+    monkeypatch.setattr(
+        "argus_skill.core.backend_readiness.check_backend_readiness",
+        lambda backend, **kw: (calls.append(backend), _Report())[1],
+    )
+
+    idea_panel.available_panel("codex,claude")
+    idea_panel.available_panel("codex,claude")
+
+    assert sorted(calls) == ["claude", "codex"]
+
+
+def test_an_unverifiable_backend_is_not_seated(monkeypatch) -> None:
+    """A probe that raises means unknown, and unknown is not usable."""
+    def _boom(backend, **_kw):
+        raise RuntimeError("probe blew up")
+
+    monkeypatch.setattr(idea_panel, "_resolve_bin", lambda backend: "/usr/bin/x")
+    monkeypatch.setattr(idea_panel, "_is_usable", _real_is_usable)
+    monkeypatch.setattr(
+        "argus_skill.core.backend_readiness.check_backend_readiness", _boom
+    )
+
+    assert idea_panel.available_panel("codex,claude") == []
+
+
+def test_one_subscription_can_still_seat_two_labs(monkeypatch) -> None:
+    """A single usable backend that serves several labs' weights is a panel, as
+    long as the operator names the models."""
+    monkeypatch.setattr(idea_panel, "_resolve_bin", lambda backend: "/usr/bin/x")
+    monkeypatch.setattr(idea_panel, "_is_usable", lambda backend: backend == "copilot")
+
+    seats = idea_panel.available_panel(
+        "copilot:gpt-5.5,copilot:gemini-3.1-pro-preview,codex"
+    )
+
+    assert seats == [("copilot", "gpt-5.5"), ("copilot", "gemini-3.1-pro-preview")]
