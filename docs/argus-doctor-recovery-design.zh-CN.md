@@ -77,7 +77,7 @@ argus doctor --verify        # 修复后验收
 
 - `argus --doctor`：检查 backend、认证、daemon、锁与 Session。
 - `argus --setup`：配置 backend 和认证模式。
-- `argus update`：对干净源码仓库执行 fast-forward 更新。
+- `argus update`：将干净源码仓库 fast-forward 到公开仓库 `main`。
 - `/api/projects/{sid}/doctor`：项目级 WebAPI Doctor。
 - `runtime_identity.py` / `release.py`：版本、源码和 Release 身份检查。
 - `daemon_upgrade.py`：在任务边界安全切换 daemon。
