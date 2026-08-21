@@ -6,8 +6,7 @@ description: "After the Research Visualization Router selects a simple exact-top
 # Figure Spec — deterministic JSON → SVG renderer
 
 > Adapted from ARIS `figure-spec` skill (MIT, © 2026 wanshuiyin).
-> Renderer script copied verbatim to
-> `argus_skill/builtin_skills/engineer/figure_spec_scripts/figure_renderer.py`.
+> Renderer script copied verbatim into `figure_spec_scripts/` beside this skill.
 
 ## When to use this renderer
 
@@ -31,12 +30,13 @@ Data/metric/result plots stay with matplotlib (the existing
 
 ## Tool location
 
-Renderer:
-`argus_skill/builtin_skills/engineer/figure_spec_scripts/figure_renderer.py`
+Renderer: `figure_spec_scripts/figure_renderer.py`, shipped beside this
+skill. Resolve it rather than guessing a package path:
 
-CLI:
 ```bash
-python figure_renderer.py render spec.json --output paper/figures/arch.svg
+RENDER=$(find "$ARGUS_SKILL_HOME" . -name figure_renderer.py \
+  -path '*figure_spec_scripts*' 2>/dev/null | head -1)
+python "$RENDER" render spec.json --output paper/figures/arch.svg
 python figure_renderer.py validate spec.json
 python figure_renderer.py schema
 ```

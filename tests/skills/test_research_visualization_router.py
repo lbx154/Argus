@@ -115,3 +115,27 @@ def test_router_matches_output_format_to_build_route() -> None:
 
     assert "--output paper/figures/<id>.pdf" in router
     assert "figure root contains no svg" in router
+
+
+def test_figure_spec_renderer_is_reachable() -> None:
+    """FigureSpec was the third broken route: its documented package path does
+    not exist, so the renderer could never be run either."""
+    texts = dict(iter_vertical_skill_texts("research"))
+    spec = texts["engineer/figure-spec.md"]
+
+    assert "argus_skill/builtin_skills/" not in spec
+
+    root = Path(__file__).resolve().parents[2]
+    skills = root / "argus_skill/verticals/research/skills/engineer"
+    assert (skills / "figure_spec_scripts/figure_renderer.py").is_file()
+
+
+def test_figure_one_never_takes_the_flat_route() -> None:
+    """A flat-fill renderer draws the boxes the paper's opening figure is judged
+    on, so Figure 1 must not qualify for the simple-topology row."""
+    router = dict(iter_vertical_skill_texts("research"))[
+        "engineer/research-visualization-router.md"
+    ].lower()
+
+    assert "a paper's figure 1 never qualifies as the simple row" in router
+    assert "simple exact topology in a supporting figure" in router

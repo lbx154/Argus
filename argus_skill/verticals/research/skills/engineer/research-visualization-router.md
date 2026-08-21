@@ -82,9 +82,15 @@ hashes, and provenance.
 | Existing Plotly analysis | Kaleido with pinned Plotly/Kaleido/Chrome and local assets |
 | Bespoke HTML/D3/Observable Plot | Native SVG plus structural snapshot and browser screenshot |
 | Polished conceptual/method/architecture figure with visual hierarchy, icons, callouts, or grouped modules | Installed PPT Master; retain source SVG/design spec, editable PPTX, and rendered paper asset |
-| Simple exact method/architecture topology | FigureSpec, Mermaid/Graphviz, or Draw.io after comparing the richer routes |
+| Simple exact topology in a supporting figure | FigureSpec, Mermaid/Graphviz, or Draw.io after comparing the richer routes |
 | Expressive conceptual teaser | image-2 when configured and evidence-faithful; otherwise installed PPT Master or browser-rendered HTML |
 | Visual that inherently requires unavailable generative media | Mark blocked or redesign the claim; never fabricate an output |
+
+
+A paper's Figure 1 never qualifies as the simple row. It is the figure a
+reviewer looks at before reading a word, so it takes a polished route even
+when its topology is three boxes and two arrows: those three boxes still need
+hierarchy, depth and a type scale that a flat-fill renderer does not produce.
 
 Hand-authoring raw SVG is not on this table. Typing `<rect>` and `<line>`
 yourself produces a whiteboard sketch, and it is never the shortest path to a
