@@ -532,3 +532,24 @@ def test_the_grind_skill_says_what_a_campaign_does_between_rounds() -> None:
     research = load_vertical("research")
     for role in ("engineer", "manager"):
         assert "research-grind.md" in vertical_role_banner(research, role)
+
+
+def test_the_paper_is_written_for_reviewers_who_exist() -> None:
+    """Seeds, intervals and reproducibility checklists are what an imitation of
+    a reviewer asks for. Reading real ICLR reviews and the official guide, what
+    is nearly always assessed is whether the problem is real, whether the idea
+    is interesting, whether the comparison is fair, and whether the claim
+    matches the evidence — statistics appear when a margin is small."""
+    from argus_skill.verticals._base import load_vertical, vertical_role_banner
+    from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+
+    drafting = " ".join(item.statement for item in STAGE_CHECKLISTS["review"])
+    assert "one honest paragraph" in drafting
+    assert "buys no protection" in drafting
+    assert "not the spine of a paper" in drafting
+
+    planner = vertical_role_banner(load_vertical("research"), "planner")
+    # The moves that actually earn a strong review, named so they can be aimed at.
+    for move in ("assumed it already understood", "principled method", "contradicts"):
+        assert move in planner
+    assert "a claim the results do not support" in planner
