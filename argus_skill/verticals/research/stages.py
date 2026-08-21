@@ -1051,12 +1051,13 @@ _REVIEWER_RESEARCH_JUDGEMENT = (
     "or evaluator failure. Research-stage smoke probes are short advisory "
     "observations, not gates: weak or underpowered ones cannot by themselves "
     "trigger replan. Measured short of the baseline, the gap has a size and "
-    "closing it is the work: name what it is made of — implementation, "
-    "optimization, data, scale, evaluator — buy that fix and measure again, the "
-    "way a leaderboard result is earned. Rounds of this are normal; a miss "
-    "says nothing about the idea, and a loss never becomes the paper. If it "
-    "is stronger than the writing admits, "
-    "push the claim up. A missing certificate or schema field belongs in "
+    "closing it is the work: name what it is made of — implementation, data, "
+    "scale, evaluator — buy that fix and measure again, the way a leaderboard "
+    "result is earned. Such rounds are normal; a miss "
+    "says nothing about the idea, retiring one is the Manager's call, and a "
+    "loss is never the paper. If it "
+    "is stronger than the writing says, "
+    "push the claim up. A missing certificate or field belongs in "
     "next_action, not in a returned verdict.\n"
 )
 
@@ -1109,12 +1110,31 @@ _ENGINEER_RESEARCH_EXECUTION = (
 )
 
 
+_MANAGER_RESEARCH_STEWARDSHIP = (
+    _AMBITIOUS_RESEARCH_POLICY +
+    "Research stewardship: the campaign's normal state is closing the gap to the "
+    "baseline named at selection — round after round of the fix that the current "
+    "shortfall points at, the way a leaderboard result is earned. Missing is the "
+    "starting position, not news about the idea, and no Reviewer verdict or "
+    "mission outcome retires one. Only you can judge that an idea is genuinely "
+    "dead, and that judgement is rare and expensive: it wants sustained "
+    "optimization already spent across implementation, data, scale and evaluator, "
+    "the gap unmoved by any of it, and a reason the next round would fail that is "
+    "not simply that the last one did. Fewer rounds than that is impatience "
+    "wearing the costume of judgement — the shortfall is still an engineering "
+    "shortfall until the engineering has actually been done. When you do retire "
+    "an idea, roll back to selection with the accumulated evidence; what a dead "
+    "idea never becomes is the paper.\n"
+)
+
+
 def role_banner(role: str = "engineer") -> str:
     """Add research-only role policy without affecting other verticals."""
     return {
         "planner": _PLANNER_RESEARCH_ORCHESTRATION,
         "reviewer": _REVIEWER_RESEARCH_JUDGEMENT,
         "engineer": _ENGINEER_RESEARCH_EXECUTION,
+        "manager": _MANAGER_RESEARCH_STEWARDSHIP,
     }.get(role, "")
 
 

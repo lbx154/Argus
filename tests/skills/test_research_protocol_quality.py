@@ -469,7 +469,7 @@ def test_a_shortfall_is_a_gap_to_close_not_a_verdict() -> None:
     # A miss buys the next fix; it does not judge the idea.
     assert "leaderboard result is earned" in reviewer
     assert "says nothing about the idea" in reviewer
-    assert "a loss never becomes the paper" in reviewer
+    assert "a loss is never the paper" in reviewer
 
 
 def test_probes_still_cannot_veto_a_selected_idea() -> None:
@@ -480,3 +480,24 @@ def test_probes_still_cannot_veto_a_selected_idea() -> None:
     research = load_vertical("research")
     assert "cannot by themselves" in vertical_role_banner(research, "reviewer")
     assert "claim-bearing evidence at " in vertical_role_banner(research, "planner")
+
+
+def test_only_the_manager_retires_an_idea_and_only_reluctantly() -> None:
+    """Grinding the gap down is the campaign's normal state. Deciding an idea is
+    dead is one role's call, it is meant to be rare, and impatience is named as
+    the thing it will otherwise be mistaken for."""
+    from argus_skill.verticals._base import load_vertical, vertical_role_banner
+
+    research = load_vertical("research")
+    manager = vertical_role_banner(research, "manager")
+    reviewer = vertical_role_banner(research, "reviewer")
+
+    assert "Only you can judge that an idea is genuinely dead" in manager
+    assert "rare and expensive" in manager
+    assert "impatience" in manager
+    # A dead idea returns to selection; it still never becomes a manuscript.
+    assert "roll back to selection" in manager
+    assert "never becomes is the paper" in manager
+
+    # No other role may make that call.
+    assert "the Manager's call" in reviewer
