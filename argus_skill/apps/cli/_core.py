@@ -401,6 +401,7 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.follow)
         + bool(getattr(args, "web", False))
         + bool(args.notify)
+        + bool(getattr(args, "answer", None))
         + bool(args.init_identity)
         + bool(args.setup)
         + bool(getattr(args, "doctor", False))
@@ -418,6 +419,9 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.lifecycle_archive)
         + bool(getattr(args, "command", None))
     )
+    if getattr(args, "answer_item", "") and not getattr(args, "answer", None):
+        sys.stderr.write("argus-skill: --answer-item requires --answer TEXT\n")
+        return 2
     if getattr(args, "notify_stage", "") and not args.notify:
         sys.stderr.write("argus-skill: --notify-stage requires --notify MSG\n")
         return 2
@@ -573,6 +577,8 @@ def main(argv: list[str] | None = None) -> int:
             )
         except ImportError as exc:
             return _report_missing_web_dependency(exc.name or "a web dependency")
+    if getattr(args, "answer", None):
+        return _cmd_answer(args)
     if args.notify:
         return _run_with_path_resolution_errors(lambda: _cmd_notify(args))
     if args.init_identity:
@@ -1191,6 +1197,66 @@ def _cmd_follow(args: argparse.Namespace) -> int:
         coalescer.flush()
         if fh is not None:
             fh.close()
+    return 0
+
+
+def _cmd_answer(args: argparse.Namespace) -> int:
+    """Answer the question a mission is paused on, and let it run again.
+
+    A nudge is guidance the next round happens to read. This is the other
+    thing an operator needs: a mission that stopped to ask something is
+    ``paused_operator`` until the question is answered, and until this
+    existed the only way to clear that was the web cockpit — so an
+    unattended box could sit blocked on "may I install torch?" indefinitely.
+    """
+    answer = (getattr(args, "answer", "") or "").strip()
+    if not answer:
+        sys.stderr.write("argus-skill: --answer requires non-empty text\n")
+        return 2
+    bundle = _resolve_project_bundle(args)
+    from ...life.memory import Backlog
+
+    backlog = Backlog(bundle.project.root / "backlog.jsonl")
+    waiting = [
+        item
+        for item in backlog.all()
+        if str(getattr(item, "pending_question", "") or "").strip()
+    ]
+    if not waiting:
+        sys.stderr.write("argus-skill: no mission is waiting on an answer\n")
+        return 1
+
+    wanted = str(getattr(args, "answer_item", "") or "").strip()
+    if wanted:
+        waiting = [item for item in waiting if item.id == wanted]
+        if not waiting:
+            sys.stderr.write(f"argus-skill: {wanted} is not waiting on an answer\n")
+            return 1
+    elif len(waiting) > 1:
+        sys.stderr.write("argus-skill: several missions are waiting; pick one with --answer-item\n")
+        for item in waiting:
+            sys.stderr.write(f"  {item.id}  {item.title}\n")
+        return 2
+
+    item = waiting[0]
+    question = str(getattr(item, "pending_question", "") or "").strip()
+    backlog.update(
+        item.id,
+        pending_question="",
+        notes=f"{getattr(item, 'notes', '') or ''}\noperator answer: {answer}".strip(),
+    )
+    resumed = backlog.resume_paused(item.id)
+    if resumed is None:
+        sys.stderr.write(
+            f"argus-skill: answered {item.id} but it did not resume "
+            f"(status {item.status}); it may need --daemon-stop and a fresh run\n"
+        )
+        return 1
+    sys.stdout.write(f"argus-skill: answered {item.id} ({item.title})\n")
+    if question:
+        sys.stdout.write(f"  asked:  {question[:160]}\n")
+    sys.stdout.write(f"  answer: {answer[:160]}\n")
+    sys.stdout.write(f"  status: {resumed.status}, attempt {resumed.attempt}\n")
     return 0
 
 

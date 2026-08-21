@@ -255,6 +255,19 @@ def build_parser() -> argparse.ArgumentParser:
              "engineer round picks it up as operator guidance)",
     )
     cockpit_grp.add_argument(
+        "--answer",
+        metavar="TEXT",
+        help="answer the question a mission is paused on and let it run again "
+             "(a nudge is guidance for the next round; this clears the pause)",
+    )
+    cockpit_grp.add_argument(
+        "--answer-item",
+        default="",
+        metavar="ITEM_ID",
+        help="with --answer: the paused item to answer, when more than one is "
+             "waiting",
+    )
+    cockpit_grp.add_argument(
         "--notify-stage",
         default="",
         metavar="STAGE",
