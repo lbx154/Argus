@@ -104,7 +104,8 @@ def test_two_models_on_one_backend_still_see_each_other(monkeypatch) -> None:
     def _ask(seat, prompt, workdir, label):
         if label == "idea-panel-propose":
             return f"## Candidate from {seat[1]}"
-        reviews.append(prompt)
+        if label == "idea-panel-review":
+            reviews.append(prompt)
         return "### Panel bet\nx"
 
     monkeypatch.setattr(idea_panel, "_ask", _ask)
@@ -129,7 +130,10 @@ def test_a_reviewer_never_cross_examines_itself(monkeypatch) -> None:
     def _ask(seat, prompt, workdir, label):
         if label == "idea-panel-propose":
             return f"## Candidate {seat[0]}-only-marker"
-        seen.append((seat[0], prompt))
+        if label == "idea-panel-review":
+            # The verdict round deliberately sees every candidate; only the
+            # cross-examination must withhold a seat's own proposals.
+            seen.append((seat[0], prompt))
         return "### Panel bet\nx"
 
     monkeypatch.setattr(idea_panel, "_ask", _ask)
@@ -297,3 +301,80 @@ def test_the_debate_survives_the_ranking_agent(tmp_path, monkeypatch) -> None:
     # Now the ranking agent replaces the candidate file, as it does.
     (research / "IDEA_CANDIDATES.md").write_text("# Ranked\n", encoding="utf-8")
     assert "Cross-examination by" in panel_file.read_text(encoding="utf-8")
+
+
+def test_one_backend_serving_one_model_is_not_a_panel(monkeypatch) -> None:
+    """Naming the same launcher twice with no model is one model arguing with
+    itself, which is worse than no panel because it looks like one."""
+    monkeypatch.setattr(idea_panel, "_resolve_bin", lambda backend: "/usr/bin/x")
+
+    assert idea_panel.available_panel("copilot,copilot") == [("copilot", "")]
+    assert idea_panel.available_panel("copilot:m,copilot:m") == [("copilot", "m")]
+    # Different models on that one backend are still two labs.
+    assert len(idea_panel.available_panel("copilot:a,copilot:b")) == 2
+
+
+def test_seats_are_asked_at_the_same_time(monkeypatch) -> None:
+    """Sequential rounds cost the sum of every model's latency. A round should
+    cost the slowest one."""
+    import threading
+    import time
+
+    monkeypatch.setattr(idea_panel, "_resolve_bin", lambda backend: "/usr/bin/x")
+    inside = threading.Barrier(2, timeout=5)
+
+    def _ask(seat, prompt, workdir, label):
+        if label == "idea-panel-propose":
+            inside.wait()  # both seats must be in flight together or this times out
+            return f"## Candidate {seat[0]}"
+        return "### Winner\nx"
+
+    monkeypatch.setattr(idea_panel, "_ask", _ask)
+    started = time.time()
+    out = idea_panel.run_panel(
+        ".", direction="d", proposal_prompt="p", configured="codex,claude"
+    )
+
+    assert out
+    assert time.time() - started < 5
+
+
+def test_the_panel_converges_on_one_candidate(monkeypatch) -> None:
+    """A campaign runs one idea, so the panel has to end by naming one."""
+    monkeypatch.setattr(idea_panel, "_resolve_bin", lambda backend: "/usr/bin/x")
+    seen: list[str] = []
+
+    def _ask(seat, prompt, workdir, label):
+        if label == "idea-panel-propose":
+            return f"## Candidate {seat[0]}-1"
+        if label == "idea-panel-verdict":
+            seen.append(prompt)
+            return "### Winner\ncodex-1\n### Week-one check\nrun it"
+        return "### Panel review — x\nobjection"
+
+    monkeypatch.setattr(idea_panel, "_ask", _ask)
+    out = idea_panel.run_panel(
+        ".", direction="d", proposal_prompt="p", configured="codex,claude"
+    )
+
+    assert "## Verdict from `codex`" in out
+    assert "## Verdict from `claude`" in out
+    # The verdict is taken with the whole argument in view, not just one's own.
+    for prompt in seen:
+        assert "## Candidate codex-1" in prompt
+        assert "## Candidate claude-1" in prompt
+        assert "Cross-examination" in prompt
+
+
+def test_a_seat_that_raises_costs_only_its_own_seat(monkeypatch) -> None:
+    monkeypatch.setattr(idea_panel, "_resolve_bin", lambda backend: "/usr/bin/x")
+
+    def _ask(seat, prompt, workdir, label):
+        if seat[0] == "claude":
+            raise RuntimeError("that seat exploded")
+        return "## Candidate codex-1" if label == "idea-panel-propose" else "### Winner\nx"
+
+    monkeypatch.setattr(idea_panel, "_ask", _ask)
+    # One surviving proposal is not a panel, so this degrades rather than crashes.
+    assert idea_panel.run_panel(".", direction="d", proposal_prompt="p",
+                                configured="codex,claude") == ""

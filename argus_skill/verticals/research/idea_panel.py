@@ -92,11 +92,14 @@ def available_panel(configured: str | None = None) -> list[tuple[str, str]]:
     seats = parse_panel(configured if configured is not None else os.environ.get(PANEL_KNOB))
     if not seats:
         seats = [(backend, "") for backend in _CROSS_VENDOR_BACKENDS]
-    return [
-        seat
-        for seat in seats
-        if _resolve_bin(seat[0]) and _is_usable(seat[0])
-    ]
+    usable = [seat for seat in seats if _resolve_bin(seat[0]) and _is_usable(seat[0])]
+    # Two seats on the same backend are two labs only when they name different
+    # models. A backend that serves one model, asked twice, is one model
+    # arguing with itself — which is worse than not seating a panel, because it
+    # looks like one.
+    if len({seat[1] for seat in usable}) == 1 and len({seat[0] for seat in usable}) == 1:
+        return usable[:1]
+    return usable
 
 
 def _runner_for(backend: str, agent_bin: str) -> Any | None:
@@ -154,6 +157,50 @@ def _seat_id(seat: tuple[str, str]) -> str:
     return f"{backend}:{model}" if model else backend
 
 
+def _in_parallel(seats, work):
+    """Run one call per seat at the same time, keeping the seat order.
+
+    A slow panellist should cost the panel its own latency, not everyone's, and
+    one that raises should cost only its own seat.
+    """
+    if len(seats) < 2:
+        return [(seat, work(seat)) for seat in seats]
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(
+        max_workers=len(seats), thread_name_prefix="argus-panel"
+    ) as pool:
+        futures = [pool.submit(work, seat) for seat in seats]
+        out = []
+        for seat, future in zip(seats, futures):
+            try:
+                out.append((seat, future.result()))
+            except Exception:  # noqa: BLE001 — one seat failing is one empty seat
+                log.debug("idea-panel: %s raised", _seat_id(seat), exc_info=True)
+                out.append((seat, ""))
+    return out
+
+
+def _verdict_prompt(direction: str, transcript: str) -> str:
+    return (
+        "The panel has proposed candidates and cross-examined each other on "
+        f"this direction:\n\n{direction}\n\n"
+        "Here is the full record — every candidate and every objection raised "
+        f"against it:\n\n{transcript}\n\n"
+        "One of these gets a campaign; the rest do not. Name the single "
+        "candidate you would run, including one you did not propose and "
+        "including one you attacked, if the argument moved you. Say what "
+        "survived the objections against it, what is now the biggest risk you "
+        "are knowingly accepting, and the first measurement that would tell "
+        "you within a week that you picked wrong.\n\n"
+        "Answer as:\n"
+        "### Winner\n<candidate id and title>\n"
+        "### Why it survived\n<the objection it answered>\n"
+        "### Risk accepted\n<what could still kill it>\n"
+        "### Week-one check\n<the measurement>"
+    )
+
+
 def _cross_examination_prompt(direction: str, others: str) -> str:
     return (
         "You are on a panel choosing which research idea deserves a full "
@@ -183,7 +230,7 @@ def run_panel(
     proposal_prompt: str,
     configured: str | None = None,
 ) -> str:
-    """Collect independent proposals, then have each seat cross-examine the rest.
+    """Propose in parallel, argue, then converge on one candidate to run.
 
     Returns markdown to append to the candidate file, or ``""`` when this box
     cannot seat a real panel. Never raises.
@@ -199,11 +246,16 @@ def run_panel(
             ", ".join(_seat_id(seat) for seat in seats),
         )
 
-        proposals: list[tuple[tuple[str, str], str]] = []
-        for seat in seats:
-            body = _ask(seat, proposal_prompt, cwd, "idea-panel-propose")
-            if "## Candidate" in body:
-                proposals.append((seat, body))
+        # Seats do not read each other while proposing, so proposing is
+        # embarrassingly parallel and a round costs one model's latency
+        # rather than the sum of them.
+        proposals = [
+            (seat, body)
+            for seat, body in _in_parallel(
+                seats, lambda seat: _ask(seat, proposal_prompt, cwd, "idea-panel-propose")
+            )
+            if "## Candidate" in body
+        ]
         if len(proposals) < 2:
             return ""
 
@@ -211,29 +263,50 @@ def run_panel(
             f"\n## Candidates from `{_seat_id(seat)}`\n\n{body}\n" for seat, body in proposals
         ]
 
-        for seat, _ in proposals:
+        def _others_for(seat: tuple[str, str]) -> str:
             # Identity is the seat, not the launcher: two models reached through
             # one CLI are still two labs, and each must be handed the other's
             # candidates rather than an empty page.
-            others = "\n\n".join(
+            return "\n\n".join(
                 f"### From {_seat_id(other)}\n\n{body}"
                 for other, body in proposals
                 if other != seat
             )
-            if not others:
-                continue
-            review = _ask(
+
+        reviews = _in_parallel(
+            [seat for seat, _ in proposals],
+            lambda seat: _ask(
                 seat,
-                _cross_examination_prompt(direction, others),
+                _cross_examination_prompt(direction, _others_for(seat)),
                 cwd,
                 "idea-panel-review",
-            )
+            ),
+        )
+        for seat, review in reviews:
             if review:
                 sections.append(
                     f"\n## Cross-examination by `{_seat_id(seat)}`\n\n{review}\n"
                 )
 
-        log.info("idea-panel: %d proposal set(s) and their reviews", len(proposals))
+        # The campaign runs one idea, so the panel has to land on one. Each seat
+        # reads the whole argument — every candidate and every objection to it —
+        # and names its winner. Agreement is a strong signal and disagreement is
+        # information; neither is decided here.
+        transcript = "".join(sections)
+        verdicts = _in_parallel(
+            [seat for seat, _ in proposals],
+            lambda seat: _ask(seat, _verdict_prompt(direction, transcript), cwd, "idea-panel-verdict"),
+        )
+        for seat, verdict in verdicts:
+            if verdict:
+                sections.append(f"\n## Verdict from `{_seat_id(seat)}`\n\n{verdict}\n")
+
+        log.info(
+            "idea-panel: %d proposal set(s), %d review(s), %d verdict(s)",
+            len(proposals),
+            sum(1 for _, r in reviews if r),
+            sum(1 for _, v in verdicts if v),
+        )
         return "".join(sections)
     except Exception:  # noqa: BLE001 — ideation must never break the campaign
         log.debug("idea-panel failed", exc_info=True)
