@@ -27,28 +27,21 @@ def _runner(
     return run
 
 
-def test_update_fast_forwards_and_reinstalls(tmp_path: Path) -> None:
+def test_update_pulls_public_main_and_reinstalls(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text("[project]\nname='argus-skill'\n")
     python = "/venv/bin/python"
     calls: list[tuple[str, ...]] = []
     responses = {
         ("git", "rev-parse", "--show-toplevel"): (0, str(tmp_path), ""),
         ("git", "status", "--porcelain", "--untracked-files=normal"): (0, "", ""),
-        ("git", "branch", "--show-current"): (0, "main\n", ""),
+        ("git", "branch", "--show-current"): (0, "private-preview\n", ""),
         (
             "git",
-            "rev-parse",
-            "--abbrev-ref",
-            "--symbolic-full-name",
-            "@{upstream}",
-        ): (0, "origin/main\n", ""),
-        ("git", "config", "--get", "branch.main.remote"): (0, "origin\n", ""),
-        ("git", "config", "--get", "branch.main.merge"): (
-            0,
-            "refs/heads/main\n",
-            "",
-        ),
-        ("git", "pull", "--ff-only", "origin", "refs/heads/main"): (
+            "pull",
+            "--ff-only",
+            "https://github.com/lbx154/Argus.git",
+            "refs/heads/main",
+        ): (
             0,
             "updated\n",
             "",
@@ -80,12 +73,12 @@ def test_update_fast_forwards_and_reinstalls(tmp_path: Path) -> None:
     )
 
     assert result.changed is True
-    assert result.upstream == "origin/main"
+    assert result.upstream == "lbx154/Argus/main"
     assert (
         "git",
         "pull",
         "--ff-only",
-        "origin",
+        "https://github.com/lbx154/Argus.git",
         "refs/heads/main",
     ) in calls
     assert (python, "-m", "pip", "install", "-e", str(tmp_path)) in calls
@@ -120,21 +113,14 @@ def test_update_skips_reinstall_when_current(tmp_path: Path) -> None:
         ("git", "rev-parse", "--show-toplevel"): (0, str(tmp_path), ""),
         ("git", "status", "--porcelain", "--untracked-files=normal"): (0, "", ""),
         ("git", "branch", "--show-current"): (0, "main\n", ""),
+        ("git", "rev-parse", "HEAD"): (0, "same\n", ""),
         (
             "git",
-            "rev-parse",
-            "--abbrev-ref",
-            "--symbolic-full-name",
-            "@{upstream}",
-        ): (0, "origin/main\n", ""),
-        ("git", "config", "--get", "branch.main.remote"): (0, "origin\n", ""),
-        ("git", "config", "--get", "branch.main.merge"): (
-            0,
-            "refs/heads/main\n",
-            "",
-        ),
-        ("git", "rev-parse", "HEAD"): (0, "same\n", ""),
-        ("git", "pull", "--ff-only", "origin", "refs/heads/main"): (
+            "pull",
+            "--ff-only",
+            "https://github.com/lbx154/Argus.git",
+            "refs/heads/main",
+        ): (
             0,
             "Already up to date.\n",
             "",
