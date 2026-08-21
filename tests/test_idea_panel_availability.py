@@ -56,14 +56,17 @@ def test_operator_config_survives_a_missing_seat(monkeypatch) -> None:
     assert seats == [("codex", ""), ("copilot", "gemini-3.1-pro-preview")]
 
 
-def test_the_panel_is_auto_seated_from_installed_clis(monkeypatch) -> None:
+def test_the_panel_is_off_until_an_operator_asks_for_it(monkeypatch) -> None:
+    """Blind scoring over four directions found a panel buys spread rather than
+    level, so it is a trade an operator chooses — not one a campaign inherits
+    from whichever CLIs happen to be installed."""
     monkeypatch.delenv(idea_panel.PANEL_KNOB, raising=False)
-    monkeypatch.setattr(
-        idea_panel,
-        "_resolve_bin",
-        lambda backend: "/usr/bin/x" if backend in {"claude", "grok"} else None,
-    )
-    assert idea_panel.available_panel() == [("claude", ""), ("grok", "")]
+    monkeypatch.setattr(idea_panel, "_resolve_bin", lambda backend: "/usr/bin/x")
+
+    assert idea_panel.available_panel() == []
+    assert idea_panel.run_panel(".", direction="d", proposal_prompt="p") == ""
+    # Naming seats turns it on.
+    assert len(idea_panel.available_panel("claude,grok")) == 2
 
 
 def test_a_silent_panellist_does_not_end_the_panel(monkeypatch) -> None:

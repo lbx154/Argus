@@ -85,13 +85,16 @@ def parse_panel(raw: str | None) -> list[tuple[str, str]]:
 def available_panel(configured: str | None = None) -> list[tuple[str, str]]:
     """Return the seats this machine can actually fill.
 
-    An operator list is honoured as written, minus seats whose CLI is missing.
-    With no list, every installed cross-vendor CLI takes a seat on its own
-    default model.
+    Seating is opt-in. Across four directions and thirty-two blind-scored
+    candidates a panel did not beat single-model ideation on the mean — it
+    produced the best candidate in the batch and more than twice as many weak
+    ones, so it buys spread rather than level. That is a trade an operator
+    chooses, not one a campaign inherits from which CLIs happen to be
+    installed. Named seats whose CLI is missing are dropped, not failed.
     """
     seats = parse_panel(configured if configured is not None else os.environ.get(PANEL_KNOB))
     if not seats:
-        seats = [(backend, "") for backend in _CROSS_VENDOR_BACKENDS]
+        return []
     usable = [seat for seat in seats if _resolve_bin(seat[0]) and _is_usable(seat[0])]
     # Two seats on the same backend are two labs only when they name different
     # models. A backend that serves one model, asked twice, is one model
