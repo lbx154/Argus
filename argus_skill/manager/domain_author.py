@@ -163,6 +163,7 @@ def _resolve_existing_identity(
     *,
     persisted_vertical: str = "",
     persisted_workflow_mode: str = "",
+    allow_persisted_change: bool = False,
 ) -> tuple[str, str, bool] | None:
     name, legacy_direct = _canonical_existing_vertical(
         obj.get("vertical") or obj.get("name")
@@ -190,7 +191,12 @@ def _resolve_existing_identity(
         workflow_mode = prior_mode
     else:
         workflow_mode = "staged"
-    if same_identity and prior_mode and workflow_mode != prior_mode:
+    if (
+        same_identity
+        and prior_mode
+        and workflow_mode != prior_mode
+        and not allow_persisted_change
+    ):
         return None
     return name, workflow_mode, same_identity
 
@@ -202,6 +208,7 @@ def _resolve_research_target(
     targeted: set[str],
     same_persisted_identity: bool,
     persisted_research_target_level: str,
+    allow_persisted_change: bool = False,
 ) -> str | None:
     target_level = str(obj.get("research_target_level") or "").strip().lower()
     prior_target = str(persisted_research_target_level or "").strip().lower()
@@ -215,6 +222,7 @@ def _resolve_research_target(
         same_persisted_identity
         and prior_target
         and target_level != prior_target
+        and not allow_persisted_change
     ):
         return None
     return target_level
@@ -259,6 +267,7 @@ def _resolve_existing_domain(
     name: str,
     same_persisted_identity: bool,
     persisted_domain: str,
+    allow_persisted_change: bool = False,
 ) -> str | None:
     domain = _sluggify_name(obj.get("domain"))
     prior_domain = _sluggify_name(persisted_domain)
@@ -270,6 +279,7 @@ def _resolve_existing_domain(
         same_persisted_identity
         and prior_domain
         and domain != prior_domain
+        and not allow_persisted_change
     ):
         return None
     return domain
@@ -448,6 +458,7 @@ def parse_fast_vertical_decision(
     persisted_domain: str = "",
     persisted_research_target_level: str = "",
     persisted_research_direction_mode: str = "",
+    allow_persisted_change: bool = False,
 ) -> FastVerticalRoute | None:
     """Parse a tool-free route; invalid output fails closed to grounding."""
     obj = _decision_fields(raw_text)
@@ -473,6 +484,7 @@ def parse_fast_vertical_decision(
         obj,
         persisted_vertical=persisted_vertical,
         persisted_workflow_mode=persisted_workflow_mode,
+        allow_persisted_change=allow_persisted_change,
     )
     if identity is None:
         return None
@@ -486,6 +498,7 @@ def parse_fast_vertical_decision(
         name=name,
         same_persisted_identity=same_persisted_identity,
         persisted_domain=persisted_domain,
+        allow_persisted_change=allow_persisted_change,
     )
     if domain is None:
         return None
@@ -507,6 +520,7 @@ def parse_fast_vertical_decision(
         targeted=targeted,
         same_persisted_identity=same_persisted_identity,
         persisted_research_target_level=persisted_research_target_level,
+        allow_persisted_change=allow_persisted_change,
     )
     if target_level is None:
         return None
@@ -593,6 +607,7 @@ def parse_vertical_decision(
     persisted_domain: str = "",
     persisted_research_target_level: str = "",
     persisted_research_direction_mode: str = "",
+    allow_persisted_change: bool = False,
 ) -> VerticalDecision | None:
     """Validate the Manager's vertical-decision JSON; fail-closed to ``None``.
 
@@ -623,6 +638,7 @@ def parse_vertical_decision(
             obj,
             persisted_vertical=persisted_vertical,
             persisted_workflow_mode=persisted_workflow_mode,
+            allow_persisted_change=allow_persisted_change,
         )
         if identity is None:
             return None
@@ -632,6 +648,7 @@ def parse_vertical_decision(
             name=name,
             same_persisted_identity=same_persisted_identity,
             persisted_domain=persisted_domain,
+            allow_persisted_change=allow_persisted_change,
         )
         if domain is None:
             return None
@@ -655,6 +672,7 @@ def parse_vertical_decision(
             targeted=targeted,
             same_persisted_identity=same_persisted_identity,
             persisted_research_target_level=persisted_research_target_level,
+            allow_persisted_change=allow_persisted_change,
         )
         if target_level is None:
             return None

@@ -281,6 +281,55 @@ def test_vertical_parser_recovers_direct_mode_from_legacy_persisted_alias() -> N
     assert decision.workflow_mode == "direct"
 
 
+def test_new_operator_handoff_can_raise_same_research_route_contract() -> None:
+    decision = parse_vertical_decision(
+        json.dumps({
+            "choice": "existing",
+            "name": "research",
+            "workflow_mode": "staged",
+            "research_target_level": "publishable",
+            "research_direction_mode": "broad",
+            "execution_task": "Run real experiments for a submission-grade result.",
+        }),
+        known_verticals=VERTICALS,
+        research_target_verticals=("research",),
+        persisted_vertical="research",
+        persisted_workflow_mode="direct",
+        persisted_research_target_level="exploratory",
+        persisted_research_direction_mode="locked",
+        allow_persisted_change=True,
+    )
+
+    assert decision is not None
+    assert decision.workflow_mode == "staged"
+    assert decision.research_target_level == "publishable"
+    assert decision.research_direction_mode == "broad"
+
+
+def test_new_handoff_recovers_prior_direction_from_noncontract_model_label() -> None:
+    decision = parse_vertical_decision(
+        json.dumps({
+            "choice": "existing",
+            "name": "research",
+            "workflow_mode": "staged",
+            "research_target_level": "exploratory",
+            "research_direction_mode": "experimental_validation",
+            "execution_task": "Run a bounded real-model smoke test.",
+        }),
+        known_verticals=VERTICALS,
+        research_target_verticals=("research",),
+        persisted_vertical="research",
+        persisted_workflow_mode="direct",
+        persisted_research_target_level="exploratory",
+        persisted_research_direction_mode="locked",
+        allow_persisted_change=True,
+    )
+
+    assert decision is not None
+    assert decision.workflow_mode == "staged"
+    assert decision.research_direction_mode == "locked"
+
+
 def test_vertical_parser_recovers_required_persisted_research_target() -> None:
     decision = parse_vertical_decision(
         json.dumps({
