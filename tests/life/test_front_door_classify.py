@@ -73,7 +73,8 @@ def test_front_door_prompt_has_a_strict_token_efficiency_budget() -> None:
     assert "Questions, requests for an explanation/status/capability check" in prompt
     assert "Ambiguity defaults to no control" in prompt
     assert "terminology definitions" in prompt
-    assert "post-reply learning review" in prompt
+    assert "one explicit deliverable" in prompt
+    assert "EXECUTE" in prompt
     assert "BOUNDED_INCREMENT" in prompt
     assert "BOUNDED" in prompt
     assert "STANDING" in prompt
@@ -154,6 +155,22 @@ def test_front_door_defaults_self_turn_to_inspection() -> None:
 
     assert decision == (None, None, "simple")
     assert modes == ["inspect"]
+
+
+def test_front_door_selects_execute_for_one_local_microtask() -> None:
+    modes: list[str] = []
+    decision = classify_front_door(
+        "create one file and verify its exact bytes",
+        run_exec=_exec(
+            "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\n"
+            "SELF_MODE: EXECUTE\nREPLY: NONE\nLIFETIME: NONE\n"
+            "GREETING: NONE\nNAME: Verify file"
+        ),
+        self_mode_sink=modes.append,
+    )
+
+    assert decision == (None, None, "simple")
+    assert modes == ["execute"]
 
 
 def test_front_door_reuses_team_lifetime_from_the_same_model_call() -> None:

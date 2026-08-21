@@ -152,7 +152,7 @@ class ConfigIntent:
 
 
 ControlIntent = Literal["abort", "pause", "no_dispatch", "steer"]
-SelfModeIntent = Literal["reply", "inspect"]
+SelfModeIntent = Literal["reply", "inspect", "execute"]
 ConfigDecision = ConfigIntent | tuple[ConfigIntent, ...] | None
 LifetimeIntent = Literal["bounded", "bounded_increment", "standing"]
 AuthorizationAction = Literal[
@@ -378,7 +378,13 @@ def classify_front_door(
     self_mode: SelfModeIntent | None = None
     if route == "simple":
         self_mode_token = _first_alpha_token(fields["self_mode"]).upper()
-        self_mode = "reply" if self_mode_token == "REPLY" else "inspect"
+        self_mode = (
+            "reply"
+            if self_mode_token == "REPLY"
+            else "execute"
+            if self_mode_token == "EXECUTE"
+            else "inspect"
+        )
     if callable(self_mode_sink) and self_mode is not None:
         try:
             self_mode_sink(self_mode)

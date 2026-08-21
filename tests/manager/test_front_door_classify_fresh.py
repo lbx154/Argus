@@ -19,6 +19,7 @@ class _FakeResult:
 class _RecordingBackend:
     def __init__(self, answer: str) -> None:
         self.answer = answer
+        self.backend = "pi"
         self.calls: list[dict] = []
 
     def run_exec(self, **kwargs) -> _FakeResult:
@@ -62,6 +63,11 @@ def test_front_door_runs_fresh_low_effort(tmp_path, monkeypatch) -> None:
     assert call["run_label"] == "manager-frontdoor-classify"
     assert call["options"].reasoning_effort == "low"
     assert call["options"].model == "fast-manager"
+    assert call["options"].disable_tools is True
+    assert call["options"].extra_args == [
+        "--system-prompt",
+        "Return only the requested Argus Manager classification decision.",
+    ]
 
 
 def test_front_door_effort_env_override(tmp_path, monkeypatch) -> None:

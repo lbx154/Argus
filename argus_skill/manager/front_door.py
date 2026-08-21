@@ -1183,23 +1183,29 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
                 pass
 
     try:
-        quick_reply = str(self_mode or "inspect").strip().lower() == "reply"
+        mode = str(self_mode or "inspect").strip().lower()
+        if mode not in {"reply", "inspect", "execute"}:
+            mode = "inspect"
         triage_kwargs: dict[str, Any] = {
             "objective": body,
             "sink": _Capture(progress_phases=False),
-            "seed_thread_id": None if quick_reply else chat_state.get("last_thread_id"),
+            "seed_thread_id": (
+                None
+                if mode in {"reply", "execute"}
+                else chat_state.get("last_thread_id")
+            ),
             "phase_cb": _runner_phase,
             "route": route,
         }
         if _accepts_parameter(runner.chat_reply_if_conversational, "self_mode"):
-            triage_kwargs["self_mode"] = "reply" if quick_reply else "inspect"
+            triage_kwargs["self_mode"] = mode
         if root_task_id is not None and _accepts_parameter(
             runner.chat_reply_if_conversational,
             "root_task_id",
         ):
             triage_kwargs["root_task_id"] = root_task_id
         if runner.chat_reply_if_conversational(**triage_kwargs):
-            if not quick_reply:
+            if mode == "inspect":
                 chat_state["last_thread_id"] = getattr(runner, "last_thread_id", None)
             return captured[0] if captured else _empty_reply_for_outcome()
     except TypeError:

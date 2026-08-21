@@ -150,18 +150,18 @@ def _front_door_classify(
             chat_state["_frontdoor_failure"] = classifier_failures[-1]
         if normalized_route == "simple":
             existing_thread = bool(chat_state.get("last_thread_id"))
-            self_mode = (
-                "inspect"
-                if existing_thread
-                else next(
-                    (
-                        str(value).strip().lower()
-                        for value in self_mode_decisions
-                        if str(value).strip().lower() in {"reply", "inspect"}
-                    ),
-                    "inspect",
-                )
+            self_mode = next(
+                (
+                    str(value).strip().lower()
+                    for value in self_mode_decisions
+                    if str(value).strip().lower() in {
+                        "reply", "inspect", "execute",
+                    }
+                ),
+                "inspect",
             )
+            if existing_thread and self_mode == "reply":
+                self_mode = "inspect"
             chat_state["_frontdoor_self_mode"] = self_mode
             fast_reply = next(
                 (str(value).strip() for value in fast_replies if str(value).strip()),

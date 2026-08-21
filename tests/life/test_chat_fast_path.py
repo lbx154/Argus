@@ -50,6 +50,7 @@ class _FakeBackend:
     thread_id: str | None = "tid-chat-1"
     classify_answer: str = "SELF"
     stream_message: str | None = None
+    backend: str = "pi"
     calls: list[dict[str, Any]] = field(default_factory=list)
     classify_calls: list[dict[str, Any]] = field(default_factory=list)
 
@@ -263,6 +264,36 @@ def test_message_only_self_reply_uses_lean_low_cost_route(monkeypatch) -> None:
     assert call["options"].dangerous_yolo is False
     assert "reply exactly hello" in call["prompt"]
     assert "Grounding workspace" not in call["prompt"]
+
+
+def test_local_microtask_uses_compact_isolated_execution(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "argus_skill.apps._self_reply.resolve_role_reasoning_effort",
+        lambda *_args, **_kwargs: "high",
+    )
+    backend = _FakeBackend(response_message="done")
+    runner = _make_runner(backend)
+
+    runner._simple_quick_reply(
+        objective="create result.txt and verify it",
+        sink=_RecordingSink(),
+        execute=True,
+    )
+
+    call = backend.calls[-1]
+    assert call["run_label"] == "self-execute"
+    assert call["prompt"] == "create result.txt and verify it"
+    assert call["options"].model == "gpt-5.4-mini"
+    assert call["options"].reasoning_effort == "high"
+    assert call["options"].skill_paths == []
+    assert call["options"].extra_args == [
+        "--tools",
+        "bash",
+        "--system-prompt",
+        "Complete the user task in the current directory. Use one shell command "
+        "to make the requested change and verify it, then report briefly and stop.",
+    ]
+    assert runner.last_thread_id is None
 
 
 def test_manager_self_effort_can_be_overridden(monkeypatch) -> None:

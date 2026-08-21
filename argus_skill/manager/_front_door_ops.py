@@ -58,6 +58,7 @@ class _FrontDoorMixin:
                 "ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT",
                 "low",
             ).value.strip() or "low"
+            _pi = str(getattr(_backend, "backend", "")) == "pi"
 
             def run_exec(prompt: str) -> Any:  # noqa: ANN401
                 return gateway_run_exec(
@@ -69,6 +70,16 @@ class _FrontDoorMixin:
                         ),
                         reasoning_effort=_effort,
                         skip_git_repo_check=True,
+                        disable_tools=True,
+                        extra_args=(
+                            [
+                                "--system-prompt",
+                                "Return only the requested Argus Manager "
+                                "classification decision.",
+                            ]
+                            if _pi
+                            else None
+                        ),
                     ),
                     run_label="manager-frontdoor-classify",
                     resume_thread_id=None,
