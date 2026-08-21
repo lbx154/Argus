@@ -372,6 +372,32 @@ def _accepts_parameter(fn: Any, name: str) -> bool:
     )
 
 
+def _allow_manager_route_contract_change(
+    mem: Any,
+    chat_state: dict[str, Any],
+) -> bool:
+    """Whether this operator handoff may revise the persisted route contract.
+
+    A finite supplemental task inside an active campaign inherits that
+    campaign's vertical, topology, and research bar. Outside an active campaign,
+    a fresh operator handoff is allowed to select a new topology or success bar.
+    An explicit standing handoff may replace the active campaign and therefore
+    also needs that authority. State-read failures preserve the contract.
+    """
+    try:
+        from ..daemon.state import read_continuous_state
+
+        active = read_continuous_state(_life_dir_for(mem))
+    except Exception:  # noqa: BLE001 - a corrupt control state must fail closed
+        return False
+    if not active.enabled or not active.objective.strip():
+        return True
+    lifetime = str(
+        chat_state.get("_frontdoor_lifetime", "bounded") or "bounded"
+    ).strip().lower()
+    return lifetime == "standing"
+
+
 def _record_goal_contract(mem: Any, body: str, decision: Any) -> None:
     """Persist the operator-originated GoalContract for this handoff.
 
@@ -649,13 +675,20 @@ def prepare_manager_execution_task(
         if manager is None:
             raise ManagerHandoffError("runner was constructed without a Manager")
 
-        if root_task_id is None or not _accepts_parameter(
+        decision_kwargs: dict[str, Any] = {}
+        if root_task_id is not None and _accepts_parameter(
             manager.decide_vertical,
             "root_task_id",
         ):
-            decision = manager.decide_vertical(body)
-        else:
-            decision = manager.decide_vertical(body, root_task_id=root_task_id)
+            decision_kwargs["root_task_id"] = root_task_id
+        if _accepts_parameter(
+            manager.decide_vertical,
+            "allow_route_contract_change",
+        ):
+            decision_kwargs["allow_route_contract_change"] = (
+                _allow_manager_route_contract_change(mem, chat_state)
+            )
+        decision = manager.decide_vertical(body, **decision_kwargs)
         require_manager_execution_task(decision)
         return PreparedManagerHandoff(
             mem=mem,

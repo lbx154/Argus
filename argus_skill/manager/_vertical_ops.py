@@ -50,21 +50,6 @@ def _repository_workflow_mode(mode: str) -> str:
     return "staged" if require_planner else mode
 
 
-def _normalize_exploratory_research_workflow(
-    decision: VerticalDecision,
-) -> VerticalDecision:
-    """Keep bounded general research out of the publication pipeline."""
-    if (
-        decision.choice == "existing"
-        and decision.vertical == "research"
-        and not decision.domain
-        and decision.research_target_level == "exploratory"
-        and not decision.target_venue
-    ):
-        decision.workflow_mode = "direct"
-    return decision
-
-
 def _software_grounding_required(workflow_mode: str) -> bool:
     raw = os.environ.get("ARGUS_SKILL_SOFTWARE_REQUIRE_GROUNDING", "").strip().lower()
     if raw:
@@ -138,6 +123,49 @@ def _render_routing_workspace_snapshot(snapshot: dict[str, Any]) -> str:
         "An empty snapshot is sufficient evidence that no repository-specific "
         "capability can be reused. Do not call a tool merely to repeat it."
     )
+
+
+def _render_active_route_contract(
+    *,
+    vertical: str,
+    workflow_mode: str,
+    domain: str,
+    research_target_level: str,
+    research_direction_mode: str,
+    allow_change: bool,
+) -> str:
+    """Tell the model about the state that the parser will reconcile against."""
+    if not vertical:
+        return ""
+    if allow_change:
+        policy = (
+            "This is a new operator handoff. You may revise these values only when "
+            "the current requested outcome requires it; otherwise omit them or "
+            "preserve them."
+        )
+    else:
+        policy = (
+            "This is supplemental work inside an active campaign. If you select "
+            "the same vertical, preserve these values exactly; omit unchanged "
+            "fields rather than guessing replacements."
+        )
+    return (
+        "\n\n## Active persisted route contract (authoritative)\n"
+        f"vertical={vertical}\n"
+        f"workflow_mode={workflow_mode or 'unset'}\n"
+        f"domain={domain or 'none'}\n"
+        f"research_target_level={research_target_level or 'none'}\n"
+        f"research_direction_mode={research_direction_mode or 'none'}\n"
+        f"policy={policy}\n"
+        "Legal workflow_mode values: direct, staged. Legal research target values: "
+        "exploratory, publishable, doctoral. Legal research_direction_mode values: "
+        "broad, locked. Do not use a target level as a direction mode."
+    )
+
+
+def _task_excerpt(task: str, *, limit: int = 180) -> str:
+    compact = " ".join(str(task or "").split())
+    return compact if len(compact) <= limit else compact[: limit - 1].rstrip() + "…"
 
 
 def _decision_requires_agent_grounding(
@@ -317,6 +345,7 @@ class _VerticalDecisionMixin:
         task: str,
         *,
         root_task_id: str | None = None,
+        allow_route_contract_change: bool = False,
     ) -> VerticalDecision:
         """Choose the vertical for ``task``.
 
@@ -329,6 +358,12 @@ class _VerticalDecisionMixin:
         FAIL-HARD when agent judgment is needed: no backend, or a model reply that
         is missing / not a valid choice, RAISES ``VerticalDecisionError``. There is
         NO keyword classifier and NO silent fallback to the research default.
+
+        Persisted route values are immutable by default for durable recovery and
+        supplemental work. The operator front door explicitly enables
+        ``allow_route_contract_change`` for a new handoff outside an active
+        campaign, where Manager is authorized to choose a different topology or
+        success bar for the new requested outcome.
         """
         # Routing is intentionally isolated from the persistent Manager chat
         # session. Reusing prior conversation would violate the fast pass's
@@ -410,6 +445,14 @@ class _VerticalDecisionMixin:
         persisted_research_direction_mode = (
             resolve_research_direction_mode(self.project_root) or ""
         )
+        active_route_contract = _render_active_route_contract(
+            vertical=persisted_vertical,
+            workflow_mode=persisted_workflow_mode,
+            domain=persisted_domain,
+            research_target_level=persisted_research_target_level,
+            research_direction_mode=persisted_research_direction_mode,
+            allow_change=allow_route_contract_change,
+        )
 
         def finalize(decision: VerticalDecision) -> VerticalDecision:
             if decision.choice == "existing":
@@ -467,7 +510,7 @@ class _VerticalDecisionMixin:
                 domains_with_purpose=DOMAIN_PURPOSES,
                 existing_data_domains=existing,
                 research_target_verticals=research_target_verticals,
-            )
+            ) + active_route_contract
             if len(fast_prompt) <= _manager_route_positive_int(
                 "ARGUS_SKILL_MANAGER_FAST_ROUTE_MAX_PROMPT_CHARS",
                 _DEFAULT_FAST_ROUTE_MAX_PROMPT_CHARS,
@@ -512,26 +555,25 @@ class _VerticalDecisionMixin:
                     persisted_research_direction_mode=(
                         persisted_research_direction_mode
                     ),
+                    allow_persisted_change=allow_route_contract_change,
                 )
                 if (
                     fast_route is not None
                     and not fast_route.needs_grounding
                     and fast_route.confidence >= _manager_fast_route_min_confidence()
                 ):
-                    return finalize(_normalize_exploratory_research_workflow(
-                        VerticalDecision(
-                            choice="existing",
-                            vertical=fast_route.vertical,
-                            domain=fast_route.domain,
-                            workflow_mode=fast_route.workflow_mode,
-                            adaptation_reason=fast_route.rationale,
-                            execution_task=task.strip(),
-                            research_target_level=fast_route.research_target_level,
-                            research_direction_mode=(
-                                fast_route.research_direction_mode
-                            ),
-                            target_venue=fast_route.target_venue,
-                        )
+                    return finalize(VerticalDecision(
+                        choice="existing",
+                        vertical=fast_route.vertical,
+                        domain=fast_route.domain,
+                        workflow_mode=fast_route.workflow_mode,
+                        adaptation_reason=fast_route.rationale,
+                        execution_task=task.strip(),
+                        research_target_level=fast_route.research_target_level,
+                        research_direction_mode=(
+                            fast_route.research_direction_mode
+                        ),
+                        target_venue=fast_route.target_venue,
                     ))
 
         prompt = build_vertical_decision_prompt(
@@ -541,7 +583,9 @@ class _VerticalDecisionMixin:
             existing_data_domains=existing,
             existing_data_domain_summaries=existing_summaries,
             research_target_verticals=research_target_verticals,
-        ) + _render_routing_workspace_snapshot(workspace_snapshot)
+        ) + active_route_contract + _render_routing_workspace_snapshot(
+            workspace_snapshot
+        )
         grounded_prompt_limit = _manager_route_positive_int(
             "ARGUS_SKILL_MANAGER_GROUNDED_ROUTE_MAX_PROMPT_CHARS",
             _DEFAULT_GROUNDED_ROUTE_MAX_PROMPT_CHARS,
@@ -610,15 +654,16 @@ class _VerticalDecisionMixin:
                 persisted_research_direction_mode=(
                     persisted_research_direction_mode
                 ),
+                allow_persisted_change=allow_route_contract_change,
             )
             if route_decision is None:
                 raise VerticalDecisionError(
-                    f"Manager could not decide a vertical for task {task!r}: the "
-                    "model reply was missing or not a valid existing/new choice"
+                    "Manager could not decide a vertical: the model reply was "
+                    "missing, not a valid existing/new choice, or violated the "
+                    "persisted route contract. "
+                    f"Task excerpt: {_task_excerpt(task)!r}"
                 )
-            return route_result, _normalize_exploratory_research_workflow(
-                route_decision
-            )
+            return route_result, route_decision
 
         try:
             result, decision = invoke_grounded_route(
@@ -626,7 +671,7 @@ class _VerticalDecisionMixin:
                 run_label="manager-classify-grounded",
             )
         except VerticalDecisionError as exc:
-            if contextual_task and "not a valid existing/new choice" in str(exc):
+            if contextual_task and "could not decide a vertical" in str(exc):
                 result, decision = invoke_grounded_route(
                     prompt
                     + "\n\n## Context handoff correction\n"
@@ -634,7 +679,11 @@ class _VerticalDecisionMixin:
                     "complete Manager decision event again. Because the Task contains bounded "
                     "conversation context, EXECUTION_TASK is required: rewrite only "
                     "the current intended work as a standalone handoff, preserving "
-                    "every explicit constraint and excluding the context markers.",
+                    "every explicit constraint and excluding the context markers. "
+                    "Use only direct/staged for workflow_mode, "
+                    "exploratory/publishable/doctoral for research_target_level, "
+                    "and broad/locked for research_direction_mode. Follow the Active "
+                    "persisted route contract policy above.",
                     run_label="manager-classify-context-retry",
                 )
             elif "not a valid existing/new choice" in str(exc):

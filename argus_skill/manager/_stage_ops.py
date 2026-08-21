@@ -333,29 +333,22 @@ class _StageDecisionMixin:
             for blocker in (external_completion_gate_issue(self.execution_workdir),)
             if blocker
         ]
-        if (
-            _completion_vertical == "research"
-            and _research_target_level in {"publishable", "doctoral"}
-        ):
-            from ..verticals.research.argument_organization import (
-                argument_organization_issues,
-            )
-            from ..verticals.research.publication_scale import (
-                publication_scale_issues,
+        if _research_target_level in {"publishable", "doctoral"}:
+            from ..verticals._base import (
+                load_vertical,
+                vertical_stage_completion_issues,
             )
 
+            # Final completion must re-run the active provider's own strongest
+            # stage validator, but Manager must not import a named vertical to
+            # do it. The contract keeps this path domain-blind and also lets
+            # project-local/plugin research providers enforce equivalent gates.
             _completion_blockers.extend(
-                "argument_organization: " + issue
-                for issue in argument_organization_issues(
-                    self.execution_workdir,
-                    research_target_level=_research_target_level,
-                )
-            )
-            _completion_blockers.extend(
-                "publication_scale: " + issue
-                for issue in publication_scale_issues(
-                    self.execution_workdir,
-                    research_target_level=_research_target_level,
+                vertical_stage_completion_issues(
+                    load_vertical(_completion_vertical, project_root=root),
+                    stage=order[-1],
+                    project_root=self.execution_workdir,
+                    state_root=root,
                 )
             )
         _completion_blocker = "; ".join(_completion_blockers)
