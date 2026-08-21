@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..core.knobs import env_int
 from ..core.role_session import (
     ROLE_SESSION_POLICIES,
     configured_role_session_policy,
@@ -42,15 +43,6 @@ _RUNNER_DEFAULT_HARD_IDLE_SECONDS = 45 * 60
 DEFAULT_LIVE_SEARCH_STAGES: frozenset[str] = frozenset({"research"})
 
 
-def _env_int(name: str, default: int, *, minimum: int = 0) -> int:
-    raw = os.environ.get(name)
-    if raw is None or raw.strip() == "":
-        return default
-    try:
-        value = int(raw)
-    except ValueError:
-        return default
-    return max(minimum, value)
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -175,7 +167,7 @@ class SupervisedConfig:
     # Safe round-boundary budget since the last Reviewer-classified decision or
     # evidence increment. This never interrupts a live provider call.
     decision_progress_timeout_seconds: int = field(
-        default_factory=lambda: _env_int(
+        default_factory=lambda: env_int(
             _DECISION_PROGRESS_TIMEOUT_ENV,
             _DEFAULT_DECISION_PROGRESS_TIMEOUT_SECONDS,
         )
@@ -201,10 +193,10 @@ class SupervisedConfig:
     # rolling values remain available for rollback and evaluation.
     role_session_policy: str = field(default_factory=configured_role_session_policy)
     role_session_max_turns: int = field(
-        default_factory=lambda: _env_int(_ROLE_SESSION_MAX_TURNS_ENV, 6)
+        default_factory=lambda: env_int(_ROLE_SESSION_MAX_TURNS_ENV, 6)
     )
     role_session_max_input_tokens: int = field(
-        default_factory=lambda: _env_int(
+        default_factory=lambda: env_int(
             _ROLE_SESSION_MAX_INPUT_TOKENS_ENV,
             120_000,
         )
@@ -226,7 +218,7 @@ class SupervisedConfig:
     # Mission-level canonical packet. Round handoffs are written beside it.
     context_packet_path: str = ""
     runner_hard_idle_seconds: int = field(
-        default_factory=lambda: _env_int(
+        default_factory=lambda: env_int(
             _RUNNER_HARD_IDLE_ENV,
             _RUNNER_DEFAULT_HARD_IDLE_SECONDS,
         )

@@ -15,6 +15,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Iterable
 
+from ...core.knobs import env_int
 from ...core.models import RunnerOptions, RunnerResult
 from ...core.secret_guard import known_secret_values
 from . import _exec
@@ -95,15 +96,6 @@ class _RepeatedToolCallGuard:
             return self._reason
 
 
-def _env_int(name: str, default: int, *, minimum: int = 0) -> int:
-    raw = os.environ.get(name)
-    if raw is None or raw.strip() == "":
-        return default
-    try:
-        value = int(raw)
-    except ValueError:
-        return default
-    return max(minimum, value)
 
 
 class AgentCliBackend:
@@ -427,9 +419,9 @@ class AgentCliBackend:
             # operator's explicit ARGUS_SKILL_RUNNER_*_IDLE_SECONDS; caller
             # options are ignored, and hung turns are bounded by dsh's own
             # internal request/tool timeouts instead.
-            soft_idle = _env_int("ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS", 0)
-            stalled_idle = _env_int("ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS", 0)
-            hard_idle = _env_int("ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", 0)
+            soft_idle = env_int("ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS", 0)
+            stalled_idle = env_int("ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS", 0)
+            hard_idle = env_int("ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", 0)
         option_fields = getattr(cli_cls, "__dataclass_fields__", {})
         kwargs = dict(
             model=options.model,
@@ -550,15 +542,15 @@ def build_agent_cli_backend_from_env() -> AgentCliBackend:
         backend=backend,
         runner_bin=runner_bin,
         default_extra_args=extra,
-        default_watchdog_soft_idle_seconds=_env_int(
+        default_watchdog_soft_idle_seconds=env_int(
             _RUNNER_SOFT_IDLE_ENV,
             _RUNNER_DEFAULT_SOFT_IDLE_SECONDS,
         ),
-        default_watchdog_stalled_idle_seconds=_env_int(
+        default_watchdog_stalled_idle_seconds=env_int(
             _RUNNER_STALLED_IDLE_ENV,
             _RUNNER_DEFAULT_STALLED_IDLE_SECONDS,
         ),
-        default_watchdog_hard_idle_seconds=_env_int(
+        default_watchdog_hard_idle_seconds=env_int(
             _RUNNER_HARD_IDLE_ENV,
             _RUNNER_DEFAULT_HARD_IDLE_SECONDS,
         ),

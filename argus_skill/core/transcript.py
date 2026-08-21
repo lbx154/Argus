@@ -85,18 +85,3 @@ def read_turns(life_dir: Any, *, limit: int | None = None) -> list[dict[str, Any
         return out[-limit:] if (limit and limit > 0) else out
     except Exception:  # noqa: BLE001
         return []
-
-
-def first_operator_text(life_dir: Any) -> str:
-    """Return the first operator turn for transcript inspection."""
-    for turn in read_turns(life_dir):
-        if turn.get("role") == "operator":
-            return str(turn.get("text") or "")
-    return ""
-
-
-def has_transcript(life_dir: Any) -> bool:
-    try:
-        return _path(life_dir).exists()
-    except Exception:  # noqa: BLE001
-        return False

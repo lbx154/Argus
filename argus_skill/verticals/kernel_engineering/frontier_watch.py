@@ -260,15 +260,6 @@ def _compact_legacy_ledger_unlocked(project_root: Path) -> Path | None:
     return archive
 
 
-def compact_legacy_ledger(project_root: Path) -> Path | None:
-    """Archive legacy full snapshots and replace them with compact bindings."""
-    lock_path = ledger_path(project_root).with_suffix(".jsonl.lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with lock_path.open("a+", encoding="utf-8") as lock:
-        with exclusive_file_lock(lock):
-            return _compact_legacy_ledger_unlocked(project_root)
-
-
 def write_record(project_root: Path, stage: str, record: dict[str, Any]) -> Path:
     ledger = ledger_path(project_root)
     lock_path = ledger.with_suffix(".jsonl.lock")

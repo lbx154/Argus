@@ -29,7 +29,3 @@ def load_builtin_skill_text(filename: str) -> str:
             raise RuntimeError(f"required bundled role skill is empty: {filename}")
         return text
     raise FileNotFoundError(f"required bundled role skill not found: {filename}")
-
-
-def format_role_context(heading: str, filename: str) -> str:
-    return f"{heading}:\n{load_builtin_skill_text(filename)}\n\n"

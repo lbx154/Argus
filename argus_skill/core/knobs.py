@@ -757,3 +757,15 @@ def resolve_role_reasoning_effort(
         if persisted:
             return persisted
     return default
+
+
+def env_int(name: str, default: int, *, minimum: int = 0) -> int:
+    """Read an integer knob, falling back to the default on anything unusable."""
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return max(minimum, value)

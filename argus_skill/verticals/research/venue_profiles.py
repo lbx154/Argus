@@ -567,25 +567,6 @@ def load_local_venue_profile(project_root: Path) -> "VenueProfile | None":
         return None
 
 
-def write_venue_profile(project_root: Path, profile: VenueProfile) -> Path:
-    """Atomically persist a researched profile to research/VENUE_PROFILE.json."""
-    import tempfile
-
-    path = venue_profile_path(project_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(json.dumps(profile.to_dict(), indent=2, sort_keys=True) + "\n")
-        os.replace(tmp, path)
-    finally:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-    return path
-
-
 __all__ = [
     "VenueProfile",
     "EMNLP_PROFILE",

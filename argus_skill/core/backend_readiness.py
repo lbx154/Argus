@@ -1,7 +1,6 @@
 """Shared backend/auth readiness contract for setup, doctor, and startup."""
 from __future__ import annotations
 
-import json
 import os
 import re
 import subprocess
@@ -938,27 +937,3 @@ def format_backend_readiness(report: BackendReadiness) -> str:
             lines.append(f"    {problem.detail}")
             lines.append(f"    fix: {problem.remediation}")
     return "\n".join(lines)
-
-
-def profile_json(report: BackendReadiness) -> str:
-    return json.dumps(
-        {
-            "backend": report.profile.backend,
-            "auth_mode": report.profile.auth_mode,
-            "config_source": report.profile.config_source,
-            "executable": report.executable,
-            "version": report.version,
-            "ok": report.ok,
-            "problems": [
-                {
-                    "capability": problem.capability,
-                    "detail": problem.detail,
-                    "remediation": problem.remediation,
-                }
-                for problem in report.problems
-            ],
-            "warnings": report.warnings,
-        },
-        indent=2,
-        sort_keys=True,
-    )

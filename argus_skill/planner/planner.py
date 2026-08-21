@@ -638,29 +638,6 @@ def _key_value_float(raw: str, default: float = 0.0) -> float:
         return default
 
 
-def parse_task_context_refs(raw: str) -> list[dict[str, str]]:
-    """Parse ``kind::ref::why`` entries separated by ``|``."""
-    refs: list[dict[str, str]] = []
-    for entry in str(raw or "").split("|"):
-        if not entry.strip():
-            continue
-        parts = [part.strip() for part in entry.split("::", 2)]
-        if len(parts) < 2 or not parts[0] or not parts[1]:
-            raise ValueError(
-                "TASK_CONTEXT_REFS entries must use "
-                "kind::project/relative/path::why"
-            )
-        refs.append(
-            {
-                "kind": parts[0],
-                "ref": parts[1],
-                "why": parts[2] if len(parts) > 2 else "",
-                "content_hash": "",
-            }
-        )
-    return refs
-
-
 def parse_task_scope(raw: str) -> str:
     """Return the leading scope token without accepting a different scope."""
     value = str(raw or "").strip()
