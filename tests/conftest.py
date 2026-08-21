@@ -155,3 +155,16 @@ def _forbid_project_state_in_the_checkout() -> Iterator[None]:
         f"test wrote project state into the source checkout: {leaked}. "
         "Give the daemon/supervisor an explicit workdir under tmp_path."
     )
+
+
+@pytest.fixture(autouse=True)
+def _no_stop_leaks_between_tests():
+    """The process-wide stop flag outlives a test by design — it exists so a
+    wait deep inside a mission can see a signal. One test setting it once made
+    an unrelated external-work test read `stop_requested` instead of the
+    outcome that had actually arrived."""
+    from argus_skill.core import process_stop
+
+    process_stop.clear_stop()
+    yield
+    process_stop.clear_stop()

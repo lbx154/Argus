@@ -234,10 +234,16 @@ def _looks_two_column(
 
 def _layout_observations(pdf_path: Path) -> _LayoutObservations | None:
     """Read real page geometry with PyMuPDF; return ``None`` when unavailable."""
+    # `import fitz` prints its deprecation notice on stdout, which lands in the
+    # middle of `--json` output and makes it unparseable. The modern name is
+    # quiet; the old one stays as a fallback for older PyMuPDF.
     try:
-        import fitz  # type: ignore[import-not-found]
+        import pymupdf as fitz  # type: ignore[import-not-found]
     except ImportError:
-        return None
+        try:
+            import fitz  # type: ignore[import-not-found]
+        except ImportError:
+            return None
 
     warnings: list[str] = []
     page_texts: list[str] = []

@@ -204,3 +204,20 @@ def test_cli_missing_pdf_errors() -> None:
     )
     assert proc.returncode == 2
     assert "not found" in proc.stderr.lower()
+
+
+def test_json_output_carries_nothing_but_json(toy_pdf: Path) -> None:
+    """`--json` is a machine contract. A library printing a deprecation notice
+    on stdout at import time broke it, and the failure looked like a parser bug
+    rather than a stray line of English above the payload."""
+    proc = subprocess.run(
+        [sys.executable, "-m", "argus_skill.verticals.research.format_facts",
+         str(toy_pdf), "--json"],
+        cwd=REPO_ROOT,
+        env=_subprocess_env(),
+        capture_output=True, text=True, timeout=60,
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.lstrip().startswith("{")
+    json.loads(proc.stdout)

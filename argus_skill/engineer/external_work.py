@@ -329,13 +329,16 @@ def wait_for_external_work_cadence(
         chunk = min(step, budget - waited)
         sleeper(chunk)
         waited += chunk
-        if process_stop.stop_requested():
-            return ("stop_requested", waited)
+        # Read the work first: if it finished during that sleep, that outcome is
+        # what the round needs to hear. A pending stop still ends the wait, but
+        # it must not overwrite a result that already arrived.
         current = inspect_external_work(workdir, work_id, now=clock())
         if current is None:
             return ("unknown", waited)
         if not current.waitable:
             return (current.state.value, waited)
+        if process_stop.stop_requested():
+            return ("stop_requested", waited)
     return ("cadence_elapsed", waited)
 
 
