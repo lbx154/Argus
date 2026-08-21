@@ -91,3 +91,16 @@ def test_an_unknown_item_is_refused(_project) -> None:
 
     assert _core._cmd_answer(_args(_project, answer="ok", answer_item="zzz")) == 1
     assert next(i for i in backlog.all() if i.id == "aaa").status == "paused_operator"
+
+
+def test_answering_does_not_need_a_terminal() -> None:
+    """The whole point is unblocking an unattended box, so the launcher must
+    route --answer to the Python CLI rather than treating it as a request to
+    open the cockpit — which fails without a tty."""
+    from argus_skill.apps.tui_launcher import _uses_python_admin
+
+    assert _uses_python_admin(["--answer", "yes"])
+    assert _uses_python_admin(["--answer=yes"])
+    assert _uses_python_admin(["--answer", "yes", "--answer-item", "abc123"])
+    # A bare launch is still the cockpit.
+    assert not _uses_python_admin([])
