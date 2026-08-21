@@ -265,3 +265,35 @@ def test_one_subscription_can_still_seat_two_labs(monkeypatch) -> None:
     )
 
     assert seats == [("copilot", "gpt-5.5"), ("copilot", "gemini-3.1-pro-preview")]
+
+
+def test_the_debate_survives_the_ranking_agent(tmp_path, monkeypatch) -> None:
+    """The candidate file belongs to the ranking agent and it rewrites the file
+    whole. The first real run lost 21KB of cross-examination that way, so the
+    argument has to live somewhere that rewrite cannot reach."""
+    from argus_skill.verticals.research import idea_search
+
+    def _gateway(runner, *, prompt, options, run_label, **_kw):
+        return _runner_result("## Candidate A: something")
+
+    monkeypatch.setattr(idea_panel, "_resolve_bin", lambda backend: "/usr/bin/x")
+    monkeypatch.setattr(idea_panel, "_runner_for", lambda backend, agent_bin: _Runner())
+    monkeypatch.setenv("ARGUS_SKILL_IDEA_PANEL", "codex,claude")
+    monkeypatch.setattr("argus_skill.core.run_gateway.run_exec", _gateway)
+    monkeypatch.setattr(idea_search, "_resolve_direction", lambda w, d: "direction")
+
+    idea_search.augment_idea_candidates(_Runner(), tmp_path, direction="d")
+
+    research = tmp_path / "research"
+    panel_file = research / "IDEA_PANEL.md"
+    assert panel_file.is_file()
+    assert "Cross-examination by" in panel_file.read_text(encoding="utf-8")
+
+    # The candidate file points at it, and carries the candidates themselves.
+    candidates = (research / "IDEA_CANDIDATES.md").read_text(encoding="utf-8")
+    assert "research/IDEA_PANEL.md" in candidates
+    assert "## Candidate A" in candidates
+
+    # Now the ranking agent replaces the candidate file, as it does.
+    (research / "IDEA_CANDIDATES.md").write_text("# Ranked\n", encoding="utf-8")
+    assert "Cross-examination by" in panel_file.read_text(encoding="utf-8")
