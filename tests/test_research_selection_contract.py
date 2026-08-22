@@ -420,3 +420,34 @@ def test_a_number_printed_at_float_precision_is_reported(tmp_path) -> None:
     assert "0.6946666666666667" in detail
     # Numbers a person would actually write are left alone.
     assert "0.337" not in detail and "0.42" not in detail
+
+
+def test_a_baseline_named_after_a_paper_has_to_be_that_paper() -> None:
+    """Six of seven campaigns filed a comparison that was not the comparison it
+    claimed. One lexical routing score -- 0.54*question_overlap +
+    0.38*choice_overlap + 0.08*recency -- appeared three times under the names
+    H2O, SnapKV and PyramidKV, all three of which are attention-based. A lower
+    learning rate appeared as SAR, whose contribution is sharpness-aware
+    minimisation. No checker can verify that select_h2o_proxy implements H2O,
+    which is exactly why the rule has to be stated rather than measured.
+    """
+    from pathlib import Path
+
+    import argus_skill
+    from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+
+    plan = next(
+        i for i in STAGE_CHECKLISTS["plan"] if i.id == "plan.experiment"
+    ).statement
+    assert "must be that method" in plan
+    assert "drop the published name" in plan
+    # Counting rows is not counting comparisons.
+    assert "count families" in plan
+
+    review = (
+        Path(argus_skill.__file__).parent
+        / "verticals/research/skills/reviewer/experiment-results-review.md"
+    ).read_text(encoding="utf-8")
+    assert "was that method's own" in review
+    blockers = review.split("## Hard blockers")[1]
+    assert "carrying a published method's name that is not that method" in blockers

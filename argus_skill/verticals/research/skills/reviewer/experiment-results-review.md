@@ -110,6 +110,10 @@ not mean the frozen premise was supported. Report that separately as
    - Did the baseline leave enough headroom for the comparison to distinguish
      methods, rather than saturating on an easy task slice?
    - Would a reviewer say "this baseline is too weak to be meaningful"?
+   - For every baseline named after published work: was that method's own
+     implementation, or its actual mechanism, run? Strip the labels and count
+     families — nine rows that are five variants of one method have not
+     compared this work to the field.
    - What does the literature report for *this* model on *this* benchmark? Write
      it beside your own number before judging anything built on it. A baseline
      far under its published score means the harness is what you measured, and
@@ -153,6 +157,8 @@ Return JSON:
 - No domain-appropriate uncertainty or evidential justification for the headline result
 - Unfair ablation: comparing trained component vs untrained/random component
 - All baselines at 0% or trivially broken
+- A baseline carrying a published method's name that is not that method: an
+  approximation under the real name makes every comparison above it unreviewable
 - A baseline far under the published score for the same model and benchmark with
   no stated reason: the harness is what was measured, so nothing above it can be
   reviewed until it is fixed

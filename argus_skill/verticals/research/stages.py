@@ -158,7 +158,17 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "and the compute / API budget. Numeric keep/reject cutoffs require "
                 "an external utility, risk, domain-standard, prior-evidence, theory, "
                 "or prospective-sensitivity basis; unsupported round-number gains "
-                "must not become binary gates."
+                "must not become binary gates. A baseline carrying a published "
+                "method's name must be that method — its own implementation, or a "
+                "reimplementation of the mechanism that paper is about. Renaming a "
+                "local heuristic after a paper is the most common way a comparison "
+                "quietly stops being one: a single lexical routing score has "
+                "appeared three times as H2O, SnapKV and PyramidKV, and a lower "
+                "learning rate has appeared as SAR. When the real method cannot be "
+                "run, name the baseline for what it does, drop the published name, "
+                "and say plainly that no published method was run. Strip the labels "
+                "and count families before filing the table: nine rows that are "
+                "five variants of one method have not compared you to the field."
             ),
             evidence_hint="research/EXPERIMENT_PLAN.md",
         ),
