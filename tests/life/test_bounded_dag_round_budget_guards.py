@@ -332,3 +332,37 @@ def test_nonpositive_budget_is_left_alone() -> None:
     assert config.stall_threshold == 4
     assert config.soft_round_limit == 12
     assert config.hard_escalate_rounds == 24
+
+
+def test_waiting_on_a_healthy_job_is_not_stalling(tmp_path) -> None:
+    """Seven missions across six campaigns died in ninety minutes on the stall
+    counter, every one of them while a healthy GPU job it had launched was still
+    running -- including the MATH-500 base gate the whole run-03 paper rests on.
+    No round can show forward progress while the compute it is waiting for has
+    not finished, so four such rounds retired the mission for doing exactly what
+    it was asked to do. Work that is stalled or needs attention still counts.
+    """
+    from argus_skill.core.models import ReviewDecision
+    from argus_skill.engineer import round_settlement
+    from argus_skill.engineer.external_work import ExternalWorkState, ExternalWorkStatus
+
+    review = ReviewDecision(
+        status="continue", reason="job still running", next_action=""
+    )
+    review.planner_report = {"forward_progress": False}
+
+    def _streak(state: ExternalWorkState) -> int:
+        healthy = round_settlement._next_semantic_stall_streak(
+            review,
+            3,
+            blocked_on_healthy_work=(state is ExternalWorkState.RUNNING_HEALTHY),
+        )
+        return healthy[0]
+
+    assert _streak(ExternalWorkState.RUNNING_HEALTHY) == 0
+    assert _streak(ExternalWorkState.STALLED) == 4
+
+    # And the workdir probe reports what the registry says, not what it hopes.
+    status = ExternalWorkStatus(work_id="w1", state=ExternalWorkState.RUNNING_HEALTHY)
+    assert status.waitable is True
+    assert round_settlement._blocked_on_healthy_work(tmp_path) is False
