@@ -1220,6 +1220,14 @@ def _cmd_answer(args: argparse.Namespace) -> int:
     ``paused_operator`` until the question is answered, and until this
     existed the only way to clear that was the web cockpit — so an
     unattended box could sit blocked on "may I install torch?" indefinitely.
+
+    Clearing ``pending_question`` and resuming the same item is NOT enough,
+    and looks like it is: the mission runs again, re-reads the objective that
+    made it ask, and asks the identical question. One live campaign burned
+    five attempts that way, answered every time. ``continue_with_operator_reply``
+    is the path the cockpit uses — it enqueues a CONTINUATION whose objective
+    carries the answer as authority over the inherited one, so the next round
+    reads what it was told instead of the question it already asked.
     """
     answer = (getattr(args, "answer", "") or "").strip()
     if not answer:
@@ -1252,23 +1260,20 @@ def _cmd_answer(args: argparse.Namespace) -> int:
 
     item = waiting[0]
     question = str(getattr(item, "pending_question", "") or "").strip()
-    backlog.update(
-        item.id,
-        pending_question="",
-        notes=f"{getattr(item, 'notes', '') or ''}\noperator answer: {answer}".strip(),
+    blocked, continuation = backlog.continue_with_operator_reply(
+        item.id, answer, manager_decision=answer
     )
-    resumed = backlog.resume_paused(item.id)
-    if resumed is None:
-        sys.stderr.write(
-            f"argus-skill: answered {item.id} but it did not resume "
-            f"(status {item.status}); it may need --daemon-stop and a fresh run\n"
-        )
+    if blocked is None:
+        sys.stderr.write(f"argus-skill: {item.id} is no longer in the backlog\n")
+        return 1
+    if continuation is None:
+        sys.stderr.write(f"argus-skill: {item.id} is no longer waiting on an answer\n")
         return 1
     sys.stdout.write(f"argus-skill: answered {item.id} ({item.title})\n")
     if question:
         sys.stdout.write(f"  asked:  {question[:160]}\n")
     sys.stdout.write(f"  answer: {answer[:160]}\n")
-    sys.stdout.write(f"  status: {resumed.status}, attempt {resumed.attempt}\n")
+    sys.stdout.write(f"  continues as: {continuation.id} ({continuation.status})\n")
     return 0
 
 

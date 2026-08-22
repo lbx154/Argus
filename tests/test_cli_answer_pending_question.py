@@ -5,6 +5,10 @@ question is answered. Until `--answer` existed the only channel that cleared
 that was the web cockpit, so a daemon could sit blocked for hours on "may I
 install torch?" while `--notify` — which only leaves guidance for the next
 round — appeared to do something and did not.
+
+Clearing the question and resuming the SAME item is the trap: the mission
+re-reads the objective that made it ask and asks again. The answer has to
+arrive as a continuation whose objective carries it as authority.
 """
 
 from __future__ import annotations
@@ -49,18 +53,30 @@ def _project(tmp_path, monkeypatch):
     return tmp_path
 
 
-def test_answering_clears_the_pause_and_runs_the_mission_again(_project) -> None:
+def test_the_answer_reaches_the_round_that_runs_next(_project) -> None:
+    """The mission that asked must not simply run again and re-ask."""
     backlog = _backlog(_project)
     _paused(backlog, "abc123", "May I create a venv and install torch?")
 
     code = _core._cmd_answer(_args(_project, answer="Yes, go ahead."))
 
     assert code == 0
-    item = next(i for i in backlog.all() if i.id == "abc123")
-    assert item.status == "pending"
-    assert not item.pending_question
-    assert "Yes, go ahead." in item.notes
-    assert item.attempt >= 2
+    asked = next(i for i in backlog.all() if i.id == "abc123")
+    assert not asked.pending_question
+
+    runnable = [i for i in backlog.all() if i.status == "pending"]
+    assert len(runnable) == 1
+    assert runnable[0].id != "abc123", "resuming the asker re-asks the question"
+    assert "Yes, go ahead." in runnable[0].objective
+
+
+def test_answering_twice_does_not_enqueue_the_work_twice(_project) -> None:
+    backlog = _backlog(_project)
+    _paused(backlog, "abc123", "May I install torch?")
+
+    assert _core._cmd_answer(_args(_project, answer="Yes.")) == 0
+    assert _core._cmd_answer(_args(_project, answer="Yes.")) == 1
+    assert len([i for i in backlog.all() if i.status == "pending"]) == 1
 
 
 def test_empty_answers_are_refused(_project) -> None:
@@ -80,9 +96,10 @@ def test_several_waiting_missions_must_be_disambiguated(_project) -> None:
     assert _core._cmd_answer(_args(_project, answer="ok")) == 2
 
     assert _core._cmd_answer(_args(_project, answer="ok", answer_item="bbb")) == 0
-    statuses = {i.id: i.status for i in backlog.all()}
-    assert statuses["bbb"] == "pending"
-    assert statuses["aaa"] == "paused_operator"
+    by_id = {i.id: i for i in backlog.all()}
+    assert not by_id["bbb"].pending_question
+    assert by_id["aaa"].status == "paused_operator"
+    assert by_id["aaa"].pending_question == "question one?"
 
 
 def test_an_unknown_item_is_refused(_project) -> None:
