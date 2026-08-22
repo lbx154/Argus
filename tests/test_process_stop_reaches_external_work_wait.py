@@ -134,3 +134,34 @@ def test_round_wait_loop_cannot_spin_past_a_stop(tmp_path, monkeypatch) -> None:
 
     assert calls, "the wait never ran"
     assert len(calls) == 3
+
+
+def test_a_long_wait_says_how_long_it_has_been_waiting(monkeypatch, tmp_path) -> None:
+    """Every cadence tick emitted the same two lines, so an eighteen-hour wait
+    and a two-minute one looked identical in the timeline: five hundred
+    "resumed after 120s" lines and nothing saying how long this had gone on.
+    One campaign held four GPUs through such a wait across five rounds and the
+    cost was only visible by counting the events."""
+    from argus_skill.engineer import round_signals
+
+    monkeypatch.setattr(
+        round_signals,
+        "wait_for_external_work_cadence",
+        lambda _workdir, _work_id: ("cadence_elapsed", 120.0),
+    )
+    events: list[dict] = []
+    round_signals._run_external_work_wait(
+        workdir=tmp_path,
+        work_id="phase2-imagenet-run",
+        round_index=1,
+        round_max=32,
+        on_event=events.append,
+        waited_total_s=22_320.0,
+    )
+
+    done = events[-1]
+    assert done["waited_total_s"] == 22_440.0
+    assert "6h14m on phase2-imagenet-run" in done["text"]
+    # The slice is still there; it is the total that was missing.
+    assert "resumed after 120s (cadence_elapsed)" in done["text"]
+    assert events[0]["waited_total_s"] == 22_320.0

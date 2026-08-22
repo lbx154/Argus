@@ -59,6 +59,7 @@ class RoundWaitsMixin:
                     round_index=round_index,
                     round_max=supervised_config.max_rounds,
                     on_event=on_event,
+                    waited_total_s=waited_s,
                 )
                 waited_s += cadence_waited_s
                 if wait_reason != "cadence_elapsed":
