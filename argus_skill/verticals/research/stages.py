@@ -332,7 +332,15 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "length distribution of this model's own completions, so the budget "
                 "is what lets it finish rather than what fits. Report "
                 "the rate at which generation hits its own limits, since a run cut "
-                "off before it can answer scores like a method that cannot."
+                "off before it can answer scores like a method that cannot. Every "
+                "evaluation has a case it must be able to detect: a model told "
+                "outright to do the thing, a known-correct answer, an oracle "
+                "condition. Run that positive control and report it beside the "
+                "results. When it cannot be separated from random, the instrument "
+                "is broken and nothing from that harness means anything, whatever "
+                "the methods scored — one sweep concluded five steering methods sat "
+                "at chance while its own concept-prompting control sat at chance "
+                "beside them, on twelve-token generations."
             ),
             evidence_hint=(
                 "computational: evaluator source + official scorer outputs, plus the "

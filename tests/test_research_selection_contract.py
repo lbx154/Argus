@@ -451,3 +451,23 @@ def test_a_baseline_named_after_a_paper_has_to_be_that_paper() -> None:
     assert "was that method's own" in review
     blockers = review.split("## Hard blockers")[1]
     assert "carrying a published method's name that is not that method" in blockers
+
+
+def test_an_evaluation_has_to_detect_the_case_it_cannot_miss() -> None:
+    """Three truncations reached three papers: 6% on MATH-500 with every rollout
+    at its cap, concept hits scored on 40-token generations, and a 16-cell sweep
+    concluding that five steering methods all sit at chance -- measured on twelve
+    tokens. That last one carried its own refutation in the same table: concept
+    prompting, where the model is told outright to mention the concept, also sat
+    at chance. A positive control that cannot be detected condemns the
+    instrument, and it costs one run.
+    """
+    from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+
+    item = next(
+        i for i in STAGE_CHECKLISTS["benchmark"] if i.id == "benchmark.evaluator_authentic"
+    )
+    text = item.statement
+    assert "positive control" in text
+    assert "cannot be separated from random" in text
+    assert "nothing from that harness means anything" in text
