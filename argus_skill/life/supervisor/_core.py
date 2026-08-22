@@ -631,7 +631,6 @@ class LifeSupervisor(
                     if str(getattr(item, "status", "") or "") == "running"
                 ]
                 if running_items:
-                    self._plan_alongside_running_work(running_items)
                     self._wait_idle()
                     continue
                 # Backlog empty — continuous mode: ask planner for more
@@ -1626,58 +1625,6 @@ class LifeSupervisor(
             )
         except Exception:  # noqa: BLE001 - alerting must not break supervision
             log.exception("life supervisor: failed to publish budget pause chat alert")
-
-    def _plan_alongside_running_work(self, running_items: list[Any]) -> None:
-        """Let the Planner fill an idle mission slot while other work runs.
-
-        The loop only asks the Planner when the backlog is empty, so a campaign
-        with one long mission never gets a second: the backlog is never empty,
-        and daemons configured for two missions have been running one. A
-        six-hour GPU job meant six hours in which nothing else was even
-        considered, and wall-clock is most of what a paper costs.
-
-        One chance per set of running missions, and only when nothing is
-        already queued -- asking every tick would be a planning spin. Whether
-        there is independent work worth starting is the Planner's judgement;
-        this only stops the loop from deciding there is none without asking.
-        Any verdict that would END the campaign is ignored here: a mission is
-        still running, so this is not the moment to conclude anything.
-        """
-        # The parallel worker is built with continuous=False and no objective
-        # precisely so it cannot drive the campaign, and the primary is inside
-        # tick() running the long mission -- so gating on this supervisor's own
-        # config means the one loop that reaches here is the one that returns
-        # immediately. Adopt the campaign's durable objective instead: it is the
-        # same objective either way, and nothing here can end anything.
-        try:
-            if not str(self.config.continuous_objective or "").strip():
-                from ...daemon.state import read_continuous_state
-
-                # continuous.json lives in the project life-dir. `memory.root`
-                # is the GLOBAL state dir, where the read returns the disabled
-                # default -- which is how this path stayed silent through a
-                # six-hour mission while looking correct.
-                durable = read_continuous_state(self.memory.project_root)
-                if not (durable.enabled and str(durable.objective or "").strip()):
-                    return
-                # The Planner cycle reads the objective off config, so keeping
-                # it in a local would have dropped it one step later.
-                self.config.continuous_objective = durable.objective.strip()
-            for item in self.memory.backlog.all():
-                status = str(getattr(item, "status", "") or "")
-                if status == "pending":
-                    return
-                if str(getattr(item, "pending_question", "") or "").strip():
-                    return
-            fingerprint = ",".join(
-                sorted(str(getattr(item, "id", "")) for item in running_items)
-            )
-            if fingerprint == getattr(self, "_parallel_plan_fingerprint", None):
-                return
-            self._parallel_plan_fingerprint = fingerprint
-            self._plan_next_work()
-        except Exception:  # noqa: BLE001 — filling a spare slot is best effort
-            log.exception("life supervisor: parallel planning attempt failed")
 
     def _emit_status(self, text: str) -> None:
         self._emit({"type": "life.status", "text": text})
