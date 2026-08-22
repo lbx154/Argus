@@ -45,14 +45,18 @@ def test_checkpoint_handoff_discipline_present_for_paper_mission():
 
 def test_turn_discipline_present_even_for_nonpaper_task():
     # The bounded-progress contract is universal (it guards context growth for
-    # any mission), not gated on the paper-objective heuristic.
+    # any mission), not gated on the paper-objective heuristic. Engineer used to
+    # be told not to spawn subagents, which -- next to a 24-call ceiling and no
+    # authority to re-plan -- left wide work with nowhere to go but its own
+    # context. Delegation is now the way that ceiling is respected.
     out = _prompt("Refactor the data loader and add unit tests.")
     assert "## This turn" in out
     assert "do not write planning/spec/brief" in out.lower()
     assert "initialize git" in out.lower()
     assert "commit" in out.lower()
-    assert "spawn subagents" in out.lower()
-    assert "operator-requested parallelism" in out.lower()
+    assert "planner owns the campaign plan" in out.lower()
+    assert "delegate wide" in out.lower()
+    assert "the answer, not the transcript" in out.lower()
 
 
 def test_long_experiment_protocol_is_in_every_engineer_turn():

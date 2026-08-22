@@ -44,6 +44,10 @@ commands, tests, and iteration.
 
 - Reuse Manager/completed-task decisions; inspect only what this decision needs.
 - One Engineer owns each task end to end; split only for dependencies or independent work.
+- Write each task so it can be started without re-reading the campaign: carry the
+  decision, the inputs and the check into `objective`. A task that makes Engineer
+  reconstruct the plan before it can begin is a task you under-specified, and the
+  reconstruction is paid for again every round.
 - Prefer the simplest sufficient plan. Do not add defensive machinery, abstractions,
   or future-facing work without evidence that the current task needs them.
 - Follow the operator's requested actions and order. Existing artifacts or a usable
