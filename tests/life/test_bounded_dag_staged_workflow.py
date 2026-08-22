@@ -120,6 +120,7 @@ def test_bounded_dag_node_keeps_vertical_stage_workflow(tmp_path) -> None:
             objective="complete scope",
             tags=["planner", "bounded_dag_node", "scope:bounded"],
             acceptance_check="research/scope.json is reviewer-ready",
+            owns_paths=["research/scope.json", "tests/test_scope.py"],
             non_goals=["do not implement the benchmark"],
             context_refs=[{
                 "kind": "artifact",
@@ -153,6 +154,7 @@ def test_bounded_dag_node_keeps_vertical_stage_workflow(tmp_path) -> None:
     assert packet["mission_id"] == item.id
     assert packet["scope"] == "bounded"
     assert packet["acceptance_check"].endswith("reviewer-ready")
+    assert packet["owns_paths"] == ["research/scope.json", "tests/test_scope.py"]
     assert packet["non_goals"] == ["do not implement the benchmark"]
     assert packet["context_refs"][0]["ref"] == ".argus/PIPELINE_STATE.json"
     assert outcome is not None

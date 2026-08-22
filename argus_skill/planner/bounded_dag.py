@@ -11,6 +11,7 @@ from ..core.models import RunnerOptions
 from ..core.portable_filename import normalized_logical_identifier
 from ..core.role_decision import latest_role_decision
 from ..core.run_gateway import run_exec as gateway_run_exec
+from .work_kind import parse_work_kind
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,8 @@ class BoundedDagNode:
     acceptance_check: str = ""
     non_goals: tuple[str, ...] = ()
     vertical: str = ""
+    execution_workdir: str = ""
+    work_kind: str = "scope"
     require_independent_review: bool = False
 
 
@@ -52,7 +55,8 @@ def _extract(result: Any) -> str:
 
 _PLAN_LINE = re.compile(
     r"^(?P<key>PLAN_REASON|TASK_KEY|TASK_DEPS|TASK_TITLE|TASK_OBJECTIVE|"
-    r"TASK_ACCEPTANCE_CHECK|TASK_NON_GOALS|TASK_VERTICAL|"
+    r"TASK_ACCEPTANCE_CHECK|TASK_NON_GOALS|TASK_VERTICAL|TASK_WORKDIR|"
+    r"TASK_WORK_KIND|"
     r"TASK_REQUIRE_INDEPENDENT_REVIEW)"
     r"\s*[:=]\s*(?P<value>.*)$",
     re.IGNORECASE,
@@ -69,6 +73,8 @@ def _parse_key_value_plan(text: str) -> dict[str, Any]:
         "TASK_OBJECTIVE": "objective",
         "TASK_ACCEPTANCE_CHECK": "acceptance_check",
         "TASK_VERTICAL": "vertical",
+        "TASK_WORKDIR": "execution_workdir",
+        "TASK_WORK_KIND": "work_kind",
     }
     for raw_line in text.splitlines():
         line = raw_line.strip().strip("`").strip()
@@ -172,6 +178,12 @@ def _validate(payload: object) -> tuple[str, tuple[BoundedDagNode, ...]]:
                 acceptance_check=str(row.get("acceptance_check") or "").strip(),
                 non_goals=non_goals,
                 vertical=str(row.get("vertical") or "").strip(),
+                execution_workdir=str(
+                    row.get("execution_workdir")
+                    or row.get("workdir")
+                    or ""
+                ).strip(),
+                work_kind=parse_work_kind(row.get("work_kind")),
                 require_independent_review=require_independent_review,
             )
         )

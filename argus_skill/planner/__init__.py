@@ -11,6 +11,7 @@ from .planner import (
     WaitingContract,
     parse_planner_text,
 )
+from .work_kind import DEFAULT_WORK_KIND, WORK_KINDS, parse_work_kind
 
 __all__ = [
     "Planner",
@@ -21,5 +22,8 @@ __all__ = [
     "PLANNER_SUPERSEDED_ERROR",
     "TaskSpec",
     "WaitingContract",
+    "DEFAULT_WORK_KIND",
+    "WORK_KINDS",
     "parse_planner_text",
+    "parse_work_kind",
 ]

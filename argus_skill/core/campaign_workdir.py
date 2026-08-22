@@ -132,10 +132,30 @@ def adopt_campaign_workdir(
     """Validate and persist a Planner-selected Git repository as campaign root."""
     base = Path(base_root).expanduser().resolve(strict=True)
     current = Path(current_root).expanduser().resolve(strict=True)
-    relative = normalize_task_workdir(requested, base_root=base)
-    # Persisted DAG nodes remain relative to the original session root even
-    # after an earlier sibling has adopted another campaign repository.
-    target = current if not relative else resolve_task_workdir(base, relative)
+    requested_path = Path(str(requested or "").strip()).expanduser()
+    if requested_path.is_absolute():
+        try:
+            target = requested_path.resolve(strict=True)
+        except OSError as exc:
+            raise ValueError(
+                f"TASK_WORKDIR is not a directory: {requested!r}"
+            ) from exc
+        if not target.is_dir():
+            raise ValueError(f"TASK_WORKDIR is not a directory: {requested!r}")
+        if target != current:
+            for allowed_root in (current, base):
+                try:
+                    target.relative_to(allowed_root)
+                    break
+                except ValueError:
+                    continue
+            else:
+                raise ValueError("TASK_WORKDIR must be inside the active project")
+    else:
+        relative = normalize_task_workdir(requested, base_root=base)
+        # Legacy persisted DAG nodes are relative to the original session root
+        # even after an earlier sibling has adopted another campaign repository.
+        target = current if not relative else resolve_task_workdir(base, relative)
     if target == current:
         return current
     if _git_toplevel(target) != target:

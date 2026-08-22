@@ -459,6 +459,8 @@ class _StageDecisionMixin:
         decision: Any,
         cur: str,
         root: Path,
+        *,
+        source: str = "manager_llm",
     ) -> "StageTransition":  # noqa: F821
         """Phase 5: write the chosen action to ``PIPELINE_STATE.json`` and return a
         ``StageTransition`` describing what happened."""
@@ -492,7 +494,7 @@ class _StageDecisionMixin:
                     diagnostic="stage_write_illegal_target",
                 )
             return StageTransition("advance", decision.target_stage, decision.reason,
-                                   cur, "manager_llm", decision.diagnostic,
+                                   cur, source, decision.diagnostic,
                                    decision.resolves_wait)
 
         if decision.action == "complete":
@@ -524,7 +526,7 @@ class _StageDecisionMixin:
                     diagnostic="stage_write_illegal_target",
                 )
             return StageTransition("complete", decision.target_stage, decision.reason,
-                                   cur, "manager_llm", decision.diagnostic,
+                                   cur, source, decision.diagnostic,
                                    decision.resolves_wait)
 
         if decision.action == "rollback":
@@ -539,11 +541,11 @@ class _StageDecisionMixin:
                     diagnostic="stage_write_illegal_target",
                 )
             return StageTransition("rollback", decision.target_stage, decision.reason,
-                                   cur, "manager_llm", decision.diagnostic,
+                                   cur, source, decision.diagnostic,
                                    decision.resolves_wait)
 
         return StageTransition("hold", cur, decision.reason or "manager held",
-                               cur, "manager_llm", decision.diagnostic,
+                               cur, source, decision.diagnostic,
                                decision.resolves_wait)
 
     # ------------------------------------------------------------------
@@ -562,6 +564,7 @@ class _StageDecisionMixin:
         open_ended: bool = False,
         continuous_objective: str = "",
         mission_scope: str = "",
+        stage_closing: bool = False,
     ) -> "StageTransition":  # noqa: F821
         """Independently decide advance / hold / rollback / complete for the stage,
         then WRITE it. The Manager is the SOLE writer of
@@ -640,6 +643,106 @@ class _StageDecisionMixin:
                         "open-ended campaign objective remains unresolved. "
                         f"Planner advisory: {planner_reason}"
                     ),
+                )
+
+        # A Reviewer-certified, structurally unambiguous intermediate-stage
+        # completion needs no second semantic opinion.  Keep this deliberately
+        # narrow: any replan/regression signal, authority question, unusual
+        # scope, external completion gate, or failed vertical validator still
+        # falls through to the existing Manager model path below.
+        review_status = str(getattr(review, "status", "") or "").strip().lower()
+        review_source = str(
+            getattr(review, "review_source", "reviewer") or ""
+        ).strip().lower()
+        next_action = str(getattr(review, "next_action", "") or "").strip()
+        operator_question = str(
+            getattr(review, "operator_question", "") or ""
+        ).strip()
+        operator_options = list(getattr(review, "operator_options", []) or [])
+        planner_report = getattr(review, "planner_report", {}) or {}
+        if not isinstance(planner_report, dict):
+            planner_report = {}
+        frontier_report = getattr(review, "frontier_report", {}) or {}
+        if not isinstance(frontier_report, dict):
+            frontier_report = {}
+        frontier_change = str(
+            frontier_report.get("change") or ""
+        ).strip().lower()
+        conflict_changes = {
+            "bounded_regression",
+            "unchanged_failure",
+            "expanding_regression",
+            "unexplained_regression",
+        }
+        has_frontier_conflict = bool(
+            frontier_change in conflict_changes
+            or frontier_report.get("new_obligations")
+            or frontier_report.get("regressed_obligations")
+            or frontier_report.get("remaining_work")
+        )
+        plan_signal = str(planner_report.get("plan_signal") or "").strip().lower()
+        authority_impact = str(
+            planner_report.get("authority_impact") or ""
+        ).strip().lower()
+        normalized_scope = mission_scope.strip().lower().replace("-", "_")
+        next_stage = (
+            order[order.index(cur) + 1]
+            if cur in order and order.index(cur) + 1 < len(order)
+            else ""
+        )
+        external_gate_issue = ""
+        if next_stage:
+            from ..core.external_completion_gate import external_completion_gate_issue
+
+            external_gate_issue = external_completion_gate_issue(
+                self.execution_workdir
+            )
+        deterministic_candidate = bool(
+            stage_closing
+            and next_stage
+            and review_status == "done"
+            and review_source == "reviewer"
+            and not next_action
+            and not operator_question
+            and not operator_options
+            and not getattr(review, "backend_unavailable", False)
+            and not str(getattr(review, "backend_fatal_error", "") or "").strip()
+            and not getattr(review, "session_signal", {})
+            and planner_verdict is None
+            and normalized_scope in {"bounded", "final_submission"}
+            and planner_report.get("forward_progress") is not False
+            and plan_signal != "reconsider"
+            and not planner_report.get("challenge")
+            and authority_impact not in {"manager_contract", "operator"}
+            and not has_frontier_conflict
+            and not external_gate_issue
+        )
+        if deterministic_candidate:
+            try:
+                from ..skills.stage_machine import _ensure_stage_completion
+                from .stage_decider import StageDecision
+
+                _ensure_stage_completion(
+                    root,
+                    cur,
+                    evidence_root=self.execution_workdir,
+                )
+                return self._apply_stage_decision_to_disk(
+                    StageDecision(
+                        "advance",
+                        next_stage,
+                        "Reviewer certified the current-stage checklist and "
+                        "deterministic completion checks passed",
+                        "deterministic_reviewer_done",
+                    ),
+                    cur,
+                    root,
+                    source="manager_deterministic",
+                )
+            except Exception:  # noqa: BLE001 - ambiguity retains Manager semantics
+                log.debug(
+                    "deterministic stage advance preflight failed; using Manager",
+                    exc_info=True,
                 )
 
         # --- Phase 5: Build the LLM caller ---

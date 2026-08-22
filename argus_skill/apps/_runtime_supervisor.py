@@ -270,7 +270,7 @@ def run_life_supervisor(
                 continuous_objective = ""
         refresh_skill_store = getattr(runner, "_refresh_manager_skill_store", None)
         if callable(refresh_skill_store):
-            refresh_skill_store(runner._args)
+            refresh_skill_store(runner._args, workdir=project_worktree)
         cfg = _build_supervisor_config(
             global_daily_cap_usd=global_daily_cap_usd,
             once=once,

@@ -110,6 +110,111 @@ def render_mission_contract(path: Path | str | None) -> str:
     return "\n".join(lines)
 
 
+def _brief_text(value: Any, *, limit: int = 600) -> str:
+    return " ".join(str(value or "").split())[:limit]
+
+
+def _brief_items(value: Any, *, limit: int = 6) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return list(dict.fromkeys(
+        text
+        for item in value
+        if (text := _brief_text(item, limit=400))
+    ))[:limit]
+
+
+def _latest_reviewed_handoff(root: Path) -> dict[str, Any]:
+    """Read the newest sealed Reviewer handoff, ignoring Engineer-only seals."""
+    for path in reversed(sorted(root.glob("round-*.json"))):
+        payload = _read_json_object(path)
+        if str(payload.get("kind") or "") == "round_reviewed_handoff":
+            return payload
+    return {}
+
+
+def render_mission_brief(path: Path | str | None) -> str:
+    """Project canonical mission/frontier state into one compact role briefing.
+
+    The projection selects named semantic fields only.  In particular it never
+    reads a checkpoint or copies an Engineer transcript/summary, and it writes
+    no state of its own.  Missing fields are omitted rather than inferred.
+    """
+    if not path:
+        return ""
+    mission_path = Path(path).expanduser()
+    mission = _read_json_object(mission_path)
+    if str(mission.get("kind") or "") != "mission_context":
+        return ""
+
+    frontier: dict[str, Any] = {}
+    frontier_ref = mission.get("frontier")
+    if isinstance(frontier_ref, Mapping):
+        frontier_path = _brief_text(frontier_ref.get("path"), limit=4000)
+        if frontier_path:
+            frontier = _read_json_object(Path(frontier_path).expanduser())
+
+    reviewed = _latest_reviewed_handoff(mission_path.parent)
+    review = reviewed.get("review")
+    review = review if isinstance(review, Mapping) else {}
+    status = _brief_text(review.get("status"), limit=40)
+
+    lines = ["## MissionBrief"]
+    workdir = _brief_text(mission.get("execution_workdir"), limit=4000)
+    stage = _brief_text(mission.get("stage"), limit=120)
+    acceptance = _brief_text(mission.get("acceptance_check"))
+    if workdir:
+        lines.append(f"- Workdir: `{workdir}`")
+    if stage:
+        lines.append(f"- Stage: {stage}")
+    owns_paths = [
+        str(item).strip()
+        for item in (mission.get("owns_paths") or [])
+        if str(item).strip()
+    ]
+    if owns_paths:
+        lines.append(
+            "- Owned paths (authoritative write boundary; Reviewer must not "
+            "request edits outside it): " + "; ".join(owns_paths)
+        )
+
+    changed_surface = _brief_items(frontier.get("artifacts"))
+    if changed_surface:
+        lines.append("- Changed surface: " + "; ".join(changed_surface))
+
+    resources: list[str] = []
+    context_refs = mission.get("context_refs")
+    if isinstance(context_refs, list):
+        for ref in context_refs:
+            if not isinstance(ref, Mapping):
+                continue
+            location = _brief_text(ref.get("ref"), limit=400)
+            if not location:
+                continue
+            kind = _brief_text(ref.get("kind"), limit=80)
+            why = _brief_text(ref.get("why"), limit=240)
+            label = f"{kind}: {location}" if kind else location
+            resources.append(f"{label} ({why})" if why else label)
+    if resources:
+        lines.append("- Tools/resources: " + "; ".join(resources[:6]))
+    if acceptance:
+        lines.append(f"- Native check: {acceptance}")
+
+    reason = _brief_text(review.get("reason"))
+    if reason:
+        result = f"{status}: {reason}" if status else reason
+        lines.append(f"- Decisive result: {result}")
+    if reviewed and status != "done":
+        missing = _brief_items(frontier.get("remaining_work"))
+        if missing:
+            lines.append("- Missing condition: " + "; ".join(missing))
+    next_action = _brief_text(review.get("next_action"))
+    if next_action:
+        lines.append(f"- Next action: {next_action}")
+
+    return "\n".join(lines) if len(lines) > 1 else ""
+
+
 def _attach_mission_metadata(
     mission_path: Path,
     payload: Mapping[str, Any],
@@ -144,12 +249,14 @@ def create_mission_context(
     stage: str,
     objective: str,
     scope: str = "",
+    work_kind: str = "scope",
     acceptance_check: str = "",
     plan_hypothesis: str = "",
     goal_contribution: str = "",
     expected_regressions: str = "",
     decision_rule: str = "",
     execution_workdir: str = "",
+    owns_paths: list[str] | None = None,
     non_goals: list[str] | None = None,
     context_refs: list[dict[str, str]] | None = None,
     plan_id: str = "",
@@ -192,6 +299,9 @@ def create_mission_context(
         "mission_id": str(mission_id),
         "stage": str(stage or ""),
         "scope": str(scope or ""),
+        # The default parameter still types new callers as scope, while an
+        # explicitly empty value preserves a pre-work-kind backlog mission.
+        "work_kind": str(work_kind or "").strip(),
         "objective": str(objective or "").strip(),
         "acceptance_check": str(acceptance_check or "").strip(),
         "plan_hypothesis": str(plan_hypothesis or "").strip(),
@@ -199,6 +309,11 @@ def create_mission_context(
         "expected_regressions": str(expected_regressions or "").strip(),
         "decision_rule": str(decision_rule or "").strip(),
         "execution_workdir": str(execution_workdir or "").strip(),
+        "owns_paths": [
+            str(item).strip()
+            for item in (owns_paths or [])
+            if str(item).strip()
+        ],
         "non_goals": [str(item).strip() for item in (non_goals or []) if str(item).strip()],
         "context_refs": [
             _model_visible_context_ref(ref)
@@ -331,5 +446,6 @@ __all__ = [
     "mission_context_dir",
     "record_engineer_handoff",
     "record_reviewed_handoff",
+    "render_mission_brief",
     "render_mission_contract",
 ]

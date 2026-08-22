@@ -108,6 +108,7 @@ class FakeCliRunnerOptions:
     disable_tools: bool = False
     extra_args: list[str] | None = None
     working_dir: str | None = None
+    skill_paths: list[str] | None = None
     external_interrupt_reason_provider: Any | None = None
     inactivity_callback: Any | None = None
     watchdog_soft_idle_seconds: int = 0
@@ -1760,6 +1761,36 @@ def test_usage_delta_for_thread_decumulates_reasoning_output_tokens() -> None:
         thread_id="t1",
         raw_totals=(20, 5, 6, 2),
     ) == (20, 5, 6, 2)
+
+
+def test_run_exec_forwards_ordered_native_skill_roots(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    native_root = tmp_path / "repo" / ".agents" / "skills"
+    managed_root = tmp_path / "state" / "skills" / "engineer"
+    native_root.mkdir(parents=True)
+    managed_root.mkdir(parents=True)
+    backend = AgentCliBackend(backend="pi")
+    captured: dict[str, Any] = {}
+
+    def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
+        captured["options"] = kwargs["options"]
+        return _make_cli_result(agent_messages=["ok"])
+
+    monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
+    backend.run_exec(
+        prompt="discover the project Skill",
+        options=RunnerOptions(
+            skill_paths=[str(native_root.resolve()), str(managed_root.resolve())]
+        ),
+        run_label="engineer-r1",
+    )
+
+    assert captured["options"].skill_paths == [
+        str(native_root.resolve()),
+        str(managed_root.resolve()),
+    ]
 
 
 def test_run_exec_forwards_watchdog_hooks(

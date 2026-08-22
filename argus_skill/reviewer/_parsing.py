@@ -301,17 +301,15 @@ def decision_from_payload(payload: Mapping[str, Any]) -> ReviewDecision | None:
         return None
     if operator_question is not None and not isinstance(operator_question, str):
         return None
+    raw_options = payload.get("operator_options")
+    option_values = raw_options if isinstance(raw_options, (list, tuple)) else ()
     return _apply_model_judgment_policy(
         ReviewDecision(
             status=status,
             reason=reason.strip(),
             next_action=next_action.strip(),
             operator_question=str(operator_question or "").strip(),
-            operator_options=normalize_agent_options(
-                option
-                for option in (payload.get("operator_options") or [])
-                if isinstance(option, dict)
-            ),
+            operator_options=normalize_agent_options(option_values),
             checkpoint_recommended=bool(payload.get("checkpoint_recommended", False)),
             research_result=normalize_research_result(
                 payload.get("research_result")

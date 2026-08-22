@@ -8,8 +8,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from argus_skill.core.event_catalog import EventType
 from argus_skill.core.models import RunnerResult
+from argus_skill.core.role_decision import encode_role_decision
 from argus_skill.life.context_packet import (
     create_mission_context,
     record_reviewed_handoff,
@@ -24,7 +27,7 @@ from argus_skill.life.supervisor._constants import (
 )
 from argus_skill.life.supervisor._core import LifeSupervisor
 from argus_skill.manager import Manager
-from argus_skill.planner import NO_CONCRETE_TASKS_ERROR
+from argus_skill.planner import NO_CONCRETE_TASKS_ERROR, WORK_KINDS
 
 
 class _RecordingSink:
@@ -497,6 +500,69 @@ def test_nonterminal_empty_plan_repair_exhaustion_asks_operator(
         event.get("type") == "life.planner.verdict" and event.get("status") == "completed"
         for event in sink.events
     )
+
+
+class _StructuredWorkKindPlannerRunner(_EmptyPlannerThenManagerRunner):
+    def __init__(self, work_kind: str) -> None:
+        super().__init__()
+        self.work_kind = work_kind
+
+    def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+        assert run_label.startswith("planner.cycle")
+        self.planner_calls += 1
+        payload = {
+            "project_done": False,
+            "reason": "one explicitly typed task remains",
+            "tasks": [{
+                "key": "typed-task",
+                "deps": [],
+                "title": "Execute typed work",
+                "objective": "Run the task exactly as structured.",
+                "scope": "bounded",
+                "work_kind": self.work_kind,
+            }],
+        }
+        return RunnerResult(
+            exit_code=0,
+            agent_messages=[encode_role_decision("planner", payload)],
+            stdout_lines=[],
+            stderr_lines=[],
+            thread_id="planner-thread",
+        )
+
+
+@pytest.mark.parametrize("work_kind", WORK_KINDS)
+def test_structured_work_kind_persists_and_reaches_engineer_context(
+    tmp_path: Path,
+    monkeypatch,
+    work_kind: str,
+) -> None:
+    supervisor, backend, _sink = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        terminal_stage_done=False,
+        backend=_StructuredWorkKindPlannerRunner(work_kind),
+    )
+
+    assert supervisor._plan_next_work() is True
+
+    assert backend.planner_calls == 1
+    pending = supervisor.memory.backlog.pending()
+    assert len(pending) == 1
+    item = pending[0]
+    assert item.work_kind == work_kind
+    assert f"- work_kind: {work_kind}" in supervisor._build_mission_prelude(item)
+
+
+def test_legacy_backlog_item_keeps_generic_work_kind_without_prose_inference() -> None:
+    item = BacklogItem.from_jsonable({
+        "id": "legacy-item",
+        "ts": 1.0,
+        "title": "Deliver optimized algorithm",
+        "objective": "Set up the environment, validate, and ship.",
+    })
+
+    assert item.work_kind == ""
 
 
 def test_nonterminal_empty_plan_repair_exhaustion_stops_for_operator_input(

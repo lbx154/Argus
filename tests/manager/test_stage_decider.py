@@ -299,7 +299,7 @@ def test_no_second_machine_value_guard_overrides_manager() -> None:
     assert not hasattr(stage_decider, "enforce_scientific_stage_guard")
 
     params = set(inspect.signature(_StageDecisionMixin._apply_stage_decision_to_disk).parameters)
-    assert params == {"self", "decision", "cur", "root"}
+    assert params == {"self", "decision", "cur", "root", "source"}
 
     manager = parse_stage_decision(
         '{"action":"advance","target_stage":"plan","reason":"review accepted"}',

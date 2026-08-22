@@ -20,6 +20,7 @@ back door becomes another way in through the front.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
 
@@ -112,8 +113,12 @@ def ensure_manager_decision(
     *,
     manager: Any = None,
     ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
+    vertical_root: Path | str | None = None,
 ) -> Any:
     """Route *item* through the Manager if it never was, and record that.
+
+    ``vertical_root`` is the claimed node's canonical policy root. Long-running
+    queue and journal state still belongs to ``memory.root``.
 
     Returns the item, with its objective replaced by the Manager's execution
     task when a routing happened. Failure to route is logged and the item is
@@ -129,22 +134,21 @@ def ensure_manager_decision(
         )
         if not vertical:
             return item
-        from pathlib import Path
-
         from ...skills.vertical_select import UnknownVerticalError, require_vertical
         from ...verticals._data_domain import materialize_learned_data_domain
 
         state_root = Path(getattr(memory, "root", ".")).expanduser()
+        policy_root = Path(vertical_root or state_root).expanduser()
         learned_root = Path(
             getattr(memory, "global_root", None) or state_root
         ).expanduser()
         materialize_learned_data_domain(
             learned_root,
-            state_root,
+            policy_root,
             vertical,
         )
         try:
-            require_vertical(vertical, state_root)
+            require_vertical(vertical, policy_root)
         except UnknownVerticalError:
             log.warning(
                 "backlog guard: routed vertical %s is unavailable; rerouting item %s",

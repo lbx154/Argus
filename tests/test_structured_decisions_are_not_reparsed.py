@@ -18,6 +18,11 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from argus_skill.core.models import ReviewDecision
+from argus_skill.core.operator_decision import (
+    build_operator_decision,
+    selected_decision_text,
+)
 from argus_skill.core.role_handoff import (
     decision_engineer_handoff,
     parse_engineer_handoff,
@@ -213,6 +218,47 @@ def test_a_real_operator_question_in_the_decision_still_parks_the_round() -> Non
     assert handoff.operator_question == "Which venue should this target?"
 
 
+def test_string_options_in_an_engineer_decision_reach_the_decision_card() -> None:
+    choices = [
+        "A：依赖优先——MissionBrief → 会话轮换 → Reviewer 校准（推荐）",
+        "B：质量优先——先启用严格 Reviewer 独立验收门",
+        "C：效率优先——Reviewer 先影子校准再强制执行",
+    ]
+    handoff = decision_engineer_handoff({
+        "status": "blocked",
+        "next_owner": "operator",
+        "operator_question": "请选择 A、B 或 C。",
+        "operator_options": choices,
+    })
+
+    assert [option["id"] for option in handoff.operator_options] == [
+        "option-1",
+        "option-2",
+        "option-3",
+    ]
+    assert [option["label"] for option in handoff.operator_options] == choices
+    review = ReviewDecision(
+        status="blocked",
+        reason="Engineer requires an operator-owned decision.",
+        next_action="Resume after the operator answers.",
+        operator_question=handoff.operator_question,
+        operator_options=list(handoff.operator_options),
+    )
+    event = review.to_event_payload()
+    card = build_operator_decision(
+        item_id="item",
+        title="Choose an implementation order",
+        reason=review.reason,
+        question=event["operator_question"],
+        options=event["operator_options"],
+    )
+
+    assert [option["label"] for option in event["operator_options"]] == choices
+    assert card["options_source"] == "agent"
+    assert [option["label"] for option in card["options"]] == choices
+    assert selected_decision_text(card, "option-1", "") == choices[0]
+
+
 def test_a_round_without_a_decision_falls_back_to_its_message() -> None:
     outcome = _outcome("Done.\nMILESTONE_STATUS=done\nNEXT_OWNER=reviewer", None)
 
@@ -247,6 +293,28 @@ def test_a_reviewer_decision_is_read_without_a_json_round_trip() -> None:
     assert decision is not None
     assert decision.planner_report["plan_signal"] == "reconsider"
     assert decision.planner_report["forward_progress"] is False
+
+
+def test_string_options_in_a_reviewer_decision_are_normalized() -> None:
+    from argus_skill.reviewer._parsing import decision_from_payload
+
+    decision = decision_from_payload({
+        "status": "blocked",
+        "reason": "The operator owns the implementation order.",
+        "next_action": "Resume after the operator chooses.",
+        "operator_question": "Choose A or B.",
+        "operator_options": ["A: dependency first", "B: quality first"],
+    })
+
+    assert decision is not None
+    assert [option["id"] for option in decision.operator_options] == [
+        "option-1",
+        "option-2",
+    ]
+    assert [option["label"] for option in decision.operator_options] == [
+        "A: dependency first",
+        "B: quality first",
+    ]
 
 
 def test_a_reviewer_payload_missing_a_control_field_yields_no_verdict() -> None:

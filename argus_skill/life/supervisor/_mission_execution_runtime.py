@@ -72,28 +72,51 @@ class MissionExecutionRuntimeMixin:
             self._emit_status(f"campaign workdir adopted: {adopted}")
         return adopted
 
+    def _mission_vertical_root(
+        self,
+        item: BacklogItem,
+        resolved_mission_workdir: Path,
+    ) -> Path:
+        """Select repository policy without moving durable harness state."""
+        requested = str(getattr(item, "execution_workdir", "") or "").strip()
+        tags = {str(tag or "").strip().lower() for tag in item.tags}
+        if requested and "framework_maintenance" not in tags:
+            return resolved_mission_workdir
+        # Preserve the session-state contract for framework maintenance and
+        # legacy items that do not select a node workdir explicitly.
+        return Path(self._artifact_root())
+
     def _prepare_mission_context(
-        self, item: BacklogItem, prelude: str,
+        self,
+        item: BacklogItem,
+        prelude: str,
+        resolved_mission_workdir: Path,
+        vertical_root: Path,
     ) -> _MissionRunState:
         """Build per-mission context: packet, cost sink, and isolation.
 
         Emits ``LIFE_MISSION_STARTED``. Returns the scratch state that the
         rest of the lifecycle phases read from and write to.
         """
-        resolved_mission_workdir = self._resolve_mission_workdir(item)
         state = _MissionRunState(item)
         state.prelude = prelude
-        # Workdir adoption happens before stage/context resolution so the
-        # mission, Reviewer, and Manager all see one canonical research tree.
-        state.pipeline_stage_at_start = self._current_pipeline_stage() or ""
+        # Explicit node contracts keep stage and vertical policy beside the
+        # target repository. Durable backlog/context state remains in memory.root.
+        requested = str(getattr(item, "execution_workdir", "") or "").strip()
+        item_tags = {str(tag or "").strip().lower() for tag in item.tags}
+        if requested and "framework_maintenance" not in item_tags:
+            from ...skills.stage_machine import current_stage
+
+            state.pipeline_stage_at_start = current_stage(vertical_root)
+        else:
+            state.pipeline_stage_at_start = self._current_pipeline_stage() or ""
         if "framework_maintenance" not in {
             str(tag or "").strip().lower() for tag in item.tags
         }:
             from ...verticals._base import vertical_mission_prelude
 
-            vertical_state_root = Path(self._artifact_root())
             block = vertical_mission_prelude(
-                vertical_root=vertical_state_root,
+                vertical_root=vertical_root,
                 project_root=resolved_mission_workdir,
                 state_root=self.memory.root,
                 stage=state.pipeline_stage_at_start,
@@ -151,6 +174,7 @@ class MissionExecutionRuntimeMixin:
                 mission_id=item.id,
                 stage=state.pipeline_stage_at_start,
                 scope=state.item_scope,
+                work_kind=item.work_kind,
                 objective=item.objective,
                 acceptance_check=getattr(item, "acceptance_check", ""),
                 plan_hypothesis=getattr(item, "plan_hypothesis", ""),
@@ -158,6 +182,7 @@ class MissionExecutionRuntimeMixin:
                 expected_regressions=getattr(item, "expected_regressions", ""),
                 decision_rule=getattr(item, "decision_rule", ""),
                 execution_workdir=str(resolved_mission_workdir),
+                owns_paths=list(getattr(item, "owns_paths", []) or []),
                 non_goals=list(getattr(item, "non_goals", []) or []),
                 context_refs=list(getattr(item, "context_refs", []) or []),
                 plan_id=item.plan_id,
@@ -187,6 +212,7 @@ class MissionExecutionRuntimeMixin:
             for tag in getattr(item, "tags", [])
         }
         state.execution_workdir = resolved_mission_workdir
+        state.vertical_root = vertical_root
         state.configured_execution_workdir = str(
             getattr(item, "execution_workdir", "") or ""
         ).strip()
@@ -347,14 +373,14 @@ class MissionExecutionRuntimeMixin:
                     materialize_learned_data_domain,
                 )
 
-                vertical_state_root = Path(self._artifact_root())
+                vertical_root = Path(state.vertical_root)
                 materialize_learned_data_domain(
                     self._budget_global_root(),
-                    vertical_state_root,
+                    vertical_root,
                     execution_vertical,
                 )
                 try:
-                    require_vertical(execution_vertical, vertical_state_root)
+                    require_vertical(execution_vertical, vertical_root)
                 except UnknownVerticalError:
                     # The backlog guard already attempted a fresh Manager route.
                     # If that authority is temporarily unavailable, execute under
@@ -471,9 +497,27 @@ class MissionExecutionRuntimeMixin:
                 )
                 if tracks_active_mission:
                     self.runner._active_mission_id = item.id
+                # The production runner uses its artifact root for active-
+                # vertical validation and as Manager's stage policy root. For
+                # an explicit nested node, those repository-facing operations
+                # belong to the canonical node worktree, not durable life state.
+                overrides_runner_policy_root = bool(
+                    state.configured_execution_workdir
+                    and "framework_maintenance" not in state.item_tags
+                    and hasattr(self.runner, "_artifact_root")
+                )
+                previous_runner_policy_root = getattr(
+                    self.runner,
+                    "_artifact_root",
+                    None,
+                )
+                if overrides_runner_policy_root:
+                    self.runner._artifact_root = Path(state.vertical_root)
                 try:
                     state.outcome = self.runner.execute(**execute_kwargs)
                 finally:
+                    if overrides_runner_policy_root:
+                        self.runner._artifact_root = previous_runner_policy_root
                     if tracks_active_mission:
                         self.runner._active_mission_id = ""
         except Exception as exc:  # noqa: BLE001

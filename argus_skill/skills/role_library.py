@@ -36,6 +36,25 @@ def skill_library_roots(skill_store: object | None) -> list[Path]:
     return list(dict.fromkeys(roots))
 
 
+def _native_project_roots(
+    skill_store: object | None,
+    roots: list[Path],
+) -> list[Path]:
+    if skill_store is None:
+        return []
+    resolver = getattr(skill_store, "native_project_roots", None)
+    if not callable(resolver):
+        return []
+    available = set(roots)
+    return list(
+        dict.fromkeys(
+            Path(item).resolve()
+            for item in resolver()
+            if Path(item).resolve() in available
+        )
+    )
+
+
 def _pool_paths(roots: list[Path], pools: frozenset[str]) -> list[Path]:
     paths: list[Path] = []
     for root in roots:
@@ -121,9 +140,15 @@ def role_skill_libraries(
     required_relative_paths: tuple[str, ...] = (),
 ) -> RoleSkillLibraries:
     roots = skill_library_roots(skill_store)
-    own_paths = _pool_paths(roots, ROLE_SKILL_POOLS.get(role, frozenset({role})))
+    native_project_paths = _native_project_roots(skill_store, roots)
+    role_scoped_roots = [root for root in roots if root not in native_project_paths]
+    own_paths = _pool_paths(
+        role_scoped_roots,
+        ROLE_SKILL_POOLS.get(role, frozenset({role})),
+    )
     reference_paths = _pool_paths(
-        roots, ROLE_CROSS_READ_POOLS.get(role, frozenset())
+        role_scoped_roots,
+        ROLE_CROSS_READ_POOLS.get(role, frozenset()),
     )
     required_paths = _required_paths(roots, required_relative_paths)
     if on_event is not None and roots:
@@ -145,7 +170,9 @@ def role_skill_libraries(
         library_roots=roots,
         own_paths=own_paths,
         reference_paths=reference_paths,
-        native_paths=[*own_paths, *reference_paths],
+        native_paths=list(
+            dict.fromkeys([*native_project_paths, *own_paths, *reference_paths])
+        ),
         required_paths=required_paths,
         block=render_skill_library_paths(
             skill_store,

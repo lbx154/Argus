@@ -30,6 +30,7 @@ class StageTransitionMixin:
         mission_scope: str = "",
         open_ended: bool = False,
         continuous_objective: str = "",
+        stage_closing: bool = False,
     ) -> dict:
         """Hand this round's reviewer verdict to the Manager — the SOLE
         writer of the pipeline stage — and let it judge
@@ -51,6 +52,7 @@ class StageTransitionMixin:
                 mission_scope=mission_scope,
                 open_ended=open_ended,
                 continuous_objective=continuous_objective,
+                stage_closing=stage_closing,
             )
             decision = {
                 "action": st.action,

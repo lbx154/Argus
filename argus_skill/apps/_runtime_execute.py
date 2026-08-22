@@ -681,7 +681,7 @@ class SkillLoopExecuteMixin:
         args = self._args
         workdir = ex_state.workdir
         config = ex_state.config
-        self._refresh_manager_skill_store(args)
+        self._refresh_manager_skill_store(args, workdir=workdir)
         # The per-project runtime state dir holds inbox.jsonl + events.jsonl.
         operator_state_dir = _project_state_dir_for(args, workdir)
         # REAL operator inbox (Change A): drain queued ``--notify`` / ``/nudge``
@@ -737,6 +737,7 @@ class SkillLoopExecuteMixin:
                 project_dir=project_skills_dir,
                 global_dir=global_skills_dir,
                 vertical_dir=vertical_dir,
+                native_project_dir=workdir / ".agents" / "skills",
             )
         ex_state.loop = self._SkillLoop(
             skills_dir=global_skills_dir,
@@ -1264,6 +1265,7 @@ class SkillLoopExecuteMixin:
                     continuous_objective=str(
                         getattr(ex_state.config, "continuous_objective", "") or ""
                     ),
+                    stage_closing=stage_closing,
                 )
             finally:
                 self._current_sink = None

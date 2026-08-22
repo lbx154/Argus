@@ -339,7 +339,12 @@ class _RunnerConstructionMixin:
         # classified — the harness must not second-guess agent-produced work.
         self._allow_chat_fast_path: bool = False
 
-    def _build_manager_skill_store(self, args: argparse.Namespace) -> Any:
+    def _build_manager_skill_store(
+        self,
+        args: argparse.Namespace,
+        *,
+        workdir: Path | None = None,
+    ) -> Any:
         """Build the path-only Skill-library view shared by all role Agents."""
         try:
             from ..skills.layered import (
@@ -352,8 +357,14 @@ class _RunnerConstructionMixin:
             global_dir = Path(args.skills_dir)
             project_state_dir = str(getattr(args, "project_state_dir", "") or "").strip()
             if project_state_dir:
-                workdir = Path(args.workdir).expanduser() if args.workdir else Path.cwd()
-                active_skill_scope = resolve_skill_scope(workdir)
+                execution_workdir = (
+                    Path(workdir)
+                    if workdir is not None
+                    else Path(args.workdir).expanduser()
+                    if args.workdir
+                    else Path.cwd()
+                )
+                active_skill_scope = resolve_skill_scope(execution_workdir)
                 explicit_project_skills = str(
                     os.environ.get("ARGUS_SKILL_PROJECT_SKILLS_DIR", "") or ""
                 ).strip()
@@ -368,6 +379,7 @@ class _RunnerConstructionMixin:
                         global_dir,
                         active_skill_scope,
                     ),
+                    native_project_dir=execution_workdir / ".agents" / "skills",
                 )
             return SkillStore(global_dir)
         except Exception:  # noqa: BLE001 — never block start-up on library discovery
@@ -378,9 +390,14 @@ class _RunnerConstructionMixin:
         """Return the exact shared Skill directory used by this runner."""
         return Path(self._args.skills_dir)
 
-    def _refresh_manager_skill_store(self, args: argparse.Namespace) -> None:
+    def _refresh_manager_skill_store(
+        self,
+        args: argparse.Namespace,
+        *,
+        workdir: Path | None = None,
+    ) -> None:
         """Refresh Manager library roots after vertical selection."""
-        store = self._build_manager_skill_store(args)
+        store = self._build_manager_skill_store(args, workdir=workdir)
         if store is None:
             return
         self._manager_skill_store = store

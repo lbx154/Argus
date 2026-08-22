@@ -38,6 +38,11 @@ def test_explicit_vertical_reaches_engineer_and_reviewer_without_pipeline_state(
 ) -> None:
     skills = tmp_path / "skills"
     skills.mkdir()
+    seed_builtin_skills_for_vertical(
+        skills,
+        "argus_maintenance",
+        overwrite=True,
+    )
     backend = MemoryBackend()
     backend.queue("engineer-r1", CannedResponse(message="Implemented and verified."))
     backend.queue(
@@ -64,16 +69,31 @@ def test_explicit_vertical_reaches_engineer_and_reviewer_without_pipeline_state(
     outcome = loop.run("Maintain Argus.", workdir=tmp_path, scope="bounded")
 
     assert outcome.successful
-    engineer_prompt = next(
-        prompt for label, prompt, _options in backend.history
+    engineer_prompt, engineer_options = next(
+        (prompt, options) for label, prompt, options in backend.history
         if label == "engineer-r1"
     )
-    reviewer_prompt = next(
-        prompt for label, prompt, _options in backend.history
+    reviewer_prompt, reviewer_options = next(
+        (prompt, options) for label, prompt, options in backend.history
         if label == "reviewer"
     )
-    assert "ARGUS MAINTENANCE" in engineer_prompt
-    assert "ARGUS MAINTENANCE" in reviewer_prompt
+    engineer_dir = (skills / "engineer").resolve()
+    reviewer_dir = (skills / "reviewer").resolve()
+    assert engineer_options.skill_paths == [
+        str(engineer_dir),
+        str(skills.resolve()),
+        str(reviewer_dir),
+    ]
+    assert reviewer_options.skill_paths == [
+        str(reviewer_dir),
+        str(engineer_dir),
+    ]
+    assert str(skills.resolve()) in engineer_prompt
+    assert str(skills.resolve()) in reviewer_prompt
+    assert "inspect the available descriptions" in engineer_prompt
+    assert "inspect the available descriptions" in reviewer_prompt
+    assert "Inspect and simplify Argus" not in engineer_prompt
+    assert "Review an Argus maintenance patch" not in reviewer_prompt
 
 
 def test_argus_maintenance_skills_are_packaged(tmp_path: Path) -> None:
@@ -127,3 +147,35 @@ def test_architecture_audit_surfaces_candidates_without_calling_them_defects(
     assert categories["silent_broad_exception"] == 1
     assert categories["thin_wrapper"] == 1
     assert all(row["path"] != "tests/test_sample.py" for row in report["findings"])
+
+
+def test_architecture_audit_ignores_managed_worktrees(tmp_path: Path) -> None:
+    source = tmp_path / "argus_skill" / "core" / "root_candidate.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("HOME = '/home/alice/work'\n", encoding="utf-8")
+    duplicate = (
+        tmp_path
+        / ".worktrees"
+        / "feature"
+        / "argus_skill"
+        / "core"
+        / "root_candidate.py"
+    )
+    duplicate.parent.mkdir(parents=True)
+    duplicate.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+
+    report = scan_repository(tmp_path)
+
+    assert report["files_scanned"] == 1
+    assert report["counts"] == {
+        "total": 1,
+        "by_category": {"machine_specific_path": 1},
+    }
+    assert report["findings"] == [
+        {
+            "category": "machine_specific_path",
+            "path": "argus_skill/core/root_candidate.py",
+            "line": 1,
+            "evidence": "/home/alice",
+        }
+    ]

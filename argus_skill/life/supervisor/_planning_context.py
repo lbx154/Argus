@@ -182,6 +182,7 @@ class PlanningContextMixin:
     def _render_backlog_item_metadata(self, item: BacklogItem) -> str:
         scope = self._planner_scope_from_item(item)
         context_refs = [ref for ref in getattr(item, "context_refs", []) if isinstance(ref, dict)]
+        work_kind = str(getattr(item, "work_kind", "") or "").strip()
         acceptance_check = str(getattr(item, "acceptance_check", "") or "").strip()
         plan_hypothesis = str(getattr(item, "plan_hypothesis", "") or "").strip()
         goal_contribution = str(getattr(item, "goal_contribution", "") or "").strip()
@@ -205,6 +206,7 @@ class PlanningContextMixin:
             and not item.tags
             and not getattr(item, "plan_id", "")
             and not context_refs
+            and not work_kind
             and not acceptance_check
             and not plan_hypothesis
             and not goal_contribution
@@ -223,6 +225,8 @@ class PlanningContextMixin:
             lines.append(f"- node_key: {item.node_key}")
         if scope:
             lines.append(f"- planner_scope: {scope}")
+        if work_kind:
+            lines.append(f"- work_kind: {work_kind}")
         if execution_workdir:
             lines.append(
                 "- execution_repository_request: " + execution_workdir

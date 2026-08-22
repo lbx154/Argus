@@ -308,7 +308,9 @@ def build_mission_prompt(
         "handoff or evidence packets. Host invokes Reviewer only when required; do not "
         "spawn a Reviewer subagent. Normally set next_owner=reviewer. Use operator only "
         "for a real operator decision; include one operator_question and at most five "
-        "operator_options; that parks the task, so record it and yield.\n\n"
+        "operator_options; that parks the task, so record it and yield. Each option must "
+        "be an object like {\"id\":\"a\",\"label\":\"Use A\","
+        "\"description\":\"What choosing A does.\"}, not a bare string.\n\n"
         + decision_event_instruction(
             "engineer",
             '{"status":"done","result":"what changed and the decisive check",'
@@ -331,7 +333,8 @@ def build_mission_prompt(
         "## Handoff\n"
         "Use next_owner=operator only for an operator-owned choice; its question "
         "parks the task. Include operator_question and operator_options in that "
-        "decision.\n"
+        "decision; each option must be an object with id, label, and description, not "
+        "a bare string.\n"
         + decision_event_instruction(
             "engineer",
             '{"status":"done","result":"short result and decisive check",'

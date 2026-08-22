@@ -27,6 +27,7 @@ from ..core.stop_kinds import (
     pause_status_for_stop_kind,
     stop_kind_from_external_interrupt,
 )
+from ..life.context_packet import render_mission_brief
 from .external_work import render_external_work_advisory
 from .round_signals import _review_event_payload
 from .round_state import (
@@ -155,9 +156,13 @@ class RoundReviewerMixin:
                 "checkpoint. Verify the current Engineer summary and artifacts, then "
                 "return the verdict for this round."
             )
+        mission_brief = render_mission_brief(
+            getattr(supervised_config, "context_packet_path", "")
+        )
         reviewer_background_context = "\n\n".join(
             part
             for part in (
+                mission_brief,
                 capsule_block,
                 rotation_block,
                 reviewer_background_context,

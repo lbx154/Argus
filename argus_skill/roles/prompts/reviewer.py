@@ -130,12 +130,11 @@ def _verification_directive() -> str:
 
 
 _PRODUCT_ACCEPTANCE_DIRECTIVE = (
-    "UI/API/CLI/service changes need product-user acceptance. When safe, run the "
-    "candidate with isolated state, non-production port, test-only credentials; "
-    "use its public entry point, inspect the "
-    "result, and stop it. Never cause external or irreversible effects. Unit tests "
-    "alone do not prove that flow; if unavailable, state it and do not claim it passed. "
-    "Internal/library work needs its decisive check.\n\n"
+    "For UI/API/CLI/service changes, require product-user acceptance. Safely use "
+    "isolated state, non-production port, test-only credentials and the public entry "
+    "point; inspect, then stop it. Never cause external or irreversible effects. Unit "
+    "tests alone do not prove that flow. Report unavailable trials; use a decisive "
+    "check for library work.\n\n"
 )
 
 
@@ -644,8 +643,8 @@ def render_reviewer_prompt(
         + "\n\n"
         + _PRODUCT_ACCEPTANCE_DIRECTIVE
         + "\n\n## Reviewer role\n"
-        "Advance useful work. Default to `done` when the requested outcome materially "
-        "works; optional evidence, polish, and future robustness are advisory. Inspect "
+        "Default to `done` when the outcome materially works; optional evidence and "
+        "polish are advisory. Inspect "
         "only claim-critical uncertainty and use tools only in proportion to unresolved "
         "uncertainty. You do not change the work under review: not its sources, not its "
         "artifacts, not its build. Recording your own verdict through a command your "
@@ -660,7 +659,9 @@ def render_reviewer_prompt(
         + "## Decision\n"
         "The payload uses `status`, `reason`, `next_action`, `forward_progress`, "
         "`plan_signal`, and only when relevant `operator_question` and "
-        "`operator_options`."
+        "`operator_options`. Each option must be an object like "
+        "{\"id\":\"a\",\"label\":\"Use A\",\"description\":\"What choosing A does.\"}, "
+        "not a bare string."
         + (
             " Include the inspected `research_result` contract."
             if _research_target_level is not None

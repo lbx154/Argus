@@ -20,6 +20,8 @@ class _Runner:
                 f"TASK_DEPS={','.join(task['deps'])}",
                 f"TASK_TITLE={task['title']}",
                 f"TASK_OBJECTIVE={task['objective']}",
+                f"TASK_WORKDIR={task.get('execution_workdir', '')}",
+                f"TASK_WORK_KIND={task.get('work_kind', '')}",
                 f"TASK_HYPOTHESIS={task.get('hypothesis', 'This task tests its stated mechanism.')}",
                 f"TASK_GOAL_CONTRIBUTION={task.get('goal_contribution', 'This task advances the requested deliverable.')}",
                 f"TASK_EXPECTED_REGRESSIONS={task.get('expected_regressions', 'None expected beyond local work in progress.')}",
@@ -90,6 +92,8 @@ def test_bounded_planner_parses_real_fanout_fanin_dag(tmp_path) -> None:
                         "artifact::research/chem_playground/x/RESULT.md::result"
                     ),
                     "scope": "bounded",
+                    "execution_workdir": "nested/target",
+                    "work_kind": "validation",
                     "stage_closing": "false",
                     "require_independent_review": "true",
                     "skip_stage_transition": "true",
@@ -106,6 +110,8 @@ def test_bounded_planner_parses_real_fanout_fanin_dag(tmp_path) -> None:
     assert plan.tasks[1].vertical == "argus_maintenance"
     assert plan.tasks[2].acceptance_check == "pytest -q exits zero"
     assert plan.tasks[2].non_goals == ("do not publish", "do not edit pipeline state")
+    assert plan.tasks[2].execution_workdir == "nested/target"
+    assert plan.tasks[2].work_kind == "validation"
     assert not hasattr(plan.tasks[2], "context_refs")
     prompt = runner.calls[0]["prompt"]
     assert "primary-source semantics are materially missing" in prompt
@@ -122,6 +128,8 @@ def test_bounded_planner_parses_real_fanout_fanin_dag(tmp_path) -> None:
     assert "TASK_CONTEXT_REFS" not in call["prompt"]
     assert "TASK_STAGE_CLOSING" not in call["prompt"]
     assert "`require_independent_review:true`" in call["prompt"]
+    assert "`execution_workdir`" in call["prompt"]
+    assert "`work_kind` (validated; no prose inference)" in call["prompt"]
     assert "The Host owns execution and enforces review policy" in call["prompt"]
     assert "Never create a review-only or validation-only task" in call["prompt"]
 

@@ -123,12 +123,11 @@ def decision_engineer_handoff(payload: Mapping[str, object]) -> EngineerHandoff:
     to answer questions the payload had already answered.
     """
     raw_options = payload.get("operator_options")
+    option_values = raw_options if isinstance(raw_options, (list, tuple)) else ()
     return resolve_engineer_handoff(
         next_owner=payload.get("next_owner"),
         operator_question=payload.get("operator_question"),
-        operator_options=normalize_agent_options(
-            option for option in (raw_options or ()) if isinstance(option, dict)
-        ),
+        operator_options=normalize_agent_options(option_values),
     )
 
 

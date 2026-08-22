@@ -12,7 +12,7 @@ from pathlib import Path
 
 _IGNORED = {
     ".git", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".venv",
-    "__pycache__", "build", "bundle", "dist", "node_modules",
+    ".worktrees", "__pycache__", "build", "bundle", "dist", "node_modules",
     "site-packages", "technical_report",
 }
 _TEXT_SUFFIXES = {".json", ".md", ".py", ".toml", ".ts", ".tsx", ".yaml", ".yml"}

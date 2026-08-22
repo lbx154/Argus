@@ -122,6 +122,18 @@ class PlanningCycleVerdictMixin:
         try:
             from ...planner import Planner
 
+            refresh_skill_store = getattr(
+                self.runner, "_refresh_manager_skill_store", None
+            )
+            runner_args = getattr(self.runner, "_args", None)
+            if callable(refresh_skill_store) and runner_args is not None:
+                refresh_skill_store(
+                    runner_args,
+                    workdir=self._planner_workdir(),
+                )
+            latest_skill_store = getattr(self.runner, "_manager_skill_store", None)
+            if latest_skill_store is not None:
+                self.skill_store = latest_skill_store
             planner = Planner(
                 self.planner_runner,
                 skill_store=self.skill_store,

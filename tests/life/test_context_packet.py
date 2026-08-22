@@ -6,10 +6,13 @@ from types import SimpleNamespace
 
 import pytest
 
+from argus_skill import SkillLoop, SkillLoopConfig
+from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
 from argus_skill.life.context_packet import (
     create_mission_context,
     record_engineer_handoff,
     record_reviewed_handoff,
+    render_mission_brief,
     render_mission_contract,
 )
 from argus_skill.life.memory import BacklogItem
@@ -23,12 +26,14 @@ def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> 
         mission_id="mission-1",
         stage="research",
         scope="bounded",
+        work_kind="algorithm_discovery",
         objective="Screen one candidate on public tasks.",
         acceptance_check="research/screen.json reports a binding pass/fail",
         plan_hypothesis="The candidate screen can eliminate weak directions cheaply.",
         goal_contribution="Reduce uncertainty before the expensive experiment.",
         expected_regressions="Candidate count may fall sharply.",
         decision_rule="Replace the screen if it fails to predict the binding test.",
+        owns_paths=["research/screen.json", "tests/test_screen.py"],
         non_goals=["do not preregister", "do not run GPU inference"],
         context_refs=[
             {
@@ -63,12 +68,17 @@ def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> 
     assert latest["mission"]["path"] == str(mission)
     assert mission_payload["stage"] == "research"
     assert mission_payload["scope"] == "bounded"
+    assert mission_payload["work_kind"] == "algorithm_discovery"
     assert mission_payload["objective"] == "Screen one candidate on public tasks."
     assert mission_payload["acceptance_check"].endswith("binding pass/fail")
     assert mission_payload["plan_hypothesis"].startswith("The candidate screen")
     assert mission_payload["goal_contribution"].startswith("Reduce uncertainty")
     assert mission_payload["expected_regressions"] == "Candidate count may fall sharply."
     assert mission_payload["decision_rule"].startswith("Replace the screen")
+    assert mission_payload["owns_paths"] == [
+        "research/screen.json",
+        "tests/test_screen.py",
+    ]
     assert mission_payload["non_goals"] == [
         "do not preregister",
         "do not run GPU inference",
@@ -163,6 +173,9 @@ def test_context_refresh_never_overwrites_role_authored_checkpoint(tmp_path: Pat
         "# Open Questions / Blockers\n\n- preserve this state\n",
         encoding="utf-8",
     )
+    role_state = mission.parent / "role-sessions" / "engineer.json"
+    role_state.parent.mkdir()
+    role_state.write_text('{"turns": 3, "thread_id": "keep-me"}\n', encoding="utf-8")
 
     refreshed = create_mission_context(
         life_dir=tmp_path,
@@ -173,6 +186,160 @@ def test_context_refresh_never_overwrites_role_authored_checkpoint(tmp_path: Pat
 
     assert refreshed == mission
     assert checkpoint.read_text(encoding="utf-8").endswith("- preserve this state\n")
+    assert json.loads(role_state.read_text(encoding="utf-8")) == {
+        "turns": 3,
+        "thread_id": "keep-me",
+    }
+
+
+def test_mission_brief_projects_only_named_authoritative_fields(tmp_path: Path) -> None:
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    mission = create_mission_context(
+        life_dir=tmp_path,
+        mission_id="mission-brief",
+        stage="change",
+        objective="Do not duplicate this objective into the compact brief.",
+        acceptance_check="python -m pytest tests/life/test_context_packet.py",
+        execution_workdir=str(workdir),
+        owns_paths=[
+            "argus_skill/life/context_packet.py",
+            "tests/life/test_context_packet.py",
+        ],
+        context_refs=[{
+            "kind": "tool",
+            "ref": "tools/native_check.py",
+            "why": "public native verifier",
+        }],
+    )
+    record_reviewed_handoff(
+        mission_context_path=mission,
+        round_index=1,
+        engineer_summary="TRANSCRIPT COPY MUST NOT APPEAR",
+        review=SimpleNamespace(
+            status="continue",
+            reason="The focused check passed but one condition remains.",
+            next_action="Exercise the public entry point.",
+            operator_question="",
+            frontier_report={
+                "change": "artifact_improved",
+                "summary": "Focused behavior now works.",
+                "artifacts": ["argus_skill/life/context_packet.py"],
+                "evidence": ["focused pytest"],
+                "remaining_work": ["public entry-point trial"],
+            },
+        ),
+        checkpoint_path=mission.parent / "CHECKPOINT.md",
+    )
+    mission_payload = json.loads(mission.read_text(encoding="utf-8"))
+    mission_payload["transcript"] = "MISSION TRANSCRIPT MUST NOT APPEAR"
+    mission.write_text(json.dumps(mission_payload), encoding="utf-8")
+
+    brief = render_mission_brief(mission)
+
+    assert brief == (
+        "## MissionBrief\n"
+        f"- Workdir: `{workdir}`\n"
+        "- Stage: change\n"
+        "- Owned paths (authoritative write boundary; Reviewer must not request "
+        "edits outside it): argus_skill/life/context_packet.py; "
+        "tests/life/test_context_packet.py\n"
+        "- Changed surface: argus_skill/life/context_packet.py\n"
+        "- Tools/resources: tool: tools/native_check.py (public native verifier)\n"
+        "- Native check: python -m pytest tests/life/test_context_packet.py\n"
+        "- Decisive result: continue: The focused check passed but one condition remains.\n"
+        "- Missing condition: public entry-point trial\n"
+        "- Next action: Exercise the public entry point."
+    )
+    assert "objective" not in brief.lower()
+    assert "transcript" not in brief.lower()
+    assert "focused pytest" not in brief
+
+
+def test_mission_brief_accepts_legacy_sparse_mission_context(tmp_path: Path) -> None:
+    mission = tmp_path / "mission.json"
+    mission.write_text(json.dumps({
+        "kind": "mission_context",
+        "execution_workdir": str(tmp_path),
+        "stage": "change",
+        "acceptance_check": "python -m pytest focused.py",
+    }), encoding="utf-8")
+
+    assert render_mission_brief(None) == ""
+    assert render_mission_brief(mission) == (
+        "## MissionBrief\n"
+        f"- Workdir: `{tmp_path}`\n"
+        "- Stage: change\n"
+        "- Native check: python -m pytest focused.py"
+    )
+
+
+def _mission_brief_from_prompt(prompt: str) -> str:
+    start = prompt.index("## MissionBrief")
+    return prompt[start:].split("\n\n", 1)[0]
+
+
+def test_public_skill_loop_ab_injects_same_brief_into_isolated_roles(
+    tmp_path: Path,
+) -> None:
+    """A=no packet preserves old input; B gives both fresh roles identical state."""
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    owned_paths = ["src/public_flow.py", "tests/test_public_flow.py"]
+    mission = create_mission_context(
+        life_dir=tmp_path,
+        mission_id="public-flow",
+        stage="change",
+        objective="Exercise the public SkillLoop entry point.",
+        acceptance_check="reviewer returns done",
+        execution_workdir=str(workdir),
+        owns_paths=owned_paths,
+    )
+
+    def run(context_packet_path: str) -> tuple[object, list[tuple[str, str, object]]]:
+        backend = MemoryBackend()
+        backend.queue("engineer-r1", CannedResponse(message="public flow exercised"))
+        backend.queue("reviewer", CannedResponse(message=json.dumps({
+            "status": "done",
+            "reason": "public flow verified",
+            "next_action": "",
+        })))
+        outcome = SkillLoop(
+            skills_dir=tmp_path / "skills",
+            engineer_runner=backend,
+            reviewer_runner=backend,
+            config=SkillLoopConfig(
+                engineer_model="memory",
+                reviewer_model="memory",
+                max_rounds=1,
+                backend_failure_backoff_seconds=0,
+                context_packet_path=context_packet_path,
+                role_session_policy="fresh",
+            ),
+        ).run("Exercise the public SkillLoop entry point.", workdir=workdir)
+        return outcome, backend.history
+
+    old_outcome, old_history = run("")
+    expected_brief = render_mission_brief(mission)
+    new_outcome, new_history = run(str(mission))
+
+    assert old_outcome.successful and new_outcome.successful
+    old_prompts = [prompt for label, prompt, _options in old_history if label in {"engineer-r1", "reviewer"}]
+    new_prompts = [prompt for label, prompt, _options in new_history if label in {"engineer-r1", "reviewer"}]
+    assert len(old_prompts) == len(new_prompts) == 2
+    assert all("## MissionBrief" not in prompt for prompt in old_prompts)
+    briefs = [_mission_brief_from_prompt(prompt) for prompt in new_prompts]
+    assert briefs[0] == briefs[1] == expected_brief
+    reviewer_prompt = next(
+        prompt for label, prompt, _options in new_history if label == "reviewer"
+    )
+    boundary = (
+        "- Owned paths (authoritative write boundary; Reviewer must not request "
+        "edits outside it): " + "; ".join(owned_paths)
+    )
+    assert boundary in reviewer_prompt
+    assert [path for path in owned_paths if path in reviewer_prompt] == owned_paths
+    assert all("TRANSCRIPT" not in prompt for prompt in new_prompts)
 
 
 def test_agent_task_context_hides_host_content_hash() -> None:

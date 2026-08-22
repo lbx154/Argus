@@ -471,7 +471,7 @@ class PlanningCycleEnqueueMixin:
                 or getattr(task, "stage_repair", False)
                 or _stage_closing_forced()
             )
-            canonical_require_review = (
+            canonical_require_review = bool(
                 canonical_stage_closing or _independent_review_forced()
             )
             task = replace(
@@ -731,6 +731,7 @@ class PlanningCycleEnqueueMixin:
                 blocker_fingerprint=str(
                     getattr(task, "blocker_fingerprint", "") or ""
                 ),
+                work_kind=str(getattr(task, "work_kind", "") or ""),
                 acceptance_check=str(getattr(task, "acceptance_check", "") or ""),
                 plan_hypothesis=str(getattr(task, "hypothesis", "") or ""),
                 goal_contribution=str(

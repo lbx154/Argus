@@ -259,7 +259,15 @@ def enqueue_mission(
             from ..life.memory import BacklogItem
             from ..life.supervisor.backlog_guard import decision_evidence
 
-            compact = " ".join(body.split()).replace("`", "")
+            contextual_body = (
+                "[CURRENT OPERATOR MESSAGE]" in body
+                and (
+                    "[RECENT CONVERSATION CONTEXT" in body
+                    or "[BOUNDED TASK CONTEXT" in body
+                )
+            )
+            title_body = execution_body if contextual_body else body
+            compact = " ".join(title_body.split()).replace("`", "")
             title = compact if len(compact) <= 96 else compact[:93] + "..."
             item = BacklogItem.new(
                 item_id=root_task_id,
@@ -468,11 +476,33 @@ def enqueue_mission(
         }
         items: list[BacklogItem] = []
         priority = min(head_priority - 1, -1)
-        from ..core.campaign_workdir import normalize_task_workdir
+        from ..core.campaign_workdir import (
+            normalize_task_workdir,
+            resolve_task_workdir,
+        )
         from ..skills.stage_machine import current_stage
 
-        stage = current_stage(_resolve_manager_workdir(mem))
+        campaign_workdir = _resolve_manager_workdir(mem)
         for index, node in enumerate(nodes):
+            requested_workdir = str(
+                getattr(node, "execution_workdir", "") or ""
+            ).strip()
+            try:
+                node_workdir = resolve_task_workdir(
+                    campaign_workdir,
+                    requested_workdir,
+                )
+                persisted_workdir = str(node_workdir) if requested_workdir else ""
+            except ValueError:
+                raw_refs = list(getattr(node, "context_refs", ()) or ())
+                if requested_workdir and list(node.deps) and not raw_refs:
+                    # Preserve the existing deferred-clone contract: a dependency
+                    # may create this workdir before the node becomes runnable.
+                    node_workdir = campaign_workdir
+                    persisted_workdir = normalize_task_workdir(requested_workdir)
+                else:
+                    raise
+            stage = current_stage(node_workdir)
             stage_closing = bool(getattr(node, "stage_closing", False))
             require_review = bool(
                 getattr(node, "require_independent_review", False)
@@ -493,7 +523,7 @@ def enqueue_mission(
                 )
 
                 try:
-                    require_vertical(node_vertical, _resolve_manager_workdir(mem))
+                    require_vertical(node_vertical, node_workdir)
                 except UnknownVerticalError as exc:
                     raise front_door.ManagerHandoffError(
                         f"bounded Planner selected unknown vertical {node_vertical!r}"
@@ -540,6 +570,7 @@ def enqueue_mission(
                 plan_version=1,
                 node_key=node.key,
                 context_refs=item_context_refs,
+                work_kind=str(getattr(node, "work_kind", "") or ""),
                 acceptance_check=str(getattr(node, "acceptance_check", "") or ""),
                 plan_hypothesis=str(getattr(node, "hypothesis", "") or ""),
                 goal_contribution=str(
@@ -549,9 +580,7 @@ def enqueue_mission(
                     getattr(node, "expected_regressions", "") or ""
                 ),
                 decision_rule=str(getattr(node, "decision_rule", "") or ""),
-                execution_workdir=normalize_task_workdir(
-                    getattr(node, "execution_workdir", "")
-                ),
+                execution_workdir=persisted_workdir,
                 non_goals=list(getattr(node, "non_goals", ()) or ()),
                 manager_decision=node_manager_decision,
             )

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import subprocess
 from types import SimpleNamespace
 
 import pytest
@@ -37,25 +39,53 @@ def manager_runner(monkeypatch):
     )
 
 
-def test_bounded_dispatch_persists_manager_handoff_and_root_id(memory, monkeypatch):
+def test_bounded_dispatch_persists_parsed_work_kind_and_nested_workdir(
+    memory,
+    monkeypatch,
+):
+    from argus_skill.core.models import RunnerResult
+    from argus_skill.planner.bounded_dag import BoundedDagNode, plan_bounded_dag
+
     older = memory.backlog.add(
         BacklogItem.new(title="older", objective="older", priority=100)
     )
+    nested = memory.project_worktree / "nested" / "target"
+    nested.mkdir(parents=True)
+    decision = {
+        "role": "planner",
+        "payload": {
+            "reason": "one typed nested task",
+            "tasks": [{
+                "key": "execute",
+                "deps": [],
+                "title": "`managed task`",
+                "objective": "managed: operator request",
+                "execution_workdir": "nested/target",
+                "work_kind": "validation",
+            }],
+        },
+    }
+
+    class Runner:
+        def run_exec(self, **_kwargs):
+            return RunnerResult(
+                exit_code=0,
+                agent_messages=[
+                    f"ARGUS_ROLE_DECISION={json.dumps(decision)}"
+                ],
+            )
+
+    plan = plan_bounded_dag(
+        Runner(),
+        "managed: operator request",
+        workdir=memory.project_worktree,
+    )
+    assert plan.error == ""
+    assert isinstance(plan.tasks[0], BoundedDagNode)
     monkeypatch.setattr(
         dispatch,
         "_plan_bounded_execution",
-        lambda *args, **kwargs: SimpleNamespace(
-            reason="one atomic task",
-            error="",
-            tasks=(
-                SimpleNamespace(
-                    key="execute",
-                    deps=(),
-                    title="`managed task`",
-                    objective="managed: operator request",
-                ),
-            ),
-        ),
+        lambda *args, **kwargs: plan,
     )
 
     item, alive, pid = dispatch.enqueue_mission(
@@ -68,6 +98,8 @@ def test_bounded_dispatch_persists_manager_handoff_and_root_id(memory, monkeypat
     assert item.id == "root-task-1"
     assert item.title == "managed task"
     assert item.objective == "managed: operator request"
+    assert item.work_kind == "validation"
+    assert item.execution_workdir == str(nested.resolve())
     assert item.priority < older.priority
     assert (alive, pid) == (False, None)
 
@@ -108,6 +140,97 @@ def test_manager_workdir_prefers_persisted_session_metadata(tmp_path) -> None:
     )
 
     assert dispatch._resolve_manager_workdir(mem) == expected_worktree.resolve()
+
+
+def test_bounded_dispatch_uses_nested_node_worktree_as_its_only_contract_root(
+    memory,
+    monkeypatch,
+):
+    from argus_skill.core.campaign_workdir import adopt_campaign_workdir
+    from argus_skill.core.pipeline_state import write_pipeline_state
+    from argus_skill.skills.vertical_select import persist_vertical
+    from argus_skill.verticals._data_domain import write_data_domain
+
+    base = memory.project_worktree
+    campaign = base / "campaign"
+    target = campaign / "target"
+    campaign.mkdir()
+    subprocess.run(["git", "init", "-q", str(campaign)], check=True)
+    target.mkdir()
+    subprocess.run(["git", "init", "-q", str(target)], check=True)
+
+    life_dir = front_door._life_dir_for(memory)
+    adopt_campaign_workdir(
+        state_root=life_dir,
+        base_root=base,
+        current_root=base,
+        requested="campaign",
+    )
+    persist_vertical(campaign, "research", workflow_mode="staged")
+    write_pipeline_state(
+        campaign,
+        {
+            "vertical": "research",
+            "workflow_mode": "staged",
+            "current_stage": "submission",
+        },
+    )
+    write_data_domain(
+        target,
+        "nested_replay",
+        stages=["target_scope", "target_delivery"],
+        status="formal",
+        purpose="target-only replay contract",
+    )
+    persist_vertical(target, "nested_replay", workflow_mode="staged")
+    parent_artifact = campaign / "research" / "TARGET.md"
+    parent_artifact.parent.mkdir(exist_ok=True)
+    parent_artifact.write_text("stale parent evidence", encoding="utf-8")
+    artifact = target / "research" / "TARGET.md"
+    artifact.write_text("target evidence", encoding="utf-8")
+
+    plan = SimpleNamespace(
+        reason="replay the nested target",
+        error="",
+        tasks=(
+            SimpleNamespace(
+                key="target-node",
+                deps=(),
+                title="Run target replay",
+                objective="Use only the nested target contract.",
+                vertical="nested_replay",
+                execution_workdir="target",
+                context_refs=({
+                    "kind": "artifact",
+                    "ref": "research/TARGET.md",
+                    "why": "target evidence",
+                },),
+            ),
+        ),
+    )
+    monkeypatch.setattr(dispatch, "_plan_bounded_execution", lambda *args, **kwargs: plan)
+
+    item, _, _ = dispatch.enqueue_mission(
+        memory,
+        "replay nested target",
+        {"backend": "codex"},
+    )
+
+    assert item is not None
+    assert item.execution_workdir == str(target.resolve())
+    assert item.manager_decision["vertical"] == "nested_replay"
+    assert "stage:target_scope" in item.tags
+    assert "stage:submission" not in item.tags
+    assert item.context_refs[0]["ref"] == "research/TARGET.md"
+    assert item.context_refs[0]["content_hash"] == (
+        "sha256:" + hashlib.sha256(artifact.read_bytes()).hexdigest()
+    )
+    assert adopt_campaign_workdir(
+        state_root=life_dir,
+        base_root=base,
+        current_root=campaign,
+        requested=item.execution_workdir,
+    ) == target.resolve()
 
 
 def test_bounded_dispatch_persists_real_dependency_dag(memory, monkeypatch):
@@ -376,6 +499,68 @@ def test_continuous_dispatch_persists_operator_priority_item(memory):
     assert queued["item_id"] == item.id
     assert queued["source"] == "manager_operator"
     assert queued["operator_priority"] is True
+
+
+def test_contextual_continuous_title_uses_manager_execution_task_in_every_status(
+    memory,
+    monkeypatch,
+):
+    from argus_skill.webapi.manager_session_intent import contextualize_operator_turn
+    from argus_skill.webapi.project_state import compact_backlog_item
+
+    execution_task = "修复上下文化连续任务的标题，并保留目标、依赖与状态行为。"
+    routing_body = contextualize_operator_turn(
+        "那就继续修最后一个问题",
+        [
+            {"role": "operator", "text": "先处理标题泄露问题。"},
+            {"role": "argus", "text": "会保持普通研究任务行为不变。"},
+        ],
+        last_team_task="分阶段修复 Argus 用户体验问题。",
+    )
+
+    class ContextResolvingManager:
+        def decide_vertical(self, body, **kwargs):
+            assert body == routing_body
+            return SimpleNamespace(
+                execution_task=execution_task,
+                workflow_mode="staged",
+            )
+
+        def commit_vertical_decision(self, body, decision, **kwargs):
+            assert body == routing_body
+            return decision
+
+    monkeypatch.setattr(
+        front_door,
+        "_ensure_manager_runner",
+        lambda state, mem: SimpleNamespace(manager=ContextResolvingManager()),
+    )
+
+    item, _, _ = dispatch.enqueue_mission(
+        memory,
+        routing_body,
+        {"backend": "codex", "config": {"continuous": True}},
+    )
+
+    assert item is not None
+    assert item.objective == execution_task
+    assert item.original_objective == execution_task
+    assert item.deps == []
+    views = [compact_backlog_item(item)]
+    running = memory.backlog.mark_running(item.id)
+    assert running is not None
+    views.append(compact_backlog_item(running))
+    failed = memory.backlog.mark_failed(item.id, error="受控失败")
+    assert failed is not None
+    views.append(compact_backlog_item(failed))
+
+    assert [view["status"] for view in views] == ["pending", "running", "failed"]
+    assert {view["title"] for view in views} == {execution_task}
+    for view in views:
+        visible = json.dumps(view, ensure_ascii=False)
+        assert "[BOUNDED TASK CONTEXT" not in visible
+        assert "[CURRENT OPERATOR MESSAGE]" not in visible
+        assert "先处理标题泄露问题" not in visible
 
 
 def test_continuous_replacement_queues_operator_task_after_running_work(memory):

@@ -8,6 +8,7 @@ from typing import Any
 
 from ...core.model_visible_text import sanitize_model_visible_text
 from ...core.role_decision import decision_event_instruction
+from ...planner.work_kind import planner_work_kind_guidance
 from ..task_contract import native_shell_contract, native_shell_summary
 from .types import ChecklistMode, RoleName, RolePromptRequest
 
@@ -42,20 +43,19 @@ Read the current state, then choose the next useful milestone. Do not implement 
 delegate implementation to Engineer. Do not edit project files; Engineer owns edits,
 commands, tests, and iteration.
 
-- Reuse Manager/completed-task decisions. Give each Engineer a self-contained task
-  with its decision, inputs, check; split only for dependencies
-  or independent work.
-- Prefer the simplest sufficient plan. Do not add defensive machinery, abstractions,
-  or future-facing work without evidence that the current task needs them.
+- Reuse Manager/completed decisions. Give Engineer a self-contained task with its
+  decision, inputs, check; split only for dependencies or independent work.
+- Prefer the simplest sufficient plan; add machinery, abstractions, or future work
+  only when current evidence requires it.
 - Follow the operator's requested actions and order. Existing artifacts or a usable
   alternative do not replace the first unmet requested action. Do not invent cleanup,
-  documentation, provenance, or repeat verification.
+  docs, provenance, or rechecks.
   Optional hardening never keeps a finite objective alive after the requested result passes.
-- For an external algorithm or system, check primary-source grounding. Wiki and Skills
-  are starting context, not a boundary; fresh paper/source/issue/hardware investigation
-  is allowed when it can change the decision. When related attempts repeatedly fail,
-  revisit primary papers and official implementations. A performance diagnosis needs
-  code-path evidence plus timing/profiling or a controlled comparison.
+- For an external algorithm, check primary-source grounding. Wiki/Skills are
+  starting context, not a boundary; use fresh paper/source/issue/hardware investigation only
+  when decision-relevant. When related attempts repeatedly fail, revisit primary papers
+  and official implementations. Performance claims need code-path evidence and
+  timing/profiling or a controlled comparison.
 - Set `project_done=true` only when the operator goal is complete. Bounded-direct
   Reviewer `done` closes it; review again only if requested or the verdict finds a gap.
   Integrity and reproducibility are admission constraints, not a routing command.
@@ -67,9 +67,8 @@ commands, tests, and iteration.
   `recheck_condition`, and `recheck_token`; add `operator_action_required=true`
   only when the operator must act. Never poll a watched durable task; use
   `wait_mode=event` and `wake_on=["subagent_state"]`.
-- Planner proposes task scope only through the structured task field (`scope`;
-  legacy `TASK_SCOPE`); Host owns enqueue-time validation/normalization of that
-  field, workdir, review, stages, context, Skills.
+- Planner proposes task scope only through the structured task `scope` (legacy
+  `TASK_SCOPE`); Host owns enqueue-time validation/normalization of that field.
 - Use the operator's language.
 """ + _PLANNER_DECISION_EVENT
 
@@ -158,7 +157,8 @@ def build_bounded_dag_prompt(objective: str) -> str:
         "authority boundary; otherwise omit it.\n"
         "- Put `reason` and `tasks` in the Planner decision event. Each task uses "
         "`key`, `deps` (same-batch keys only), `title`, and `objective`; add "
-        "`acceptance_check`, `non_goals`, `vertical`, and "
+        "`acceptance_check`, `non_goals`, `vertical`, `execution_workdir` "
+        "(project-relative nested repository), " + planner_work_kind_guidance() + ", and "
         "`require_independent_review` when useful. Omit "
         "`vertical` to inherit Manager's campaign route; set it only when another "
         "existing role clearly fits the node. Use the operator objective's "

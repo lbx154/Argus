@@ -43,6 +43,7 @@ from typing import Any, Callable, Iterable, Iterator
 import portalocker
 
 from ..core.event_catalog import EventType, canonical_event_type
+from ..planner.work_kind import DEFAULT_WORK_KIND, parse_work_kind
 
 _BACKLOG_THREAD_LOCKS: weakref.WeakValueDictionary[str, threading.Lock] = (
     weakref.WeakValueDictionary()
@@ -771,6 +772,7 @@ class BacklogItem:
     # Canonical Planner→Engineer handoff fields. ``objective`` says what to do;
     # these fields bound completion and prevent a fresh session from reopening
     # unrelated project history.
+    work_kind: str = DEFAULT_WORK_KIND
     acceptance_check: str = ""
     plan_hypothesis: str = ""
     goal_contribution: str = ""
@@ -799,6 +801,10 @@ class BacklogItem:
     owns_paths: list[str] = field(default_factory=list)
     outcome: dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        work_kind = str(self.work_kind or "").strip()
+        self.work_kind = parse_work_kind(work_kind) if work_kind else ""
+
     @classmethod
     def new_id(cls) -> str:
         return uuid.uuid4().hex[:12]
@@ -826,6 +832,7 @@ class BacklogItem:
         execution_workdir: str = "",
         parallel_safe: bool = False,
         owns_paths: list[str] | None = None,
+        work_kind: str = DEFAULT_WORK_KIND,
         acceptance_check: str = "",
         plan_hypothesis: str = "",
         goal_contribution: str = "",
@@ -868,6 +875,7 @@ class BacklogItem:
                 for path in (owns_paths or [])
                 if str(path).strip()
             ],
+            work_kind=parse_work_kind(work_kind),
             acceptance_check=str(acceptance_check or "").strip(),
             plan_hypothesis=str(plan_hypothesis or "").strip(),
             goal_contribution=str(goal_contribution or "").strip(),
@@ -933,6 +941,10 @@ class BacklogItem:
                 if isinstance(ref, dict)
             ],
             blocker_fingerprint=str(row.get("blocker_fingerprint", "")),
+            # Rows written before work_kind existed must retain their generic
+            # execution prompt. Newly planned tasks are normalized before they
+            # reach persistence, so an explicit scope remains distinguishable.
+            work_kind=str(row.get("work_kind", "") or "").strip(),
             acceptance_check=str(row.get("acceptance_check", "")),
             plan_hypothesis=str(row.get("plan_hypothesis", "")),
             goal_contribution=str(row.get("goal_contribution", "")),
@@ -1544,6 +1556,7 @@ class Backlog:
                 authorization_id=blocked.authorization_id,
                 authorization_action=blocked.authorization_action,
                 execution_workdir=blocked.execution_workdir,
+                work_kind=blocked.work_kind,
                 acceptance_check=acceptance_check,
                 plan_hypothesis=(
                     decision or blocked.plan_hypothesis

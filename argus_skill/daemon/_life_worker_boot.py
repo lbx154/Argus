@@ -587,6 +587,16 @@ class LifeWorkerBootMixin:
         # in tests still takes effect even though this method now lives here.
         from .life_worker import LifeSupervisor
 
+        refresh_skill_store = getattr(
+            rf_state.runner,
+            "_refresh_manager_skill_store",
+            None,
+        )
+        if callable(refresh_skill_store):
+            refresh_skill_store(
+                rf_state.runner._args,
+                workdir=rf_state.cfg.project_workdir,
+            )
         rf_state.sup = LifeSupervisor(
             memory=rf_state.mem,
             runner=rf_state.runner,
@@ -596,6 +606,7 @@ class LifeWorkerBootMixin:
             reviewer_model=rf_state.cfg.reviewer_model,
             planner_runner=getattr(rf_state.runner, "planner_backend", None)
             or getattr(rf_state.runner, "backend", None),
+            skill_store=getattr(rf_state.runner, "_manager_skill_store", None),
         )
         if rf_state.manager_handoff_resolved:
             rf_state.sup._vertical_resolved = True
@@ -629,6 +640,16 @@ class LifeWorkerBootMixin:
             ns = _runner_namespace(rf_state.cfg)
             ns.stop_event = self._mission_stop
             helper_runner = build_life_runner(ns)
+            refresh_helper_skill_store = getattr(
+                helper_runner,
+                "_refresh_manager_skill_store",
+                None,
+            )
+            if callable(refresh_helper_skill_store):
+                refresh_helper_skill_store(
+                    helper_runner._args,
+                    workdir=rf_state.cfg.project_workdir,
+                )
             worker_config = replace(
                 helper_cfg,
                 worker_id=f"parallel-{index}",
@@ -645,5 +666,6 @@ class LifeWorkerBootMixin:
                     # the same one the primary uses.
                     planner_runner=getattr(helper_runner, "planner_backend", None)
                     or getattr(helper_runner, "backend", None),
+                    skill_store=getattr(helper_runner, "_manager_skill_store", None),
                 )
             )

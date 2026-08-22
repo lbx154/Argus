@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 from ..core.event_catalog import EventType
+from ..life.context_packet import render_mission_brief
 from ..roles.prompts.engineer import assemble_round_prompt
 from .checkpoint import shared_checkpoint_instructions
 from .external_work import render_external_work_advisory
@@ -66,9 +67,13 @@ class RoundPromptMixin:
                 "approval again. Read the canonical checkpoint and latest reviewed "
                 "handoff below first."
             )
+        mission_brief = render_mission_brief(
+            getattr(supervised_config, "context_packet_path", "")
+        )
         checkpoint_block = "\n\n".join(
             block
             for block in (
+                mission_brief,
                 role_session.prompt_block(),
                 rotation_block,
                 # Unconditional, including round 1. The baton has to be WRITTEN

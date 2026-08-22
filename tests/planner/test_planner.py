@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import json
+
+import pytest
+
+from argus_skill.adapters.agent_cli_backend._core import _observe_tool_calls
 from argus_skill.core.models import RunnerResult
 from argus_skill.planner.planner import (
     FORBIDDEN_BARE_VERDICT_ERROR,
@@ -10,9 +15,15 @@ from argus_skill.planner.planner import (
     PLANNER_SUPERSEDED_ERROR,
     Planner,
     PlannerConfig,
+    _PlannerGroundingBudget,
     parse_planner_payload,
     parse_planner_text,
     parse_task_scope,
+)
+from argus_skill.planner.work_kind import (
+    DEFAULT_WORK_KIND,
+    INVALID_WORK_KIND_ERROR,
+    WORK_KINDS,
 )
 from argus_skill.roles.prompts.planner import _PLANNER_CORE_CONTRACT
 
@@ -48,6 +59,54 @@ def test_structured_planner_payload_preserves_list_item_text() -> None:
     assert verdict.error == ""
     assert verdict.new_tasks[0].non_goals == ["Do not rewrite A | B."]
     assert verdict.new_tasks[0].owns_paths == ["tests/a,b.txt"]
+
+
+@pytest.mark.parametrize("work_kind", WORK_KINDS)
+def test_structured_planner_payload_accepts_explicit_work_kind(work_kind: str) -> None:
+    verdict = parse_planner_payload({
+        "project_done": False,
+        "reason": "one typed task remains",
+        "tasks": [{
+            "title": "Typed task",
+            "objective": "Execute the bounded task.",
+            "scope": "bounded",
+            "work_kind": work_kind,
+        }],
+    })
+
+    assert verdict.error == ""
+    assert verdict.new_tasks[0].work_kind == work_kind
+
+
+def test_structured_planner_payload_rejects_unknown_work_kind() -> None:
+    verdict = parse_planner_payload({
+        "project_done": False,
+        "reason": "invalid type",
+        "tasks": [{
+            "title": "Invented type",
+            "objective": "Deliver and validate an algorithm.",
+            "scope": "bounded",
+            "work_kind": "research_magic",
+        }],
+    })
+
+    assert verdict.new_tasks == []
+    assert verdict.error == f"invalid planner task metadata: {INVALID_WORK_KIND_ERROR}"
+
+
+def test_missing_work_kind_uses_legacy_default_without_prose_inference() -> None:
+    verdict = parse_planner_payload({
+        "project_done": False,
+        "reason": "legacy task",
+        "tasks": [{
+            "title": "Deliver the optimized environment",
+            "objective": "Validate the algorithm and ship it.",
+            "scope": "bounded",
+        }],
+    })
+
+    assert verdict.error == ""
+    assert verdict.new_tasks[0].work_kind == DEFAULT_WORK_KIND
 
 
 def test_structured_planner_wait_preserves_framed_lists() -> None:
@@ -430,12 +489,189 @@ def test_plan_next_disables_schema_and_forces_read_only_tools(monkeypatch) -> No
     assert call["run_label"] == "planner.cycle0"
     options = call["options"]
     assert not hasattr(options, "output_schema_path")
-    assert options.external_interrupt_reason_provider is None
+    assert callable(options.external_interrupt_reason_provider)
+    assert options.external_interrupt_reason_provider() is None
     assert options.watchdog_hard_idle_seconds == 0
     assert options.dangerous_yolo is False
     assert options.full_auto is False
     assert options.sandbox_mode == "read-only"
     assert options.add_dirs == ["/tmp/project-state"]
+
+
+class _GroundingScenarioRunner:
+    def __init__(self, *, reads: int, age_seconds: float = 0.0) -> None:
+        self.reads = reads
+        self.age_seconds = age_seconds
+        self.observed_reads = 0
+
+    def run_exec(self, **kwargs):  # noqa: ANN003
+        options = kwargs["options"]
+        observer = options._argus_tool_call_observer
+        observer.started_at -= self.age_seconds
+        for index in range(self.reads):
+            _observe_tool_calls(
+                observer,
+                "stdout",
+                json.dumps({
+                    "type": "assistant",
+                    "message": {
+                        "content": [{
+                            "type": "tool_use",
+                            "id": f"read-{index}",
+                            "name": "Read",
+                            "input": {"file_path": "README.md"},
+                        }],
+                    },
+                }),
+            )
+            self.observed_reads += 1
+            reason = options.external_interrupt_reason_provider()
+            if reason:
+                return RunnerResult(
+                    exit_code=143,
+                    agent_messages=[
+                        "PROJECT_DONE=false\n"
+                        "TASK_TITLE=Partial task must be discarded\n"
+                        "TASK_OBJECTIVE=Do not dispatch this partial output."
+                    ],
+                    fatal_error=f"External interrupt: {reason}",
+                )
+        return RunnerResult(
+            exit_code=0,
+            agent_messages=[
+                "PROJECT_DONE=false\n"
+                "REASON=one grounded repair remains\n"
+                "TASK_TITLE=Repair the parser\n"
+                "TASK_OBJECTIVE=Fix the parser and run its focused test."
+            ],
+        )
+
+
+def test_planner_grounding_tool_budget_ab_rejects_partial_and_keeps_short_path(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **kwargs: "inspect the repository and delegate"),
+    )
+    bounded_runner = _GroundingScenarioRunner(reads=3)
+    bounded = Planner(bounded_runner).plan_next(
+        continuous_objective="repair the parser",
+        config=PlannerConfig(
+            working_dir="/tmp/project",
+            grounding_max_seconds=0,
+            grounding_max_tool_calls=3,
+        ),
+    )
+    normal_runner = _GroundingScenarioRunner(reads=2)
+    normal = Planner(normal_runner).plan_next(
+        continuous_objective="repair the parser",
+        config=PlannerConfig(
+            working_dir="/tmp/project",
+            grounding_max_seconds=0,
+            grounding_max_tool_calls=3,
+        ),
+    )
+
+    assert bounded_runner.observed_reads == 3
+    assert bounded.new_tasks == []
+    assert "observed 3/3 tool calls" in bounded.error
+    assert "Partial task must be discarded" not in bounded.raw_text
+    assert normal_runner.observed_reads == 2
+    assert normal.error == ""
+    assert [task.title for task in normal.new_tasks] == ["Repair the parser"]
+
+
+def test_planner_grounding_wall_budget_rejects_late_success(monkeypatch) -> None:
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **kwargs: "inspect the repository and delegate"),
+    )
+    verdict = Planner(
+        _GroundingScenarioRunner(reads=0, age_seconds=2.0)
+    ).plan_next(
+        continuous_objective="repair the parser",
+        config=PlannerConfig(
+            working_dir="/tmp/project",
+            grounding_max_seconds=1,
+            grounding_max_tool_calls=0,
+        ),
+    )
+
+    assert verdict.new_tasks == []
+    assert "elapsed wall clock" in verdict.error
+    assert "no partial Planner output was accepted" in verdict.error
+
+
+def test_planner_grounding_wall_budget_rejects_late_repair_success(
+    monkeypatch,
+) -> None:
+    class _LateRepairRunner:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def run_exec(self, **kwargs):  # noqa: ANN003
+            self.calls += 1
+            if self.calls == 1:
+                return RunnerResult(
+                    exit_code=0,
+                    agent_messages=[
+                        "PROJECT_DONE=false\nREASON=repair needs a concrete task"
+                    ],
+                    thread_id="planner-thread",
+                )
+            kwargs["options"]._argus_tool_call_observer.started_at -= 2.0
+            return RunnerResult(
+                exit_code=0,
+                agent_messages=[
+                    "PROJECT_DONE=false\n"
+                    "REASON=late repair output\n"
+                    "TASK_TITLE=Late partial repair\n"
+                    "TASK_OBJECTIVE=This task must not be dispatched."
+                ],
+                thread_id="planner-thread",
+            )
+
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **kwargs: "inspect the repository and delegate"),
+    )
+    runner = _LateRepairRunner()
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective="repair the parser",
+        config=PlannerConfig(
+            working_dir="/tmp/project",
+            grounding_max_seconds=1,
+            grounding_max_tool_calls=0,
+        ),
+    )
+
+    assert runner.calls == 2
+    assert verdict.new_tasks == []
+    assert "elapsed wall clock" in verdict.error
+    assert "no partial Planner output was accepted" in verdict.error
+    assert "Late partial repair" not in verdict.raw_text
+
+
+def test_tool_observer_deduplicates_provider_lifecycle_frames() -> None:
+    budget = _PlannerGroundingBudget(max_seconds=0, max_tool_calls=2)
+    started = {
+        "type": "item.started",
+        "item": {"id": "call-1", "type": "command_execution"},
+    }
+    completed = {
+        "type": "item.completed",
+        "item": {"id": "call-1", "type": "command_execution"},
+    }
+    _observe_tool_calls(budget, "stdout", json.dumps(started))
+    _observe_tool_calls(budget, "stdout", json.dumps(completed))
+
+    assert budget.snapshot()["grounding_tool_calls"] == 1
+    assert budget.interrupt_reason() is None
 
 
 def test_plan_next_defaults_to_read_only_tool_access(monkeypatch) -> None:

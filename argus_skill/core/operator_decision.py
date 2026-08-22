@@ -18,12 +18,17 @@ def _human_reason(reason: str, *, language_hint: str) -> str:
 
 
 def normalize_agent_options(
-    options: Iterable[Mapping[str, Any]],
+    options: Iterable[Mapping[str, Any] | str],
 ) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     used_ids: set[str] = set()
-    for index, row in enumerate(options):
-        if not isinstance(row, Mapping):
+    rows: Iterable[Mapping[str, Any] | str] = (
+        (options,) if isinstance(options, str) else options
+    )
+    for index, row in enumerate(rows):
+        if isinstance(row, str):
+            row = {"label": row}
+        elif not isinstance(row, Mapping):
             continue
         label = str(row.get("label") or "").strip()[:160]
         if not label:
@@ -79,9 +84,7 @@ def parse_agent_operator_options(message: str) -> list[dict[str, Any]]:
             return []
         if not isinstance(payload, list):
             return []
-        return normalize_agent_options(
-            row for row in payload if isinstance(row, Mapping)
-        )
+        return normalize_agent_options(payload)
     options: list[dict[str, Any]] = []
     for encoded in raw.split(";"):
         parts = [part.strip() for part in encoded.split("::")]
@@ -108,7 +111,7 @@ def build_operator_decision(
     title: str,
     reason: str,
     question: str,
-    options: Iterable[Mapping[str, Any]] = (),
+    options: Iterable[Mapping[str, Any] | str] = (),
     evidence: Iterable[Mapping[str, Any]] = (),
     project_id: str = "",
 ) -> dict[str, Any]:
