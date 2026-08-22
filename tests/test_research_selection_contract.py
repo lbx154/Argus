@@ -662,3 +662,24 @@ def test_the_paper_may_be_the_by_product() -> None:
     assert "already measured, replicated" in item
     assert "drift abandons a question for an unmeasured one" in item
     assert "binds what you may claim, not what you are allowed to notice" in item
+
+
+def test_a_failed_positive_control_stops_the_run() -> None:
+    """Adding the positive control was not enough. run-04 launched a sweep to
+    rescue a twelve-token null, at twelve tokens, and its own completed cells
+    reported target_concept_hit_rate 0.0, positive_target_hit_rate 0.0 and every
+    other hit rate at 0.0 across a thousand prompts, with 37% of generations
+    echoing the prompt back -- and it kept running. Measuring the control and
+    filing it is not the point; reading it in time to stop is.
+    """
+    from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+
+    item = " ".join(
+        next(
+            i for i in STAGE_CHECKLISTS["benchmark"]
+            if i.id == "benchmark.evaluator_authentic"
+        ).statement.split()
+    )
+    assert "Read it before the run finishes, not after" in item
+    assert "stop the run rather than completing it" in item
+    assert "the compute is the paper's remaining budget" in item
