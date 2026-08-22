@@ -466,9 +466,12 @@ def test_a_shortfall_is_a_gap_to_close_not_a_verdict() -> None:
         assert named in planner
     assert "close it" in planner
 
-    # A miss buys the next fix; it does not judge the idea.
-    assert "leaderboard result is earned" in reviewer
-    assert "says nothing about the idea" in reviewer
+    # A miss buys the next fix. It becomes evidence against the claim only
+    # after the stack under it has been checked — before that it is evidence
+    # about the harness, and after it, refusing to count it is not rigour.
+    assert "name what the gap is made of" in reviewer
+    assert "A miss is evidence about the tested system" in reviewer
+    assert "Then repeated misses count." in reviewer
     assert "a loss is never the paper" in reviewer
 
 
@@ -608,3 +611,20 @@ def test_the_model_choice_is_read_as_a_claim_about_currency() -> None:
     assert "read the model you chose as a claim about how current the work is" in engineer
     assert "what the registry actually serves today" in engineer
     assert "probably two generations stale" in engineer
+
+
+def test_stopping_is_separated_from_being_wrong() -> None:
+    """Three rules I wrote today deadlocked: a miss said nothing about the idea,
+    retirement demanded proof the next round would fail, and submission demanded
+    success. The only lawful states left were win, cheat the gate, or grind
+    forever. Separating the scientific, spending and publication decisions is
+    what gives persistence an exit that is not a false verdict."""
+    from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+
+    gate = " ".join(STAGE_CHECKLISTS["submission"][0].statement.split())
+
+    assert "Three decisions live here and must not be collapsed" in gate
+    assert "an opportunity-cost call, not a verdict that the idea was false" in gate
+    # And abstention has to be a legal ending, or the contract gets weakened instead.
+    assert "no qualifying result inside the budget is an honest ending" in gate
+    assert "will eventually weaken its own contract to ship one" in gate
