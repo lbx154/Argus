@@ -630,8 +630,7 @@ def render_reviewer_prompt(
             "evidence plus profiling or a controlled comparison. "
             "Give one highest-impact NEXT_ACTION. "
             "Integrity is mandatory but not scientific value by itself. Ask the "
-            "operator only for authority/information they own; set `requires_note:true` "
-            "if a choice lacks requested details. "
+            "operator only for authority/information they own. "
             "Bounded `done` closes this task; final-submission `done` may certify the project."
         )
     )

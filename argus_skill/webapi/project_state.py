@@ -692,10 +692,13 @@ def build_snapshot(
 
     try:
         meta = read_session_meta(root, sid)
-        if meta is not None:
+        activity = durable_session_activity(life_dir)
+        if meta is None:
+            meta = SessionMeta(id=sid, created=activity, last_active=activity)
+        else:
             meta.last_active = max(
                 meta.last_active,
-                durable_session_activity(life_dir),
+                activity,
             )
         session = apply_campaign_workdir(
             session_dict(meta, sid), life_dir

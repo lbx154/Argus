@@ -82,6 +82,21 @@ def test_project_index_uses_durable_activity(home: Path) -> None:
     assert snapshot["session"]["last_active"] == 100
 
 
+def test_legacy_snapshot_uses_durable_activity(tmp_path: Path) -> None:
+    project = tmp_path / "projects" / "s-legacy"
+    project.mkdir(parents=True)
+    events = project / "events.jsonl"
+    events.write_text('{"type":"round.start"}\n')
+    os.utime(events, (100, 100))
+    client = TestClient(server.create_app(global_root=tmp_path))
+
+    snapshot = client.get(
+        "/api/projects/s-legacy/snapshot?compact=true&events_limit=30"
+    ).json()
+
+    assert snapshot["session"]["last_active"] == 100
+
+
 def test_repeated_polls_reuse_one_scan(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The saving that keeps the cockpit responsive, measured at the route."""
     app = server.create_app(global_root=home)

@@ -97,12 +97,11 @@ def latest_role_decision(result: Any, role: str) -> dict[str, Any] | None:
 def decision_event_instruction(role: str, payload_example: str) -> str:
     """Render the small shared process-decision instruction."""
     return (
-        "When the decision is clear, immediately send this single-line event "
-        "before any optional explanation:\n"
+        "First send this clear decision event:\n"
         f"{ROLE_DECISION_PREFIX}"
         f'{{"role":"{role}","payload":{payload_example}}}\n'
         "The Host saves this event. Any later response is plain language and is "
-        "not parsed."
+        "not parsed. Detail-dependent operator options set `requires_note:true`."
     )
 
 
