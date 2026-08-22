@@ -26,8 +26,14 @@ from argus_skill.skills.vertical_select import persist_vertical
 #     "different" is that they fail for different reasons — two routes dying to
 #     the same obstruction were one route.
 # Neither restates existing text. Compress before raising a third time.
-MATH_SCOPE_BUDGET = 9_000
-MATURE_MATH_SCOPE_BUDGET = 14_800
+# Raised by 50 to let the decision example carry a real question and a real
+# objective. It used to hold placeholders, and the Planner copied them
+# through: every campaign shipped a mission literally titled "title", then
+# — after those were replaced with angle-bracket slots — one titled
+# "<question>". An example a model can paste verbatim without producing
+# nonsense is worth fifty characters of fixed policy.
+MATH_SCOPE_BUDGET = 9_050
+MATURE_MATH_SCOPE_BUDGET = 14_850
 
 
 def _build_math_scope_prompt(

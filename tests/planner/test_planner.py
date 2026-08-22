@@ -595,8 +595,11 @@ def test_plan_next_repairs_not_done_empty_task_response(monkeypatch) -> None:
     # The schema example must read as a slot to fill, not as a mission the
     # Planner can copy through verbatim — every campaign shipped one titled
     # "title" whose objective was "work and decisive check".
-    assert '"title":"<question>"' in runner.calls[1]["prompt"]
-    assert '"objective":"<work+decisive check>"' in runner.calls[1]["prompt"]
+    # A real question and a real objective: the Planner pastes this example
+    # through verbatim, so a slot-shaped one becomes a mission called
+    # "<question>" exactly as "title" did before it.
+    assert '"title":"Does pruning beat 4-bit at equal latency?"' in runner.calls[1]["prompt"]
+    assert '"objective":"match latency, read top-1"' in runner.calls[1]["prompt"]
     assert runner.calls[1]["options"].working_dir == "/tmp/project"
 
 

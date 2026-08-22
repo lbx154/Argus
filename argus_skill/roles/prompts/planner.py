@@ -28,8 +28,8 @@ OPERATIONS = frozenset(
 
 _PLANNER_DECISION_PAYLOAD_EXAMPLE = (
     '{"project_done":false,"reason":"why","advance_to_stage":"run",'
-    '"tasks":[{"key":"task-key","deps":[],"title":"<question>",'
-    '"objective":"<work+decisive check>","scope":"bounded"}]}'
+    '"tasks":[{"key":"k1","deps":[],"title":"Does pruning beat 4-bit at equal latency?",'
+    '"objective":"match latency, read top-1","scope":"bounded"}]}'
 )
 _PLANNER_DECISION_EVENT = decision_event_instruction(
     "planner",
