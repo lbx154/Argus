@@ -1643,7 +1643,24 @@ class LifeSupervisor(
         Any verdict that would END the campaign is ignored here: a mission is
         still running, so this is not the moment to conclude anything.
         """
-        if not (self.config.continuous and self.config.continuous_objective):
+        # The parallel worker is built with continuous=False and no objective
+        # precisely so it cannot drive the campaign, and the primary is inside
+        # tick() running the long mission -- so gating on this supervisor's own
+        # config means the one loop that reaches here is the one that returns
+        # immediately. Read the campaign's durable objective instead: it is the
+        # same objective either way, and nothing here can end anything.
+        objective = str(self.config.continuous_objective or "").strip()
+        if not objective:
+            try:
+                from ...daemon.state import read_continuous_state
+
+                durable = read_continuous_state(self.memory.root)
+                if not durable.enabled:
+                    return
+                objective = str(durable.objective or "").strip()
+            except Exception:  # noqa: BLE001 — no objective, no parallel work
+                return
+        if not objective:
             return
         try:
             for item in self.memory.backlog.all():

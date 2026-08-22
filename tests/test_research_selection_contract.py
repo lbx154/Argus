@@ -323,3 +323,23 @@ def test_a_running_mission_does_not_block_planning_the_next_one() -> None:
     assert "One chance per set of running missions" in source
     # And it must never end a campaign that still has work in flight.
     assert "would END the campaign is ignored here" in source
+
+
+def test_the_worker_that_can_plan_alongside_is_not_the_one_gated_out() -> None:
+    """The fix reached the one supervisor that never runs that branch.
+
+    The primary supervisor sits inside tick() running the long mission, so the
+    loop that reaches the parallel-planning branch is the parallel worker --
+    and that worker is deliberately built with continuous=False and no
+    objective so it cannot drive the campaign. Gating on the supervisor's own
+    config therefore returned immediately in the only place it mattered.
+    """
+    from pathlib import Path
+
+    from argus_skill.life.supervisor import _core
+
+    source = Path(_core.__file__).read_text(encoding="utf-8")
+    assert "Read the campaign's durable objective instead" in source
+    assert "read_continuous_state(self.memory.root)" in source
+    # A stopped campaign must not be planned for.
+    assert "if not durable.enabled:" in source
