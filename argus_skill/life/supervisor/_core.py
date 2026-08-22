@@ -1647,22 +1647,22 @@ class LifeSupervisor(
         # precisely so it cannot drive the campaign, and the primary is inside
         # tick() running the long mission -- so gating on this supervisor's own
         # config means the one loop that reaches here is the one that returns
-        # immediately. Read the campaign's durable objective instead: it is the
+        # immediately. Adopt the campaign's durable objective instead: it is the
         # same objective either way, and nothing here can end anything.
-        objective = str(self.config.continuous_objective or "").strip()
-        if not objective:
-            try:
+        try:
+            if not str(self.config.continuous_objective or "").strip():
                 from ...daemon.state import read_continuous_state
 
-                durable = read_continuous_state(self.memory.root)
-                if not durable.enabled:
+                # continuous.json lives in the project life-dir. `memory.root`
+                # is the GLOBAL state dir, where the read returns the disabled
+                # default -- which is how this path stayed silent through a
+                # six-hour mission while looking correct.
+                durable = read_continuous_state(self.memory.project_root)
+                if not (durable.enabled and str(durable.objective or "").strip()):
                     return
-                objective = str(durable.objective or "").strip()
-            except Exception:  # noqa: BLE001 — no objective, no parallel work
-                return
-        if not objective:
-            return
-        try:
+                # The Planner cycle reads the objective off config, so keeping
+                # it in a local would have dropped it one step later.
+                self.config.continuous_objective = durable.objective.strip()
             for item in self.memory.backlog.all():
                 status = str(getattr(item, "status", "") or "")
                 if status == "pending":

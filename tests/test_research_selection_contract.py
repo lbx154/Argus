@@ -333,24 +333,60 @@ def test_a_running_mission_does_not_block_planning_the_next_one() -> None:
     assert "would END the campaign is ignored here" in source
 
 
-def test_the_worker_that_can_plan_alongside_is_not_the_one_gated_out() -> None:
+def test_the_worker_that_can_plan_alongside_is_not_the_one_gated_out(tmp_path) -> None:
     """The fix reached the one supervisor that never runs that branch.
 
-    The primary supervisor sits inside tick() running the long mission, so the
-    loop that reaches the parallel-planning branch is the parallel worker --
-    and that worker is deliberately built with continuous=False and no
-    objective so it cannot drive the campaign. Gating on the supervisor's own
-    config therefore returned immediately in the only place it mattered.
+    The primary sits inside tick() running the long mission, so the loop that
+    reaches the parallel-planning branch is the parallel worker -- and that
+    worker is deliberately built with continuous=False and no objective so it
+    cannot drive the campaign. Reading the durable objective fixed that, but it
+    read ``memory.root``, the GLOBAL state dir, where continuous.json does not
+    exist; the disabled default came back and the branch returned anyway. Two
+    campaigns then sat through six-hour missions emitting a wait every two
+    minutes and not one planner call.
     """
-    from pathlib import Path
+    from types import SimpleNamespace
 
-    from argus_skill.life.supervisor import _core
+    from argus_skill.daemon.state import write_continuous_config
+    from argus_skill.life.supervisor._core import LifeSupervisor
 
-    source = Path(_core.__file__).read_text(encoding="utf-8")
-    assert "Read the campaign's durable objective instead" in source
-    assert "read_continuous_state(self.memory.root)" in source
-    # A stopped campaign must not be planned for.
-    assert "if not durable.enabled:" in source
+    global_root = tmp_path / "state"
+    life_dir = global_root / "projects" / "s-1"
+    life_dir.mkdir(parents=True)
+    write_continuous_config(
+        life_dir, enabled=True, objective="beat the published baseline", open_ended=True
+    )
+    running = SimpleNamespace(id="m1", status="running", pending_question="")
+
+    def _worker() -> LifeSupervisor:
+        sup = LifeSupervisor.__new__(LifeSupervisor)
+        sup.config = SimpleNamespace(continuous=False, continuous_objective="")
+        sup.memory = SimpleNamespace(
+            root=global_root,
+            project_root=life_dir,
+            backlog=SimpleNamespace(all=lambda: [running]),
+        )
+        return sup
+
+    sup = _worker()
+    planned: list[str] = []
+    sup._plan_next_work = lambda: planned.append(sup.config.continuous_objective)
+    sup._plan_alongside_running_work([running])
+
+    # It planned, and the Planner cycle reads the objective off config -- so
+    # recovering it into a local would have dropped it one step later.
+    assert planned == ["beat the published baseline"]
+
+    # One chance per running set: the same set must not be planned twice.
+    sup._plan_alongside_running_work([running])
+    assert len(planned) == 1
+
+    # And a stopped campaign is never planned for.
+    write_continuous_config(life_dir, enabled=False, objective="", done_reason="stopped")
+    stopped = _worker()
+    stopped._plan_next_work = lambda: planned.append("should not happen")
+    stopped._plan_alongside_running_work([running])
+    assert len(planned) == 1
 
 
 def test_a_review_that_cannot_fail_is_not_a_review() -> None:

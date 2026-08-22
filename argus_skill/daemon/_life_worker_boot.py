@@ -641,5 +641,9 @@ class LifeWorkerBootMixin:
                     config=worker_config,
                     engineer_model=rf_state.cfg.engineer_model,
                     reviewer_model=rf_state.cfg.reviewer_model,
+                    # A helper that can plan an idle slot needs a planner to ask,
+                    # the same one the primary uses.
+                    planner_runner=getattr(helper_runner, "planner_backend", None)
+                    or getattr(helper_runner, "backend", None),
                 )
             )
