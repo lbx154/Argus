@@ -576,9 +576,19 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "Tables are readable and organized around the paper's claims. They "
                 "include every comparison needed to assess the thesis, but do not "
-                "force an irrelevant cross-benchmark matrix or a universal house style."
+                "force an irrelevant cross-benchmark matrix or a universal house style. "
+                "A reader skimming one should see the answer without reconstructing it: "
+                "name the method as ours, put it where the eye lands, bold the winning "
+                "number in each column, and say in the caption what the table shows "
+                "rather than what it contains. A row the reader has to identify as "
+                "yours, or a column where they have to work out who won, has buried "
+                "the result the paper spent its whole budget earning."
             ),
-            evidence_hint="paper/main.tex tables + canonical result artifacts",
+            evidence_hint=(
+                "paper/main.tex tables + canonical result artifacts: an ours row that "
+                "reads as ours, a marked best value per column, a caption that states "
+                "the finding"
+            ),
         ),
         ChecklistItem(
             id="review.citations",

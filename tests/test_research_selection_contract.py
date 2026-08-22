@@ -145,3 +145,51 @@ def test_a_run_that_cannot_see_the_win_does_not_retire_the_idea() -> None:
     # The bar is the campaign's own declared margin, never a number we invent.
     for invented in ("0.05", "95%", "three seeds", "p <"):
         assert invented not in policy
+
+
+def test_a_table_has_to_show_who_won() -> None:
+    """A delivered paper made the reader work out which row was the method."""
+    from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+
+    item = next(i for i in STAGE_CHECKLISTS["review"] if i.id == "review.tables")
+    statement = item.statement.lower()
+    assert "as ours" in statement
+    assert "bold the winning number" in statement
+    assert "caption" in statement
+
+
+def test_the_paper_quality_chain_has_no_missing_link() -> None:
+    """Each fix below is worthless alone; the paper only improves if all hold.
+
+    A campaign declares what would count, is shown that promise while it works,
+    treats a miss as a repair rather than a refutation, is stopped from
+    retiring an idea on a run too coarse to see it, can only be closed by the
+    Manager, must say at submission whether the result stands, and finally has
+    to present it so a reader sees who won. Break one link and the chain leaks
+    back to shipping a null result dressed as a finding.
+    """
+    from argus_skill.verticals.research import stages
+
+    policy = stages._AMBITIOUS_RESEARCH_POLICY
+    checklists = " ".join(
+        item.statement for group in stages.STAGE_CHECKLISTS.values() for item in group
+    ).lower()
+
+    # 1. selection names the baseline and the margin
+    assert "strongest resource" in stages._PLANNER_RESEARCH_ORCHESTRATION.lower()
+    # 2. that promise is put back in front of every role
+    assert "promised at selection" in stages.search_altitude_context.__doc__
+    # 3. a miss is a repair, not a refutation
+    assert "debugging signal" in policy
+    # 4. a run too coarse to see the win cannot retire the idea
+    assert "could have seen the win" in policy
+    # 5. only the Manager closes an idea, and it costs
+    assert "rare and expensive" in stages._MANAGER_RESEARCH_STEWARDSHIP
+    # 6. submission asks whether the result stands
+    assert any(i.id == "submission.result_stands" for i in stages.STAGE_CHECKLISTS["submission"])
+    # 7. no defensive paper that lists what it declines to claim
+    assert "listing non-claims" in policy
+    # 8. the work is measured against papers that were actually accepted
+    assert "accepted same-area" in checklists
+    # 9. and the reader can see who won
+    assert "as ours" in checklists
