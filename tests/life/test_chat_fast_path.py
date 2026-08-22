@@ -891,6 +891,8 @@ def test_execute_uses_full_pipeline_on_real_task(
         skip_git_repo_check: bool = True
         workflow_mode: str = "staged"
         active_vertical: str = ""
+        paper_mission: bool = False
+        reviewer_reasoning_effort: str = "xhigh"
 
     runner._SkillLoopConfig = _StubConfig
 
@@ -937,6 +939,11 @@ def test_execute_uses_full_pipeline_on_real_task(
         "_workflow_mode_for_project_root",
         lambda root: "direct",
     )
+    monkeypatch.setattr(
+        _runtime,
+        "_paper_mission_for_project_root",
+        lambda root: True,
+    )
     backend.calls.clear()
     planned_tasks.clear()
     loop_kwargs.clear()
@@ -950,6 +957,8 @@ def test_execute_uses_full_pipeline_on_real_task(
     )
     assert "## Planner execution plan" not in planned_tasks[0]
     assert loop_kwargs[0]["config"].workflow_mode == "direct"
+    assert loop_kwargs[0]["config"].paper_mission is False
+    assert loop_kwargs[0]["config"].reviewer_reasoning_effort == "high"
     assert loop_kwargs[0]["config"].wiki_enabled is True
     assert loop_kwargs[0]["config"].auto_init_wiki is True
 

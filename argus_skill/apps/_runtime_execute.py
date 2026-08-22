@@ -621,7 +621,24 @@ class SkillLoopExecuteMixin:
         # structured Manager rollback verdict with a bounded completion.
         config_kwargs["open_ended"] = bool(getattr(args, "open_ended", False))
         config_kwargs["continuous_objective"] = str(getattr(args, "continuous_objective", "") or "")
-        # A paper contract is enabled only by a vertical that explicitly
+        resolved_workflow_mode = (
+            "direct"
+            if maintenance_mission
+            else workflow_mode_override.strip().lower()
+            or _workflow_mode_for_project_root(_proot)
+            or (active_contract.workflow_mode if active_contract is not None else "")
+        )
+        config_kwargs["workflow_mode"] = resolved_workflow_mode
+        if resolved_workflow_mode == "direct":
+            from ..core.knobs import resolve_role_reasoning_effort
+
+            config_kwargs["reviewer_reasoning_effort"] = (
+                resolve_role_reasoning_effort(
+                    "ARGUS_SKILL_REVIEWER_REASONING_EFFORT",
+                    default="high",
+                )
+            )
+        # A paper contract is enabled only by a non-direct vertical that explicitly
         # declares PAPER_MISSION. Certification strength is a separate contract.
         # An explicit False may opt out; True cannot turn a non-paper vertical
         # into a paper.
@@ -629,19 +646,13 @@ class SkillLoopExecuteMixin:
         _paper_allowed = True if _paper_override is None else bool(_paper_override)
         config_kwargs["paper_mission"] = bool(
             not maintenance_mission
+            and resolved_workflow_mode != "direct"
             and _paper_allowed
             and (
                 active_contract.paper_mission
                 if active_contract is not None
                 else _paper_mission_for_project_root(_proot)
             )
-        )
-        config_kwargs["workflow_mode"] = (
-            "direct"
-            if maintenance_mission
-            else workflow_mode_override.strip().lower()
-            or _workflow_mode_for_project_root(_proot)
-            or (active_contract.workflow_mode if active_contract is not None else "")
         )
         try:
             from inspect import signature

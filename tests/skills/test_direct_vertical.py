@@ -74,6 +74,7 @@ def test_manager_prompt_separates_capability_from_execution_mode() -> None:
     assert "capability VERTICAL and independent execution WORKFLOW" in prompt
     assert "`direct` for one coherent Engineer work package" in prompt
     assert "coupled output files" in prompt
+    assert "Reviewer is Host-invoked after Engineer" in prompt
     assert "no task work or Live View" in prompt
     assert "Omit `execution_task` for a standalone existing route" in prompt
 
