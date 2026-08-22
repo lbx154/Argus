@@ -348,7 +348,7 @@ def test_a_qualifier_in_the_title_has_to_be_earned() -> None:
 
     draft = next(i for i in STAGE_CHECKLISTS["draft"] if i.id == "draft.tex").statement
     assert "A qualifier you chose is itself a claim" in draft
-    assert "show that or drop the word" in draft
+    assert "narrow the claim to what you did test" in draft
     # And a negative result is only publishable if it kills something.
     assert "naming the belief it kills" in draft
 
@@ -586,3 +586,20 @@ def test_renaming_a_baseline_does_not_replace_running_a_real_one() -> None:
     assert "resolves the misattribution and not the weakness" in " ".join(plan.split())
     assert "has not been compared to the field" in plan
     assert "One real comparator at your own budget" in " ".join(plan.split())
+
+
+def test_dropping_a_qualifier_can_be_worse_than_keeping_it() -> None:
+    """The first version of the qualifier rule offered two exits and run-06 took
+    the cheap one: it deleted 'Frozen' from its title without ever running an
+    unfrozen variant, so a result about one member of a class became a claim
+    about the class. That is a worse failure than the apology it replaced, and
+    the rule as written permitted it.
+    """
+    from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+
+    draft = " ".join(
+        next(i for i in STAGE_CHECKLISTS["draft"] if i.id == "draft.tex").statement.split()
+    )
+    assert "narrow the claim to what you did test" in draft
+    assert "honest only when the evidence reaches the wider class" in draft
+    assert "worse than the apology it replaced" in draft
