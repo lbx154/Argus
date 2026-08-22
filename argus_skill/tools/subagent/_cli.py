@@ -22,6 +22,7 @@ from ._llm import resolve_supervisor_model
 from ._registry import (
     DISCUSSION_STALE_AFTER_S,
     _append_experiment_history,
+    _child_env,
     _effective_run_dir,
     _format_metric_line,
     _is_pid_alive,
@@ -150,7 +151,7 @@ def _spawn_windows_worker(
     worker_cwd = str(Path(registry_cwd or os.getcwd()).resolve())
     log_dir = Path(worker_cwd) / _task_log_dir(task_id)
     log_dir.mkdir(parents=True, exist_ok=True)
-    env = os.environ.copy()
+    env = _child_env()
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
     creationflags = (

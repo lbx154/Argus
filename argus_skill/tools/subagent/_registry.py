@@ -121,6 +121,13 @@ def _child_env() -> dict[str, str]:
     ``ARGUS_SUBAGENT_QUIET_LOGS=0`` to keep the inherited verbosity untouched.
     """
     env = os.environ.copy()
+    # stdout is a file here, not a tty, so CPython block-buffers it and a long
+    # experiment's progress stays invisible until 8KB accumulates or it exits.
+    # One campaign held four GPUs for five hours behind a 0-byte stdout.log:
+    # indistinguishable from a hang, and a crash would have taken the run with
+    # no record of how far it got. This is observability, not verbosity, so it
+    # applies even when the caller keeps the inherited log levels.
+    env.setdefault("PYTHONUNBUFFERED", "1")
     if os.environ.get(_QUIET_LOGS_ENV, "1").strip().lower() in {"0", "false", "no"}:
         return env
     # Force NCCL down from the inherited INFO default; respect explicit choices
