@@ -388,3 +388,35 @@ def test_the_venue_every_campaign_targets_is_in_the_registry() -> None:
     for other in ("NEURIPS", "ICML"):
         with pytest.raises(KeyError):
             get_venue_profile(other)
+
+
+def test_a_number_printed_at_float_precision_is_reported(tmp_path) -> None:
+    """One draft carried thirteen of them: 521/750 appeared as
+    0.6946666666666667 and the paired delta as -0.35733333333333334. Prose in a
+    checklist did not stop it, and no measurement carries seventeen significant
+    digits -- a decimal that long was printed, not reported.
+    """
+    from argus_skill.verticals.research.paper_structural_minimums import (
+        validate_paper_structural_minimums,
+    )
+
+    paper = tmp_path / "paper"
+    paper.mkdir()
+    (paper / "main.tex").write_text(
+        r"\documentclass{article}\begin{document}"
+        r"Ours reaches 0.6946666666666667 against 0.337 (delta 0.42, n=750)."
+        r"\end{document}",
+        encoding="utf-8",
+    )
+
+    codes = {
+        issue.code: issue.detail
+        for issue in validate_paper_structural_minimums(tmp_path).issues
+    }
+    assert "unrounded_float_repr" in codes
+    detail = codes["unrounded_float_repr"]
+    # The count and one example are rendered; the harness does not rewrite it.
+    assert "1 number(s)" in detail
+    assert "0.6946666666666667" in detail
+    # Numbers a person would actually write are left alone.
+    assert "0.337" not in detail and "0.42" not in detail

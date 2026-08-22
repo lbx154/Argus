@@ -62,6 +62,11 @@ _APPENDIX_TITLES = ("appendix", "appendices", "supplementary material",
                     "reproducibility appendix")
 
 
+# Python's float repr runs to seventeen significant digits and no measurement
+# carries that, so a decimal this long in a paper is a value that was printed
+# rather than reported: 521/750 reached one draft as 0.6946666666666667.
+_RE_FLOAT_REPR = re.compile(r"\d\.\d{10,}")
+
 _RE_INCLUDEGRAPHICS = re.compile(
     r"\\(?:includegraphics|includesvg)\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}"
 )
@@ -668,6 +673,19 @@ def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
         )
 
     # Figures.
+    float_dumps = _RE_FLOAT_REPR.findall(tex)
+    if float_dumps:
+        report.issues.append(
+            StructuralIssue(
+                code="unrounded_float_repr",
+                detail=(
+                    f"{len(float_dumps)} number(s) are printed at full float "
+                    f"precision, for example {float_dumps[0]}; round each to the "
+                    "precision its evidence supports"
+                ),
+            )
+        )
+
     figure_refs = [m.group(1) for m in _RE_INCLUDEGRAPHICS.finditer(tex)]
     resolved_figure_paths: dict[str, str] = {}
     for ref in figure_refs:
