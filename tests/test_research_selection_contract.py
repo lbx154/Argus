@@ -223,3 +223,19 @@ def test_a_title_names_a_finding_not_a_genre() -> None:
     assert "a boundary study" in text
     assert "apology has put the excuse where the result belongs" in text
     assert "no tightly" in text and "fenced claim" in text
+
+
+def test_cheapest_does_not_mean_too_small_to_measure() -> None:
+    """Three campaigns read 'cheapest faithful run' as 'fewest examples'.
+
+    They claimed a win of three examples on 120 and of one on 48 -- around half
+    a standard error, which no reviewer reads as a result. The word had to be
+    told what it does not mean.
+    """
+    from argus_skill.verticals.research.stages import _PLANNER_RESEARCH_ORCHESTRATION
+
+    planner = _PLANNER_RESEARCH_ORCHESTRATION.lower()
+    assert "cheapest means no redundant condition" in planner
+    assert "never too few examples to see the margin" in planner
+    # The sizing bar stays the campaign's own declared margin, not a fixed n.
+    assert "spread of your own repeats" in planner
