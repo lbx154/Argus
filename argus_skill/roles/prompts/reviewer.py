@@ -129,6 +129,16 @@ def _verification_directive() -> str:
     )
 
 
+_PRODUCT_ACCEPTANCE_DIRECTIVE = (
+    "UI/API/CLI/service changes need product-user acceptance. When safe, run the "
+    "candidate with isolated state, non-production port, test-only credentials; "
+    "use its public entry point, inspect the "
+    "result, and stop it. Never cause external or irreversible effects. Unit tests "
+    "alone do not prove that flow; if unavailable, state it and do not claim it passed. "
+    "Internal/library work needs its decisive check.\n\n"
+)
+
+
 def _audit_integrity_directive(context: str) -> str:
     lowered = str(context or "").lower()
     if not any(
@@ -631,6 +641,8 @@ def render_reviewer_prompt(
         + "\n\n"
         + (shell_contract + "\n\n" if shell_contract else "")
         + MODEL_INTEGRITY_BOUNDARY
+        + "\n\n"
+        + _PRODUCT_ACCEPTANCE_DIRECTIVE
         + "\n\n## Reviewer role\n"
         "Advance useful work. Default to `done` when the requested outcome materially "
         "works; optional evidence, polish, and future robustness are advisory. Inspect "

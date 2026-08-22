@@ -23,6 +23,8 @@ role/routing and named-verdict prose this file was written to protect.
 from __future__ import annotations
 
 from argus_skill.reviewer import Reviewer
+from argus_skill.roles.prompts import reviewer as reviewer_prompt
+from argus_skill.roles.task_contract import NATIVE_WINDOWS_SHELL_SUMMARY
 
 #: Blocks that belong to a vertical or to the round, not to the fixed contract.
 _TASK_OWNED_BLOCKS = (
@@ -83,6 +85,28 @@ def test_fixed_contract_prose_within_budget(monkeypatch):
         "examples) rather than raising this cap, unless a genuinely new "
         "contract block was deliberately added — and say which, here."
     )
+
+
+def test_windows_fixed_contract_prose_within_budget(monkeypatch):
+    monkeypatch.setattr(
+        reviewer_prompt,
+        "native_shell_summary",
+        lambda: NATIVE_WINDOWS_SHELL_SUMMARY,
+    )
+    _prompt_text, reviewer = _build(measured=False, monkeypatch=monkeypatch)
+
+    assert _fixed_prose_chars(reviewer) < FIXED_PROSE_BUDGET
+
+
+def test_reviewer_performs_live_product_acceptance_when_applicable(monkeypatch):
+    prompt = _prompt(measured=False, monkeypatch=monkeypatch)
+
+    assert "product-user acceptance" in prompt
+    assert "isolated state, non-production port" in prompt
+    assert "test-only credentials" in prompt
+    assert "Never cause external or irreversible effects" in prompt
+    assert "Unit tests alone do not prove that flow" in prompt
+    assert "stop it" in prompt
 
 
 def test_the_budget_ignores_content_a_vertical_owns(monkeypatch):
