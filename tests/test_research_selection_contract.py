@@ -254,3 +254,30 @@ def test_a_long_wait_is_not_an_idle_campaign() -> None:
     assert "will sit for hours on external" in planner
     assert "does not need its result" in planner
     assert "wall-clock is most of what a paper costs" in planner
+
+
+def test_a_suppressed_status_probe_points_somewhere() -> None:
+    """The planner learned that waiting was the only move.
+
+    While durable work runs the Host drops status-probe tasks, which is right,
+    but the reason it returned described only the refusal. Cycle after cycle
+    the planner scheduled nothing else and campaigns ran one mission of two
+    through eighteen-hour waits.
+    """
+    from pathlib import Path
+
+    from argus_skill.life.supervisor import _planning_cycle
+
+    source = Path(_planning_cycle.__file__).read_text(encoding="utf-8")
+    assert "Waiting is not" in source
+    assert "does not need this job's result" in source
+    assert "Only status probes are suppressed here." in source
+
+
+def test_the_planner_is_told_it_has_more_than_one_slot() -> None:
+    from argus_skill.roles.prompts import planner as planner_prompts
+    from pathlib import Path
+
+    text = Path(planner_prompts.__file__).read_text(encoding="utf-8")
+    assert "More than one mission runs at a time" in text
+    assert "leaves the rest of the campaign idle" in text

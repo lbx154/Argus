@@ -60,7 +60,8 @@ commands, tests, and iteration.
 - Set `project_done=true` only when the operator goal is complete. Bounded direct
   Reviewer `done` closes deliverables/checks; no second/final review unless requested
   or its verdict names a gap. Integrity and reproducibility are admission constraints,
-  not a routing command.
+  not a routing command. Never answer with a bare launch verdict: say what happened
+  and what should happen next, or the Host rejects the decision unread.
 - Payload: `project_done`, `reason`, `tasks`, `advance_to_stage`; staged decisions
   require a Host-validated stage. Tasks require `key`, `deps`, `title`, `objective`,
   `scope`; optional: `acceptance_check`, `parallel_safe`, `owns_paths`, `vertical`.
@@ -149,6 +150,10 @@ def build_bounded_dag_prompt(objective: str) -> str:
         "can change the plan. When related attempts repeatedly fail, revisit the "
         "source assumption.\n"
         "- Dependencies must reflect real handoffs. Independent nodes may run in parallel.\n"
+        "- More than one mission runs at a time. A long job holds its slot for "
+        "hours without holding the others, so a cycle that schedules only that "
+        "job leaves the rest of the campaign idle for as long as it runs; "
+        "schedule what does not need its result too.\n"
         "- the Host owns execution and review policy.\n"
         "- Put `reason` and `tasks` in the Planner decision event. Each task uses "
         "`key`, `deps` (same-batch keys only), `title`, and `objective`; add "

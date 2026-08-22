@@ -240,8 +240,12 @@ class PlanningCycleMixin(
         if contract is None:
             return verdict
         reason = (
-            "healthy durable work is already self-watched; waiting for a real "
-            "state change instead of scheduling an LLM status probe"
+            "healthy durable work is already self-watched, so this cycle's "
+            "status-probe tasks were dropped rather than run. Waiting is not "
+            "the only move left: a mission that does not need this job's result "
+            "— a baseline to reproduce, analysis written against the agreed "
+            "schema, a section the paper already owes — would be scheduled "
+            "normally and run beside it. Only status probes are suppressed here."
         )
         self._emit(
             {
