@@ -1215,7 +1215,14 @@ _PLANNER_RESEARCH_ORCHESTRATION = (
     "baseline to reproduce, the analysis to write against the agreed schema, "
     "the section the paper already owes. Campaigns can run two missions at once "
     "and have been running one, so eighteen hours of GPU wait across five rounds "
-    "bought nothing else — and wall-clock is most of what a paper costs.\n"
+    "bought nothing else — and wall-clock is most of what a paper costs. Say how, "
+    "or none of it happens: a task can be claimed alongside another only when it "
+    "is `parallel_safe` with a concrete `owns_paths` list AND every running task "
+    "is too. One unmarked long run switches parallelism off for the whole "
+    "campaign, which is why six of seven campaigns queued nothing beside their "
+    "GPU work for a day. Mark the long run with the directories it writes, mark "
+    "the writing task with `paper`, keep both lists free of globs, absolute "
+    "paths and commas inside one entry, and make sure they do not overlap.\n"
 )
 
 _ENGINEER_RESEARCH_EXECUTION = (

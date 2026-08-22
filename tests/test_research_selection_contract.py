@@ -471,3 +471,18 @@ def test_an_evaluation_has_to_detect_the_case_it_cannot_miss() -> None:
     assert "positive control" in text
     assert "cannot be separated from random" in text
     assert "nothing from that harness means anything" in text
+
+
+def test_queueing_work_beside_a_run_says_how_to_make_it_claimable() -> None:
+    """The planner has been told to queue work beside a long run for a while and
+    six of seven campaigns still ran one mission at a time. The rule is
+    unforgiving and was never stated: Backlog._parallel_worker_can_claim refuses
+    every candidate while ANY running item lacks parallel_safe or owns_paths, so
+    one unmarked GPU run switches parallelism off campaign-wide.
+    """
+    from argus_skill.verticals.research.stages import _PLANNER_RESEARCH_ORCHESTRATION
+
+    planner = _PLANNER_RESEARCH_ORCHESTRATION
+    assert "`parallel_safe` with a concrete `owns_paths` list" in planner
+    assert "every running task" in planner
+    assert "switches parallelism off for the whole" in planner
