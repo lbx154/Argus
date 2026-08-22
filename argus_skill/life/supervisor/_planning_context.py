@@ -1005,6 +1005,21 @@ class PlanningContextMixin:
         payload: dict[str, Any],
     ) -> bool:
         path = self._planner_waiting_contract_path()
+        # The one Planner turn granted per wait belongs to the blocker, not to
+        # the contract object: the suppression path rebuilds the contract each
+        # cycle, and a flag stored on the instance would be reissued every time
+        # -- which is the poll this short circuit exists to avoid. Carry it
+        # across rewrites for as long as the same blocker is being waited on.
+        try:
+            if not payload.get("idle_capacity_turn_used") and path.is_file():
+                previous = json.loads(path.read_text(encoding="utf-8"))
+                same_blocker = str(previous.get("blocker_fingerprint") or "") == str(
+                    payload.get("blocker_fingerprint") or ""
+                )
+                if same_blocker and previous.get("idle_capacity_turn_used"):
+                    payload["idle_capacity_turn_used"] = True
+        except (OSError, ValueError):
+            pass
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
         try:
@@ -1041,6 +1056,27 @@ class PlanningContextMixin:
             except OSError:
                 entry["read_error"] = True
         return entry
+
+    def _nothing_queued_behind_the_wait(self) -> bool:
+        """True when no mission is waiting its turn behind the blocked one.
+
+        The mission that owns the wait is itself ``running``, so the question is
+        whether anything is queued after it. Nothing queued means the campaign's
+        other mission slots will sit empty for as long as the external job runs.
+
+        This reports a fact and concludes nothing from it: a campaign may well
+        have nothing worth starting, and that judgement is the Planner's. It
+        just cannot make it while a wait contract skips its turn. Fail-safe: an
+        unreadable backlog keeps the existing skip rather than waking the
+        Planner every cycle.
+        """
+        try:
+            return not any(
+                str(getattr(item, "status", "")) == "pending"
+                for item in self.memory.backlog.all()
+            )
+        except Exception:  # noqa: BLE001 - visibility must not break planning
+            return False
 
     def _planner_waiting_observed_revision(
         self,
@@ -1154,7 +1190,27 @@ class PlanningContextMixin:
             state["updated_at"] = time.time()
             self._write_planner_waiting_contract_state(state)
 
-        # Event waits normally bypass the Planner entirely. Still feed each
+        # A wait contract silences the Planner until the watched revision moves
+        # or the contract expires. On a multi-hour GPU job that is hours of not
+        # being asked anything, and campaigns run fewer missions than they have
+        # slots, so the rest of the campaign idles for exactly as long.
+        #
+        # The Planner was asked once, when the contract was created, and that
+        # turn is where it proposed only a status probe. The suppression reply
+        # telling it that independent work is still schedulable therefore
+        # arrives with no turn left to act on. Grant exactly one more turn per
+        # contract, and only while nothing is queued behind the wait. One turn,
+        # not one per cycle: waking it repeatedly is the token-burning poll this
+        # short circuit exists to prevent.
+        if not state.get("idle_capacity_turn_used") and (
+            self._nothing_queued_behind_the_wait()
+        ):
+            state["idle_capacity_turn_used"] = True
+            state["updated_at"] = time.time()
+            self._write_planner_waiting_contract_state(state)
+            return ""
+
+        # Event waits otherwise bypass the Planner entirely. Still feed each
         # unchanged idle cycle through the open-ended Manager reconciliation
         # cadence; otherwise this short circuit prevents the counter from ever
         # reaching its liveness threshold and a stale wait can persist forever.

@@ -374,17 +374,23 @@ def test_unchanged_live_job_skips_planner_across_restart(
     monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _plan_next)
     first = _supervisor(project, life)
 
-    assert first._plan_next_work() == PLAN_AWAITING
+    # The first turn is where the Planner proposed the status probe that got
+    # suppressed. The second is the one turn granted per contract so it can act
+    # on being told independent work is still schedulable -- nothing is queued
+    # behind this wait, so the campaign's other mission slots are empty. From
+    # the third on it is skipped again: one turn, not one per cycle.
     assert first._plan_next_work() == PLAN_AWAITING
     assert calls == 1
-    assert first._consecutive_idle_planner_cycles == 2
+    assert first._plan_next_work() == PLAN_AWAITING
+    assert calls == 2
+    assert first._plan_next_work() == PLAN_AWAITING
+    assert calls == 2
     assert first._idle_since is None
     assert first._maybe_idle_timeout() == ""
 
     restarted = _supervisor(project, life)
     assert restarted._plan_next_work() == PLAN_AWAITING
-    assert calls == 1
-    assert restarted._consecutive_idle_planner_cycles == 1
+    assert calls == 2, "the granted turn does not come back on restart"
     assert restarted._idle_since is None
     assert restarted._maybe_idle_timeout() == ""
 
@@ -400,7 +406,7 @@ def test_unchanged_live_job_skips_planner_across_restart(
     job_path.write_text(json.dumps(job), encoding="utf-8")
 
     assert restarted._plan_next_work() is True
-    assert calls == 2
+    assert calls == 3
 
 
 def test_wait_persistence_rejects_state_change_after_discovery(

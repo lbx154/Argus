@@ -281,3 +281,24 @@ def test_the_planner_is_told_it_has_more_than_one_slot() -> None:
     text = Path(planner_prompts.__file__).read_text(encoding="utf-8")
     assert "More than one mission runs at a time" in text
     assert "leaves the rest of the campaign idle" in text
+
+
+def test_a_wait_grants_the_planner_one_turn_not_none_and_not_every_cycle() -> None:
+    """The hard half of the speed bottleneck.
+
+    A wait contract skipped the Planner outright until the watched revision
+    moved, so on a multi-hour GPU job it was not asked anything for hours and
+    the campaign's other mission slots stayed empty. It also must not be woken
+    every cycle, which is the token-burning poll the skip exists to prevent.
+    """
+    from pathlib import Path
+
+    from argus_skill.life.supervisor import _planning_context
+
+    source = Path(_planning_context.__file__).read_text(encoding="utf-8")
+    assert "idle_capacity_turn_used" in source
+    assert "One turn," in source and "not one per cycle" in source
+    # The grant is conditional on the campaign actually being idle.
+    assert "_nothing_queued_behind_the_wait" in source
+    # And it survives the suppression path rebuilding the contract each cycle.
+    assert "belongs to the blocker, not to" in source
