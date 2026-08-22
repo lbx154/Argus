@@ -302,3 +302,24 @@ def test_a_wait_grants_the_planner_one_turn_not_none_and_not_every_cycle() -> No
     assert "_nothing_queued_behind_the_wait" in source
     # And it survives the suppression path rebuilding the contract each cycle.
     assert "belongs to the blocker, not to" in source
+
+
+def test_a_running_mission_does_not_block_planning_the_next_one() -> None:
+    """The last of the serialization.
+
+    The supervisor asked the Planner for work only when the backlog was empty,
+    so a campaign with one long mission never got a second: the backlog is
+    never empty while it runs. Daemons configured for two missions ran one, and
+    a six-hour GPU job meant six hours in which nothing else was considered.
+    """
+    from pathlib import Path
+
+    from argus_skill.life.supervisor import _core
+
+    source = Path(_core.__file__).read_text(encoding="utf-8")
+    assert "_plan_alongside_running_work(running_items)" in source
+    # Bounded: one chance per running set, and only when nothing is queued.
+    assert "_parallel_plan_fingerprint" in source
+    assert "One chance per set of running missions" in source
+    # And it must never end a campaign that still has work in flight.
+    assert "would END the campaign is ignored here" in source
