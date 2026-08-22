@@ -164,21 +164,38 @@ def _seconds_since_last_write(
     A direct job's health was decided by ``_pid_alive`` alone, so a run that
     loaded its model and then span for eleven hours writing nothing stayed
     ``RUNNING_HEALTHY`` and its campaign waited on it all day. Liveness is not
-    activity. Looks at the job's log directory and at any evidence paths it
-    declared; returns 0.0 when nothing is readable, so an unknown answer never
-    becomes an accusation.
+    activity.
+
+    Only the places this job is known to write count: its log directory and the
+    evidence paths it declared. A job that declared none and writes its results
+    elsewhere is unknown rather than silent -- one such run had produced five
+    hundred files in two hours while its stderr sat two hours old, and calling
+    that unhealthy would have cost its mission the protection healthy work gets.
+    Silence is claimed only when its logs were never written at all, which is
+    the case nobody can watch. Unknown returns 0.0; not knowing must never
+    become an accusation.
     """
-    candidates: list[Path] = []
+    declared = [
+        path.parent.parent / relative
+        for relative in _safe_relative_paths(record.get("evidence_paths"))
+    ]
+    log_entries: list[Path] = []
     logs = path.parent / f"{work_id}_logs"
     try:
         if logs.is_dir():
-            candidates.extend(logs.iterdir())
+            log_entries = [entry for entry in logs.iterdir() if entry.is_file()]
     except OSError:
         pass
-    for declared in _safe_relative_paths(record.get("evidence_paths")):
-        candidates.append(path.parent.parent / declared)
+    wrote_a_log = False
+    for entry in log_entries:
+        try:
+            wrote_a_log = wrote_a_log or entry.stat().st_size > 0
+        except OSError:
+            continue
+    if not declared and wrote_a_log:
+        return 0.0
     newest = 0.0
-    for entry in candidates:
+    for entry in [*log_entries, *declared]:
         try:
             newest = max(newest, entry.stat().st_mtime)
         except OSError:
