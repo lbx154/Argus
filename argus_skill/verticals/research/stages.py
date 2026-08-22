@@ -1106,7 +1106,11 @@ _PLANNER_RESEARCH_ORCHESTRATION = (
     "outcomes steer how the selected problem is pursued; claim-bearing evidence at "
     "the faithful scale named at selection is what the campaign optimizes against. "
     "Name at selection the end-task claim, the strongest resource-matched "
-    "baseline, the win that would matter, and the cheapest faithful run that "
+    "baseline, the size of win that would matter — derived from something "
+    "observable, not invented: the spread this benchmark already reports "
+    "between seeds or methods, or the gap between the last two published "
+    "results on it. A round number picked because it sounds decisive is a "
+    "threshold nobody can argue with or fail — and the cheapest faithful run that "
     "measures the gap — then buy that measurement early, so there is a number to "
     "improve for the rest of the campaign. Short of the baseline is a gap with a "
     "size, and the campaign's job is to close it: each round names what the "
@@ -1133,7 +1137,7 @@ _ENGINEER_RESEARCH_EXECUTION = (
     "Research execution: keep independent work file-disjoint and parallel. Respect "
     "the route/review/selector/probe time boxes, stop searching once the novelty "
     "boundary is credible, and treat source-balance gaps and smoke outcomes as "
-    "documented limitations rather than reasons to stall. Any checkpoint, library version, benchmark split or baseline number you can name from memory is a hypothesis about a world that moved after training: probe it before the plan hardens, per `engineer/stale-world-model.md`. A checkpoint that will not download is a substitution to record, not a mission to block on. When a method is short of its baseline, `engineer/research-grind.md` is how the gap gets closed: the first number is a first draft, the loop is measure-diagnose-fix-measure, flat stretches are the middle of the problem rather than a verdict, and the method you end up with is the one the paper is about.\n"
+    "documented limitations rather than reasons to stall. Reviewers read the model you chose as a claim about how current the work is, so pick from what is strong now rather than what you remember: list what the registry actually serves today, take a current-generation checkpoint that fits the budget, and treat a family you can name from memory as probably two generations stale. Any checkpoint, library version, benchmark split or baseline number you can name from memory is a hypothesis about a world that moved after training: probe it before the plan hardens, per `engineer/stale-world-model.md`. A checkpoint that will not download is a substitution to record, not a mission to block on. When a method is short of its baseline, `engineer/research-grind.md` is how the gap gets closed: the first number is a first draft, the loop is measure-diagnose-fix-measure, flat stretches are the middle of the problem rather than a verdict, and the method you end up with is the one the paper is about.\n"
 )
 
 

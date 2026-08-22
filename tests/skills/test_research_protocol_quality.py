@@ -583,3 +583,28 @@ def test_an_unfinished_implementation_is_not_a_dead_idea() -> None:
 
     assert "until the baseline reproduces in this harness" in first
     assert "an unfinished implementation looks exactly like a wrong idea" in first
+
+
+def test_the_win_threshold_is_derived_not_invented() -> None:
+    """A campaign declared it needed "+8 absolute points". Nothing produced that
+    number; asking for "the win that would matter" invites a round figure that
+    sounds decisive and that no evidence can contradict."""
+    from argus_skill.verticals._base import load_vertical, vertical_role_banner
+
+    planner = " ".join(vertical_role_banner(load_vertical("research"), "planner").split())
+
+    assert "derived from something observable, not invented" in planner
+    assert "spread this benchmark already reports" in planner
+    assert "A round number picked because it sounds decisive" in planner
+
+
+def test_the_model_choice_is_read_as_a_claim_about_currency() -> None:
+    """Campaigns kept reaching for checkpoints that were two generations old,
+    because that is what a training cutoff leaves behind."""
+    from argus_skill.verticals._base import load_vertical, vertical_role_banner
+
+    engineer = " ".join(vertical_role_banner(load_vertical("research"), "engineer").split())
+
+    assert "read the model you chose as a claim about how current the work is" in engineer
+    assert "what the registry actually serves today" in engineer
+    assert "probably two generations stale" in engineer
