@@ -27,6 +27,21 @@ def test_parse_happy_path():
     assert p.stages == ["scope", "simulate", "measure", "report"]
 
 
+def test_parse_accepts_an_already_structured_manager_payload():
+    proposal = parse_domain_proposal(
+        {
+            "name": "robotics_sim",
+            "stages": ["scope", "simulate"],
+            "rationale": "structured process decision",
+        },
+        known_verticals=VERTICALS,
+    )
+
+    assert proposal is not None
+    assert proposal.name == "robotics_sim"
+    assert proposal.stages == ["scope", "simulate"]
+
+
 def test_parse_sluggifies_name_and_stages():
     raw = json.dumps({"name": "Robotics Sim!", "stages": ["Scope Phase", "Sim-Run"]})
     p = parse_domain_proposal(raw, known_verticals=VERTICALS)

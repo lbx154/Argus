@@ -15,6 +15,7 @@ the research default.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Sequence
 
@@ -71,7 +72,9 @@ _DECISION_KEYS = (
 )
 
 
-def _decision_fields(raw_text: str) -> dict[str, Any] | None:
+def _decision_fields(
+    raw_text: str | Mapping[str, Any],
+) -> dict[str, Any] | None:
     """The Manager's decision, read from named lines in whatever it wrote.
 
     Operator directive: no role is forced to emit a JSON Schema. The Manager
@@ -83,6 +86,9 @@ def _decision_fields(raw_text: str) -> dict[str, Any] | None:
     for daemons mid-flight on an older prompt, not a second contract — nothing
     asks for it.
     """
+    if isinstance(raw_text, Mapping):
+        return dict(raw_text)
+
     from ..core.role_reply import (
         legacy_json_object,
         read_key_values,
@@ -298,7 +304,7 @@ def _dedupe_name(name: str, taken: set[str]) -> str | None:
 
 
 def parse_domain_proposal(
-    raw_text: str,
+    raw_text: str | Mapping[str, Any],
     *,
     known_verticals: Sequence[str] = (),
     existing_data_domains: Sequence[str] = (),
@@ -447,7 +453,7 @@ class FastVerticalRoute:
 
 
 def parse_fast_vertical_decision(
-    raw_text: str,
+    raw_text: str | Mapping[str, Any],
     *,
     known_verticals: Sequence[str] = (),
     known_domains: Sequence[str] = (),
@@ -577,7 +583,7 @@ def _stated_requirements(
 
 
 def parse_research_target_level(
-    raw_text: str,
+    raw_text: str | Mapping[str, Any],
     *,
     supported_levels: Sequence[str] = (
         "exploratory",
@@ -595,7 +601,7 @@ def parse_research_target_level(
 
 
 def parse_vertical_decision(
-    raw_text: str,
+    raw_text: str | Mapping[str, Any],
     *,
     known_verticals: Sequence[str] = (),
     known_domains: Sequence[str] = (),

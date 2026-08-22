@@ -8,8 +8,10 @@ sessions; Engineer owns implementation.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -299,7 +301,7 @@ class Planner:
             )
         process_decision = latest_role_decision(result, "planner")
         text = (
-            _planner_decision_text(process_decision)
+            json.dumps(process_decision, ensure_ascii=False)
             if process_decision is not None
             else "\n".join(getattr(result, "agent_messages", None) or [])
         )
@@ -351,7 +353,11 @@ class Planner:
                 raw_text=text or details,
                 error=f"planner backend exit {getattr(result, 'exit_code', 'unknown')}",
             )
-        verdict = parse_planner_text(text)
+        verdict = (
+            parse_planner_payload(process_decision)
+            if process_decision is not None
+            else parse_planner_text(text)
+        )
         rejection = verdict.error
         if (
             not rejection
@@ -478,7 +484,7 @@ class Planner:
                 break
             process_decision = latest_role_decision(result, "planner")
             text = (
-                _planner_decision_text(process_decision)
+                json.dumps(process_decision, ensure_ascii=False)
                 if process_decision is not None
                 else "\n".join(getattr(result, "agent_messages", None) or [])
             )
@@ -495,7 +501,11 @@ class Planner:
                     f"planner repair backend exit {getattr(result, 'exit_code', 'unknown')}"
                 )
                 continue
-            repaired = parse_planner_text(text)
+            repaired = (
+                parse_planner_payload(process_decision)
+                if process_decision is not None
+                else parse_planner_text(text)
+            )
             missing_stage = bool(
                 required_stage
                 and repaired.new_tasks
@@ -781,8 +791,177 @@ def _build_no_task_repair_prompt(
     )
 
 
+def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
+    """Validate the structured Planner event without routing it through text."""
+    raw_text = json.dumps(dict(payload), ensure_ascii=False)
+    if _FORBIDDEN_BINARY_OUTCOME.search(raw_text):
+        return PlannerVerdict(
+            project_done=False,
+            reason=(
+                "planner used a bare launch verdict; say what failed, why, and "
+                "what should happen next in plain language"
+            ),
+            raw_text=raw_text,
+            error=FORBIDDEN_BARE_VERDICT_ERROR,
+        )
+
+    def text(source: Mapping[str, Any], name: str) -> str:
+        value = source.get(name)
+        if value is None:
+            return ""
+        if not isinstance(value, str):
+            raise TypeError(f"{name} must be text")
+        return value
+
+    def items(value: Any, name: str) -> list[str]:
+        if isinstance(value, str) and name == "non_goals":
+            return [value.strip()] if value.strip() else []
+        if not isinstance(value, list) or any(
+            not isinstance(item, str) for item in value
+        ):
+            raise TypeError(f"{name} must be an array of text values")
+        return [item.strip() for item in value if item.strip()]
+
+    def boolean(source: Mapping[str, Any], name: str) -> bool:
+        value = source.get(name, False)
+        if not isinstance(value, bool):
+            raise TypeError(f"{name} must be true or false")
+        return value
+
+    try:
+        project_done = payload.get("project_done")
+        if not isinstance(project_done, bool):
+            raise TypeError("project_done must be true or false")
+        reason = text(payload, "reason")
+        advance_to_stage = text(payload, "advance_to_stage").strip().lower()
+
+        waiting_value = payload.get("waiting", False)
+        if isinstance(waiting_value, Mapping):
+            waiting = True
+            waiting_fields = waiting_value
+        elif isinstance(waiting_value, bool):
+            waiting = waiting_value
+            waiting_fields = payload
+        else:
+            raise TypeError("waiting must be true, false, or an object")
+        waiting_reason = text(waiting_fields, "waiting_reason")
+        waiting_contract = None
+        if waiting:
+            fingerprint = text(waiting_fields, "blocker_fingerprint").strip()
+            condition = text(waiting_fields, "recheck_condition").strip()
+            token = text(waiting_fields, "recheck_token").strip()
+            operator_action_required = boolean(
+                waiting_fields, "operator_action_required"
+            )
+            wait_mode = text(waiting_fields, "wait_mode").strip().lower() or "poll"
+            wake_on = tuple(items(waiting_fields.get("wake_on", []), "wake_on"))
+            if operator_action_required and wait_mode == "poll":
+                wait_mode = "event"
+                wake_on = wake_on or ("authorization",)
+            recheck_after = waiting_fields.get("recheck_after_seconds", 0)
+            if isinstance(recheck_after, bool) or not isinstance(recheck_after, int):
+                raise TypeError("recheck_after_seconds must be an integer")
+            expires_at = waiting_fields.get("expires_at", 0.0)
+            if isinstance(expires_at, bool) or not isinstance(
+                expires_at, (int, float)
+            ):
+                raise TypeError("expires_at must be a number")
+            if fingerprint and condition and token:
+                waiting_contract = WaitingContract(
+                    blocker_fingerprint=fingerprint,
+                    recheck_condition=condition,
+                    recheck_token=token,
+                    allow_verification_probe=boolean(
+                        waiting_fields, "allow_verification_probe"
+                    ),
+                    recheck_after_seconds=max(0, recheck_after),
+                    stage_reconciliation_required=boolean(
+                        waiting_fields, "stage_reconciliation_required"
+                    ),
+                    operator_action_required=operator_action_required,
+                    wait_mode=wait_mode,
+                    wake_on=wake_on,
+                    watched_paths=tuple(
+                        items(
+                            waiting_fields.get("watched_paths", []),
+                            "watched_paths",
+                        )
+                    ),
+                    expires_at=max(0.0, float(expires_at)),
+                )
+
+        raw_tasks = payload.get("tasks", payload.get("new_tasks", []))
+        if not isinstance(raw_tasks, list):
+            raise TypeError("tasks must be an array")
+        new_tasks: list[TaskSpec] = []
+        for raw_task in raw_tasks:
+            if not isinstance(raw_task, Mapping):
+                raise TypeError("each task must be an object")
+            if "scope" not in raw_task:
+                raise ValueError(
+                    "TASK_SCOPE must be bounded or final_submission"
+                )
+            key = text(raw_task, "key").strip()
+            deps = items(raw_task.get("deps", []), "deps")
+            if (
+                key and re.fullmatch(r"[A-Za-z0-9_.:-]+", key) is None
+            ) or any(
+                re.fullmatch(r"[A-Za-z0-9_.:-]+", dep) is None
+                for dep in deps
+            ):
+                raise ValueError(INVALID_DEPENDENCY_IDENTIFIER_ERROR)
+            title = text(raw_task, "title").strip()
+            objective = text(raw_task, "objective").strip()
+            if not title or not objective:
+                raise ValueError("each task needs a title and objective")
+            new_tasks.append(
+                TaskSpec(
+                    title=title,
+                    objective=objective,
+                    acceptance_check=text(
+                        raw_task, "acceptance_check"
+                    ).strip(),
+                    non_goals=items(
+                        raw_task.get("non_goals", []), "non_goals"
+                    ),
+                    scope=parse_task_scope(text(raw_task, "scope")),
+                    key=key,
+                    deps=deps,
+                    parallel_safe=boolean(raw_task, "parallel_safe"),
+                    owns_paths=items(
+                        raw_task.get("owns_paths", []), "owns_paths"
+                    ),
+                    vertical=text(raw_task, "vertical").strip(),
+                )
+            )
+    except (TypeError, ValueError) as exc:
+        detail = str(exc)
+        if detail == "TASK_SCOPE must be bounded or final_submission":
+            message = f"invalid planner task metadata: {detail}"
+        elif detail == INVALID_DEPENDENCY_IDENTIFIER_ERROR:
+            message = detail
+        else:
+            message = f"invalid structured planner decision: {detail}"
+        return PlannerVerdict(
+            project_done=False,
+            reason=message,
+            raw_text=raw_text,
+            error=message,
+        )
+    return _finish_planner_verdict(
+        text=raw_text,
+        project_done=project_done,
+        reason=reason,
+        advance_to_stage=advance_to_stage,
+        waiting=waiting,
+        waiting_reason=waiting_reason,
+        waiting_contract=waiting_contract,
+        new_tasks=new_tasks,
+    )
+
+
 def parse_planner_text(text: str) -> PlannerVerdict:
-    """Parse the Planner's plain ``KEY=VALUE`` completion footer."""
+    """Parse the legacy Planner ``KEY=VALUE`` completion footer."""
     if not text:
         return PlannerVerdict(
             project_done=False,
@@ -790,6 +969,15 @@ def parse_planner_text(text: str) -> PlannerVerdict:
             raw_text=text,
             error="empty planner output",
         )
+    values, task_rows = _planner_key_values(text)
+    return _planner_verdict_from_fields(text, values, task_rows)
+
+
+def _planner_verdict_from_fields(
+    text: str,
+    values: dict[str, str],
+    task_rows: list[dict[str, str]],
+) -> PlannerVerdict:
     if _FORBIDDEN_BINARY_OUTCOME.search(text):
         return PlannerVerdict(
             project_done=False,
@@ -800,7 +988,6 @@ def parse_planner_text(text: str) -> PlannerVerdict:
             raw_text=text,
             error=FORBIDDEN_BARE_VERDICT_ERROR,
         )
-    values, task_rows = _planner_key_values(text)
     project_done = _parse_completion_bool(values)
     reason = values.get("REASON") or values.get("SUMMARY") or ""
     advance_to_stage = values.get("ADVANCE_TO_STAGE", "").strip().lower()
@@ -932,6 +1119,29 @@ def parse_planner_text(text: str) -> PlannerVerdict:
             )
         )
 
+    return _finish_planner_verdict(
+        text=text,
+        project_done=project_done,
+        reason=reason,
+        advance_to_stage=advance_to_stage,
+        waiting=waiting,
+        waiting_reason=values.get("WAITING_REASON", ""),
+        waiting_contract=waiting_contract,
+        new_tasks=new_tasks,
+    )
+
+
+def _finish_planner_verdict(
+    *,
+    text: str,
+    project_done: bool,
+    reason: str,
+    advance_to_stage: str,
+    waiting: bool,
+    waiting_reason: str,
+    waiting_contract: WaitingContract | None,
+    new_tasks: list[TaskSpec],
+) -> PlannerVerdict:
     if waiting and (project_done or new_tasks):
         return PlannerVerdict(
             project_done=False,
@@ -950,11 +1160,11 @@ def parse_planner_text(text: str) -> PlannerVerdict:
     if waiting:
         return PlannerVerdict(
             project_done=False,
-            reason=reason or values.get("WAITING_REASON", "") or "planner waiting",
+            reason=reason or waiting_reason or "planner waiting",
             new_tasks=[],
             raw_text=text,
             waiting=True,
-            waiting_reason=values.get("WAITING_REASON", "") or reason,
+            waiting_reason=waiting_reason or reason,
             waiting_contract=waiting_contract,
         )
     if not project_done and not new_tasks:
@@ -968,7 +1178,7 @@ def parse_planner_text(text: str) -> PlannerVerdict:
     if not project_done:
         return PlannerVerdict(
             project_done=False,
-            reason=reason or "planner reported follow-up key-value tasks",
+            reason=reason or "planner reported follow-up tasks",
             new_tasks=new_tasks,
             raw_text=text,
             advance_to_stage=advance_to_stage,
@@ -979,98 +1189,3 @@ def parse_planner_text(text: str) -> PlannerVerdict:
         new_tasks=[],
         raw_text=text,
     )
-
-
-def _planner_decision_text(payload: dict[str, Any]) -> str:
-    """Adapt a process decision event to the established Planner validator."""
-    def value(name: str, default: Any = "") -> Any:
-        return payload.get(name, payload.get(name.upper(), default))
-
-    def render(raw: Any, *, separator: str = "|") -> str:
-        if isinstance(raw, bool):
-            return "true" if raw else "false"
-        if isinstance(raw, list):
-            return separator.join(str(item) for item in raw)
-        return str(raw or "")
-
-    lines = [
-        f"PROJECT_DONE={render(value('project_done', False))}",
-        f"REASON={render(value('reason'))}",
-    ]
-    advance_to_stage = render(value("advance_to_stage"))
-    if advance_to_stage:
-        lines.append(f"ADVANCE_TO_STAGE={advance_to_stage}")
-    waiting = value("waiting", False)
-    if isinstance(waiting, dict):
-        waiting_fields = waiting
-        lines.append("WAITING=true")
-    else:
-        waiting_fields = payload
-        if waiting:
-            lines.append("WAITING=true")
-    for waiting_field in (
-        "waiting_reason",
-        "blocker_fingerprint",
-        "recheck_condition",
-        "recheck_token",
-        "allow_verification_probe",
-        "recheck_after_seconds",
-        "stage_reconciliation_required",
-        "operator_action_required",
-        "wait_mode",
-        "wake_on",
-        "watched_paths",
-        "expires_at",
-    ):
-        raw = waiting_fields.get(
-            waiting_field,
-            waiting_fields.get(waiting_field.upper()),
-        )
-        if raw not in (None, "", [], ()):
-            separator = (
-                ","
-                if waiting_field in {"wake_on", "watched_paths"}
-                else "|"
-            )
-            lines.append(
-                f"{waiting_field.upper()}="
-                f"{render(raw, separator=separator)}"
-            )
-    tasks = value("tasks", value("new_tasks", []))
-    if isinstance(tasks, list):
-        for task in tasks:
-            if not isinstance(task, dict):
-                continue
-            task_fields = (
-                "key",
-                "deps",
-                "title",
-                "objective",
-                "acceptance_check",
-                "non_goals",
-                "scope",
-                "parallel_safe",
-                "owns_paths",
-                "vertical",
-            )
-            task_lines: list[str] = []
-            for task_field in task_fields:
-                raw = task.get(
-                    task_field,
-                    task.get(f"TASK_{task_field.upper()}"),
-                )
-                if raw not in (None, "", [], ()):
-                    separator = "," if task_field == "deps" else "|"
-                    task_lines.append(
-                        f"TASK_{task_field.upper()}="
-                        f"{render(raw, separator=separator)}"
-                    )
-            if not any(field in task for field in ("scope", "SCOPE", "TASK_SCOPE")):
-                insert_at = (
-                    1
-                    if task_lines and task_lines[0].startswith("TASK_KEY=")
-                    else 0
-                )
-                task_lines.insert(insert_at, "TASK_SCOPE=__missing_structured_scope__")
-            lines.extend(task_lines)
-    return "\n".join(lines)

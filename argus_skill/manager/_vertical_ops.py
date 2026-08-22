@@ -8,7 +8,6 @@ to avoid circular imports with ``_core``.
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 from contextlib import nullcontext
@@ -327,11 +326,9 @@ class _VerticalDecisionMixin:
             )
         process_decision = latest_role_decision(result, "manager")
         target_level = parse_research_target_level(
-            (
-                json.dumps(process_decision, ensure_ascii=True)
-                if process_decision is not None
-                else extract_answer(result)
-            ),
+            process_decision
+            if process_decision is not None
+            else extract_answer(result),
             supported_levels=supported_levels,
         )
         if target_level is None:
@@ -537,11 +534,9 @@ class _VerticalDecisionMixin:
                     )
                 fast_payload = latest_role_decision(fast_result, "manager")
                 fast_route = parse_fast_vertical_decision(
-                    (
-                        json.dumps(fast_payload, ensure_ascii=True)
-                        if fast_payload is not None
-                        else extract_answer(fast_result)
-                    ),
+                    fast_payload
+                    if fast_payload is not None
+                    else extract_answer(fast_result),
                     known_verticals=known_verticals,
                     known_domains=list(BUILTIN_DOMAINS),
                     existing_data_domains=all_domain_names,
@@ -635,11 +630,9 @@ class _VerticalDecisionMixin:
                 )
             route_payload = latest_role_decision(route_result, "manager")
             route_decision = parse_vertical_decision(
-                (
-                    json.dumps(route_payload, ensure_ascii=True)
-                    if route_payload is not None
-                    else extract_answer(route_result)
-                ),
+                route_payload
+                if route_payload is not None
+                else extract_answer(route_result),
                 known_verticals=known_verticals,
                 known_domains=list(BUILTIN_DOMAINS),
                 existing_data_domains=all_domain_names,

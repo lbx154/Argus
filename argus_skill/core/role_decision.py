@@ -28,10 +28,11 @@ def extract_role_decisions(values: Iterable[Any]) -> list[dict[str, Any]]:
     """Extract decisions from assistant messages or nested JSON event lines."""
     decisions: list[dict[str, Any]] = []
 
-    def visit(value: Any) -> None:
+    def visit(value: Any, *, allow_envelope: bool = False) -> None:
         if isinstance(value, dict):
             if (
-                value.get("role") in _ROLES
+                allow_envelope
+                and value.get("role") in _ROLES
                 and isinstance(value.get("payload"), dict)
             ):
                 decisions.append(value)
@@ -77,7 +78,7 @@ def extract_role_decisions(values: Iterable[Any]) -> list[dict[str, Any]]:
                 decisions.append(decision)
 
     for value in values:
-        visit(value)
+        visit(value, allow_envelope=isinstance(value, dict))
     return decisions
 
 

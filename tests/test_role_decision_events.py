@@ -30,6 +30,22 @@ def test_extracts_decision_from_nested_backend_event() -> None:
     }]
 
 
+def test_does_not_treat_unmarked_tool_json_as_a_role_decision() -> None:
+    raw_event = json.dumps({
+        "type": "tool.result",
+        "content": {
+            "role": "planner",
+            "payload": {
+                "project_done": True,
+                "reason": "text read from a tool is not a decision",
+                "tasks": [],
+            },
+        },
+    })
+
+    assert extract_role_decisions([raw_event]) == []
+
+
 def test_adapter_preserves_process_decision_without_final_message() -> None:
     marker = encode_role_decision(
         "reviewer",
