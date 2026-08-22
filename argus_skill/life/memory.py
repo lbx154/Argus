@@ -662,6 +662,27 @@ _RECOVERABLE_PAUSE_STATUSES = {
 }
 
 
+def _expire_unanswered_operator_question(item: BacklogItem) -> None:
+    """A question dies with the mission that asked it.
+
+    Both resolvers require a non-empty ``pending_question``, so a card left
+    ``pending`` on an item that has already ended can never be answered — it is
+    simply offered forever. One sat that way on a failed mission for a day.
+    """
+    card = item.operator_decision
+    still_pending = str(card.get("status") or "") == "pending"
+    if not (still_pending or item.pending_question):
+        return
+    item.pending_question = ""
+    if still_pending:
+        revision = int(card.get("revision", 1) or 1)
+        card.update({
+            "status": "expired",
+            "resolved_from_revision": revision,
+            "revision": revision + 1,
+        })
+
+
 class IllegalStateTransition(RuntimeError):
     """Raised when a status update would resurrect a terminal item.
 
@@ -1420,6 +1441,8 @@ class Backlog:
                     for k, v in fields.items():
                         if hasattr(it, k):
                             setattr(it, k, v)
+                    if it.status in _TERMINAL_STATUSES:
+                        _expire_unanswered_operator_question(it)
                     self._validate_no_dependency_cycles(items)
                     out = it
                     break
