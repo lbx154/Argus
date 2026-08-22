@@ -22,7 +22,12 @@ from ..core.mission_view import snapshot_mission_view
 from ..core.provider_quota import provider_usage_snapshot
 from ..core.role_config import RoleConfig, resolve_all_roles
 from ..core.runtime_identity import runtime_identity
-from ..core.session import SessionMeta, list_sessions, read_session_meta
+from ..core.session import (
+    SessionMeta,
+    durable_session_activity,
+    list_sessions,
+    read_session_meta,
+)
 from ..core.usage import UsageLedger, UsageSummary
 from ..daemon.commands import daemon_command_snapshot
 from ..daemon.life_worker import (
@@ -686,8 +691,14 @@ def build_snapshot(
         diagnostics.append(diagnostic("recent_events", exc))
 
     try:
+        meta = read_session_meta(root, sid)
+        if meta is not None:
+            meta.last_active = max(
+                meta.last_active,
+                durable_session_activity(life_dir),
+            )
         session = apply_campaign_workdir(
-            session_dict(read_session_meta(root, sid), sid), life_dir
+            session_dict(meta, sid), life_dir
         )
     except Exception as exc:  # noqa: BLE001
         session = session_dict(None, sid)

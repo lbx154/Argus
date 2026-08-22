@@ -56,7 +56,7 @@ def test_legacy_json_verdict_still_parses_for_inflight_sessions() -> None:
         '{"status":"blocked","reason":"Need operator input.",'
         '"next_action":"","operator_question":"Which route?",'
         '"operator_options":[{"id":"route-a","label":"Route A",'
-        '"description":"Take route A.","requires_note":false}],'
+        '"description":"Take route A.","requires_note":true}],'
         '"checkpoint_recommended":false}'
     )
 
@@ -64,6 +64,7 @@ def test_legacy_json_verdict_still_parses_for_inflight_sessions() -> None:
     assert decision.status == "blocked"
     assert decision.operator_question == "Which route?"
     assert decision.operator_options[0]["label"] == "Route A"
+    assert decision.operator_options[0]["requires_note"] is True
 
 
 def test_named_reviewer_verdict_parses_research_result_contract() -> None:

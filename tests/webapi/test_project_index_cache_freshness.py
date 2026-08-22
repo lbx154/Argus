@@ -12,6 +12,7 @@ mutating endpoint added later cannot forget to do it.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -63,6 +64,22 @@ def test_a_rename_is_visible_on_the_very_next_poll(home: Path) -> None:
     # No sleep: the point is that the operator does not have to wait out a TTL.
     assert "after rename" in _names(client)
     assert _snapshot_name(client) == "after rename"
+
+
+def test_project_index_uses_durable_activity(home: Path) -> None:
+    events = home / "projects" / "s-cachetest" / "events.jsonl"
+    events.write_text('{"type":"round.start"}\n')
+    os.utime(events, (100, 100))
+    client = TestClient(server.create_app(global_root=home))
+
+    payload = client.get("/api/projects").json()
+    project = next(row for row in payload["projects"] if row["id"] == "s-cachetest")
+    snapshot = client.get(
+        "/api/projects/s-cachetest/snapshot?compact=true&events_limit=30"
+    ).json()
+
+    assert project["last_active"] == 100
+    assert snapshot["session"]["last_active"] == 100
 
 
 def test_repeated_polls_reuse_one_scan(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:

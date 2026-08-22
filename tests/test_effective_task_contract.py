@@ -22,6 +22,8 @@ def test_effective_task_contract_is_compact() -> None:
     assert len(contract) <= 600
     assert "Current operator" in contract
     assert "preregistration" in contract
+    assert "bounded output" in contract
+    assert "no `.git` means no Git retries" in contract
     assert "ambiguous_objective" in contract
 
 

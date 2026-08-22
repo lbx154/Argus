@@ -626,11 +626,12 @@ def render_reviewer_prompt(
             "artifact completeness. Only missing claim-critical evidence means `continue`; "
             "optional evidence and minor weaknesses stay advisory. One timeout, failed attempt, "
             "or threshold miss is not impossibility. A threshold miss only shows that this run "
-            "missed its target; a root-cause, dominant/bottleneck-stage, or replacement-architecture "
-            "claim needs code-path evidence plus profiling, timing, or a controlled comparison. "
+            "missed its target; root-cause, bottleneck, or replacement claims need code-path "
+            "evidence plus profiling or a controlled comparison. "
             "Give one highest-impact NEXT_ACTION. "
             "Integrity is mandatory but not scientific value by itself. Ask the "
-            "operator one question only for authority or information only they can provide. "
+            "operator only for authority/information they own; set `requires_note:true` "
+            "if a choice lacks requested details. "
             "Bounded `done` closes this task; final-submission `done` may certify the project."
         )
     )

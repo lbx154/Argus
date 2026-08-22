@@ -29,6 +29,7 @@ describe('operator decision cards', () => {
       [{ id: 'legacy', title: 'Legacy', pending_question: 'What now?' }],
     );
     expect(rows.map((row) => row.id)).toEqual(['decision-item-1', 'legacy-legacy']);
+    expect(rows[0].options[1].requires_note).toBe(true);
     expect(rows[1].legacy).toBe(true);
   });
 

@@ -8,9 +8,10 @@ from collections.abc import Sequence
 
 EFFECTIVE_TASK_CONTRACT = (
     "## Effective task contract\n"
-    "Current operator > objective > mission > preregistration; memory is advice. Do not "
-    "add unrelated cleanup or hardening. Naming an output does not authorize replacing "
-    "existing files. Validate once. Report same-level conflicts as `ambiguous_objective`."
+    "Current operator > objective > mission > preregistration; memory advises. No "
+    "unrelated work or replacing files because an output is named. Validate once "
+    "with bounded output; no `.git` means no Git retries. Report same-level conflicts "
+    "as `ambiguous_objective`."
 )
 
 NATIVE_WINDOWS_SHELL_CONTRACT = (

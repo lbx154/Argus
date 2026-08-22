@@ -139,6 +139,24 @@ def test_legacy_last_active_ignores_web_projection_writes(tmp_path):
     assert meta.last_active == 120
 
 
+def test_named_session_last_active_follows_durable_work(tmp_path):
+    import os
+
+    sid, _ = resolve_session(global_root=tmp_path, mode="new", cwd=tmp_path, now=100)
+    project = tmp_path / "projects" / sid
+    events = project / "events.jsonl"
+    events.write_text('{"type":"round.start"}\n')
+    os.utime(events, (500, 500))
+    projection = project / "mission-view.json"
+    projection.write_text("{}\n")
+    os.utime(projection, (700, 700))
+
+    meta = next(item for item in list_sessions(tmp_path) if item.id == sid)
+
+    assert meta.last_active == 500
+    assert read_session_meta(tmp_path, sid).last_active == 100
+
+
 def test_contentless_legacy_session_does_not_trust_directory_mtime(tmp_path):
     import os
 

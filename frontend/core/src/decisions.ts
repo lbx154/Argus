@@ -66,7 +66,7 @@ export function operatorDecisionCards(
             .filter((option) => (
               Boolean(text(option?.id)) && Boolean(text(option?.label))
             ))
-            .map((option) => ({ ...option, requires_note: false }))
+            .map((option) => ({ ...option, requires_note: option.requires_note === true }))
         : [];
       options.push(customDecisionOption(text(card.title), text(card.question)));
       cards.push({

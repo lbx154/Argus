@@ -82,7 +82,9 @@ def test_option_selection_is_direct_and_custom_requires_text() -> None:
 
     assert selected_decision_text(card, "fallback", "") == "Use fallback."
     assert card["options"][1]["id"] == "option-2"
-    assert selected_decision_text(card, "option-2", "") == "Describe another route"
+    with pytest.raises(ValueError, match="requires guidance"):
+        selected_decision_text(card, "option-2", "")
+    assert selected_decision_text(card, "option-2", "Try B") == "Try B"
     with pytest.raises(ValueError, match="requires an answer"):
         selected_decision_text(card, "custom", "")
     assert selected_decision_text(card, "custom", "Try B") == "Try B"
@@ -112,6 +114,25 @@ def test_markdown_wrapped_operator_options_remain_structured() -> None:
 
     assert [option["id"] for option in options] == ["route-a", "route-b"]
     assert [option["label"] for option in options] == ["Use A", "Use B"]
+
+
+def test_legacy_agent_option_can_require_guidance() -> None:
+    [option] = parse_agent_operator_options(
+        "OPERATOR_OPTIONS=provide-details :: true :: Provide constraints ::"
+    )
+    card = build_operator_decision(
+        item_id="i",
+        title="t",
+        reason="r",
+        question="Which constraints apply?",
+        options=[option],
+    )
+
+    with pytest.raises(ValueError, match="requires guidance"):
+        selected_decision_text(card, "provide-details", "")
+    assert selected_decision_text(card, "provide-details", "Keep the API stable") == (
+        "Keep the API stable"
+    )
 
 
 def test_backlog_persists_and_resolves_card_with_continuation(tmp_path) -> None:

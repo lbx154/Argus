@@ -44,7 +44,7 @@ def normalize_agent_options(
             "id": option_id,
             "label": label,
             "description": str(row.get("description") or "").strip()[:1000],
-            "requires_note": False,
+            "requires_note": bool(row.get("requires_note")),
         })
         if len(normalized) >= 8:
             break
@@ -87,15 +87,17 @@ def parse_agent_operator_options(message: str) -> list[dict[str, Any]]:
         parts = [part.strip() for part in encoded.split("::")]
         if len(parts) == 3:
             option_id, label, description = parts
+            requires_note = False
         elif len(parts) == 4:
-            option_id, _legacy_requires_note, label, description = parts
+            option_id, raw_requires_note, label, description = parts
+            requires_note = raw_requires_note.casefold() == "true"
         else:
             continue
         options.append({
             "id": option_id,
             "label": label,
             "description": description,
-            "requires_note": False,
+            "requires_note": requires_note,
         })
     return normalize_agent_options(options)
 
@@ -157,10 +159,7 @@ def selected_decision_text(card: Mapping[str, Any], option_id: str, note: str) -
     )
     if option is None:
         raise ValueError("unknown decision option")
-    requires_note = (
-        bool(option.get("requires_note"))
-        and str(card.get("options_source") or "") != "agent"
-    )
+    requires_note = bool(option.get("requires_note"))
     if requires_note and not note:
         raise ValueError("this option requires guidance")
     description = str(option.get("description") or "").strip()
