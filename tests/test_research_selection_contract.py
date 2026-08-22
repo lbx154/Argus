@@ -360,3 +360,31 @@ def test_a_table_is_written_for_a_person() -> None:
     tables = next(i for i in STAGE_CHECKLISTS["review"] if i.id == "review.tables").statement
     assert "as ours" in tables and "bold the winning number" in tables
     assert "Round every number to the precision its evidence supports" in tables
+
+
+def test_the_venue_every_campaign_targets_is_in_the_registry() -> None:
+    """Seven campaigns were told to write ICLR papers against a registry that
+    held only EMNLP, AAAI and a Frontiers journal. One stopped and asked the
+    operator how to proceed; the wrong answer was available and silent, because
+    an EMNLP profile would have imposed a two-column eight-page layout on an
+    ICLR submission without anything reporting a mismatch.
+    """
+    from argus_skill.verticals.research.venue_profiles import get_venue_profile
+
+    for token in ("ICLR", "iclr2027", "ICLR 2027", "iclr-27"):
+        profile = get_venue_profile(token)
+        assert profile.key == "ICLR"
+        # 9 pages of main text; references and appendix are uncounted.
+        assert profile.body_page_limit == 9
+        assert profile.references_min_page == 10
+        # ICLR is the one single-column venue here.
+        assert profile.two_column is False
+        # Anonymity is the default state, so there is no review option to pass.
+        assert profile.review_option == ""
+        assert "iclr2027_conference" in profile.review_mode_macro
+
+    # NeurIPS and ICML have their own limits and templates; resolving them onto
+    # ICLR would be the same silent mismatch in a new direction.
+    for other in ("NEURIPS", "ICML"):
+        with pytest.raises(KeyError):
+            get_venue_profile(other)

@@ -393,6 +393,46 @@ AAAI_PROFILE = VenueProfile(
     ),
 )
 
+ICLR_PROFILE = VenueProfile(
+    key="ICLR",
+    display_name="ICLR 2027",
+    # ICLR: 9 pages of main text at submission; references and appendix are
+    # uncounted and reviewers are not obliged to read the appendix.
+    body_page_limit=9,
+    conclusion_underfill_page=8,
+    conclusion_max_page=9,
+    references_min_page=10,
+    # ICLR is single-column, unlike every other profile here.
+    two_column=False,
+    # No mandatory Limitations/Ethics section. A Reproducibility Statement after
+    # the conclusion is standard and does not count against the body.
+    mandatory_end_sections=(),
+    post_reference_sections=("Appendix",),
+    documentclass=r"\documentclass{article}",
+    style_package="iclr2027_conference",
+    # Anonymity is the default state, not an option: the style file ships with
+    # `\iclrfinalfalse` and the template leaves `\iclrfinalcopy` commented out,
+    # so there is no review option to pass.
+    review_option="",
+    review_mode_macro=r"\usepackage{iclr2027_conference,times}",
+    style_clone_url="https://github.com/ICLR/Master-Template",
+    style_files=("iclr2027_conference.sty", "iclr2027_conference.bst"),
+    anon_author_string="Anonymous authors",
+    bib_style="iclr2027_conference",
+    emit_bibliographystyle=True,
+    layout_format_persona="single-column conference paper",
+    # ICLR publishes no academic-language rubric of its own; the EMNLP one is
+    # about prose, not venue branding, and its figure persona already names
+    # NeurIPS-family single-column work.
+    academic_language_rubric_id="emnlp-academic-language-v2",
+    reviewer_persona="ICLR",
+    review_skill_path="reviewer/emnlp-academic-language-review.md",
+    figure_style_persona="ICLR/NeurIPS",
+    # No aliases: NeurIPS and ICML have their own page limits and style files,
+    # and quietly handing one of them the ICLR template is the failure this
+    # registry exists to prevent.
+)
+
 FRONTIERS_SLEEP_PROFILE = VenueProfile(
     key="FRONTIERS_SLEEP",
     display_name="Frontiers in Sleep",
@@ -438,6 +478,7 @@ FRONTIERS_SLEEP_PROFILE = VenueProfile(
 VENUE_PROFILES: dict[str, VenueProfile] = {
     EMNLP_PROFILE.key: EMNLP_PROFILE,
     AAAI_PROFILE.key: AAAI_PROFILE,
+    ICLR_PROFILE.key: ICLR_PROFILE,
     FRONTIERS_SLEEP_PROFILE.key: FRONTIERS_SLEEP_PROFILE,
 }
 
