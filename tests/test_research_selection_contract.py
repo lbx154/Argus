@@ -554,3 +554,19 @@ def test_a_null_needs_a_stronger_instrument_than_what_it_overturns() -> None:
     assert "measure with the established one and then with the better one" in " ".join(
         item.split()
     )
+
+
+def test_a_caveat_is_stated_once_not_in_every_section() -> None:
+    """run-01 held its ImageNet-C claim until a properly powered run landed,
+    which was right, and then wrote 'pending adequately powered validation'
+    fourteen times -- abstract, introduction, results, a table cell, a
+    subsection heading, discussion. The science was rigorous and the manuscript
+    read as unfinished, because it was organised around the absence rather than
+    around what its CIFAR-10-C evidence did establish.
+    """
+    from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+
+    draft = next(i for i in STAGE_CHECKLISTS["draft"] if i.id == "draft.tex").statement
+    assert "Say each caveat once, where it belongs" in draft
+    assert "organised around an absence" in " ".join(draft.split())
+    assert "let every other section say what the work does establish" in draft
