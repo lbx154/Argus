@@ -23,7 +23,12 @@ except ImportError:  # pragma: no cover - detached daemon is POSIX-only
     _fcntl = None
 
 from .config import LifeWorkerConfig
-from .state import ContinuousConfigState, read_continuous_state, write_continuous_config
+from .state import (
+    RESUMABLE_STOP_REASONS,
+    ContinuousConfigState,
+    read_continuous_state,
+    write_continuous_config,
+)
 
 log = logging.getLogger(__name__)
 
@@ -363,19 +368,23 @@ def _rearm_operator_drain_for_resume(
     runtime_root: Path,
     state: ContinuousConfigState,
 ) -> ContinuousConfigState:
-    """Re-arm only the temporary state created by ``--daemon-stop --drain``.
+    """Re-arm the temporary state created by an operator stopping the process.
 
-    Drain intentionally disables continuous mode so the current mission can
+    Draining and SIGTERM both disable continuous mode so the current mission can
     finish without a new one starting.  A supervisor then restarts with
     ``--resume-continuous``; treating the disabled file literally creates an
-    alive-but-idle daemon.  Other disabled reasons remain authoritative and are
-    never auto-resumed (operator holds, normal completion, manual stop, etc.).
+    alive-but-idle daemon.  Only drain used to be re-armed, so every restart
+    onto new code retired the campaign instead: the daemon came back, drained
+    its backlog and went quiet forever while still reporting healthy, which is
+    how two campaigns spent a day looking alive with nothing running.  Reasons
+    that describe the WORK rather than the process -- a planner-declared
+    completion, an operator hold -- stay authoritative and are never resumed.
     """
     if (
         not getattr(cfg, "continuous", False)
         and getattr(cfg, "resume_continuous", False)
         and not state.enabled
-        and state.done_reason == "operator drain-stop"
+        and state.done_reason in RESUMABLE_STOP_REASONS
         and state.objective.strip()
     ):
         write_continuous_config(

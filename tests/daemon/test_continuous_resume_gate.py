@@ -15,6 +15,7 @@ from argus_skill.daemon.life_worker import (
     _rearm_operator_drain_for_resume,
 )
 from argus_skill.daemon.state import (
+    GRACEFUL_STOP_REASON,
     read_continuous_state,
     write_continuous_config,
 )
@@ -149,6 +150,52 @@ def test_resume_continuous_rearms_operator_drain_stop(tmp_path: Path) -> None:
     assert state.enabled is True
     assert state.objective == "continue the campaign"
     assert state.done_reason == ""
+
+
+def test_resume_continuous_rearms_a_graceful_operator_stop(tmp_path: Path) -> None:
+    """Restarting a daemon onto new code must not retire its campaign.
+
+    SIGTERM is how an operator restarts a daemon, and it quiesced continuous
+    mode with a different reason string than drain did. Only drain was
+    re-armed, so the daemon came back, drained its backlog and went quiet
+    forever while still reporting healthy.
+    """
+    write_continuous_config(tmp_path, enabled=True, objective="continue the campaign")
+    write_continuous_config(
+        tmp_path,
+        enabled=False,
+        objective="continue the campaign",
+        done_reason=GRACEFUL_STOP_REASON,
+    )
+
+    state = _rearm_operator_drain_for_resume(
+        cfg=SimpleNamespace(continuous=False, resume_continuous=True),
+        runtime_root=tmp_path,
+        state=read_continuous_state(tmp_path),
+    )
+
+    assert state.enabled is True
+    assert state.objective == "continue the campaign"
+    assert state.done_reason == ""
+
+
+def test_a_finished_campaign_is_not_restarted_by_a_restart(tmp_path: Path) -> None:
+    """Stopping the process is resumable; finishing the work is not."""
+    write_continuous_config(tmp_path, enabled=True, objective="continue the campaign")
+    write_continuous_config(
+        tmp_path,
+        enabled=False,
+        objective="continue the campaign",
+        done_reason="planner declared project done",
+    )
+
+    state = _rearm_operator_drain_for_resume(
+        cfg=SimpleNamespace(continuous=False, resume_continuous=True),
+        runtime_root=tmp_path,
+        state=read_continuous_state(tmp_path),
+    )
+
+    assert state.enabled is False
 
 
 def test_resume_continuous_preserves_operator_authority_hold(

@@ -21,6 +21,17 @@ from ..core.daemon_lock import WINDOWS_DAEMON_LOCK_OFFSET, is_pid_running
 from ..core.usage import format_usage_cost
 from ..life.supervisor import LifeBudget, global_daily_spend, global_daily_usage_summary
 
+# Stopping the process is not ending the campaign. Both reasons below mean an
+# operator halted this daemon -- to drain it, or to restart it onto new code --
+# so ``--resume-continuous`` re-arms either one. Every other disabled reason
+# (planner-declared completion, an operator hold) is a statement about the work
+# and stays authoritative. These live together because they drifted apart once:
+# only the drain reason was resumable, so every SIGTERM restart silently retired
+# the campaign while leaving a healthy-looking daemon behind.
+DRAIN_STOP_REASON = "operator drain-stop"
+GRACEFUL_STOP_REASON = "operator stop (graceful SIGTERM/SIGINT — clock out)"
+RESUMABLE_STOP_REASONS = frozenset({DRAIN_STOP_REASON, GRACEFUL_STOP_REASON})
+
 try:
     import fcntl
 except ImportError:  # pragma: no cover - Windows fallback
@@ -1502,7 +1513,7 @@ def stop_daemon(
         try:
             disable_continuous_config(
                 resolved_dir,
-                done_reason="operator drain-stop",
+                done_reason=DRAIN_STOP_REASON,
             )
         except Exception:  # noqa: BLE001 — quiesce is best-effort
             pass

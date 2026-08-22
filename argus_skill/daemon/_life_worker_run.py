@@ -19,6 +19,7 @@ from typing import Any
 from ._life_worker_boot import _RunForeverState
 from ._life_worker_identity import _effective_runner_backend, _worker_vault_preflight_routes
 from .state import (
+    GRACEFUL_STOP_REASON,
     clear_daemon_control_stop,
     clear_daemon_drain_request,
     compare_and_swap_continuous_config,
@@ -475,7 +476,7 @@ class LifeWorkerRunMixin:
                 expected=current,
                 enabled=False,
                 objective=current.objective,
-                done_reason="operator stop (graceful SIGTERM/SIGINT — clock out)",
+                done_reason=GRACEFUL_STOP_REASON,
             ):
                 return
             log.info("daemon: quiesced continuous mode on operator stop (clock out)")
