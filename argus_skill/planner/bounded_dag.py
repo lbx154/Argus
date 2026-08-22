@@ -140,6 +140,17 @@ def _validate(payload: object) -> tuple[str, tuple[BoundedDagNode, ...]]:
             deps.append(dep)
         if key_identity in seen_dep_identities:
             raise ValueError(f"planner task {key!r} depends on itself")
+        raw_non_goals = row.get("non_goals") or []
+        if isinstance(raw_non_goals, str):
+            non_goals = (raw_non_goals.strip(),) if raw_non_goals.strip() else ()
+        elif isinstance(raw_non_goals, list):
+            non_goals = tuple(
+                str(item).strip()
+                for item in raw_non_goals
+                if str(item).strip()
+            )
+        else:
+            raise ValueError("planner task non_goals must be text or an array")
         raw_review = row.get("require_independent_review", False)
         if isinstance(raw_review, bool):
             require_independent_review = raw_review
@@ -159,11 +170,7 @@ def _validate(payload: object) -> tuple[str, tuple[BoundedDagNode, ...]]:
                 title=title,
                 objective=objective,
                 acceptance_check=str(row.get("acceptance_check") or "").strip(),
-                non_goals=tuple(
-                    str(item).strip()
-                    for item in (row.get("non_goals") or [])
-                    if str(item).strip()
-                ),
+                non_goals=non_goals,
                 vertical=str(row.get("vertical") or "").strip(),
                 require_independent_review=require_independent_review,
             )

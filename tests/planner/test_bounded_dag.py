@@ -240,6 +240,7 @@ def test_bounded_planner_carries_structured_independent_review_policy(
                 "deps": [],
                 "title": "Implement",
                 "objective": "implement and test the feature",
+                "non_goals": "do not publish",
                 "require_independent_review": True,
             }],
         },
@@ -252,6 +253,7 @@ def test_bounded_planner_carries_structured_independent_review_policy(
     )
 
     assert plan.error == ""
+    assert plan.tasks[0].non_goals == ("do not publish",)
     assert plan.tasks[0].require_independent_review is True
 
 
