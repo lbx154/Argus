@@ -532,3 +532,25 @@ def test_a_conceded_limitation_is_the_next_experiment() -> None:
     assert "has chosen to concede it" in item
     # Abandoning it is allowed only as a scientific claim, not a budget excuse.
     assert "fundamental rather than merely unaffordable" in item
+
+
+def test_a_null_needs_a_stronger_instrument_than_what_it_overturns() -> None:
+    """run-04's contribution is that teacher-forced steering metrics do not
+    predict decoded behavior. Its own Limitations concede that the detector
+    establishing that null is lexical -- weaker than the metrics it unseats.
+    A detector that cannot resolve a concept produces chance for every method,
+    which is precisely the reported result, so the null and the broken
+    instrument are indistinguishable. run-06 made the same trade in the other
+    direction, using keyword matching to conclude that prompting beats internal
+    steering.
+    """
+    from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+
+    item = next(
+        i for i in STAGE_CHECKLISTS["benchmark"]
+        if i.id == "benchmark.evaluator_authentic"
+    ).statement
+    assert "must be stronger than the one that produced them" in item
+    assert "measure with the established one and then with the better one" in " ".join(
+        item.split()
+    )

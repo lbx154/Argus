@@ -340,7 +340,14 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "is broken and nothing from that harness means anything, whatever "
                 "the methods scored — one sweep concluded five steering methods sat "
                 "at chance while its own concept-prompting control sat at chance "
-                "beside them, on twelve-token generations."
+                "beside them, on twelve-token generations. An instrument that "
+                "overturns a body of results must be stronger than the one that "
+                "produced them: a null established with a lexical detector does "
+                "not unseat judge-scored findings, and a reviewer will read the "
+                "weaker instrument as the cause of the null rather than as "
+                "evidence against the field. When the claim is that an "
+                "established measurement misleads, measure with the established "
+                "one and then with the better one, and show where they part."
             ),
             evidence_hint=(
                 "computational: evaluator source + official scorer outputs, plus the "
