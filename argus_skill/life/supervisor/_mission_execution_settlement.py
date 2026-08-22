@@ -151,9 +151,10 @@ class MissionExecutionSettlementMixin:
             and state.pipeline_stage_at_start
             and unfinished_plan_nodes
         ):
-            live_stage = (
-                self._current_pipeline_stage() or state.pipeline_stage_at_start
-            )
+            from ...skills.stage_machine import current_stage
+
+            policy_root = state.vertical_root
+            live_stage = current_stage(policy_root) or state.pipeline_stage_at_start
             guard_reason = (
                 f"dynamic plan {item.plan_id} still has unfinished current-stage "
                 "node(s): "
@@ -165,11 +166,11 @@ class MissionExecutionSettlementMixin:
                     from ...skills.stage_machine import rollback_stage
 
                     rollback_stage(
-                        self._artifact_root(),
+                        policy_root,
                         target_stage=state.pipeline_stage_at_start,
                         reason=guard_reason,
                         rolled_back_by="supervisor_dynamic_plan_guard",
-                        evidence_root=self._project_workdir(),
+                        evidence_root=state.execution_workdir,
                     )
                     guard_applied = True
                 except Exception:  # noqa: BLE001
@@ -218,7 +219,7 @@ class MissionExecutionSettlementMixin:
 
                 record_stage_review(
                     state_root=self.memory.root,
-                    project_root=self._artifact_root(),
+                    project_root=state.vertical_root,
                     stage=state.pipeline_stage_at_start,
                     item=item,
                     manager_action=stage_action or "hold",

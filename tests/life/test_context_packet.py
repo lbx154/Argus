@@ -241,6 +241,7 @@ def test_mission_brief_projects_only_named_authoritative_fields(tmp_path: Path) 
         "## MissionBrief\n"
         f"- Workdir: `{workdir}`\n"
         "- Stage: change\n"
+        "- Work kind: scope\n"
         "- Owned paths (authoritative write boundary; Reviewer must not request "
         "edits outside it): argus_skill/life/context_packet.py; "
         "tests/life/test_context_packet.py\n"
@@ -293,6 +294,7 @@ def test_public_skill_loop_ab_injects_same_brief_into_isolated_roles(
         objective="Exercise the public SkillLoop entry point.",
         acceptance_check="reviewer returns done",
         execution_workdir=str(workdir),
+        work_kind="validation",
         owns_paths=owned_paths,
     )
 
@@ -330,6 +332,7 @@ def test_public_skill_loop_ab_injects_same_brief_into_isolated_roles(
     assert all("## MissionBrief" not in prompt for prompt in old_prompts)
     briefs = [_mission_brief_from_prompt(prompt) for prompt in new_prompts]
     assert briefs[0] == briefs[1] == expected_brief
+    assert all(prompt.count("- Work kind: validation") == 1 for prompt in new_prompts)
     reviewer_prompt = next(
         prompt for label, prompt, _options in new_history if label == "reviewer"
     )

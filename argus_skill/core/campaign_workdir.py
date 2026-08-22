@@ -68,6 +68,13 @@ def resolve_task_workdir(base_root: Path | str, value: object) -> Path:
     return target
 
 
+def task_workdir_provenance(base_root: Path | str, value: object) -> str:
+    """Anchor a Planner path to the host-validated root without resolving links."""
+    base = Path(base_root).expanduser().resolve(strict=True)
+    relative = normalize_task_workdir(value, base_root=base)
+    return str(base / relative) if relative else ""
+
+
 def _git_toplevel(path: Path) -> Path | None:
     try:
         result = subprocess.run(
@@ -134,23 +141,24 @@ def adopt_campaign_workdir(
     current = Path(current_root).expanduser().resolve(strict=True)
     requested_path = Path(str(requested or "").strip()).expanduser()
     if requested_path.is_absolute():
+        lexical_target = Path(os.path.abspath(requested_path))
+        if lexical_target != current:
+            for allowed_root in (current, base):
+                try:
+                    lexical_target.relative_to(allowed_root)
+                    break
+                except ValueError:
+                    continue
+            else:
+                raise ValueError("TASK_WORKDIR must be inside the active project")
         try:
-            target = requested_path.resolve(strict=True)
+            target = lexical_target.resolve(strict=True)
         except OSError as exc:
             raise ValueError(
                 f"TASK_WORKDIR is not a directory: {requested!r}"
             ) from exc
         if not target.is_dir():
             raise ValueError(f"TASK_WORKDIR is not a directory: {requested!r}")
-        if target != current:
-            for allowed_root in (current, base):
-                try:
-                    target.relative_to(allowed_root)
-                    break
-                except ValueError:
-                    continue
-            else:
-                raise ValueError("TASK_WORKDIR must be inside the active project")
     else:
         relative = normalize_task_workdir(requested, base_root=base)
         # Legacy persisted DAG nodes are relative to the original session root
@@ -186,4 +194,5 @@ __all__ = [
     "campaign_workdir_path",
     "normalize_task_workdir",
     "resolve_task_workdir",
+    "task_workdir_provenance",
 ]

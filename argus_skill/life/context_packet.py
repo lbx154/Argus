@@ -162,11 +162,14 @@ def render_mission_brief(path: Path | str | None) -> str:
     lines = ["## MissionBrief"]
     workdir = _brief_text(mission.get("execution_workdir"), limit=4000)
     stage = _brief_text(mission.get("stage"), limit=120)
+    work_kind = _brief_text(mission.get("work_kind"), limit=80)
     acceptance = _brief_text(mission.get("acceptance_check"))
     if workdir:
         lines.append(f"- Workdir: `{workdir}`")
     if stage:
         lines.append(f"- Stage: {stage}")
+    if work_kind:
+        lines.append(f"- Work kind: {work_kind}")
     owns_paths = [
         str(item).strip()
         for item in (mission.get("owns_paths") or [])

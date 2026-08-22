@@ -34,6 +34,7 @@ class LayeredSkillStore:
         global_dir: Path,
         vertical_dir: Path | None = None,
         native_project_dir: Path | None = None,
+        execution_project_root: Path | None = None,
     ) -> None:
         self.project = SkillStore(Path(project_dir))
         self.global_ = SkillStore(Path(global_dir))
@@ -43,6 +44,15 @@ class LayeredSkillStore:
         )
         # Unlike managed stores, an Agent Skills root is discovery-only: never
         # create it, and preserve the old root set when the directory is absent.
+        self._execution_project_root = (
+            Path(execution_project_root).resolve()
+            if execution_project_root is not None
+            else (
+                native_project_path.parent.parent.resolve()
+                if native_project_path is not None
+                else None
+            )
+        )
         self._native_project_root = (
             native_project_path.resolve()
             if native_project_path is not None and native_project_path.is_dir()
@@ -60,11 +70,18 @@ class LayeredSkillStore:
 
     def native_project_roots(self) -> list[Path]:
         """Return unscoped project roots for an Agent Skills native loader."""
-        return (
-            [self._native_project_root]
-            if self._native_project_root is not None
-            else []
-        )
+        root = self._native_project_root
+        project_root = self._execution_project_root
+        if root is None or project_root is None or not root.is_dir():
+            return []
+        try:
+            resolved_root = root.resolve(strict=True)
+            resolved_root.relative_to(project_root)
+            for child in root.rglob("*"):
+                child.resolve(strict=True).relative_to(project_root)
+        except (OSError, RuntimeError, ValueError):
+            return []
+        return [resolved_root]
 
     def library_roots(self) -> list[Path]:
         roots = self.native_project_roots()

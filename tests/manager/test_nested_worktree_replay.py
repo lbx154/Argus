@@ -6,13 +6,17 @@ import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from argus_skill.apps._runtime import _SkillLoopRunner
 from argus_skill.core.campaign_workdir import adopt_campaign_workdir
 from argus_skill.core.pipeline_state import read_pipeline_state, write_pipeline_state
+from argus_skill.core.stage_certificate import latest_stage_review
 from argus_skill.life import MemoryBundle
 from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
 from argus_skill.loop import SkillLoopConfig
 from argus_skill.manager import dispatch, front_door
+from argus_skill.skills.stage_machine import completion_contract_fingerprint
 from argus_skill.skills.vertical_select import persist_vertical, resolve_vertical
 from argus_skill.verticals._data_domain import write_data_domain
 
@@ -20,6 +24,109 @@ from argus_skill.verticals._data_domain import write_data_domain
 class _Sink:
     def handle_event(self, event):  # noqa: ANN001
         return None
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["existing", "deferred", "adopted_campaign", "external_symlink"],
+)
+def test_dispatch_workdir_provenance_replays_from_its_validated_root(
+    tmp_path,
+    monkeypatch,
+    case,
+) -> None:
+    base = tmp_path / "workspace"
+    base.mkdir()
+    memory = MemoryBundle.for_cwd(
+        base,
+        global_root=tmp_path / "state",
+        fingerprint=f"s-workdir-{case}",
+    )
+    memory.init()
+    life_dir = Path(front_door._life_dir_for(memory))
+    anchor = base
+    requested = case
+    target = base / requested
+    deferred = case == "deferred"
+
+    if case == "adopted_campaign":
+        anchor = base / "campaign"
+        anchor.mkdir()
+        subprocess.run(["git", "init", "-q", str(anchor)], check=True)
+        adopt_campaign_workdir(
+            state_root=life_dir,
+            base_root=base,
+            current_root=base,
+            requested="campaign",
+        )
+        requested = "target"
+        target = anchor / requested
+    elif case == "external_symlink":
+        target = tmp_path / "external-repository"
+        requested = "repository-link"
+        (base / requested).symlink_to(target, target_is_directory=True)
+
+    if not deferred:
+        target.mkdir()
+        subprocess.run(["git", "init", "-q", str(target)], check=True)
+
+    class _Manager:
+        def decide_vertical(self, body, **_kwargs):
+            return SimpleNamespace(execution_task=f"managed: {body}")
+
+        def commit_vertical_decision(self, _body, decision, **_kwargs):
+            return SimpleNamespace(execution_task=decision.execution_task)
+
+    monkeypatch.setattr(
+        front_door,
+        "_ensure_manager_runner",
+        lambda _state, _mem: SimpleNamespace(manager=_Manager()),
+    )
+    run_node = SimpleNamespace(
+        key="run",
+        deps=("prepare",) if deferred else (),
+        title="Run in selected repository",
+        objective="Use the selected repository.",
+        execution_workdir=requested,
+    )
+    tasks = (
+        (
+            SimpleNamespace(
+                key="prepare",
+                deps=(),
+                title="Prepare repository",
+                objective="Create the deferred repository.",
+            ),
+            run_node,
+        )
+        if deferred
+        else (run_node,)
+    )
+    monkeypatch.setattr(
+        dispatch,
+        "_plan_bounded_execution",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            reason="workdir provenance",
+            error="",
+            tasks=tasks,
+        ),
+    )
+
+    dispatch.enqueue_mission(memory, "run nested work", {"backend": "codex"})
+    item = next(row for row in memory.backlog.all() if row.node_key == "run")
+    expected_provenance = anchor / requested
+    assert item.execution_workdir == str(expected_provenance)
+
+    if deferred:
+        target.mkdir()
+        subprocess.run(["git", "init", "-q", str(target)], check=True)
+
+    supervisor = LifeSupervisor.__new__(LifeSupervisor)
+    supervisor.memory = memory
+    supervisor.config = SimpleNamespace(project_worktree=base)
+    supervisor._emit_status = lambda _message: None
+
+    assert supervisor._resolve_mission_workdir(item) == target.resolve()
 
 
 class _ProductionRunnerProbe(_SkillLoopRunner):
@@ -216,6 +323,14 @@ def test_enqueue_to_supervisor_uses_nested_node_contract_root(
                 stage_closing=True,
                 require_independent_review=True,
             ),
+            SimpleNamespace(
+                key="dependent-node",
+                deps=("target-node",),
+                title="Finish nested replay",
+                objective="Finish only after the target stage attempt settles.",
+                vertical="nested_replay",
+                execution_workdir="target",
+            ),
         ),
     )
     monkeypatch.setattr(dispatch, "_plan_bounded_execution", lambda *a, **k: plan)
@@ -292,6 +407,14 @@ def test_enqueue_to_supervisor_uses_nested_node_contract_root(
     )
     assert packet["stage"] == "target_scope"
     assert packet["execution_workdir"] == str(target.resolve())
-    assert read_pipeline_state(target)["current_stage"] == "target_delivery"
+    assert read_pipeline_state(target)["current_stage"] == "target_scope"
     assert read_pipeline_state(campaign)["current_stage"] == "submission"
     assert read_pipeline_state(life_dir)["current_stage"] == "submission"
+    certificate = latest_stage_review(memory.root, "target_scope")
+    assert certificate is not None
+    assert certificate["manager_action"] == "hold"
+    assert certificate["checklist_fingerprint"] == completion_contract_fingerprint(
+        target,
+        "target_scope",
+        version=1,
+    )

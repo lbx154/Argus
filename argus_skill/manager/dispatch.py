@@ -477,8 +477,8 @@ def enqueue_mission(
         items: list[BacklogItem] = []
         priority = min(head_priority - 1, -1)
         from ..core.campaign_workdir import (
-            normalize_task_workdir,
             resolve_task_workdir,
+            task_workdir_provenance,
         )
         from ..skills.stage_machine import current_stage
 
@@ -487,19 +487,21 @@ def enqueue_mission(
             requested_workdir = str(
                 getattr(node, "execution_workdir", "") or ""
             ).strip()
+            persisted_workdir = task_workdir_provenance(
+                campaign_workdir,
+                requested_workdir,
+            )
             try:
                 node_workdir = resolve_task_workdir(
                     campaign_workdir,
                     requested_workdir,
                 )
-                persisted_workdir = str(node_workdir) if requested_workdir else ""
             except ValueError:
                 raw_refs = list(getattr(node, "context_refs", ()) or ())
                 if requested_workdir and list(node.deps) and not raw_refs:
                     # Preserve the existing deferred-clone contract: a dependency
                     # may create this workdir before the node becomes runnable.
                     node_workdir = campaign_workdir
-                    persisted_workdir = normalize_task_workdir(requested_workdir)
                 else:
                     raise
             stage = current_stage(node_workdir)

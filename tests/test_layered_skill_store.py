@@ -80,6 +80,63 @@ def test_missing_native_project_root_preserves_existing_roots(tmp_path: Path) ->
     ]
 
 
+def test_native_project_root_symlink_cannot_escape_execution_project(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    external = tmp_path / "external-skills"
+    external.mkdir()
+    native_root = repo / ".agents" / "skills"
+    native_root.parent.mkdir(parents=True)
+    native_root.symlink_to(external, target_is_directory=True)
+
+    store = LayeredSkillStore(
+        project_dir=tmp_path / "managed",
+        global_dir=tmp_path / "global",
+        native_project_dir=native_root,
+        execution_project_root=repo,
+    )
+
+    assert external.resolve() not in store.library_roots()
+
+
+def test_native_project_child_symlink_cannot_escape_execution_project(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    native_root = repo / ".agents" / "skills"
+    native_root.mkdir(parents=True)
+    external_skill = tmp_path / "external-skill"
+    external_skill.mkdir()
+    (native_root / "escape").symlink_to(external_skill, target_is_directory=True)
+
+    store = LayeredSkillStore(
+        project_dir=tmp_path / "managed",
+        global_dir=tmp_path / "global",
+        native_project_dir=native_root,
+        execution_project_root=repo,
+    )
+
+    assert native_root.resolve() not in store.library_roots()
+
+
+def test_contained_native_project_children_remain_available(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    native_root = repo / ".agents" / "skills"
+    skill = native_root / "contained" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("contained", encoding="utf-8")
+
+    store = LayeredSkillStore(
+        project_dir=tmp_path / "managed",
+        global_dir=tmp_path / "global",
+        native_project_dir=native_root,
+        execution_project_root=repo,
+    )
+
+    assert store.native_project_roots() == [native_root.resolve()]
+
+
 def test_explicit_semantic_path_selects_existing_layer(tmp_path: Path) -> None:
     store = _store(tmp_path)
     skill = Skill(

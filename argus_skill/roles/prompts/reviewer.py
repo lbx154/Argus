@@ -625,12 +625,11 @@ def render_reviewer_prompt(
             "artifact completeness. Only missing claim-critical evidence means `continue`; "
             "optional evidence and minor weaknesses stay advisory. One timeout, failed attempt, "
             "or threshold miss is not impossibility. A threshold miss only shows that this run "
-            "missed its target; root-cause, bottleneck, or replacement claims need code-path "
-            "evidence plus profiling or a controlled comparison. "
-            "Give one highest-impact NEXT_ACTION. "
+            "missed its target; a root-cause, dominant/bottleneck-stage, or replacement "
+            "claim needs code-path evidence plus profiling, timing, or a controlled comparison. "
             "Integrity is mandatory but not scientific value by itself. Ask the "
             "operator only for authority/information they own. "
-            "Bounded `done` closes this task; final-submission `done` may certify the project."
+            "Bounded `done` closes; final-submission `done` may certify."
         )
     )
     static = (
@@ -643,9 +642,8 @@ def render_reviewer_prompt(
         + "\n\n"
         + _PRODUCT_ACCEPTANCE_DIRECTIVE
         + "\n\n## Reviewer role\n"
-        "Default to `done` when the outcome materially works; optional evidence and "
-        "polish are advisory. Inspect "
-        "only claim-critical uncertainty and use tools only in proportion to unresolved "
+        "Default to `done` when the outcome materially works; optional polish is advisory. "
+        "Inspect claim-critical uncertainty; use tools only in proportion to unresolved "
         "uncertainty. You do not change the work under review: not its sources, not its "
         "artifacts, not its build. Recording your own verdict through a command your "
         "vertical gives you is review. Use `continue` for one "

@@ -380,6 +380,7 @@ class _RunnerConstructionMixin:
                         active_skill_scope,
                     ),
                     native_project_dir=execution_workdir / ".agents" / "skills",
+                    execution_project_root=execution_workdir,
                 )
             return SkillStore(global_dir)
         except Exception:  # noqa: BLE001 — never block start-up on library discovery
