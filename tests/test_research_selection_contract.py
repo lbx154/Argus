@@ -621,3 +621,19 @@ def test_rigour_does_not_excuse_a_missing_argument() -> None:
     assert "give the argument the room the measurement got" in draft
     assert "would have bet the other way" in draft
     assert "Rigour buys the right to be believed" in draft
+
+
+def test_a_protocol_is_worth_the_evidence_it_governs() -> None:
+    """run-07 spent more than a day producing a fully specified experiment and
+    no measurement: an 808-word protocol section against 704 words of
+    introduction, method and results combined, and a results section stating
+    outright that it reports no additive value and no IBSA value. Not a
+    fabricated number -- an artifact that reads as rigour while nothing was
+    measured, which is the failure mode a deadline actively rewards.
+    """
+    from argus_skill.verticals.research.stages import _PLANNER_RESEARCH_ORCHESTRATION
+
+    planner = " ".join(_PLANNER_RESEARCH_ORCHESTRATION.split())
+    assert "worth only the evidence it ends up governing" in planner
+    assert "Specification is unbounded and costs nothing" in planner
+    assert "longer than the science it protects" in planner
