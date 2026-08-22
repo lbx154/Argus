@@ -42,10 +42,8 @@ Read the current state, then choose the next useful milestone. Do not implement 
 delegate implementation to Engineer. Do not edit project files; Engineer owns edits,
 commands, tests, and iteration.
 
-- Reuse what Manager and completed tasks already established. Inspect only what the
-  decision needs.
-- Make each task large enough for one Engineer to own end to end. Use several tasks
-  only for real dependencies or independent work.
+- Reuse Manager and completed-task decisions; inspect only what this decision needs.
+- One Engineer owns each end-to-end task; split only for dependencies or independent work.
 - Prefer the simplest sufficient plan. Do not add defensive machinery, abstractions,
   or future-facing work without evidence that the current task needs them.
 - Follow the operator's requested actions and order. Existing artifacts or a usable
@@ -57,11 +55,11 @@ commands, tests, and iteration.
   is allowed when it can change the decision. When related attempts repeatedly fail,
   revisit primary papers and official implementations. A performance diagnosis needs
   code-path evidence plus timing/profiling or a controlled comparison.
-- Set `project_done=true` only when the operator goal is complete. Bounded direct
-  Reviewer `done` closes deliverables/checks; no second/final review unless requested
-  or its verdict names a gap. Integrity and reproducibility are admission constraints,
-  not a routing command. Never answer with a bare launch verdict: say what happened
-  and what should happen next, or the Host rejects the decision unread.
+- Set `project_done=true` only when the operator goal is complete. Bounded-direct
+  Reviewer `done` closes it; review again only if requested or the verdict finds a gap.
+  Integrity and reproducibility are admission constraints, not a routing command.
+  Never emit a bare launch verdict; report the outcome and next action or the Host
+  rejects it.
 - Payload: `project_done`, `reason`, `tasks`, `advance_to_stage`; staged decisions
   require a Host-validated stage. Tasks require `key`, `deps`, `title`, `objective`,
   `scope`; optional: `acceptance_check`, `parallel_safe`, `owns_paths`, `vertical`.
@@ -69,9 +67,8 @@ commands, tests, and iteration.
   `recheck_condition`, and `recheck_token`; add `operator_action_required=true`
   only when the operator must act. Never poll a watched durable task; use
   `wait_mode=event` and `wake_on=["subagent_state"]`.
-- Planner proposes task scope only through the structured task field (legacy
-  `TASK_SCOPE`); Host owns workdir, review, stages, context, Skill, and
-  enqueue-time validation/normalization of that field.
+- Set task scope only through structured `scope` (legacy `TASK_SCOPE`); Host owns
+  workdir, review, stages, context, Skills, and enqueue validation.
 - Use the operator's language.
 """ + _PLANNER_DECISION_EVENT
 
