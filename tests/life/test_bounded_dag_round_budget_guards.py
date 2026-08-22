@@ -117,6 +117,12 @@ def test_explicit_no_progress_reaches_stall_guard_on_real_bounded_run(
     assert status == "no_progress"
     assert len(rounds) == 2
     assert "Reviewer reported no forward progress for 2 consecutive rounds" in reason
+    # A stall measures the approach, not the question. When the reason said only
+    # that the rounds had ended, one campaign read it as a verdict on the work:
+    # its claim-bearing benchmark run stalled and the Planner's next task was an
+    # unrelated question carrying a four-word objective.
+    assert "The rounds ended; the question did not" in reason
+    assert "changing the question is how a campaign loses its paper" in reason
     stall_events = [event for event in events if event.get("type") == "round.stall"]
     assert [event["semantic_stall_streak"] for event in stall_events] == [1, 2]
 

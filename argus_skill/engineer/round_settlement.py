@@ -57,6 +57,19 @@ def _next_semantic_stall_streak(
     return 0, forward_progress
 
 
+# Half of every failed mission across seven campaigns ended on one of the stall
+# counters, and the reason each returned described only the refusal. One
+# campaign read it as a verdict on the work: its claim-bearing benchmark run
+# stalled, and the next thing the Planner queued was an unrelated question with
+# a four-word objective. What a stall measures is the approach, so the reason
+# has to point somewhere instead of just stopping.
+_STALL_REDIRECT = (
+    " The rounds ended; the question did not. Name what these rounds kept "
+    "failing to move, then take a different route to the same question — "
+    "changing the question is how a campaign loses its paper."
+)
+
+
 class RoundSettlementMixin:
     """Mixin providing ``SupervisedEngineer``'s round-settlement phase and
     the ``_classify`` terminal-status decision gate."""
@@ -103,7 +116,7 @@ class RoundSettlementMixin:
             return (
                 "no_progress",
                 "Engineer produced no effective output for "
-                f"{no_progress_streak} consecutive rounds.",
+                f"{no_progress_streak} consecutive rounds." + _STALL_REDIRECT,
             )
         if (
             stall_threshold > 0
@@ -113,7 +126,7 @@ class RoundSettlementMixin:
             return (
                 "no_progress",
                 "Reviewer reported no forward progress for "
-                f"{semantic_stall_streak} consecutive rounds.",
+                f"{semantic_stall_streak} consecutive rounds." + _STALL_REDIRECT,
             )
         if (
             decision_timeout_seconds > 0
@@ -122,7 +135,8 @@ class RoundSettlementMixin:
         ):
             return (
                 "no_progress",
-                f"Reached {decision_timeout_seconds} seconds without decision progress.",
+                f"Reached {decision_timeout_seconds} seconds without decision "
+                "progress." + _STALL_REDIRECT,
             )
         if (
             hard_escalate_rounds > 0
