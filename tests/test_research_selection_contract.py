@@ -637,3 +637,28 @@ def test_a_protocol_is_worth_the_evidence_it_governs() -> None:
     assert "worth only the evidence it ends up governing" in planner
     assert "Specification is unbounded and costs nothing" in planner
     assert "longer than the science it protects" in planner
+
+
+def test_the_paper_may_be_the_by_product() -> None:
+    """run-03 filed its most valuable result as its own repair log. On one model
+    and 500 rows it measured 0.060 under a truncated CoT harness, 0.688 with the
+    cap raised and the scorer fixed, 0.083 under the model card's tool-integrated
+    protocol with the tool not executed, and 0.764 with it executed, against
+    0.797 published. That explains how a number people report against today
+    reproduces anywhere from 6 to 76 percent, and the campaign called it
+    blocking because BCPO was the selected idea.
+
+    The guard against this becoming a licence to wander is that the by-product
+    must already be measured; drift abandons a question for an unmeasured one.
+    """
+    from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+
+    item = " ".join(
+        next(
+            i for i in STAGE_CHECKLISTS["review"] if i.id == "review.publication_value"
+        ).statement.split()
+    )
+    assert "not always the selected idea" in item
+    assert "already measured, replicated" in item
+    assert "drift abandons a question for an unmeasured one" in item
+    assert "binds what you may claim, not what you are allowed to notice" in item
