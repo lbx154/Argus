@@ -603,3 +603,21 @@ def test_dropping_a_qualifier_can_be_worse_than_keeping_it() -> None:
     assert "narrow the claim to what you did test" in draft
     assert "honest only when the evidence reaches the wider class" in draft
     assert "worse than the apology it replaced" in draft
+
+
+def test_rigour_does_not_excuse_a_missing_argument() -> None:
+    """run-06 produced the most careful measurement in the portfolio -- four
+    resampling schemes, a predeclared win rule, a positive control with
+    specificity 1.00 -- inside a 1,948-word manuscript whose introduction is 160
+    words. For a negative result that is fatal: its whole value is in
+    establishing that the field would have bet the other way, and no amount of
+    resampling supplies that.
+    """
+    from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+
+    draft = " ".join(
+        next(i for i in STAGE_CHECKLISTS["draft"] if i.id == "draft.tex").statement.split()
+    )
+    assert "give the argument the room the measurement got" in draft
+    assert "would have bet the other way" in draft
+    assert "Rigour buys the right to be believed" in draft
