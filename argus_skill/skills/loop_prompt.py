@@ -28,8 +28,22 @@ class PromptContextMixin:
     """Prompt-assembly phase methods for ``SkillLoop``."""
 
     def _build_round_prompt(self, mission: MissionContext, state: SkillLibraryState, next_action: str | None, include_static: bool = True) -> str:
+        compact_team = (
+            str(getattr(self.config, "workflow_mode", "") or "") == "direct"
+        )
+        task = mission.task
+        context_packet_path = str(
+            getattr(self.config, "context_packet_path", "") or ""
+        )
+        if compact_team and context_packet_path:
+            from ..life.context_packet import render_mission_contract
+
+            task = (
+                render_mission_contract(context_packet_path)
+                or task
+            )
         prompt = self._build_engineer_prompt(
-            task=mission.task,
+            task=task,
             skill_text=state.skill_text,
             next_action=next_action,
             original_request=mission.request_anchor,
@@ -38,6 +52,7 @@ class PromptContextMixin:
             require_post_task_learning=self.config.require_post_task_learning,
             project_root=mission.workdir,
             project_skill_dir=_resolve_project_skill_dir(self.skill_store),
+            compact_team=compact_team,
         )
         guidance: list[str] = []
         if self.extra_guidance_provider is not None:
@@ -73,6 +88,7 @@ class PromptContextMixin:
         require_post_task_learning: bool = False,
         project_root=None,
         project_skill_dir: str | None = None,
+        compact_team: bool = False,
     ) -> str:
         from ..roles.prompts.engineer import build_mission_prompt
 
@@ -86,4 +102,5 @@ class PromptContextMixin:
             require_post_task_learning=require_post_task_learning,
             project_root=project_root,
             project_skill_dir=project_skill_dir,
+            compact_team=compact_team,
         )

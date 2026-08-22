@@ -346,15 +346,12 @@ class RoleSessionCapsule:
                 f"\nSemantic task frontier: `{root / 'frontier.json'}`"
             )
         return (
-            "## Your role-session capsule\n"
-            f"Path: `{self.path}`"
+            "## Role state references\n"
+            f"Capsule: `{self.path}`"
             f"{mission_lines}\n"
-            "The Host already applied this capsule and injected the current mission "
-            "state into this prompt. Do not read the capsule or handoff files merely "
-            "for ceremony. Read a referenced mission or frontier only to resolve a "
-            "specific contradiction or after a rotated continuation lost required "
-            "state. Current project artifacts remain authoritative; do not edit the "
-            "capsule or frontier directly."
+            "Host already injected current state. Read a reference only for a specific "
+            "contradiction or continuation; project artifacts remain authoritative. "
+            "Do not edit capsule or frontier metadata."
         )
 
     def save(self) -> bool:

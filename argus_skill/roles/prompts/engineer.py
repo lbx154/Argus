@@ -194,11 +194,44 @@ def build_mission_prompt(
     require_post_task_learning: bool = False,
     project_root: Path | str | None = None,
     project_skill_dir: Path | str | None = None,
+    compact_team: bool = False,
 ) -> str:
     """Build the complete per-round Engineer mission prompt."""
-    sections: list[str] = [EFFECTIVE_TASK_CONTRACT]
     shell_contract = native_shell_contract()
     shell_summary = native_shell_summary()
+    learning_block = _post_task_learning_section(
+        require_post_task_learning=require_post_task_learning,
+        project_skill_dir=project_skill_dir,
+    )
+    if compact_team and include_static:
+        sections = [EFFECTIVE_TASK_CONTRACT]
+        if shell_summary:
+            sections.append(shell_summary)
+        if skill_text:
+            sections.append(skill_text)
+        sections.append(task)
+        sections.append(
+            "## Engineer service\n"
+            "Manager fixed scope and Planner delegated this package. Inspect only what "
+            "the mission contract needs, implement it end to end, and run the named or "
+            "smallest decisive check once. Do not reopen planning, start another Argus "
+            "service, broaden research, or create extra artifacts. If a material blocker "
+            "remains, preserve only the state needed for one next round."
+        )
+        if learning_block:
+            sections.append(learning_block)
+        sections.append(
+            "## Engineer receipt\n"
+            "Return the material result and decisive check; Reviewer owns acceptance.\n"
+            + decision_event_instruction(
+                "engineer",
+                '{"status":"done","result":"material result and decisive check",'
+                '"next_owner":"reviewer"}',
+            )
+        )
+        return sanitize_model_visible_text("\n\n".join(sections))
+
+    sections: list[str] = [EFFECTIVE_TASK_CONTRACT]
     if shell_summary:
         sections.append(shell_summary)
     delta_sections: list[str] = []
@@ -265,10 +298,6 @@ def build_mission_prompt(
         "Use primary sources when external behavior matters. If repeated attempts fail, "
         "recheck the underlying assumption instead of making another cosmetic tweak.\n"
         + _long_experiment_rule()
-    )
-    learning_block = _post_task_learning_section(
-        require_post_task_learning=require_post_task_learning,
-        project_skill_dir=project_skill_dir,
     )
     if learning_block:
         sections.append(learning_block)

@@ -32,15 +32,11 @@ def test_engineer_and_reviewer_receive_direct_edit_instructions(tmp_path: Path) 
     reviewer = shared_checkpoint_instructions(path, role="reviewer")
 
     assert str(path.resolve()) in engineer
-    assert "If its `kind` is `mission_context`" in engineer
-    assert "If its `kind` is `handoff_ref`" in engineer
-    assert "no role handoff exists yet" in engineer
-    assert "open `handoff.path`" in reviewer
-    assert "`mission.path`" in reviewer
-    assert "Read it if it exists" in engineer
-    assert "Engineer already edited it this round" in reviewer
-    assert "the final editor" in reviewer
-    assert "do not emit checkpoint JSON" in reviewer
+    assert "Role-state index" in engineer
+    assert "current prompt already contains the mission contract" in engineer
+    assert "another round needs" in engineer
+    assert "Reviewer is the final editor" in reviewer
+    assert "not a log or JSON verdict" in reviewer
 
 
 def _assemble(round_index: int, checkpoint: Path | None, workdir: Path) -> str:

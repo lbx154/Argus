@@ -121,6 +121,7 @@ def test_bounded_planner_parses_real_fanout_fanin_dag(tmp_path) -> None:
     assert "TASK_STAGE_CLOSING" not in call["prompt"]
     assert "TASK_REQUIRE_INDEPENDENT_REVIEW" not in call["prompt"]
     assert "the Host owns execution and review policy" in call["prompt"]
+    assert "never create a review-only or validation-only task" in call["prompt"]
 
 
 def test_bounded_planner_accepts_observed_control_value_explanations(

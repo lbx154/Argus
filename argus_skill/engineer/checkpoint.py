@@ -32,31 +32,22 @@ def shared_checkpoint_instructions(
     packet = str(Path(path).expanduser().resolve().parent / "latest.json")
     if role == "reviewer":
         action = (
-            "The Engineer already edited it this round. Verify against artifacts, "
-            "then directly correct it before your verdict; you are the final editor."
+            "Reviewer is the final editor: correct it only when another round needs "
+            "remaining state or a next action."
         )
     else:
         action = (
-            "Read it if it exists; create or update it only when another round needs "
-            "current state, evidence paths, blockers, or a next action."
+            "Create or rewrite it only when another round needs current state, evidence "
+            "paths, a blocker, or one next action."
         )
     return (
-        "## Shared checkpoint — edit the file directly using these exact absolute paths\n"
-        f"Canonical context packet: `{packet}`\n"
-        f"Human-editable projection: `{checkpoint}`\n\n"
-        "Use these absolute paths verbatim for every read and edit. Never create or "
-        "use a relative `state/`, `handoffs/`, `latest.json`, or `CHECKPOINT.md` "
-        "copy inside the worktree; such a copy is not runtime state.\n\n"
-        "Read the index first. If its `kind` is `mission_context`, the immutable "
-        "objective/acceptance contract is inline because no role handoff exists "
-        "yet. If its `kind` is `handoff_ref`, open `handoff.path` for the latest "
-        "sealed role decision and `mission.path` for the immutable contract. Open "
-        "only referenced artifacts unless new evidence requires expanding the "
-        "search.\n\n"
-        f"{action}\n\n"
-        "It is current state, not a log: rewrite stale text. Actually edit the file; "
-        "do not duplicate the verdict rationale or next-round instruction here; do "
-        "not emit checkpoint JSON or merely describe an edit."
+        "## Shared checkpoint\n"
+        f"Role-state index: `{packet}`\n"
+        f"Continuation note: `{checkpoint}`\n"
+        "The current prompt already contains the mission contract. Read the index only "
+        "to resolve a contradiction or continue prior work; never create worktree "
+        "copies of these state files. "
+        f"{action} Keep it as current state, not a log or JSON verdict."
     )
 
 

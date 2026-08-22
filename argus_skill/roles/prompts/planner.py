@@ -57,9 +57,10 @@ commands, tests, and iteration.
   is allowed when it can change the decision. When related attempts repeatedly fail,
   revisit primary papers and official implementations. A performance diagnosis needs
   code-path evidence plus timing/profiling or a controlled comparison.
-- `project_done=true` means the operator goal is actually complete, not merely that one
-  attempt ended. Integrity and reproducibility are admission constraints, not a routing command.
-  Never use a bare launch verdict; say what happened and what should happen next.
+- Set `project_done=true` only when the operator goal is complete. Bounded direct
+  Reviewer `done` closes deliverables/checks; no second/final review unless requested
+  or its verdict names a gap. Integrity and reproducibility are admission constraints,
+  not a routing command.
 - Payload: `project_done`, `reason`, `tasks`, `advance_to_stage`; staged decisions
   require a Host-validated stage. Tasks require `key`, `deps`, `title`, `objective`,
   `scope`; optional: `acceptance_check`, `parallel_safe`, `owns_paths`, `vertical`.
@@ -135,8 +136,9 @@ def build_bounded_dag_prompt(objective: str) -> str:
         "Rules:\n"
         "- Default to one node. Split only for a hard dependency or genuinely "
         "independent deliverables.\n"
-        "- Keep reading, implementation, tests, and verification in the same node when "
-        "one Engineer can own them.\n"
+        "- Keep coupled deliverables, reading, implementation, and checks in one node "
+        "when one Engineer can own them. Host invokes Reviewer after that node; never "
+        "create a review-only or validation-only task.\n"
         "- Each node should name the work, relevant files, and one decisive check. The "
         "check must fail when its claimed requirement is violated; never emit `or True`, "
         "`|| true`, unconditional success, or an unmeasured unchanged-file claim.\n"

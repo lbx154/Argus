@@ -73,6 +73,7 @@ def test_manager_prompt_separates_capability_from_execution_mode() -> None:
 
     assert "capability VERTICAL and independent execution WORKFLOW" in prompt
     assert "`direct` for one coherent Engineer work package" in prompt
+    assert "coupled output files" in prompt
     assert "no task work or Live View" in prompt
     assert "Omit `execution_task` for a standalone existing route" in prompt
 
@@ -120,3 +121,25 @@ def test_direct_reviewer_receives_skill_library_paths(tmp_path) -> None:
         config=ReviewerConfig(working_dir=str(tmp_path)),
     )
     assert calls == [True]
+
+
+def test_direct_reviewer_uses_contract_not_stage_pipeline(tmp_path) -> None:
+    persist_vertical(tmp_path, "research", workflow_mode="direct")
+    reviewer = Reviewer(runner=None, skill_store=None)
+
+    prompt = reviewer._build_prompt(
+        objective="Compare the supplied sources and write the two named artifacts.",
+        original_objective="Compare the supplied sources and write the two named artifacts.",
+        operator_messages=[],
+        planner_review_instruction="Verify both artifacts against the supplied sources.",
+        round_index=1,
+        session_id=None,
+        main_summary="Both artifacts exist and the focused check passed.",
+        main_error=None,
+        working_dir=str(tmp_path),
+        scope="bounded",
+    )
+
+    assert reviewer.last_prompt_block_stats["stage_checklist"]["chars"] == 0
+    assert "done` closes a bounded direct task" in prompt
+    assert "## Upstream defects" not in prompt

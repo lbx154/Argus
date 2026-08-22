@@ -300,7 +300,10 @@ def render_reviewer_prompt(
         RESULT_FIELD_CHOICES,
         resolve_research_target_level,
     )
-    from ...skills.vertical_select import _persisted_vertical
+    from ...skills.vertical_select import (
+        _persisted_vertical,
+        resolve_workflow_mode,
+    )
     from .registry import resolve_role_prompt
 
     error_text = main_error or "none"
@@ -368,12 +371,13 @@ def render_reviewer_prompt(
         if review_libraries.block:
             matched_review_skill_block = review_libraries.block + "\n\n"
     stage = prompt_context.stage
+    direct_workflow = resolve_workflow_mode(_proot) == "direct"
     _measured = not _requires_engineering_audit and os.environ.get(
         "ARGUS_SKILL_MEASURED_MODE", ""
     ).strip().lower() in ("1", "true", "yes", "on")
     # Vertical-owned policy arrives through the prompt catalog; this module
     # contributes only role-wide review behavior.
-    optimize_banner = prompt_context.role_banner
+    optimize_banner = "" if direct_workflow else prompt_context.role_banner
     if prompt_context.requires_independent_review and not _requires_engineering_audit:
         optimize_banner = ""
     research_target_instruction = ""
@@ -455,6 +459,8 @@ def render_reviewer_prompt(
         )
     else:
         stage_checklist = prompt_context.stage_checklist
+    if direct_workflow:
+        stage_checklist = ""
 
     wiki_curator_skill_block = ""
     direct_memory_edit_block = ""
@@ -577,7 +583,7 @@ def render_reviewer_prompt(
         measured=_measured,
         compact=not bool((main_error or "").strip()),
     )
-    if prompt_context.workflow_mode == "direct":
+    if direct_workflow:
         rollback_block = ""
     # Byte-stable static policy; every fresh Reviewer receives it in full.
     shell_contract = native_shell_summary()
@@ -589,6 +595,24 @@ def render_reviewer_prompt(
                 planner_review_instruction,
                 *operator_messages,
             )
+        )
+    )
+    handoff_policy = (
+        "`done` closes a bounded direct task when its mission contract and decisive "
+        "check pass. Use `continue` for one concrete material gap and give one next "
+        "action; leave optional hardening advisory."
+        if direct_workflow
+        else (
+            "`done` needs enough evidence for the material outcome, not exhaustive proof or "
+            "artifact completeness. Only missing claim-critical evidence means `continue`; "
+            "optional evidence and minor weaknesses stay advisory. One timeout, failed attempt, "
+            "or threshold miss is not impossibility. A threshold miss only shows that this run "
+            "missed its target; a root-cause, dominant/bottleneck-stage, or replacement-architecture "
+            "claim needs code-path evidence plus profiling, timing, or a controlled comparison. "
+            "Give one highest-impact NEXT_ACTION. "
+            "Integrity is mandatory but not scientific value by itself. Ask the "
+            "operator one question only for authority or information only they can provide. "
+            "Bounded `done` closes this task; final-submission `done` may certify the project."
         )
     )
     static = (
@@ -643,16 +667,8 @@ def render_reviewer_prompt(
         + "\n\n"
         + venv_skill_block
         + "\n\n## Handoff policy\n"
-        "`done` needs enough evidence for the material outcome, not exhaustive proof or "
-        "artifact completeness. Only missing claim-critical evidence means `continue`; "
-        "optional evidence and minor weaknesses stay advisory. One timeout, failed attempt, "
-        "or threshold miss is not impossibility. A threshold miss only shows that this run "
-        "missed its target; a root-cause, dominant/bottleneck-stage, or replacement-architecture "
-        "claim needs code-path evidence plus profiling, timing, or a controlled comparison. "
-        "Give one highest-impact NEXT_ACTION. "
-        "Integrity is mandatory but not scientific value by itself. Ask the "
-        "operator one question only for authority or information only they can provide. "
-        "Bounded `done` closes this task; final-submission `done` may certify the project.\n\n"
+        + handoff_policy
+        + "\n\n"
         + objective_block
         + "Operator messages:\n"
         f"{operator_text}\n\n"

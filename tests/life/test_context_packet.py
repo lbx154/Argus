@@ -10,6 +10,7 @@ from argus_skill.life.context_packet import (
     create_mission_context,
     record_engineer_handoff,
     record_reviewed_handoff,
+    render_mission_contract,
 )
 from argus_skill.life.memory import BacklogItem
 from argus_skill.life.supervisor import LifeSupervisor
@@ -143,6 +144,11 @@ def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> 
     assert reviewed_payload["review"]["frontier_disposition"] == "continue"
     assert "engineer_summary" not in reviewed_payload
     assert "text" not in reviewed_payload["checkpoint"]
+    rendered = render_mission_contract(mission)
+    assert rendered.count("Screen one candidate on public tasks.") == 1
+    assert "Acceptance:" in rendered
+    assert "- do not preregister" in rendered
+    assert "content_hash" not in rendered
 
 
 def test_context_refresh_never_overwrites_role_authored_checkpoint(tmp_path: Path) -> None:

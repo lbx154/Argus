@@ -46,3 +46,24 @@ def test_engineer_prompt_forbids_repeated_checks_and_unbounded_tool_loops() -> N
 
     assert "Never repeat unchanged checks/reads" in prompt
     assert "never exceed 24" in prompt
+
+
+def test_direct_team_prompt_uses_one_mission_contract() -> None:
+    marker = "DIRECT_TEAM_CONTRACT_17"
+    prompt = build_mission_prompt(
+        task=f"## Mission contract\nDeliver {marker}.\n\nAcceptance:\ncheck it once",
+        original_request=f"Long original request containing {marker}.",
+        skill_text="## Skill libraries (on-demand)\n- `/skills/engineer`",
+        role_banner="FULL_VERTICAL_BANNER_MUST_NOT_REPEAT",
+        next_action=None,
+        compact_team=True,
+    )
+
+    assert prompt.count(marker) == 1
+    assert "## Engineer service" in prompt
+    assert "## Engineer receipt" in prompt
+    assert "/skills/engineer" in prompt
+    assert "## Original operator request" not in prompt
+    assert "FULL_VERTICAL_BANNER_MUST_NOT_REPEAT" not in prompt
+    assert "## Shared project Wiki" not in prompt
+    assert len(prompt) < 3_500

@@ -86,6 +86,30 @@ def _read_json_object(path: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def render_mission_contract(path: Path | str | None) -> str:
+    """Render the canonical mission fields once for a fresh role turn."""
+    if not path:
+        return ""
+    payload = _read_json_object(Path(path).expanduser())
+    if str(payload.get("kind") or "") != "mission_context":
+        return ""
+    objective = str(payload.get("objective") or "").strip()
+    if not objective:
+        return ""
+    lines = ["## Mission contract", objective]
+    acceptance = str(payload.get("acceptance_check") or "").strip()
+    if acceptance:
+        lines.extend(("", "Acceptance:", acceptance))
+    non_goals = [
+        str(item).strip()
+        for item in payload.get("non_goals") or []
+        if str(item).strip()
+    ]
+    if non_goals:
+        lines.extend(("", "Non-goals:", *(f"- {item}" for item in non_goals)))
+    return "\n".join(lines)
+
+
 def _attach_mission_metadata(
     mission_path: Path,
     payload: Mapping[str, Any],
@@ -307,4 +331,5 @@ __all__ = [
     "mission_context_dir",
     "record_engineer_handoff",
     "record_reviewed_handoff",
+    "render_mission_contract",
 ]
