@@ -239,3 +239,18 @@ def test_cheapest_does_not_mean_too_small_to_measure() -> None:
     assert "never too few examples to see the margin" in planner
     # The sizing bar stays the campaign's own declared margin, not a fixed n.
     assert "spread of your own repeats" in planner
+
+
+def test_a_long_wait_is_not_an_idle_campaign() -> None:
+    """Every campaign ran one mission while configured for two.
+
+    Rounds 1-3 of one campaign spent about eighteen hours waiting on GPU work
+    with nothing else queued and no pending mission behind it. Waiting does not
+    consume the round budget, so the cost was pure wall-clock.
+    """
+    from argus_skill.verticals.research.stages import _PLANNER_RESEARCH_ORCHESTRATION
+
+    planner = _PLANNER_RESEARCH_ORCHESTRATION.lower()
+    assert "will sit for hours on external" in planner
+    assert "does not need its result" in planner
+    assert "wall-clock is most of what a paper costs" in planner

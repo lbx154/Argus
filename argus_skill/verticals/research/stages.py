@@ -1171,7 +1171,12 @@ _PLANNER_RESEARCH_ORCHESTRATION = (
     "assembly, schema conformance and checklist bookkeeping are not missions of "
     "their own — they are finishing steps inside the mission whose work they "
     "certify, and scheduling them separately spends the campaign on the harness "
-    "instead of the paper.\n"
+    "instead of the paper. When a mission will sit for hours on external "
+    "compute, queue beside it the work that does not need its result: the "
+    "baseline to reproduce, the analysis to write against the agreed schema, "
+    "the section the paper already owes. Campaigns can run two missions at once "
+    "and have been running one, so eighteen hours of GPU wait across five rounds "
+    "bought nothing else — and wall-clock is most of what a paper costs.\n"
 )
 
 _ENGINEER_RESEARCH_EXECUTION = (
