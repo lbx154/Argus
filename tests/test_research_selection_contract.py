@@ -193,3 +193,33 @@ def test_the_paper_quality_chain_has_no_missing_link() -> None:
     assert "accepted same-area" in checklists
     # 9. and the reader can see who won
     assert "as ours" in checklists
+
+
+def test_a_broken_harness_cannot_certify_itself() -> None:
+    """A campaign measured 6% where the model's published score is ~80%.
+
+    Every rollout had hit its token cap, so the pipeline was what got measured,
+    and the paper reported the result as a boundary finding. Reproducing your
+    own broken baseline proves nothing; the absolute check is the published
+    number for the same model and benchmark.
+    """
+    from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+
+    item = next(
+        i for i in STAGE_CHECKLISTS["benchmark"] if i.id == "benchmark.evaluator_authentic"
+    )
+    text = (item.statement + " " + item.evidence_hint).lower()
+    assert "published" in text
+    assert "truncation rate" in text or "hits its own limits" in text
+
+
+def test_a_title_names_a_finding_not_a_genre() -> None:
+    """Two delivered papers titled themselves 'A Boundary Study' and 'on a
+    Substituted ... Layer-20 Model' -- a genre label and an apology."""
+    from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+
+    item = next(i for i in STAGE_CHECKLISTS["draft"] if i.id == "draft.tex")
+    text = item.statement.lower()
+    assert "a boundary study" in text
+    assert "apology has put the excuse where the result belongs" in text
+    assert "no tightly" in text and "fenced claim" in text
