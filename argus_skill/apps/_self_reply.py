@@ -30,6 +30,45 @@ _SELF_RETRYABLE_ACP_ERRORS = (
     "stopreason=cancelled",
 )
 _SELF_LEARNING_REVIEW_INTERVAL = 5
+_SELF_EXECUTION_CONTRACTS = {
+    "micro": (
+        "bash",
+        "Complete the finite local microtask in the current directory. Use one shell "
+        "command to make the requested change and verify it, then report briefly and stop.",
+        "high",
+    ),
+    "implement": (
+        "read,bash,edit,write",
+        "Complete this finite local implementation task. Inspect the relevant starter "
+        "together, design one coherent change, implement all required files, run focused "
+        "end-to-end checks once, fix only observed failures, report briefly, and stop.",
+        "high",
+    ),
+    "debug": (
+        "read,bash,edit,write",
+        "Complete this finite local debugging task. Inspect the implementation and visible "
+        "tests together, identify concrete invariant violations, make one coherent targeted "
+        "edit, run focused tests once, add only requested regression coverage, report "
+        "briefly, and stop.",
+        "medium",
+    ),
+    "review": (
+        "read,bash,write",
+        "Complete this finite local code review. Read the target with line numbers once, "
+        "trace only concrete observable correctness or authorization failures, write "
+        "exactly the requested review artifact without modifying source, validate its "
+        "format once, report briefly, and stop.",
+        "medium",
+    ),
+    "synthesize": (
+        "read,bash,write",
+        "Complete this finite supplied-source synthesis. Read all named local sources "
+        "together, separate quoted measurements from interpretation, draft exactly the "
+        "requested artifact with citations, validate its constraints once, report briefly, "
+        "and stop. Do not use outside knowledge.",
+        "medium",
+    ),
+}
 
 
 def _self_skill_snapshot(root: Path) -> dict[str, bytes]:
@@ -379,7 +418,7 @@ class SelfReplyMixin:
                 sink=_PhaseSink(sink),
                 seed_thread_id=seed_thread_id,
                 lean=mode == "reply",
-                execute=mode == "execute",
+                execute_mode=mode if mode in _SELF_EXECUTION_CONTRACTS else "",
             )
         _phase("Handing off to Planner / Engineer / Reviewer…")
         return None
@@ -656,7 +695,7 @@ class SelfReplyMixin:
         sink: EventSink,
         seed_thread_id: str | None = None,
         lean: bool = False,
-        execute: bool = False,
+        execute_mode: str = "",
     ) -> _Outcome:
         from ..core.role_config import runner_backend_label
         from ..roles.prompts.manager import (
@@ -665,13 +704,15 @@ class SelfReplyMixin:
         )
 
         args = self._args
+        execution_contract = _SELF_EXECUTION_CONTRACTS.get(execute_mode)
+        executing = execution_contract is not None
         seed = (
             None
-            if lean or execute
+            if lean or executing
             else self._next_seed_thread_id if seed_thread_id is None else seed_thread_id
         )
         self._last_self_mode = (
-            "reply" if lean else "execute" if execute else "inspect"
+            "reply" if lean else execute_mode if executing else "inspect"
         )
         backend_label = runner_backend_label()
         sink.handle_event({
@@ -693,8 +734,12 @@ class SelfReplyMixin:
             prompt = build_quick_reply_prompt(objective=objective)
             read_dirs = None
             native_skill_paths: list[str] = []
-        elif execute:
-            prompt = objective.strip()
+        elif execution_contract is not None:
+            prompt = (
+                objective.strip()
+                if str(getattr(self._backend, "backend", "")) == "pi"
+                else f"{execution_contract[1]}\n\nTask:\n{objective.strip()}"
+            )
             read_dirs = None
             native_skill_paths = []
         else:
@@ -754,7 +799,7 @@ class SelfReplyMixin:
         effective_backend = getattr(self._args, "backend", None)
         reply_model = (
             str(getattr(args, "engineer_model", "") or "")
-            if execute
+            if executing
             else resolve_manager_classify_model(backend=effective_backend)
             if lean
             else resolve_manager_reply_model(backend=effective_backend)
@@ -764,9 +809,9 @@ class SelfReplyMixin:
             if lean
             else resolve_role_reasoning_effort(
                 "ARGUS_SKILL_ENGINEER_INITIAL_REASONING_EFFORT",
-                default="high",
+                default=execution_contract[2],
             )
-            if execute
+            if executing
             else resolve_role_reasoning_effort(
                 "ARGUS_SKILL_SELF_REASONING_EFFORT",
                 default="high",
@@ -775,20 +820,19 @@ class SelfReplyMixin:
         run_label = (
             "manager-quick-reply"
             if lean
-            else "self-execute"
-            if execute
+            else f"self-{execute_mode}"
+            if executing
             else "simple-1"
         )
         extra_args = (
             [
                 "--tools",
-                "bash",
+                execution_contract[0],
                 "--system-prompt",
-                "Complete the user task in the current directory. Use one shell "
-                "command to make the requested change and verify it, then report "
-                "briefly and stop.",
+                execution_contract[1],
             ]
-            if execute and str(getattr(self._backend, "backend", "")) == "pi"
+            if execution_contract is not None
+            and str(getattr(self._backend, "backend", "")) == "pi"
             else None
         )
         options = RunnerOptions(
@@ -854,10 +898,10 @@ class SelfReplyMixin:
             self.last_thread_id = None
             self._next_seed_thread_id = None
             new_thread_id = None
-        elif new_thread_id and not lean and not execute:
+        elif new_thread_id and not lean and not executing:
             self.last_thread_id = new_thread_id
             self._next_seed_thread_id = new_thread_id
-        elif execute:
+        elif executing:
             new_thread_id = None
 
         sink.handle_event({
@@ -931,7 +975,7 @@ class SelfReplyMixin:
         reply: str,
     ) -> None:
         """Review every fifth successful chat reply without delaying the answer."""
-        if getattr(self, "_last_self_mode", "") == "execute":
+        if getattr(self, "_last_self_mode", "") in _SELF_EXECUTION_CONTRACTS:
             return
         if not bool(self.manager.memory_maintenance_enabled):
             return

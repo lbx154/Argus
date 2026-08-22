@@ -155,7 +155,13 @@ def _front_door_classify(
                     str(value).strip().lower()
                     for value in self_mode_decisions
                     if str(value).strip().lower() in {
-                        "reply", "inspect", "execute",
+                        "reply",
+                        "inspect",
+                        "micro",
+                        "implement",
+                        "debug",
+                        "review",
+                        "synthesize",
                     }
                 ),
                 "inspect",

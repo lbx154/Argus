@@ -277,11 +277,11 @@ def test_local_microtask_uses_compact_isolated_execution(monkeypatch) -> None:
     runner._simple_quick_reply(
         objective="create result.txt and verify it",
         sink=_RecordingSink(),
-        execute=True,
+        execute_mode="micro",
     )
 
     call = backend.calls[-1]
-    assert call["run_label"] == "self-execute"
+    assert call["run_label"] == "self-micro"
     assert call["prompt"] == "create result.txt and verify it"
     assert call["options"].model == "gpt-5.4-mini"
     assert call["options"].reasoning_effort == "high"
@@ -290,10 +290,41 @@ def test_local_microtask_uses_compact_isolated_execution(monkeypatch) -> None:
         "--tools",
         "bash",
         "--system-prompt",
-        "Complete the user task in the current directory. Use one shell command "
-        "to make the requested change and verify it, then report briefly and stop.",
+        "Complete the finite local microtask in the current directory. Use one "
+        "shell command to make the requested change and verify it, then report "
+        "briefly and stop.",
     ]
     assert runner.last_thread_id is None
+
+
+@pytest.mark.parametrize(
+    ("mode", "tools", "prompt_fragment"),
+    [
+        ("implement", "read,bash,edit,write", "implementation task"),
+        ("debug", "read,bash,edit,write", "debugging task"),
+        ("review", "read,bash,write", "without modifying source"),
+        ("synthesize", "read,bash,write", "supplied-source synthesis"),
+    ],
+)
+def test_local_worker_modes_get_narrow_tools_and_prompts(
+    mode: str,
+    tools: str,
+    prompt_fragment: str,
+) -> None:
+    backend = _FakeBackend(response_message="done")
+    runner = _make_runner(backend)
+
+    runner._simple_quick_reply(
+        objective="complete the local task",
+        sink=_RecordingSink(),
+        execute_mode=mode,
+    )
+
+    call = backend.calls[-1]
+    assert call["run_label"] == f"self-{mode}"
+    assert call["prompt"] == "complete the local task"
+    assert call["options"].extra_args[:2] == ["--tools", tools]
+    assert prompt_fragment in call["options"].extra_args[-1]
 
 
 def test_manager_self_effort_can_be_overridden(monkeypatch) -> None:

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from argus_skill.manager.config_intent import _front_door_classify
 
 
@@ -158,7 +160,13 @@ def test_existing_manager_thread_disables_context_free_fast_reply() -> None:
     assert "_frontdoor_fast_reply" not in state
 
 
-def test_existing_manager_thread_preserves_isolated_execute_mode() -> None:
+@pytest.mark.parametrize(
+    "self_mode",
+    ["micro", "implement", "debug", "review", "synthesize"],
+)
+def test_existing_manager_thread_preserves_isolated_execute_mode(
+    self_mode: str,
+) -> None:
     state: dict = {"last_thread_id": "manager-thread-1"}
 
     decision = _front_door_classify(
@@ -166,12 +174,12 @@ def test_existing_manager_thread_preserves_isolated_execute_mode() -> None:
         "create one file and verify it",
         state,
         ensure_runner=lambda *_args: SimpleNamespace(
-            manager=_Manager(route="simple", self_mode="execute")
+            manager=_Manager(route="simple", self_mode=self_mode)
         ),
     )
 
     assert decision == (None, None, "simple")
-    assert state["_frontdoor_self_mode"] == "execute"
+    assert state["_frontdoor_self_mode"] == self_mode
 
 
 def test_front_door_wrapper_marks_classifier_unavailable() -> None:

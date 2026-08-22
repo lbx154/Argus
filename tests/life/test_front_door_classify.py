@@ -53,8 +53,7 @@ def test_front_door_prompt_has_a_strict_token_efficiency_budget() -> None:
     prompt = build_front_door_prompt("你好", active_mission=True)
 
     assert len(prompt) <= 3_000
-    assert "substantive or multi-source research" in prompt
-    assert "company due diligence" in prompt
+    assert "live research" in prompt
     assert all(
         field in prompt
         for field in (
@@ -72,9 +71,12 @@ def test_front_door_prompt_has_a_strict_token_efficiency_budget() -> None:
     assert "ACTIVE_MISSION: YES" in prompt
     assert "Questions, requests for an explanation/status/capability check" in prompt
     assert "Ambiguity defaults to no control" in prompt
-    assert "terminology definitions" in prompt
-    assert "one explicit deliverable" in prompt
-    assert "EXECUTE" in prompt
+    assert "conversation, status, bounded inspection" in prompt
+    assert "finite local task" in prompt
+    assert "IMPLEMENT" in prompt
+    assert "DEBUG" in prompt
+    assert "REVIEW" in prompt
+    assert "SYNTHESIZE" in prompt
     assert "BOUNDED_INCREMENT" in prompt
     assert "BOUNDED" in prompt
     assert "STANDING" in prompt
@@ -157,20 +159,30 @@ def test_front_door_defaults_self_turn_to_inspection() -> None:
     assert modes == ["inspect"]
 
 
-def test_front_door_selects_execute_for_one_local_microtask() -> None:
+@pytest.mark.parametrize(
+    ("token", "mode"),
+    [
+        ("MICRO", "micro"),
+        ("IMPLEMENT", "implement"),
+        ("DEBUG", "debug"),
+        ("REVIEW", "review"),
+        ("SYNTHESIZE", "synthesize"),
+    ],
+)
+def test_front_door_selects_local_worker_mode(token: str, mode: str) -> None:
     modes: list[str] = []
     decision = classify_front_door(
-        "create one file and verify its exact bytes",
+        "complete one finite local task",
         run_exec=_exec(
             "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\n"
-            "SELF_MODE: EXECUTE\nREPLY: NONE\nLIFETIME: NONE\n"
-            "GREETING: NONE\nNAME: Verify file"
+            f"SELF_MODE: {token}\nREPLY: NONE\nLIFETIME: NONE\n"
+            "GREETING: NONE\nNAME: Local task"
         ),
         self_mode_sink=modes.append,
     )
 
     assert decision == (None, None, "simple")
-    assert modes == ["execute"]
+    assert modes == [mode]
 
 
 def test_front_door_reuses_team_lifetime_from_the_same_model_call() -> None:

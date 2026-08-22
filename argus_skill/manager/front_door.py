@@ -1184,14 +1184,17 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
 
     try:
         mode = str(self_mode or "inspect").strip().lower()
-        if mode not in {"reply", "inspect", "execute"}:
+        execution_modes = {
+            "micro", "implement", "debug", "review", "synthesize",
+        }
+        if mode not in {"reply", "inspect", *execution_modes}:
             mode = "inspect"
         triage_kwargs: dict[str, Any] = {
             "objective": body,
             "sink": _Capture(progress_phases=False),
             "seed_thread_id": (
                 None
-                if mode in {"reply", "execute"}
+                if mode == "reply" or mode in execution_modes
                 else chat_state.get("last_thread_id")
             ),
             "phase_cb": _runner_phase,
