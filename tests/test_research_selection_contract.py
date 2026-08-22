@@ -513,3 +513,22 @@ def test_the_accepted_papers_block_says_to_count_what_they_carry(tmp_path) -> No
     assert "An Accepted Paper (ICLR)" in block
     assert "how many references, how many figures" in block
     assert "before deciding your own draft is done" in block
+
+
+def test_a_conceded_limitation_is_the_next_experiment() -> None:
+    """run-05 wrote its own rejection into its Limitations section: accepted
+    papers in its area evaluate multiple model families and eleven to eighteen
+    benchmarks, and it evaluated one family and six behavior families. It had
+    located the highest-value remaining run in the campaign, wrote it down as a
+    concession, and spent the rest of the budget polishing prose. Nothing in the
+    framework turned a self-diagnosed rejection reason into work.
+    """
+    from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+
+    item = next(
+        i for i in STAGE_CHECKLISTS["review"] if i.id == "review.publication_value"
+    ).statement
+    assert "not a paragraph, it is the next experiment" in item
+    assert "has chosen to concede it" in item
+    # Abandoning it is allowed only as a scientific claim, not a budget excuse.
+    assert "fundamental rather than merely unaffordable" in item
