@@ -77,6 +77,10 @@ class MemoryBackend:
     history: list[tuple[str, str, RunnerOptions]] = field(default_factory=list)
     resume_history: list[tuple[str, str | None]] = field(default_factory=list)
 
+    @property
+    def tool_activity_observation_supported(self) -> bool:
+        return False
+
     def queue(self, run_label: str, *responses: CannedResponse) -> None:
         bucket = self._queues.setdefault(run_label, [])
         bucket.extend(responses)

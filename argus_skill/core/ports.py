@@ -35,6 +35,13 @@ class RunnerBackend(Protocol):
         ...
 
 
+class ToolActivityObservable(Protocol):
+    """Optional runner capability for authoritative tool-use telemetry."""
+
+    @property
+    def tool_activity_observation_supported(self) -> bool: ...
+
+
 # ---------------------------------------------------------------------------
 # Skill source protocol
 # ---------------------------------------------------------------------------

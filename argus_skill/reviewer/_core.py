@@ -320,6 +320,26 @@ class Reviewer:
         parsed.thread_id = rev_tid
         parsed.static_fingerprint = new_fp
         parsed.session_resumed = bool(resume)
+        if (
+            parsed.status == "done"
+            and bool(
+                getattr(
+                    self.runner,
+                    "tool_activity_observation_supported",
+                    False,
+                )
+            )
+            and not bool(getattr(result, "tool_activity_observed", False))
+        ):
+            parsed.status = "continue"
+            parsed.reason = (
+                "Reviewer proposed completion without independently inspecting or "
+                "executing a check."
+            )
+            parsed.next_action = (
+                "Provide a directly runnable acceptance path and concrete evidence "
+                "so Reviewer can independently exercise the result."
+            )
         # The L2 reviewer's verdict is authoritative — the harness must not
         # second-guess its scientific judgment from structured result labels or
         # keyword heuristics on the engineer's summary.
