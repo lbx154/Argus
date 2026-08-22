@@ -570,3 +570,19 @@ def test_a_caveat_is_stated_once_not_in_every_section() -> None:
     assert "Say each caveat once, where it belongs" in draft
     assert "organised around an absence" in " ".join(draft.split())
     assert "let every other section say what the work does establish" in draft
+
+
+def test_renaming_a_baseline_does_not_replace_running_a_real_one() -> None:
+    """run-02 was told to name the method or run the method and chose to rename,
+    correctly: its table now says lexical-route proxy and states it is
+    deliberately not named after any published method. That fixed the
+    misattribution and left the campaign with zero published comparators, a
+    headline of 0.608 against a 0.583 heuristic it wrote itself, and ChunkKV,
+    R-KV and LOCKS cited in Related Work but absent from the table.
+    """
+    from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+
+    plan = next(i for i in STAGE_CHECKLISTS["plan"] if i.id == "plan.experiment").statement
+    assert "resolves the misattribution and not the weakness" in " ".join(plan.split())
+    assert "has not been compared to the field" in plan
+    assert "One real comparator at your own budget" in " ".join(plan.split())
