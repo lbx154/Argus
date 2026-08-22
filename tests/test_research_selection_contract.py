@@ -193,6 +193,10 @@ def test_the_paper_quality_chain_has_no_missing_link() -> None:
     assert "accepted same-area" in checklists
     # 9. and the reader can see who won
     assert "as ours" in checklists
+    # 10. and no earlier acceptance can settle a number nobody outside checked
+    from argus_skill.roles.prompts.reviewer import _INCREMENTAL_REREVIEW_BOUNDARY
+
+    assert "acceptance never settles" in _INCREMENTAL_REREVIEW_BOUNDARY
 
 
 def test_a_broken_harness_cannot_certify_itself() -> None:
@@ -225,20 +229,24 @@ def test_a_title_names_a_finding_not_a_genre() -> None:
     assert "no tightly" in text and "fenced claim" in text
 
 
-def test_cheapest_does_not_mean_too_small_to_measure() -> None:
+def test_the_evidence_run_is_sized_to_convince_not_to_save() -> None:
     """Three campaigns read 'cheapest faithful run' as 'fewest examples'.
 
     They claimed a win of three examples on 120 and of one on 48 -- around half
-    a standard error, which no reviewer reads as a result. The word had to be
-    told what it does not mean.
+    a standard error, which no reviewer reads as a result. Naming the evidence
+    run after its cost was the invitation; the run is now named after the reader
+    it has to convince, and cheapness is left to the feasibility probes.
     """
     from argus_skill.verticals.research.stages import _PLANNER_RESEARCH_ORCHESTRATION
 
     planner = _PLANNER_RESEARCH_ORCHESTRATION.lower()
-    assert "cheapest means no redundant condition" in planner
-    assert "never too few examples to see the margin" in planner
-    # The sizing bar stays the campaign's own declared margin, not a fixed n.
-    assert "spread of your own repeats" in planner
+    assert "cheapest faithful run" not in planner
+    assert "wants the claim to be false" in planner
+    assert "scale is part of the argument, not a cost to minimize" in planner
+    # The sizing bar stays the campaign's own observed spread, not a fixed n.
+    assert "outside their own spread" in planner
+    # A budget that cannot buy the convincing run is staged, never shrunk.
+    assert "stage it and buy it in pieces" in planner
 
 
 def test_a_long_wait_is_not_an_idle_campaign() -> None:
@@ -343,3 +351,30 @@ def test_the_worker_that_can_plan_alongside_is_not_the_one_gated_out() -> None:
     assert "read_continuous_state(self.memory.root)" in source
     # A stopped campaign must not be planned for.
     assert "if not durable.enabled:" in source
+
+
+def test_a_review_that_cannot_fail_is_not_a_review() -> None:
+    """Three campaigns ran 321 reviews and never once returned `incorrect`.
+
+    The Reviewer was asked only relative questions -- not all zeros, not
+    trivially weak -- and 6% on a benchmark the model publishes ~80% on passes
+    both of them. Saying `verified` was free because nothing outside the
+    harness was ever consulted, so the review cost tokens and changed nothing.
+    """
+    from pathlib import Path
+
+    import argus_skill
+
+    skill = (
+        Path(argus_skill.__file__).parent
+        / "verticals/research/skills/reviewer/experiment-results-review.md"
+    ).read_text(encoding="utf-8").lower()
+
+    # the outside anchor the reviewer must fetch before trusting anything above it
+    assert "what does the literature report for *this* model on *this* benchmark" in skill
+    assert "the harness is what you measured" in skill
+    assert "hit their own token or step limit" in skill
+    # and falling short of it ends the review instead of scoring it
+    blockers = skill.split("## hard blockers")[1]
+    assert "far under the published score" in blockers
+    assert "narrower than the spread of the run's own repeats" in blockers

@@ -76,6 +76,8 @@ not mean the frozen premise was supported. Report that separately as
    - Are confidence intervals, repeated measurements, sensitivity analyses,
      formal guarantees, or other domain-appropriate support reported?
    - Are small samples scoped honestly rather than rejected by a universal count?
+   - Is the reported margin wider than the spread of this run's own repeats? A
+     win inside your own noise is not a small win; it is not a measurement.
 
 2. **Ablation fairness**
    - Does each ablation isolate exactly one variable?
@@ -108,6 +110,12 @@ not mean the frozen premise was supported. Report that separately as
    - Did the baseline leave enough headroom for the comparison to distinguish
      methods, rather than saturating on an easy task slice?
    - Would a reviewer say "this baseline is too weak to be meaningful"?
+   - What does the literature report for *this* model on *this* benchmark? Write
+     it beside your own number before judging anything built on it. A baseline
+     far under its published score means the harness is what you measured, and
+     every comparison resting on it is void — the losses included.
+   - What fraction of generations hit their own token or step limit? A run cut
+     off before it can answer scores like a method that cannot.
    - Are published results from prior work included where available?
 
 6. **Completeness**
@@ -145,6 +153,11 @@ Return JSON:
 - No domain-appropriate uncertainty or evidential justification for the headline result
 - Unfair ablation: comparing trained component vs untrained/random component
 - All baselines at 0% or trivially broken
+- A baseline far under the published score for the same model and benchmark with
+  no stated reason: the harness is what was measured, so nothing above it can be
+  reviewed until it is fixed
+- A headline margin narrower than the spread of the run's own repeats, reported
+  as a win
 - A ceilinged/floored or underpowered tie is used to reject the method instead of
   being classified as inconclusive and redesigned
 - Headline claim contradicts the actual numbers

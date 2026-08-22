@@ -462,7 +462,7 @@ def test_a_shortfall_is_a_gap_to_close_not_a_verdict() -> None:
     reviewer = vertical_role_banner(research, "reviewer")
 
     # Selection fixes the number the campaign then spends itself improving.
-    for named in ("end-task claim", "resource-matched", "measures the gap"):
+    for named in ("end-task claim", "resource-matched", "wants the claim to be false"):
         assert named in planner
     assert "close it" in planner
 

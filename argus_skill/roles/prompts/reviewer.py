@@ -35,6 +35,27 @@ _REEVALUATE_HEADER = (
 
 _MAX_SHARED_CTX_CHARS = 100_000_000
 
+# Acceptance settles effort, never truth. Once one round accepted a 6% score on
+# a benchmark where the model publishes ~80%, this boundary forbade every later
+# round from looking again, and the campaign reproduced its own broken baseline
+# for ninety reviews without once returning `incorrect`.
+_INCREMENTAL_REREVIEW_BOUNDARY = (
+    "## Incremental re-review boundary\n"
+    "The previous Reviewer verdict below is settled context for this mission. "
+    "Inspect the prior `next_action`, the current Engineer summary, the "
+    "artifacts changed to satisfy that action, and the implicated acceptance "
+    "checks. Do not restart repository research, reopen accepted findings, or "
+    "repeat unchanged online/source checks. Repeat a broader check only when "
+    "the current delta changed its input, the previous verdict explicitly left "
+    "it unresolved, or a named contradiction/security/authority issue requires "
+    "it. One thing acceptance never settles: a number the paper will stand on "
+    "that nothing outside this harness has ever confirmed. Having been accepted "
+    "is not evidence that it is true, and a harness reproduces its own broken "
+    "baseline every round it is asked. If the requested delta now passes and no "
+    "such contradiction exists, return `done`; do not invent a new unrelated "
+    "repair round.\n\n"
+)
+
 # The Reviewer is the only role that can open the plan-challenge channel, and
 # `reconsider` is the single token that opens it. Until this block existed the
 # word appeared nowhere in any prompt while the example offered an invalid
@@ -518,19 +539,7 @@ def render_reviewer_prompt(
     )
     incremental_review_block = ""
     if round_index > 1 and prev_review_summary.strip():
-        incremental_review_block = (
-            "## Incremental re-review boundary\n"
-            "The previous Reviewer verdict below is settled context for this "
-            "mission. Inspect the prior `next_action`, the current Engineer "
-            "summary, the artifacts changed to satisfy that action, and the "
-            "implicated acceptance checks. Do not restart repository research, "
-            "reopen accepted findings, or repeat unchanged online/source checks. "
-            "Repeat a broader check only when the current delta changed its input, "
-            "the previous verdict explicitly left it unresolved, or a named "
-            "contradiction/security/authority issue requires it. If the requested "
-            "delta now passes and no such contradiction exists, return `done`; do "
-            "not invent a new unrelated repair round.\n\n"
-        )
+        incremental_review_block = _INCREMENTAL_REREVIEW_BOUNDARY
     # Prefer direct runtime and verifier evidence over the Engineer's summary
     # when callers provide it. Omit the block when no such evidence exists.
     evidence_block = (
