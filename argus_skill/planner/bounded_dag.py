@@ -22,6 +22,7 @@ class BoundedDagNode:
     acceptance_check: str = ""
     non_goals: tuple[str, ...] = ()
     vertical: str = ""
+    require_independent_review: bool = False
 
 
 @dataclass(frozen=True)
@@ -51,7 +52,8 @@ def _extract(result: Any) -> str:
 
 _PLAN_LINE = re.compile(
     r"^(?P<key>PLAN_REASON|TASK_KEY|TASK_DEPS|TASK_TITLE|TASK_OBJECTIVE|"
-    r"TASK_ACCEPTANCE_CHECK|TASK_NON_GOALS|TASK_VERTICAL)"
+    r"TASK_ACCEPTANCE_CHECK|TASK_NON_GOALS|TASK_VERTICAL|"
+    r"TASK_REQUIRE_INDEPENDENT_REVIEW)"
     r"\s*[:=]\s*(?P<value>.*)$",
     re.IGNORECASE,
 )
@@ -93,6 +95,8 @@ def _parse_key_value_plan(text: str) -> dict[str, Any]:
             current["non_goals"] = [
                 item.strip() for item in value.split("|") if item.strip()
             ]
+        elif key == "TASK_REQUIRE_INDEPENDENT_REVIEW":
+            current["require_independent_review"] = value
         else:
             current[field_map[key]] = value
     if current is not None:
@@ -136,6 +140,17 @@ def _validate(payload: object) -> tuple[str, tuple[BoundedDagNode, ...]]:
             deps.append(dep)
         if key_identity in seen_dep_identities:
             raise ValueError(f"planner task {key!r} depends on itself")
+        raw_review = row.get("require_independent_review", False)
+        if isinstance(raw_review, bool):
+            require_independent_review = raw_review
+        elif str(raw_review).strip().casefold() in {"true", "false"}:
+            require_independent_review = (
+                str(raw_review).strip().casefold() == "true"
+            )
+        else:
+            raise ValueError(
+                "planner task require_independent_review must be true or false"
+            )
         identity_to_key[key_identity] = key
         nodes.append(
             BoundedDagNode(
@@ -150,6 +165,7 @@ def _validate(payload: object) -> tuple[str, tuple[BoundedDagNode, ...]]:
                     if str(item).strip()
                 ),
                 vertical=str(row.get("vertical") or "").strip(),
+                require_independent_review=require_independent_review,
             )
         )
     nodes = [

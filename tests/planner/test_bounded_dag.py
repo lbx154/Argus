@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from argus_skill.core.models import RunnerResult
 from argus_skill.planner.bounded_dag import plan_bounded_dag
 
@@ -110,7 +112,7 @@ def test_bounded_planner_parses_real_fanout_fanin_dag(tmp_path) -> None:
     assert "Existing grounding never forbids fresh upstream research" in prompt
     assert "When related attempts repeatedly fail" in prompt
     assert "`deps` (same-batch keys only)" in prompt
-    assert not hasattr(plan.tasks[2], "require_independent_review")
+    assert plan.tasks[2].require_independent_review is True
     call = runner.calls[0]
     assert call["run_label"] == "planner.bounded_dag"
     assert call["options"].working_dir == str(tmp_path.resolve())
@@ -119,9 +121,9 @@ def test_bounded_planner_parses_real_fanout_fanin_dag(tmp_path) -> None:
     assert "Any later response is plain language and is not parsed." in call["prompt"]
     assert "TASK_CONTEXT_REFS" not in call["prompt"]
     assert "TASK_STAGE_CLOSING" not in call["prompt"]
-    assert "TASK_REQUIRE_INDEPENDENT_REVIEW" not in call["prompt"]
-    assert "the Host owns execution and review policy" in call["prompt"]
-    assert "never create a review-only or validation-only task" in call["prompt"]
+    assert "`require_independent_review:true`" in call["prompt"]
+    assert "The Host owns execution and enforces review policy" in call["prompt"]
+    assert "Never create a review-only or validation-only task" in call["prompt"]
 
 
 def test_bounded_planner_accepts_observed_control_value_explanations(
@@ -155,6 +157,7 @@ def test_bounded_planner_accepts_observed_control_value_explanations(
     assert plan.error == ""
     assert plan.tasks[0].deps == ()
     assert not hasattr(plan.tasks[0], "scope")
+    assert plan.tasks[0].require_independent_review is True
 
 
 def test_bounded_planner_rejects_cycle(tmp_path) -> None:
@@ -222,7 +225,34 @@ def test_bounded_planner_accepts_minimal_task_without_control_fields(tmp_path) -
 
     assert plan.error == ""
     assert plan.tasks[0].title == "A"
-    assert not hasattr(plan.tasks[0], "require_independent_review")
+    assert plan.tasks[0].require_independent_review is False
+
+
+def test_bounded_planner_carries_structured_independent_review_policy(
+    tmp_path,
+) -> None:
+    decision = {
+        "role": "planner",
+        "payload": {
+            "reason": "the operator requested independent review",
+            "tasks": [{
+                "key": "implement",
+                "deps": [],
+                "title": "Implement",
+                "objective": "implement and test the feature",
+                "require_independent_review": True,
+            }],
+        },
+    }
+
+    plan = plan_bounded_dag(
+        _RawRunner(f"ARGUS_ROLE_DECISION={json.dumps(decision)}"),
+        "implement and independently review the feature",
+        workdir=tmp_path,
+    )
+
+    assert plan.error == ""
+    assert plan.tasks[0].require_independent_review is True
 
 
 def test_bounded_planner_resolves_casefolded_dep_to_canonical_key(tmp_path) -> None:
