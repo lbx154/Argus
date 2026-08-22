@@ -335,3 +335,28 @@ def test_a_review_that_cannot_fail_is_not_a_review() -> None:
     blockers = skill.split("## hard blockers")[1]
     assert "far under the published score" in blockers
     assert "narrower than the spread of the run's own repeats" in blockers
+
+
+def test_a_qualifier_in_the_title_has_to_be_earned() -> None:
+    """run-06 titled itself 'A Frozen Environment-Invariant Causal Subspace Does
+    Not Beat Prompt Steering on AxBench' after a decisive 750-row loss -- and it
+    only ever ran the frozen variant. A reader cannot tell from that whether
+    causal steering failed or freezing did, so the negative result does not
+    answer the question the abstract poses.
+    """
+    from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+
+    draft = next(i for i in STAGE_CHECKLISTS["draft"] if i.id == "draft.tex").statement
+    assert "A qualifier you chose is itself a claim" in draft
+    assert "show that or drop the word" in draft
+    # And a negative result is only publishable if it kills something.
+    assert "naming the belief it kills" in draft
+
+
+def test_a_table_is_written_for_a_person() -> None:
+    """The same paper printed 0.6946666666666667 and -0.35733333333333334."""
+    from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+
+    tables = next(i for i in STAGE_CHECKLISTS["review"] if i.id == "review.tables").statement
+    assert "as ours" in tables and "bold the winning number" in tables
+    assert "Round every number to the precision its evidence supports" in tables
