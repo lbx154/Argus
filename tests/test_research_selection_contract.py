@@ -683,3 +683,21 @@ def test_a_failed_positive_control_stops_the_run() -> None:
     assert "Read it before the run finishes, not after" in item
     assert "stop the run rather than completing it" in item
     assert "the compute is the paper's remaining budget" in item
+
+
+def test_a_slow_run_is_diagnosed_before_the_budget_is_cut() -> None:
+    """run-04's generation benchmarks ran on CPU: 2472% CPU and four days of CPU
+    time in four and a half wall-clock hours, while the GPU holding the model
+    sat at 0% utilisation. It never diagnosed that, and instead shrank the
+    generation budget to twelve tokens to make the sweeps finish -- which is how
+    a performance bug became a scientific one, because at twelve tokens every
+    hit rate including the positive control reads 0.0.
+    """
+    from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+
+    item = " ".join(
+        next(i for i in STAGE_CHECKLISTS["run"] if i.id == "run.manifests").statement.split()
+    )
+    assert "check that it runs on the hardware you think it does" in item
+    assert "compare GPU utilisation against CPU time" in item
+    assert "is not a reason to measure less" in item

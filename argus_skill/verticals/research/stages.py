@@ -388,7 +388,17 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "Each long-running experiment writes manifest.json, status.json, "
                 "progress.jsonl, raw scored rows, and obeys the STOP-file "
-                "cancellation contract."
+                "cancellation contract. Before committing hours to it, check that "
+                "it runs on the hardware you think it does: record device "
+                "placement and observed throughput on the first few examples, and "
+                "compare GPU utilisation against CPU time. One campaign burned "
+                "four days of CPU time in four wall-clock hours at 2472 percent "
+                "CPU while the GPU holding its model sat at zero, and paid for it "
+                "twice — once in wall-clock, and again by shrinking its generation "
+                "budget to twelve tokens to compensate, which turned a performance "
+                "bug into a scientific one by making every concept undetectable. "
+                "A run that is slow for a reason you have not identified is not a "
+                "reason to measure less."
             ),
             evidence_hint="experiments/<run>/{manifest,status}.json + progress.jsonl + raw rows",
         ),
