@@ -1167,6 +1167,18 @@ _MANAGER_RESEARCH_STEWARDSHIP = (
 )
 
 
+def search_altitude_context(project_root: object) -> str:
+    """Everything a role should have in view before it judges its own work.
+
+    Two facts the campaign wrote down itself and then never reopened: what it
+    promised at selection, and which accepted papers it said it would learn
+    from. Both are rendered; neither is scored.
+    """
+    return _selection_contract_block(project_root) + _accepted_papers_block(
+        project_root
+    )
+
+
 def role_banner(role: str = "engineer") -> str:
     """Add research-only role policy without affecting other verticals."""
     return {
@@ -1177,7 +1189,94 @@ def role_banner(role: str = "engineer") -> str:
     }.get(role, "")
 
 
-def search_altitude_context(project_root: object) -> str:
+def _selection_contract_block(project_root: object) -> str:
+    """Put what this campaign promised at selection back in front of it.
+
+    Selection records the end task, the baseline to beat and the margin that
+    would count. Nothing reopened that file afterwards: across a full campaign
+    the phrase never appeared in a role session again, so the campaign both set
+    the bar and reported against it without the two ever meeting. A soft
+    baseline or a conveniently small margin then costs nothing, and a claim can
+    drift for days without anyone noticing it moved.
+
+    The file is written by an Agent, so its shape differs every campaign — the
+    same promise has been filed as ``meaningful_win_threshold``,
+    ``meaningful_win_size`` and ``claim_contract.end_task``. Fields are matched
+    by intent at any depth rather than by a fixed schema, because a campaign
+    that had to satisfy a schema would write to the schema.
+
+    This renders the promise and stops. Whether the baseline was the strongest
+    available, whether the margin was honest, and whether today's number clears
+    it are the reading Agent's calls — a harness that compared them itself
+    would only teach the next campaign to promise less. Fail-soft throughout.
+    """
+    try:
+        import json
+        from pathlib import Path as _Path
+
+        root = _Path(str(project_root)).resolve()
+        path = root / "research" / "IDEA_SELECTION.json"
+        if not path.is_file():
+            return ""
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            return ""
+
+        # (label, key fragments) — first match at the shallowest depth wins.
+        wanted = (
+            ("question", ("central_uncertainty", "consequential_uncertainty")),
+            ("end task", ("end_task", "headline_claim", "final_claim", "claim_scope")),
+            ("baseline to beat", ("strongest_resource_matched_baseline",)),
+            ("margin that would count", ("meaningful_win",)),
+        )
+
+        def flatten(value: object) -> str:
+            if isinstance(value, dict):
+                parts = [f"{k}: {flatten(v)}" for k, v in value.items()]
+            elif isinstance(value, (list, tuple)):
+                parts = [flatten(v) for v in value]
+            else:
+                return " ".join(str(value).split())
+            return "; ".join(p for p in parts if p)
+
+        found: dict[str, tuple[int, str]] = {}
+
+        def walk(node: object, depth: int = 0) -> None:
+            if not isinstance(node, dict) or depth > 4:
+                return
+            for key, value in node.items():
+                low = str(key).lower()
+                for label, fragments in wanted:
+                    if any(fragment in low for fragment in fragments):
+                        text = flatten(value)
+                        if text and depth < found.get(label, (99, ""))[0]:
+                            found[label] = (depth, text)
+                walk(value, depth + 1)
+
+        walk(payload)
+        lines = [
+            f"- {label}: {found[label][1][:400]}"
+            for label, _ in wanted
+            if label in found
+        ]
+        if not lines:
+            return ""
+        missing = [label for label, _ in wanted if label not in found]
+        if missing:
+            lines.append(f"- never filed: {', '.join(missing)}")
+        return (
+            "## What this campaign promised at selection\n"
+            "From `research/IDEA_SELECTION.json`, written before the work began.\n"
+            + "\n".join(lines)
+            + "\nIf the claim has moved since, say so and why: drift you argue for "
+            "is research, and drift nobody mentions is how a soft baseline "
+            "becomes a result.\n\n"
+        )
+    except Exception:  # noqa: BLE001 — a missing promise must never block a role
+        return ""
+
+
+def _accepted_papers_block(project_root: object) -> str:
     """Put the accepted papers this work claims to learn from within reach.
 
     ``ARGUMENT_ORGANIZATION.json`` already records same-area accepted papers
