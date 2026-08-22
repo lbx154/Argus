@@ -486,3 +486,30 @@ def test_queueing_work_beside_a_run_says_how_to_make_it_claimable() -> None:
     assert "`parallel_safe` with a concrete `owns_paths` list" in planner
     assert "every running task" in planner
     assert "switches parallelism off for the whole" in planner
+
+
+def test_the_accepted_papers_block_says_to_count_what_they_carry(tmp_path) -> None:
+    """All seven papers sat far under their venue on the two counts a reviewer
+    forms an impression from before checking any number: nine to eighteen
+    references, and none to six figures. The accepted papers were already on
+    disk and nobody counted them. The bar is the venue's own, not a threshold
+    invented here, which is why it is asked as a comparison.
+    """
+    import json
+
+    from argus_skill.verticals.research.argument_organization import (
+        ARGUMENT_ORGANIZATION_PATH,
+    )
+    from argus_skill.verticals.research.stages import _accepted_papers_block
+
+    target = tmp_path / ARGUMENT_ORGANIZATION_PATH
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        json.dumps({"exemplars": [{"title": "An Accepted Paper", "venue": "ICLR"}]}),
+        encoding="utf-8",
+    )
+
+    block = _accepted_papers_block(tmp_path)
+    assert "An Accepted Paper (ICLR)" in block
+    assert "how many references, how many figures" in block
+    assert "before deciding your own draft is done" in block

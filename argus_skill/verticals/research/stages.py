@@ -1419,7 +1419,12 @@ def _accepted_papers_block(project_root: object) -> str:
             "## Accepted same-area papers on disk\n"
             "The full text of each is local and readable now:\n"
             + "\n".join(lines)
-            + "\n"
+            + "\nCount what they carry before deciding your own draft is done: "
+            "how many references, how many figures, and what the first figure "
+            "is asked to do. Seven campaigns here filed nine to eighteen "
+            "references and none to six figures against papers accepted with "
+            "several times that, which a reviewer reads as a related-work "
+            "section nobody wrote.\n"
         )
     except Exception:  # noqa: BLE001 - prompt building never fails on this
         return ""
