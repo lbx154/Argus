@@ -69,3 +69,53 @@ def test_healthy_subagent_wait_does_not_consume_cadence_rounds(
     assert control.action == "continue_loop"
     assert calls == ["task-123", "task-123", "task-123"]
     assert state.last_decision_progress_at == progress_at + 255.0
+
+
+def test_a_direct_job_that_writes_nothing_is_not_healthy(tmp_path) -> None:
+    """A direct job's health was decided by pid liveness alone. One loaded its
+    model and then span for eleven hours and thirty-five minutes at 95% of a
+    core across 196 threads, holding 15 GB of GPU, with zero bytes in its stdout
+    and no output file anywhere in the campaign — and stayed RUNNING_HEALTHY the
+    whole time while its campaign waited. Liveness is not activity.
+    """
+    import os
+    import time
+
+    from argus_skill.engineer.external_work import (
+        ExternalWorkState,
+        scan_external_work,
+    )
+
+    registry = tmp_path / ".argus_subagents"
+    logs = registry / "spinner_logs"
+    logs.mkdir(parents=True)
+    (logs / "stdout.log").write_text("", encoding="utf-8")
+    (registry / "spinner.json").write_text(
+        json.dumps({
+            "task_id": "spinner",
+            "state": "running",
+            "mode": "direct",
+            "pid": os.getpid(),
+            "worker_pid": os.getpid(),
+        }),
+        encoding="utf-8",
+    )
+
+    def _status(silent_seconds: float):
+        stale = time.time() - silent_seconds
+        os.utime(logs / "stdout.log", (stale, stale))
+        return next(
+            s for s in scan_external_work(tmp_path) if s.work_id == "spinner"
+        )
+
+    # Quiet for a few minutes is normal work, not a problem.
+    working = _status(60)
+    assert working.state is ExternalWorkState.RUNNING_HEALTHY
+    assert working.waitable is True
+
+    # Past the staleness window it needs a person, and it stops buying the
+    # free rounds the stall guard grants to healthy work.
+    spinning = _status(4 * 3600)
+    assert spinning.state is ExternalWorkState.NEEDS_ATTENTION
+    assert spinning.waitable is False
+    assert "written nothing for 240m" in spinning.reason

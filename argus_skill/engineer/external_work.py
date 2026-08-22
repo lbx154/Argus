@@ -156,6 +156,36 @@ def _canonical_status(
     )
 
 
+def _seconds_since_last_write(
+    record: dict[str, Any], *, path: Path, work_id: str, now: float
+) -> float:
+    """Silence on the files this job itself writes.
+
+    A direct job's health was decided by ``_pid_alive`` alone, so a run that
+    loaded its model and then span for eleven hours writing nothing stayed
+    ``RUNNING_HEALTHY`` and its campaign waited on it all day. Liveness is not
+    activity. Looks at the job's log directory and at any evidence paths it
+    declared; returns 0.0 when nothing is readable, so an unknown answer never
+    becomes an accusation.
+    """
+    candidates: list[Path] = []
+    logs = path.parent / f"{work_id}_logs"
+    try:
+        if logs.is_dir():
+            candidates.extend(logs.iterdir())
+    except OSError:
+        pass
+    for declared in _safe_relative_paths(record.get("evidence_paths")):
+        candidates.append(path.parent.parent / declared)
+    newest = 0.0
+    for entry in candidates:
+        try:
+            newest = max(newest, entry.stat().st_mtime)
+        except OSError:
+            continue
+    return max(0.0, now - newest) if newest else 0.0
+
+
 def _subagent_status(
     record: dict[str, Any], *, path: Path, now: float
 ) -> ExternalWorkStatus | None:
@@ -202,6 +232,16 @@ def _subagent_status(
     ):
         state = ExternalWorkState.STALLED
         reason = "subagent supervisor heartbeat is stale"
+    elif mode == "direct" and (
+        silent_for := _seconds_since_last_write(
+            record, path=path, work_id=work_id, now=now
+        )
+    ) > stale_after:
+        state = ExternalWorkState.NEEDS_ATTENTION
+        reason = (
+            f"alive but has written nothing for {int(silent_for) // 60}m — "
+            "a run nobody can watch cannot be resumed or debugged"
+        )
     elif (
         mode not in {"direct", "supervised"}
         or state_value == "discussing"
