@@ -125,3 +125,23 @@ def test_promise_reaches_roles_through_the_vertical_hook(tmp_path):
     _write(tmp_path, {"end_task_claim": "the claim under test"})
     block = vertical_search_altitude(load_vertical("research"), tmp_path)
     assert "the claim under test" in block
+
+
+def test_a_run_that_cannot_see_the_win_does_not_retire_the_idea() -> None:
+    """One campaign called a 0.73-standard-error gap decisive and quit.
+
+    Its whole results table spanned about one standard error, with no error bar
+    anywhere in the paper. Policy has to say that a run whose noise is wider
+    than the promised margin has not tested anything -- without naming a
+    threshold, since the margin is the one the campaign itself declared.
+    """
+    from argus_skill.verticals.research.stages import _AMBITIOUS_RESEARCH_POLICY
+
+    policy = _AMBITIOUS_RESEARCH_POLICY.lower()
+    assert "could have seen the win" in policy
+    assert "spread of your own repeated measurements" in policy
+    assert "margin declared at selection" in policy
+    assert "only failed to look at it" in policy
+    # The bar is the campaign's own declared margin, never a number we invent.
+    for invented in ("0.05", "95%", "three seeds", "p <"):
+        assert invented not in policy
