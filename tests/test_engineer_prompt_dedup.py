@@ -48,15 +48,15 @@ def test_engineer_prompt_forbids_repeated_checks_and_unbounded_tool_loops() -> N
     assert "never exceed 24" in prompt
 
 
-def test_engineer_prompt_requires_structured_operator_options() -> None:
+def test_engineer_prompt_marks_detail_dependent_operator_options() -> None:
     prompt = build_mission_prompt(
         task="Offer the operator implementation choices.",
         skill_text="",
         next_action=None,
     )
 
-    assert '"id":"a","label":"Use A","description"' in prompt
-    assert "not a bare string" in prompt
+    assert "operator_options" in prompt
+    assert "requires_note:true" in prompt
 
 
 def test_direct_team_prompt_uses_one_mission_contract() -> None:
