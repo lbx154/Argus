@@ -51,9 +51,11 @@ class _Manager:
             "tests/life/test_planner_dag_enqueue.py",
         )
         self.calls = 0
+        self.kwargs: list[dict] = []
 
     def decide_self_maintenance(self, observations, **_kwargs):
         self.calls += 1
+        self.kwargs.append(dict(_kwargs))
         if self.action == "no_action":
             return SimpleNamespace(action="no_action")
         if self.action == "adopt":
@@ -196,7 +198,7 @@ def test_non_git_packaged_runtime_uses_release_update_mode_without_git_probe(
         framework_root=tmp_path / "frozen" / "_internal",
         project_workdir=tmp_path / "project",
         manager=manager,
-        memory=SimpleNamespace(),
+        memory=SimpleNamespace(backlog=SimpleNamespace(all=lambda: [])),
         backend="pi",
         on_event=events.append,
     )
@@ -213,7 +215,17 @@ def test_non_git_packaged_runtime_uses_release_update_mode_without_git_probe(
 
     controller.observe({"type": "life.planner.error", "error": "runtime bug"})
     assert controller.audit_if_due(daemon_state={"budget_allowed": True}) == ""
-    assert manager.calls == 0
+    assert manager.calls == 1
+    assert manager.kwargs[-1]["usage_mission_id"].startswith(
+        "self-maintenance-audit-"
+    )
+    assert manager.kwargs[-1]["read_only"] is True
+    state = json.loads(controller.state_path.read_text(encoding="utf-8"))
+    assert state["last_audit_at"] > 0
+    assert state["last_audit_action"] == "repair"
+    assert state["phase"] == "release_update_required"
+    assert events[-1]["type"] == "manager.self_maintenance.audit_completed"
+    assert events[-1]["maintenance_mode"] == "release_update"
     assert not any(
         event.get("type") == "manager.self_maintenance.preparation_failed"
         for event in events

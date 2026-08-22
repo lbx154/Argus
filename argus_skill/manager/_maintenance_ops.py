@@ -23,6 +23,7 @@ class _MaintenanceMixin:
         framework_root: Path | str,
         on_event: Any = None,
         usage_mission_id: str = "",
+        read_only: bool = False,
     ) -> Any:
         """Decide whether observed daemon evidence warrants one framework repair."""
         from ..core.models import RunnerOptions
@@ -49,7 +50,9 @@ class _MaintenanceMixin:
             model=_manager_model(),
             reasoning_effort=_manager_reasoning_effort(),
             working_dir=str(Path(framework_root).resolve()),
-            dangerous_yolo=True,
+            dangerous_yolo=not read_only,
+            force_safe_mode=read_only,
+            sandbox_mode="read-only" if read_only else None,
             skip_git_repo_check=True,
         )
 

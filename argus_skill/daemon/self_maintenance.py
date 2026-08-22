@@ -795,9 +795,14 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
         return available
 
     def audit_if_due(self, *, daemon_state: dict[str, Any]) -> str:
-        if not self.preflight_isolation():
+        maintenance_available = self.preflight_isolation()
+        if (
+            not maintenance_available
+            and str(self._state().get("maintenance_mode") or "")
+            != "release_update"
+        ):
             return ""
-        if self._active_item() is not None:
+        if maintenance_available and self._active_item() is not None:
             return ""
         state = self._state()
         if str(state.get("handoff_error") or "").strip():
@@ -830,7 +835,8 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
             return ""
         if daemon_state.get("budget_allowed") is False:
             return ""
-        self._observe_upstream_update()
+        if maintenance_available:
+            self._observe_upstream_update()
         state = self._state()
         observations = self._observations()
         self._write_state(last_audit_at=now, event_audit_pending=False)
@@ -842,7 +848,26 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
             framework_root=self.framework_root,
             on_event=self.on_event,
             usage_mission_id=f"self-maintenance-audit-{int(now)}",
+            read_only=not maintenance_available,
         )
+        if not maintenance_available:
+            action = str(getattr(decision, "action", "") or "no_action")
+            reason = str(getattr(decision, "reason", "") or "")
+            self._mark_observations_adjudicated(observations)
+            self._write_state(
+                phase="release_update_required",
+                last_audit_action=action,
+                last_audit_reason=reason[:1000],
+            )
+            self._emit({
+                "type": "manager.self_maintenance.audit_completed",
+                "action": action,
+                "reason": reason[:1000],
+                "maintenance_available": False,
+                "maintenance_mode": "release_update",
+                "agent_layer": "manager",
+            })
+            return ""
         if getattr(decision, "action", "") == "adopt":
             selected = {
                 str(row.get("id") or ""): row for row in observations

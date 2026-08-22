@@ -119,3 +119,31 @@ def test_maintenance_manager_gets_full_framework_tools(tmp_path) -> None:
     assert options.working_dir == str(framework.resolve())
     assert options.sandbox_mode is None
     assert options.dangerous_yolo is True
+
+
+def test_packaged_maintenance_audit_is_read_only(tmp_path) -> None:
+    project = tmp_path / "project"
+    framework = tmp_path / "framework"
+    project.mkdir()
+    framework.mkdir()
+    backend = MemoryBackend()
+    backend.queue(
+        "manager-self-maintenance",
+        CannedResponse(message=json.dumps({
+            "action": "no_action",
+            "reason": "no framework change is warranted",
+        })),
+    )
+    manager = Manager(project_root=project, runner=backend)
+
+    manager.decide_self_maintenance(
+        [{"id": "event-1", "type": "life.planner.error", "details": {}}],
+        daemon_state={},
+        framework_root=framework,
+        read_only=True,
+    )
+
+    _label, _prompt, options = backend.history[-1]
+    assert options.sandbox_mode == "read-only"
+    assert options.force_safe_mode is True
+    assert options.dangerous_yolo is False
