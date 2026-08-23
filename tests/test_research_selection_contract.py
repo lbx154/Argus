@@ -990,3 +990,46 @@ def test_a_long_mission_keeps_getting_planning_opportunities(tmp_path, monkeypat
     clock[0] += _core._IDLE_BACKOFF_CAP_SECONDS + 1
     sup._plan_alongside_running_work([running])
     assert len(planned) == 2
+
+
+def test_the_planner_cannot_return_its_own_schema_example() -> None:
+    """The planner prompt's JSON example is a realistic-looking task, and the
+    Planner returns it verbatim often enough to matter. run-01 spent a mission
+    slot on "Does pruning beat 4-bit at equal latency?" -- objective "match
+    latency, read top-1", 25 characters, node key k1 -- in place of the
+    claim-bearing ImageNet-C experiment it had just prepared, and run-02
+    produced the identical row a day later. From outside it is indistinguishable
+    from a real task; I nearly aborted run-01's real experiment because of it.
+    """
+    import pytest
+
+    from argus_skill.planner.bounded_dag import _validate
+    from argus_skill.roles.prompts.planner import _PLANNER_DECISION_PAYLOAD_EXAMPLE
+
+    example_title = "Does pruning beat 4-bit at equal latency?"
+    example_objective = "match latency, read top-1"
+    # The guard is only correct while it matches the example actually shipped.
+    assert example_title in _PLANNER_DECISION_PAYLOAD_EXAMPLE
+    assert example_objective in _PLANNER_DECISION_PAYLOAD_EXAMPLE
+
+    leaked = {
+        "reason": "why",
+        "tasks": [{
+            "key": "k1", "deps": [],
+            "title": example_title, "objective": example_objective,
+            "scope": "bounded",
+        }],
+    }
+    with pytest.raises(ValueError, match="schema example"):
+        _validate(leaked)
+
+    real = {
+        "reason": "the gate now fires and the comparison can be trusted",
+        "tasks": [{
+            "key": "k1", "deps": [],
+            "title": "Does active-gate DARC beat official EATA at matched scale?",
+            "objective": "Run 915 examples per slice against official EATA and SAR.",
+            "scope": "bounded",
+        }],
+    }
+    assert len(_validate(real)[1]) == 1
