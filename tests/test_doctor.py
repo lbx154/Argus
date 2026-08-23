@@ -366,11 +366,10 @@ def test_backend_preflight_missing_binary_names_the_configured_backend(monkeypat
     assert "codex" not in check.detail
 
 
-def test_backend_preflight_defaults_to_codex_with_original_install_hint(
+def test_backend_preflight_defaults_to_codex_with_platform_install_hint(
     tmp_path, monkeypatch
 ):
-    """The default (unset) backend keeps the exact original codex message so
-    existing operators see no change."""
+    from argus_skill.core.backend_readiness import backend_install_command
     from argus_skill.webapi.diagnostics import _check_backend_preflight
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
@@ -384,7 +383,7 @@ def test_backend_preflight_defaults_to_codex_with_original_install_hint(
     check = _check_backend_preflight()
     assert check.ok is False
     assert "codex" in check.detail
-    assert "npm install -g @openai/codex" in check.fix
+    assert check.fix.startswith(backend_install_command("codex"))
 
 
 def test_backend_preflight_uses_persisted_copilot_selection(
