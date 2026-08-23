@@ -1102,3 +1102,33 @@ def test_backlog_never_claims_the_planner_prompts_example(tmp_path) -> None:
     example = next(i for i in stored.values() if i.id != real.id)
     assert example.status == "skipped"
     assert "example" in example.last_error
+
+
+def test_a_reference_with_nobody_on_it_is_reported(tmp_path) -> None:
+    """run-05 wrote all ten of its references as bare titles: correct arXiv
+    numbers, real titles, no author on any of them. The reference count read as
+    a thin but ordinary bibliography, so nothing ever said the paper cites work
+    without saying whose it is.
+    """
+    from argus_skill.verticals.research.paper_structural_minimums import (
+        validate_paper_structural_minimums,
+    )
+
+    paper = tmp_path / "paper"
+    paper.mkdir()
+    (paper / "main.tex").write_text(
+        r"\documentclass{article}\begin{document}\cite{named}\cite{bare}\end{document}",
+        encoding="utf-8",
+    )
+    (paper / "refs.bib").write_text(
+        "@article{named,\n  author = {Hinton, Geoffrey E.},\n"
+        "  title = {A fast learning algorithm},\n  year = {2006}\n}\n\n"
+        "@misc{bare,\n  title = {Forecasting Side Effects of Activation Steering},\n"
+        "  howpublished = {arXiv:2608.11227},\n  year = {2026}\n}\n",
+        encoding="utf-8",
+    )
+
+    codes = {i.code: i.detail for i in validate_paper_structural_minimums(tmp_path).issues}
+    detail = codes["references_without_authors"]
+    assert "1 of 2" in detail
+    assert "bare" in detail
