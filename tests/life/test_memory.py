@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import multiprocessing as mp
+import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -149,6 +150,31 @@ def test_event_journal_projects_legacy_team_waiting_as_planner_waiting(
 
     assert len(entries) == 1
     assert entries[0].kind == "planner_waiting"
+
+
+def test_event_journal_rg_tail_decodes_utf8_independent_of_system_locale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "events.jsonl"
+    path.write_text("", encoding="utf-8")
+    output = json.dumps(
+        {"type": "user.note", "ts": 1, "title": "审计", "text": "真实问题"},
+        ensure_ascii=False,
+    )
+
+    monkeypatch.setattr("argus_skill.life.memory.shutil.which", lambda _name: "rg")
+
+    def _run(argv, **kwargs):  # noqa: ANN001, ANN003
+        assert kwargs["encoding"] == "utf-8"
+        assert kwargs["errors"] == "replace"
+        return subprocess.CompletedProcess(argv, 0, stdout=output + "\n", stderr="")
+
+    monkeypatch.setattr("argus_skill.life.memory.subprocess.run", _run)
+
+    tail = EventJournal(path).tail(1)
+
+    assert [entry.title for entry in tail] == ["审计"]
+    assert [entry.summary for entry in tail] == ["真实问题"]
 
 
 def test_event_journal_tail_prefilters_non_journal_json_before_decoding(

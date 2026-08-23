@@ -303,6 +303,8 @@ def _read_jsonl_tail_rg(
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10.0,
         )
     except (OSError, subprocess.SubprocessError):
