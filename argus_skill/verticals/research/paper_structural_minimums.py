@@ -126,6 +126,11 @@ class StructuralReport:
     figure_renderer_summary: dict[str, str] = field(default_factory=dict)
     included_overview_figures: list[str] = field(default_factory=list)
     issues: list[StructuralIssue] = field(default_factory=list)
+    # Rendered, never blocking. "This is not yet a paper" and "here is
+    # something worth knowing about the paper" are different statements, and
+    # only the first belongs in a gate: a spare figure on disk does not make a
+    # manuscript stop being a manuscript.
+    notes: list[StructuralIssue] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -140,6 +145,10 @@ class StructuralReport:
             )
             for issue in self.issues:
                 lines.append(f"  [{issue.code}] {issue.detail}")
+            lines.append("")
+        for note in self.notes:
+            lines.append(f"  ({note.code}) {note.detail}")
+        if self.notes:
             lines.append("")
         lines.append("Structural counts:")
         lines.append(f"  figures (\\includegraphics resolved): {self.figures_found}")
@@ -747,7 +756,7 @@ def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
         {Path(ref).name for ref in figure_refs} | {Path(ref).stem for ref in figure_refs},
     )
     if unused:
-        report.issues.append(
+        report.notes.append(
             StructuralIssue(
                 code="figures_drawn_but_unused",
                 detail=(
@@ -869,7 +878,7 @@ def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
     bib_total, bib_keys, anonymous_refs = _read_bib(paper_dir)
     report.bib_entries = bib_total
     if anonymous_refs:
-        report.issues.append(
+        report.notes.append(
             StructuralIssue(
                 code="references_without_authors",
                 detail=(

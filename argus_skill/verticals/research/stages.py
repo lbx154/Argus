@@ -1553,6 +1553,30 @@ def _manuscript_scale_block(project_root: object) -> str:
         return ""
 
 
+def _paper_notes_block(project_root: object) -> str:
+    """Structural facts that are true but are not reasons to fail a gate.
+
+    A figure drawn and left out, or a reference with nobody's name on it, tells
+    the campaign something worth knowing without meaning the draft stopped
+    being a draft. Blocking on them would have made nine unrelated fixtures
+    "not yet a paper" for owning a spare image, which is the sign of a fact
+    wearing a verdict's clothes. Fail-soft: any error yields no block.
+    """
+    try:
+        from pathlib import Path as _Path
+
+        from .paper_structural_minimums import validate_paper_structural_minimums
+
+        notes = validate_paper_structural_minimums(
+            _Path(str(project_root)).resolve()
+        ).notes
+        if not notes:
+            return ""
+        return "\nPAPER NOTES: " + " ".join(f"{n.detail}." for n in notes) + "\n"
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def search_altitude_context(project_root: object) -> str:
     """Everything a role should have in view before it judges its own work.
 
@@ -1565,6 +1589,7 @@ def search_altitude_context(project_root: object) -> str:
         + _accepted_papers_block(project_root)
         + _literature_ledger_block(project_root)
         + _manuscript_scale_block(project_root)
+        + _paper_notes_block(project_root)
     )
 
 

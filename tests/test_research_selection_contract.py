@@ -1058,8 +1058,10 @@ def test_figures_drawn_and_left_on_disk_are_reported(tmp_path) -> None:
     for name in ("used.pdf", "unused.pdf", "unused.svg", "rendered_main_page-1.png"):
         (figures / name).write_bytes(b"%PDF-1.4\n")
 
-    codes = {i.code: i.detail for i in validate_paper_structural_minimums(tmp_path).issues}
-    detail = codes["figures_drawn_but_unused"]
+    report = validate_paper_structural_minimums(tmp_path)
+    detail = {n.code: n.detail for n in report.notes}["figures_drawn_but_unused"]
+    # A spare image is a fact about the paper, not a reason it is not one.
+    assert "figures_drawn_but_unused" not in {i.code for i in report.issues}
     # One drawing, not two files: the .svg is the same figure exported twice.
     assert "1 figure file(s)" in detail
     assert "unused.pdf" in detail
@@ -1128,8 +1130,9 @@ def test_a_reference_with_nobody_on_it_is_reported(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    codes = {i.code: i.detail for i in validate_paper_structural_minimums(tmp_path).issues}
-    detail = codes["references_without_authors"]
+    report = validate_paper_structural_minimums(tmp_path)
+    detail = {n.code: n.detail for n in report.notes}["references_without_authors"]
+    assert "references_without_authors" not in {i.code for i in report.issues}
     assert "1 of 2" in detail
     assert "bare" in detail
 
