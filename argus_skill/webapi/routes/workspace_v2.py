@@ -555,54 +555,99 @@ def _git(root: Path, *args: str, max_bytes: int = 2 * 1024 * 1024) -> str:
         *args,
     ]
     process: subprocess.Popen[bytes] | None = None
-    selector = selectors.DefaultSelector()
+    selector: selectors.BaseSelector | None = None
     payload = bytearray()
     truncated = timed_out = False
     try:
         process = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=safe_env)
         assert process.stdout is not None
-        os.set_blocking(process.stdout.fileno(), False)
-        selector.register(process.stdout, selectors.EVENT_READ)
-        deadline = time.monotonic() + 8.0
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
+        if os.name == "nt":
+            # Windows pipes cannot be registered with SelectSelector and Python
+            # 3.11 does not expose os.set_blocking there. Keep the same memory
+            # bound by reading on a daemon thread and killing Git at max_bytes.
+            reader_state = {"truncated": False}
+
+            def _read_stdout() -> None:
+                try:
+                    while len(payload) <= max_bytes:
+                        chunk = process.stdout.read(
+                            min(64 * 1024, max_bytes + 1 - len(payload))
+                        )
+                        if not chunk:
+                            return
+                        payload.extend(chunk)
+                        if len(payload) > max_bytes:
+                            reader_state["truncated"] = True
+                            with contextlib.suppress(Exception):
+                                process.kill()
+                            return
+                except OSError:
+                    return
+
+            reader = threading.Thread(target=_read_stdout, daemon=True)
+            reader.start()
+            reader.join(timeout=8.0)
+            if reader.is_alive():
                 timed_out = True
                 process.kill()
-                break
-            for key, _mask in selector.select(timeout=min(.1, remaining)):
-                try:
-                    chunk = os.read(key.fileobj.fileno(), min(64 * 1024, max_bytes + 1 - len(payload)))
-                except BlockingIOError:
-                    chunk = b""
-                if chunk:
-                    payload.extend(chunk)
-                    if len(payload) > max_bytes:
-                        truncated = True
-                        process.kill()
-                        break
-            if truncated:
-                break
-            if process.poll() is not None:
-                while len(payload) <= max_bytes:
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                process.wait(timeout=.5)
+            if reader.is_alive():
+                with contextlib.suppress(OSError):
+                    process.stdout.close()
+                reader.join(timeout=.5)
+            truncated = reader_state["truncated"]
+        else:
+            selector = selectors.DefaultSelector()
+            os.set_blocking(process.stdout.fileno(), False)
+            selector.register(process.stdout, selectors.EVENT_READ)
+            deadline = time.monotonic() + 8.0
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    timed_out = True
+                    process.kill()
+                    break
+                for key, _mask in selector.select(timeout=min(.1, remaining)):
                     try:
-                        chunk = os.read(process.stdout.fileno(), min(64 * 1024, max_bytes + 1 - len(payload)))
+                        chunk = os.read(
+                            key.fileobj.fileno(),
+                            min(64 * 1024, max_bytes + 1 - len(payload)),
+                        )
                     except BlockingIOError:
-                        break
-                    if not chunk:
-                        break
-                    payload.extend(chunk)
-                truncated = len(payload) > max_bytes
-                break
-        with contextlib.suppress(subprocess.TimeoutExpired):
-            process.wait(timeout=.5)
+                        chunk = b""
+                    if chunk:
+                        payload.extend(chunk)
+                        if len(payload) > max_bytes:
+                            truncated = True
+                            process.kill()
+                            break
+                if truncated:
+                    break
+                if process.poll() is not None:
+                    while len(payload) <= max_bytes:
+                        try:
+                            chunk = os.read(
+                                process.stdout.fileno(),
+                                min(64 * 1024, max_bytes + 1 - len(payload)),
+                            )
+                        except BlockingIOError:
+                            break
+                        if not chunk:
+                            break
+                        payload.extend(chunk)
+                    truncated = len(payload) > max_bytes
+                    break
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                process.wait(timeout=.5)
     except (OSError, subprocess.SubprocessError):
         if process is not None:
             with contextlib.suppress(Exception):
                 process.kill()
         return ""
     finally:
-        selector.close()
+        if selector is not None:
+            selector.close()
     if timed_out or process is None or (process.returncode not in {0, -9} and not truncated):
         return ""
     text = bytes(payload[:max_bytes]).decode("utf-8", errors="replace")

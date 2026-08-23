@@ -106,8 +106,11 @@ def test_workspace_git_disables_repository_fsmonitor(tmp_path: Path) -> None:
     helper.write_text(f"#!/bin/sh\ntouch '{marker}'\n", encoding="utf-8")
     helper.chmod(0o755)
     subprocess.run(["git", "-C", str(workspace), "config", "core.fsmonitor", str(helper)], check=True)
+    (workspace / "probe.txt").write_text("untracked\n", encoding="utf-8")
 
-    _git(workspace, "status", "--short")
+    status = _git(workspace, "status", "--short")
+
+    assert "probe.txt" in status
     assert not marker.exists()
 
 
