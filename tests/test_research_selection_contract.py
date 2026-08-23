@@ -1132,3 +1132,52 @@ def test_a_reference_with_nobody_on_it_is_reported(tmp_path) -> None:
     detail = codes["references_without_authors"]
     assert "1 of 2" in detail
     assert "bare" in detail
+
+
+def test_verified_reading_left_out_of_the_bibliography_is_reported(tmp_path) -> None:
+    """run-05 searched harder than either campaign that ended with a real
+    bibliography -- sixty-one searches against forty-one -- and wrote thirteen
+    papers into the ledger with full author lists. Six were never cited, and
+    the ones that made it were stripped to bare titles. The reference count
+    read as an ordinary thin bibliography, so nothing said the reading had
+    already been done and lost on the way to the page.
+    """
+    import json
+
+    from argus_skill.verticals.research.stages import _literature_ledger_block
+
+    (tmp_path / "research").mkdir()
+    (tmp_path / "paper").mkdir()
+    (tmp_path / "research" / "LITERATURE_GROUNDING.json").write_text(
+        json.dumps({"papers": [
+            {"title": "SAEBench: A Comprehensive Benchmark for Sparse Autoencoders",
+             "authors": ["Karvonen, Adam"]},
+            {"title": "Forecasting Side Effects of Activation Steering",
+             "authors": ["Ong, Chong Yong"], "arxiv_id": "2608.11227"},
+        ]}),
+        encoding="utf-8",
+    )
+    # Punctuation differs from the ledger title on purpose: a colon must not
+    # hide a citation that is really there.
+    (tmp_path / "paper" / "references.bib").write_text(
+        "@inproceedings{saebench,\n  author = {Karvonen, Adam},\n"
+        "  title = {SAEBench -- A Comprehensive Benchmark for Sparse Autoencoders},\n"
+        "  year = {2025}\n}\n",
+        encoding="utf-8",
+    )
+
+    block = _literature_ledger_block(tmp_path)
+    assert "2 verified papers" in block
+    assert "one of them is not cited" in block
+    assert "Forecasting Side Effects" in block
+
+    # Nothing to say once the reading reaches the page.
+    (tmp_path / "paper" / "references.bib").write_text(
+        "@misc{f,\n  author = {Ong, C},\n  title = {t},\n"
+        "  eprint = {2608.11227}\n}\n"
+        "@inproceedings{saebench,\n  author = {Karvonen, Adam},\n"
+        "  title = {SAEBench: A Comprehensive Benchmark for Sparse Autoencoders},\n"
+        "  year = {2025}\n}\n",
+        encoding="utf-8",
+    )
+    assert _literature_ledger_block(tmp_path) == ""

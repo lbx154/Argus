@@ -1417,6 +1417,74 @@ _MANAGER_RESEARCH_STEWARDSHIP = (
 )
 
 
+def _literature_ledger_block(project_root: object) -> str:
+    """Verified papers the campaign found and then left out of the paper.
+
+    run-05 searched harder than either campaign that ended with a real
+    bibliography -- sixty-one searches against forty-one -- and wrote thirteen
+    papers into the ledger with full author lists. Seven reached the
+    manuscript, all of them stripped to a bare title; the Engineer deleted the
+    note "author metadata to be filled from the source ledger" without filling
+    it. Six verified papers were never cited at all. The reference count read
+    as an ordinary thin bibliography, so nothing said the reading had already
+    been done and lost on the way to the page.
+
+    Only counts and one example are stated. Which papers belong in the related
+    work is the Agent's judgement. Fail-soft: any error yields no block.
+    """
+    try:
+        import json
+        import re
+        from pathlib import Path as _Path
+
+        root = _Path(str(project_root)).resolve()
+        payload = json.loads(
+            (root / "research" / "LITERATURE_GROUNDING.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        papers = [p for p in payload.get("papers") or [] if isinstance(p, dict)]
+        if not papers:
+            return ""
+        bib = ""
+        for name in ("references.bib", "refs.bib", "bibliography.bib"):
+            path = root / "paper" / name
+            if path.exists():
+                bib += path.read_text(encoding="utf-8", errors="ignore")
+        if not bib:
+            return ""
+
+        # Punctuation dropped and runs of space collapsed on both sides, so a
+        # colon in "SAEBench: A Comprehensive..." cannot hide a real citation.
+        flattened_bib = " ".join(re.sub(r"[^a-z]+", " ", bib.lower()).split())
+
+        def _cited(paper: dict) -> bool:
+            arxiv = str(paper.get("arxiv_id") or "").strip()
+            if arxiv and arxiv in bib:
+                return True
+            words = re.findall(r"[a-z]+", str(paper.get("title") or "").lower())
+            return bool(words) and " ".join(words[:6]) in flattened_bib
+
+        missing = [p for p in papers if not _cited(p)]
+        named = sum(1 for p in papers if p.get("authors"))
+        if not missing:
+            return ""
+        example = str(missing[0].get("title") or "").strip()[:70]
+        uncited = (
+            f"{len(missing)} of them are not cited anywhere in the bibliography"
+            if len(missing) > 1
+            else "one of them is not cited anywhere in the bibliography"
+        )
+        return (
+            f"\nLITERATURE LEDGER: research/LITERATURE_GROUNDING.json holds "
+            f"{len(papers)} verified papers, {named} with full author lists. "
+            f"{uncited}, among them {example!r}. The reading is already paid "
+            f"for.\n"
+        )
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def search_altitude_context(project_root: object) -> str:
     """Everything a role should have in view before it judges its own work.
 
@@ -1424,8 +1492,10 @@ def search_altitude_context(project_root: object) -> str:
     promised at selection, and which accepted papers it said it would learn
     from. Both are rendered; neither is scored.
     """
-    return _selection_contract_block(project_root) + _accepted_papers_block(
-        project_root
+    return (
+        _selection_contract_block(project_root)
+        + _accepted_papers_block(project_root)
+        + _literature_ledger_block(project_root)
     )
 
 
