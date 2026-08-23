@@ -1485,6 +1485,74 @@ def _literature_ledger_block(project_root: object) -> str:
         return ""
 
 
+def _manuscript_scale_block(project_root: object) -> str:
+    """This draft's length beside the accepted papers the campaign chose.
+
+    Every campaign picked same-area accepted papers as its standard and pulled
+    the full text to disk. Nothing ever compared the two. run-01's manuscript
+    is a fifth the length of the two ICLR papers it named, and read from the
+    inside like a finished short paper: sections present, citations present,
+    figures present. A fixed word quota was deliberately never added because it
+    only teaches a draft to pad; the campaign's own exemplars are a standard it
+    already agreed to, and the gap is a fact rather than a target.
+
+    Both sides are measured as body text, cut at the reference list, so the
+    comparison is like for like. Fail-soft: any error yields no block.
+    """
+    try:
+        import json
+        import re
+        from pathlib import Path as _Path
+
+        from .academic_language_review import _latex_to_plain_text, _word_count
+        from .argument_organization import ARGUMENT_ORGANIZATION_PATH
+
+        root = _Path(str(project_root)).resolve()
+        draft = _word_count(
+            _latex_to_plain_text(
+                (root / "paper" / "main.tex").read_text(
+                    encoding="utf-8", errors="ignore"
+                )
+            )
+        )
+        if not draft:
+            return ""
+        payload = json.loads(
+            (root / ARGUMENT_ORGANIZATION_PATH).read_text(encoding="utf-8")
+        )
+        lengths: list[int] = []
+        for exemplar in payload.get("exemplars") or []:
+            if not isinstance(exemplar, dict):
+                continue
+            extract = root / str(exemplar.get("text_extract") or "")
+            if not extract.is_file():
+                continue
+            text = extract.read_text(encoding="utf-8", errors="ignore")
+            body = re.split(r"\n\s*(?:references|bibliography)\s*\n", text, 1,
+                            re.IGNORECASE)[0]
+            lengths.append(_word_count(body))
+        if not lengths:
+            return ""
+        lengths.sort()
+        # A median needs enough samples to mean anything; with two exemplars
+        # the range is the whole truth and quoting a "typical" would inflate it.
+        span = (
+            f"{lengths[0]:,}-{lengths[-1]:,}, typically "
+            f"{lengths[len(lengths) // 2]:,}"
+            if len(lengths) > 2
+            else f"{lengths[0]:,} and {lengths[-1]:,}"
+        )
+        return (
+            f"\nMANUSCRIPT SCALE: this draft is {draft:,} words of body text. "
+            f"The accepted papers this campaign chose to be measured against "
+            f"run {span}. Length is a symptom, not the goal: a paper several "
+            f"times shorter than its own exemplars is usually missing "
+            f"analysis, not adjectives.\n"
+        )
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def search_altitude_context(project_root: object) -> str:
     """Everything a role should have in view before it judges its own work.
 
@@ -1496,6 +1564,7 @@ def search_altitude_context(project_root: object) -> str:
         _selection_contract_block(project_root)
         + _accepted_papers_block(project_root)
         + _literature_ledger_block(project_root)
+        + _manuscript_scale_block(project_root)
     )
 
 

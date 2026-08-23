@@ -1181,3 +1181,47 @@ def test_verified_reading_left_out_of_the_bibliography_is_reported(tmp_path) -> 
         encoding="utf-8",
     )
     assert _literature_ledger_block(tmp_path) == ""
+
+
+def test_draft_length_is_shown_against_the_campaigns_own_exemplars(tmp_path) -> None:
+    """Every campaign named same-area accepted papers and pulled their full
+    text to disk, and nothing ever compared the two. run-01's manuscript is a
+    fifth the length of the two ICLR papers it chose and reads from the inside
+    like a finished short paper. A fixed word quota was deliberately never
+    added because it teaches a draft to pad; the campaign's own exemplars are a
+    standard it already agreed to.
+    """
+    import json
+
+    from argus_skill.verticals.research.argument_organization import (
+        ARGUMENT_ORGANIZATION_PATH,
+    )
+    from argus_skill.verticals.research.stages import _manuscript_scale_block
+
+    org = tmp_path / ARGUMENT_ORGANIZATION_PATH
+    org.parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "paper").mkdir(exist_ok=True)
+    (tmp_path / "paper" / "main.tex").write_text(
+        r"\section{Method} " + "word " * 300, encoding="utf-8"
+    )
+    extract = org.parent / "exemplar.txt"
+    # Everything after the reference list is cut on both sides, so the
+    # comparison is body against body.
+    extract.write_text(
+        "body " * 4000 + "\nReferences\n" + "Hinton et al. " * 900,
+        encoding="utf-8",
+    )
+    org.write_text(
+        json.dumps({"exemplars": [
+            {"title": "A", "text_extract": str(extract.relative_to(tmp_path))},
+            {"title": "B", "text_extract": str(extract.relative_to(tmp_path))},
+        ]}),
+        encoding="utf-8",
+    )
+
+    block = _manuscript_scale_block(tmp_path)
+    # 301: the 300 body words plus the section heading.
+    assert "301 words of body text" in block
+    assert "4,000" in block
+    # Two exemplars are not enough to quote a median from.
+    assert "typically" not in block
