@@ -53,7 +53,9 @@ class _Git:
 
         if argv[:2] == ["git", "rev-parse"]:
             return SimpleNamespace(
-                returncode=0 if self.is_repo else 128, stdout="deadbeef\n", stderr=""
+                returncode=0 if self.is_repo else 128,
+                stdout=f"{kwargs['cwd']}\n",
+                stderr="",
             )
         if argv[:2] == ["git", "status"]:
             return SimpleNamespace(returncode=0, stdout=self.dirty, stderr="")
@@ -71,8 +73,10 @@ def _maintainer(tmp_path: Path) -> "self_maintenance.DaemonSelfMaintenance":
 @pytest.fixture
 def maintainer(tmp_path: Path):
     obj = _maintainer(tmp_path)
+    obj.root = tmp_path / "state"
     obj.framework_root = tmp_path / "Argus-0812"
     obj.framework_root.mkdir()
+    (obj.framework_root / ".git").mkdir()
     return obj
 
 
