@@ -296,7 +296,13 @@ def test_review_image_falls_back_to_chat_completions(
     def fake_urlopen(req: Any, timeout: float) -> FakeResponse:
         calls.append(req.full_url)
         if req.full_url.endswith("/responses"):
-            raise HTTPError(req.full_url, 404, "not found", hdrs=cast(Any, None), fp=None)
+            raise HTTPError(
+                req.full_url,
+                404,
+                "not found",
+                hdrs=cast(Any, None),
+                fp=io.BytesIO(b"not found"),
+            )
         assert req.full_url.endswith("/chat/completions")
         return FakeResponse({"choices": [{"message": {"content": "score_1_to_5: 4"}}]})
 
