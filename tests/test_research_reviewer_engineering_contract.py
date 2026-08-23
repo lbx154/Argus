@@ -13,7 +13,11 @@ def test_research_reviewer_requires_engineering_audit() -> None:
     assert "infrastructure or evaluator failure" in banner
     assert "underpowered" in banner
     assert "cannot by themselves trigger replan" in banner
-    assert len(banner) < 800
+    # The role contract now also carries setup-defect, untrained-baseline,
+    # repeated-miss, and retirement-authority rules pinned by dedicated tests.
+    # Keep the combined banner bounded without forcing those rules into an
+    # unreadable phrase list merely to satisfy the original 800-char budget.
+    assert len(banner) < 2_200
 
 
 def test_research_engineer_receives_only_execution_contract() -> None:
