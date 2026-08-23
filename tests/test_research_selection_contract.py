@@ -1033,3 +1033,37 @@ def test_the_planner_cannot_return_its_own_schema_example() -> None:
         }],
     }
     assert len(_validate(real)[1]) == 1
+
+
+def test_figures_drawn_and_left_on_disk_are_reported(tmp_path) -> None:
+    """Drawing the figure is the expensive half and campaigns keep leaving it
+    behind. One paper used four images with thirty-one beside it; two rewrote
+    their manuscripts and dropped every include, landing at zero figures with
+    the files still in paper/figures -- including the Fisher-Gram spectrum that
+    was the whole thesis of that paper. The figure count alone never said so.
+    """
+    from argus_skill.verticals.research.paper_structural_minimums import (
+        validate_paper_structural_minimums,
+    )
+
+    paper = tmp_path / "paper"
+    figures = paper / "figures"
+    figures.mkdir(parents=True)
+    (paper / "main.tex").write_text(
+        r"\documentclass{article}\begin{document}"
+        r"\includegraphics[width=\linewidth]{figures/used.pdf}"
+        r"\end{document}",
+        encoding="utf-8",
+    )
+    for name in ("used.pdf", "unused.pdf", "unused.svg", "rendered_main_page-1.png"):
+        (figures / name).write_bytes(b"%PDF-1.4\n")
+
+    codes = {i.code: i.detail for i in validate_paper_structural_minimums(tmp_path).issues}
+    detail = codes["figures_drawn_but_unused"]
+    # One drawing, not two files: the .svg is the same figure exported twice.
+    assert "1 figure file(s)" in detail
+    assert "unused.pdf" in detail
+    # An included figure and a build artifact are not unused work. Checked on
+    # the count, because "used.pdf" is a substring of "unused.pdf".
+    assert "2 figure" not in detail and "3 figure" not in detail
+    assert "rendered_main" not in detail

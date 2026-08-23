@@ -629,6 +629,30 @@ def _read_bib(paper_dir: Path) -> tuple[int, set[str]]:
     return total, keys
 
 
+def _unreferenced_figures(paper_dir: Path, referenced: set[str]) -> list[str]:
+    """Figure files on disk that nothing in the manuscript includes.
+
+    Campaigns draw figures and then leave them there. One had thirty-one images
+    beside a paper using four; two others rewrote their manuscripts and dropped
+    every figure include, ending at zero with images sitting in the same
+    directory. The count alone never said so, and drawing a figure is the
+    expensive half. Build artifacts are excluded because they are outputs of
+    compiling the paper, not candidates for it.
+    """
+    # Counted by figure rather than by file: a .svg beside its .pdf is one
+    # drawing exported twice, not two unused figures.
+    names: dict[str, str] = {}
+    for entry in sorted((paper_dir / "figures").glob("*")):
+        if entry.suffix.lower() not in {".pdf", ".png", ".jpg", ".jpeg", ".svg"}:
+            continue
+        if entry.stem.lower().startswith(("rendered_", "main", "pdf_build")):
+            continue
+        if entry.name in referenced or entry.stem in referenced:
+            continue
+        names.setdefault(entry.stem, entry.name)
+    return list(names.values())
+
+
 def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
     from .venue_profiles import resolve_venue_profile
 
@@ -704,6 +728,22 @@ def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
                         detail=f"figure resolves outside project root: {resolved}",
                     )
                 )
+
+    unused = _unreferenced_figures(
+        paper_dir,
+        {Path(ref).name for ref in figure_refs} | {Path(ref).stem for ref in figure_refs},
+    )
+    if unused:
+        report.issues.append(
+            StructuralIssue(
+                code="figures_drawn_but_unused",
+                detail=(
+                    f"{len(unused)} figure file(s) exist in paper/figures that "
+                    f"nothing in main.tex includes, for example {unused[0]}; "
+                    "the drawing is already paid for"
+                ),
+            )
+        )
 
     if report.figures_found < MIN_FIGURES:
         report.issues.append(
