@@ -762,3 +762,38 @@ def test_the_setup_skill_teaches_the_shape_not_a_checklist() -> None:
     assert "bounds what the model is allowed to produce" in skill
     # And it must not end at the repair.
     assert "Stopping at the first honest measurement" in skill
+
+
+def test_the_field_harness_is_adopted_before_one_is_written() -> None:
+    """Root cause of every weak paper here, measured across 422 missions in
+    seven campaigns: 68% repaired self-built measurement code and 6% improved
+    the method. Each campaign wrote thousands of lines of its own evaluation
+    stack, and every defect that manufactured a negative result lived in it --
+    twelve-token caps, unexecuted tool steps, keyword scorers, CPU-bound
+    generation, train-mode BatchNorm in a baseline. From inside, none of those
+    look like bugs; they look like findings.
+    """
+    from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+
+    item = " ".join(
+        next(i for i in STAGE_CHECKLISTS["plan"] if i.id == "plan.benchmark").statement.split()
+    )
+    assert "Take the field's own harness before writing any of your own" in item
+    assert "released implementation of each baseline" in item
+    assert "they look like negative results" in item
+    assert "which existing harness and which baseline implementations you are adopting" in item
+    # And the point of saving those hours is stated, not left implied.
+    assert "spend the hours that frees on method iteration and scale" in item
+
+
+def test_manager_watches_the_mission_ratio() -> None:
+    """A method almost never wins in its first form. If the campaign has run
+    many rounds and none of them proposed a stronger version of the idea, it is
+    maintaining infrastructure rather than doing research -- which is exactly
+    what 68% versus 6% describes."""
+    from argus_skill.verticals._base import load_vertical, vertical_role_banner
+
+    manager = " ".join(vertical_role_banner(load_vertical("research"), "manager").split())
+    assert "that ratio is the campaign's real strategy" in manager
+    assert "A method almost never wins in its first form" in manager
+    assert "maintaining infrastructure rather than doing research" in manager
