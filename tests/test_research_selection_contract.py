@@ -887,3 +887,24 @@ def test_training_below_its_own_baseline_is_a_defect_report() -> None:
     ).read_text(encoding="utf-8")
     assert "every\ntrained variant scoring below the untrained starting checkpoint" in skill
     assert "97% of its training completions clipped" in " ".join(skill.split())
+
+
+def test_being_out_of_experiments_is_not_being_finished() -> None:
+    """run-04's planner declared the project done with a 3,114-word manuscript,
+    twelve citations and four figures -- on a mechanism result whose held-out
+    survival predictor reaches AUROC 0.970. The completion decision asked
+    whether the claim was supported and whether to keep spending, and never
+    asked whether the paper was written. The comparison it needed was already
+    on its own disk.
+    """
+    from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+
+    gate = " ".join(
+        next(
+            i for i in STAGE_CHECKLISTS["submission"] if i.id == "submission.result_stands"
+        ).statement.split()
+    )
+    assert "whether the manuscript is finished" in gate
+    assert "accepted same-area papers already on disk and compare what they carry" in gate
+    assert "Being out of experiments is not the same as being finished" in gate
+    assert "what remains at that point needs no compute at all" in gate
