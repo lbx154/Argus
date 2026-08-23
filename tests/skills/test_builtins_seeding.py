@@ -54,6 +54,7 @@ RETIRED_NANOCHAT_SKILLS = {
 RESEARCH_BASE_SKILLS = {
     "engineer/figure_spec_scripts/figure_renderer.py",
     "engineer/research-grind.md",
+    "engineer/suspect-the-setup.md",
     "engineer/figure_spec_scripts/paper_chart_style.py",
     "engineer/paper-framework-figure-studio.md",
     "engineer/research-visualization-router.md",

@@ -349,8 +349,8 @@ def test_a_qualifier_in_the_title_has_to_be_earned() -> None:
     draft = next(i for i in STAGE_CHECKLISTS["draft"] if i.id == "draft.tex").statement
     assert "A qualifier you chose is itself a claim" in draft
     assert "narrow the claim to what you did test" in draft
-    # And a negative result is only publishable if it kills something.
-    assert "naming the belief it kills" in draft
+    # And a negative result is only publishable once it survives the engineering.
+    assert "name in the abstract the belief it kills" in " ".join(draft.split())
 
 
 def test_a_table_is_written_for_a_person() -> None:
@@ -605,22 +605,26 @@ def test_dropping_a_qualifier_can_be_worse_than_keeping_it() -> None:
     assert "worse than the apology it replaced" in draft
 
 
-def test_rigour_does_not_excuse_a_missing_argument() -> None:
-    """run-06 produced the most careful measurement in the portfolio -- four
-    resampling schemes, a predeclared win rule, a positive control with
-    specificity 1.00 -- inside a 1,948-word manuscript whose introduction is 160
-    words. For a negative result that is fatal: its whole value is in
-    establishing that the field would have bet the other way, and no amount of
-    resampling supplies that.
+def test_a_negative_result_is_an_optimization_signal_first() -> None:
+    """The rule this replaces was harmful. It told a campaign to give a negative
+    result the argument its measurement earned, which legitimised writing up
+    restricted negatives -- exactly the reward hack the whole policy exists to
+    stop. A low number is almost always a fact about the run: 6.0% on MATH-500
+    for a model published at 79.7 became 68.8% by raising a token cap and 76.4%
+    by executing the tool the protocol assumes. Two settings, an order of
+    magnitude, and at every stage the number read as a finding.
     """
     from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
 
     draft = " ".join(
         next(i for i in STAGE_CHECKLISTS["draft"] if i.id == "draft.tex").statement.split()
     )
-    assert "give the argument the room the measurement got" in draft
-    assert "would have bet the other way" in draft
-    assert "Rigour buys the right to be believed" in draft
+    assert "a fact about the world or about your run" in draft
+    assert "Almost always it is the run" in draft
+    assert "first an optimization signal" in draft
+    # Writing it up is what happens after the engineering is good, not instead.
+    assert "only after the engineering is actually good" in draft
+    assert "restricted until it was cheap enough to certify" in draft
 
 
 def test_a_protocol_is_worth_the_evidence_it_governs() -> None:
@@ -701,3 +705,60 @@ def test_a_slow_run_is_diagnosed_before_the_budget_is_cut() -> None:
     assert "check that it runs on the hardware you think it does" in item
     assert "compare GPU utilisation against CPU time" in item
     assert "is not a reason to measure less" in item
+
+
+def test_reviewer_suspects_the_setup_before_the_idea() -> None:
+    """A wrong setting and a wrong idea produce the same artifact: a low number
+    with clean plumbing. run-03 filed 6.0% on MATH-500 for a model published at
+    79.7 as a boundary result; a token cap and an unexecuted tool were the whole
+    story. The Reviewer sees the number first and has to treat that distance as
+    a defect report rather than score it.
+    """
+    from argus_skill.verticals._base import load_vertical, vertical_role_banner
+
+    reviewer = " ".join(vertical_role_banner(load_vertical("research"), "reviewer").split())
+    assert "is a defect report, not a finding" in reviewer
+    assert "send it back to be rebuilt" in reviewer
+    # Named because they are the ones that actually happened, then generalised.
+    assert "generation cap shorter than the answer needs" in reviewer
+    assert "executing the tool in tool-integrated reasoning" in reviewer
+    assert "shorter than what the task requires at inference" in reviewer
+    assert "examples, not a list to tick" in reviewer
+    assert "which single setting, if wrong, would produce exactly the number" in reviewer
+
+
+def test_manager_keeps_the_campaign_optimizing_instead_of_settling() -> None:
+    """Every campaign here drifted toward writing up whatever it had. The
+    Manager holds the altitude where that is visible: keep buying fixes while
+    budget remains, and separately notice a run that is not worth improving
+    because it was broken."""
+    from argus_skill.verticals._base import load_vertical, vertical_role_banner
+
+    manager = " ".join(vertical_role_banner(load_vertical("research"), "manager").split())
+    assert "many rounds of better engineering and larger runs" in manager
+    assert "the campaign that stops early is the one that ships a bounded negative" in manager
+    assert "not worth improving because it was broken" in manager
+    assert "instead of letting the campaign interpret it" in manager
+
+
+def test_the_setup_skill_teaches_the_shape_not_a_checklist() -> None:
+    """Listing the settings that burned us is not enough -- the next campaign
+    meets a different one. The skill has to name the general form so a campaign
+    can enumerate the equivalents in its own pipeline."""
+    from pathlib import Path
+
+    import argus_skill
+
+    skill = (
+        Path(argus_skill.__file__).parent
+        / "verticals/research/skills/engineer/suspect-the-setup.md"
+    ).read_text(encoding="utf-8")
+
+    for seen in ("6.0%", "68.8%", "76.4%"):
+        assert seen in skill
+    assert "Training sequence length" in skill
+    assert "teaches the model to stop early" in skill
+    assert "Reasoning about settings not listed here" in skill
+    assert "bounds what the model is allowed to produce" in skill
+    # And it must not end at the repair.
+    assert "Stopping at the first honest measurement" in skill
