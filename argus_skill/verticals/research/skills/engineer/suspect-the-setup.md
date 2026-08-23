@@ -1,6 +1,6 @@
 ---
 name: "Suspect the Setup Before the Idea"
-description: "When a measured result is far below what the model, method or benchmark is known to do, find the setting that caused it before drawing any scientific conclusion. Covers generation caps, training sequence length, protocol steps, scorers, and how to reason about settings not listed here."
+description: "Set an experiment up so it can succeed, and diagnose it when the number comes back wrong. Covers generation budgets, RL and SFT post-training configuration, protocol steps, scorers, and how to reason about settings not listed here."
 ---
 
 # Suspect the Setup Before the Idea
@@ -19,7 +19,52 @@ far from what this model, method or benchmark is known to do is a defect report
 until proven otherwise, and the work is to find the defect, not to interpret the
 number.
 
-## The move
+## Design it before you run it
+
+Most settings that ruin a result are chosen once, early, by whoever wrote the
+config, and never revisited. Derive each one from what the task requires rather
+than from a round number, and write down the derivation.
+
+**Generation budget.** Sample the reference solutions or the model's own correct
+completions and take a high percentile of their length, then add headroom. Do
+not pick a number because it fits the schedule. Sanity anchors: mathematical or
+multi-step reasoning traces commonly need thousands of tokens and hard problems
+more, so a cap in the hundreds is already suspicious and a cap of twelve is not
+an experiment; steering or concept-expression generations need enough tokens for
+the concept to actually appear, which is usually well over a hundred; short-form
+QA can be short only when the gold answers are short. Report the fraction of
+generations that hit the cap — anything materially above zero means you are
+measuring the cap.
+
+**RL post-training (GRPO, PPO, RLVR and relatives).** The rollout length must
+cover what the task needs at inference. A truncated rollout scores zero reward
+even when the policy was on its way to the right answer, so the gradient teaches
+the model to stop early, and the damage looks exactly like the method failing.
+Check before launching: rollout length against the length distribution of
+correct solutions; enough samples per prompt for the advantage estimate to have
+signal; a KL or clip setting that neither freezes the policy nor lets it
+collapse; reward normalisation consistent across the batch; and whether any
+reward is reachable at all on the current policy — a reward that fires on almost
+nothing trains nothing. Log the reward distribution and the truncation rate from
+the first steps and look at them, because a run that is quietly learning to
+truncate looks healthy on the loss curve.
+
+**SFT.** The maximum sequence length has to cover the full target, or every
+example longer than it is silently cut and you are training the model to stop
+mid-answer. Confirm loss masking covers the completion and not the prompt, and
+that the chat template used in training is the one used at inference — a
+template mismatch destroys a result while every metric in training looks normal.
+
+**Evaluation protocol.** Adopt the harness the benchmark ships and reproduce the
+protocol the published number used, including whether tools are actually
+executed, the prompt format, the decoding settings and the stop sequences. Name
+any deviation beside both numbers.
+
+Before launching anything expensive, run a handful of examples end to end and
+read the raw outputs with your own eyes. Nearly every defect in this document is
+visible in ten generations and invisible in an aggregate score.
+
+## When the number comes back wrong
 
 Ask one question: **which single setting, if wrong, would produce exactly the
 number in front of me?** Then go and look at that setting. Not a checklist sweep

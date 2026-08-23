@@ -797,3 +797,66 @@ def test_manager_watches_the_mission_ratio() -> None:
     assert "that ratio is the campaign's real strategy" in manager
     assert "A method almost never wins in its first form" in manager
     assert "maintaining infrastructure rather than doing research" in manager
+
+
+def test_the_experiment_is_designed_not_only_diagnosed() -> None:
+    """Operator: it cannot design an experiment. It set output tokens to 12 for a
+    maths evaluation and reported 6% accuracy, and it configures common
+    post-training badly. Diagnosing a bad number afterwards is not enough -- the
+    settings that ruin a result are chosen once, early, and never revisited.
+    """
+    from pathlib import Path
+
+    import argus_skill
+
+    skill = (
+        Path(argus_skill.__file__).parent
+        / "verticals/research/skills/engineer/suspect-the-setup.md"
+    ).read_text(encoding="utf-8")
+
+    assert "## Design it before you run it" in skill
+    assert "a cap of twelve is not an experiment" in " ".join(skill.split())
+    # Post-training is where a bad setting is least visible.
+    assert "RL post-training (GRPO, PPO, RLVR and relatives)" in skill
+    assert "teaches the model to stop early" in skill
+    assert "template mismatch destroys a result" in " ".join(skill.split())
+    assert "read the raw outputs with your own eyes" in skill
+
+
+def test_recalling_a_model_is_evidence_that_it_is_old() -> None:
+    """Every campaign reached for the same stale model families. The cause is
+    not laziness: a model you can name from memory is one your training data
+    covered heavily, which means it was widespread long before now."""
+    from argus_skill.verticals.research.stages import STAGE_CHECKLISTS
+
+    item = " ".join(
+        next(i for i in STAGE_CHECKLISTS["plan"] if i.id == "plan.backbone").statement.split()
+    )
+    assert "evidence that it is old, not that it is suitable" in item
+    assert "where the live catalog disagrees with what you remember, the catalog is right" in item
+
+
+def test_rigour_apparatus_is_proportional_to_the_doubt() -> None:
+    """Campaigns hashed every artifact and planned multi-seed repeats while
+    their evaluation could not detect its own positive control. Seeds, repeats
+    and hashes cost the hours the method needed, and answer nothing when the gap
+    is enormous or the instrument is broken."""
+    from argus_skill.verticals._base import load_vertical, vertical_role_banner
+
+    manager = " ".join(vertical_role_banner(load_vertical("research"), "manager").split())
+    assert "Rigour apparatus is proportional too, and it is not free" in manager
+    assert "where the answer is genuinely in doubt" in manager
+    assert "more seeds answer nothing" in manager
+
+
+def test_the_campaign_is_trying_to_win() -> None:
+    """Seven campaigns measured carefully, reported honestly and produced
+    nothing citable, because none was trying to succeed -- only trying not to
+    overclaim. Burying a real win is a misreport too, and the commoner one."""
+    from argus_skill.verticals.research.stages import _AMBITIOUS_RESEARCH_POLICY as policy
+
+    text = " ".join(policy.split())
+    assert "You are trying to win, not trying to be safe" in text
+    assert "only trying not to overclaim" in text
+    assert "say so plainly and immediately, in the first sentence, with the number" in text
+    assert "burying a real win under qualifications is as much a misreport as inventing one" in text
