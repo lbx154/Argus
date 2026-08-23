@@ -360,6 +360,31 @@ class Planner:
         )
         if session.prompt_block():
             prompt = session.prompt_block() + "\n\n" + prompt
+        # The budget was enforced without ever being stated. A Planner reading
+        # its way toward an answer was cut off mid-thought and everything it
+        # had was discarded -- 413 wasted cycles in one night across seven
+        # campaigns, 162 of them in one. Campaigns even planned missions to
+        # raise the cap, which they cannot reach. A limit you can see is a
+        # limit you can spend.
+        if cfg.grounding_max_tool_calls or cfg.grounding_max_seconds:
+            limits = " and ".join(
+                text
+                for text in (
+                    f"{cfg.grounding_max_tool_calls} tool calls"
+                    if cfg.grounding_max_tool_calls
+                    else "",
+                    f"{cfg.grounding_max_seconds} seconds"
+                    if cfg.grounding_max_seconds
+                    else "",
+                )
+                if text
+            )
+            prompt = (
+                f"GROUNDING BUDGET: you have {limits} to look around before "
+                "you answer. Reaching either limit discards this whole turn, "
+                "including work already done, so read what the decision needs "
+                "and then decide. A plan from partial reading beats no plan.\n\n"
+            ) + prompt
         grounding_budget = _PlannerGroundingBudget(
             max_seconds=cfg.grounding_max_seconds,
             max_tool_calls=cfg.grounding_max_tool_calls,

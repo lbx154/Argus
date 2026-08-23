@@ -1228,3 +1228,24 @@ def test_draft_length_is_shown_against_the_campaigns_own_exemplars(tmp_path) -> 
     assert "4,000" in block
     # Two exemplars are not enough to quote a median from.
     assert "typically" not in block
+
+
+def test_planner_is_told_the_grounding_budget_it_is_held_to() -> None:
+    """The Planner was cut off at sixteen tool calls and had everything it had
+    done discarded, without ever being told the limit existed. That happened
+    413 times in one night across seven campaigns -- 162 in run-07 alone, which
+    then spent missions trying to raise a cap it cannot reach.
+    """
+    import inspect
+
+    from argus_skill.planner import planner
+
+    source = inspect.getsource(planner)
+    end = source.index("GROUNDING BUDGET:")
+    # The limits are computed just above the sentence that states them.
+    stated = source[end - 700 : end + 400]
+    # The numbers come from the config that enforces them, never a literal.
+    assert "cfg.grounding_max_tool_calls" in stated
+    assert "cfg.grounding_max_seconds" in stated
+    # And it must say what running out costs, or the number means nothing.
+    assert "discards this whole turn" in stated
