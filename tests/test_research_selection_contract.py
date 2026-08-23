@@ -908,3 +908,85 @@ def test_being_out_of_experiments_is_not_being_finished() -> None:
     assert "accepted same-area papers already on disk and compare what they carry" in gate
     assert "Being out of experiments is not the same as being finished" in gate
     assert "what remains at that point needs no compute at all" in gate
+
+
+def test_a_long_mission_keeps_getting_planning_opportunities(tmp_path, monkeypatch) -> None:
+    """Two campaigns had their manuscripts untouched for twelve hours while a
+    GPU mission ran, with an idle mission slot the whole time.
+
+    Two defects. The Planner was asked once per set of running missions, so a
+    six-hour job got one opportunity at the moment it started. And planning was
+    skipped whenever anything was pending -- but a pending item the parallel
+    worker cannot claim leaves the slot idle forever while looking like queued
+    work, so that guard wedged the campaign permanently.
+    """
+    from types import SimpleNamespace
+
+    from argus_skill.daemon.state import write_continuous_config
+    from argus_skill.life.memory import Backlog, BacklogItem
+    from argus_skill.life.supervisor import _core
+    from argus_skill.life.supervisor._core import LifeSupervisor
+
+    life = tmp_path / "state" / "projects" / "s-1"
+    life.mkdir(parents=True)
+    write_continuous_config(
+        life, enabled=True, objective="beat the published baseline", open_ended=True
+    )
+    backlog = Backlog(life / "backlog.jsonl")
+    running = backlog.add(BacklogItem.new(title="long GPU run", objective="hours"))
+    backlog.update(running.id, status="running")
+    running = next(r for r in backlog.all() if r.id == running.id)
+
+    sup = LifeSupervisor.__new__(LifeSupervisor)
+    sup.config = SimpleNamespace(
+        continuous=False, continuous_objective="", poll_interval_seconds=30.0
+    )
+    sup.memory = SimpleNamespace(
+        root=tmp_path / "state", project_root=life, backlog=backlog
+    )
+    sup._parallel_plan_fingerprint = None
+    sup._parallel_plan_after = 0.0
+
+    clock = [100.0]
+    monkeypatch.setattr(_core.time, "monotonic", lambda: clock[0])
+    planned: list[str] = []
+
+    def _plan() -> None:
+        planned.append(sup.config.continuous_objective)
+        if len(planned) == 1:
+            # Queued, but the running item is not parallel_safe, so the worker
+            # cannot claim it. This is the state that used to wedge planning.
+            item = BacklogItem.new(title="write the paper", objective="expand it")
+            backlog.add(item)
+            backlog.update(item.id, parallel_safe=True, owns_paths=["paper"])
+
+    sup._plan_next_work = _plan
+
+    sup._plan_alongside_running_work([running])
+    assert planned == ["beat the published baseline"]
+    assert backlog.next_pending(parallel_only=True) is None  # unclaimable
+
+    # Immediately after, no spin.
+    sup._plan_alongside_running_work([running])
+    assert len(planned) == 1
+
+    # After the interval the loop already uses, it asks again rather than
+    # staying idle for the rest of the mission.
+    clock[0] += _core._IDLE_BACKOFF_CAP_SECONDS + 1
+    sup._plan_alongside_running_work([running])
+    assert len(planned) == 2
+
+    # A stopped campaign is never planned for.
+    write_continuous_config(life, enabled=False, objective="", done_reason="stopped")
+    clock[0] += _core._IDLE_BACKOFF_CAP_SECONDS + 1
+    sup._plan_alongside_running_work([running])
+    assert len(planned) == 2
+
+    # And once real claimable work exists, planning stops: the slot is spoken for.
+    write_continuous_config(
+        life, enabled=True, objective="beat the published baseline", open_ended=True
+    )
+    backlog.update(running.id, parallel_safe=True, owns_paths=["results"])
+    clock[0] += _core._IDLE_BACKOFF_CAP_SECONDS + 1
+    sup._plan_alongside_running_work([running])
+    assert len(planned) == 2

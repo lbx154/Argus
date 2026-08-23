@@ -235,6 +235,8 @@ class LifeSupervisor(
         # the moment a real mission runs.
         self._consecutive_idle_planner_cycles = 0
         self._suggested_sleep_s = 0.0
+        self._parallel_plan_fingerprint: tuple[tuple[str, ...], ...] | None = None
+        self._parallel_plan_after = 0.0
         # Wall-clock (monotonic) of the first idle pass in the current idle
         # streak — set by `_enter_idle_backoff`, cleared by `_reset_idle_backoff`
         # — so `_maybe_idle_timeout` can auto-exit a long-idle continuous daemon.
@@ -379,10 +381,13 @@ class LifeSupervisor(
         from ...daemon.state import read_continuous_state
         from ...planner import PlannerConfig
 
-        expected = read_continuous_state(self.memory.root)
+        continuous_root = Path(
+            getattr(self.memory, "project_root", self.memory.root)
+        )
+        expected = read_continuous_state(continuous_root)
 
         def _semantic_interrupt() -> str | None:
-            current = read_continuous_state(self.memory.root)
+            current = read_continuous_state(continuous_root)
             if (
                 current.generation != expected.generation
                 or current.enabled != expected.enabled
@@ -693,6 +698,7 @@ class LifeSupervisor(
                     if str(getattr(item, "status", "") or "") == "running"
                 ]
                 if running_items:
+                    self._plan_alongside_running_work(running_items)
                     self._wait_idle()
                     continue
                 # Backlog empty — continuous mode: ask planner for more
@@ -1694,6 +1700,85 @@ class LifeSupervisor(
             )
         except Exception:  # noqa: BLE001 - alerting must not break supervision
             log.exception("life supervisor: failed to publish budget pause chat alert")
+
+    def _plan_alongside_running_work(self, running_items: list[Any]) -> None:
+        """Let the Planner fill an idle mission slot while other work runs.
+
+        The primary supervisor is inside tick() driving the long mission, so the
+        loop that reaches here is the parallel worker -- deliberately built with
+        continuous=False and no objective, which is why the campaign's durable
+        objective is adopted from the project life-dir rather than from config.
+
+        Two things wedged this before. Asking once per set of running missions
+        gave a six-hour job exactly one opportunity, at the moment it started,
+        and a campaign whose paper sat untouched for twelve hours had already
+        spent it. And skipping whenever anything was pending was wrong, because
+        a pending item the parallel worker cannot claim -- not parallel_safe, or
+        owning a path the running mission owns -- leaves the slot idle forever
+        while looking like queued work. Only claimable work should suppress
+        planning; the fingerprint carries the pending set so a task queued and
+        not claimed does not immediately ask again, and the retry interval is
+        the idle backoff the loop already uses.
+        """
+        try:
+            from ...daemon.state import read_continuous_state
+
+            durable = read_continuous_state(
+                Path(getattr(self.memory, "project_root", self.memory.root))
+            )
+            objective = str(durable.objective or "").strip()
+            if not (durable.enabled and objective):
+                return
+            self.config.continuous_objective = objective
+
+            items = self.memory.backlog.all()
+            if any(
+                str(getattr(item, "pending_question", "") or "").strip()
+                for item in items
+            ):
+                return
+            if self.memory.backlog.next_pending(parallel_only=True) is not None:
+                return
+
+            fingerprint = self._backlog_fingerprint(items, running_items)
+            now = time.monotonic()
+            if (
+                fingerprint == self._parallel_plan_fingerprint
+                and now < self._parallel_plan_after
+            ):
+                return
+            self._parallel_plan_after = now + max(
+                float(self.config.poll_interval_seconds),
+                _IDLE_BACKOFF_CAP_SECONDS,
+            )
+            self._plan_next_work()
+            # Re-read after planning so a task that was queued but cannot be
+            # claimed counts as a change, and the next tick does not spin.
+            self._parallel_plan_fingerprint = self._backlog_fingerprint(
+                self.memory.backlog.all()
+            )
+        except Exception:  # noqa: BLE001 - filling a spare slot is best effort
+            log.exception("life supervisor: parallel planning attempt failed")
+
+    @staticmethod
+    def _backlog_fingerprint(
+        items: list[Any],
+        running_items: list[Any] | None = None,
+    ) -> tuple[tuple[str, ...], ...]:
+        """Identify a backlog by its running and pending sets."""
+
+        def _ids(rows: Any) -> tuple[str, ...]:
+            return tuple(sorted(str(getattr(row, "id", "") or "") for row in rows))
+
+        running = running_items if running_items is not None else [
+            row for row in items
+            if str(getattr(row, "status", "") or "") == "running"
+        ]
+        pending = [
+            row for row in items
+            if str(getattr(row, "status", "") or "") == "pending"
+        ]
+        return (_ids(running), _ids(pending))
 
     def _emit_status(self, text: str) -> None:
         self._emit({"type": "life.status", "text": text})
