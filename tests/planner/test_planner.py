@@ -894,6 +894,39 @@ def test_plan_next_repairs_not_done_empty_task_response(monkeypatch) -> None:
     assert runner.calls[1]["options"].working_dir == "/tmp/project"
 
 
+def test_plan_next_repairs_malformed_structured_decision(monkeypatch) -> None:
+    runner = _SequenceRunner([
+        (
+            'ARGUS_ROLE_DECISION={"role":"planner","payload":'
+            '{"project_done":false,"reason":"one task remains",'
+            '"tasks":[{"title":"Run the benchmark",'
+            '"objective":"Measure decode throughput.","scope":"bounded"}]}}}'
+        ),
+        (
+            'ARGUS_ROLE_DECISION={"role":"planner","payload":'
+            '{"project_done":false,"reason":"one task remains",'
+            '"tasks":[{"title":"Run the benchmark",'
+            '"objective":"Measure decode throughput.","scope":"bounded"}]}}'
+        ),
+    ])
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **kwargs: "original planner prompt"),
+    )
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective="serve the full model",
+        planning_cycle=3,
+        config=PlannerConfig(working_dir="/tmp/project"),
+    )
+
+    assert verdict.error == ""
+    assert [task.title for task in verdict.new_tasks] == ["Run the benchmark"]
+    assert runner.calls[1]["run_label"] == "planner.cycle3.repair1"
+    assert "planner missing key-value completion marker" in runner.calls[1]["prompt"]
+
+
 def test_plan_next_repairs_invalid_dependency_identifier(monkeypatch) -> None:
     runner = _SequenceRunner([
         "\n".join(

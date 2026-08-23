@@ -516,6 +516,7 @@ class Planner:
         if (
             rejection == NO_CONCRETE_TASKS_ERROR
             or rejection == FORBIDDEN_BARE_VERDICT_ERROR
+            or rejection == "planner missing key-value completion marker"
             or repairable_metadata_error
             or open_ended_done
         ):
