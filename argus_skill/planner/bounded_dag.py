@@ -9,6 +9,7 @@ from typing import Any
 
 from ..core.models import RunnerOptions
 from ..core.portable_filename import normalized_logical_identifier
+from ..core.prompt_example_tasks import is_prompt_example_task
 from ..core.role_decision import latest_role_decision
 from ..core.run_gateway import run_exec as gateway_run_exec
 from .work_kind import parse_work_kind
@@ -118,10 +119,6 @@ def _parse_key_value_plan(text: str) -> dict[str, Any]:
 # prepared, and a second produced the identical row hours later. Rejecting a
 # byte-identical copy of our own example is a fact about the response, not a
 # judgement about research.
-_PROMPT_EXAMPLE_TASKS = frozenset({
-    ("does pruning beat 4-bit at equal latency?", "match latency, read top-1"),
-})
-
 def _validate(payload: object) -> tuple[str, tuple[BoundedDagNode, ...]]:
     if not isinstance(payload, dict):
         raise ValueError("planner output is not an object")
@@ -140,7 +137,7 @@ def _validate(payload: object) -> tuple[str, tuple[BoundedDagNode, ...]]:
         raw_deps = row.get("deps")
         if not key or not title or not objective or not isinstance(raw_deps, list):
             raise ValueError("planner task fields are invalid or duplicate")
-        if (title.lower(), objective.lower()) in _PROMPT_EXAMPLE_TASKS:
+        if is_prompt_example_task(title, objective):
             raise ValueError(
                 "planner returned the schema example verbatim; write a task for "
                 "this campaign instead"

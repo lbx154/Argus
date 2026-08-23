@@ -1067,3 +1067,38 @@ def test_figures_drawn_and_left_on_disk_are_reported(tmp_path) -> None:
     # the count, because "used.pdf" is a substring of "unused.pdf".
     assert "2 figure" not in detail and "3 figure" not in detail
     assert "rendered_main" not in detail
+
+
+def test_backlog_never_claims_the_planner_prompts_example(tmp_path) -> None:
+    """The planner's schema example was returned verbatim as a real plan and
+    stored. Rejecting it at planning time came too late for the copies already
+    in the backlog: run-04 claimed one and spent a mission on "Does pruning
+    beat 4-bit at equal latency?" three minutes after the fix was deployed,
+    because a stored item is claimed without being planned again.
+    """
+    import time
+
+    from argus_skill.life.memory import Backlog, BacklogItem
+
+    title = "Does pruning beat 4-bit at equal latency?"
+    backlog = Backlog(tmp_path / "backlog.jsonl")
+    backlog.add(
+        BacklogItem(id="example", ts=time.time(), title=title,
+                    objective="match latency, read top-1")
+    )
+    real = backlog.add(
+        BacklogItem(id="real", ts=time.time() + 1, title=title,
+                    objective="Sweep sparsity on the campaign's own checkpoint.")
+    )
+
+    claimed = backlog.claim_next()
+    # The example is skipped; a genuine question that happens to share the
+    # title is still the campaign's work and still runs.
+    assert claimed is not None
+    assert claimed.id == real.id
+
+    stored = {item.id: item for item in backlog.all()}
+    assert stored[real.id].status == "running"
+    example = next(i for i in stored.values() if i.id != real.id)
+    assert example.status == "skipped"
+    assert "example" in example.last_error

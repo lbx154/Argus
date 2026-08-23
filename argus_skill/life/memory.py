@@ -42,6 +42,7 @@ from typing import Any, Callable, Iterable, Iterator
 
 import portalocker
 
+from ..core.prompt_example_tasks import is_prompt_example_task
 from ..core.event_catalog import EventType, canonical_event_type
 from ..planner.work_kind import DEFAULT_WORK_KIND, parse_work_kind
 
@@ -1688,6 +1689,19 @@ class Backlog:
             cascaded = self._cascade_blocked(items)
             done = self._done_ids(items)
             ready = [it for it in items if self._is_ready(it, done)]
+            # An example that reached the backlog before the planner learned to
+            # reject it is still sitting there, and a stored item is claimed
+            # without being planned again.
+            examples = [
+                it for it in ready if is_prompt_example_task(it.title, it.objective)
+            ]
+            for item in examples:
+                item.status = "skipped"
+                item.finished_ts = time.time()
+                item.last_error = "the planner prompt's example task, not a plan"
+            if examples:
+                ready = [it for it in ready if it not in examples]
+                self._save(items)
             if parallel_only or (
                 respect_running
                 and any(item.status == "running" for item in items)
