@@ -42,8 +42,8 @@ from typing import Any, Callable, Iterable, Iterator
 
 import portalocker
 
-from ..core.prompt_example_tasks import is_prompt_example_task
 from ..core.event_catalog import EventType, canonical_event_type
+from ..core.prompt_example_tasks import is_prompt_example_task
 from ..planner.work_kind import DEFAULT_WORK_KIND, parse_work_kind
 
 _BACKLOG_THREAD_LOCKS: weakref.WeakValueDictionary[str, threading.Lock] = (
