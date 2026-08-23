@@ -4,6 +4,7 @@ import json
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from pathlib import Path
 from threading import Barrier
 from types import SimpleNamespace
 from typing import Any
@@ -928,6 +929,21 @@ class _BlockedQuestionRunner:
         )
 
 
+class _LateForbidQuestionRunner(_BlockedQuestionRunner):
+    def __init__(self, state_root: Path) -> None:
+        self.state_root = state_root
+
+    def execute(self, **kwargs: Any) -> _Outcome:
+        from argus_skill.manager.directive import set_active_manager_directive
+
+        set_active_manager_directive(
+            self.state_root,
+            "continue without questions",
+            operator_question_policy="forbid",
+        )
+        return super().execute(**kwargs)
+
+
 def test_blocked_verdict_persists_operator_question_onto_backlog_item(
     tmp_path,
 ) -> None:
@@ -973,6 +989,40 @@ def test_blocked_verdict_persists_operator_question_onto_backlog_item(
     assert pending_events[-1]["question"] == "fp16 精度损失可以接受吗，还是必须 fp32？"
 
 
+def test_late_forbid_prevents_custom_runner_question_from_parking(
+    tmp_path,
+) -> None:
+    mem = LifeMemory.open(tmp_path / "life")
+    sink = _RecordingSink()
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=_LateForbidQuestionRunner(mem.root),
+        sink=sink,
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=2),
+            poll_interval_seconds=0.01,
+        ),
+    )
+    item = mem.backlog.add(BacklogItem.new(
+        title="Optimize matmul kernel",
+        objective="make it 2x faster",
+    ))
+
+    result = sup.tick()
+
+    assert result is not None
+    assert result["status"] == "blocked"
+    assert not result.get("operator_question")
+    stored = next(row for row in mem.backlog.all() if row.id == item.id)
+    assert stored.status == "failed"
+    assert stored.pending_question == ""
+    assert stored.operator_decision == {}
+    assert not any(
+        event["type"] == "life.operator_question.pending"
+        for event in sink.events
+    )
+
+
 class _TechnicalQuestionRunner:
     """A recoverable benchmark choice incorrectly phrased as a human question."""
 
@@ -999,8 +1049,15 @@ def test_pragmatic_autonomy_replans_technical_question_without_pausing(
     tmp_path,
     monkeypatch,
 ) -> None:
+    from argus_skill.manager.directive import set_active_manager_directive
+
     monkeypatch.setenv("ARGUS_SKILL_AUTONOMY_MODE", "pragmatic")
     mem = LifeMemory.open(tmp_path / "life")
+    set_active_manager_directive(
+        mem.root,
+        "continue without questions",
+        operator_question_policy="forbid",
+    )
     sink = _RecordingSink(mem.root)
     sup = LifeSupervisor(
         memory=mem,

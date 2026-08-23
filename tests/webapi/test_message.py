@@ -929,6 +929,7 @@ def test_manager_steer_persists_high_priority_live_directive(
             "根据来源证据安排下一节点。"
         )
         chat_state["_frontdoor_lifetime"] = "standing"
+        chat_state["_frontdoor_operator_question_policy"] = "forbid"
         return None, "steer", "simple"
 
     monkeypatch.setattr(config_intent, "_front_door_classify", classify)
@@ -964,6 +965,7 @@ def test_manager_steer_persists_high_priority_live_directive(
     assert active is not None
     assert "检索最接近的前人研究" in active.text
     assert "发明新的数学工具" not in active.text
+    assert active.operator_question_policy == "forbid"
     from argus_skill.daemon.state import read_continuous_state
 
     continuous = read_continuous_state(life)

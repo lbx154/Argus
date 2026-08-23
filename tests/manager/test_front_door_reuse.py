@@ -17,6 +17,7 @@ class _Manager:
         reply: str = "",
         failure: str = "",
         control: str | None = None,
+        operator_question_policy: str = "unchanged",
     ) -> None:
         self.route = route
         self.lifetime = lifetime
@@ -24,6 +25,7 @@ class _Manager:
         self.reply = reply
         self.failure = failure
         self.control = control
+        self.operator_question_policy = operator_question_policy
 
     def classify_front_door(
         self,
@@ -33,6 +35,7 @@ class _Manager:
         self_mode_sink=None,
         reply_sink=None,
         greeting_sink=None,
+        operator_question_policy_sink=None,
         name_sink=None,
         failure_sink=None,
     ):
@@ -50,6 +53,8 @@ class _Manager:
             greeting_sink("你好，我是 Argus Manager。")
         if name_sink is not None:
             name_sink("test")
+        if self.control == "steer" and operator_question_policy_sink is not None:
+            operator_question_policy_sink(self.operator_question_policy)
         return None, self.control, self.route
 
 
@@ -120,6 +125,26 @@ def test_front_door_wrapper_caches_standing_lifetime_for_steer() -> None:
 
     assert decision == (None, "steer", "simple")
     assert state["_frontdoor_lifetime"] == "standing"
+
+
+def test_front_door_wrapper_carries_structured_question_policy_for_steer() -> None:
+    state: dict = {}
+
+    decision = _front_door_classify(
+        object(),
+        "continue without asking",
+        state,
+        ensure_runner=lambda *_args: SimpleNamespace(
+            manager=_Manager(
+                route="simple",
+                control="steer",
+                operator_question_policy="forbid",
+            )
+        ),
+    )
+
+    assert decision == (None, "steer", "simple")
+    assert state["_frontdoor_operator_question_policy"] == "forbid"
 
 
 def test_front_door_wrapper_carries_one_turn_greeting_reply() -> None:

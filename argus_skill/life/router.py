@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Literal, cast
 
 from ..core.role_decision import latest_role_decision
 from ..roles.prompts.manager import (
@@ -51,6 +51,7 @@ _FRONT_DOOR_FIELDS = (
     "control",
     "authorization",
     "steer_directive",
+    "operator_question_policy",
     "route",
     "self_mode",
     "reply",
@@ -170,6 +171,7 @@ AuthorizationAction = Literal[
     "artifact_refresh",
     "resume_blocked_work",
 ]
+OperatorQuestionPolicy = Literal["allow", "forbid", "unchanged"]
 _AUTHORIZATION_ACTIONS = {
     "validator_repair",
     "acceptance_retry",
@@ -307,6 +309,7 @@ def classify_front_door(
     reply_sink: Callable[[str], None] | None = None,
     greeting_sink: Callable[[str], None] | None = None,
     steering_sink: Callable[[str], None] | None = None,
+    operator_question_policy_sink: Callable[[OperatorQuestionPolicy], None] | None = None,
     authorization_sink: Callable[[tuple[str, ...]], None] | None = None,
     failure_sink: Callable[[str], None] | None = None,
     active_mission: bool = False,
@@ -470,6 +473,18 @@ def classify_front_door(
             steering_sink(steering)
         except Exception:  # noqa: BLE001 - advisory metadata never owns routing
             pass
+    question_policy = fields["operator_question_policy"].strip().lower()
+    if (
+        callable(operator_question_policy_sink)
+        and control == "steer"
+        and question_policy in {"allow", "forbid", "unchanged"}
+    ):
+        try:
+            operator_question_policy_sink(
+                cast(OperatorQuestionPolicy, question_policy)
+            )
+        except Exception:  # noqa: BLE001 - advisory metadata never owns routing
+            pass
     if callable(name_sink) and (name := fields["name"]):
         try:
             name_sink(name)
@@ -485,6 +500,7 @@ __all__ = [
     "SelfModeIntent",
     "LifetimeIntent",
     "AuthorizationAction",
+    "OperatorQuestionPolicy",
     "classify_route",
     "classify_front_door",
     "build_route_prompt",

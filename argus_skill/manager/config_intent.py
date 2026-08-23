@@ -88,6 +88,7 @@ def _front_door_classify(
     fast_replies: list[str] = []
     greeting_replies: list[str] = []
     steering_directives: list[str] = []
+    operator_question_policies: list[str] = []
     authorization_decisions: list[tuple[str, ...]] = []
     classifier_failures: list[str] = []
     chat_state.pop("_frontdoor_lifetime", None)
@@ -96,6 +97,7 @@ def _front_door_classify(
     chat_state.pop("_frontdoor_greeting_reply", None)
     chat_state.pop("_frontdoor_failure", None)
     chat_state.pop("_frontdoor_steering_directive", None)
+    chat_state.pop("_frontdoor_operator_question_policy", None)
     chat_state.pop("_frontdoor_authorization", None)
     try:
         runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
@@ -126,6 +128,8 @@ def _front_door_classify(
             kwargs["greeting_sink"] = greeting_replies.append
         if accepts(mgr.classify_front_door, "steering_sink"):
             kwargs["steering_sink"] = steering_directives.append
+        if accepts(mgr.classify_front_door, "operator_question_policy_sink"):
+            kwargs["operator_question_policy_sink"] = operator_question_policies.append
         if accepts(mgr.classify_front_door, "authorization_sink"):
             kwargs["authorization_sink"] = authorization_decisions.append
         if accepts(mgr.classify_front_door, "active_mission"):
@@ -212,6 +216,16 @@ def _front_door_classify(
             )
             if directive:
                 chat_state["_frontdoor_steering_directive"] = directive
+            question_policy = next(
+                (
+                    str(value).strip().lower()
+                    for value in operator_question_policies
+                    if str(value).strip().lower()
+                    in {"allow", "forbid", "unchanged"}
+                ),
+                "unchanged",
+            )
+            chat_state["_frontdoor_operator_question_policy"] = question_policy
         if authorization_decisions:
             actions = [
                 str(value).strip().lower()

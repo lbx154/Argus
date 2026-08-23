@@ -672,6 +672,7 @@ def _handle_steer_control(
     from ..apps._inbox import queue_inbox_message
     from ..manager.directive import (
         active_manager_directive_message,
+        active_operator_question_policy,
         set_active_manager_directive,
     )
 
@@ -688,23 +689,32 @@ def _handle_steer_control(
             {"kind": "chat", "control": "steer_unresolved"},
             message_id="steer",
         )
-    set_active_manager_directive(
-        life_dir,
-        manager_directive,
-        source="manager.steer",
-    )
+    from ..daemon.state import read_continuous_state
+
+    current = read_continuous_state(life_dir)
+    operator_question_policy = str(
+        chat_state.pop(
+            "_frontdoor_operator_question_policy",
+            "unchanged",
+        )
+        or "unchanged"
+    ).strip().lower()
+    if operator_question_policy == "unchanged":
+        inherited_question_policy = active_operator_question_policy(
+            life_dir,
+            expected_objective=current.objective,
+        )
+        if inherited_question_policy != "unchanged":
+            operator_question_policy = inherited_question_policy
     lifetime = str(
         chat_state.pop("_frontdoor_lifetime", "") or ""
     ).strip().lower()
     promoted_to_standing = False
+    standing_objective = ""
     if lifetime == "standing":
-        from ..daemon.state import (
-            compare_and_swap_continuous_config,
-            read_continuous_state,
-        )
+        from ..daemon.state import compare_and_swap_continuous_config
         from ..life.memory import LifeMemory
 
-        current = read_continuous_state(life_dir)
         running = [
             item
             for item in LifeMemory.open(life_dir).backlog.all()
@@ -722,6 +732,15 @@ def _handle_steer_control(
                 or ""
             ).strip()
         standing_objective = active_objective or current.objective or manager_directive
+    set_active_manager_directive(
+        life_dir,
+        manager_directive,
+        source="manager.steer",
+        operator_question_policy=operator_question_policy,
+        authorized_objective=standing_objective,
+        scope_objective=current.objective,
+    )
+    if lifetime == "standing":
         promoted_to_standing = compare_and_swap_continuous_config(
             life_dir,
             expected=current,
@@ -729,26 +748,27 @@ def _handle_steer_control(
             objective=standing_objective,
             open_ended=True,
         )
-        if not promoted_to_standing:
-            latest = read_continuous_state(life_dir)
-            promoted_to_standing = bool(
-                latest.enabled and latest.open_ended
-            )
         if promoted_to_standing:
             chat_state.setdefault("config", {})["continuous"] = True
             chat_state["continuous_objective"] = standing_objective
+        else:
+            latest = read_continuous_state(life_dir)
+            chat_state.setdefault("config", {})["continuous"] = latest.enabled
+            chat_state["continuous_objective"] = latest.objective
     directive = active_manager_directive_message(life_dir)
-    queue_inbox_message(
-        life_dir,
-        directive,
-        source="manager.steer",
-    )
+    if directive:
+        queue_inbox_message(
+            life_dir,
+            directive,
+            source="manager.steer",
+        )
     reply = f"我已调整团队方向：{manager_directive}"
     if lifetime == "standing":
-        if promoted_to_standing:
-            reply += " 当前任务已升级为持续任务，本轮结束后会继续规划下一项工作。"
-        else:
-            reply += " 但持续任务状态未能持久化；本轮方向已更新，请重试持续运行指令。"
+        reply += (
+            " 当前任务已升级为持续任务，本轮结束后会继续规划下一项工作。"
+            if promoted_to_standing
+            else " 方向已记录，但持续任务升级未成功；当前持续状态保持不变。"
+        )
     return emitter.respond(
         reply,
         {

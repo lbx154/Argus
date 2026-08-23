@@ -168,6 +168,13 @@ def test_execute_config_loads_custom_vertical_from_session_state(
         purpose="physical archive restoration",
         require_independent_review=True,
     )
+    from argus_skill.manager.directive import set_active_manager_directive
+
+    set_active_manager_directive(
+        state_root,
+        "continue autonomously",
+        operator_question_policy="forbid",
+    )
     runner = _make_runner(_FakeBackend())
     runner._artifact_root = state_root
     runner._role_memory_maintenance_enabled = True
@@ -194,6 +201,8 @@ def test_execute_config_loads_custom_vertical_from_session_state(
     assert state.config.active_vertical == "physical_archive_restoration"
     assert state.config.vertical_state_root == state_root
     assert state.config.require_independent_review is True
+    assert state.config.operator_questions_allowed is False
+    assert state.config.operator_question_policy_root == state_root
     assert not (
         workdir / "research" / "DOMAINS" / "physical_archive_restoration.json"
     ).exists()

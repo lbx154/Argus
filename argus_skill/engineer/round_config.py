@@ -41,6 +41,18 @@ _RUNNER_DEFAULT_HARD_IDLE_SECONDS = 45 * 60
 # no research stage at all) declares its own set through the vertical contract;
 # this stays the answer for every vertical that declares nothing.
 DEFAULT_LIVE_SEARCH_STAGES: frozenset[str] = frozenset({"research"})
+OPERATOR_QUESTION_FORBIDDEN_NEXT_ACTION = (
+    "Continue autonomously: solve reversible environment, tool, worktree, and "
+    "dependency issues with available capabilities; do not ask the operator. "
+    "If only irreversible authority or unavailable credentials remain, preserve "
+    "the current state and report blocked without an operator question."
+)
+OPERATOR_QUESTION_POLICY_REVIEW_SOURCES = frozenset(
+    {
+        "engineer_operator_question_policy",
+        "reviewer_operator_question_policy",
+    }
+)
 
 
 
@@ -232,6 +244,9 @@ class SupervisedConfig:
     background_subagent_advisory: bool = field(
         default_factory=lambda: _env_bool(_BG_SUBAGENT_ADVISORY_ENV, True)
     )
+    operator_questions_allowed: bool = True
+    operator_question_policy_root: Path | None = None
+
     def __post_init__(self) -> None:
         """Keep the round-budget guards reachable when ``max_rounds`` shrinks.
 

@@ -615,6 +615,12 @@ class SkillLoopExecuteMixin:
         config_kwargs["engineer_log_path"] = (
             str(_project_state_dir / "events.jsonl") if _project_state_dir is not None else ""
         )
+        from ..manager.directive import active_operator_question_policy
+
+        config_kwargs["operator_questions_allowed"] = (
+            active_operator_question_policy(_project_state_dir) != "forbid"
+        )
+        config_kwargs["operator_question_policy_root"] = _project_state_dir
         # Campaign lifetime metadata forwarded from the daemon namespace so the
         # Manager stage hook receives open_ended=True for daemon-created open-ended
         # campaigns, preventing final_stage_completion_decision from overwriting a

@@ -564,6 +564,18 @@ class MissionExecutionSettlementMixin:
                         "life supervisor: learned vertical failure note could not be saved"
                     )
 
+        forbid_operator_parking = False
+        if status == "blocked" and operator_question:
+            from ...manager.directive import active_operator_question_policy
+
+            forbid_operator_parking = (
+                active_operator_question_policy(self.memory.root) == "forbid"
+            )
+            if forbid_operator_parking:
+                operator_question = ""
+                outcome.operator_question = ""
+                outcome.operator_options = []
+
         # Update backlog row. A bounded research cycle that did not achieve its
         # persisted success target is resumable, not a success or terminal failure.
         if success:
@@ -706,11 +718,22 @@ class MissionExecutionSettlementMixin:
                 outcome=outcome_dimensions,
             )
         else:
-            self.memory.backlog.mark_failed(
-                item.id,
-                error=err,
-                outcome=outcome_dimensions,
-            )
+            if forbid_operator_parking:
+                self.memory.backlog.update(
+                    item.id,
+                    status="failed",
+                    finished_ts=time.time(),
+                    last_error=err,
+                    outcome=outcome_dimensions,
+                    pending_question="",
+                    operator_decision={},
+                )
+            else:
+                self.memory.backlog.mark_failed(
+                    item.id,
+                    error=err,
+                    outcome=outcome_dimensions,
+                )
 
         # A "blocked" verdict means the REVIEWER stopped progress because it
         # needs the OPERATOR to make a call — not a bug/crash. This includes a

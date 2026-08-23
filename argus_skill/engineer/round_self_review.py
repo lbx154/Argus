@@ -52,6 +52,15 @@ def _milestone_is_done(outcome: EngineerTurnOutcome) -> bool:
     )
 
 
+def _milestone_is_blocked(outcome: EngineerTurnOutcome) -> bool:
+    if isinstance(outcome.decision, dict):
+        return str(outcome.decision.get("status") or "").strip().lower() == "blocked"
+    return any(
+        _control_line(line).casefold() == "milestone_status=blocked"
+        for line in outcome.engineer_message.splitlines()
+    )
+
+
 class RoundSelfReviewMixin:
     """Update progress state and settle low-risk work without another model."""
 
@@ -92,6 +101,31 @@ class RoundSelfReviewMixin:
                         "challenge": handoff.operator_question,
                         "authority_impact": "operator",
                     },
+                ),
+                round_index=round_index,
+                supervised_config=supervised_config,
+                workdir=workdir,
+                outcome=outcome,
+                state=state,
+                review_completed_hook=review_completed_hook,
+                continue_adaptor=continue_adaptor,
+                on_event=on_event,
+            )
+        if (
+            not supervised_config.require_independent_review
+            and _milestone_is_blocked(outcome)
+        ):
+            result = (
+                str(outcome.decision.get("result") or "").strip()
+                if isinstance(outcome.decision, dict)
+                else ""
+            )
+            return self._settle_round(
+                review=ReviewDecision(
+                    status="blocked",
+                    reason=result or "Engineer reported an unresolved blocker.",
+                    next_action="",
+                    review_source="engineer_self_review",
                 ),
                 round_index=round_index,
                 supervised_config=supervised_config,

@@ -34,6 +34,23 @@ class PlanningCycleVerdictMixin:
         """Make an exhausted empty plan visible instead of silently backing off."""
         verdict = state.verdict
         reason = str(verdict.reason or verdict.error or "").strip()
+        from ...manager.directive import active_operator_question_policy
+
+        if active_operator_question_policy(self.memory.root) == "forbid":
+            self._emit({
+                "type": EventType.LIFE_PLANNER_ERROR,
+                "cycle": self._planning_cycles,
+                "error": verdict.error or reason,
+                "raw_text": verdict.raw_text,
+                "operator_alert": False,
+                "recoverable": True,
+                "stop_kind": "planner_empty_plan",
+            })
+            self._emit_status(
+                "planner has no concrete task; operator questions are forbidden, "
+                f"so autonomous retry/backoff remains active: {reason[:240]}"
+            )
+            return PLAN_ERROR
         question = (
             "Planner cannot identify a concrete next task. "
             + (f"It reported: {reason[:900]} " if reason else "")

@@ -108,3 +108,84 @@ def test_oauth_failure_pauses_once_without_opening_a_new_round(tmp_path: Path) -
     assert rounds[0].review.operator_question is not None
     assert "OAuth refresh failed" in rounds[0].review.operator_question
     assert reason == "github-copilot: OAuth refresh failed: timeout"
+
+
+def test_forbidden_policy_strips_stop_kind_operator_question(
+    tmp_path: Path,
+) -> None:
+    from argus_skill.manager.directive import set_active_manager_directive
+
+    set_active_manager_directive(
+        tmp_path,
+        "do not ask further questions",
+        operator_question_policy="forbid",
+    )
+    engineer = _OAuthFailedRunner()
+    engine = SupervisedEngineer(
+        engineer_runner=engineer,
+        reviewer=_UnexpectedReviewer(),
+        engineer_config=EngineerConfig(model="gpt-5.5"),
+        reviewer_config=ReviewerConfig(model="gpt-5.5"),
+    )
+
+    status, rounds, _final_message, _reason, _thread_id = engine.run(
+        objective="verify the harness",
+        engineer_prompt_builder=lambda _next_action, _include_static=True: "verify it",
+        supervised_config=SupervisedConfig(
+            max_rounds=2,
+            operator_question_policy_root=tmp_path,
+            background_subagent_advisory=False,
+        ),
+        workdir=tmp_path,
+    )
+
+    assert status == "blocked"
+    assert rounds[0].review.operator_question == ""
+    assert rounds[0].review.operator_options == []
+    assert rounds[0].review.backend_stop_kind == "permanent_error"
+    assert rounds[0].stop_kind == "permanent_error"
+
+
+def test_forbidden_policy_strips_model_question_event(tmp_path: Path) -> None:
+    from argus_skill.manager.directive import set_active_manager_directive
+
+    set_active_manager_directive(
+        tmp_path,
+        "continue without questions",
+        operator_question_policy="forbid",
+    )
+
+    class _UnavailableModel:
+        def run_exec(self, **_kwargs) -> RunnerResult:
+            return RunnerResult(
+                exit_code=1,
+                fatal_error='Error: Model "missing" from --model flag is not available.',
+            )
+
+    events: list[dict] = []
+    engine = SupervisedEngineer(
+        engineer_runner=_UnavailableModel(),
+        reviewer=_UnexpectedReviewer(),
+        engineer_config=EngineerConfig(model="missing"),
+        reviewer_config=ReviewerConfig(model="missing"),
+    )
+    status, rounds, _message, _reason, _thread = engine.run(
+        objective="run the configured model",
+        engineer_prompt_builder=lambda _next, _static=True: "run it",
+        supervised_config=SupervisedConfig(
+            max_rounds=2,
+            operator_question_policy_root=tmp_path,
+            background_subagent_advisory=False,
+        ),
+        workdir=tmp_path,
+        on_event=events.append,
+    )
+
+    assert status == "blocked"
+    assert rounds[0].review.backend_stop_kind == "permanent_error"
+    assert rounds[0].review.operator_question == ""
+    review_event = next(
+        event for event in events if event["type"] == "round.review.completed"
+    )
+    assert review_event["operator_question"] == ""
+    assert review_event["operator_options"] == []

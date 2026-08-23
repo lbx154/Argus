@@ -7,6 +7,8 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from argus_skill.core.models import RunnerResult
 from argus_skill.daemon.state import write_continuous_config
 from argus_skill.life.event_log import JsonlEventSink
@@ -480,6 +482,152 @@ def test_0d3_later_no_gap_evidence_replaces_skip_zero_plan(
     assert decided and decided[-1]["manager_action"] == "replace"
     assert decided[-1]["revision_latency_seconds"] >= 1
     assert committed and committed[-1]["alternative"].startswith("Use the no-gap")
+
+
+def test_forbidden_questions_request_revision_within_existing_authority(
+    tmp_path: Path,
+) -> None:
+    from argus_skill.manager.directive import set_active_manager_directive
+
+    project = tmp_path / "project"
+    project.mkdir()
+    supervisor = _supervisor(project, tmp_path / "life", _PlannerBackend([]))
+    item = supervisor.memory.backlog.add(BacklogItem.new(
+        title="Repair the environment",
+        objective="Resolve the reversible environment issue.",
+    ))
+    set_active_manager_directive(
+        supervisor.memory.root,
+        "continue without asking",
+        operator_question_policy="forbid",
+    )
+    outcome = {
+        "item_id": item.id,
+        "status": "replan_requested",
+        "operator_question": "Choose the environment route.",
+        "operator_options": [{"id": "yes"}],
+        "planner_report": {
+            "plan_signal": "reconsider",
+            "challenge": "The current environment path failed.",
+            "alternative": "Use the available local toolchain.",
+            "authority_impact": "operator",
+            "operator_question": "Choose the environment route.",
+        },
+        "plan_challenge": {
+            "manager_action": "ask_operator",
+            "manager_reason": "The Reviewer assigned this to the operator.",
+            "challenge": "The current environment path failed.",
+            "alternative": "Use the available local toolchain.",
+            "authority_impact": "operator",
+            "operator_question": "Choose the environment route.",
+            "operator_options": [{"id": "yes"}],
+            "raised_at": time.time(),
+        },
+    }
+
+    action = supervisor._adjudicate_mission_challenge(outcome)
+
+    assert action == "revise"
+    assert outcome["operator_question"] == ""
+    assert outcome["operator_options"] == []
+    assert outcome["planner_report"]["authority_impact"] == "operator"
+    assert "alternative" not in outcome["planner_report"]
+    challenge = outcome["plan_challenge"]
+    assert challenge["manager_action"] == "revise"
+    assert challenge["authority_impact"] == "operator"
+    assert challenge["alternative"] == ""
+    assert challenge["operator_question"] == ""
+    assert challenge["operator_options"] == []
+    persisted = next(
+        row for row in supervisor.memory.backlog.all() if row.id == item.id
+    )
+    assert persisted.status == "pending"
+    assert persisted.pending_question == ""
+    events = [
+        json.loads(line)
+        for line in (supervisor.memory.root / "events.jsonl").read_text().splitlines()
+    ]
+    assert not any(
+        event["type"] == "life.operator_question.pending" for event in events
+    )
+
+
+@pytest.mark.parametrize(
+    "alternative",
+    [
+        "Use the operator's API credentials.",
+        "Purchase additional compute capacity.",
+        "Force-push the protected release branch.",
+    ],
+    ids=["credentials", "spending", "irreversible"],
+)
+def test_forbidden_questions_block_out_of_scope_operator_alternative(
+    tmp_path: Path,
+    alternative: str,
+) -> None:
+    from argus_skill.manager.directive import set_active_manager_directive
+
+    project = tmp_path / "project"
+    project.mkdir()
+    supervisor = _supervisor(project, tmp_path / "life", _PlannerBackend([]))
+    item = supervisor.memory.backlog.add(BacklogItem.new(
+        title="Operator-owned boundary",
+        objective="Proceed only within existing authority.",
+    ))
+    set_active_manager_directive(
+        supervisor.memory.root,
+        "continue without asking",
+        operator_question_policy="forbid",
+    )
+    outcome = {
+        "item_id": item.id,
+        "status": "replan_requested",
+        "operator_question": "Choose the requested operator-owned action.",
+        "operator_options": [{"id": "approve"}],
+        "planner_report": {
+            "plan_signal": "reconsider",
+            "challenge": "The current plan reaches an operator-owned boundary.",
+            "alternative": alternative,
+            "authority_impact": "operator",
+        },
+        "plan_challenge": {
+            "manager_action": "ask_operator",
+            "manager_reason": "The alternative requires operator authority.",
+            "challenge": "The current plan reaches an operator-owned boundary.",
+            "alternative": alternative,
+            "authority_impact": "operator",
+            "operator_question": "Choose the requested operator-owned action.",
+            "operator_options": [{"id": "approve"}],
+            "raised_at": time.time(),
+        },
+    }
+
+    action = supervisor._adjudicate_mission_challenge(outcome)
+
+    assert action == "blocked"
+    assert outcome["status"] == "blocked"
+    assert outcome["operator_question"] == ""
+    assert outcome["operator_options"] == []
+    assert outcome["planner_report"]["authority_impact"] == "operator"
+    assert "alternative" not in outcome["planner_report"]
+    challenge = outcome["plan_challenge"]
+    assert challenge["manager_action"] == "blocked"
+    assert challenge["authority_impact"] == "operator"
+    assert challenge["alternative"] == ""
+    assert challenge["operator_question"] == ""
+    persisted = next(
+        row for row in supervisor.memory.backlog.all() if row.id == item.id
+    )
+    assert persisted.status == "failed"
+    assert persisted.pending_question == ""
+    assert persisted.operator_decision == {}
+    events = [
+        json.loads(line)
+        for line in (supervisor.memory.root / "events.jsonl").read_text().splitlines()
+    ]
+    assert not any(
+        event["type"] == "life.operator_question.pending" for event in events
+    )
 
 
 def test_new_continuous_generation_interrupts_obsolete_planner(tmp_path: Path) -> None:

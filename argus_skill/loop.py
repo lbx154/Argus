@@ -149,6 +149,9 @@ class SkillLoopConfig:
     # Manager's own structured rollback verdict with a bounded completion).
     open_ended: bool = False
     continuous_objective: str = ""
+    # Effective structured Manager policy loaded from project state.
+    operator_questions_allowed: bool = True
+    operator_question_policy_root: Path | None = None
 
     def resolved_reviewer_model(self) -> str:
         return self.reviewer_model or self.engineer_model
@@ -371,6 +374,8 @@ class SkillLoop(
                 checkpoint_path=self.config.checkpoint_path,
                 context_packet_path=self.config.context_packet_path,
                 engineer_log_path=self.config.engineer_log_path,
+                operator_questions_allowed=self.config.operator_questions_allowed,
+                operator_question_policy_root=self.config.operator_question_policy_root,
             ),
             workdir=workdir,
             on_event=self.on_event,

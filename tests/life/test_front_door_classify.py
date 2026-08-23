@@ -32,6 +32,7 @@ def _exec(answer: str, exit_code: int = 0):
             field in prompt
             for field in (
                 '"config"', '"control"', '"authorization"', '"steer_directive"',
+                '"operator_question_policy"',
                 '"route"', '"self_mode"', '"reply"', '"lifetime"', '"greeting"', '"name"',
             )
         )
@@ -58,6 +59,7 @@ def test_front_door_prompt_has_a_strict_token_efficiency_budget() -> None:
         field in prompt
         for field in (
             '"config"', '"control"', '"authorization"', '"steer_directive"',
+            '"operator_question_policy"',
             '"route"', '"self_mode"', '"reply"', '"lifetime"', '"greeting"', '"name"',
         )
     )
@@ -71,6 +73,8 @@ def test_front_door_prompt_has_a_strict_token_efficiency_budget() -> None:
     assert "ACTIVE_MISSION: YES" in prompt
     assert "Questions, requests for an explanation/status/capability check" in prompt
     assert "Ambiguity defaults to no control" in prompt
+    assert "FORBID only for an explicit command" in prompt
+    assert "ALLOW only when explicitly re-enabled" in prompt
     assert "conversation, status, bounded inspection" in prompt
     assert "finite local task" in prompt
     assert "IMPLEMENT" in prompt
@@ -461,6 +465,52 @@ def test_steer_control_routes_running_mission_direction_inline() -> None:
         "暂停当前自创路线；检索最接近的前人方法和基础理论，形成来源审计后由 Planner 决定下一证明节点。"
     ]
     assert lifetimes == ["standing"]
+
+
+@pytest.mark.parametrize(
+    ("message", "policy"),
+    [
+        ("Do not ask further questions; continue autonomously.", "forbid"),
+        ("Questions are allowed again.", "allow"),
+    ],
+)
+def test_structured_steer_records_explicit_operator_question_policy(
+    message: str,
+    policy: str,
+) -> None:
+    policies: list[str] = []
+    responses = [
+        _FakeResult(
+            "",
+            role_decisions=[{
+                "role": "manager",
+                "payload": {
+                    "config": "NONE",
+                    "control": "STEER",
+                    "authorization": "NONE",
+                    "steer_directive": "Continue autonomously without questions.",
+                    "operator_question_policy": policy,
+                    "route": "SELF",
+                    "self_mode": "INSPECT",
+                    "reply": "NONE",
+                    "lifetime": "NONE",
+                    "greeting": "NONE",
+                    "name": "Autonomous continuation",
+                },
+            }],
+        ),
+        _FakeResult("STEER"),
+    ]
+
+    decision = classify_front_door(
+        message,
+        run_exec=lambda _prompt: responses.pop(0),
+        operator_question_policy_sink=policies.append,
+        active_mission=True,
+    )
+
+    assert decision == (None, "steer", "simple")
+    assert policies == [policy]
 
 
 def test_question_about_profiling_cannot_mutate_active_mission() -> None:

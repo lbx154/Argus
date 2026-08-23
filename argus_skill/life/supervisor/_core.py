@@ -495,6 +495,56 @@ class LifeSupervisor(
         action = str(challenge.get("manager_action") or "revise").strip().lower()
         if action not in {"keep", "revise", "replace", "ask_operator"}:
             action = "revise"
+        if action == "ask_operator":
+            from ...manager.directive import active_operator_question_policy
+
+            if active_operator_question_policy(self.memory.root) == "forbid":
+                from ...core.autonomy import assess_operator_intervention
+
+                reviewer_alternative = str(
+                    challenge.get("alternative") or ""
+                ).strip()
+                boundary = assess_operator_intervention(
+                    question=str(
+                        challenge.get("operator_question")
+                        or outcome.get("operator_question")
+                        or challenge.get("challenge")
+                        or outcome.get("review_reason")
+                        or ""
+                    ),
+                    reason=str(challenge.get("challenge") or ""),
+                    next_action=reviewer_alternative,
+                    planner_report={},
+                    mode="autonomous",
+                )
+                action = "blocked" if boundary.required else "revise"
+                challenge["manager_reason"] = (
+                    "Operator questions are forbidden and do not grant authority; "
+                    + (
+                        "no in-scope revision can cross this operator-owned boundary, "
+                        "so the mission is blocked without a question."
+                        if action == "blocked"
+                        else "the Planner must revise strictly within existing "
+                        "authority without using the Reviewer alternative."
+                    )
+                )
+                challenge["authority_impact"] = "operator"
+                challenge["alternative"] = ""
+                challenge["operator_question"] = ""
+                challenge["operator_options"] = []
+                challenge.pop("pending_question", None)
+                challenge.pop("operator_decision", None)
+                outcome["operator_question"] = ""
+                outcome["operator_options"] = []
+                outcome.pop("pending_question", None)
+                outcome.pop("operator_decision", None)
+                if isinstance(report, dict):
+                    report = dict(report)
+                    report["authority_impact"] = "operator"
+                    report.pop("alternative", None)
+                    report.pop("operator_question", None)
+                    report.pop("operator_options", None)
+                    outcome["planner_report"] = report
         challenge["manager_action"] = action
         outcome["plan_challenge"] = challenge
         item_id = str(outcome.get("item_id") or "")
@@ -540,6 +590,18 @@ class LifeSupervisor(
                 })
             except Exception:  # noqa: BLE001 - stop path still fails closed
                 log.exception("failed to persist operator-owned plan challenge")
+        elif action == "blocked" and item_id:
+            reason = str(challenge.get("manager_reason") or "").strip()
+            outcome["status"] = "blocked"
+            outcome["review_status"] = "blocked"
+            self.memory.backlog.update(
+                item_id,
+                status="failed",
+                finished_ts=now,
+                last_error=reason,
+                pending_question="",
+                operator_decision={},
+            )
         return action
 
     def run(self) -> dict[str, Any]:
@@ -791,6 +853,13 @@ class LifeSupervisor(
                         "Manager held the challenged plan for an operator-owned decision"
                     )
                     stopped_by = "operator_decision_required"
+                    break
+                if manager_action == "blocked":
+                    self._emit_status(
+                        "Manager preserved the operator authority boundary and blocked "
+                        "without asking"
+                    )
+                    stopped_by = "operator_authority_blocked"
                     break
                 gate_reason = self._planner_cycle_gate_reason()
                 if gate_reason:

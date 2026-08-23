@@ -186,13 +186,13 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
     """Merged cockpit front door: classify once and reuse every cheap decision."""
     cleaned = (text or "").strip()
     return (
-        "Classify the current message. Do not choose a vertical or plan work.\n"
+        "Classify this message; do not choose a vertical or plan work.\n"
         f"ACTIVE_MISSION: {'YES' if active_mission else 'NO'}\n\n"
-        "CONFIG: SET only an explicit standing Argus setting. Role knobs: "
-        "backend|model|effort for manager,planner,engineer,reviewer or ALL. Global: "
+        "CONFIG: SET only an explicit standing Argus setting: backend|model|effort "
+        "for manager,planner,engineer,reviewer or ALL; global "
         "global_daily_cap,max_daemons,codex_daily_requests,"
         "copilot_daily_requests,copilot_daily_premium,safe_mode,show_reasoning,"
-        "telegram. Questions, suggestions, and task-local settings are NONE. Separate "
+        "telegram. Questions, suggestions, and task-local settings are NONE. Join "
         "multiple SET clauses with `; `.\n\n"
         "CONTROL: PAUSE stops the campaign; ABORT ends the current mission; "
         "NO_DISPATCH forbids new work. STEER is an explicit command to change an "
@@ -201,24 +201,25 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
         "explicit continue/resume after a pause is not a control token; resumed "
         "paused tasks with those effects are TEAM. Ambiguity defaults to no control. "
         "Any control uses ROUTE SELF.\n\n"
-        "AUTHORIZATION: AUTHORIZE only an explicitly granted action that was blocked "
-        "in the active campaign. Allowed: validator_repair,"
+        "AUTHORIZATION: AUTHORIZE only an explicit grant for an active blocked action: "
+        "validator_repair,"
         "acceptance_retry,provenance_repair,artifact_refresh,resume_blocked_work. "
-        "Questions and quoted grants are NONE. Authorization uses SELF.\n\n"
+        "Questions/quoted grants are NONE. Use SELF.\n\n"
         "STEER_DIRECTIVE: for STEER, state the changed direction or constraint in one "
         "short instruction; otherwise NONE.\n\n"
+        "OPERATOR_QUESTION_POLICY: for STEER, FORBID only for an explicit command "
+        "against further questions; ALLOW only when explicitly re-enabled; else "
+        "UNCHANGED.\n\n"
         "ROUTE: SELF for conversation, status, bounded inspection, or one finite local "
-        "task one worker can verify without network, install, git, publish, background "
-        "work, irreversible effects, or independent review. Supplied-source synthesis "
-        "may be SELF; live research, ambiguity, parallel work, or review-sensitive work "
-        "is TEAM. When unsure, choose TEAM.\n\n"
-        "SELF_MODE: REPLY=no tools; INSPECT=tool-grounded answer without requested "
-        "artifacts; MICRO=one tiny mutation plus explicit check; IMPLEMENT=finite local "
-        "implementation with tests; DEBUG=finite local diagnosis/fix with tests; "
-        "REVIEW=one local review artifact without source changes; SYNTHESIZE=one artifact "
-        "from supplied sources only. Prefer DEBUG over IMPLEMENT when fixing existing "
-        "behavior or adding regression coverage. TEAM uses NONE. REPLY contains the full "
-        "answer only for SELF/REPLY.\n\n"
+        "task verifiable without network, install, git, publish, background work, "
+        "irreversible effects, or independent review. Supplied-source synthesis may be "
+        "SELF; live research, ambiguity, parallel or review-sensitive work is TEAM. "
+        "When unsure, choose TEAM.\n\n"
+        "SELF_MODE: REPLY=no tools; INSPECT=grounded answer without artifacts; "
+        "MICRO=tiny mutation+check; IMPLEMENT=local implementation+tests; DEBUG=local "
+        "diagnosis/fix+tests; REVIEW=local review artifact only; SYNTHESIZE=one artifact "
+        "from supplied sources. Prefer DEBUG over IMPLEMENT for fixes/regressions. "
+        "TEAM uses NONE. REPLY is the full answer only for SELF/REPLY.\n\n"
         "LIFETIME: TEAM uses BOUNDED for a finite outcome, BOUNDED_INCREMENT only for "
         "an explicitly limited stage, and STANDING only for open-ended work. Default "
         "BOUNDED (default BOUNDED). SELF uses NONE.\n\n"
@@ -227,7 +228,8 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
         + decision_event_instruction(
             "manager",
             '{"config":"NONE","control":"NONE","authorization":"NONE",'
-            '"steer_directive":"NONE","route":"SELF","self_mode":"REPLY",'
+            '"steer_directive":"NONE","operator_question_policy":"unchanged",'
+            '"route":"SELF","self_mode":"REPLY",'
             '"reply":"full user-facing answer","lifetime":"NONE",'
             '"greeting":"NONE","name":"short title"}',
         )

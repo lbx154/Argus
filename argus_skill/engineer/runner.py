@@ -39,7 +39,11 @@ from .round_execution import RoundExecutionMixin
 from .round_prompt import RoundPromptMixin
 from .round_reviewer import RoundReviewerMixin
 from .round_self_review import RoundSelfReviewMixin
-from .round_settlement import RoundSettlementMixin
+from .round_settlement import (
+    RoundSettlementMixin,
+    enforce_question_policy_event,
+    enforce_terminal_question_policy,
+)
 
 # These round-signal helpers remain module attributes because callers and tests
 # patch them through ``argus_skill.engineer.runner``.
@@ -134,11 +138,12 @@ class SupervisedEngineer(
             raw_on_event = on_event
 
             def _redacted_on_event(event: dict) -> None:
+                redacted = redact_secrets_record(
+                    event,
+                    known_values=known_secret_values(),
+                )
                 raw_on_event(
-                    redact_secrets_record(
-                        event,
-                        known_values=known_secret_values(),
-                    )
+                    enforce_question_policy_event(redacted, supervised_config)
                 )
 
             on_event = _redacted_on_event
@@ -230,7 +235,10 @@ class SupervisedEngineer(
                 on_event=on_event,
             )
             if control.action == "return":
-                return control.terminal
+                return enforce_terminal_question_policy(
+                    control.terminal,
+                    supervised_config,
+                )
             if control.action == "continue_loop":
                 continue
 
@@ -243,7 +251,10 @@ class SupervisedEngineer(
                 on_event=on_event,
             )
             if control.action == "return":
-                return control.terminal
+                return enforce_terminal_question_policy(
+                    control.terminal,
+                    supervised_config,
+                )
             if control.action == "continue_loop":
                 continue
 
@@ -258,7 +269,10 @@ class SupervisedEngineer(
                 on_event=on_event,
             )
             if control.action == "return":
-                return control.terminal
+                return enforce_terminal_question_policy(
+                    control.terminal,
+                    supervised_config,
+                )
             if control.action == "continue_loop":
                 continue
 
@@ -277,7 +291,10 @@ class SupervisedEngineer(
                 on_event=on_event,
             )
             if control.action == "return":
-                return control.terminal
+                return enforce_terminal_question_policy(
+                    control.terminal,
+                    supervised_config,
+                )
             if control.action == "continue_loop":
                 continue
             review = control.payload
@@ -294,17 +311,24 @@ class SupervisedEngineer(
                 on_event=on_event,
             )
             if control.action == "return":
-                return control.terminal
+                return enforce_terminal_question_policy(
+                    control.terminal,
+                    supervised_config,
+                )
             if control.action == "continue_loop":
                 continue
             # else "proceed": fall through to the next round.
 
-        return (
-            "max_rounds",
-            state.rounds,
-            state.last_engineer_message,
-            f"Hit max_rounds={supervised_config.max_rounds} without reviewer-confirmed completion.",
-            None,
+        return enforce_terminal_question_policy(
+            (
+                "max_rounds",
+                state.rounds,
+                state.last_engineer_message,
+                f"Hit max_rounds={supervised_config.max_rounds} without "
+                "reviewer-confirmed completion.",
+                None,
+            ),
+            supervised_config,
         )
 
     def _run_engineer(

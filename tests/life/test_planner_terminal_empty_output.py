@@ -470,10 +470,17 @@ def test_nonterminal_empty_plan_repair_exhaustion_asks_operator(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
+    from argus_skill.manager.directive import set_active_manager_directive
+
     supervisor, backend, sink = _make_supervisor(
         tmp_path,
         monkeypatch,
         terminal_stage_done=False,
+    )
+    set_active_manager_directive(
+        supervisor.memory.root,
+        "questions are allowed",
+        operator_question_policy="allow",
     )
 
     assert supervisor._plan_next_work() == PLAN_AWAITING
@@ -500,6 +507,42 @@ def test_nonterminal_empty_plan_repair_exhaustion_asks_operator(
         event.get("type") == "life.planner.verdict" and event.get("status") == "completed"
         for event in sink.events
     )
+
+
+def test_nonterminal_empty_plan_does_not_park_when_questions_are_forbidden(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from argus_skill.manager.directive import set_active_manager_directive
+
+    supervisor, backend, sink = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        terminal_stage_done=False,
+    )
+    set_active_manager_directive(
+        supervisor.memory.root,
+        "continue without questions",
+        operator_question_policy="forbid",
+    )
+
+    assert supervisor._plan_next_work() == PLAN_ERROR
+
+    assert backend.planner_calls == 2
+    assert backend.manager_calls == 0
+    assert supervisor.memory.backlog.all() == []
+    assert not any(
+        event.get("type") == "life.operator_question.pending"
+        for event in sink.events
+    )
+    error_event = next(
+        event for event in sink.events if event.get("type") == "life.planner.error"
+    )
+    assert str(error_event.get("error", "")).startswith(NO_CONCRETE_TASKS_ERROR)
+    assert "repair exhausted after 1 attempt" in str(error_event.get("error", ""))
+    assert error_event["operator_alert"] is False
+    assert error_event["recoverable"] is True
+    assert error_event["stop_kind"] == "planner_empty_plan"
 
 
 class _StructuredWorkKindPlannerRunner(_EmptyPlannerThenManagerRunner):
