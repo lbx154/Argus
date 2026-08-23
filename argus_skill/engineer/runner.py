@@ -365,7 +365,8 @@ class SupervisedEngineer(
                     isolate_workdir=self.engineer_config.isolate_workdir,
                     working_dir=str(workdir),
                     live_search=_engineer_live_search(
-                        workdir, self.engineer_config.live_search_stages
+                        self.engineer_config.vertical_state_root or workdir,
+                        self.engineer_config.live_search_stages,
                     ),
                     # Provider/process liveness belongs to the backend's stream
                     # watchdog. Do not infer semantic progress from project

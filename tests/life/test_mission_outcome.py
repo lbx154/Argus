@@ -70,6 +70,24 @@ def _make_supervisor(tmp_path, outcome: _Outcome) -> tuple[LifeSupervisor, _Sink
     return supervisor, sink
 
 
+def test_persisted_work_kind_is_forwarded_to_the_mission_runner(tmp_path) -> None:
+    supervisor, _sink = _make_supervisor(
+        tmp_path,
+        _Outcome(success=True, status="done"),
+    )
+    supervisor.memory.backlog.add(
+        BacklogItem.new(
+            title="Typed mission",
+            objective="The same prose must not select behavior.",
+            work_kind="algorithm_discovery",
+        )
+    )
+
+    supervisor.tick()
+
+    assert supervisor.runner.kwargs["work_kind"] == "algorithm_discovery"
+
+
 def test_completed_event_carries_existing_engineer_summary(tmp_path) -> None:
     supervisor, sink = _make_supervisor(
         tmp_path,

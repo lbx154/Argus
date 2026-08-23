@@ -25,6 +25,9 @@ WORKFLOW_MODE = "direct"
 completion_gate = "none"
 MISSION_KIND = "optimize"
 VERIFICATION_STAGE_PROFILES = {"optimize": "develop"}
+ENGINEER_LIVE_SEARCH_WORK_KINDS = {
+    "algorithm_discovery": frozenset({"optimize"}),
+}
 
 # Kernel work should start from the repository and measured behavior, not from
 # framework-authored document bundles.
@@ -145,6 +148,7 @@ __all__ = [
     "CHECKLIST_ITEMS",
     "CHECKLIST_OPTIONAL_STAGES",
     "CHECKLIST_STAGE_ORDER",
+    "ENGINEER_LIVE_SEARCH_WORK_KINDS",
     "REVIEWER_CHECKLISTS",
     "STAGE_CHECKS",
     "STAGE_ALIASES",

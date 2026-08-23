@@ -443,6 +443,10 @@ class MissionExecutionRuntimeMixin:
                     )
                 if "vertical_override" in params or _accepts_kw:
                     execute_kwargs["vertical_override"] = execution_vertical
+                if "work_kind" in params or _accepts_kw:
+                    execute_kwargs["work_kind"] = str(
+                        getattr(item, "work_kind", "") or ""
+                    ).strip()
                 if state.repair_capability is not None:
                     if "max_rounds_override" in params or _accepts_kw:
                         execute_kwargs["max_rounds_override"] = 1
@@ -469,6 +473,9 @@ class MissionExecutionRuntimeMixin:
                     str(state.context_packet_path) if state.context_packet_path else ""
                 )
                 execute_kwargs["vertical_override"] = execution_vertical
+                execute_kwargs["work_kind"] = str(
+                    getattr(item, "work_kind", "") or ""
+                ).strip()
                 if state.repair_capability is not None:
                     execute_kwargs["max_rounds_override"] = 1
                     execute_kwargs["workflow_mode_override"] = "direct"

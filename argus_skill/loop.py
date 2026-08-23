@@ -33,7 +33,11 @@ from .core.event_catalog import EventType
 from .core.models import LoopOutcome, RoundRecord
 from .core.ports import RunnerBackend
 from .core.role_session import configured_role_session_policy
-from .engineer.runner import EngineerConfig, SupervisedConfig, SupervisedEngineer
+from .engineer.runner import (
+    EngineerConfig,
+    SupervisedConfig,
+    SupervisedEngineer,
+)
 from .reviewer import Reviewer, ReviewerConfig
 from .skills.loop_prompt import PromptContextMixin
 from .skills.loop_review_hooks import ReviewedRoundHooksMixin
@@ -258,7 +262,6 @@ class SkillLoop(
                 isolate_workdir=self.config.isolate_workdir,
             ),
         )
-
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -267,7 +270,8 @@ class SkillLoop(
             objective_for_skill: str | None = None,
             review_objective: str | None = None,
             original_objective: str | None = None,
-            scope: str = "") -> LoopOutcome:
+            scope: str = "",
+            work_kind: str = "") -> LoopOutcome:
         """Run one mission end-to-end.
 
         ``task`` is the *full* prompt the engineer sees (typically a long
@@ -299,6 +303,7 @@ class SkillLoop(
         supervised = self._supervised_for_mission(
             vertical=active_vertical,
             project_root=vertical_state_root,
+            work_kind=work_kind,
         )
         if self.config.wiki_enabled:
             from .wiki.lifecycle import ensure_project_wiki
@@ -410,14 +415,16 @@ class SkillLoop(
         vertical: str,
         project_root: Path,
         configured: frozenset[str],
+        *,
+        work_kind: str = "",
+        preserve_configured: bool = True,
     ) -> frozenset[str]:
         """Let the active vertical declare its own Engineer live-search stages.
 
-        ``configured`` is the baseline actually in effect on ``EngineerConfig``
-        — NOT the framework constant. A vertical that declares nothing must keep
-        whatever the caller configured through the public knob; resolving
-        against the constant instead would silently downgrade an explicit
-        caller choice back to the research stage.
+        ``configured`` always retains the public ``frozenset`` API. Its private
+        construction provenance decides whether a work-kind-specific vertical
+        default may replace it; comparing values cannot distinguish an omitted
+        default from an explicitly passed ``frozenset({"research"})``.
 
         Errors deliberately propagate. ``resolve_role_prompt`` above has already
         loaded this exact ``(vertical, project_root)`` contract for the same
@@ -437,13 +444,18 @@ class SkillLoop(
         from .verticals._base import load_vertical_contract
 
         contract = load_vertical_contract(vertical, project_root=project_root)
-        return contract.live_search_stages(configured)
+        return contract.live_search_stages(
+            configured,
+            work_kind=work_kind,
+            preserve_configured=preserve_configured,
+        )
 
     def _supervised_for_mission(
         self,
         *,
         vertical: str,
         project_root: Path,
+        work_kind: str = "",
     ) -> SupervisedEngineer:
         """Return the SupervisedEngineer THIS mission should run on.
 
@@ -455,9 +467,19 @@ class SkillLoop(
         a mission-local object instead. A vertical that changes nothing gets
         the shared object back untouched.
         """
-        configured = self.supervised.engineer_config.live_search_stages
-        stages = self._resolve_live_search_stages(vertical, project_root, configured)
-        if stages == configured:
+        engineer_config = self.supervised.engineer_config
+        configured = engineer_config.live_search_stages
+        stages = self._resolve_live_search_stages(
+            vertical,
+            project_root,
+            configured,
+            work_kind=work_kind,
+            preserve_configured=engineer_config._live_search_stages_explicit,
+        )
+        if (
+            stages == configured
+            and engineer_config.vertical_state_root == project_root
+        ):
             return self.supervised
         # SupervisedEngineer is not a dataclass, so this is the
         # ``dataclasses.replace`` equivalent: keep every collaborator (and any
@@ -467,6 +489,7 @@ class SkillLoop(
         mission_supervised.engineer_config = replace(
             self.supervised.engineer_config,
             live_search_stages=stages,
+            vertical_state_root=project_root,
         )
         return mission_supervised
 

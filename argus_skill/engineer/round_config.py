@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from dataclasses import replace as dataclass_replace
+from functools import wraps
 from pathlib import Path
 from typing import Any
 
@@ -53,8 +55,6 @@ OPERATOR_QUESTION_POLICY_REVIEW_SOURCES = frozenset(
         "reviewer_operator_question_policy",
     }
 )
-
-
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -99,14 +99,81 @@ class EngineerConfig:
     dangerous_yolo: bool = False
     sandbox_mode: str | None = None
     isolate_workdir: bool = False
-    # Pipeline stages in which the engineer runs with codex's native live
-    # web_search enabled (``codex exec --search``). Default: the research stage,
-    # so idea discovery / literature grounding does REAL live search instead of
-    # cached/recalled results. Empty set → never enable it. The active vertical
-    # may override this per mission (``ENGINEER_LIVE_SEARCH_STAGES`` on its
-    # provider, resolved through ``VerticalContract.live_search_stages``); a
-    # vertical that declares nothing keeps this default unchanged.
+    # Public, historical caller configuration for pipeline stages in which the
+    # engineer runs with codex's native live web_search enabled
+    # (``codex exec --search``). The value and type of this default are part of
+    # the API; private provenance below, rather than ``None``, records omission.
     live_search_stages: frozenset[str] = DEFAULT_LIVE_SEARCH_STAGES
+    # State root that owns the pipeline stage used by the live-search gate.
+    # Execution may happen in a separate workdir.
+    vertical_state_root: Path | None = None
+    # ``dataclasses.replace`` reconstructs an instance by passing every init
+    # field back to ``__init__``. Keeping provenance as a keyword-only init
+    # field lets that replay carry the original state instead of mistaking the
+    # replayed public value for a caller choice. Keyword-only keeps every
+    # historical positional parameter in the same place.
+    _live_search_stages_explicit: bool = field(
+        default=False,
+        repr=False,
+        compare=False,
+        kw_only=True,
+    )
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Treat post-construction writes to the public knob as explicit."""
+        if (
+            name == "live_search_stages"
+            and "_live_search_stages_explicit" in self.__dict__
+        ):
+            object.__setattr__(self, "_live_search_stages_explicit", True)
+        object.__setattr__(self, name, value)
+
+    def replace(self, **changes: Any) -> EngineerConfig:
+        """Return an updated config while preserving caller provenance.
+
+        Use this public entry point when updating ``live_search_stages``.
+        ``dataclasses.replace`` cannot distinguish an explicitly supplied
+        default-equivalent value from a field it copied unchanged, so use this
+        method when that distinction matters.
+        """
+        if "live_search_stages" in changes:
+            changes["_live_search_stages_explicit"] = True
+        return dataclass_replace(self, **changes)
+
+
+_engineer_config_init = EngineerConfig.__init__
+
+
+@wraps(_engineer_config_init)
+def _init_engineer_config_with_provenance(
+    self: EngineerConfig,
+    *args: Any,
+    **kwargs: Any,
+) -> None:
+    """Capture argument presence without losing replayed provenance."""
+    provenance_supplied = "_live_search_stages_explicit" in kwargs
+    provenance = kwargs.get("_live_search_stages_explicit", False)
+    stages_supplied = len(args) > 10 or "live_search_stages" in kwargs
+    explicit = stages_supplied
+    # ``dataclasses.replace`` supplies the old provenance alongside every init
+    # field. Preserve that state, but recognize a replayed non-default public
+    # value as an explicit replacement. Only a replacement equal to the public
+    # default is inherently ambiguous; ``EngineerConfig.replace`` records that
+    # intent before ``dataclasses.replace`` discards the changed-key information.
+    if provenance_supplied:
+        explicit = bool(provenance)
+        if not explicit and stages_supplied:
+            stages = (
+                args[10]
+                if len(args) > 10
+                else kwargs["live_search_stages"]
+            )
+            explicit = stages != DEFAULT_LIVE_SEARCH_STAGES
+    _engineer_config_init(self, *args, **kwargs)
+    self._live_search_stages_explicit = explicit
+
+
+EngineerConfig.__init__ = _init_engineer_config_with_provenance  # type: ignore[method-assign]
 
 
 def _engineer_live_search(workdir: Any, stages: "frozenset[str]") -> bool:

@@ -11,6 +11,7 @@ These tests pin the four links of the chain:
 """
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import tempfile
@@ -27,6 +28,7 @@ from argus_skill.core.models import RunnerOptions as CoreOpts
 from argus_skill.core.vertical_contract import VerticalContractError
 from argus_skill.engineer.runner import (
     DEFAULT_LIVE_SEARCH_STAGES,
+    EngineerConfig,
     _engineer_live_search,
 )
 from argus_skill.skills.vertical_select import persist_vertical
@@ -50,6 +52,63 @@ def test_core_and_agentcli_both_have_field():
     assert CoreOpts(model="gpt-5.5", live_search=True).live_search is True
     assert CoreOpts().live_search is False  # default off
     assert "live_search" in AcOpts.__dataclass_fields__
+
+
+def test_engineer_config_public_live_search_default_is_compatible() -> None:
+    config = EngineerConfig(model="test")
+
+    assert config.live_search_stages == frozenset({"research"})
+    assert type(config.live_search_stages) is frozenset
+    assert (
+        EngineerConfig.__dataclass_fields__["live_search_stages"].default
+        is DEFAULT_LIVE_SEARCH_STAGES
+    )
+    assert (
+        inspect.signature(EngineerConfig).parameters["live_search_stages"].default
+        is DEFAULT_LIVE_SEARCH_STAGES
+    )
+
+
+def test_assigning_framework_default_marks_live_search_as_explicit() -> None:
+    config = EngineerConfig(model="test")
+    assert config._live_search_stages_explicit is False
+
+    config.live_search_stages = DEFAULT_LIVE_SEARCH_STAGES
+
+    assert config.live_search_stages is DEFAULT_LIVE_SEARCH_STAGES
+    assert config._live_search_stages_explicit is True
+
+
+def test_replace_of_unrelated_field_preserves_live_search_provenance() -> None:
+    omitted = EngineerConfig(model="test")
+    omitted_update = replace(omitted, reasoning_effort="high")
+    assert omitted_update.live_search_stages is DEFAULT_LIVE_SEARCH_STAGES
+    assert omitted_update._live_search_stages_explicit is False
+
+    custom_stages = frozenset({"scope"})
+    explicit = EngineerConfig(model="test", live_search_stages=custom_stages)
+    explicit_update = replace(explicit, reasoning_effort="high")
+    assert explicit_update.live_search_stages is custom_stages
+    assert explicit_update._live_search_stages_explicit is True
+
+
+def test_replace_of_live_search_field_marks_it_explicit() -> None:
+    config = EngineerConfig(model="test")
+    custom_stages = frozenset({"optimize"})
+
+    updated = config.replace(live_search_stages=custom_stages)
+
+    assert updated.live_search_stages is custom_stages
+    assert updated._live_search_stages_explicit is True
+
+
+def test_replace_of_live_search_field_with_default_marks_it_explicit() -> None:
+    config = EngineerConfig(model="test")
+
+    updated = config.replace(live_search_stages=DEFAULT_LIVE_SEARCH_STAGES)
+
+    assert updated.live_search_stages is DEFAULT_LIVE_SEARCH_STAGES
+    assert updated._live_search_stages_explicit is True
 
 
 def test_stage_gate_research_on_others_off():
@@ -91,6 +150,15 @@ def _math_project(tmp_path: Path, stage: str) -> Path:
     state_path = tmp_path / ".argus" / "PIPELINE_STATE.json"
     payload = json.loads(state_path.read_text(encoding="utf-8"))
     payload["current_stage"] = stage
+    state_path.write_text(json.dumps(payload), encoding="utf-8")
+    return tmp_path
+
+
+def _kernel_project(tmp_path: Path) -> Path:
+    persist_vertical(tmp_path, "kernel_engineering")
+    state_path = tmp_path / ".argus" / "PIPELINE_STATE.json"
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    payload["current_stage"] = "optimize"
     state_path.write_text(json.dumps(payload), encoding="utf-8")
     return tmp_path
 
@@ -166,6 +234,7 @@ def _build_loop(
     vertical: str,
     *,
     live_search_stages: frozenset[str] | None = None,
+    vertical_state_root: Path | None = None,
 ) -> tuple[SkillLoop, MemoryBackend]:
     """Build a real SkillLoop, optionally with a caller-configured baseline."""
     skills = tmp_path / "skills"
@@ -181,14 +250,12 @@ def _build_loop(
             max_rounds=1,
             workflow_mode="direct",
             active_vertical=vertical,
+            vertical_state_root=vertical_state_root,
         ),
     )
     if live_search_stages is not None:
         # Exactly what a caller does through the public EngineerConfig knob.
-        loop.supervised.engineer_config = replace(
-            loop.supervised.engineer_config,
-            live_search_stages=live_search_stages,
-        )
+        loop.supervised.engineer_config.live_search_stages = live_search_stages
     return loop, backend
 
 
@@ -204,15 +271,196 @@ def _run_one_round(
     vertical: str,
     *,
     live_search_stages: frozenset[str] | None = None,
+    vertical_state_root: Path | None = None,
+    work_kind: str = "",
+    task: str = "Do the work.",
 ) -> CoreOpts:
     """Run one real SkillLoop round and return the engineer's RunnerOptions."""
     loop, backend = _build_loop(
         tmp_path,
         vertical,
         live_search_stages=live_search_stages,
+        vertical_state_root=vertical_state_root,
     )
-    loop.run("Do the work.", workdir=tmp_path, scope="bounded")
+    loop.run(
+        task,
+        workdir=tmp_path,
+        scope="bounded",
+        work_kind=work_kind,
+    )
     return _engineer_options(backend)
+
+
+_KERNEL_KEYWORD_NOISE = (
+    "Algorithm discovery and optimization are mentioned identically; use live search "
+    "only when the persisted mission structure permits it."
+)
+
+
+@pytest.mark.parametrize(
+    ("work_kind", "expected"),
+    [
+        ("algorithm_discovery", True),
+        ("engineering_optimization", False),
+        ("", False),
+    ],
+)
+def test_kernel_skill_loop_live_search_routes_only_by_persisted_work_kind(
+    tmp_path: Path,
+    work_kind: str,
+    expected: bool,
+) -> None:
+    """Same optimize stage and prose; only mission.work_kind may change routing."""
+    _kernel_project(tmp_path)
+
+    options = _run_one_round(
+        tmp_path,
+        "kernel_engineering",
+        work_kind=work_kind,
+        task=_KERNEL_KEYWORD_NOISE,
+    )
+
+    assert options.live_search is expected
+
+
+def test_separated_state_root_enables_kernel_algorithm_discovery(
+    tmp_path: Path,
+) -> None:
+    """The contract and stage gate must read the same production state root."""
+    state_root = _kernel_project(tmp_path / "state")
+    execution_root = tmp_path / "execution"
+    persist_vertical(execution_root, "research")
+
+    options = _run_one_round(
+        execution_root,
+        "kernel_engineering",
+        vertical_state_root=state_root,
+        work_kind="algorithm_discovery",
+    )
+
+    # State is optimize, while the execution tree is research. Reading the
+    # execution tree would incorrectly disable the optimize-only declaration.
+    assert options.live_search is True
+
+
+@pytest.mark.parametrize("work_kind", ["engineering_optimization", ""])
+def test_separated_state_root_does_not_enable_other_kernel_work_kinds(
+    tmp_path: Path,
+    work_kind: str,
+) -> None:
+    state_root = _kernel_project(tmp_path / "state")
+    execution_root = tmp_path / "execution"
+    persist_vertical(execution_root, "research")
+
+    options = _run_one_round(
+        execution_root,
+        "kernel_engineering",
+        vertical_state_root=state_root,
+        work_kind=work_kind,
+    )
+
+    # These kinds retain the research-stage framework default. Reading the
+    # execution tree would therefore enable search even though state is optimize.
+    assert options.live_search is False
+
+
+@pytest.mark.parametrize(
+    ("work_kind", "custom", "expected"),
+    [
+        ("engineering_optimization", frozenset({"optimize"}), True),
+        ("algorithm_discovery", frozenset(), False),
+    ],
+)
+def test_kernel_work_kind_default_does_not_replace_caller_live_search_config(
+    tmp_path: Path,
+    work_kind: str,
+    custom: frozenset[str],
+    expected: bool,
+) -> None:
+    _kernel_project(tmp_path)
+
+    options = _run_one_round(
+        tmp_path,
+        "kernel_engineering",
+        live_search_stages=custom,
+        work_kind=work_kind,
+        task=_KERNEL_KEYWORD_NOISE,
+    )
+
+    assert options.live_search is expected
+
+
+def test_explicit_framework_default_keeps_caller_provenance(tmp_path: Path) -> None:
+    """An explicit value remains explicit even when equal to the default."""
+    _kernel_project(tmp_path)
+
+    options = _run_one_round(
+        tmp_path,
+        "kernel_engineering",
+        live_search_stages=frozenset({"research"}),
+        work_kind="algorithm_discovery",
+    )
+
+    assert options.live_search is False
+
+
+def test_standard_replace_custom_live_search_overrides_kernel_work_kind_default(
+    tmp_path: Path,
+) -> None:
+    _kernel_project(tmp_path)
+    loop, backend = _build_loop(tmp_path, "kernel_engineering")
+    loop.supervised.engineer_config = replace(
+        loop.supervised.engineer_config,
+        live_search_stages=frozenset({"optimize"}),
+    )
+
+    loop.run(
+        "Do the work.",
+        workdir=tmp_path,
+        scope="bounded",
+        work_kind="engineering_optimization",
+    )
+
+    assert loop.supervised.engineer_config._live_search_stages_explicit is True
+    assert _engineer_options(backend).live_search is True
+
+
+def test_replaced_live_search_config_overrides_kernel_work_kind_default(
+    tmp_path: Path,
+) -> None:
+    _kernel_project(tmp_path)
+    loop, backend = _build_loop(tmp_path, "kernel_engineering")
+    loop.supervised.engineer_config = loop.supervised.engineer_config.replace(
+        live_search_stages=frozenset(),
+    )
+
+    loop.run(
+        "Do the work.",
+        workdir=tmp_path,
+        scope="bounded",
+        work_kind="algorithm_discovery",
+    )
+
+    assert _engineer_options(backend).live_search is False
+
+
+def test_replaced_default_live_search_config_overrides_kernel_work_kind_default(
+    tmp_path: Path,
+) -> None:
+    _kernel_project(tmp_path)
+    loop, backend = _build_loop(tmp_path, "kernel_engineering")
+    loop.supervised.engineer_config = loop.supervised.engineer_config.replace(
+        live_search_stages=DEFAULT_LIVE_SEARCH_STAGES,
+    )
+
+    loop.run(
+        "Do the work.",
+        workdir=tmp_path,
+        scope="bounded",
+        work_kind="algorithm_discovery",
+    )
+
+    assert _engineer_options(backend).live_search is False
 
 
 def test_skill_loop_hands_math_engineer_live_search_in_solve(tmp_path: Path) -> None:
