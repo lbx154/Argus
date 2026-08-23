@@ -1429,6 +1429,87 @@ def test_life_worker_post_mission_hook_canaries_reviewed_self_maintenance(
     assert "self-maintenance" in str(spawned["reason"])
 
 
+def test_worker_reconciles_prepared_item_before_backlog_drain(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    life_dir = tmp_path / "life"
+    memory = LifeMemory.open(life_dir)
+    memory.init()
+    worktree = life_dir / "self-maintenance" / "repairs" / "incident123"
+    worktree.mkdir(parents=True)
+    item = memory.backlog.add(BacklogItem.new(
+        title="repair",
+        objective="repair",
+        tags=["framework_maintenance"],
+        execution_workdir=str(worktree),
+    ))
+    state_path = life_dir / "self-maintenance" / "state.json"
+    state_path.write_text(
+        json.dumps({
+            "phase": "preparing",
+            "repair_mode": "packaged_clone",
+            "incident_id": "incident123",
+            "worktree": str(worktree),
+        }),
+        encoding="utf-8",
+    )
+    runtime = tmp_path / "site-packages" / "argus_skill"
+    runtime.mkdir(parents=True)
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.setattr(
+        "argus_skill.core.runtime_identity.source_root",
+        lambda: runtime,
+    )
+    monkeypatch.setattr(
+        "argus_skill.core.runtime_identity.source_revision",
+        lambda: "",
+    )
+    config = LifeWorkerConfig(
+        life_dir=life_dir,
+        backend="codex",
+        project_workdir=project,
+        poll_interval=0.0,
+    )
+    worker = LifeWorker(config)
+    observed: list[tuple[str, str]] = []
+
+    class _Budget:
+        @staticmethod
+        def can_start(**_kwargs):
+            return True, ""
+
+    class _Supervisor:
+        config = SimpleNamespace(budget=_Budget())
+        _missions_started = 0
+        _planning_cycles = 0
+
+        def run(self):
+            state = worker._self_maintenance._state()
+            observed.append((state["phase"], state["active_item_id"]))
+            memory.backlog.mark_done(item.id)
+            worker._stop.set()
+            return {"stopped_by": ""}
+
+    supervisor = _Supervisor()
+    rf_state = SimpleNamespace(
+        runtime_root=life_dir,
+        cfg=config,
+        runner=SimpleNamespace(manager=SimpleNamespace()),
+        mem=memory,
+        sink=SimpleNamespace(handle_event=lambda _event: None),
+        daemon_sink=SimpleNamespace(self_maintenance=None),
+        sup=supervisor,
+    )
+
+    assert worker._rf_init_self_maintenance(rf_state) is None
+    worker._rf_main_loop(rf_state)
+
+    assert observed == [("queued", item.id)]
+    assert memory.backlog.all()[0].status == "done"
+
+
 def test_life_worker_post_mission_hook_closes_canary_during_continuous_drain(
     tmp_path: Path,
 ) -> None:

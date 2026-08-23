@@ -12,6 +12,7 @@ from argus_skill.planner.planner import (
     MISSING_STAGE_DECISION_ERROR,
     NO_CONCRETE_TASKS_ERROR,
     OPEN_ENDED_PROJECT_DONE_ERROR,
+    PLANNER_GROUNDING_BUDGET_PREFIX,
     PLANNER_SUPERSEDED_ERROR,
     Planner,
     PlannerConfig,
@@ -655,6 +656,61 @@ def test_planner_grounding_wall_budget_rejects_late_repair_success(
     assert "elapsed wall clock" in verdict.error
     assert "no partial Planner output was accepted" in verdict.error
     assert "Late partial repair" not in verdict.raw_text
+
+
+@pytest.mark.parametrize(
+    ("receipt_backed", "retained"),
+    [(True, True), (False, False)],
+    ids=["grounding-stop", "late-backend-failure"],
+)
+def test_planner_retains_only_receipt_backed_grounding_failure(
+    tmp_path,
+    monkeypatch,
+    receipt_backed: bool,
+    retained: bool,
+) -> None:
+    class _FailureRunner:
+        def run_exec(self, **kwargs):  # noqa: ANN003
+            if not receipt_backed:
+                kwargs["options"]._argus_tool_call_observer.started_at -= 2.0
+            return RunnerResult(
+                exit_code=143 if receipt_backed else 1,
+                thread_id="planner-resumable-thread",
+                fatal_error=(
+                    f"External interrupt: {PLANNER_GROUNDING_BUDGET_PREFIX}: "
+                    "observed 3/3 tool calls"
+                    if receipt_backed
+                    else "backend connection failed"
+                ),
+            )
+
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **kwargs: "inspect the repository and delegate"),
+    )
+    capsule = tmp_path / "planner-session.json"
+    events: list[dict] = []
+
+    verdict = Planner(_FailureRunner()).plan_next(
+        continuous_objective="repair the parser",
+        config=PlannerConfig(
+            working_dir=str(tmp_path),
+            role_session_policy="rolling",
+            role_session_path=capsule,
+            grounding_max_seconds=0 if receipt_backed else 1,
+            grounding_max_tool_calls=0,
+            on_event=events.append,
+        ),
+    )
+
+    persisted = json.loads(capsule.read_text(encoding="utf-8"))
+    assert bool(persisted["thread_id"]) is retained
+    assert (events[-1]["rotation_reason"] == "") is retained
+    if receipt_backed:
+        assert PLANNER_GROUNDING_BUDGET_PREFIX in verdict.error
+    else:
+        assert "backend exit 1" in verdict.error
 
 
 def test_tool_observer_deduplicates_provider_lifecycle_frames() -> None:

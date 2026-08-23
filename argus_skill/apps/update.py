@@ -10,7 +10,7 @@ from typing import Callable, Sequence
 
 from ..core.runtime_identity import source_root
 
-_PUBLIC_REPOSITORY = "https://github.com/lbx154/Argus.git"
+PUBLIC_REPOSITORY = "https://github.com/lbx154/Argus.git"
 _PUBLIC_MAIN_REF = "refs/heads/main"
 _PUBLIC_UPSTREAM = "lbx154/Argus/main"
 
@@ -113,7 +113,7 @@ def update_source_checkout(
     before = _checked(runner, ["git", "rev-parse", "HEAD"], cwd=checkout)
     _checked(
         runner,
-        ["git", "pull", "--ff-only", _PUBLIC_REPOSITORY, _PUBLIC_MAIN_REF],
+        ["git", "pull", "--ff-only", PUBLIC_REPOSITORY, _PUBLIC_MAIN_REF],
         cwd=checkout,
         timeout=300.0,
     )
@@ -158,4 +158,4 @@ def run_update() -> int:
     return 0
 
 
-__all__ = ["UpdateError", "UpdateResult", "run_update", "update_source_checkout"]
+__all__ = ["PUBLIC_REPOSITORY", "UpdateError", "UpdateResult", "run_update", "update_source_checkout"]

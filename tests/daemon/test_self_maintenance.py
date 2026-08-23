@@ -182,23 +182,26 @@ def test_self_maintenance_full_access_is_available_by_default(
     assert state["maintenance_mode"] == "source_worktree"
 
 
-def test_non_git_packaged_runtime_uses_release_update_mode_without_git_probe(
+def test_non_git_packaged_runtime_queues_read_only_repair_without_mutating_runtime(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     manager = _Manager()
     events: list[dict] = []
+    real_run = self_maintenance_mod._run
 
     def forbidden_run(*_args, **_kwargs):  # pragma: no cover - assertion is the test
         raise AssertionError("packaged preflight must not invoke git")
 
     monkeypatch.setattr(self_maintenance_mod, "_run", forbidden_run)
+    memory = LifeMemory.open(tmp_path / "life")
+    memory.init()
     controller = DaemonSelfMaintenance(
-        life_dir=tmp_path / "life",
+        life_dir=memory.root,
         framework_root=tmp_path / "frozen" / "_internal",
         project_workdir=tmp_path / "project",
         manager=manager,
-        memory=SimpleNamespace(backlog=SimpleNamespace(all=lambda: [])),
+        memory=memory,
         backend="pi",
         on_event=events.append,
     )
@@ -213,8 +216,20 @@ def test_non_git_packaged_runtime_uses_release_update_mode_without_git_probe(
     assert events[-1]["type"] == "manager.self_maintenance.availability"
     assert events[-1]["mode"] == "release_update"
 
+    monkeypatch.setattr(self_maintenance_mod, "_run", real_run)
+    worktree = tmp_path / "standalone-repair"
+    _init_repo(worktree)
+    _commit_repo(worktree)
+    monkeypatch.setattr(
+        controller,
+        "_prepare_packaged_repair_clone",
+        lambda _incident_id: (worktree, "argus-self/session/incident"),
+    )
+    runtime_marker = controller.framework_root / "runtime.py"
+    runtime_marker.parent.mkdir(parents=True)
+    runtime_marker.write_text("immutable\n", encoding="utf-8")
     controller.observe({"type": "life.planner.error", "error": "runtime bug"})
-    assert controller.audit_if_due(daemon_state={"budget_allowed": True}) == ""
+    assert controller.audit_if_due(daemon_state={"budget_allowed": True})
     assert manager.calls == 1
     assert manager.kwargs[-1]["usage_mission_id"].startswith(
         "self-maintenance-audit-"
@@ -222,14 +237,13 @@ def test_non_git_packaged_runtime_uses_release_update_mode_without_git_probe(
     assert manager.kwargs[-1]["read_only"] is True
     state = json.loads(controller.state_path.read_text(encoding="utf-8"))
     assert state["last_audit_at"] > 0
-    assert state["last_audit_action"] == "repair"
-    assert state["phase"] == "release_update_required"
-    assert events[-1]["type"] == "manager.self_maintenance.audit_completed"
-    assert events[-1]["maintenance_mode"] == "release_update"
-    assert not any(
-        event.get("type") == "manager.self_maintenance.preparation_failed"
-        for event in events
-    )
+    assert state["phase"] == "queued"
+    assert state["repair_mode"] == "packaged_clone"
+    assert state["worktree"] == str(worktree)
+    assert runtime_marker.read_text(encoding="utf-8") == "immutable\n"
+    [item] = controller.memory.backlog.all()
+    assert item.execution_workdir == str(worktree)
+    assert "review:required" in item.tags
 
 
 def test_frontend_dependency_links_are_temporary(tmp_path: Path) -> None:

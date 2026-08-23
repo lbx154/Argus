@@ -448,12 +448,20 @@ class Planner:
         )
         session_metadata_persisted = session.complete(result, decisive_output=text)
         budget_diagnostic = grounding_budget.interrupt_reason() or ""
-        failed = (
+        backend_failed = (
             int(getattr(result, "exit_code", 0) or 0) != 0
             or bool(getattr(result, "fatal_error", None))
-            or bool(budget_diagnostic)
         )
-        if failed:
+        stderr_tail = "\n".join(
+            str(line) for line in (getattr(result, "stderr_lines", None) or [])[-20:]
+        )
+        fatal = str(getattr(result, "fatal_error", "") or "").strip()
+        details = "\n".join(part for part in (fatal, stderr_tail) if part).strip()
+        grounding_budget_receipt = (
+            backend_failed and PLANNER_GROUNDING_BUDGET_PREFIX in details
+        )
+        failed = backend_failed or bool(budget_diagnostic)
+        if backend_failed and not grounding_budget_receipt:
             session.rotate("backend_failure")
         if callable(cfg.on_event):
             cfg.on_event({
@@ -478,12 +486,9 @@ class Planner:
                 **grounding_budget.snapshot(),
             })
         if failed:
-            stderr_tail = "\n".join(
-                str(line) for line in (getattr(result, "stderr_lines", None) or [])[-20:]
-            )
-            fatal = str(getattr(result, "fatal_error", "") or "").strip()
-            details = "\n".join(part for part in (fatal, stderr_tail) if part).strip()
-            if budget_diagnostic or PLANNER_GROUNDING_BUDGET_PREFIX in details:
+            if grounding_budget_receipt or (
+                budget_diagnostic and not backend_failed
+            ):
                 diagnostic = budget_diagnostic or next(
                     (
                         line.removeprefix("External interrupt: ")

@@ -74,8 +74,6 @@ def test_an_approved_commit_publishes_once(tmp_path: Path) -> None:
     assert probe.approve_publication(_COMMIT) == ""
 
     assert probe._publication_approval_error(_COMMIT) == ""
-    # Single-use: the approval is consumed before the push, so a failed publish
-    # cannot silently retry forever on one grant.
     assert probe._publication_approval_error(_COMMIT) != ""
 
 
@@ -324,6 +322,32 @@ def test_approved_publication_retries_after_transient_target_failure(
     probe._write_state(publication_last_attempt_at=0.0)
     probe.publish_after_canary(summary={})
 
+    assert probe.published == [head]
+
+
+def test_offline_push_keeps_exact_approval_and_evidence(
+    tmp_path: Path,
+) -> None:
+    probe, head = _canary_ready(tmp_path)
+    probe._write_state(repair_mode="packaged_clone")
+    probe._validate_packaged_repair_clone = (  # type: ignore[method-assign]
+        lambda *_args, **_kwargs: ""
+    )
+    probe.publish_after_canary(summary=_PROGRESS)
+    assert probe.approve_publication(head) == ""
+    publish = probe._publish_reviewed_change
+    probe._publish_reviewed_change = (  # type: ignore[method-assign]
+        lambda **_kwargs: (_ for _ in ()).throw(OSError("offline"))
+    )
+
+    assert probe.publish_after_canary(summary={}) == head
+    state = probe._state()
+    assert state["publication_status"] == "failed"
+    assert state["publication_approved_commit"] == head
+    assert state["awaiting_commit"] == head
+
+    probe._publish_reviewed_change = publish  # type: ignore[method-assign]
+    assert probe.publish_after_canary(summary={}).endswith("/pr/1")
     assert probe.published == [head]
 
 
