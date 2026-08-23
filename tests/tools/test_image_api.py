@@ -67,11 +67,15 @@ def test_atomic_json_writes_use_distinct_temporary_files(
     target = tmp_path / "review.json"
     barrier = Barrier(2)
     temporary_paths: list[Path] = []
+    first_attempts: set[Path] = set()
     real_replace = image_api.os.replace
 
     def synchronized_replace(source: str | Path, destination: str | Path) -> None:
-        temporary_paths.append(Path(source))
-        barrier.wait(timeout=5)
+        source_path = Path(source)
+        temporary_paths.append(source_path)
+        if source_path not in first_attempts:
+            first_attempts.add(source_path)
+            barrier.wait(timeout=5)
         real_replace(source, destination)
 
     monkeypatch.setattr(image_api.os, "replace", synchronized_replace)
@@ -85,6 +89,35 @@ def test_atomic_json_writes_use_distinct_temporary_files(
 
     assert len(set(temporary_paths)) == 2
     assert json.loads(target.read_text(encoding="utf-8"))["value"] in {1, 2}
+
+
+def test_windows_atomic_replace_retries_a_transient_sharing_violation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source.tmp"
+    target = tmp_path / "target.json"
+    source.write_text("new", encoding="utf-8")
+    target.write_text("old", encoding="utf-8")
+    real_replace = image_api.os.replace
+    attempts = 0
+    sleeps: list[float] = []
+
+    def sharing_once(src: str | Path, dst: str | Path) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise PermissionError(13, "sharing violation", str(dst))
+        real_replace(src, dst)
+
+    monkeypatch.setattr(image_api.os, "replace", sharing_once)
+    monkeypatch.setattr(image_api.time, "sleep", sleeps.append)
+
+    image_api._atomic_replace(source, target, platform_name="nt")
+
+    assert attempts == 2
+    assert sleeps == [0.01]
+    assert target.read_text(encoding="utf-8") == "new"
 
 
 def test_generate_image_writes_artifact_and_secret_free_sidecar(

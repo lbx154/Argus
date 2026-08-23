@@ -348,6 +348,25 @@ def _extract_image_bytes(
     raise ImageToolError("image response missing b64_json or url")
 
 
+def _atomic_replace(
+    source: Path,
+    destination: Path,
+    *,
+    platform_name: str | None = None,
+) -> None:
+    """Replace a file atomically, tolerating brief Windows sharing races."""
+    platform_name = os.name if platform_name is None else platform_name
+    attempts = 6 if platform_name == "nt" else 1
+    for attempt in range(attempts):
+        try:
+            os.replace(source, destination)
+            return
+        except PermissionError:
+            if attempt >= attempts - 1:
+                raise
+            time.sleep(0.01 * (2**attempt))
+
+
 def _atomic_write(path: Path, data: bytes, *, force: bool) -> None:
     if path.exists() and not force:
         raise ImageToolError(f"{path} already exists; pass --force to overwrite")
@@ -355,7 +374,7 @@ def _atomic_write(path: Path, data: bytes, *, force: bool) -> None:
     tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
     try:
         tmp.write_bytes(data)
-        os.replace(tmp, path)
+        _atomic_replace(tmp, path)
     finally:
         try:
             tmp.unlink()
@@ -373,7 +392,7 @@ def _atomic_write_json(path: Path, data: dict[str, Any], *, force: bool = True) 
             json.dumps(data, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-        os.replace(tmp, path)
+        _atomic_replace(tmp, path)
     finally:
         try:
             tmp.unlink()
