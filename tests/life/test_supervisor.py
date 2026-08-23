@@ -1123,16 +1123,18 @@ def test_pending_wait_status_is_not_repeated_across_supervisor_restarts(
         config=config,
     ).run()
 
-    assert first["stopped_by"] == "pending_operator_question"
-    assert second["stopped_by"] == "pending_operator_question"
-    assert [
-        event for event in first_sink.events
-        if event.get("type") == "life.planner.deferred"
-    ]
-    assert not [
-        event for event in second_sink.events
-        if event.get("type") == "life.planner.deferred"
-    ]
+    def _notices(sink) -> list[dict]:
+        return [
+            event for event in sink.events
+            if "waiting for your answer" in json.dumps(event, default=str)
+        ]
+
+    # The question is raised once and not repeated on the next start. The run
+    # no longer stops for it, so the notice is the only observable.
+    assert _notices(first_sink)
+    assert not _notices(second_sink)
+    assert first["stopped_by"] != "pending_operator_question"
+    assert second["stopped_by"] != "pending_operator_question"
 
 
 def test_non_blocked_failure_does_not_set_pending_question(tmp_path) -> None:
@@ -1247,7 +1249,12 @@ def test_replan_with_operator_question_uses_durable_answer_path(tmp_path) -> Non
     assert rewired.deps == [continuation.id]
 
 
-def test_replan_with_operator_question_never_invokes_planner(tmp_path) -> None:
+def test_operator_question_pauses_its_item_not_the_campaign(tmp_path) -> None:
+    """An unanswered question used to stop the whole run. Overnight that cost
+    run-06 about twenty hours and run-04 about twelve, each sitting on one
+    question with a half-written paper and plenty of work that did not need the
+    answer. The item stays the operator's; the campaign keeps going.
+    """
     mem = LifeMemory.open(tmp_path / "life")
     cfg = LifeSupervisorConfig(
         budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=2),
@@ -1265,15 +1272,26 @@ def test_replan_with_operator_question_never_invokes_planner(tmp_path) -> None:
         title="Resolve boundary", objective="verify the reachable call chain",
     ))
 
-    def _unexpected_plan(*args: Any, **kwargs: Any) -> bool:
-        raise AssertionError("Planner must wait for the operator answer")
+    planned: list[bool] = []
 
-    sup._plan_next_work = _unexpected_plan  # type: ignore[method-assign]
+    def _plan_once(*args: Any, **kwargs: Any) -> bool:
+        planned.append(True)
+        return False
+
+    sup._plan_next_work = _plan_once  # type: ignore[method-assign]
 
     result = sup.run()
 
-    assert result["stopped_by"] == "pending_operator_question"
     assert result["results"][0]["status"] == "blocked"
+    assert result["stopped_by"] != "pending_operator_question"
+    # The Planner is asked for work that does not depend on the answer.
+    assert planned
+    # And the question itself is still the operator's to answer.
+    blocked = [
+        item for item in mem.backlog.all()
+        if str(getattr(item, "pending_question", "") or "").strip()
+    ]
+    assert blocked and blocked[0].status == "paused_operator"
 
 
 def test_consecutive_replans_are_bounded_and_escalated(tmp_path, monkeypatch) -> None:

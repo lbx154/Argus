@@ -713,27 +713,26 @@ class LifeSupervisor(
                             pending_questions
                         ):
                             continue
-                        sleep_s = self._enter_pause_backoff()
+                        # The question belongs to its item, not to the night.
+                        # Stopping the whole campaign here cost run-06 about
+                        # twenty hours and run-04 about twelve, each waiting on
+                        # one answer with a half-written paper and plenty of
+                        # independent work available. The paused item stays
+                        # unclaimable and its dependents stay unready on their
+                        # own; the Planner is told what is waiting and picks
+                        # work that does not need the answer.
                         if should_report_pending_wait(
                             self.memory.root,
                             pending_questions,
                         ):
-                            self._emit({
-                                "type": "life.planner.deferred",
-                                "reason": "waiting for operator answer",
-                                "item_ids": [item.id for item in pending_questions],
-                                "suggested_sleep_s": sleep_s,
-                                "agent_layer": "planner",
-                            })
                             self._emit_status(
                                 "Argus is waiting for your answer on: "
                                 + "; ".join(
                                     str(item.pending_question).strip()
                                     for item in pending_questions[:3]
                                 )
+                                + " — independent work continues meanwhile"
                             )
-                        stopped_by = "pending_operator_question"
-                        break
                     gate_reason = self._planner_cycle_gate_reason()
                     if gate_reason:
                         self._emit({

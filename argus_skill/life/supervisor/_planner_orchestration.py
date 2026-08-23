@@ -95,6 +95,14 @@ class PlannerOrchestrationMixin:
             backlog_rows = list(self.memory.backlog.all())
         except Exception:  # noqa: BLE001 - digest is advisory
             pass
+        # Rendered because the supervisor no longer stops the campaign for an
+        # unanswered question. Without the text of what is waiting, the Planner
+        # can reword the blocked work and slip past exact-signature dedupe.
+        awaiting = [
+            f"{getattr(item, 'id', '')}: {str(item.pending_question).strip()}"
+            for item in backlog_rows
+            if str(getattr(item, "pending_question", "") or "").strip()
+        ]
         backlog_counts: dict[str, int] = {}
         for item in backlog_rows:
             status = str(getattr(item, "status", "") or "unknown")
@@ -159,6 +167,15 @@ class PlannerOrchestrationMixin:
                 f"- current_stage: {pipeline.get('current_stage') or self._current_pipeline_stage() or '(unset)'}",
                 f"- stage_statuses: {', '.join(stage_rows) or '(none)'}",
                 f"- backlog_counts: {json.dumps(backlog_counts, sort_keys=True)}",
+                (
+                    "- awaiting_operator_answer: "
+                    + "; ".join(awaiting)
+                    + " — these stay the operator's to decide. Plan work that "
+                    "does not depend on the answer rather than a reworded "
+                    "version of the same question."
+                    if awaiting
+                    else "- awaiting_operator_answer: (none)"
+                ),
                 f"- git_changed_paths ({len(changed_paths)}): {changed_preview}",
                 f"- checkpoint_blockers: {'; '.join(blockers) or '(none declared)'}",
                 "The host already read pipeline state, backlog, checkpoint blockers, "
