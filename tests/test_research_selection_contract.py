@@ -860,3 +860,30 @@ def test_the_campaign_is_trying_to_win() -> None:
     assert "only trying not to overclaim" in text
     assert "say so plainly and immediately, in the first sentence, with the number" in text
     assert "burying a real win under qualifications is as much a misreport as inventing one" in text
+
+
+def test_training_below_its_own_baseline_is_a_defect_report() -> None:
+    """run-03 finished a clean 500-row official-protocol comparison: BCPO 0.738,
+    CSCR-style 0.742, no-pairing 0.736, GRPO-broadcast 0.738 -- all four below
+    the untrained base at 0.756. Its recorded decision was that BCPO does not
+    beat the strongest resource-matched baseline, which ranks the variants and
+    buries the fact that training degraded the model. The cause was in its own
+    metrics: 97.2% of training completions clipped, mean training output 191
+    tokens for a task whose solutions average 637.
+    """
+    from pathlib import Path
+
+    import argus_skill
+    from argus_skill.verticals._base import load_vertical, vertical_role_banner
+
+    reviewer = " ".join(vertical_role_banner(load_vertical("research"), "reviewer").split())
+    assert "below its own untrained starting checkpoint" in reviewer
+    assert "ranking the variants against each other hides it" in reviewer
+    assert "untrained checkpoint under the identical protocol in every table" in reviewer
+
+    skill = (
+        Path(argus_skill.__file__).parent
+        / "verticals/research/skills/engineer/suspect-the-setup.md"
+    ).read_text(encoding="utf-8")
+    assert "every\ntrained variant scoring below the untrained starting checkpoint" in skill
+    assert "97% of its training completions clipped" in " ".join(skill.split())

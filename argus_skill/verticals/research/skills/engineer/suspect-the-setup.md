@@ -49,6 +49,18 @@ nothing trains nothing. Log the reward distribution and the truncation rate from
 the first steps and look at them, because a run that is quietly learning to
 truncate looks healthy on the loss curve.
 
+The signature to watch for afterwards is unmistakable and easy to miss: **every
+trained variant scoring below the untrained starting checkpoint.** That is not a
+result about which variant is better, it is a report that the training pipeline
+degraded the model, and comparing the variants to each other buries it. One run
+here trained four RLVR variants that landed at 0.736-0.742 against an untrained
+base at 0.756, with 97% of its training completions clipped and a mean training
+output of 191 tokens for a task whose correct solutions average 637 -- the
+gradient had been teaching the model to stop early, exactly as designed, and the
+comparison was about to be written up as a finding about credit assignment.
+Always evaluate the untrained checkpoint under the identical protocol and put it
+in the table.
+
 **SFT.** The maximum sequence length has to cover the full target, or every
 example longer than it is silently cut and you are training the model to stop
 mid-answer. Confirm loss masking covers the completion and not the prompt, and
