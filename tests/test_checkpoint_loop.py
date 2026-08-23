@@ -109,7 +109,8 @@ def test_engineer_and_reviewer_edit_one_shared_checkpoint_in_sequence(
     assert str(checkpoint.resolve()) in prompts["engineer-r2"]
     reviewer_prompts = [p for label, p, _ in backend.history if label == "reviewer"]
     assert all(str(checkpoint.resolve()) not in prompt for prompt in reviewer_prompts)
-    assert all("NEXT_ACTION" in prompt for prompt in reviewer_prompts)
+    assert all("ARGUS_ROLE_DECISION=" in prompt for prompt in reviewer_prompts)
+    assert all('"next_action"' in prompt for prompt in reviewer_prompts)
 
 
 def test_reviewer_output_does_not_need_checkpoint_json(tmp_path: Path) -> None:
