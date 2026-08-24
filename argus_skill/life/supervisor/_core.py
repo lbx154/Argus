@@ -866,6 +866,13 @@ class LifeSupervisor(
                     self._enter_pause_backoff()
                 else:
                     self._enter_idle_backoff()
+                if outcome.get("status") == "claim_lost":
+                    # The backoff only tells the daemon how long to sleep after
+                    # run() returns; the loop would otherwise keep spinning
+                    # inside this pass and reach for the same unclaimable item.
+                    # Ending the pass is what makes the wait happen.
+                    stopped_by = "claim_lost"
+                    break
             else:
                 # A real mission ran: clear any accumulated no-work backoff.
                 self._reset_idle_backoff()
