@@ -1600,3 +1600,34 @@ def test_a_sound_round_can_still_report_an_unpublishable_programme() -> None:
     # Accept the round; report the programme. Not the other way round.
     assert "accept the round" in policy
     assert "Manufacturing a local failure" in policy
+
+
+def test_the_planner_is_asked_about_the_paper_it_already_has(tmp_path) -> None:
+    """The Planner creates the missions, and only draft, review and submission
+    carry paper-facing checklist items while five of seven campaigns write from
+    stages that carry none. With no paper question it plans the one figure it
+    has a word for: every figure mission run-06-control queued was about Figure
+    1, while three finished result figures sat unused beside a two-figure
+    manuscript.
+    """
+    from argus_skill.verticals.research.prompt_policy import (
+        render_role_prompt_fragment,
+    )
+
+    def fragment() -> str:
+        return render_role_prompt_fragment(
+            role="planner", operation="continuous", stage="run",
+            scope="", project_root=tmp_path,
+        )
+
+    assert "The paper is work" not in fragment()
+
+    paper = tmp_path / "paper"
+    paper.mkdir()
+    (paper / "main.tex").write_text(
+        r"\begin{document}Hello\end{document}", encoding="utf-8"
+    )
+    asked = fragment()
+    assert "The paper is work" in asked
+    # A question, not a checklist: no fault is named for it.
+    assert "one mission per claim that needs showing" in asked

@@ -76,6 +76,7 @@ def _planner_fragment(stage: str, project_root: Path | None) -> str:
     blocks = [
         _parallel_drafting_block(stage, project_root),
         _planner_upstream_block(stage),
+        _planner_manuscript_block(project_root),
         (
             "## Research paper infrastructure\n"
             "Trust a fresh model-backed `paper/PAPER_INFRASTRUCTURE_REVIEW.json`. "
@@ -102,6 +103,35 @@ def _manuscript_exists(project_root: Path | None) -> bool:
     except OSError:
         return False
     return "\\begin{document}" in tex
+
+
+def _planner_manuscript_block(project_root: Path | None) -> str:
+    """Put the paper in front of the role that decides what gets worked on.
+
+    Only draft, review and submission carry paper-facing checklist items, and
+    five of seven campaigns write their manuscript from stages that carry none.
+    The Planner creates the missions, so with no paper question it plans the one
+    figure it has a word for: every figure mission run-06-control ever queued
+    was about Figure 1 -- build it, make it carry the argument, ask whether it
+    is real -- while three finished result figures sat unused in paper/figures
+    beside a two-figure manuscript.
+
+    The question stays a question. Which claims the paper asks a reader to take
+    on trust cannot be answered from here; naming faults would replace the
+    reading rather than provoke it.
+    """
+    if not _manuscript_exists(project_root):
+        return ""
+    return (
+        "## The paper is work\n"
+        "A manuscript exists, and its gaps are missions like any other rather "
+        "than something that happens at the end. Read it: ask which claims a "
+        "reader has to take on trust because no figure shows them, where the "
+        "evidence is thinner than in the accepted papers this campaign chose, "
+        "and what a reviewer would reject it for. Queue that work now. A figure "
+        "programme is one mission per claim that needs showing, not another "
+        "pass over Figure 1."
+    )
 
 
 def _reviewer_fragment(stage: str, scope: str, project_root: Path | None) -> str:
