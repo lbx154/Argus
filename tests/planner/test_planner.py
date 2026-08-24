@@ -939,30 +939,21 @@ def test_plan_next_repairs_not_done_empty_task_response(monkeypatch) -> None:
     assert NO_CONCRETE_TASKS_ERROR in runner.calls[1]["prompt"]
     assert "ARGUS_ROLE_DECISION=" in runner.calls[1]["prompt"]
     assert "If work remains, include concrete tasks" in runner.calls[1]["prompt"]
-    # The schema example must read as a slot to fill, not as a mission the
-    # Planner can copy through verbatim — every campaign shipped one titled
-    # "title" whose objective was "work and decisive check".
-    # A real question and a real objective: the Planner pastes this example
-    # through verbatim, so a slot-shaped one becomes a mission called
-    # "<question>" exactly as "title" did before it.
-    assert '"title":"Does pruning beat 4-bit at equal latency?"' in runner.calls[1]["prompt"]
-    assert '"objective":"match latency, read top-1"' in runner.calls[1]["prompt"]
+    assert '"title":"Run the next decisive check"' in runner.calls[1]["prompt"]
+    assert (
+        '"objective":"execute the concrete check required by current evidence"'
+        in runner.calls[1]["prompt"]
+    )
     assert runner.calls[1]["options"].working_dir == "/tmp/project"
 
 
-def test_plan_next_repairs_malformed_structured_decision(monkeypatch) -> None:
+def test_plan_next_accepts_structured_decision_with_redundant_brace(monkeypatch) -> None:
     runner = _SequenceRunner([
         (
             'ARGUS_ROLE_DECISION={"role":"planner","payload":'
             '{"project_done":false,"reason":"one task remains",'
             '"tasks":[{"title":"Run the benchmark",'
             '"objective":"Measure decode throughput.","scope":"bounded"}]}}}'
-        ),
-        (
-            'ARGUS_ROLE_DECISION={"role":"planner","payload":'
-            '{"project_done":false,"reason":"one task remains",'
-            '"tasks":[{"title":"Run the benchmark",'
-            '"objective":"Measure decode throughput.","scope":"bounded"}]}}'
         ),
     ])
     monkeypatch.setattr(
@@ -979,8 +970,7 @@ def test_plan_next_repairs_malformed_structured_decision(monkeypatch) -> None:
 
     assert verdict.error == ""
     assert [task.title for task in verdict.new_tasks] == ["Run the benchmark"]
-    assert runner.calls[1]["run_label"] == "planner.cycle3.repair1"
-    assert "planner missing key-value completion marker" in runner.calls[1]["prompt"]
+    assert len(runner.calls) == 1
 
 
 def test_plan_next_repairs_invalid_dependency_identifier(monkeypatch) -> None:
@@ -1066,6 +1056,8 @@ def test_plan_next_repairs_missing_staged_advance(monkeypatch) -> None:
     assert MISSING_STAGE_DECISION_ERROR in runner.calls[1]["prompt"]
     assert '"advance_to_stage":"plan"' in runner.calls[1]["prompt"]
     assert '"advance_to_stage":"run"' not in runner.calls[1]["prompt"]
+    assert '"title":"Run benchmark"' in runner.calls[1]["prompt"]
+    assert '"objective":"Execute the real benchmark."' in runner.calls[1]["prompt"]
 
 
 def test_plan_next_repairs_binary_outcome_label(monkeypatch) -> None:

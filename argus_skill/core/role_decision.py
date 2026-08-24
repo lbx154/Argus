@@ -10,6 +10,21 @@ ROLE_DECISION_PREFIX = "ARGUS_ROLE_DECISION="
 _ROLES = frozenset({"manager", "planner", "engineer", "reviewer"})
 
 
+def _decode_json_value(raw: str) -> Any | None:
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+    try:
+        decoded, end = json.JSONDecoder().raw_decode(raw)
+    except json.JSONDecodeError:
+        return None
+    trailing = raw[end:].strip()
+    if trailing and not set(trailing) <= {"}", "]", "`"}:
+        return None
+    return decoded
+
+
 def encode_role_decision(role: str, payload: dict[str, Any]) -> str:
     """Encode one decision for the Host event stream."""
     normalized_role = str(role or "").strip().lower()
@@ -49,11 +64,8 @@ def extract_role_decisions(values: Iterable[Any]) -> list[dict[str, Any]]:
 
         stripped = value.strip()
         if stripped.startswith(("{", "[")):
-            try:
-                decoded = json.loads(stripped)
-            except json.JSONDecodeError:
-                pass
-            else:
+            decoded = _decode_json_value(stripped)
+            if decoded is not None:
                 visit(decoded)
 
         for line in value.splitlines():
@@ -66,9 +78,8 @@ def extract_role_decisions(values: Iterable[Any]) -> list[dict[str, Any]]:
                 .strip("`")
                 .strip()
             )
-            try:
-                decision = json.loads(raw)
-            except json.JSONDecodeError:
+            decision = _decode_json_value(raw)
+            if decision is None:
                 continue
             if (
                 isinstance(decision, dict)

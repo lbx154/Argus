@@ -30,6 +30,33 @@ def test_extracts_decision_from_nested_backend_event() -> None:
     }]
 
 
+def test_extracts_marked_decision_with_redundant_closing_brace() -> None:
+    marker = encode_role_decision(
+        "planner",
+        {"project_done": False, "reason": "continue", "tasks": []},
+    )
+
+    decisions = extract_role_decisions([marker + "}"])
+
+    assert decisions == [{
+        "role": "planner",
+        "payload": {
+            "project_done": False,
+            "reason": "continue",
+            "tasks": [],
+        },
+    }]
+
+
+def test_rejects_marked_decision_with_trailing_prose() -> None:
+    marker = encode_role_decision(
+        "planner",
+        {"project_done": False, "reason": "continue", "tasks": []},
+    )
+
+    assert extract_role_decisions([marker + " trailing prose"]) == []
+
+
 def test_does_not_treat_unmarked_tool_json_as_a_role_decision() -> None:
     raw_event = json.dumps({
         "type": "tool.result",
