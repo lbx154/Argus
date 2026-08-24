@@ -41,7 +41,6 @@ def test_idle_escalation_emits_once_and_resets_on_activity() -> None:
     [
         ("codex", "manager-classify-grounded"),
         ("opencode", "simple-1"),
-        ("opencode", "planner-bounded-plan"),
         ("opencode", "self-implement"),
     ],
 )

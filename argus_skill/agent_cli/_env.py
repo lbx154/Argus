@@ -32,8 +32,6 @@ _DEFAULT_MANAGER_TURN_MAX_SECONDS = 5 * 60
 _SYNCHRONOUS_MANAGER_TURN_LABELS = frozenset(
     {
         "chat-1",
-        "planner-bounded-plan",
-        "planner-preview",
         "router-classify",
         "self-debug",
         "self-implement",

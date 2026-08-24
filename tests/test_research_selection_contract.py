@@ -283,8 +283,9 @@ def test_a_suppressed_status_probe_points_somewhere() -> None:
 
 
 def test_the_planner_is_told_it_has_more_than_one_slot() -> None:
-    from argus_skill.roles.prompts import planner as planner_prompts
     from pathlib import Path
+
+    from argus_skill.roles.prompts import planner as planner_prompts
 
     text = Path(planner_prompts.__file__).read_text(encoding="utf-8")
     assert "More than one mission runs at a time" in text
@@ -1001,14 +1002,13 @@ def test_the_planner_cannot_return_its_own_schema_example() -> None:
     produced the identical row a day later. From outside it is indistinguishable
     from a real task; I nearly aborted run-01's real experiment because of it.
     """
-    import pytest
-
-    from argus_skill.planner.bounded_dag import _validate
-    from argus_skill.roles.prompts.planner import _PLANNER_DECISION_PAYLOAD_EXAMPLE
-
     import json
 
+    import pytest
+
     from argus_skill.core.prompt_example_tasks import PROMPT_EXAMPLE_TASKS
+    from argus_skill.planner.bounded_dag import _validate
+    from argus_skill.roles.prompts.planner import _PLANNER_DECISION_PAYLOAD_EXAMPLE
 
     # Pinned to whatever the prompt ships today rather than to one wording:
     # the example was rewritten once already after this guard landed, and a
@@ -1247,27 +1247,15 @@ def test_draft_length_is_shown_against_the_campaigns_own_exemplars(tmp_path) -> 
     assert "with 3-3 figures" in block
 
 
-def test_planner_is_told_the_grounding_budget_it_is_held_to() -> None:
-    """The Planner was cut off at sixteen tool calls and had everything it had
-    done discarded, without ever being told the limit existed. That happened
-    413 times in one night across seven campaigns -- 162 in run-07 alone, which
-    then spent missions trying to raise a cap it cannot reach.
-    """
+def test_planner_has_no_grounding_hard_limit() -> None:
     import inspect
 
     from argus_skill.planner import planner
 
     source = inspect.getsource(planner)
-    # The numbers come from the config that enforces them, never a literal.
-    assert 'f"{cfg.grounding_max_tool_calls} tool calls"' in source
-    assert 'f"{cfg.grounding_max_seconds} seconds"' in source
-    # It must say what running out costs, or the number means nothing.
-    assert "discards this whole turn" in source
-    # A turn that ends on the budget does not rotate the session, so the
-    # previous turn's reading is still in context. Six of seven campaigns
-    # spent missions on the cap while their planners re-read into the wall.
-    assert "prefer answering from it over reading again" in source
-    assert "if session.turns" in source
+    assert "grounding_max_tool_calls" not in source
+    assert "grounding_max_seconds" not in source
+    assert "_argus_tool_call_observer" not in source
 
 
 def _wait_state(**overrides) -> dict:

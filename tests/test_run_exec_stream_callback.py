@@ -448,8 +448,6 @@ def test_engineer_turn_wall_clock_default_and_override(monkeypatch) -> None:
         "router-classify",
         "simple-1",
         "chat-1",
-        "planner-bounded-plan",
-        "planner-preview",
         "self-debug",
         "self-implement",
         "self-micro",
@@ -465,6 +463,12 @@ def test_manager_turn_wall_clock_is_bounded_by_default(monkeypatch, run_label: s
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_TURN_MAX_SECONDS", "45")
     assert _turn_wall_clock_seconds(run_label) == 45
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_TURN_MAX_SECONDS", "0")
+    assert _turn_wall_clock_seconds(run_label) == 0
+
+
+@pytest.mark.parametrize("run_label", ["planner-bounded-plan", "planner-preview"])
+def test_planner_turn_wall_clock_is_unbounded(monkeypatch, run_label: str) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_MANAGER_TURN_MAX_SECONDS", "1")
     assert _turn_wall_clock_seconds(run_label) == 0
 
 

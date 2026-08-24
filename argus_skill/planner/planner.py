@@ -9,9 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
-import threading
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -54,13 +52,6 @@ OPEN_ENDED_PROJECT_DONE_ERROR = (
 )
 PLANNER_SUPERSEDED_ERROR = "planner superseded by newer continuous generation"
 MISSING_STAGE_DECISION_ERROR = "planner staged decision requires advance_to_stage"
-PLANNER_GROUNDING_BUDGET_PREFIX = "Planner grounding budget reached"
-_PLANNER_GROUNDING_MAX_SECONDS_ENV = "ARGUS_SKILL_PLANNER_GROUNDING_MAX_SECONDS"
-_PLANNER_GROUNDING_MAX_TOOL_CALLS_ENV = (
-    "ARGUS_SKILL_PLANNER_GROUNDING_MAX_TOOL_CALLS"
-)
-_PLANNER_DEFAULT_GROUNDING_MAX_SECONDS = 180
-_PLANNER_DEFAULT_GROUNDING_MAX_TOOL_CALLS = 16
 _PLANNER_REPAIR_ATTEMPTS = 1
 _PLANNER_REPAIR_TEXT_LIMIT = 8000
 _FORBIDDEN_BINARY_OUTCOME = re.compile(
@@ -94,90 +85,6 @@ class PlannerConfig:
     on_event: Any = None
     require_stage_decision: bool = False
     current_stage: str = ""
-    # Bound repository grounding without changing the Planner's read-only tool
-    # access. Set either value to 0 to disable that dimension for one call.
-    grounding_max_seconds: int = field(
-        default_factory=lambda: _planner_budget_env_int(
-            _PLANNER_GROUNDING_MAX_SECONDS_ENV,
-            _PLANNER_DEFAULT_GROUNDING_MAX_SECONDS,
-        )
-    )
-    grounding_max_tool_calls: int = field(
-        default_factory=lambda: _planner_budget_env_int(
-            _PLANNER_GROUNDING_MAX_TOOL_CALLS_ENV,
-            _PLANNER_DEFAULT_GROUNDING_MAX_TOOL_CALLS,
-        )
-    )
-
-
-class _PlannerGroundingBudget:
-    """Per-turn wall-clock and observed tool-call budget."""
-
-    def __init__(self, *, max_seconds: int, max_tool_calls: int) -> None:
-        self.max_seconds = max(0, int(max_seconds or 0))
-        self.max_tool_calls = max(0, int(max_tool_calls or 0))
-        self.started_at = time.monotonic()
-        self._lock = threading.Lock()
-        self._tool_call_ids: set[str] = set()
-        self._tool_calls = 0
-        self._reason = ""
-
-    def record_tool_call(self, call_id: str = "") -> None:
-        """Record one provider tool request, de-duplicating lifecycle frames."""
-        normalized_id = str(call_id or "").strip()
-        with self._lock:
-            if normalized_id and normalized_id in self._tool_call_ids:
-                return
-            if normalized_id:
-                self._tool_call_ids.add(normalized_id)
-            self._tool_calls += 1
-            if (
-                not self._reason
-                and self.max_tool_calls
-                and self._tool_calls >= self.max_tool_calls
-            ):
-                self._reason = (
-                    f"{PLANNER_GROUNDING_BUDGET_PREFIX}: observed "
-                    f"{self._tool_calls}/{self.max_tool_calls} tool calls; "
-                    "no partial Planner output was accepted. Narrow the grounding "
-                    "scope or raise PlannerConfig.grounding_max_tool_calls "
-                    f"({_PLANNER_GROUNDING_MAX_TOOL_CALLS_ENV})."
-                )
-
-    def interrupt_reason(self) -> str | None:
-        """Return the stable diagnostic consumed by the runner watchdog."""
-        with self._lock:
-            if not self._reason and self.max_seconds:
-                elapsed = time.monotonic() - self.started_at
-                if elapsed >= self.max_seconds:
-                    self._reason = (
-                        f"{PLANNER_GROUNDING_BUDGET_PREFIX}: elapsed wall clock "
-                        f"{elapsed:.1f}s/{self.max_seconds}s; no partial Planner "
-                        "output was accepted. Narrow the grounding scope or raise "
-                        "PlannerConfig.grounding_max_seconds "
-                        f"({_PLANNER_GROUNDING_MAX_SECONDS_ENV})."
-                    )
-            return self._reason or None
-
-    def snapshot(self) -> dict[str, int | str]:
-        reason = self.interrupt_reason() or ""
-        with self._lock:
-            return {
-                "grounding_tool_calls": self._tool_calls,
-                "grounding_max_tool_calls": self.max_tool_calls,
-                "grounding_max_seconds": self.max_seconds,
-                "grounding_budget_diagnostic": reason,
-            }
-
-
-def _planner_budget_env_int(name: str, default: int) -> int:
-    raw = os.environ.get(name, "").strip()
-    if not raw:
-        return default
-    try:
-        return max(0, int(raw))
-    except ValueError:
-        return default
 
 
 @dataclass(frozen=True)
@@ -361,56 +268,6 @@ class Planner:
         )
         if session.prompt_block():
             prompt = session.prompt_block() + "\n\n" + prompt
-        # The budget was enforced without ever being stated. A Planner reading
-        # its way toward an answer was cut off mid-thought and everything it
-        # had was discarded -- 413 wasted cycles in one night across seven
-        # campaigns, 162 of them in one. Campaigns even planned missions to
-        # raise the cap, which they cannot reach. A limit you can see is a
-        # limit you can spend.
-        if cfg.grounding_max_tool_calls or cfg.grounding_max_seconds:
-            limits = " and ".join(
-                text
-                for text in (
-                    f"{cfg.grounding_max_tool_calls} tool calls"
-                    if cfg.grounding_max_tool_calls
-                    else "",
-                    f"{cfg.grounding_max_seconds} seconds"
-                    if cfg.grounding_max_seconds
-                    else "",
-                )
-                if text
-            )
-            # A turn that ends on the budget deliberately does not rotate the
-            # session, so everything the previous turn read is still in this
-            # conversation. Nothing said so, and six of seven campaigns spent
-            # missions trying to raise a cap they cannot reach while their
-            # planners re-read their way into the same wall.
-            carried = (
-                " You have already read in this session and that context is "
-                "still here; prefer answering from it over reading again."
-                if session.turns
-                else ""
-            )
-            prompt = (
-                f"GROUNDING BUDGET: you have {limits} to look around before "
-                "you answer. Reaching either limit discards this whole turn, "
-                "including work already done, so read what the decision needs "
-                f"and then decide.{carried} A plan from partial reading beats "
-                "no plan.\n\n"
-            ) + prompt
-        grounding_budget = _PlannerGroundingBudget(
-            max_seconds=cfg.grounding_max_seconds,
-            max_tool_calls=cfg.grounding_max_tool_calls,
-        )
-
-        def interrupt_reason() -> str | None:
-            upstream = cfg.external_interrupt_reason_provider
-            if callable(upstream):
-                reason = upstream()
-                if reason:
-                    return str(reason)
-            return grounding_budget.interrupt_reason()
-
         planner_options = RunnerOptions(
             model=cfg.model,
             reasoning_effort=cfg.reasoning_effort or "xhigh",
@@ -427,13 +284,9 @@ class Planner:
             skill_paths=[
                 str(path) for path in self.mission.libraries().native_paths
             ],
-            # A newer operator generation wins over the grounding budget.
-            external_interrupt_reason_provider=interrupt_reason,
+            external_interrupt_reason_provider=cfg.external_interrupt_reason_provider,
             watchdog_hard_idle_seconds=0,
         )
-        # AgentCliBackend consumes this private per-call observer from the outer
-        # RunnerOptions while translating only provider-supported fields.
-        setattr(planner_options, "_argus_tool_call_observer", grounding_budget)
         started_at = time.monotonic()
         try:
             result = gateway_run_exec(
@@ -460,8 +313,7 @@ class Planner:
             else "\n".join(getattr(result, "agent_messages", None) or [])
         )
         session_metadata_persisted = session.complete(result, decisive_output=text)
-        budget_diagnostic = grounding_budget.interrupt_reason() or ""
-        backend_failed = (
+        failed = (
             int(getattr(result, "exit_code", 0) or 0) != 0
             or bool(getattr(result, "fatal_error", None))
         )
@@ -470,11 +322,7 @@ class Planner:
         )
         fatal = str(getattr(result, "fatal_error", "") or "").strip()
         details = "\n".join(part for part in (fatal, stderr_tail) if part).strip()
-        grounding_budget_receipt = (
-            backend_failed and PLANNER_GROUNDING_BUDGET_PREFIX in details
-        )
-        failed = backend_failed or bool(budget_diagnostic)
-        if backend_failed and not grounding_budget_receipt:
+        if failed:
             session.rotate("backend_failure")
         if callable(cfg.on_event):
             cfg.on_event({
@@ -496,27 +344,8 @@ class Planner:
                 "capsule_path": str(session.path or ""),
                 "metadata_persisted": session_metadata_persisted,
                 "persistence_warning": session.persistence_error,
-                **grounding_budget.snapshot(),
             })
         if failed:
-            if grounding_budget_receipt or (
-                budget_diagnostic and not backend_failed
-            ):
-                diagnostic = budget_diagnostic or next(
-                    (
-                        line.removeprefix("External interrupt: ")
-                        for line in details.splitlines()
-                        if PLANNER_GROUNDING_BUDGET_PREFIX in line
-                    ),
-                    PLANNER_GROUNDING_BUDGET_PREFIX,
-                )
-                return PlannerVerdict(
-                    project_done=False,
-                    reason=diagnostic,
-                    new_tasks=[],
-                    raw_text=details,
-                    error=diagnostic,
-                )
             if PLANNER_SUPERSEDED_ERROR in details:
                 return PlannerVerdict(
                     project_done=False,
@@ -570,7 +399,6 @@ class Planner:
                 previous_raw_text=text,
                 previous_error=rejection,
                 options=planner_options,
-                grounding_budget=grounding_budget,
                 planning_cycle=planning_cycle,
                 resume_thread_id=repair_thread_id,
                 open_ended=bool(cfg.open_ended),
@@ -640,7 +468,6 @@ class Planner:
         previous_raw_text: str,
         previous_error: str,
         options: RunnerOptions,
-        grounding_budget: _PlannerGroundingBudget,
         planning_cycle: int,
         resume_thread_id: str,
         open_ended: bool = False,
@@ -667,23 +494,6 @@ class Planner:
             except Exception as exc:  # noqa: BLE001
                 last_error = f"{type(exc).__name__}: {exc}"
                 break
-            budget_diagnostic = grounding_budget.interrupt_reason() or ""
-            if budget_diagnostic:
-                stderr_tail = "\n".join(
-                    str(line)
-                    for line in (getattr(result, "stderr_lines", None) or [])[-20:]
-                )
-                fatal = str(getattr(result, "fatal_error", "") or "").strip()
-                details = "\n".join(
-                    part for part in (fatal, stderr_tail) if part
-                ).strip()
-                return PlannerVerdict(
-                    project_done=False,
-                    reason=budget_diagnostic,
-                    new_tasks=[],
-                    raw_text=details,
-                    error=budget_diagnostic,
-                )
             process_decision = latest_role_decision(result, "planner")
             text = (
                 json.dumps(process_decision, ensure_ascii=False)

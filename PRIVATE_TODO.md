@@ -99,9 +99,6 @@ through another expensive semantic review.
 - [ ] Make the task's resolved workdir the sole source for vertical, stage, policy, and
       artifact resolution. Add a real replay covering a parent campaign repository plus
       a nested target worktree.
-- [ ] Add a configurable Planner grounding budget (tool calls and wall time). Once the
-      Brief plus inspected facts are sufficient for a legal task, Planner must delegate;
-      extending the budget requires a named missing fact.
 - [ ] Cache unchanged read-only tool results within one planning cycle and surface
       `unchanged since last read` instead of re-reading identical files.
 - [ ] Give each stage one primary deliverable and a direct host-authored task shape.
