@@ -1249,3 +1249,47 @@ def test_planner_is_told_the_grounding_budget_it_is_held_to() -> None:
     assert "cfg.grounding_max_seconds" in stated
     # And it must say what running out costs, or the number means nothing.
     assert "discards this whole turn" in stated
+
+
+def _wait_state(**overrides) -> dict:
+    state = {"idle_capacity_turn_used": True, "operator_action_required": False,
+             "idle_capacity_turn_ts": 0.0}
+    state.update(overrides)
+    return state
+
+
+def test_a_wait_only_the_operator_can_end_keeps_asking_for_other_work() -> None:
+    """One planning turn is the right budget for a wait that ends by itself.
+    A wait that ends only when the operator acts does not end at all overnight:
+    run-04 spent fifteen hours on wake_on ["authorization"] with expires_at 0,
+    having spent its single turn in the first minute, while its paper sat at
+    8,107 words using four of its thirty-one figures. run-05 parked the same
+    way on an authentication decision.
+    """
+    import time
+    import types
+
+    from argus_skill.life.supervisor._planning_context import (
+        IDLE_BACKOFF_CAP_SECONDS,
+        PlanningContextMixin,
+    )
+
+    def check(state: dict, *, busy: bool = False) -> bool:
+        host = types.SimpleNamespace(
+            _nothing_queued_behind_the_wait=lambda: not busy
+        )
+        return PlanningContextMixin._planner_turn_available_during_wait(host, state)
+
+    # A wait that ends by itself still gets exactly one turn, ever.
+    assert check(_wait_state(idle_capacity_turn_used=False))
+    assert not check(_wait_state())
+
+    # A wait only the operator can end re-arms on the idle cadence.
+    operator = _wait_state(operator_action_required=True,
+                           idle_capacity_turn_ts=time.time())
+    assert not check(operator), "not a poll: it waits out the backoff first"
+    operator["idle_capacity_turn_ts"] = time.time() - IDLE_BACKOFF_CAP_SECONDS - 1
+    assert check(operator)
+
+    # Never while the campaign already has work queued behind the wait.
+    assert not check(operator, busy=True)

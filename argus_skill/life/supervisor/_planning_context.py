@@ -14,6 +14,7 @@ from typing import Any
 from ...core.event_catalog import EventType
 from ...core.planner_verdict import PlannerVerdictStatus
 from ..memory import BacklogItem
+from ._constants import IDLE_BACKOFF_CAP_SECONDS
 from ._constants import (
     PLAN_AWAITING,
     PLAN_RETRY,
@@ -1206,10 +1207,19 @@ class PlanningContextMixin:
         # contract, and only while nothing is queued behind the wait. One turn,
         # not one per cycle: waking it repeatedly is the token-burning poll this
         # short circuit exists to prevent.
-        if not state.get("idle_capacity_turn_used") and (
-            self._nothing_queued_behind_the_wait()
-        ):
+        # One turn is the right budget for a wait that ends by itself. A wait
+        # that ends only when the operator acts does not end at all overnight:
+        # run-04 spent fifteen hours on wake_on ["authorization"] with
+        # expires_at 0, having used its single turn in the first minute, while
+        # its paper sat finished-looking at 8,107 words with four of its
+        # thirty-one figures used. run-05 parked the same way on an
+        # authentication decision. So for those, and only those, the turn is
+        # re-granted on the idle cadence the supervisor already backs off to --
+        # the same rate this short circuit is willing to wake for anyway, not a
+        # new poll.
+        if self._planner_turn_available_during_wait(state):
             state["idle_capacity_turn_used"] = True
+            state["idle_capacity_turn_ts"] = time.time()
             state["updated_at"] = time.time()
             self._write_planner_waiting_contract_state(state)
             return ""
@@ -1258,6 +1268,23 @@ class PlanningContextMixin:
         )
         self._emit_status("awaiting declared event; Planner call skipped")
         return PLAN_AWAITING
+
+    def _planner_turn_available_during_wait(self, state: dict) -> bool:
+        """Is the Planner owed a turn while this wait contract holds?
+
+        Never while other work is queued behind the wait -- the campaign is
+        already busy and waking the Planner would only burn tokens. Otherwise
+        once per contract, except for a wait that only the operator can end,
+        where "once" means never again and the campaign is simply over.
+        """
+        if not self._nothing_queued_behind_the_wait():
+            return False
+        if not state.get("idle_capacity_turn_used"):
+            return True
+        if not state.get("operator_action_required"):
+            return False
+        granted = float(state.get("idle_capacity_turn_ts") or 0.0)
+        return time.time() - granted >= IDLE_BACKOFF_CAP_SECONDS
 
     def _persist_planner_waiting_contract(
         self,
