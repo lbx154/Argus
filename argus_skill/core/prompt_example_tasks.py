@@ -18,7 +18,15 @@ from __future__ import annotations
 
 PROMPT_EXAMPLE_TASKS = frozenset(
     {
+        # The example shipped when this guard was written. Still listed: a
+        # backlog that stored it before the guard existed keeps it forever.
         ("does pruning beat 4-bit at equal latency?", "match latency, read top-1"),
+        # The example the prompt ships today. It was changed after the guard
+        # landed, which is exactly the drift the pinning test exists to catch.
+        (
+            "run the next decisive check",
+            "execute the concrete check required by current evidence",
+        ),
     }
 )
 

@@ -1006,11 +1006,20 @@ def test_the_planner_cannot_return_its_own_schema_example() -> None:
     from argus_skill.planner.bounded_dag import _validate
     from argus_skill.roles.prompts.planner import _PLANNER_DECISION_PAYLOAD_EXAMPLE
 
-    example_title = "Does pruning beat 4-bit at equal latency?"
-    example_objective = "match latency, read top-1"
-    # The guard is only correct while it matches the example actually shipped.
-    assert example_title in _PLANNER_DECISION_PAYLOAD_EXAMPLE
-    assert example_objective in _PLANNER_DECISION_PAYLOAD_EXAMPLE
+    import json
+
+    from argus_skill.core.prompt_example_tasks import PROMPT_EXAMPLE_TASKS
+
+    # Pinned to whatever the prompt ships today rather than to one wording:
+    # the example was rewritten once already after this guard landed, and a
+    # guard listing a retired example protects nothing.
+    shipped = json.loads(_PLANNER_DECISION_PAYLOAD_EXAMPLE)["tasks"][0]
+    example_title = shipped["title"]
+    example_objective = shipped["objective"]
+    assert (
+        example_title.lower(),
+        example_objective.lower(),
+    ) in PROMPT_EXAMPLE_TASKS, "the shipped example must be one the guard rejects"
 
     leaked = {
         "reason": "why",
@@ -1297,3 +1306,39 @@ def test_a_wait_only_the_operator_can_end_keeps_asking_for_other_work() -> None:
 
     # Never while the campaign already has work queued behind the wait.
     assert not check(operator, busy=True)
+
+
+def test_answering_the_documented_way_wakes_an_authorization_wait(tmp_path) -> None:
+    """A wait declared with wake_on ["authorization"] watched only the Manager
+    control-state log, which does not exist unless that API is driven -- it was
+    absent in all three live campaigns holding such a wait. `argus --notify`
+    writes inbox.jsonl instead, so run-04 stayed parked for fifteen hours after
+    being answered, and four campaigns spent eleven missions trying to
+    canonicalize wake sources by hand.
+    """
+    import types
+
+    from argus_skill.life.supervisor._planning_context import PlanningContextMixin
+
+    host = types.SimpleNamespace(
+        memory=types.SimpleNamespace(root=tmp_path),
+        _project_workdir=lambda: tmp_path,
+        _planner_waiting_objective_fingerprint=lambda: "epoch",
+        _waiting_revision_file=staticmethod(
+            PlanningContextMixin._waiting_revision_file
+        ),
+    )
+    fingerprint = PlanningContextMixin._planner_waiting_observed_revision
+
+    before = fingerprint(host, wake_on=["authorization"], watched_paths=[])
+    (tmp_path / "inbox.jsonl").write_text(
+        '{"ts": 1, "text": "you have my authorization"}\n', encoding="utf-8"
+    )
+    assert fingerprint(host, wake_on=["authorization"], watched_paths=[]) != before
+
+    # A wait on something else is not woken by the operator talking.
+    other = fingerprint(host, wake_on=["subagent_state"], watched_paths=[])
+    (tmp_path / "inbox.jsonl").write_text(
+        '{"ts": 2, "text": "and again"}\n', encoding="utf-8"
+    )
+    assert fingerprint(host, wake_on=["subagent_state"], watched_paths=[]) == other

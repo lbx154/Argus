@@ -1096,9 +1096,19 @@ class PlanningContextMixin:
             "wake_on": sorted(wake_sources),
         }
         if "authorization" in wake_sources:
-            revision["authorization"] = self._waiting_revision_file(
-                Path(self.memory.root) / "operator-authorizations.jsonl"
-            )
+            # An authorization wait watched only the Manager control-state log,
+            # which nothing writes unless the operator drives that API -- in
+            # three live campaigns the file did not exist at all. Answering the
+            # documented way, `argus --notify` into inbox.jsonl, changed
+            # nothing, so run-04 sat on wake_on ["authorization"] for fifteen
+            # hours after being answered. Four campaigns then spent eleven
+            # missions trying to canonicalize wake sources by hand.
+            # The operator acted either way; both records count.
+            root = Path(self.memory.root)
+            revision["authorization"] = [
+                self._waiting_revision_file(root / "operator-authorizations.jsonl"),
+                self._waiting_revision_file(root / "inbox.jsonl"),
+            ]
         if "manager_stage" in wake_sources:
             from ...core.pipeline_state import pipeline_state_path
 
