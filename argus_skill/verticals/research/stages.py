@@ -1745,6 +1745,58 @@ def _paper_notes_block(project_root: object) -> str:
         return ""
 
 
+def _framework_maintenance_share_block(project_root: object) -> str:
+    """How much of this campaign's work went to the framework, not the paper.
+
+    Repairing Argus from inside a campaign is legitimate and has found real
+    defects -- one campaign independently derived a parser fix the same night
+    it was made upstream. But the missions come out of the same budget as the
+    research, and the two campaigns whose manuscripts had not changed a word in
+    hours were the two spending the most on it: 6 of run-04's 13 missions in a
+    day, 8 of run-05's 24. run-04 ran seven research missions in twenty-four
+    hours.
+
+    The count is stated and nothing is scored. Whether the framework or the
+    paper is the better use of the next mission is the Manager's call; it just
+    should not be made without knowing the ratio. Fail-soft: any error, or no
+    maintenance at all, yields no block.
+    """
+    try:
+        import json
+        from pathlib import Path as _Path
+
+        root = _Path(str(project_root)).resolve()
+        backlogs = sorted(
+            root.glob("state/projects/*/backlog.jsonl"),
+            key=lambda path: path.stat().st_mtime,
+        )
+        if not backlogs:
+            return ""
+        done = maintenance = 0
+        for line in backlogs[-1].read_text(
+            encoding="utf-8", errors="ignore"
+        ).splitlines():
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if str(row.get("status") or "") != "done":
+                continue
+            done += 1
+            tags = " ".join(str(tag) for tag in row.get("tags") or ())
+            if "self_maintenance" in tags or "framework_maintenance" in tags:
+                maintenance += 1
+        if not maintenance:
+            return ""
+        return (
+            f"\nFRAMEWORK SHARE: {maintenance} of this campaign's {done} "
+            f"finished missions repaired Argus itself rather than advancing "
+            f"this paper. Both come out of the same budget.\n"
+        )
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def search_altitude_context(project_root: object) -> str:
     """Everything a role should have in view before it judges its own work.
 
@@ -1758,6 +1810,7 @@ def search_altitude_context(project_root: object) -> str:
         + _literature_ledger_block(project_root)
         + _manuscript_scale_block(project_root)
         + _paper_notes_block(project_root)
+        + _framework_maintenance_share_block(project_root)
     )
 
 

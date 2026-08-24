@@ -1439,3 +1439,40 @@ def test_live_subagent_ids_are_named_so_a_wait_can_bind() -> None:
         _waitable_subagent_jobs=lambda: (_ for _ in ()).throw(RuntimeError("x"))
     )
     assert PlannerOrchestrationMixin._live_subagent_id_line(host) == ""
+
+
+def test_framework_repair_share_is_stated_next_to_the_paper(tmp_path) -> None:
+    """Repairing Argus from inside a campaign is legitimate -- one campaign
+    independently derived a parser fix the same night it was made upstream --
+    but the missions come from the same budget as the research. The two
+    manuscripts that had not changed a word in hours were the two spending most
+    on it: 6 of run-04's 13 missions in a day, 8 of run-05's 24. Nothing said
+    so.
+    """
+    import json
+
+    from argus_skill.verticals.research.stages import (
+        _framework_maintenance_share_block,
+    )
+
+    life = tmp_path / "state" / "projects" / "s-1"
+    life.mkdir(parents=True)
+    rows = [
+        {"status": "done", "tags": ["manager:self_maintenance", "scope:bounded"]},
+        {"status": "done", "tags": ["framework_maintenance"]},
+        {"status": "done", "tags": ["research"]},
+        # Unfinished work is not yet a use of the budget.
+        {"status": "running", "tags": ["manager:self_maintenance"]},
+    ]
+    (life / "backlog.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows), encoding="utf-8"
+    )
+
+    block = _framework_maintenance_share_block(tmp_path)
+    assert "2 of this campaign's 3 finished missions" in block
+
+    # A campaign that has repaired nothing hears nothing about it.
+    (life / "backlog.jsonl").write_text(
+        json.dumps({"status": "done", "tags": ["research"]}), encoding="utf-8"
+    )
+    assert _framework_maintenance_share_block(tmp_path) == ""
