@@ -1637,6 +1637,80 @@ def _literature_ledger_block(project_root: object) -> str:
         return ""
 
 
+def _manuscript_high_water_block(project_root: object) -> str:
+    """What this draft used to be, when it is now smaller.
+
+    Campaigns rebuild the manuscript around each new experiment revision rather
+    than extending it, and the accumulated prose and figure includes go with
+    it. In one night run-02 went from 7,830 words and five figures to 4,523 and
+    one, run-03 from 4,230 to 1,460, run-06 from 3,640 to 1,515, and run-07
+    dropped every figure it had. Each rebuild reads like ordinary progress from
+    the inside, and nothing on disk remembers the larger draft: main.aux is
+    rewritten by the next compile, and the campaigns are not under git.
+
+    So the peak is recorded here, and stated only while the draft sits below
+    it. Rebuilding can be right -- run-03's rewrite followed a result that
+    genuinely replaced its claim -- so nothing is scored or refused. The
+    campaign is only told what it had, which it otherwise has no way to know.
+    """
+    try:
+        import json
+        import time
+        from pathlib import Path as _Path
+
+        root = _Path(str(project_root)).resolve()
+        words, figures = _manuscript_size(root)
+        if not words:
+            return ""
+        record = root / "paper" / ".manuscript_peak.json"
+        try:
+            peak = json.loads(record.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            peak = {}
+        peak_words = int(peak.get("words") or 0)
+        peak_figures = int(peak.get("figures") or 0)
+        if words >= peak_words and figures >= peak_figures:
+            record.parent.mkdir(parents=True, exist_ok=True)
+            record.write_text(
+                json.dumps(
+                    {
+                        "words": max(words, peak_words),
+                        "figures": max(figures, peak_figures),
+                        "at": time.time(),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            return ""
+        return (
+            f"\nEARLIER DRAFT: this manuscript has been {peak_words:,} words "
+            f"with {peak_figures} figure(s); it is now {words:,} with "
+            f"{figures}. If a rebuild replaced work that still holds, it is "
+            f"still in the repository history of your own evidence and "
+            f"figures.\n"
+        )
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _manuscript_size(root: object) -> tuple[int, int]:
+    """Body-text word count and figure includes for a project's main.tex."""
+    import re
+    from pathlib import Path as _Path
+
+    from .academic_language_review import _latex_to_plain_text, _word_count
+
+    try:
+        tex = (_Path(str(root)) / "paper" / "main.tex").read_text(
+            encoding="utf-8", errors="ignore"
+        )
+    except OSError:
+        return 0, 0
+    return _word_count(_latex_to_plain_text(tex)), len(
+        re.findall(r"\\includegraphics", tex)
+    )
+
+
 def _manuscript_scale_block(project_root: object) -> str:
     """This draft's length beside the accepted papers the campaign chose.
 
@@ -1811,6 +1885,7 @@ def search_altitude_context(project_root: object) -> str:
         + _manuscript_scale_block(project_root)
         + _paper_notes_block(project_root)
         + _framework_maintenance_share_block(project_root)
+        + _manuscript_high_water_block(project_root)
     )
 
 

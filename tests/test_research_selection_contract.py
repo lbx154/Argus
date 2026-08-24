@@ -1464,3 +1464,38 @@ def test_framework_repair_share_is_stated_next_to_the_paper(tmp_path) -> None:
         json.dumps({"status": "done", "tags": ["research"]}), encoding="utf-8"
     )
     assert _framework_maintenance_share_block(tmp_path) == ""
+
+
+def test_a_draft_that_shrank_is_told_what_it_used_to_be(tmp_path) -> None:
+    """Campaigns rebuild the manuscript around each new experiment revision
+    rather than extending it. In one night run-02 fell from 7,830 words and
+    five figures to 4,523 and one, run-03 from 4,230 to 1,460, run-06 from
+    3,640 to 1,515. Each rebuild reads like progress from the inside, and
+    nothing on disk remembers the larger draft: main.aux is rewritten by the
+    next compile and the campaigns are not under git.
+    """
+    from argus_skill.verticals.research.stages import _manuscript_high_water_block
+
+    paper = tmp_path / "paper"
+    paper.mkdir()
+    tex = paper / "main.tex"
+    tex.write_text(
+        r"\includegraphics{a} \includegraphics{b} " + "word " * 900,
+        encoding="utf-8",
+    )
+    # The first look only records; a draft at its own peak hears nothing.
+    assert _manuscript_high_water_block(tmp_path) == ""
+    assert _manuscript_high_water_block(tmp_path) == ""
+
+    tex.write_text(r"\includegraphics{a} " + "word " * 200, encoding="utf-8")
+    block = _manuscript_high_water_block(tmp_path)
+    assert "902 words with 2 figure(s)" in block
+    assert "now 201 with 1" in block
+
+    # Growing past the old peak resets it and silences the note.
+    tex.write_text(
+        r"\includegraphics{a} \includegraphics{b} \includegraphics{c} "
+        + "word " * 2000,
+        encoding="utf-8",
+    )
+    assert _manuscript_high_water_block(tmp_path) == ""
