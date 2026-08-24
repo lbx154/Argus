@@ -82,7 +82,17 @@ def _target_venue(workdir: Any) -> str | None:
 
 
 def needs_venue_research(workdir: Any) -> bool:
-    """True when an explicit venue still needs a researched local profile."""
+    """True when an explicit venue still needs a researched local profile.
+
+    Never raises, and when it cannot answer it fails toward doing the work.
+    ``False`` here means "confirmed: nothing to research", and nothing in the
+    pipeline asks a second time — so a probe that merely broke must not borrow
+    that answer, or the paper targets a venue whose CFP deadline, scope and
+    official format were never verified. One extra search is the cheaper
+    mistake. Note ``research_venue_profile``'s ``False`` means the opposite:
+    the run failed, try again later.
+    """
+    venue: str | None = None
     try:
         venue = _target_venue(workdir)
         if not venue:
@@ -95,8 +105,27 @@ def needs_venue_research(workdir: Any) -> bool:
         if _completed_attempt_matches(workdir, venue):
             return False
         return not is_builtin_venue(venue)
-    except Exception:  # noqa: BLE001 — never let the guard raise
-        return False
+    except Exception as exc:  # noqa: BLE001 — never let the guard raise
+        # A recorded completed attempt still short-circuits, so answering
+        # "needs research" on a broken probe cannot turn into a retry loop:
+        # the first run that reaches the provider writes the attempt file and
+        # every later probe reads it before it can fail on anything else.
+        try:
+            settled = bool(venue) and _completed_attempt_matches(workdir, venue)
+        except Exception:  # noqa: BLE001 — the short-circuit is best-effort too
+            settled = False
+        log.warning(
+            "venue-research: could not determine whether venue %r needs "
+            "research (%s: %s); %s",
+            venue,
+            type(exc).__name__,
+            exc,
+            "a completed attempt is on record, treating it as researched"
+            if settled
+            else "assuming it still does",
+            exc_info=True,
+        )
+        return not settled
 
 
 def _build_prompt(venue: str) -> str:

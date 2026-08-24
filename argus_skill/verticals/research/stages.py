@@ -11,6 +11,7 @@ checklist items.
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,8 @@ from ...skills.stage_machine import ChecklistItem
 from . import library_preparation
 from .prompt_policy import render_role_prompt_fragment
 from .venue_profiles import VenueProfile, resolve_venue_profile
+
+log = logging.getLogger(__name__)
 
 LIBRARY_PREPARER = library_preparation.prepare_skill_libraries
 
@@ -1828,8 +1831,19 @@ def _paper_notes_block(project_root: object) -> str:
         if not lines:
             return ""
         return "\nPAPER NOTES: " + " ".join(f"{line}." for line in lines) + "\n"
-    except Exception:  # noqa: BLE001
-        return ""
+    except Exception as exc:  # noqa: BLE001 — prompt building must not break
+        # An empty block already means "nothing structural to report", so a
+        # validator that exploded must not borrow that meaning: the campaign
+        # would read the same silence as a clean bill of health for a
+        # manuscript nobody managed to check. Stay fail-soft, fail loud.
+        log.exception(
+            "paper-notes: structural fact collection failed for %r", project_root
+        )
+        return (
+            "\nPAPER NOTES: structural fact collection FAILED "
+            f"({type(exc).__name__}: {exc}). Nothing about this manuscript was "
+            "checked -- treat its structure as UNVERIFIED, not confirmed good.\n"
+        )
 
 
 def _framework_maintenance_share_block(project_root: object) -> str:

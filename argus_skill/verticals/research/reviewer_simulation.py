@@ -33,7 +33,9 @@ Gate fires when any of these hold:
   empty (reviewer questions that aren't addressed are open blockers,
   not "reviewed")
 * the file's mtime is older than ``paper/main.tex`` (the question set
-  was generated against an earlier draft and is stale)
+  was generated against an earlier draft and is stale), or the two
+  mtimes could not be read at all -- staleness that cannot be checked
+  is recorded as unknown, not as fresh
 
 This is a venue-floor anti-fab gate, not a quality judgment: it does not
 score "are these the RIGHT questions" — the reviewer agent owns that
@@ -258,8 +260,21 @@ def validate_reviewer_simulation(project_root: Path) -> SimulationReport:
                         "question set against the current draft"
                     ),
                 ))
-        except OSError:
-            pass
+        except OSError as exc:
+            # "Could not determine staleness" is not "not stale". Without a
+            # record the report reads exactly like a fresh question set, and
+            # this is the only guard against reviewing a new draft against an
+            # old draft's questions.
+            report.issues.append(SimulationIssue(
+                code="reviewer_questions_staleness_unknown",
+                detail=(
+                    f"could not compare mtimes of {qpath.name} and "
+                    f"{main_tex.name} ({type(exc).__name__}: {exc}); whether "
+                    "the question set was generated against the current draft "
+                    "is UNVERIFIED — regenerate it rather than assume it is "
+                    "fresh"
+                ),
+            ))
 
     return report
 

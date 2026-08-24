@@ -633,8 +633,19 @@ def render_svg(spec: dict) -> str:
 # ============================================================
 
 def svg_to_png(svg_path: str, png_path: str) -> bool:
-    """Convert SVG to PNG preview."""
+    """Convert SVG to PNG preview. Returns False if no backend produced one.
+
+    Non-fatal by design -- the caller checks the return value and simply skips
+    the preview. What it must not do is misreport why: a malformed SVG, a
+    missing native library and an unwritable output path all used to print
+    "install rsvg-convert or cairosvg", advice the operator would follow to no
+    effect. Each backend's actual failure is reported, and the install hint is
+    printed only for the backends that really are absent.
+    """
     import subprocess
+
+    reasons: list[str] = []
+    absent: list[str] = []
 
     # Try rsvg-convert
     try:
@@ -644,8 +655,21 @@ def svg_to_png(svg_path: str, png_path: str) -> bool:
         )
         if result.returncode == 0:
             return True
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
+        detail = (result.stderr or b"").decode("utf-8", "replace").strip()
+        reasons.append(
+            f"rsvg-convert exited {result.returncode}"
+            + (f": {detail}" if detail else "")
+        )
+    except FileNotFoundError:
+        # subprocess only raises this for the executable itself; the SVG path
+        # is rsvg-convert's argument, not something Python opens.
+        absent.append("rsvg-convert")
+        reasons.append("rsvg-convert: not installed")
+    except subprocess.TimeoutExpired:
+        reasons.append("rsvg-convert: timed out after 30s")
+    # Any other OSError (a permission denial on the output directory, say)
+    # still propagates, as before -- it is not a backend problem and the
+    # renderer has nothing useful to say about it.
 
     # Try cairosvg
     try:
@@ -653,10 +677,17 @@ def svg_to_png(svg_path: str, png_path: str) -> bool:
         import cairosvg
         cairosvg.svg2png(url=svg_path, write_to=png_path)
         return True
-    except Exception:
-        pass
+    except ImportError as exc:
+        absent.append("cairosvg")
+        reasons.append(f"cairosvg: not installed ({exc})")
+    except Exception as exc:  # noqa: BLE001 — cairosvg raises its own zoo of types
+        # Installed and it ran: a parse error, a missing libcairo, an
+        # unwritable png_path. None of those are fixed by installing anything.
+        reasons.append(f"cairosvg: {type(exc).__name__}: {exc}")
 
-    print("Warning: could not convert SVG to PNG (install rsvg-convert or cairosvg)")
+    print("Warning: could not convert SVG to PNG — " + "; ".join(reasons))
+    if absent:
+        print(f"  (install {' or '.join(absent)} to enable PNG previews)")
     return False
 
 
