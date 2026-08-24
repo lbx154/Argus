@@ -13,7 +13,11 @@ from pathlib import Path
 from types import ModuleType
 from typing import TypeAlias
 
-from ..core.vertical_contract import VerticalContract, vertical_contract
+from ..core.vertical_contract import (
+    IterationAssessment,
+    VerticalContract,
+    vertical_contract,
+)
 from ._data_domain import DataDomain, load_data_domain
 
 log = logging.getLogger(__name__)
@@ -237,6 +241,27 @@ def vertical_stage_completion_issues(
         stage,
         project_root,
         state_root=state_root,
+    )
+
+
+def vertical_iteration_assessment(
+    mod: VerticalDefinition,
+    *,
+    stage: str,
+    scope: str,
+    project_root: Path,
+    state_root: Path,
+    mission: object,
+    outcome: object,
+) -> IterationAssessment | None:
+    """Route a would-be terminal result through the active vertical."""
+    return _contract(mod).assess_iteration(
+        stage=stage,
+        scope=scope,
+        project_root=project_root,
+        state_root=state_root,
+        mission=mission,
+        outcome=outcome,
     )
 
 

@@ -637,11 +637,9 @@ class MissionExecutionRuntimeMixin:
                 ),
             })
 
-        # The post-mission critic/polish iteration loop was removed (the L1
-        # engineer works, the L2 reviewer verifies — no separate critic agent).
-        # The ``iteration`` journal/event keys below are kept EMPTY only for
-        # schema back-compat. / 事后 critic/迭代循环已移除；下方 journal/event 的
-        # ``iteration`` 字段保留为空，仅为 schema 向后兼容。
+        # There is no post-mission Critic call: the L1 Engineer works and the L2
+        # Reviewer verifies. A vertical may turn a trusted charter shortfall
+        # from that verdict into another bounded cycle during settlement.
 
     def _maybe_pause_for_recoverable_stop(
         self, state: _MissionRunState,

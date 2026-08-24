@@ -95,6 +95,37 @@ class RolePromptFragment(Protocol):
     ) -> str: ...
 
 
+class IterationAssessmentHook(Protocol):
+    """Optional vertical-owned decision at a would-be successful settlement."""
+
+    def __call__(
+        self,
+        *,
+        stage: str,
+        scope: str,
+        project_root: Path,
+        state_root: Path,
+        mission: Any,
+        outcome: Any,
+    ) -> "IterationAssessment | None": ...
+
+
+@dataclass(frozen=True)
+class IterationAssessment:
+    """A vertical's domain-specific reason to continue or stop iteration.
+
+    ``objective`` is non-empty only when the current result is a trusted
+    optimization signal and the same backlog item should be re-armed.
+    ``blocking_issues`` names integrity defects that make such optimization
+    unsafe; settlement records them but never turns them into an iteration.
+    ``None`` from the provider means the chartered result did not fall short.
+    """
+
+    shortfall: str
+    objective: str = ""
+    blocking_issues: tuple[str, ...] = ()
+
+
 @dataclass(frozen=True)
 class VerticalLibraryContext:
     """Core-owned inputs for optional provider-owned Skill preparation."""
@@ -136,6 +167,7 @@ class VerticalContract:
     library_preparer: Callable[[VerticalLibraryContext], None] | None = None
     stage_completion_validator: Callable[..., object] | None = None
     planner_task_validator: Callable[[str, Path, Any], object] | None = None
+    iteration_assessor: IterationAssessmentHook | None = None
     # Optional: records the operator's stated objective at project setup, for a
     # vertical that cannot pick a completion bar on its own. See
     # ``adopt_operator_objective``.
@@ -271,6 +303,34 @@ class VerticalContract:
             str(issue).strip()
             for issue in self.planner_task_validator(stage, project_root, task)
             if str(issue).strip()
+        )
+
+    def assess_iteration(
+        self,
+        *,
+        stage: str,
+        scope: str,
+        project_root: Path,
+        state_root: Path,
+        mission: Any,
+        outcome: Any,
+    ) -> IterationAssessment | None:
+        """Ask the active vertical whether a trusted result missed its charter."""
+        if self.iteration_assessor is None:
+            return None
+        value = self.iteration_assessor(
+            stage=stage,
+            scope=scope,
+            project_root=project_root,
+            state_root=state_root,
+            mission=mission,
+            outcome=outcome,
+        )
+        if value is None or isinstance(value, IterationAssessment):
+            return value
+        raise VerticalContractError(
+            f"vertical {self.name!r} iteration assessor returned "
+            f"{type(value).__name__}, expected IterationAssessment or None"
         )
 
     def adopt_operator_objective(self, project_root: Path, request: str) -> bool:
@@ -456,6 +516,11 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         raise VerticalContractError(
             f"vertical {name!r} has a non-callable planner task validator"
         )
+    iteration_assessor = getattr(provider, "iteration_assessment", None)
+    if iteration_assessor is not None and not callable(iteration_assessor):
+        raise VerticalContractError(
+            f"vertical {name!r} has a non-callable iteration assessor"
+        )
     operator_objective_adopter = getattr(provider, "adopt_operator_objective", None)
     if operator_objective_adopter is not None and not callable(
         operator_objective_adopter
@@ -631,6 +696,7 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         ),
         stage_completion_validator=stage_completion_validator,
         planner_task_validator=planner_task_validator,
+        iteration_assessor=iteration_assessor,
         operator_objective_adopter=operator_objective_adopter,
         stage_checks=stage_checks,
         stage_primary_deliverables=stage_primary_deliverables,
@@ -644,6 +710,8 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
 __all__ = [
     "VERTICAL_CONTRACT_VERSION",
     "MissionPrelude",
+    "IterationAssessment",
+    "IterationAssessmentHook",
     "RolePromptFragment",
     "VerticalContract",
     "VerticalContractError",

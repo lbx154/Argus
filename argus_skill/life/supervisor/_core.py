@@ -214,10 +214,9 @@ class LifeSupervisor(
         self.config = config or LifeSupervisorConfig()
         self.engineer_model = engineer_model
         self.reviewer_model = reviewer_model
-        # planner_runner: any RunnerBackend (codex / memory). When None
-        # the iteration loop is effectively disabled — items still go
-        # ``done`` after the first successful mission. Wired by the
-        # life worker / cockpit to the same backend the engineer uses.
+        # planner_runner: any RunnerBackend (codex / memory), used by the
+        # continuous Planner. Result-shortfall iteration itself reuses the
+        # normal Engineer/Reviewer path on the next supervisor tick.
         self.planner_runner = planner_runner
         # Optional role-scoped skill store for the planner mission matcher.
         # Threaded from the composition root (cockpit / life worker). None keeps

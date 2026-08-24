@@ -490,6 +490,12 @@ class EventJournal:
             kind: str | None = "budget_pause"
         elif (
             etype == EventType.LIFE_MISSION_COMPLETED
+            and isinstance(row.get("iteration"), dict)
+            and row["iteration"].get("requeued") is True
+        ):
+            kind = "mission_iterated"
+        elif (
+            etype == EventType.LIFE_MISSION_COMPLETED
             and str(row.get("status") or "") == "replan_requested"
         ):
             kind = "mission_replan_requested"
@@ -735,10 +741,10 @@ class BacklogItem:
     # than run the item blind under the default workflow.
     manager_decision: dict[str, Any] = field(default_factory=dict)
     # --- iteration loop fields (Phase-7) -------------------------------
-    # When ``iterate`` is True the supervisor, after a successful
-    # ``done`` verdict, hands the produced artefacts to a L2 reviewer agent. The reviewer is the only verdict authority;
-    # there is no separate critic polish layer any more.
-    # for another mission cycle until the cycle ceiling is hit.
+    # When ``iterate`` is True, a successful mission whose vertical reports a
+    # trusted charter shortfall can be re-armed for another mission cycle. The
+    # L2 Reviewer remains the verdict authority; there is no separate critic.
+    # Iteration stops at the persisted cycle ceiling.
     # ``original_objective`` preserves the
     # operator's first-cycle instruction so subsequent cycles can be
     # framed as "polish what you already built".

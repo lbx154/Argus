@@ -79,6 +79,8 @@ class _MissionRunState:
         self.err: str = ""
         self.resumable: bool = False
         self.outcome_dimensions: Any = None
+        self.iteration: dict[str, Any] | None = None
+        self.iteration_requeued: bool = False
 
         # Set by ``_emit_mission_outcome_and_build_result``.
         self.kind: str = ""

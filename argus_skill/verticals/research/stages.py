@@ -12,7 +12,9 @@ checklist items.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
+from ...core.vertical_contract import IterationAssessment
 from ...skills.stage_machine import ChecklistItem
 from . import library_preparation
 from .prompt_policy import render_role_prompt_fragment
@@ -946,6 +948,143 @@ def stage_completion_issues(
     return idea_portfolio_completion_issues(project_root)
 
 
+def iteration_assessment(
+    *,
+    stage: str,
+    scope: str,
+    project_root: Path,
+    state_root: Path,
+    mission: Any,
+    outcome: Any,
+) -> IterationAssessment | None:
+    """Turn a trusted final-result shortfall into one bounded next cycle.
+
+    Only the project-closing ``final_submission`` envelope carries the charter
+    this hook evaluates. Bounded nodes still close against their own acceptance
+    checks. The supervisor supplies the cycle ceiling; this vertical supplies
+    the domain judgment and refuses to optimize against contaminated or stale
+    evidence.
+    """
+    _ = (stage, mission)
+    if str(scope or "").strip().lower().replace("-", "_") != "final_submission":
+        return None
+
+    from ...core.research_contract import (
+        ACCEPTED_SIGNIFICANCE,
+        normalize_research_result,
+        research_completion_issue,
+        resolve_research_target_level,
+    )
+
+    target = resolve_research_target_level(state_root)
+    raw_result = getattr(outcome, "research_result", None)
+    issue = research_completion_issue(
+        raw_result,
+        research_target_level=target,
+    )
+    if not issue:
+        return None
+
+    result = normalize_research_result(raw_result)
+    if result is None:
+        return IterationAssessment(
+            shortfall=issue,
+            blocking_issues=(
+                "the final Reviewer did not provide a valid structured research "
+                "result, so the claimed shortfall cannot be measured safely",
+            ),
+        )
+
+    shortfall_type = "optimization"
+    next_cycle = (
+        "improve the method against the same reproduced baseline and measure the "
+        "chartered endpoint again"
+    )
+    actual = result["significance_status"]
+    if issue.startswith(("correctness_", "statement_fidelity_")):
+        shortfall_type = "implementation"
+        next_cycle = (
+            "repair the implementation and independently verify that it performs "
+            "the stated method before comparing scores again"
+        )
+    elif issue.startswith(("novelty_", "survey_novelty_")):
+        shortfall_type = "data"
+        next_cycle = (
+            "collect the missing comparison evidence needed to resolve novelty "
+            "against the same charter"
+        )
+    elif issue.startswith(("significance_", "survey_significance_")):
+        shortfall_type = "scale"
+        next_cycle = (
+            "buy enough repeats, evaluation units, or representative systems to "
+            "lift the evidence to the chartered significance level"
+        )
+    elif issue.startswith("missing_research_evidence"):
+        shortfall_type = "evaluator"
+        next_cycle = (
+            "produce a reproducible evaluator result with independent evidence "
+            "before making another completion claim"
+        )
+
+    if issue.startswith(("significance_", "survey_significance_")):
+        levels = ("exploratory", "publishable", "doctoral")
+        try:
+            distance = max(1, levels.index(str(target)) - levels.index(actual))
+            amount = (
+                f"significance={actual!r} is {distance} declared level(s) below "
+                f"the chartered {target!r} level"
+            )
+        except ValueError:
+            amount = f"significance={actual!r} does not clear target={target!r}"
+    elif issue.startswith("result_class_"):
+        accepted = sorted(ACCEPTED_SIGNIFICANCE.get(str(target), ()))
+        amount = (
+            f"result_class={result['result_class']!r} supplies 0 of the 1 "
+            f"required qualifying terminal results at target={target!r}; "
+            f"accepted significance levels are {', '.join(accepted) or 'none'}"
+        )
+    else:
+        amount = f"one required charter gate remains unmet: {issue}"
+
+    measured_detail = next(
+        (
+            " ".join(str(text).split())[:500]
+            for text in [*result["evidence"], *result["limitations"]]
+            if any(character.isdigit() for character in str(text))
+        ),
+        "",
+    )
+    if measured_detail:
+        amount += f"; measured evidence: {measured_detail}"
+
+    from .artifact_freshness import artifact_freshness_issues
+    from .contamination_check import contamination_issues
+
+    integrity_issues = tuple(
+        [f"contamination: {text}" for text in contamination_issues(project_root)]
+        + [
+            f"artifact freshness: {text}"
+            for text in artifact_freshness_issues(project_root)
+        ]
+    )
+    if integrity_issues:
+        return IterationAssessment(
+            shortfall=amount,
+            blocking_issues=integrity_issues,
+        )
+
+    objective = (
+        "Close the measured charter shortfall without narrowing the original claim.\n"
+        f"What fell short: {issue}.\n"
+        f"By how much: {amount}.\n"
+        f"Shortfall type: {shortfall_type}.\n"
+        f"What this cycle buys: {next_cycle}.\n"
+        "Keep the baseline, endpoint, and evaluation scale fixed unless a change is "
+        "explicitly part of the diagnosed fix; then rerun the blocking comparison."
+    )
+    return IterationAssessment(shortfall=amount, objective=objective)
+
+
 
 RESEARCH_TARGET_LEVELS = ("exploratory", "publishable", "doctoral")
 
@@ -1811,6 +1950,7 @@ __all__ = [
     "search_altitude_context",
     "render_role_prompt_fragment",
     "stage_completion_issues",
+    "iteration_assessment",
     "completion_gate",
     "PAPER_MISSION",
 ]

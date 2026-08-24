@@ -109,7 +109,20 @@ class MissionExecutionMixin(
         self._settle_repair_capability(state)
         self._apply_dynamic_plan_stage_guard(state)
 
-        transition_result = self._maybe_short_circuit_for_stage_transition(state)
+        # A final-result miss normally makes the Manager HOLD the terminal
+        # stage. Let the active vertical classify that miss before the generic
+        # stage-hold branch terminalizes the item; otherwise the iteration
+        # contract is unreachable on exactly the live fell-short path.
+        state.iteration = self._maybe_requeue_chartered_shortfall(state)
+        state.iteration_requeued = bool(
+            state.iteration and state.iteration.get("requeued")
+        )
+
+        transition_result = (
+            None
+            if state.iteration is not None
+            else self._maybe_short_circuit_for_stage_transition(state)
+        )
         if transition_result is not None:
             return transition_result
 

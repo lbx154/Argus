@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import time
+from pathlib import Path
 from typing import Any
 
 from ...core.event_catalog import EventType
@@ -357,6 +358,137 @@ class MissionExecutionSettlementMixin:
     # Phase: final status resolution against the backlog
     # ------------------------------------------------------------------
 
+    def _maybe_requeue_chartered_shortfall(
+        self,
+        state: _MissionRunState,
+    ) -> dict[str, Any] | None:
+        """Intercept a trusted, vertical-declared shortfall before ``done``.
+
+        The hard iteration budget is the backlog item's persisted
+        ``iteration_max_cycles`` (six by default, matching the existing
+        planner/operator cycle knob). ``iteration_cycles_done`` is checked
+        against that ceiling and ``iteration_cost_usd`` accumulates the actual
+        cost of every cycle that bought another attempt. The host-global daily
+        dollar cap remains the monetary admission guard, so this layer does not
+        invent a second, conflicting price limit.
+
+        Domain policy is deliberately absent here. The active vertical decides
+        whether the charter fell short, writes the replacement objective, and
+        reports any measurement-integrity blockers through the core contract.
+        """
+        item = state.item
+        outcome = state.outcome
+        if (
+            not state.success
+            or not bool(getattr(item, "iterate", False))
+            or bool(getattr(outcome, "chat_mode", False))
+        ):
+            return None
+
+        try:
+            from ...skills.vertical_select import resolve_vertical
+            from ...verticals._base import (
+                load_vertical,
+                vertical_iteration_assessment,
+            )
+
+            vertical = load_vertical(
+                resolve_vertical(state.vertical_root),
+                project_root=state.vertical_root,
+            )
+            assessment = vertical_iteration_assessment(
+                vertical,
+                stage=state.pipeline_stage_at_start,
+                scope=state.item_scope,
+                project_root=Path(
+                    state.execution_workdir or self._project_workdir()
+                ),
+                state_root=Path(state.vertical_root),
+                mission=item,
+                outcome=outcome,
+            )
+        except Exception as exc:  # noqa: BLE001 - settle, but expose the failed guard
+            log.exception("life supervisor: vertical iteration assessment failed")
+            return {
+                "requeued": False,
+                "status": "assessment_blocked",
+                "cycles_done": int(item.iteration_cycles_done),
+                "cycles_max": max(0, int(item.iteration_max_cycles)),
+                "cost_so_far_usd": float(item.iteration_cost_usd),
+                "stop_reason": (
+                    "iteration assessment failed; settled without re-arming: "
+                    f"{type(exc).__name__}: {exc}"
+                ),
+            }
+        if assessment is None:
+            return None
+
+        cycles_done = max(0, int(item.iteration_cycles_done))
+        cycles_max = max(0, int(item.iteration_max_cycles))
+        cost_so_far = round(float(item.iteration_cost_usd), 6)
+        base = {
+            "requeued": False,
+            "cycles_done": cycles_done,
+            "cycles_max": cycles_max,
+            "cost_so_far_usd": cost_so_far,
+            "shortfall": assessment.shortfall,
+        }
+        if assessment.blocking_issues:
+            issues = list(assessment.blocking_issues)
+            return {
+                **base,
+                "status": "measurement_blocked",
+                "blocking_issues": issues,
+                "stop_reason": (
+                    "iteration stopped because the current measurement is not "
+                    "trusted: " + "; ".join(issues)
+                ),
+            }
+        if cycles_done >= cycles_max:
+            return {
+                **base,
+                "status": "budget_exhausted",
+                "stop_reason": (
+                    f"iteration budget ran out: cycle ceiling {cycles_max} reached "
+                    f"after ${cost_so_far:.6f} of accumulated iteration cost"
+                ),
+            }
+        if not assessment.objective.strip():
+            return {
+                **base,
+                "status": "assessment_blocked",
+                "stop_reason": (
+                    "iteration stopped because the vertical identified a shortfall "
+                    "without a safe next-cycle objective"
+                ),
+            }
+
+        requeued = self.memory.backlog.requeue_for_iteration(
+            item.id,
+            new_objective=assessment.objective,
+            cost_delta_usd=state.usd,
+        )
+        if requeued is None:
+            return {
+                **base,
+                "status": "requeue_failed",
+                "stop_reason": "iteration stopped because the backlog item could not be re-armed",
+            }
+        iteration = {
+            **base,
+            "requeued": True,
+            "status": "requeued",
+            "cycles_done": requeued.iteration_cycles_done,
+            "cost_so_far_usd": requeued.iteration_cost_usd,
+            "new_objective": requeued.objective,
+        }
+        self._emit({
+            "type": "life.iteration.continued",
+            "item_id": item.id,
+            **iteration,
+        })
+        return iteration
+
     def _count_consecutive_item_replans(self, item_id: str) -> int:
         """Trailing consecutive replan_requested missions journaled for one item.
 
@@ -471,6 +603,10 @@ class MissionExecutionSettlementMixin:
         stage_reconciled_replan = (
             replan_requested and stage_action in {"advance", "rollback"}
         )
+        iteration = state.iteration
+        iteration_requeued = state.iteration_requeued
+        if iteration and not iteration_requeued:
+            state.stop_reason = str(iteration.get("stop_reason") or state.stop_reason)
         err = state.exc_str or state.stop_reason or "unspecified failure"
         final_review_status = str(getattr(outcome, "final_review_status", "") or "")
         resumable = bool(
@@ -502,13 +638,15 @@ class MissionExecutionSettlementMixin:
             stop_kind=state.stop_kind,
             resumable=resumable,
         )
+        if iteration is not None:
+            outcome_dimensions["iteration"] = dict(iteration)
 
         manager_decision = getattr(item, "manager_decision", {}) or {}
         learned_candidate = bool(
             isinstance(manager_decision, dict)
             and manager_decision.get("learned_vertical_status") == "candidate"
         )
-        if learned_candidate:
+        if learned_candidate and not iteration_requeued:
             from ...verticals._data_domain import (
                 promote_data_domain,
                 record_data_domain_failure,
@@ -578,7 +716,11 @@ class MissionExecutionSettlementMixin:
 
         # Update backlog row. A bounded research cycle that did not achieve its
         # persisted success target is resumable, not a success or terminal failure.
-        if success:
+        if success and iteration_requeued:
+            # ``requeue_for_iteration`` already performed the only backlog
+            # transition allowed here: running -> pending on the same item.
+            pass
+        elif success:
             self.memory.backlog.mark_done(item.id, outcome=outcome_dimensions)
             if "runtime_failure_canary" in state.item_tags:
                 try:
@@ -763,6 +905,8 @@ class MissionExecutionSettlementMixin:
         state.err = err
         state.resumable = resumable
         state.outcome_dimensions = outcome_dimensions
+        state.iteration = iteration
+        state.iteration_requeued = iteration_requeued
 
     # ------------------------------------------------------------------
     # Phase: journal event + return dict
@@ -777,7 +921,9 @@ class MissionExecutionSettlementMixin:
         status = state.status
 
         kind = (
-            "mission_complete"
+            "mission_iterated"
+            if state.iteration_requeued
+            else "mission_complete"
             if success
             else "mission_replan_requested"
             if state.replan_requested
@@ -787,6 +933,7 @@ class MissionExecutionSettlementMixin:
         )
         final_submission_certified = bool(
             kind == "mission_complete"
+            and state.iteration is None
             and state.item_scope == PLANNER_SCOPE_FINAL_SUBMISSION
             and getattr(outcome, "final_submission_certified", False)
         )
@@ -814,6 +961,7 @@ class MissionExecutionSettlementMixin:
             remaining_work = True
         overall_complete = bool(
             success
+            and state.iteration is None
             and (
                 final_submission_certified
                 or (not self.config.continuous and not remaining_work)
@@ -1011,7 +1159,7 @@ class MissionExecutionSettlementMixin:
                     (state.repair_settlement or {}).get("guard_errors") or []
                 ),
             } if state.repair_capability is not None else None,
-            "iteration": None,
+            "iteration": state.iteration,
         })
 
         return {
@@ -1029,7 +1177,7 @@ class MissionExecutionSettlementMixin:
             "cost_usd": state.usd,
             "known_cost_usd": state.known_usd,
             "pricing_status": state.usage_summary.pricing_status,
-            "iteration": None,
+            "iteration": state.iteration,
             "auth_failure": state.auth_failure,
             "review_reason": str(
                 getattr(outcome, "final_review_reason", "")
