@@ -24,6 +24,15 @@ BACKEND_QODER: RunnerBackend = "qoder"
 BACKEND_DSH: RunnerBackend = "dsh"
 DEFAULT_RUNNER_BACKEND: RunnerBackend = BACKEND_CODEX
 
+#: The in-process orchestration/test backend. It drives no external CLI and
+#: talks to no provider, so it is deliberately NOT in ``SUPPORTED_BACKENDS`` and
+#: ``normalize_runner_backend`` rejects it. It is nonetheless a first-class
+#: value elsewhere — ``LifeWorkerConfig.backend`` is documented as
+#: ``"codex" | "memory"`` — so call sites that can receive it must branch on it
+#: BEFORE normalizing. Named here so those branches are greppable instead of
+#: each spelling the literal.
+BACKEND_MEMORY: str = "memory"
+
 # Qoder's official CLI (``qodercli``) is a Claude Code fork: it accepts the same
 # headless argv (``-p --output-format stream-json --model … --permission-mode …
 # --resume …``) and emits the same stream-json event schema. So ``qoder`` reuses
@@ -33,23 +42,44 @@ DEFAULT_RUNNER_BACKEND: RunnerBackend = BACKEND_CODEX
 CLAUDE_FAMILY: frozenset[str] = frozenset({BACKEND_CLAUDE, BACKEND_QODER})
 
 
+#: Historical spelling accepted for ``opencode``; kept so existing configs and
+#: the persisted knob store keep resolving after the strictening below.
+_BACKEND_ALIASES: dict[str, RunnerBackend] = {"opencod": BACKEND_OPENCODE}
+
+_SUPPORTED_BACKEND_SET: frozenset[str] = frozenset(SUPPORTED_BACKENDS)
+
+
 def normalize_runner_backend(raw: str | None) -> RunnerBackend:
+    """Canonicalize a backend name.
+
+    Empty/``None`` means "not configured" and still yields
+    ``DEFAULT_RUNNER_BACKEND`` — that is a real state with a real default, and
+    several callers depend on it.
+
+    A NON-empty value that names no known backend now raises ``ValueError``.
+    It used to fall through to codex, so a typo'd ``ARGUS_SKILL_*_BACKEND``
+    ("copilto") produced a working-looking run against an entirely different
+    provider, with the operator's actual choice never mentioned anywhere.
+
+    Callers that must tolerate an unknown value (display paths that echo back
+    whatever the operator typed) already guard this call — see
+    ``core.backend_readiness.resolve_backend_profile`` and
+    ``core.role_config._normalize_backend``.
+    """
     value = str(raw or "").strip().lower()
-    if value == BACKEND_CLAUDE:
-        return BACKEND_CLAUDE
-    if value == BACKEND_COPILOT:
-        return BACKEND_COPILOT
-    if value in (BACKEND_OPENCODE, "opencod"):
-        return BACKEND_OPENCODE
-    if value == BACKEND_PI:
-        return BACKEND_PI
-    if value == BACKEND_GROK:
-        return BACKEND_GROK
-    if value == BACKEND_QODER:
-        return BACKEND_QODER
-    if value == BACKEND_DSH:
-        return BACKEND_DSH
-    return BACKEND_CODEX
+    if not value:
+        return DEFAULT_RUNNER_BACKEND
+    alias = _BACKEND_ALIASES.get(value)
+    if alias is not None:
+        return alias
+    if value in _SUPPORTED_BACKEND_SET:
+        # SUPPORTED_BACKENDS holds the canonical lowercase spellings, so a
+        # membership hit IS the canonical name.
+        return value  # type: ignore[return-value]
+    raise ValueError(
+        f"unknown agent-CLI backend {raw!r}; supported backends are: "
+        f"{', '.join(SUPPORTED_BACKENDS)}"
+    )
 
 
 def default_runner_bin(backend: RunnerBackend) -> str:

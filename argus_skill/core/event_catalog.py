@@ -88,6 +88,17 @@ class EventType(StrEnum):
     LIFE_MANAGER_STAGE_DECISION = "life.manager.stage_decision"
     LIFE_MANAGER_PLAN_CHALLENGE_DECIDED = "life.manager.plan_challenge.decided"
     LIFE_VERTICAL_RESOLVED = "life.vertical.resolved"
+    # Provenance for a role's agent-CLI backend, recorded once per daemon
+    # boot: {role, backend, source}, where source uses the shared
+    # env:<VAR> / persisted:<VAR> / default vocabulary from
+    # core.knobs.resolve_role_backend_with_source. One type per role rather
+    # than a single "life.role.*" type so the catalog stays enumerable and a
+    # consumer can subscribe to just the role it renders.
+    LIFE_MANAGER_BACKEND_RESOLVED = "life.manager.backend_resolved"
+    LIFE_PLANNER_BACKEND_RESOLVED = "life.planner.backend_resolved"
+    LIFE_ENGINEER_BACKEND_RESOLVED = "life.engineer.backend_resolved"
+    LIFE_REVIEWER_BACKEND_RESOLVED = "life.reviewer.backend_resolved"
+    LIFE_CURATOR_BACKEND_RESOLVED = "life.curator.backend_resolved"
     LIFE_PLANNER_START = "life.planner.start"
     LIFE_PLANNER_TASK_ADDED = "life.planner.task_added"
     LIFE_PLANNER_TASK_SKIPPED = "life.planner.task_skipped"
@@ -177,6 +188,14 @@ LEGACY_EVENT_ALIASES: dict[str, EventType] = {
 }
 
 SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
+    # One line per role per boot, and the exact line an operator needs when a
+    # role turns out to be running on a backend they did not choose. Cheap
+    # enough to keep even in the verdict-only log.
+    EventType.LIFE_MANAGER_BACKEND_RESOLVED,
+    EventType.LIFE_PLANNER_BACKEND_RESOLVED,
+    EventType.LIFE_ENGINEER_BACKEND_RESOLVED,
+    EventType.LIFE_REVIEWER_BACKEND_RESOLVED,
+    EventType.LIFE_CURATOR_BACKEND_RESOLVED,
     EventType.LOOP_START,
     EventType.LOOP_DONE,
     EventType.ROUND_START,

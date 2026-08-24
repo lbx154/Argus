@@ -48,6 +48,11 @@ export const EVENT_TYPES = {
   LIFE_MANAGER_STAGE_DECISION: 'life.manager.stage_decision',
   LIFE_MANAGER_PLAN_CHALLENGE_DECIDED: 'life.manager.plan_challenge.decided',
   LIFE_VERTICAL_RESOLVED: 'life.vertical.resolved',
+  LIFE_MANAGER_BACKEND_RESOLVED: 'life.manager.backend_resolved',
+  LIFE_PLANNER_BACKEND_RESOLVED: 'life.planner.backend_resolved',
+  LIFE_ENGINEER_BACKEND_RESOLVED: 'life.engineer.backend_resolved',
+  LIFE_REVIEWER_BACKEND_RESOLVED: 'life.reviewer.backend_resolved',
+  LIFE_CURATOR_BACKEND_RESOLVED: 'life.curator.backend_resolved',
   LIFE_PLANNER_START: 'life.planner.start',
   LIFE_PLANNER_TASK_ADDED: 'life.planner.task_added',
   LIFE_PLANNER_TASK_SKIPPED: 'life.planner.task_skipped',
@@ -138,6 +143,11 @@ export const LEGACY_EVENT_ALIASES: Readonly<Record<string, CatalogEventType>> = 
 };
 
 export const SIGNAL_EVENT_TYPES = new Set<CatalogEventType>([
+  EVENT_TYPES.LIFE_MANAGER_BACKEND_RESOLVED,
+  EVENT_TYPES.LIFE_PLANNER_BACKEND_RESOLVED,
+  EVENT_TYPES.LIFE_ENGINEER_BACKEND_RESOLVED,
+  EVENT_TYPES.LIFE_REVIEWER_BACKEND_RESOLVED,
+  EVENT_TYPES.LIFE_CURATOR_BACKEND_RESOLVED,
   EVENT_TYPES.LOOP_START,
   EVENT_TYPES.LOOP_DONE,
   EVENT_TYPES.ROUND_START,

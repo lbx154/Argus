@@ -372,8 +372,24 @@ def main(argv: list[str] | None = None) -> int:
             return 2
     from ...core.knobs import resolve_role_backend
 
-    backend_default = (
-        getattr(args, "backend", None) or resolve_role_backend("")
+    # `--backend` is the FLOOR of the chain, not a competitor to it — the same
+    # shape _resolve_role_runner_backend_name already uses for a caller-supplied
+    # backend (env override wins, the caller's value fills in), with an explicit
+    # "codex" under that where an invisible one used to be.
+    #
+    # codex is safe to assume HERE specifically: this value's only consumer is
+    # _continuous_contract_error -> continuous_mode_error, which compares it
+    # against "memory" and nothing else, so every real backend behaves
+    # identically. And this line runs for EVERY argus-skill invocation
+    # (--wiki-init, --export-skills, --status), so it must never be the thing
+    # that refuses to run on a host that has not picked a backend yet.
+    # ``--backend`` parses with ``default=None``, so a value here was typed on
+    # THIS invocation and is the most explicit signal available: it outranks an
+    # ambient env var or a persisted knob, both of which may be stale. Letting
+    # the chain outrank it would silently substitute a backend the operator did
+    # not ask for — the same class of fault this change exists to remove.
+    backend_default = getattr(args, "backend", None) or resolve_role_backend(
+        "", default="codex"
     )
     continuous_error = _continuous_contract_error(
         continuous=bool(args.continuous),
@@ -661,7 +677,20 @@ def _build_worker_config(args: argparse.Namespace):
     from ...core.knobs import resolve_role_backend
     from .._runtime_construction import _resolve_role_runner_backend_name
 
-    backend = getattr(args, "backend", None) or resolve_role_backend("")
+    # See main(): the typed flag wins, then the chain, then an explicit codex.
+    # value becomes LifeWorkerConfig.backend, which the daemon now exports as
+    # ARGUS_SKILL_RUNNER_BACKEND at boot (LifeWorkerBootMixin
+    # ._rf_bootstrap_environment) so every later role resolution sees it. It is
+    # safe to assume codex here only because _cmd_daemon_start has already run
+    # check_backend_readiness on the same value and refused if it is not usable.
+    # ``--backend`` was typed on this invocation; it outranks the ambient env
+    # and the persisted knob. This value becomes LifeWorkerConfig.backend, which
+    # the daemon exports as ARGUS_SKILL_RUNNER_BACKEND at boot, so a stale env
+    # winning here would not just pick the wrong backend — it would propagate
+    # that choice to every role for the life of the daemon.
+    backend = getattr(args, "backend", None) or resolve_role_backend(
+        "", default="codex"
+    )
     engineer_backend = _resolve_role_runner_backend_name("engineer", backend)
     reviewer_backend = _resolve_role_runner_backend_name("reviewer", backend)
     from ...core.knobs import (
@@ -718,8 +747,18 @@ def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
     from ...daemon.commands import execute_daemon_command
     from ...daemon.life_worker import run_foreground, spawn_detached_daemon
 
-    backend_default = (
-        getattr(args, "backend", None) or resolve_role_backend("")
+    # Same resolution as main(): the typed flag wins, then the chain, then an
+    # explicit codex. Safe here because backend_default only feeds
+    # the "is it memory?" continuous gate. The backend that will really be used
+    # is validated for real by check_backend_readiness below, which refuses the
+    # daemon start (rc 3) rather than letting an unusable backend through.
+    # ``--backend`` parses with ``default=None``, so a value here was typed on
+    # THIS invocation and is the most explicit signal available: it outranks an
+    # ambient env var or a persisted knob, both of which may be stale. Letting
+    # the chain outrank it would silently substitute a backend the operator did
+    # not ask for — the same class of fault this change exists to remove.
+    backend_default = getattr(args, "backend", None) or resolve_role_backend(
+        "", default="codex"
     )
     continuous_error = _continuous_contract_error(
         continuous=bool(getattr(args, "continuous", False)),

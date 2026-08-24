@@ -139,21 +139,43 @@ def test_write_persisted_knob_is_atomic_no_tmp_file_left_behind():
     assert leftover_tmp == [], f"atomic write left a temp file behind: {leftover_tmp}"
 
 
-def test_read_persisted_knobs_tolerates_malformed_json():
+def test_read_persisted_knobs_raises_on_malformed_json():
+    """A corrupt store must not read as "nothing persisted".
+
+    This test used to assert ``read_persisted_knobs() == {}`` for an
+    unparseable file. That empty map is indistinguishable from a host where the
+    operator never persisted anything, so a single stray byte silently reverted
+    EVERY persisted switch at once — every role's backend, every route's model,
+    the budget cap — leaving only a warning in a log nobody reads.
+    """
     from argus_skill.core.paths import config_path
 
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("{not valid json", encoding="utf-8")
-    assert knob_store.read_persisted_knobs() == {}
+    with pytest.raises(knob_store.KnobStoreCorruptError) as excinfo:
+        knob_store.read_persisted_knobs()
+    assert str(path) in str(excinfo.value)
 
 
-def test_read_persisted_knobs_tolerates_non_dict_json():
+def test_read_persisted_knobs_raises_on_non_dict_json():
+    """Valid JSON of the wrong shape is the same failure, and used to be even
+    quieter: it returned {} without so much as a warning."""
     from argus_skill.core.paths import config_path
 
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("[1, 2, 3]", encoding="utf-8")
+    with pytest.raises(knob_store.KnobStoreCorruptError):
+        knob_store.read_persisted_knobs()
+
+
+def test_read_persisted_knobs_returns_empty_when_file_is_absent():
+    """The counterpart the raise must not swallow: no file at all is the normal
+    "operator has never persisted a switch" state, and still means defaults."""
+    from argus_skill.core.paths import config_path
+
+    assert not config_path().exists()
     assert knob_store.read_persisted_knobs() == {}
 
 

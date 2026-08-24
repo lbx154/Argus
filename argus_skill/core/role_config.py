@@ -93,7 +93,12 @@ def _normalize_backend(raw: str) -> str:
 def _resolve_backend(role: str, env: Mapping[str, str]) -> str:
     from .knobs import resolve_role_backend
 
-    requested = resolve_role_backend(role, env=env)
+    # default="codex": read-only display resolver. `/roles` and the cockpit
+    # role panel must still render on a host where nothing is configured, and
+    # codex is what the execution paths that CAN assume a backend also assume,
+    # so the panel keeps matching what a run would really do. Provenance for
+    # the daemon's own roles is carried by life.<role>.backend_resolved.
+    requested = resolve_role_backend(role, env=env, default="codex")
     normalized = _normalize_backend(requested)
     if normalized == "memory":
         return normalized

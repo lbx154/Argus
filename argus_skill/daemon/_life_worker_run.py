@@ -122,6 +122,22 @@ class LifeWorkerRunMixin:
         if release_error:
             log.error("daemon refused inconsistent release: %s", release_error)
             return 2
+
+        # An unreadable knob file is checked HERE, before anything resolves a
+        # role. Every resolver reads that file, so without this the first
+        # resolution to run — somewhere deep in role construction — raises
+        # instead, and the operator gets a traceback whose top frame has nothing
+        # to do with the actual fault. Refusing here is also the point: booting
+        # anyway would silently revert every persisted switch at once (the
+        # backend of every role, the model of every route, the budget cap).
+        from ..core.knob_store import KnobStoreCorruptError, read_persisted_knobs
+
+        try:
+            read_persisted_knobs()
+        except KnobStoreCorruptError as exc:
+            log.error("daemon refused before Manager/provider/state mutation: %s", exc)
+            return 2
+
         from ..core.backend_readiness import (
             check_backend_readiness,
             format_backend_readiness,

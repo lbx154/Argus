@@ -885,6 +885,46 @@ export interface DaemonCommandRejectedEvent extends EventMsg {
   "error": string;
 }
 
+export interface LifeManagerBackendResolvedEvent extends EventMsg {
+  type: "life.manager.backend_resolved";
+  payload_schema_version?: 1;
+  "role": string;
+  "backend": string;
+  "source": string;
+}
+
+export interface LifePlannerBackendResolvedEvent extends EventMsg {
+  type: "life.planner.backend_resolved";
+  payload_schema_version?: 1;
+  "role": string;
+  "backend": string;
+  "source": string;
+}
+
+export interface LifeEngineerBackendResolvedEvent extends EventMsg {
+  type: "life.engineer.backend_resolved";
+  payload_schema_version?: 1;
+  "role": string;
+  "backend": string;
+  "source": string;
+}
+
+export interface LifeReviewerBackendResolvedEvent extends EventMsg {
+  type: "life.reviewer.backend_resolved";
+  payload_schema_version?: 1;
+  "role": string;
+  "backend": string;
+  "source": string;
+}
+
+export interface LifeCuratorBackendResolvedEvent extends EventMsg {
+  type: "life.curator.backend_resolved";
+  payload_schema_version?: 1;
+  "role": string;
+  "backend": string;
+  "source": string;
+}
+
 export interface EventPayloadByType {
   "agent.io.start": AgentIoStartEvent;
   "agent.io.stream": AgentIoStreamEvent;
@@ -961,6 +1001,11 @@ export interface EventPayloadByType {
   "daemon.command.submitted": DaemonCommandSubmittedEvent;
   "daemon.command.completed": DaemonCommandCompletedEvent;
   "daemon.command.rejected": DaemonCommandRejectedEvent;
+  "life.manager.backend_resolved": LifeManagerBackendResolvedEvent;
+  "life.planner.backend_resolved": LifePlannerBackendResolvedEvent;
+  "life.engineer.backend_resolved": LifeEngineerBackendResolvedEvent;
+  "life.reviewer.backend_resolved": LifeReviewerBackendResolvedEvent;
+  "life.curator.backend_resolved": LifeCuratorBackendResolvedEvent;
 }
 
 export type TypedArgusEvent = EventPayloadByType[keyof EventPayloadByType];

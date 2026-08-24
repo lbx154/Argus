@@ -10,6 +10,7 @@ registry, and the manager-runner prewarm bookkeeping so
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 import weakref
@@ -19,6 +20,8 @@ from pathlib import Path
 from typing import Any
 
 from ..core import paths as core_paths
+
+log = logging.getLogger(__name__)
 
 # Per-project chat_state cache: keeps the Manager runner + codex/copilot thread
 # id warm across turns so a conversation stays coherent and each message doesn't
@@ -314,8 +317,16 @@ def _chat_state_for(
     from ..manager.dispatch import DEFAULT_MANAGER_CONFIG
 
     try:
-        backend = normalize_runner_backend(resolve_role_backend("manager"))
-    except Exception:  # noqa: BLE001
+        # default="codex": this seeds a per-session display/default field on a
+        # web chat state that must be constructible on any host. The `except`
+        # now also catches normalize_runner_backend's ValueError on a typo'd
+        # knob and a corrupt knob store — log.exception so those two stop being
+        # byte-identical to "the operator really chose codex".
+        backend = normalize_runner_backend(
+            resolve_role_backend("manager", default="codex")
+        )
+    except Exception:  # noqa: BLE001 — a chat session must still open
+        log.exception("manager_state: falling back to codex for session %s", sid)
         backend = "codex"
     st = {
         "backend": backend,

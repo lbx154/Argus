@@ -121,11 +121,33 @@ def build_config_snapshot(
 ) -> dict[str, Any]:
     """Return a JSON-serializable snapshot of current Argus runtime settings."""
     env_map = env if env is not None else os.environ
-    from .knob_store import read_persisted_knobs
+    from .knob_store import KnobStoreCorruptError, read_persisted_knobs
+    from .paths import config_path
 
-    persisted = read_persisted_knobs()
+    # A corrupt knob file is exactly what this snapshot exists to show. Reading
+    # it is the point of the page, so the read failing must not take the page
+    # down with it — nor may it fall back to ``{}`` and render every persisted
+    # switch as "unset", which is the silent revert ``KnobStoreCorruptError``
+    # was introduced to stop. Report it as a finding and render the rest.
+    persisted_error = ""
+    try:
+        persisted = read_persisted_knobs()
+    except KnobStoreCorruptError as exc:
+        persisted = {}
+        persisted_error = (
+            f"{config_path()} could not be read ({type(exc).__name__}: {exc}). "
+            "Every persisted operator switch below is therefore shown at its "
+            "default, NOT at whatever that file says. Repair or delete the file."
+        )
     role_rows = []
-    for cfg in resolve_all_roles(roles, env=env_map):
+    try:
+        resolved_roles = list(resolve_all_roles(roles, env=env_map))
+    except KnobStoreCorruptError:
+        # The role resolvers read the same file independently, so the corruption
+        # surfaces a second time here. Already reported above; render nothing
+        # rather than half a table the reader would take for the real config.
+        resolved_roles = []
+    for cfg in resolved_roles:
         role_rows.append(
             {
                 "role": cfg.role,
@@ -147,6 +169,9 @@ def build_config_snapshot(
 
     knob_rows = []
     for knob in KNOBS:
+        # ``persisted`` is passed explicitly, so this cannot re-read the corrupt
+        # file; with an empty map every row falls back to its documented default,
+        # which is exactly what the banner above says is being shown.
         resolved = resolve_knob(
             knob.name,
             knob.default,
@@ -171,6 +196,7 @@ def build_config_snapshot(
     return {
         "schema_version": 1,
         "generated_at_utc": generated_at_utc or _now_utc(),
+        "persisted_knob_error": persisted_error,
         "roles": role_rows,
         "operator_knobs": knob_rows,
         "how_to_change": [
@@ -192,6 +218,12 @@ def format_config_snapshot_markdown(snapshot: Mapping[str, Any]) -> str:
         f"- Generated: `{snapshot.get('generated_at_utc', '')}`",
         f"- Schema: `{snapshot.get('schema_version', 1)}`",
         "",
+    ]
+    persisted_error = str(snapshot.get("persisted_knob_error", "") or "")
+    if persisted_error:
+        # Loud and first: every row below is misleading while this is true.
+        lines.extend([f"> **PERSISTED KNOBS UNREADABLE** — {persisted_error}", ""])
+    lines += [
         "## Role Hyperparameters",
         "",
         "| Role | Backend | Model | Effort | Sources |",

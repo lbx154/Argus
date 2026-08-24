@@ -685,12 +685,18 @@ def maybe_promote_to_continuous(
 
     life_dir = Path(front_door._life_dir_for(mem))
     daemon_status = read_daemon_status(life_dir)
+    # default="codex": this value is only ever compared against "memory" (see
+    # daemon.state.continuous_mode_error, which rejects continuous mode on the
+    # in-process test backend). Any real backend passes the same gate, so an
+    # unconfigured host must not fail an operator's chat turn here.
     backend = (
         str(daemon_status.life_backend or "")
         if daemon_status.alive
-        else resolve_role_backend("")
+        else resolve_role_backend("", default="codex")
     )
-    error = continuous_mode_error(backend or resolve_role_backend(""), True, body)
+    error = continuous_mode_error(
+        backend or resolve_role_backend("", default="codex"), True, body
+    )
     if error:
         raise front_door.ManagerHandoffError(error)
     persisted = read_continuous_state(life_dir)

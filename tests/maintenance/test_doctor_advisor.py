@@ -104,7 +104,9 @@ def test_doctor_advisor_uses_installed_agent_to_repair(
 def test_doctor_advisor_uses_configured_manager_executable(monkeypatch) -> None:
     monkeypatch.setattr(
         "argus_skill.core.knobs.resolve_role_backend",
-        lambda _role: "claude",
+        # **_kw: the real resolver now takes a keyword-only `default=`, which
+        # advisor._advisor_selections passes explicitly.
+        lambda _role, **_kw: "claude",
     )
     monkeypatch.setattr(
         "argus_skill.core.knobs.resolve_runner_bin_setting",
@@ -133,7 +135,9 @@ def test_doctor_advisor_uses_configured_manager_executable(monkeypatch) -> None:
 def test_doctor_advisor_accepts_qoder_and_dsh(monkeypatch) -> None:
     monkeypatch.setattr(
         "argus_skill.core.knobs.resolve_role_backend",
-        lambda _role: "codex",
+        # **_kw: the real resolver now takes a keyword-only `default=`, which
+        # advisor._advisor_selections passes explicitly.
+        lambda _role, **_kw: "codex",
     )
     monkeypatch.setattr(
         "argus_skill.core.knobs.resolve_runner_bin_setting",
@@ -153,7 +157,9 @@ def test_doctor_advisor_retries_path_when_configured_executable_is_stale(
 ) -> None:
     monkeypatch.setattr(
         "argus_skill.core.knobs.resolve_role_backend",
-        lambda _role: "claude",
+        # **_kw: the real resolver now takes a keyword-only `default=`, which
+        # advisor._advisor_selections passes explicitly.
+        lambda _role, **_kw: "claude",
     )
     monkeypatch.setattr(
         "argus_skill.core.knobs.resolve_runner_bin_setting",
@@ -178,7 +184,9 @@ def test_doctor_advisor_uses_configured_codex_for_repair(
 ) -> None:
     monkeypatch.setattr(
         "argus_skill.core.knobs.resolve_role_backend",
-        lambda _role: "codex",
+        # **_kw: the real resolver now takes a keyword-only `default=`, which
+        # advisor._advisor_selections passes explicitly.
+        lambda _role, **_kw: "codex",
     )
     monkeypatch.setattr(
         "argus_skill.core.knobs.resolve_runner_bin_setting",

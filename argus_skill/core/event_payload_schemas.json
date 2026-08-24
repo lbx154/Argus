@@ -1089,6 +1089,51 @@
         "revision": {"type": "integer", "minimum": 0},
         "error": {"type": "string", "minLength": 1}
       }
+    },
+    "life.manager.backend_resolved": {
+      "version": 1,
+      "required": ["role", "backend", "source"],
+      "properties": {
+        "role": {"type": "string", "minLength": 1},
+        "backend": {"type": "string", "minLength": 1},
+        "source": {"type": "string", "minLength": 1}
+      }
+    },
+    "life.planner.backend_resolved": {
+      "version": 1,
+      "required": ["role", "backend", "source"],
+      "properties": {
+        "role": {"type": "string", "minLength": 1},
+        "backend": {"type": "string", "minLength": 1},
+        "source": {"type": "string", "minLength": 1}
+      }
+    },
+    "life.engineer.backend_resolved": {
+      "version": 1,
+      "required": ["role", "backend", "source"],
+      "properties": {
+        "role": {"type": "string", "minLength": 1},
+        "backend": {"type": "string", "minLength": 1},
+        "source": {"type": "string", "minLength": 1}
+      }
+    },
+    "life.reviewer.backend_resolved": {
+      "version": 1,
+      "required": ["role", "backend", "source"],
+      "properties": {
+        "role": {"type": "string", "minLength": 1},
+        "backend": {"type": "string", "minLength": 1},
+        "source": {"type": "string", "minLength": 1}
+      }
+    },
+    "life.curator.backend_resolved": {
+      "version": 1,
+      "required": ["role", "backend", "source"],
+      "properties": {
+        "role": {"type": "string", "minLength": 1},
+        "backend": {"type": "string", "minLength": 1},
+        "source": {"type": "string", "minLength": 1}
+      }
     }
   }
 }

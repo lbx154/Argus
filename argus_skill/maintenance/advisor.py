@@ -34,7 +34,12 @@ def _advisor_selections(requested: str) -> tuple[tuple[str, str], ...]:
         return ()
     if normalized != "auto" and normalized not in _SUPPORTED_ADVISORS:
         raise ValueError(f"unsupported Doctor advisor: {requested}")
-    configured = normalize_runner_backend(resolve_role_backend("manager"))
+    # default="codex": this only seeds the FIRST candidate of an ordered probe
+    # list — every other supported advisor is tried after it, so guessing wrong
+    # costs one failed probe rather than a wrong provider for the whole run.
+    configured = normalize_runner_backend(
+        resolve_role_backend("manager", default="codex")
+    )
     candidates = (
         (normalized,)
         if normalized != "auto"

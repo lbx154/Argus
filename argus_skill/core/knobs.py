@@ -596,11 +596,21 @@ def resolve_role_model(
             if persisted_shared.lower() in _AUTO_MODEL_SENTINELS
             else persisted_shared
         )
-    from ..agent_cli.runner_backend import normalize_runner_backend
+    from ..agent_cli.runner_backend import BACKEND_MEMORY, normalize_runner_backend
 
-    backend_name = normalize_runner_backend(
-        backend or resolve_role_backend(route, env=env_map)
-    )
+    # default="codex": the backend is used here ONLY to choose between "name an
+    # OpenAI catalog id" and "leave the model to the backend". Model lookup must
+    # not hard-fail because no backend knob is set, and codex is what an
+    # unconfigured runner would itself normalize to
+    # (``normalize_runner_backend("")`` / ``AgentCliBackend``'s default), so this
+    # stays consistent with the CLI that will really be spawned.
+    requested = backend or resolve_role_backend(route, env=env_map, default="codex")
+    if str(requested).strip().lower() == BACKEND_MEMORY:
+        # The in-process backend has no provider and therefore no model catalog
+        # to name an id from. Branch before normalizing: memory is not an
+        # agent-CLI backend, so normalize_runner_backend rejects it.
+        return ""
+    backend_name = normalize_runner_backend(requested)
     if backend_name not in _OPENAI_CATALOG_BACKENDS:
         return ""
     from ..tools.capability_vault import resolve_route_model
@@ -608,38 +618,119 @@ def resolve_role_model(
     return resolve_route_model(route, env_map)
 
 
-def resolve_role_backend(role: str, *, env: Mapping[str, str] | None = None) -> str:
-    """Resolve a role's agent-CLI backend
-    (codex / claude / copilot / opencode / pi / grok / memory)
-    using Argus's runtime precedence.
+class BackendResolutionError(RuntimeError):
+    """No agent-CLI backend is configured for a role, and the caller named none.
 
-    Precedence: role-specific override (``ARGUS_SKILL_<ROLE>_BACKEND``) ->
-    shared ``ARGUS_SKILL_RUNNER_BACKEND`` -> shared ``ARGUS_SKILL_LIFE_BACKEND``
-    -> persisted switch (the same three vars, same order — a prior
-    ``/backend`` switch or natural-language "engineer 用 claude") -> ``codex``.
+    Raised by :func:`resolve_role_backend` when every layer of the documented
+    precedence chain is empty. The caller is expected to do ONE of two things:
+    pass an explicit ``default=`` (only at a site that can genuinely assume a
+    backend — say why in a comment), or let this propagate so the operator sees
+    it. The message names the role, every knob that was checked, and the
+    knob-store file a value can be written to, so it is actionable without
+    reading source.
+
+    It used to be neither: the chain ended in a bare ``return "codex"``, so a
+    daemon launched with ``--backend copilot`` — a CLI argument that was never
+    exported to the environment — silently ran its roles on codex.
+    """
+
+
+def _role_backend_knobs(role: str) -> list[str]:
+    """The env-var names checked for ``role``, most specific first.
+
+    The persisted knob store is consulted for the SAME names in the SAME order,
+    so this one list defines all four positions of the precedence chain.
+    """
+    return [
+        name
+        for name in (
+            f"ARGUS_SKILL_{role.upper()}_BACKEND" if role else "",
+            "ARGUS_SKILL_RUNNER_BACKEND",
+            "ARGUS_SKILL_LIFE_BACKEND",
+        )
+        if name
+    ]
+
+
+def resolve_role_backend_with_source(
+    role: str,
+    *,
+    env: Mapping[str, str] | None = None,
+    default: str | None = None,
+) -> tuple[str, str]:
+    """Resolve a role's agent-CLI backend AND where the value came from.
+
+    Returns ``(backend, source)``. The source vocabulary is the one
+    ``core.backend_readiness.resolve_backend_profile`` already uses for exactly
+    this purpose — ``env:<VAR>`` / ``persisted:<VAR>`` / ``default`` — so the
+    cockpit can render provenance from either resolver without a second
+    dialect.
+
+    Precedence (unchanged): role-specific override
+    (``ARGUS_SKILL_<ROLE>_BACKEND``) -> shared ``ARGUS_SKILL_RUNNER_BACKEND``
+    -> shared ``ARGUS_SKILL_LIFE_BACKEND`` -> persisted switch (the same three
+    vars, same order — a prior ``/backend`` switch or natural-language
+    "engineer 用 claude") -> ``default``.
+
+    ``default`` is REQUIRED to be a non-empty string if the caller wants a
+    fallback; there is no implicit one. When the chain is empty and no default
+    was named this raises :class:`BackendResolutionError` rather than guessing
+    codex.
+
     Returns the RAW value (unnormalized); callers that need the canonical
-    canonical backend spelling should pass it through
+    backend spelling should pass it through
     ``agent_cli.runner_backend.normalize_runner_backend``, same as every
     existing caller of this precedence already does.
     """
     env_map = env if env is not None else os.environ
-    candidates = [v for v in (
-        f"ARGUS_SKILL_{role.upper()}_BACKEND" if role else "",
-        "ARGUS_SKILL_RUNNER_BACKEND",
-        "ARGUS_SKILL_LIFE_BACKEND",
-    ) if v]
+    candidates = _role_backend_knobs(role)
     for var in candidates:
         val = str(env_map.get(var, "") or "").strip()
         if val:
-            return val
+            return val, f"env:{var}"
     from .knob_store import read_persisted_knobs
 
+    # A corrupt knob store raises KnobStoreCorruptError, which is deliberately
+    # allowed to propagate: "the operator's persisted /backend switch" and
+    # "the file holding it is unreadable" must not resolve to the same answer.
     persisted = read_persisted_knobs()
     for var in candidates:
-        val = persisted.get(var, "").strip()
+        val = str(persisted.get(var, "") or "").strip()
         if val:
-            return val
-    return "codex"
+            return val, f"persisted:{var}"
+    fallback = str(default or "").strip()
+    if fallback:
+        return fallback, "default"
+    from .paths import config_path
+
+    raise BackendResolutionError(
+        f"no agent-CLI backend is configured for role {role or '<shared>'!r}. "
+        f"Checked, in order: {', '.join(candidates)} in this process's "
+        f"environment, then the same names in the persisted knob store at "
+        f"{config_path()}. Set one — e.g. run Argus with "
+        f"`--backend copilot`, send `/backend copilot` from the cockpit, or "
+        f"export ARGUS_SKILL_RUNNER_BACKEND=copilot before starting the "
+        f"daemon. (A call site that can legitimately assume a backend must say "
+        f"so by passing an explicit default= instead.)"
+    )
+
+
+def resolve_role_backend(
+    role: str,
+    *,
+    env: Mapping[str, str] | None = None,
+    default: str | None = None,
+) -> str:
+    """Resolve a role's agent-CLI backend
+    (codex / claude / copilot / opencode / pi / grok / memory)
+    using Argus's runtime precedence.
+
+    Thin wrapper over :func:`resolve_role_backend_with_source` for the callers
+    that do not need provenance. See that function for the precedence chain and
+    for why an unconfigured resolve raises :class:`BackendResolutionError`
+    instead of returning codex.
+    """
+    return resolve_role_backend_with_source(role, env=env, default=default)[0]
 
 
 def resolve_manager_reply_model(
@@ -707,10 +798,17 @@ def resolve_cheap_route_model(
     configured = resolve_knob(knob, "auto", env=env_map).value.strip()
     if configured.lower() not in _AUTO_MODEL_SENTINELS:
         return configured
-    from ..agent_cli.runner_backend import normalize_runner_backend
+    from ..agent_cli.runner_backend import BACKEND_MEMORY, normalize_runner_backend
 
-    backend_name = normalize_runner_backend(
-        backend or resolve_role_backend(role, env=env_map)
+    # default="codex": same reasoning as resolve_role_model above — this only
+    # selects between the OpenAI catalog id and the role's own model, and a
+    # cheap control-plane route must not fail to pick a model just because no
+    # backend knob is set. memory branches out first, same as there.
+    requested = backend or resolve_role_backend(role, env=env_map, default="codex")
+    backend_name = (
+        BACKEND_MEMORY
+        if str(requested).strip().lower() == BACKEND_MEMORY
+        else normalize_runner_backend(requested)
     )
     if backend_name in _OPENAI_CATALOG_BACKENDS:
         return catalog_default

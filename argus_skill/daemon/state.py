@@ -767,7 +767,13 @@ def _daemon_status_payload(config: Any, *, started_at_iso: str) -> dict[str, Any
         from ..agent_cli.runner_backend import resolve_available_runner
         from ..core.knobs import resolve_role_backend
 
-        requested = resolve_role_backend("engineer")
+        # default=config.backend: this payload REPORTS the daemon's backend,
+        # so when no knob overrides it the honest answer is the backend the
+        # daemon was launched with — the same value the `except` below already
+        # falls back to.
+        requested = resolve_role_backend(
+            "engineer", default=str(config.backend or "") or None
+        )
         configured = (
             os.environ.get("ARGUS_SKILL_ENGINEER_RUNNER_BIN", "").strip()
             or os.environ.get("ARGUS_SKILL_RUNNER_BIN", "").strip()

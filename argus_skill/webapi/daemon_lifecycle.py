@@ -86,7 +86,11 @@ def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConf
         # All four roles use the same persisted execution root. Internal daemon
         # state remains under life_dir regardless of where project work happens.
         project_workdir=project_workdir,
-        backend=resolve_role_backend(""),
+        # default="codex": the cockpit autostart has no --backend flag to
+        # honour, so the chain is the operator's ONLY channel here; codex
+        # matches LifeWorkerConfig's own dataclass default, which is what this
+        # field held before when nothing was configured.
+        backend=resolve_role_backend("", default="codex"),
         engineer_model=resolve_role_model(
             "engineer", role_env="ARGUS_SKILL_ENGINEER_MODEL",
         ),

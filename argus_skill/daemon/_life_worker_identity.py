@@ -303,7 +303,8 @@ def _preflight_route_on_codex(route: str) -> bool:
     EN: Uses the SAME canonical resolution as the role runners
     (``core.knobs.resolve_role_backend``: ``ARGUS_SKILL_{ROLE}_BACKEND`` →
     ``ARGUS_SKILL_RUNNER_BACKEND`` → ``ARGUS_SKILL_LIFE_BACKEND`` → persisted
-    knob store → codex). A role pinned to copilot/claude/opencode/pi authenticates through
+    knob store → the default this call site names, which is codex — see the
+    comment on the resolve below). A role pinned to copilot/claude/opencode/pi authenticates through
     its OWN CLI (the copilot subscription / claude), NOT the ``model_api`` vault
     — so probing its Azure route is a FALSE gate. Reading the resolver (not raw
     ``os.environ``) is load-bearing: a non-interactive launcher (the web
@@ -313,7 +314,8 @@ def _preflight_route_on_codex(route: str) -> bool:
     vault. The persisted ``/backend`` switch is honoured for exactly this case.
     Unknown/typo'd values fall back to codex so the safety probe is preserved.
     中文：与角色 runner 用同一套规范解析（``resolve_role_backend``：角色 env →
-    RUNNER_BACKEND → LIFE_BACKEND → 持久化 knob → codex）。读解析后的后端而非裸
+    RUNNER_BACKEND → LIFE_BACKEND → 持久化 knob → 本调用点显式传入的默认值，
+    此处为 codex）。读解析后的后端而非裸
     ``os.environ`` 是关键：web/tmux 这类非交互启动器不 source ``.bashrc``，只写在
     交互 shell 里的 copilot 选择在这里就看不见，daemon 会误探并崩在 codex 金库上；
     持久化的 ``/backend`` 切换正是为这种情况兜底。未知值回退 codex 保留安全探测。
@@ -329,9 +331,12 @@ def _preflight_route_on_codex(route: str) -> bool:
     from ..core.knobs import resolve_role_backend
 
     role = route if route in ("engineer", "reviewer", "planner", "manager", "curator") else ""
-    chosen = resolve_role_backend(role)
-    if not chosen:
-        chosen = BACKEND_CODEX
+    # default=BACKEND_CODEX: this is a SAFETY gate — answering "yes, codex" only
+    # keeps the vault probe armed, while answering "no" would skip it. When
+    # nothing is configured the run will itself land on codex, so keeping the
+    # probe is both the correct and the conservative answer. Same reason the
+    # unknown-value branch below returns True.
+    chosen = resolve_role_backend(role, default=BACKEND_CODEX)
     if str(chosen).strip().lower() not in {
         "codex",
         "copilot",
