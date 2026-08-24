@@ -86,6 +86,30 @@ def test_direct_inotify_select_wait_is_interrupted() -> None:
     assert [process.pid for process in waits] == [30]
 
 
+def test_direct_inotify_read_wait_is_interrupted() -> None:
+    processes = {
+        10: _process(10, 1, 500, "argus"),
+        20: _process(20, 10, 400, "pi"),
+        30: _process(
+            30,
+            20,
+            80,
+            "/bin/bash",
+            "-c",
+            "python3 - <<'PY'\ninotify_init1(); os.read(fd, 65536)\nPY",
+        ),
+        31: _process(31, 30, 75, "python3", "-"),
+    }
+
+    waits = foreground_wait_shells(
+        processes,
+        root_pid=10,
+        minimum_age_seconds=60,
+    )
+
+    assert [process.pid for process in waits] == [30]
+
+
 def test_direct_tail_pid_wait_is_interrupted() -> None:
     processes = {
         10: _process(10, 1, 500, "argus"),

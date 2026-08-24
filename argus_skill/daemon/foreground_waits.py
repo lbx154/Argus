@@ -136,9 +136,11 @@ def foreground_wait_shells(
             continue
         if (
             executable.startswith("python")
-            and "select.select" in command
             and (
-                "pidfd_open" in command
+                (
+                    "pidfd_open" in command
+                    and "select.select" in command
+                )
                 or "inotify_init" in command
             )
         ):
