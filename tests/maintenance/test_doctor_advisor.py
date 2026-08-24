@@ -262,11 +262,16 @@ def test_doctor_repair_prompt_contains_actual_machine_locations(tmp_path) -> Non
     context = _context(tmp_path)
 
     prompt = advisor._advisor_prompt(_report(), context)
+    locations = json.loads(
+        prompt.split("LOCATIONS:\n", 1)[1].split(
+            "\n\nThe finding metadata", 1
+        )[0]
+    )
 
-    assert str(context.global_root) in prompt
-    assert str(context.project_root) in prompt
-    assert str(context.checkout) in prompt
-    assert '"install_mode": "source"' in prompt
+    assert locations["argus_home"] == str(context.global_root)
+    assert locations["project_root"] == str(context.project_root)
+    assert locations["checkout"] == str(context.checkout)
+    assert locations["install_mode"] == "source"
 
 
 def test_doctor_repair_prompt_omits_untrusted_finding_text(

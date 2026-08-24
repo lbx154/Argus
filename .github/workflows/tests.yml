@@ -215,6 +215,7 @@ jobs:
           python -m pip install -e . pytest ruff "httpx2>=2.9,<3" "pyinstaller>=6.11,<7"
           npm --prefix desktop ci
       - name: Lint and test desktop sources
+        shell: bash
         run: |
           python -m ruff check desktop tests/desktop
           python -m pytest -q tests/desktop/test_frozen_runtime.py

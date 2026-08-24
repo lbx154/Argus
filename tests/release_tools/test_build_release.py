@@ -5,6 +5,22 @@ from pathlib import Path
 
 from argus_skill.release_tools import build_release
 
+ROOT = Path(__file__).parents[2]
+
+
+def test_wheel_smoke_imports_the_install_outside_the_checkout() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(
+        encoding="utf-8"
+    )
+    smoke = workflow.split("- name: Clean-install wheel smoke", 1)[1].split(
+        "- uses: actions/upload-artifact", 1
+    )[0]
+
+    assert "cd /tmp/argus-wheel-smoke-cwd" in smoke
+    assert smoke.index("cd /tmp/argus-wheel-smoke-cwd") < smoke.index(
+        "import argus_skill"
+    )
+
 
 def test_release_uses_the_platform_npm_launcher() -> None:
     expected = "npm.cmd" if os.name == "nt" else "npm"

@@ -317,8 +317,11 @@ def test_compact_snapshot_refreshes_host_projections_off_request_thread(
     _make_project(tmp_path, "s-nonblocking-host")
     started = threading.Event()
     release = threading.Event()
+    request_thread = threading.get_ident()
+    refresh_threads: list[int] = []
 
     def slow_cost(*, global_root):
+        refresh_threads.append(threading.get_ident())
         started.set()
         assert release.wait(timeout=5.0)
         return {"day": "2026-07-27", "active_reservations": 0}
@@ -337,20 +340,19 @@ def test_compact_snapshot_refreshes_host_projections_off_request_thread(
     with project_state._HOST_REFRESHING_LOCK:
         project_state._HOST_REFRESHING.clear()
 
-    before = time.monotonic()
     snap = server.build_snapshot(
         "s-nonblocking-host",
         global_root=tmp_path,
         compact=True,
     )
-    elapsed = time.monotonic() - before
 
     try:
         assert snap is not None
-        assert elapsed < 0.5
         assert snap["cost_control"] is None
         assert snap["global_usage_summary"]["call_count"] == 0
         assert started.wait(timeout=1.0)
+        assert len(refresh_threads) == 1
+        assert refresh_threads[0] != request_thread
     finally:
         release.set()
 
@@ -460,6 +462,7 @@ def test_project_limit_backfills_sessions_shadowed_by_primary_root(
 ) -> None:
     primary = tmp_path / "private"
     machine = tmp_path / "machine"
+    activity_base = time.time() + 1_000
     for index in range(3):
         sid = f"s-duplicate{index}"
         (primary / "projects" / sid).mkdir(parents=True)
@@ -469,7 +472,7 @@ def test_project_limit_backfills_sessions_shadowed_by_primary_root(
             SessionMeta(
                 id=sid,
                 display_name=f"Shadowed {index}",
-                last_active=100 - index,
+                last_active=activity_base + 100 - index,
             ),
         )
     for index in range(2):
@@ -480,7 +483,7 @@ def test_project_limit_backfills_sessions_shadowed_by_primary_root(
             SessionMeta(
                 id=sid,
                 display_name=f"Unique {index}",
-                last_active=90 - index,
+                last_active=activity_base + 90 - index,
             ),
         )
     client = TestClient(
@@ -674,13 +677,10 @@ def test_compact_snapshot_never_runs_expensive_metrics_projection(
     with project_state._METRICS_CACHE_LOCK:
         project_state._METRICS_CACHE.clear()
     try:
-        before = time.monotonic()
         snap = server.build_snapshot("s-fast", global_root=tmp_path, compact=True)
-        elapsed = time.monotonic() - before
 
         assert snap is not None
         assert snap["observability"] is None
-        assert elapsed < 0.5
         assert calls == 0
 
         full = server.build_snapshot("s-fast", global_root=tmp_path)

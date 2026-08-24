@@ -446,7 +446,7 @@ def project_blocked_on_operator(
     )
     mem.backlog.update(
         blocked.id,
-        status="failed",
+        status="paused_operator",
         pending_question=(
             "Provision or move this session to an environment where a local "
             "NVIDIA GPU and nvidia-smi are visible."

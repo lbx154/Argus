@@ -283,8 +283,9 @@ def test_a_suppressed_status_probe_points_somewhere() -> None:
 
 
 def test_the_planner_is_told_it_has_more_than_one_slot() -> None:
-    from argus_skill.roles.prompts import planner as planner_prompts
     from pathlib import Path
+
+    from argus_skill.roles.prompts import planner as planner_prompts
 
     text = Path(planner_prompts.__file__).read_text(encoding="utf-8")
     assert "More than one mission runs at a time" in text

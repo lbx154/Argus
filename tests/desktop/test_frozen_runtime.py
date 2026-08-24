@@ -18,6 +18,16 @@ from desktop.backend_entry import (
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC_PATH = ROOT / "desktop" / "argus_backend.spec"
+TEST_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "tests.yml"
+
+
+def test_desktop_multicommand_test_step_fails_on_first_error() -> None:
+    workflow = TEST_WORKFLOW_PATH.read_text(encoding="utf-8")
+    step = workflow.split("- name: Lint and test desktop sources", 1)[1].split(
+        "- name: Build frozen backend and Electron bundles", 1
+    )[0]
+
+    assert "shell: bash" in step
 
 
 def _execute_spec_collection(tree: ast.Module) -> tuple[dict, list[tuple[str, str]]]:

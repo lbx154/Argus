@@ -39,6 +39,9 @@ jobs:
           fi
       - name: Verify product tree parity
         run: |
-          python -m argus_skill.release_tools.check_repository_parity \
+          # Run the stdlib-only checker as a script.  ``python -m argus_skill...``
+          # imports argus_skill/__init__.py first and therefore requires runtime
+          # dependencies that this lightweight parity job intentionally does not install.
+          python argus_skill/release_tools/check_repository_parity.py \
             --private-ref HEAD \
             --public-ref "$PUBLIC_REF"

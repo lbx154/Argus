@@ -59,6 +59,8 @@ jobs:
         run: |
           python -m venv /tmp/argus-wheel-smoke
           /tmp/argus-wheel-smoke/bin/python -m pip install dist/*.whl
+          mkdir -p /tmp/argus-wheel-smoke-cwd
+          cd /tmp/argus-wheel-smoke-cwd
           /tmp/argus-wheel-smoke/bin/argus-skill --version
           /tmp/argus-wheel-smoke/bin/python - <<'PY'
           from pathlib import Path
