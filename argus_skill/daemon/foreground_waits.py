@@ -95,13 +95,27 @@ def foreground_wait_shells(
             or not _descends_from(process.pid, root_pid, processes)
         ):
             continue
+        executable = Path(process.argv[0]).name
+        if (
+            executable == "tail"
+            and any(
+                arg == "--pid" or arg.startswith("--pid=")
+                for arg in process.argv
+            )
+            and any(
+                arg in {"-f", "--follow", "--follow=name", "--follow=descriptor"}
+                for arg in process.argv
+            )
+            and "/dev/null" in process.argv
+        ):
+            shell_pids.add(process.pid)
+            continue
         parent = processes.get(process.ppid)
         if parent is None:
             continue
         command = _direct_shell_command(parent)
         if not command:
             continue
-        executable = Path(process.argv[0]).name
         if executable == "sleep":
             try:
                 duration = float(process.argv[1])
