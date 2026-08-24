@@ -70,6 +70,20 @@ def test_planner_context_resolves_banner_stage_and_checklist(tmp_path) -> None:
     )
 
 
+def test_kernel_parallel_planning_policy_is_vertical_scoped(tmp_path) -> None:
+    kernel_root = tmp_path / "kernel"
+    software_root = tmp_path / "software"
+    persist_vertical(kernel_root, "kernel_engineering")
+    persist_vertical(software_root, "software")
+
+    kernel = resolve_role_prompt(continuous_request(kernel_root))
+    software = resolve_role_prompt(continuous_request(software_root))
+
+    assert "fill spare mission slots" in kernel.role_banner
+    assert "status polling" not in software.role_banner
+    assert "vertical:kernel_engineering:banner:planner" in kernel.fragment_ids
+
+
 def test_reviewer_auto_selects_full_pipeline_for_final_submission(
     tmp_path,
 ) -> None:

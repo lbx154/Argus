@@ -133,7 +133,12 @@ def role_banner(role: str) -> str:
             common
             + " Delegate substantive implementation and its verification in one task. "
             "Do not split audit, planning, implementation, validation, and reporting "
-            "into separate ceremony nodes when one Engineer can perform them coherently."
+            "into separate ceremony nodes when one Engineer can perform them coherently. "
+            "When a task launches or waits on a long external benchmark, fill spare "
+            "mission slots with useful independent source analysis or implementation "
+            "that does not need its result. Mark each companion `parallel_safe=true` "
+            "with `owns_paths` disjoint from running work; never queue status polling "
+            "or make-work."
         )
     if role == "reviewer":
         return (

@@ -107,8 +107,9 @@ VERTICAL_PURPOSES: dict[str, str] = {
     "reviewer-certified report, not a generic metric loop",
     "speedrun": "single-metric script/benchmark optimization under a wall-clock budget: "
     "setup, optimize, measure, report; no paper",
-    "kernel_engineering": "production CUDA/Triton/TileLang/CUTLASS/PyTorch kernel work in "
-    "a repository; not a fixed SOL-ExecBench competition",
+    "kernel_engineering": "accelerator runtime, model inference/serving, communication, "
+    "memory movement, and production CUDA/HIP/Triton/TileLang/CUTLASS/PyTorch kernel "
+    "performance work in a repository; not a fixed SOL-ExecBench competition",
     "nanochat": "minimize val_bpb on the nanochat train.py (bits-per-byte, ~300s, 1 GPU)",
     "nanogpt_speedrun": "minimize wall-clock time to reach val_loss<=3.28 on modded-nanogpt (8xH100)",
     "kernelbench": "maximize correctness-checked SOL score/speedup for GPU kernels on "

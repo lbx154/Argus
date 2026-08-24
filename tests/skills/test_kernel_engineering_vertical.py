@@ -4,7 +4,12 @@ from pathlib import Path
 
 from argus_skill.skills.builtins import seed_builtin_skills_for_vertical
 from argus_skill.skills.stage_machine import format_full_pipeline_checklist
-from argus_skill.skills.vertical_select import VERTICALS, persist_vertical, require_vertical
+from argus_skill.skills.vertical_select import (
+    VERTICAL_PURPOSES,
+    VERTICALS,
+    persist_vertical,
+    require_vertical,
+)
 from argus_skill.verticals._base import (
     load_vertical,
     vertical_completion_gate,
@@ -23,15 +28,21 @@ def test_kernel_engineering_is_known_direct_vertical(tmp_path: Path) -> None:
     assert vertical_workflow_mode(mod) == "direct"
     assert tuple(mod.STAGE_ORDER) == ("optimize",)
     assert mod.STAGE_PRIMARY_DELIVERABLES == {}
+    assert "model inference/serving" in VERTICAL_PURPOSES["kernel_engineering"]
 
 
 def test_kernel_engineering_banner_prioritizes_direct_measured_work() -> None:
     mod = load_vertical("kernel_engineering")
     engineer = vertical_role_banner(mod, "engineer")
+    planner = vertical_role_banner(mod, "planner")
     reviewer = vertical_role_banner(mod, "reviewer")
 
     assert "improve the real kernel" in engineer
     assert "one coherent implementation" in engineer
+    assert "fill spare mission slots" in planner
+    assert "`parallel_safe=true`" in planner
+    assert "`owns_paths` disjoint" in planner
+    assert "never queue status polling" in planner
     assert "never fail work merely because" in reviewer
     assert "process documents" in engineer
 

@@ -153,7 +153,7 @@ def test_vertical_prompt_preserves_explicit_operator_actions() -> None:
 
 
 def test_vertical_prompts_do_not_use_software_as_performance_catch_all() -> None:
-    task = "Continuously optimize an MLX inference runtime on Apple Silicon."
+    task = "Continuously optimize full-model inference serving on eight accelerators."
     grounded = build_vertical_decision_prompt(
         task,
         verticals_with_purpose=VERTICAL_PURPOSES,
@@ -161,6 +161,9 @@ def test_vertical_prompts_do_not_use_software_as_performance_catch_all() -> None
 
     assert "Use `new` only when none fits" in grounded
     assert "Pick the closest existing capability" in grounded
+    assert "inference/serving" in VERTICAL_PURPOSES["kernel_engineering"]
+    assert "inference serving" in grounded
+    assert "campaigns are `kernel_engineering`" in grounded
 
 
 def test_fast_vertical_parser_accepts_confident_existing_route() -> None:
