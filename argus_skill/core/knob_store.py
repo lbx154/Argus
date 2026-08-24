@@ -118,7 +118,6 @@ def read_persisted_knobs() -> dict[str, str]:
     try:
         data = json.loads(text)
     except (json.JSONDecodeError, ValueError) as exc:
-        log.exception("knob_store: %s is not valid JSON", path)
         raise KnobStoreCorruptError(
             f"persisted knob store {path} is not valid JSON: {exc}. "
             f"Every persisted operator switch (role backends, models, budget "

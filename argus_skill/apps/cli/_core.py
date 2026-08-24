@@ -372,10 +372,11 @@ def main(argv: list[str] | None = None) -> int:
             return 2
     from ...core.knobs import resolve_role_backend
 
-    # `--backend` is the FLOOR of the chain, not a competitor to it — the same
-    # shape _resolve_role_runner_backend_name already uses for a caller-supplied
-    # backend (env override wins, the caller's value fills in), with an explicit
-    # "codex" under that where an invisible one used to be.
+    # ``--backend`` parses with ``default=None``, so a value here was typed on
+    # THIS invocation and is the most explicit signal available: it outranks an
+    # ambient env var or a persisted knob, both of which may be stale. Letting
+    # the chain outrank it would silently substitute a backend the operator did
+    # not ask for — the same class of fault this change exists to remove.
     #
     # codex is safe to assume HERE specifically: this value's only consumer is
     # _continuous_contract_error -> continuous_mode_error, which compares it

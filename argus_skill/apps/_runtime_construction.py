@@ -595,24 +595,15 @@ def _resolve_role_runner_backend_name(
     *,
     env: Mapping[str, str] | None = None,
 ) -> str:
-    """Resolve one role override while preserving the caller's shared default."""
-    from ..core.knobs import resolve_knob
+    """Resolve one role override while preserving the caller's shared default.
 
-    env_map = env if env is not None else os.environ
-    role_var = f"ARGUS_SKILL_{role.upper()}_BACKEND"
-    for name in (
-        role_var,
-        "ARGUS_SKILL_RUNNER_BACKEND",
-        "ARGUS_SKILL_LIFE_BACKEND",
-    ):
-        explicit = str(env_map.get(name, "") or "").strip()
-        if explicit:
-            return explicit
-    return resolve_knob(
-        role_var,
-        str(default_backend or "codex"),
-        env={},
-    ).value
+    The chain lives in ``core.knobs``; this used to walk its own copy, which
+    consulted the persisted store for the ROLE name only. A ``/backend`` switch
+    persists the shared name, so that copy could not see one.
+    """
+    from ..core.knobs import resolve_role_backend
+
+    return resolve_role_backend(role, env=env, default=default_backend or "codex")
 
 
 def build_life_runner(args: argparse.Namespace, *, seed_thread_id: str | None = None):

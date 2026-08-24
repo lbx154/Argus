@@ -154,19 +154,16 @@ def resolve_backend_profile(
     if explicit_backend:
         backend_value, backend_source = explicit_backend, "argument"
     else:
-        backend_value, backend_source = "", "default"
-        for name in ("ARGUS_SKILL_RUNNER_BACKEND", "ARGUS_SKILL_LIFE_BACKEND"):
-            value = str(env_map.get(name) or "").strip()
-            if value:
-                backend_value, backend_source = value, f"env:{name}"
-                break
-        if not backend_value:
-            for name in ("ARGUS_SKILL_RUNNER_BACKEND", "ARGUS_SKILL_LIFE_BACKEND"):
-                value = str(persisted.get(name) or "").strip()
-                if value:
-                    backend_value, backend_source = value, f"persisted:{name}"
-                    break
-    raw_backend = str(backend_value or "codex").strip().lower()
+        # One chain, defined once. ``resolve_role_backend_with_source`` walks the
+        # same names in the same order and reports the same env:/persisted:/
+        # default vocabulary this function established, so spelling it out a
+        # second time only created somewhere for the two to drift apart.
+        from .knobs import resolve_role_backend_with_source
+
+        backend_value, backend_source = resolve_role_backend_with_source(
+            "", env=env_map, default="codex"
+        )
+    raw_backend = backend_value.strip().lower()
     normalized_backend = (
         normalize_runner_backend(raw_backend)
         if raw_backend in _SUPPORTED_BACKENDS or raw_backend == "opencod"
