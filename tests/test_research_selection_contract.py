@@ -1631,3 +1631,29 @@ def test_the_planner_is_asked_about_the_paper_it_already_has(tmp_path) -> None:
     assert "The paper is work" in asked
     # A question, not a checklist: no fault is named for it.
     assert "one mission per claim that needs showing" in asked
+
+
+def test_the_appendix_is_not_the_paper(tmp_path) -> None:
+    """The exemplar side of this comparison was always cut at its reference
+    list and the draft side was not, so a campaign satisfies it by moving the
+    paper into the appendix. run-04 did: it read as 10,185 words and eleven
+    figures against exemplars at 15,673 and 16,221, while its body held 1,481
+    words and four figures and its appendix held 8,145 and seven. The
+    comparison was telling it it had nearly arrived.
+    """
+    from argus_skill.verticals.research.stages import _manuscript_size
+
+    paper = tmp_path / "paper"
+    paper.mkdir()
+    (paper / "main.tex").write_text(
+        r"\begin{document}"
+        + r"\includegraphics{a} " + "word " * 100
+        + r"\appendix"
+        + r"\includegraphics{b}\includegraphics{c} " + "word " * 900
+        + r"\end{document}",
+        encoding="utf-8",
+    )
+
+    words, figures = _manuscript_size(tmp_path)
+    assert figures == 1
+    assert 100 <= words <= 110

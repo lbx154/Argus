@@ -1721,7 +1721,16 @@ def _manuscript_high_water_block(project_root: object) -> str:
 
 
 def _manuscript_size(root: object) -> tuple[int, int]:
-    """Body-text word count and figure includes for a project's main.tex."""
+    """Body-text word count and figure includes, cut at the appendix.
+
+    The exemplar side of this comparison has always been cut at its reference
+    list, and the draft side was not, so everything after \\appendix counted as
+    body. A campaign satisfies that by moving the paper into the appendix, and
+    one did: run-04 read as 10,185 words and eleven figures next to exemplars
+    running 15,673 and 16,221, while its body held 1,481 words and four figures
+    and its appendix held 8,145 and seven. The comparison was telling it it had
+    nearly arrived.
+    """
     import re
     from pathlib import Path as _Path
 
@@ -1733,8 +1742,9 @@ def _manuscript_size(root: object) -> tuple[int, int]:
         )
     except OSError:
         return 0, 0
-    return _word_count(_latex_to_plain_text(tex)), len(
-        re.findall(r"\\includegraphics", tex)
+    body = re.split(r"\\appendix\b", tex, 1)[0]
+    return _word_count(_latex_to_plain_text(body)), len(
+        re.findall(r"\\includegraphics", body)
     )
 
 
@@ -1761,13 +1771,7 @@ def _manuscript_scale_block(project_root: object) -> str:
         from .argument_organization import ARGUMENT_ORGANIZATION_PATH
 
         root = _Path(str(project_root)).resolve()
-        draft = _word_count(
-            _latex_to_plain_text(
-                (root / "paper" / "main.tex").read_text(
-                    encoding="utf-8", errors="ignore"
-                )
-            )
-        )
+        draft, drawn = _manuscript_size(root)
         if not draft:
             return ""
         payload = json.loads(
@@ -1800,14 +1804,6 @@ def _manuscript_scale_block(project_root: object) -> str:
             f"{lengths[len(lengths) // 2]:,}"
             if len(lengths) > 2
             else f"{lengths[0]:,} and {lengths[-1]:,}"
-        )
-        drawn = len(
-            re.findall(
-                r"\\includegraphics",
-                (root / "paper" / "main.tex").read_text(
-                    encoding="utf-8", errors="ignore"
-                ),
-            )
         )
         figure_note = (
             f" with {min(figures)}-{max(figures)} figures" if figures else ""
