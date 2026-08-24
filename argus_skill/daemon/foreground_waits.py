@@ -110,20 +110,31 @@ def foreground_wait_shells(
         ):
             shell_pids.add(process.pid)
             continue
+        if executable == "sleep":
+            try:
+                duration = float(process.argv[1])
+            except (IndexError, ValueError):
+                duration = 0.0
+            if duration >= minimum_age_seconds:
+                parent = processes.get(process.ppid)
+                if parent is not None and Path(parent.argv[0]).name in {
+                    "bash",
+                    "dash",
+                    "sh",
+                    "zsh",
+                }:
+                    if _direct_shell_command(parent):
+                        shell_pids.add(parent.pid)
+                else:
+                    shell_pids.add(process.pid)
+            continue
         parent = processes.get(process.ppid)
         if parent is None:
             continue
         command = _direct_shell_command(parent)
         if not command:
             continue
-        if executable == "sleep":
-            try:
-                duration = float(process.argv[1])
-            except (IndexError, ValueError):
-                continue
-            if duration >= minimum_age_seconds:
-                shell_pids.add(parent.pid)
-        elif (
+        if (
             executable.startswith("python")
             and "pidfd_open" in command
             and "select.select" in command

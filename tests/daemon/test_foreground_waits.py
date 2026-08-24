@@ -84,3 +84,19 @@ def test_direct_tail_pid_wait_is_interrupted() -> None:
     )
 
     assert [process.pid for process in waits] == [30]
+
+
+def test_direct_sleep_without_a_shell_parent_is_interrupted() -> None:
+    processes = {
+        10: _process(10, 1, 500, "argus"),
+        20: _process(20, 10, 400, "pi"),
+        30: _process(30, 20, 20, "sleep", "25"),
+    }
+
+    waits = foreground_wait_shells(
+        processes,
+        root_pid=10,
+        minimum_age_seconds=15,
+    )
+
+    assert [process.pid for process in waits] == [30]
