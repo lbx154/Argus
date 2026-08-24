@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "domains": {
+    "DS": {
+      "name": "Architecture / Parallel / Distributed / Storage Systems",
+      "evidence_requirements": [
+        "实现真实系统路径而非只做离线模拟，并记录代码 revision 与部署拓扑",
+        "在端到端代表性负载上报告吞吐、P50/P95/P99、资源开销与扩展性",
+        "包含故障注入、压力边界、机制消融和至少一个真实可复现 testbed",
+        "所有命名 baseline 必须运行其官方实现或忠实机制重实现"
+      ]
+    },
+    "NW": {
+      "name": "Computer Networks",
+      "evidence_requirements": [
+        "明确网络模型、协议不变量和拓扑/流量假设",
+        "覆盖拓扑、负载、故障和竞争流变化，报告尾延迟、公平性、拥塞与开销",
+        "至少使用一个真实或可公开复现的网络 testbed，并与最强协议 baseline 对照",
+        "验证协议正确性与失败模式，不能只比较平均吞吐"
+      ]
+    },
+    "SC": {
+      "name": "Cybersecurity",
+      "evidence_requirements": [
+        "冻结 threat model、攻击者能力、安全性质和信任边界",
+        "包含 adaptive attack、强攻击 baseline、绕过分析与误报漏报",
+        "所有实验在隔离环境中执行；外部联系和负责任披露必须人工批准",
+        "许可证、隐私、双重用途和敏感 artifact 未通过前不得公开"
+      ]
+    },
+    "SE": {
+      "name": "Software Engineering / Programming Languages",
+      "evidence_requirements": [
+        "在真实仓库与固定版本上运行，记录编译、测试、依赖和数据污染检查",
+        "报告误报、漏报、开发者成本和工具失败，而非只报告精选成功案例",
+        "验证工具输出确实改变了目标代码路径，排除 dead code 与未执行 patch",
+        "与官方工具或忠实 baseline 在同一任务和预算下比较"
+      ]
+    },
+    "DB": {
+      "name": "Databases / Data Management",
+      "evidence_requirements": [
+        "集成真实引擎或执行器并验证查询/事务正确性",
+        "在标准与代表性工作负载上报告延迟、吞吐、成本、资源与扩展性",
+        "覆盖 workload shift、并发、故障与尾部行为，不能只展示单一微基准",
+        "固定引擎版本、配置和数据规模，并运行最强可行 baseline"
+      ]
+    },
+    "CT": {
+      "name": "Theory / Algorithms / Cryptography",
+      "evidence_requirements": [
+        "精确定义定理、假设、量词、复杂度模型与适用边界",
+        "给出完整证明依赖、反例搜索和独立 proof check；实验不能替代理论证明",
+        "与最接近定理按假设、结论和证明技术建立差异矩阵",
+        "若依赖计算机辅助证明，固定检查器版本并提供可重放证书"
+      ]
+    },
+    "CG": {
+      "name": "Computer Graphics / Vision Geometry",
+      "evidence_requirements": [
+        "验证几何、物理或渲染一致性，并同时报告质量、速度和资源代价",
+        "覆盖跨场景、遮挡、光照、视角和分布变化及机制消融",
+        "与计算预算匹配的最强方法和公开实现进行可复现实验",
+        "真人感知实验必须预注册并取得所需伦理批准；模拟评分不能冒充真人证据"
+      ]
+    },
+    "AI": {
+      "name": "Artificial Intelligence / Machine Learning",
+      "evidence_requirements": [
+        "冻结数据划分并完成训练/评测污染审计",
+        "运行 compute-matched 最强 baseline，覆盖至少两个 backbone 与多个预注册 seed",
+        "报告置信区间、效应量、机制消融、负控和分布外鲁棒性",
+        "严格区分探索性与确认性结果，查看 test 后的新假设必须进入新版本"
+      ]
+    },
+    "HI": {
+      "name": "Human–Computer Interaction / Ubiquitous Computing",
+      "evidence_requirements": [
+        "真人研究在招募前完成伦理/IRB、功效分析与预注册",
+        "记录招募、排除、缺失数据、量表、定性编码与研究者自由度",
+        "模拟用户或 LLM 代理不能冒充真人行为、体验或社会影响证据",
+        "报告无效与负结果，并将部署风险、可访问性和受影响群体纳入审查"
+      ]
+    },
+    "MX": {
+      "name": "Cross-disciplinary / Multimedia / Emerging Systems",
+      "evidence_requirements": [
+        "明确跨模态/跨领域接口、时间同步、对齐方式和泄漏路径",
+        "同时报告质量、延迟、成本与资源权衡，以及跨模态扰动鲁棒性",
+        "分别验证各子系统和端到端机制，排除单一模态捷径",
+        "采用目标社区认可的真实评价协议，并说明跨领域伦理与许可证边界"
+      ]
+    }
+  }
+}

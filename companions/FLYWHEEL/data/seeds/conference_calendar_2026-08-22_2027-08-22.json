@@ -1,0 +1,3022 @@
+{
+  "schema_version": "2.0",
+  "generated_as_of": "2026-08-22",
+  "submission_deadline_window": {
+    "start": "2026-08-22",
+    "end": "2027-08-22",
+    "boundary": "inclusive",
+    "selection_field": "full_or_regular_paper_submission_deadline"
+  },
+  "venue_universe": {
+    "edition": "CCF Recommended International Academic Conferences and Journals, 7th edition (2026)",
+    "released": "2026-03-31",
+    "corrected": "2026-04-09",
+    "count": 58,
+    "source_url": "https://www.ccf.org.cn/Academic_Evaluation/By_category/",
+    "source_pdf_sha256": "271B630B576BF8A4F802E767F5694CADED93680E22B3A19BEF7902591C45C1D3"
+  },
+  "evidence_legend": {
+    "official_confirmed": "independently verified on an official conference/organizer source",
+    "community_unverified": "date present in frozen CCFDDL; official CFP must still be checked",
+    "forecast": "not announced in the frozen source; explicit cadence forecast, never a fact"
+  },
+  "tracker": {
+    "name": "CCFDDL",
+    "commit": "5f8dce347bc17783bc6cd50509e07cc0196863b4",
+    "repository": "https://github.com/ccfddl/ccf-deadlines"
+  },
+  "official_override_audit": {
+    "checked_at": "2026-08-23",
+    "selection": "Full/Regular paper submission deadlines in the inclusive 2026-08-22 to 2027-08-22 window; abstract-only, registration, artifact, camera-ready, notification, and workshop dates excluded.",
+    "source_name": "official_deadline_overrides.json",
+    "source_sha256": "5915287708C667800378B1BF85A5BC804A25CA04D4A8F2593F6782D23028FF36",
+    "source_size_bytes": 21713,
+    "bundled_materialization": "Accepted overrides are materialized into this self-contained calendar; source_name is generation provenance, not a bundled sibling file."
+  },
+  "venues": [
+    {
+      "key": "PPOPP",
+      "display_name": "PPoPP",
+      "official_name": "ACM SIGPLAN Symposium on Principles & Practice of Parallel Programming",
+      "category_id": "DS",
+      "category_zh": "计算机体系结构/并行与分布计算/存储系统",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "DS/ppopp.yml"
+      ],
+      "historical_cycle_count": 7,
+      "targets_in_window": [
+        {
+          "conference_year": 2028,
+          "deadline_date": "2027-08-03",
+          "timezone": "AoE",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-07-04",
+          "forecast_window_end": "2027-09-02",
+          "confidence": "medium",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2027,
+            "anchor_deadline": "2026-08-03",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=29 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/DS/ppopp.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-08-03",
+        "topic_freeze": "2027-02-04",
+        "pilot_kill_gate": "2027-04-05",
+        "full_experiment_freeze": "2027-06-19",
+        "paper_freeze": "2027-07-20",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "FAST",
+      "display_name": "FAST",
+      "official_name": "USENIX Conference on File and Storage Technologies",
+      "category_id": "DS",
+      "category_zh": "计算机体系结构/并行与分布计算/存储系统",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "DS/fast.yml"
+      ],
+      "historical_cycle_count": 7,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-09-15",
+          "deadline_time": "23:59",
+          "timezone": "AoE",
+          "round_note": "Fall deadline",
+          "source_url": "https://www.usenix.org/conference/fast27/call-for-papers",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        },
+        {
+          "conference_year": 2028,
+          "deadline_date": "2027-03-17",
+          "timezone": "AoE (forecast)",
+          "round_note": "Spring cycle",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-03-16",
+          "forecast_window_end": "2027-03-18",
+          "confidence": "high",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2026-03-17",
+            "stability": "FAST has used mid-March spring cycles for two consecutive editions; FAST 2028 CFP is not yet published.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://www.usenix.org/conference/fast27/call-for-papers"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2026-09-15",
+        "topic_freeze": "2026-03-19",
+        "pilot_kill_gate": "2026-05-18",
+        "full_experiment_freeze": "2026-08-01",
+        "paper_freeze": "2026-09-01",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "DAC",
+      "display_name": "DAC",
+      "official_name": "Design Automation Conference",
+      "category_id": "DS",
+      "category_zh": "计算机体系结构/并行与分布计算/存储系统",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "DS/dac.yml"
+      ],
+      "historical_cycle_count": 5,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-11-18",
+          "timezone": "UTC-8",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2026-11-04",
+          "forecast_window_end": "2026-12-02",
+          "confidence": "high",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2026,
+            "anchor_deadline": "2025-11-18",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=3 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/DS/dac.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2026-11-18",
+        "topic_freeze": "2026-05-22",
+        "pilot_kill_gate": "2026-07-21",
+        "full_experiment_freeze": "2026-10-04",
+        "paper_freeze": "2026-11-04",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "HPCA",
+      "display_name": "HPCA",
+      "official_name": "IEEE International Symposium on High Performance Computer Architecture",
+      "category_id": "DS",
+      "category_zh": "计算机体系结构/并行与分布计算/存储系统",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "DS/hpca.yml"
+      ],
+      "historical_cycle_count": 6,
+      "targets_in_window": [
+        {
+          "conference_year": 2028,
+          "deadline_date": "2027-07-31",
+          "timezone": "AoE",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-07-17",
+          "forecast_window_end": "2027-08-14",
+          "confidence": "high",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2027,
+            "anchor_deadline": "2026-07-31",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=4 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/DS/hpca.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-07-31",
+        "topic_freeze": "2027-02-01",
+        "pilot_kill_gate": "2027-04-02",
+        "full_experiment_freeze": "2027-06-16",
+        "paper_freeze": "2027-07-17",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "MICRO",
+      "display_name": "MICRO",
+      "official_name": "IEEE/ACM International Symposium on Microarchitecture",
+      "category_id": "DS",
+      "category_zh": "计算机体系结构/并行与分布计算/存储系统",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "DS/micro.yml"
+      ],
+      "historical_cycle_count": 6,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-04-07",
+          "timezone": "UTC-4",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-03-08",
+          "forecast_window_end": "2027-05-07",
+          "confidence": "medium",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2026,
+            "anchor_deadline": "2026-04-07",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=21 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/DS/micro.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-04-07",
+        "topic_freeze": "2026-10-09",
+        "pilot_kill_gate": "2026-12-08",
+        "full_experiment_freeze": "2027-02-21",
+        "paper_freeze": "2027-03-24",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "SC",
+      "display_name": "SC",
+      "official_name": "International Conference for High Performance Computing, Networking, Storage, and Analysis",
+      "category_id": "DS",
+      "category_zh": "计算机体系结构/并行与分布计算/存储系统",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "DS/sc.yml"
+      ],
+      "historical_cycle_count": 5,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-04-08",
+          "timezone": "AoE",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-03-25",
+          "forecast_window_end": "2027-04-22",
+          "confidence": "high",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2026,
+            "anchor_deadline": "2026-04-08",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=12 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/DS/sc.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-04-08",
+        "topic_freeze": "2026-10-10",
+        "pilot_kill_gate": "2026-12-09",
+        "full_experiment_freeze": "2027-02-22",
+        "paper_freeze": "2027-03-25",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "ASPLOS",
+      "display_name": "ASPLOS",
+      "official_name": "International Conference on Architectural Support for Programming Languages and Operating Systems",
+      "category_id": "DS",
+      "category_zh": "计算机体系结构/并行与分布计算/存储系统",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "DS/asplos.yml"
+      ],
+      "historical_cycle_count": 7,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-09-09",
+          "deadline_time": "23:59",
+          "timezone": "AoE",
+          "round_note": "September cycle",
+          "source_url": "https://www.asplos-conference.org/asplos2027/cfp/",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        },
+        {
+          "conference_year": 2028,
+          "deadline_date": "2027-04-15",
+          "timezone": "AoE (forecast)",
+          "round_note": "First/April cycle",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-03-10",
+          "forecast_window_end": "2027-04-22",
+          "confidence": "medium",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2026-04-15",
+            "stability": "Forecast of ASPLOS 2028 first cycle; recent cycle counts and months have changed.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://www.asplos-conference.org/asplos2027/cfp/"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2026-09-09",
+        "topic_freeze": "2026-03-13",
+        "pilot_kill_gate": "2026-05-12",
+        "full_experiment_freeze": "2026-07-26",
+        "paper_freeze": "2026-08-26",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "ISCA",
+      "display_name": "ISCA",
+      "official_name": "International Symposium on Computer Architecture",
+      "category_id": "DS",
+      "category_zh": "计算机体系结构/并行与分布计算/存储系统",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "DS/isca.yml"
+      ],
+      "historical_cycle_count": 5,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-11-17",
+          "timezone": "AoE",
+          "round_note": "full paper deadline",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2026-11-03",
+          "forecast_window_end": "2026-12-01",
+          "confidence": "high",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2026,
+            "anchor_deadline": "2025-11-17",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=5 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/DS/isca.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2026-11-17",
+        "topic_freeze": "2026-05-21",
+        "pilot_kill_gate": "2026-07-20",
+        "full_experiment_freeze": "2026-10-03",
+        "paper_freeze": "2026-11-03",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "SIGOPS_ATC",
+      "display_name": "ACM SIGOPS ATC",
+      "official_name": "ACM SIGOPS Annual Technical Conference",
+      "category_id": "DS",
+      "category_zh": "计算机体系结构/并行与分布计算/存储系统",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": {
+        "status": "successor_conference_schedule_tba",
+        "official_transition": "ACM SIGOPS ATC succeeded the discontinued USENIX ATC for the same systems community/scope. The predecessor usually used a January deadline, while the first ACM edition used June, so the 2027 cadence is unresolved.",
+        "source_urls": [
+          "https://sigops.org/s/conferences/atc/2026/cfp.html",
+          "https://www.usenix.org/blog/preserving-legacy-usenix-atc"
+        ]
+      },
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "DS/atc.yml"
+      ],
+      "historical_cycle_count": 6,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-03-31",
+          "timezone": "TBA",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-01-10",
+          "forecast_window_end": "2027-06-15",
+          "confidence": "low",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": null,
+            "stability": "Cadence is unresolved: the USENIX ATC predecessor commonly used January, while the first ACM SIGOPS ATC edition used June. The point date is a planning midpoint, not a claim about the likely day.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://sigops.org/s/conferences/atc/2026/cfp.html"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-03-31",
+        "topic_freeze": "2026-10-02",
+        "pilot_kill_gate": "2026-12-01",
+        "full_experiment_freeze": "2027-02-14",
+        "paper_freeze": "2027-03-17",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "EUROSYS",
+      "display_name": "EuroSys",
+      "official_name": "European Conference on Computer Systems",
+      "category_id": "DS",
+      "category_zh": "计算机体系结构/并行与分布计算/存储系统",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "DS/eurosys.yml"
+      ],
+      "historical_cycle_count": 7,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-09-24",
+          "deadline_time": "23:59",
+          "timezone": "AoE",
+          "round_note": "Fall deadline",
+          "source_url": "https://2027.eurosys.org/cfp.html",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        },
+        {
+          "conference_year": 2028,
+          "deadline_date": "2027-05-14",
+          "timezone": "AoE (forecast)",
+          "round_note": "Spring cycle",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-05-12",
+          "forecast_window_end": "2027-05-21",
+          "confidence": "high",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2026-05-14",
+            "stability": "Recent EuroSys spring cycles cluster in mid-May; EuroSys 2028 CFP is not yet published.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://2027.eurosys.org/cfp.html"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2026-09-24",
+        "topic_freeze": "2026-03-28",
+        "pilot_kill_gate": "2026-05-27",
+        "full_experiment_freeze": "2026-08-10",
+        "paper_freeze": "2026-09-10",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "HPDC",
+      "display_name": "HPDC",
+      "official_name": "International ACM Symposium on High-Performance Parallel and Distributed Computing",
+      "category_id": "DS",
+      "category_zh": "计算机体系结构/并行与分布计算/存储系统",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "DS/hpdc.yml"
+      ],
+      "historical_cycle_count": 2,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-02-05",
+          "timezone": "AoE",
+          "round_note": "paper submission deadline",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-01-06",
+          "forecast_window_end": "2027-03-07",
+          "confidence": "medium",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2026,
+            "anchor_deadline": "2026-02-05",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=2 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/DS/hpdc.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-02-05",
+        "topic_freeze": "2026-08-09",
+        "pilot_kill_gate": "2026-10-08",
+        "full_experiment_freeze": "2026-12-22",
+        "paper_freeze": "2027-01-22",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "SIGCOMM",
+      "display_name": "SIGCOMM",
+      "official_name": "ACM International Conference on Applications, Technologies, Architectures, and Protocols for Computer Communication",
+      "category_id": "NW",
+      "category_zh": "计算机网络",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "NW/sigcomm.yml"
+      ],
+      "historical_cycle_count": 6,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-02-06",
+          "timezone": "AoE",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-01-07",
+          "forecast_window_end": "2027-03-08",
+          "confidence": "medium",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2026,
+            "anchor_deadline": "2026-02-06",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=15 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/NW/sigcomm.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-02-06",
+        "topic_freeze": "2026-08-10",
+        "pilot_kill_gate": "2026-10-09",
+        "full_experiment_freeze": "2026-12-23",
+        "paper_freeze": "2027-01-23",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "MOBICOM",
+      "display_name": "MobiCom",
+      "official_name": "ACM International Conference on Mobile Computing and Networking",
+      "category_id": "NW",
+      "category_zh": "计算机网络",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "NW/mobicom.yml"
+      ],
+      "historical_cycle_count": 6,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-09-02",
+          "deadline_time": "23:59",
+          "timezone": "AoE",
+          "round_note": "Summer cycle",
+          "source_url": "https://www.sigmobile.org/mobicom/2027/cfp.html",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        },
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-03-13",
+          "timezone": "AoE (forecast)",
+          "round_note": "Winter cycle",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-03-10",
+          "forecast_window_end": "2027-03-19",
+          "confidence": "medium",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2026-03-13",
+            "stability": "MobiCom 2027 official page lists a winter cycle as TBA; recent winter full deadlines were March 18 and March 13.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://www.sigmobile.org/mobicom/2027/cfp.html"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2026-09-02",
+        "topic_freeze": "2026-03-06",
+        "pilot_kill_gate": "2026-05-05",
+        "full_experiment_freeze": "2026-07-19",
+        "paper_freeze": "2026-08-19",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "INFOCOM",
+      "display_name": "INFOCOM",
+      "official_name": "IEEE International Conference on Computer Communications",
+      "category_id": "NW",
+      "category_zh": "计算机网络",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "NW/infocom.yml"
+      ],
+      "historical_cycle_count": 7,
+      "targets_in_window": [
+        {
+          "conference_year": 2028,
+          "deadline_date": "2027-07-31",
+          "timezone": "AoE",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-07-17",
+          "forecast_window_end": "2027-08-14",
+          "confidence": "high",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2027,
+            "anchor_deadline": "2026-07-31",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=0 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/NW/infocom.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-07-31",
+        "topic_freeze": "2027-02-01",
+        "pilot_kill_gate": "2027-04-02",
+        "full_experiment_freeze": "2027-06-16",
+        "paper_freeze": "2027-07-17",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "NSDI",
+      "display_name": "NSDI",
+      "official_name": "USENIX Symposium on Networked Systems Design and Implementation",
+      "category_id": "NW",
+      "category_zh": "计算机网络",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "NW/nsdi.yml"
+      ],
+      "historical_cycle_count": 6,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-09-17",
+          "deadline_time": "23:59",
+          "timezone": "US EDT",
+          "round_note": "Fall deadline",
+          "source_url": "https://www.usenix.org/conference/nsdi27/call-for-papers",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        },
+        {
+          "conference_year": 2028,
+          "deadline_date": "2027-04-23",
+          "timezone": "US time (forecast)",
+          "round_note": "Spring cycle",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-04-20",
+          "forecast_window_end": "2027-05-07",
+          "confidence": "medium",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2026-04-23",
+            "stability": "Recent NSDI spring cycles fall in late April/early May; NSDI 2028 CFP is not yet published.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://www.usenix.org/conference/nsdi27/call-for-papers"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2026-09-17",
+        "topic_freeze": "2026-03-21",
+        "pilot_kill_gate": "2026-05-20",
+        "full_experiment_freeze": "2026-08-03",
+        "paper_freeze": "2026-09-03",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "CCS",
+      "display_name": "CCS",
+      "official_name": "ACM Conference on Computer and Communications Security",
+      "category_id": "SC",
+      "category_zh": "网络与信息安全",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "SC/ccs.yml"
+      ],
+      "historical_cycle_count": 7,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-01-14",
+          "timezone": "UTC-12",
+          "round_note": "First Review Cycle",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2026-12-15",
+          "forecast_window_end": "2027-02-13",
+          "confidence": "medium",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2026,
+            "anchor_deadline": "2026-01-14",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=19 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/SC/ccs.yml"
+          },
+          "requires_official_confirmation": true
+        },
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-04-29",
+          "timezone": "UTC-12",
+          "round_note": "Second Review Cycle",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-03-30",
+          "forecast_window_end": "2027-05-29",
+          "confidence": "medium",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2026,
+            "anchor_deadline": "2026-04-29",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=19 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/SC/ccs.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-01-14",
+        "topic_freeze": "2026-07-18",
+        "pilot_kill_gate": "2026-09-16",
+        "full_experiment_freeze": "2026-11-30",
+        "paper_freeze": "2026-12-31",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "EUROCRYPT",
+      "display_name": "EUROCRYPT",
+      "official_name": "International Conference on the Theory and Applications of Cryptographic Techniques",
+      "category_id": "SC",
+      "category_zh": "网络与信息安全",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "SC/eurocrypt.yml"
+      ],
+      "historical_cycle_count": 5,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-09-17",
+          "deadline_time": "23:59",
+          "timezone": "AoE",
+          "round_note": null,
+          "source_url": "https://eurocrypt.iacr.org/2027/",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2026-09-17",
+        "topic_freeze": "2026-03-21",
+        "pilot_kill_gate": "2026-05-20",
+        "full_experiment_freeze": "2026-08-03",
+        "paper_freeze": "2026-09-03",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "SP",
+      "display_name": "IEEE S&P",
+      "official_name": "IEEE Symposium on Security and Privacy",
+      "category_id": "SC",
+      "category_zh": "网络与信息安全",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "SC/sp.yml"
+      ],
+      "historical_cycle_count": 6,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-11-17",
+          "deadline_time": "23:59",
+          "timezone": "AoE",
+          "round_note": "Cycle 2",
+          "source_url": "https://sp2027.ieee-security.org/cfpapers.html",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        },
+        {
+          "conference_year": 2028,
+          "deadline_date": "2027-06-11",
+          "timezone": "AoE (forecast)",
+          "round_note": "Cycle 1",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-06-03",
+          "forecast_window_end": "2027-06-18",
+          "confidence": "high",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2026-06-11",
+            "stability": "Recent IEEE S&P first cycles occur in early/mid June; 2028 CFP is not yet published.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://sp2027.ieee-security.org/cfpapers.html"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2026-11-17",
+        "topic_freeze": "2026-05-21",
+        "pilot_kill_gate": "2026-07-20",
+        "full_experiment_freeze": "2026-10-03",
+        "paper_freeze": "2026-11-03",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "CRYPTO",
+      "display_name": "CRYPTO",
+      "official_name": "International Cryptology Conference",
+      "category_id": "SC",
+      "category_zh": "网络与信息安全",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "SC/crypto.yml"
+      ],
+      "historical_cycle_count": 5,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-02-12",
+          "timezone": "UTC-12",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-01-29",
+          "forecast_window_end": "2027-02-26",
+          "confidence": "high",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2026,
+            "anchor_deadline": "2026-02-12",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=4 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/SC/crypto.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-02-12",
+        "topic_freeze": "2026-08-16",
+        "pilot_kill_gate": "2026-10-15",
+        "full_experiment_freeze": "2026-12-29",
+        "paper_freeze": "2027-01-29",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "USENIX_SECURITY",
+      "display_name": "USENIX Security",
+      "official_name": "USENIX Security Symposium",
+      "category_id": "SC",
+      "category_zh": "网络与信息安全",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "SC/uss.yml"
+      ],
+      "historical_cycle_count": 6,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-08-25",
+          "deadline_time": "23:59",
+          "timezone": "AoE",
+          "round_note": "Cycle 1",
+          "source_url": "https://www.usenix.org/conference/usenixsecurity27/call-for-papers",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        },
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-01-26",
+          "deadline_time": "23:59",
+          "timezone": "AoE",
+          "round_note": "Cycle 2",
+          "source_url": "https://www.usenix.org/conference/usenixsecurity27/call-for-papers",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2026-08-25",
+        "topic_freeze": "2026-02-26",
+        "pilot_kill_gate": "2026-04-27",
+        "full_experiment_freeze": "2026-07-11",
+        "paper_freeze": "2026-08-11",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "NDSS",
+      "display_name": "NDSS",
+      "official_name": "Network and Distributed System Security Symposium",
+      "category_id": "SC",
+      "category_zh": "网络与信息安全",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "SC/ndss.yml"
+      ],
+      "historical_cycle_count": 6,
+      "targets_in_window": [
+        {
+          "conference_year": 2028,
+          "deadline_date": "2027-05-06",
+          "timezone": "UTC-12",
+          "round_note": "Summer",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-04-06",
+          "forecast_window_end": "2027-06-05",
+          "confidence": "medium",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2027,
+            "anchor_deadline": "2026-05-06",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=19 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/SC/ndss.yml"
+          },
+          "requires_official_confirmation": true
+        },
+        {
+          "conference_year": 2028,
+          "deadline_date": "2027-08-19",
+          "timezone": "UTC-12",
+          "round_note": "Fall",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-07-20",
+          "forecast_window_end": "2027-09-18",
+          "confidence": "medium",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2027,
+            "anchor_deadline": "2026-08-19",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=19 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/SC/ndss.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-05-06",
+        "topic_freeze": "2026-11-07",
+        "pilot_kill_gate": "2027-01-06",
+        "full_experiment_freeze": "2027-03-22",
+        "paper_freeze": "2027-04-22",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "PLDI",
+      "display_name": "PLDI",
+      "official_name": "ACM SIGPLAN Conference on Programming Language Design and Implementation",
+      "category_id": "SE",
+      "category_zh": "软件工程/系统软件/程序设计语言",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "SE/pldi.yml"
+      ],
+      "historical_cycle_count": 7,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-11-12",
+          "deadline_time": "23:59",
+          "timezone": "AoE",
+          "round_note": null,
+          "source_url": "https://pldi27.sigplan.org/track/pldi-2027-papers",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2026-11-12",
+        "topic_freeze": "2026-05-16",
+        "pilot_kill_gate": "2026-07-15",
+        "full_experiment_freeze": "2026-09-28",
+        "paper_freeze": "2026-10-29",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "POPL",
+      "display_name": "POPL",
+      "official_name": "ACM SIGPLAN-SIGACT Symposium on Principles of Programming Languages",
+      "category_id": "SE",
+      "category_zh": "软件工程/系统软件/程序设计语言",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "SE/popl.yml"
+      ],
+      "historical_cycle_count": 6,
+      "targets_in_window": [
+        {
+          "conference_year": 2028,
+          "deadline_date": "2027-07-09",
+          "timezone": "AoE",
+          "round_note": "Submission Deadline",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-06-25",
+          "forecast_window_end": "2027-07-23",
+          "confidence": "high",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2027,
+            "anchor_deadline": "2026-07-09",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=2 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/SE/popl.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-07-09",
+        "topic_freeze": "2027-01-10",
+        "pilot_kill_gate": "2027-03-11",
+        "full_experiment_freeze": "2027-05-25",
+        "paper_freeze": "2027-06-25",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "FSE",
+      "display_name": "FSE",
+      "official_name": "ACM International Conference on the Foundations of Software Engineering",
+      "category_id": "SE",
+      "category_zh": "软件工程/系统软件/程序设计语言",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "SE/fse.yml"
+      ],
+      "historical_cycle_count": 6,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-10-02",
+          "deadline_time": "23:59",
+          "timezone": "AoE",
+          "round_note": null,
+          "source_url": "https://conf.researchr.org/dates/fse-2027",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2026-10-02",
+        "topic_freeze": "2026-04-05",
+        "pilot_kill_gate": "2026-06-04",
+        "full_experiment_freeze": "2026-08-18",
+        "paper_freeze": "2026-09-18",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "SOSP",
+      "display_name": "SOSP",
+      "official_name": "ACM Symposium on Operating Systems Principles",
+      "category_id": "SE",
+      "category_zh": "软件工程/系统软件/程序设计语言",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "SE/sosp.yml"
+      ],
+      "historical_cycle_count": 5,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-04-01",
+          "timezone": "AoE",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-03-02",
+          "forecast_window_end": "2027-05-01",
+          "confidence": "medium",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2026,
+            "anchor_deadline": "2026-04-01",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=18 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/SE/sosp.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-04-01",
+        "topic_freeze": "2026-10-03",
+        "pilot_kill_gate": "2026-12-02",
+        "full_experiment_freeze": "2027-02-15",
+        "paper_freeze": "2027-03-18",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "OOPSLA",
+      "display_name": "OOPSLA",
+      "official_name": "Conference on Object-Oriented Programming Systems, Languages, and Applications",
+      "category_id": "SE",
+      "category_zh": "软件工程/系统软件/程序设计语言",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "SE/oopsla.yml"
+      ],
+      "historical_cycle_count": 5,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-10-14",
+          "deadline_time": "23:59",
+          "timezone": "AoE",
+          "round_note": "Round 1",
+          "source_url": "https://2027.splashcon.org/track/splashoopsla2027",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        },
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-04-07",
+          "deadline_time": "23:59",
+          "timezone": "AoE",
+          "round_note": "Round 2",
+          "source_url": "https://2027.splashcon.org/track/splashoopsla2027",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2026-10-14",
+        "topic_freeze": "2026-04-17",
+        "pilot_kill_gate": "2026-06-16",
+        "full_experiment_freeze": "2026-08-30",
+        "paper_freeze": "2026-09-30",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "ASE",
+      "display_name": "ASE",
+      "official_name": "International Conference on Automated Software Engineering",
+      "category_id": "SE",
+      "category_zh": "软件工程/系统软件/程序设计语言",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "SE/ase.yml"
+      ],
+      "historical_cycle_count": 5,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-03-26",
+          "timezone": "AoE",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-02-09",
+          "forecast_window_end": "2027-05-10",
+          "confidence": "low",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2026,
+            "anchor_deadline": "2026-03-26",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=73 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/SE/ase.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-03-26",
+        "topic_freeze": "2026-09-27",
+        "pilot_kill_gate": "2026-11-26",
+        "full_experiment_freeze": "2027-02-09",
+        "paper_freeze": "2027-03-12",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "ICSE",
+      "display_name": "ICSE",
+      "official_name": "International Conference on Software Engineering",
+      "category_id": "SE",
+      "category_zh": "软件工程/系统软件/程序设计语言",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "SE/icse.yml"
+      ],
+      "historical_cycle_count": 6,
+      "targets_in_window": [
+        {
+          "conference_year": 2028,
+          "deadline_date": "2027-06-30",
+          "timezone": "AoE",
+          "round_note": "Single Submission Cycle Deadline",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-05-16",
+          "forecast_window_end": "2027-08-14",
+          "confidence": "low",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2027,
+            "anchor_deadline": "2026-06-30",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=108 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/SE/icse.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-06-30",
+        "topic_freeze": "2027-01-01",
+        "pilot_kill_gate": "2027-03-02",
+        "full_experiment_freeze": "2027-05-16",
+        "paper_freeze": "2027-06-16",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "ISSTA",
+      "display_name": "ISSTA",
+      "official_name": "International Symposium on Software Testing and Analysis",
+      "category_id": "SE",
+      "category_zh": "软件工程/系统软件/程序设计语言",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "SE/issta.yml"
+      ],
+      "historical_cycle_count": 5,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-01-11",
+          "deadline_time": "23:59",
+          "timezone": "AoE",
+          "round_note": null,
+          "source_url": "https://conf.researchr.org/home/issta-2027",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-01-11",
+        "topic_freeze": "2026-07-15",
+        "pilot_kill_gate": "2026-09-13",
+        "full_experiment_freeze": "2026-11-27",
+        "paper_freeze": "2026-12-28",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "OSDI",
+      "display_name": "OSDI",
+      "official_name": "USENIX Symposium on Operating Systems Design and Implementation",
+      "category_id": "SE",
+      "category_zh": "软件工程/系统软件/程序设计语言",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "SE/osdi.yml"
+      ],
+      "historical_cycle_count": 6,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-12-08",
+          "deadline_time": "23:59",
+          "timezone": "AoE",
+          "round_note": null,
+          "source_url": "https://www.usenix.org/conference/osdi27/call-for-papers",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2026-12-08",
+        "topic_freeze": "2026-06-11",
+        "pilot_kill_gate": "2026-08-10",
+        "full_experiment_freeze": "2026-10-24",
+        "paper_freeze": "2026-11-24",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "FM",
+      "display_name": "FM",
+      "official_name": "International Symposium on Formal Methods",
+      "category_id": "SE",
+      "category_zh": "软件工程/系统软件/程序设计语言",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": {
+        "status": "official_event_confirmed_deadline_tba",
+        "event_dates": "2027-10-18/2027-10-22",
+        "event_location": "Athens, Greece",
+        "note": "FM 2027 dates and host city are official; the full-paper CFP/deadline remains TBA.",
+        "source_urls": [
+          "https://www.fmeurope.org/feature/upcoming_conferences/"
+        ]
+      },
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "SE/fm.yml"
+      ],
+      "historical_cycle_count": 3,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-04-15",
+          "timezone": "TBA",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-03-01",
+          "forecast_window_end": "2027-05-31",
+          "confidence": "low",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": null,
+            "stability": "FME officially fixes FM 2027 for October 18–22 in Athens, but the full-paper CFP/deadline remains TBA; this is a planning window, not an announced submission date.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://www.fmeurope.org/feature/upcoming_conferences/"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-04-15",
+        "topic_freeze": "2026-10-17",
+        "pilot_kill_gate": "2026-12-16",
+        "full_experiment_freeze": "2027-03-01",
+        "paper_freeze": "2027-04-01",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "SIGMOD",
+      "display_name": "SIGMOD",
+      "official_name": "ACM SIGMOD Conference",
+      "category_id": "DB",
+      "category_zh": "数据库/数据挖掘/内容检索",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "DB/sigmod.yml"
+      ],
+      "historical_cycle_count": 7,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-10-17",
+          "deadline_time": "23:59",
+          "timezone": "AoE",
+          "round_note": "Round 4",
+          "source_url": "https://2027.sigmod.org/calls_papers_sigmod_research.shtml",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        },
+        {
+          "conference_year": 2028,
+          "deadline_date": "2027-01-17",
+          "timezone": "AoE (forecast)",
+          "round_note": "Round 1",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-01-15",
+          "forecast_window_end": "2027-01-19",
+          "confidence": "high",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2026-01-17",
+            "stability": "Quarterly PACMMOD/SIGMOD cadence; SIGMOD 2028 rules remain to be confirmed.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://2027.sigmod.org/calls_papers_sigmod_research.shtml"
+          },
+          "requires_official_confirmation": true
+        },
+        {
+          "conference_year": 2028,
+          "deadline_date": "2027-04-17",
+          "timezone": "AoE (forecast)",
+          "round_note": "Round 2",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-04-15",
+          "forecast_window_end": "2027-04-19",
+          "confidence": "high",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2026-04-17",
+            "stability": "Quarterly PACMMOD/SIGMOD cadence; SIGMOD 2028 rules remain to be confirmed.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://2027.sigmod.org/calls_papers_sigmod_research.shtml"
+          },
+          "requires_official_confirmation": true
+        },
+        {
+          "conference_year": 2028,
+          "deadline_date": "2027-07-17",
+          "timezone": "AoE (forecast)",
+          "round_note": "Round 3",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-07-15",
+          "forecast_window_end": "2027-07-19",
+          "confidence": "high",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2026-07-17",
+            "stability": "Quarterly PACMMOD/SIGMOD cadence; SIGMOD 2028 rules remain to be confirmed.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://2027.sigmod.org/calls_papers_sigmod_research.shtml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2026-10-17",
+        "topic_freeze": "2026-04-20",
+        "pilot_kill_gate": "2026-06-19",
+        "full_experiment_freeze": "2026-09-02",
+        "paper_freeze": "2026-10-03",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "SIGKDD",
+      "display_name": "SIGKDD",
+      "official_name": "ACM SIGKDD Conference on Knowledge Discovery and Data Mining",
+      "category_id": "DB",
+      "category_zh": "数据库/数据挖掘/内容检索",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": {
+        "status": "official_month_confirmed_day_tba",
+        "official_deadline_month": "2027-02",
+        "note": "The official FAQ says the February 2027 cycle accepts both original submissions and eligible resubmissions; the exact day remains TBA.",
+        "source_urls": [
+          "https://kdd2027.kdd.org/research-track-call-for-papers/",
+          "https://kdd2027.kdd.org/frequently-asked-questions/"
+        ]
+      },
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "DB/sigkdd.yml"
+      ],
+      "historical_cycle_count": 7,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-02-10",
+          "timezone": "AoE (day TBA)",
+          "round_note": "February cycle; original submissions and eligible resubmissions",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-02-01",
+          "forecast_window_end": "2027-02-28",
+          "confidence": "medium",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": null,
+            "stability": "The official KDD 2027 FAQ confirms a February cycle open to original submissions but does not publish the day; the point date is only a planning marker.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://kdd2027.kdd.org/frequently-asked-questions/"
+          },
+          "requires_official_confirmation": true
+        },
+        {
+          "conference_year": 2028,
+          "deadline_date": "2027-07-26",
+          "timezone": "AoE (forecast)",
+          "round_note": "First cycle",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-06-11",
+          "forecast_window_end": "2027-09-09",
+          "confidence": "low",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2026-07-26",
+            "stability": "One-year shift of KDD 2027's first cycle; the wide range reflects historical phase variation and crosses the requested window boundary.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://kdd2027.kdd.org/research-track-call-for-papers/"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-02-10",
+        "topic_freeze": "2026-08-14",
+        "pilot_kill_gate": "2026-10-13",
+        "full_experiment_freeze": "2026-12-27",
+        "paper_freeze": "2027-01-27",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "ICDE",
+      "display_name": "ICDE",
+      "official_name": "IEEE International Conference on Data Engineering",
+      "category_id": "DB",
+      "category_zh": "数据库/数据挖掘/内容检索",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "DB/icde.yml"
+      ],
+      "historical_cycle_count": 7,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-11-11",
+          "deadline_time": "23:59",
+          "timezone": "AoE",
+          "round_note": "Round 2",
+          "source_url": "https://icde2027.github.io/cf-research-papers.html",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        },
+        {
+          "conference_year": 2028,
+          "deadline_date": "2027-06-11",
+          "timezone": "AoE (forecast)",
+          "round_note": "Round 1",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-06-05",
+          "forecast_window_end": "2027-06-25",
+          "confidence": "medium",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2026-06-11",
+            "stability": "Shift of ICDE 2027 first-round date; ICDE 2028 CFP is not yet published.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://icde2027.github.io/cf-research-papers.html"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2026-11-11",
+        "topic_freeze": "2026-05-15",
+        "pilot_kill_gate": "2026-07-14",
+        "full_experiment_freeze": "2026-09-27",
+        "paper_freeze": "2026-10-28",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "SIGIR",
+      "display_name": "SIGIR",
+      "official_name": "International ACM SIGIR Conference on Research and Development in Information Retrieval",
+      "category_id": "DB",
+      "category_zh": "数据库/数据挖掘/内容检索",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "DB/sigir.yml"
+      ],
+      "historical_cycle_count": 6,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-01-22",
+          "timezone": "AoE",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-01-08",
+          "forecast_window_end": "2027-02-05",
+          "confidence": "high",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2026,
+            "anchor_deadline": "2026-01-22",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=9 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/DB/sigir.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-01-22",
+        "topic_freeze": "2026-07-26",
+        "pilot_kill_gate": "2026-09-24",
+        "full_experiment_freeze": "2026-12-08",
+        "paper_freeze": "2027-01-08",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "VLDB",
+      "display_name": "VLDB",
+      "official_name": "International Conference on Very Large Data Bases",
+      "category_id": "DB",
+      "category_zh": "数据库/数据挖掘/内容检索",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "DB/vldb.yml"
+      ],
+      "historical_cycle_count": 7,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-09-01",
+          "deadline_time": "17:00",
+          "timezone": "US Pacific Time",
+          "round_note": "PVLDB volume 20 monthly cycle",
+          "source_url": "https://www.vldb.org/2027/submission-guidelines.html",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        },
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-10-01",
+          "deadline_time": "17:00",
+          "timezone": "US Pacific Time",
+          "round_note": "PVLDB volume 20 monthly cycle",
+          "source_url": "https://www.vldb.org/2027/submission-guidelines.html",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        },
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-11-01",
+          "deadline_time": "17:00",
+          "timezone": "US Pacific Time",
+          "round_note": "PVLDB volume 20 monthly cycle",
+          "source_url": "https://www.vldb.org/2027/submission-guidelines.html",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        },
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-12-01",
+          "deadline_time": "17:00",
+          "timezone": "US Pacific Time",
+          "round_note": "PVLDB volume 20 monthly cycle",
+          "source_url": "https://www.vldb.org/2027/submission-guidelines.html",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        },
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-01-01",
+          "deadline_time": "17:00",
+          "timezone": "US Pacific Time",
+          "round_note": "PVLDB volume 20 monthly cycle",
+          "source_url": "https://www.vldb.org/2027/submission-guidelines.html",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        },
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-02-01",
+          "deadline_time": "17:00",
+          "timezone": "US Pacific Time",
+          "round_note": "PVLDB volume 20 monthly cycle",
+          "source_url": "https://www.vldb.org/2027/submission-guidelines.html",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        },
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-03-01",
+          "deadline_time": "17:00",
+          "timezone": "US Pacific Time",
+          "round_note": "PVLDB volume 20 final monthly cycle",
+          "source_url": "https://www.vldb.org/2027/submission-guidelines.html",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        },
+        {
+          "conference_year": 2028,
+          "deadline_date": "2027-04-01",
+          "timezone": "17:00 PT (forecast)",
+          "round_note": "PVLDB next-volume monthly cycle",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-04-01",
+          "forecast_window_end": "2027-04-03",
+          "confidence": "high",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2026-04-01",
+            "stability": "PVLDB monthly cadence; this would belong to the next volume/likely VLDB 2028, not VLDB 2027.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://www.vldb.org/2027/submission-guidelines.html"
+          },
+          "requires_official_confirmation": true
+        },
+        {
+          "conference_year": 2028,
+          "deadline_date": "2027-05-01",
+          "timezone": "17:00 PT (forecast)",
+          "round_note": "PVLDB next-volume monthly cycle",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-05-01",
+          "forecast_window_end": "2027-05-03",
+          "confidence": "high",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2026-05-01",
+            "stability": "PVLDB monthly cadence; next-volume rules remain to be confirmed.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://www.vldb.org/2027/submission-guidelines.html"
+          },
+          "requires_official_confirmation": true
+        },
+        {
+          "conference_year": 2028,
+          "deadline_date": "2027-06-01",
+          "timezone": "17:00 PT (forecast)",
+          "round_note": "PVLDB next-volume monthly cycle",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-06-01",
+          "forecast_window_end": "2027-06-03",
+          "confidence": "high",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2026-06-01",
+            "stability": "PVLDB monthly cadence; next-volume rules remain to be confirmed.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://www.vldb.org/2027/submission-guidelines.html"
+          },
+          "requires_official_confirmation": true
+        },
+        {
+          "conference_year": 2028,
+          "deadline_date": "2027-07-01",
+          "timezone": "17:00 PT (forecast)",
+          "round_note": "PVLDB next-volume monthly cycle",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-07-01",
+          "forecast_window_end": "2027-07-03",
+          "confidence": "high",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2026-07-01",
+            "stability": "PVLDB monthly cadence; next-volume rules remain to be confirmed.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://www.vldb.org/2027/submission-guidelines.html"
+          },
+          "requires_official_confirmation": true
+        },
+        {
+          "conference_year": 2028,
+          "deadline_date": "2027-08-01",
+          "timezone": "17:00 PT (forecast)",
+          "round_note": "PVLDB next-volume monthly cycle",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-08-01",
+          "forecast_window_end": "2027-08-03",
+          "confidence": "high",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2026-08-01",
+            "stability": "PVLDB monthly cadence; next-volume rules remain to be confirmed.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://www.vldb.org/2027/submission-guidelines.html"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2026-09-01",
+        "topic_freeze": "2026-03-05",
+        "pilot_kill_gate": "2026-05-04",
+        "full_experiment_freeze": "2026-07-18",
+        "paper_freeze": "2026-08-18",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "STOC",
+      "display_name": "STOC",
+      "official_name": "ACM Symposium on the Theory of Computing",
+      "category_id": "CT",
+      "category_zh": "计算机科学理论",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "CT/stoc.yml"
+      ],
+      "historical_cycle_count": 3,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-11-04",
+          "timezone": "UTC-5",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2026-10-05",
+          "forecast_window_end": "2026-12-04",
+          "confidence": "medium",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2026,
+            "anchor_deadline": "2025-11-04",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=2 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/CT/stoc.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2026-11-04",
+        "topic_freeze": "2026-05-08",
+        "pilot_kill_gate": "2026-07-07",
+        "full_experiment_freeze": "2026-09-20",
+        "paper_freeze": "2026-10-21",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "SODA",
+      "display_name": "SODA",
+      "official_name": "ACM-SIAM Symposium on Discrete Algorithms",
+      "category_id": "CT",
+      "category_zh": "计算机科学理论",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "CT/soda.yml"
+      ],
+      "historical_cycle_count": 3,
+      "targets_in_window": [
+        {
+          "conference_year": 2028,
+          "deadline_date": "2027-07-09",
+          "timezone": "UTC-12",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-06-25",
+          "forecast_window_end": "2027-07-23",
+          "confidence": "high",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2027,
+            "anchor_deadline": "2026-07-09",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=9 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/CT/soda.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-07-09",
+        "topic_freeze": "2027-01-10",
+        "pilot_kill_gate": "2027-03-11",
+        "full_experiment_freeze": "2027-05-25",
+        "paper_freeze": "2027-06-25",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "CAV",
+      "display_name": "CAV",
+      "official_name": "International Conference on Computer Aided Verification",
+      "category_id": "CT",
+      "category_zh": "计算机科学理论",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "CT/cav.yml"
+      ],
+      "historical_cycle_count": 3,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-01-28",
+          "timezone": "AoE",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2026-12-29",
+          "forecast_window_end": "2027-02-27",
+          "confidence": "medium",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2026,
+            "anchor_deadline": "2026-01-28",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=10 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/CT/cav.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-01-28",
+        "topic_freeze": "2026-08-01",
+        "pilot_kill_gate": "2026-09-30",
+        "full_experiment_freeze": "2026-12-14",
+        "paper_freeze": "2027-01-14",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "FOCS",
+      "display_name": "FOCS",
+      "official_name": "IEEE Annual Symposium on Foundations of Computer Science",
+      "category_id": "CT",
+      "category_zh": "计算机科学理论",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "CT/focs.yml"
+      ],
+      "historical_cycle_count": 3,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-04-01",
+          "timezone": "UTC",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-03-18",
+          "forecast_window_end": "2027-04-15",
+          "confidence": "high",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2026,
+            "anchor_deadline": "2026-04-01",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=3 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/CT/focs.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-04-01",
+        "topic_freeze": "2026-10-03",
+        "pilot_kill_gate": "2026-12-02",
+        "full_experiment_freeze": "2027-02-15",
+        "paper_freeze": "2027-03-18",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "LICS",
+      "display_name": "LICS",
+      "official_name": "ACM/IEEE Symposium on Logic in Computer Science",
+      "category_id": "CT",
+      "category_zh": "计算机科学理论",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "CT/lics.yml"
+      ],
+      "historical_cycle_count": 2,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-01-22",
+          "timezone": "AoE (forecast)",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-01-21",
+          "forecast_window_end": "2027-01-22",
+          "confidence": "high",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2026-01-22",
+            "stability": "LICS 2025 and 2026 full-paper dates were Jan 23 and Jan 22; LICS 2027 event is officially scheduled but CFP is TBA.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://lics.siglog.org/lics26/cfp.php"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-01-22",
+        "topic_freeze": "2026-07-26",
+        "pilot_kill_gate": "2026-09-24",
+        "full_experiment_freeze": "2026-12-08",
+        "paper_freeze": "2027-01-08",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "ACM_MM",
+      "display_name": "ACM MM",
+      "official_name": "ACM International Conference on Multimedia",
+      "category_id": "CG",
+      "category_zh": "计算机图形学与多媒体",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "CG/mm.yml"
+      ],
+      "historical_cycle_count": 6,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-04-01",
+          "timezone": "AoE",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-03-02",
+          "forecast_window_end": "2027-05-01",
+          "confidence": "medium",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2026,
+            "anchor_deadline": "2026-04-01",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=33 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/CG/mm.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-04-01",
+        "topic_freeze": "2026-10-03",
+        "pilot_kill_gate": "2026-12-02",
+        "full_experiment_freeze": "2027-02-15",
+        "paper_freeze": "2027-03-18",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "SIGGRAPH",
+      "display_name": "SIGGRAPH",
+      "official_name": "ACM SIGGRAPH Annual Conference",
+      "category_id": "CG",
+      "category_zh": "计算机图形学与多媒体",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "CG/sig.yml"
+      ],
+      "historical_cycle_count": 6,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-01-22",
+          "timezone": "UTC+0",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-01-08",
+          "forecast_window_end": "2027-02-05",
+          "confidence": "high",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2026,
+            "anchor_deadline": "2026-01-22",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=3 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/CG/sig.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-01-22",
+        "topic_freeze": "2026-07-26",
+        "pilot_kill_gate": "2026-09-24",
+        "full_experiment_freeze": "2026-12-08",
+        "paper_freeze": "2027-01-08",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "VR",
+      "display_name": "IEEE VR",
+      "official_name": "IEEE Conference on Virtual Reality and 3D User Interfaces",
+      "category_id": "CG",
+      "category_zh": "计算机图形学与多媒体",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "CG/vr.yml"
+      ],
+      "historical_cycle_count": 4,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-08-31",
+          "deadline_time": "23:59:59",
+          "timezone": "AoE",
+          "round_note": null,
+          "source_url": "https://ieeevr.org/2027/contribute/papers/",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2026-08-31",
+        "topic_freeze": "2026-03-04",
+        "pilot_kill_gate": "2026-05-03",
+        "full_experiment_freeze": "2026-07-17",
+        "paper_freeze": "2026-08-17",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "VIS",
+      "display_name": "IEEE VIS",
+      "official_name": "IEEE Visualization Conference",
+      "category_id": "CG",
+      "category_zh": "计算机图形学与多媒体",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "CG/vis.yml"
+      ],
+      "historical_cycle_count": 3,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-03-31",
+          "timezone": "AoE",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-03-01",
+          "forecast_window_end": "2027-04-30",
+          "confidence": "medium",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2026,
+            "anchor_deadline": "2026-03-31",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=0 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/CG/vis.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-03-31",
+        "topic_freeze": "2026-10-02",
+        "pilot_kill_gate": "2026-12-01",
+        "full_experiment_freeze": "2027-02-14",
+        "paper_freeze": "2027-03-17",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "AAAI",
+      "display_name": "AAAI",
+      "official_name": "AAAI Conference on Artificial Intelligence",
+      "category_id": "AI",
+      "category_zh": "人工智能",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "AI/aaai.yml"
+      ],
+      "historical_cycle_count": 6,
+      "targets_in_window": [
+        {
+          "conference_year": 2028,
+          "deadline_date": "2027-07-28",
+          "timezone": "AoE (forecast)",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-07-27",
+          "forecast_window_end": "2027-08-03",
+          "confidence": "high",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2026-07-28",
+            "stability": "AAAI 2027 deadline lies before the requested window; this forecasts AAAI 2028 from the official 2027 cadence.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://aaai.org/conference/aaai/aaai-27/"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-07-28",
+        "topic_freeze": "2027-01-29",
+        "pilot_kill_gate": "2027-03-30",
+        "full_experiment_freeze": "2027-06-13",
+        "paper_freeze": "2027-07-14",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "NEURIPS",
+      "display_name": "NeurIPS",
+      "official_name": "Conference on Neural Information Processing Systems",
+      "category_id": "AI",
+      "category_zh": "人工智能",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "AI/nips.yml"
+      ],
+      "historical_cycle_count": 6,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-05-06",
+          "timezone": "AoE (forecast)",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-05-05",
+          "forecast_window_end": "2027-05-07",
+          "confidence": "high",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2026-05-06",
+            "stability": "Shift of official NeurIPS 2026 full-paper date; 2027 CFP not yet published.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://neurips.cc/Conferences/2026/CallForPapers"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-05-06",
+        "topic_freeze": "2026-11-07",
+        "pilot_kill_gate": "2027-01-06",
+        "full_experiment_freeze": "2027-03-22",
+        "paper_freeze": "2027-04-22",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "ACL",
+      "display_name": "ACL",
+      "official_name": "Annual Meeting of the Association for Computational Linguistics",
+      "category_id": "AI",
+      "category_zh": "人工智能",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": {
+        "status": "official_month_confirmed_day_tba",
+        "official_deadline_month": "2027-01",
+        "calendar_forecast_date": "2027-01-05",
+        "forecast_note": "Day is not official; the exact date remains TBA. The point estimate shifts the ACL 2026 ARR submission date by one year.",
+        "source_urls": [
+          "https://2027.aclweb.org/",
+          "https://aclrollingreview.org/dates"
+        ]
+      },
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "AI/acl.yml"
+      ],
+      "historical_cycle_count": 5,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-01-05",
+          "timezone": "AoE (day TBA)",
+          "round_note": "ARR submission; official month is January 2027",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-01-01",
+          "forecast_window_end": "2027-01-31",
+          "confidence": "medium",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2026-01-05",
+            "stability": "Official sources confirm January 2027 but not the day; point estimate shifts ACL 2026 by one year.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://aclrollingreview.org/dates"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-01-05",
+        "topic_freeze": "2026-07-09",
+        "pilot_kill_gate": "2026-09-07",
+        "full_experiment_freeze": "2026-11-21",
+        "paper_freeze": "2026-12-22",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "CVPR",
+      "display_name": "CVPR",
+      "official_name": "IEEE/CVF Conference on Computer Vision and Pattern Recognition",
+      "category_id": "AI",
+      "category_zh": "人工智能",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "AI/cvpr.yml"
+      ],
+      "historical_cycle_count": 5,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-11-13",
+          "timezone": "AoE (forecast)",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2026-11-12",
+          "forecast_window_end": "2026-11-13",
+          "confidence": "high",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2025-11-13",
+            "stability": "Shift of the official CVPR 2026 full-paper date; 2027 CFP not yet published.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://cvpr.thecvf.com/Conferences/2026/CallForPapers"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2026-11-13",
+        "topic_freeze": "2026-05-17",
+        "pilot_kill_gate": "2026-07-16",
+        "full_experiment_freeze": "2026-09-29",
+        "paper_freeze": "2026-10-30",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "ICCV",
+      "display_name": "ICCV",
+      "official_name": "International Conference on Computer Vision",
+      "category_id": "AI",
+      "category_zh": "人工智能",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "AI/iccv.yml"
+      ],
+      "historical_cycle_count": 3,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-03-08",
+          "timezone": "AoE (forecast)",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-03-05",
+          "forecast_window_end": "2027-03-12",
+          "confidence": "medium",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2025-03-07",
+            "stability": "Biennial shift from ICCV 2025; ICCV 2027 event exists but CFP is not published.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://iccv.thecvf.com/Conferences/2025/CallForPapers"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-03-08",
+        "topic_freeze": "2026-09-09",
+        "pilot_kill_gate": "2026-11-08",
+        "full_experiment_freeze": "2027-01-22",
+        "paper_freeze": "2027-02-22",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "ICML",
+      "display_name": "ICML",
+      "official_name": "International Conference on Machine Learning",
+      "category_id": "AI",
+      "category_zh": "人工智能",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "AI/icml.yml"
+      ],
+      "historical_cycle_count": 4,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-01-28",
+          "timezone": "AoE (forecast)",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-01-27",
+          "forecast_window_end": "2027-01-29",
+          "confidence": "high",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2026-01-28",
+            "stability": "Recent late-January cadence; ICML 2027 CFP not yet published.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://icml.cc/Conferences/2026/CallForPapers"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-01-28",
+        "topic_freeze": "2026-08-01",
+        "pilot_kill_gate": "2026-09-30",
+        "full_experiment_freeze": "2026-12-14",
+        "paper_freeze": "2027-01-14",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "ICLR",
+      "display_name": "ICLR",
+      "official_name": "International Conference on Learning Representations",
+      "category_id": "AI",
+      "category_zh": "人工智能",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "AI/iclr.yml"
+      ],
+      "historical_cycle_count": 3,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-09-25",
+          "deadline_time": "23:59",
+          "timezone": "AoE",
+          "round_note": null,
+          "source_url": "https://www.iclr.cc/Conferences/2027/CallForPapers",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2026-09-25",
+        "topic_freeze": "2026-03-29",
+        "pilot_kill_gate": "2026-05-28",
+        "full_experiment_freeze": "2026-08-11",
+        "paper_freeze": "2026-09-11",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "CSCW",
+      "display_name": "CSCW",
+      "official_name": "ACM Conference on Computer-Supported Cooperative Work and Social Computing",
+      "category_id": "HI",
+      "category_zh": "人机交互与普适计算",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": {
+        "status": "official_rolling_no_fixed_deadline",
+        "reason": "CSCW uses journal-style rolling submission; submit at any time and a submission is not guaranteed to appear at a particular conference edition.",
+        "source_url": "https://cscw.acm.org/rolling.html"
+      },
+      "partial_official_information": null,
+      "window_assessment": "official_rolling_no_fixed_deadline",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "HI/cscw.yml"
+      ],
+      "historical_cycle_count": 6,
+      "targets_in_window": [],
+      "planning_milestones": null
+    },
+    {
+      "key": "CHI",
+      "display_name": "CHI",
+      "official_name": "ACM Conference on Human Factors in Computing Systems",
+      "category_id": "HI",
+      "category_zh": "人机交互与普适计算",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "HI/chi.yml"
+      ],
+      "historical_cycle_count": 4,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-09-10",
+          "deadline_time": "23:59",
+          "timezone": "AoE",
+          "round_note": null,
+          "source_url": "https://chi2027.acm.org/authors/papers/",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2026-09-10",
+        "topic_freeze": "2026-03-14",
+        "pilot_kill_gate": "2026-05-13",
+        "full_experiment_freeze": "2026-07-27",
+        "paper_freeze": "2026-08-27",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "UBICOMP",
+      "display_name": "UbiComp",
+      "official_name": "ACM International Joint Conference on Pervasive and Ubiquitous Computing",
+      "category_id": "HI",
+      "category_zh": "人机交互与普适计算",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "HI/ubicomp.yml"
+      ],
+      "historical_cycle_count": 4,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-11-01",
+          "timezone": "AoE (forecast)",
+          "round_note": "IMWUT cycle",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2026-11-01",
+          "forecast_window_end": "2026-11-03",
+          "confidence": "high",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2025-11-01",
+            "stability": "IMWUT's recent regular cadence is February 1, May 1, and November 1; current-cycle page should still be rechecked.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://www.ubicomp.org/ubicomp-iswc-2025/authors/iswc_author_guide/"
+          },
+          "requires_official_confirmation": true
+        },
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-02-01",
+          "timezone": "AoE (forecast)",
+          "round_note": "IMWUT cycle",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-02-01",
+          "forecast_window_end": "2027-02-03",
+          "confidence": "high",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2026-02-01",
+            "stability": "IMWUT's recent regular cadence is February 1, May 1, and November 1.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://www.ubicomp.org/ubicomp-iswc-2025/authors/iswc_author_guide/"
+          },
+          "requires_official_confirmation": true
+        },
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-05-01",
+          "timezone": "AoE (forecast)",
+          "round_note": "IMWUT cycle",
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-05-01",
+          "forecast_window_end": "2027-05-03",
+          "confidence": "high",
+          "forecast_method": "manual_primary_source_cadence_audit",
+          "forecast_basis": {
+            "anchor_deadline": "2026-05-01",
+            "stability": "IMWUT's recent regular cadence is February 1, May 1, and November 1.",
+            "source_name": "official prior-cycle or organizer source",
+            "source_url": "https://www.ubicomp.org/ubicomp-iswc-2025/authors/iswc_author_guide/"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2026-11-01",
+        "topic_freeze": "2026-05-05",
+        "pilot_kill_gate": "2026-07-04",
+        "full_experiment_freeze": "2026-09-17",
+        "paper_freeze": "2026-10-18",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "UIST",
+      "display_name": "UIST",
+      "official_name": "ACM Symposium on User Interface Software and Technology",
+      "category_id": "HI",
+      "category_zh": "人机交互与普适计算",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "HI/uist.yml"
+      ],
+      "historical_cycle_count": 3,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-03-31",
+          "timezone": "AoE",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-03-17",
+          "forecast_window_end": "2027-04-14",
+          "confidence": "high",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2026,
+            "anchor_deadline": "2026-03-31",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=9 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/HI/uist.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-03-31",
+        "topic_freeze": "2026-10-02",
+        "pilot_kill_gate": "2026-12-01",
+        "full_experiment_freeze": "2027-02-14",
+        "paper_freeze": "2027-03-17",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "WWW",
+      "display_name": "The Web Conference",
+      "official_name": "The Web Conference",
+      "category_id": "MX",
+      "category_zh": "交叉/综合/新兴",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "MX/www.yml"
+      ],
+      "historical_cycle_count": 7,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2026-10-18",
+          "deadline_time": "23:59",
+          "timezone": "AoE",
+          "round_note": null,
+          "source_url": "https://acmweb2027.org/important-dates/",
+          "evidence_status": "official_confirmed",
+          "source_name": "official conference/organizer CFP",
+          "requires_official_confirmation": false
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2026-10-18",
+        "topic_freeze": "2026-04-21",
+        "pilot_kill_gate": "2026-06-20",
+        "full_experiment_freeze": "2026-09-03",
+        "paper_freeze": "2026-10-04",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    },
+    {
+      "key": "RTSS",
+      "display_name": "RTSS",
+      "official_name": "IEEE Real-Time Systems Symposium",
+      "category_id": "MX",
+      "category_zh": "交叉/综合/新兴",
+      "venue_status": "active_or_not_known_inactive",
+      "inactive_evidence": null,
+      "special_submission_model": null,
+      "partial_official_information": null,
+      "window_assessment": "one_or_more_submission_targets_in_window",
+      "tracker_match_count": 1,
+      "tracker_paths": [
+        "MX/rtss.yml"
+      ],
+      "historical_cycle_count": 3,
+      "targets_in_window": [
+        {
+          "conference_year": 2027,
+          "deadline_date": "2027-05-21",
+          "timezone": "AoE",
+          "round_note": null,
+          "evidence_status": "forecast",
+          "forecast_window_start": "2027-04-21",
+          "forecast_window_end": "2027-06-20",
+          "confidence": "medium",
+          "forecast_method": "shift_latest_comparable_cycle",
+          "forecast_basis": {
+            "anchor_conference_year": 2026,
+            "anchor_deadline": "2026-05-21",
+            "cadence_years": 1,
+            "stability": "recent first-deadline phase spread=5 days; cadence=1 year(s)",
+            "source_name": "CCFDDL community tracker (frozen historical record)",
+            "source_url": "https://github.com/ccfddl/ccf-deadlines/blob/5f8dce347bc17783bc6cd50509e07cc0196863b4/conference/MX/rtss.yml"
+          },
+          "requires_official_confirmation": true
+        }
+      ],
+      "planning_milestones": {
+        "earliest_target_deadline": "2027-05-21",
+        "topic_freeze": "2026-11-22",
+        "pilot_kill_gate": "2027-01-21",
+        "full_experiment_freeze": "2027-04-06",
+        "paper_freeze": "2027-05-07",
+        "note": "planning offsets, not conference rules; clamp past milestones to immediate triage"
+      }
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+coverage/
+.coverage
+runtime/
+backend/data/
+*.db
+*.db-shm
+*.db-wal
+*.log
+frontend/.vite/
+
+# Local/private product-development records are not release artifacts.
+docs/RECOVERED_BRIEF.md
+design-plans/

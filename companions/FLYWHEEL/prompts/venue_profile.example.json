@@ -1,0 +1,10 @@
+{
+  "name": "Example Conference",
+  "edition": 2027,
+  "track": "Main / Full Paper",
+  "deadline": "2027-01-15 23:59 AoE (example only)",
+  "scope": "Replace with official scope before launch",
+  "policies": [
+    "Example only: verify official anonymity, AI-use, ethics and artifact rules"
+  ]
+}
