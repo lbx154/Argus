@@ -82,42 +82,49 @@ def test_flag_alias_resolution():
 def test_preflight_ok_when_contract_and_packet_match(tmp_path):
     _write_contract(tmp_path)
     _write_packet(tmp_path)
-    reject, concern = _run_contract_preflight(_cmd(), str(tmp_path))
+    reject, concern, status = _run_contract_preflight(_cmd(), str(tmp_path))
     assert reject is False and concern == ""
+    assert status == ""
 
 
 def test_preflight_rejects_missing_contract(tmp_path):
-    reject, concern = _run_contract_preflight(_cmd(), str(tmp_path))
+    reject, concern, status = _run_contract_preflight(_cmd(), str(tmp_path))
     assert reject is True and "RUN_CONTRACT" in concern
+    assert status == ""
 
 
 def test_preflight_rejects_lr_drift(tmp_path):
     _write_contract(tmp_path)
     _write_packet(tmp_path)
-    reject, concern = _run_contract_preflight(_cmd(**{"--lr": "3e-5"}), str(tmp_path))
+    reject, concern, status = _run_contract_preflight(
+        _cmd(**{"--lr": "3e-5"}), str(tmp_path))
     assert reject is True and "lr" in concern.lower()
+    assert status == ""
 
 
 def test_preflight_rejects_curriculum_drift(tmp_path):
     _write_contract(tmp_path)
     _write_packet(tmp_path)
-    reject, concern = _run_contract_preflight(
+    reject, concern, status = _run_contract_preflight(
         _cmd(**{"--curriculum-hash": "f" * 64}), str(tmp_path))
     assert reject is True and "curriculum" in concern.lower()
+    assert status == ""
 
 
 def test_preflight_rejects_missing_packet(tmp_path):
     _write_contract(tmp_path)
-    reject, concern = _run_contract_preflight(
+    reject, concern, status = _run_contract_preflight(
         _cmd(**{"--feasibility-packet": None}), str(tmp_path))
     assert reject is True and "feasibility packet" in concern
+    assert status == ""
 
 
 def test_preflight_rejects_low_diversity_packet(tmp_path):
     _write_contract(tmp_path)
     _write_packet(tmp_path, distinct_tasks=50)  # 1200 prompts / 50 = 24x repeat
-    reject, concern = _run_contract_preflight(_cmd(), str(tmp_path))
+    reject, concern, status = _run_contract_preflight(_cmd(), str(tmp_path))
     assert reject is True and "diversity" in concern.lower()
+    assert status == ""
 
 
 def test_preflight_failsoft_on_internal_error(tmp_path, monkeypatch):
@@ -130,5 +137,75 @@ def test_preflight_failsoft_on_internal_error(tmp_path, monkeypatch):
     monkeypatch.setattr(rc, "check_full_run_launch", _boom)
     _write_contract(tmp_path)
     _write_packet(tmp_path)
-    reject, concern = _run_contract_preflight(_cmd(), str(tmp_path))
+    reject, concern, status = _run_contract_preflight(_cmd(), str(tmp_path))
     assert reject is False and concern == ""
+    assert status == "skipped"
+
+
+def test_default_contract_path_stays_in_sync():
+    """The mirrored literal must not drift from the canonical constant.
+
+    ``_direct_run`` duplicates the default contract path because it needs a name
+    for the file in the one case where importing ``run_contract`` is what failed.
+    """
+    import argus_skill.skills.run_contract as rc
+    from argus_skill.tools.subagent._direct_run import _DEFAULT_CONTRACT_REL
+
+    assert _DEFAULT_CONTRACT_REL == rc.DEFAULT_RUN_CONTRACT_PATH
+
+
+def test_preflight_rejects_a_malformed_contract(tmp_path, monkeypatch):
+    """An unreadable provenance record IS a provenance failure.
+
+    ``run_contract`` raises ValueError for a contract that does not say what a
+    contract has to say (a non-object payload, an empty materialized
+    curriculum), so that must block the launch rather than wave it through.
+    """
+    import argus_skill.skills.run_contract as rc
+
+    def _malformed(**_kw):
+        raise ValueError("RUN_CONTRACT.json is not a JSON object")
+
+    monkeypatch.setattr(rc, "check_full_run_launch", _malformed)
+    _write_contract(tmp_path)
+    _write_packet(tmp_path)
+    reject, concern, status = _run_contract_preflight(_cmd(), str(tmp_path))
+    assert reject is True
+    assert "unreadable or malformed" in concern
+    assert "not a JSON object" in concern
+    assert status == ""
+
+
+def test_preflight_does_not_block_a_launch_on_our_own_bug(tmp_path, monkeypatch):
+    """A TypeError escaping the interlock is our defect, not the run's.
+
+    Blocking a legitimate full-scale launch because the harness has a bug is the
+    wrong trade — but the launch must be recorded as un-checked so nobody later
+    reads it as provenance-verified.
+    """
+    import argus_skill.skills.run_contract as rc
+
+    def _bug(**_kw):
+        raise TypeError("unsupported operand type(s)")
+
+    monkeypatch.setattr(rc, "check_full_run_launch", _bug)
+    _write_contract(tmp_path)
+    _write_packet(tmp_path)
+    reject, concern, status = _run_contract_preflight(_cmd(), str(tmp_path))
+    assert reject is False and concern == ""
+    assert status == "skipped"
+
+
+def test_preflight_names_the_resolved_contract_not_the_default(tmp_path, monkeypatch):
+    """When --run-contract points elsewhere, the error names THAT file."""
+    import argus_skill.skills.run_contract as rc
+
+    def _malformed(**_kw):
+        raise ValueError("bad payload")
+
+    monkeypatch.setattr(rc, "check_full_run_launch", _malformed)
+    _write_contract(tmp_path)
+    _write_packet(tmp_path)
+    command = _cmd(**{"--run-contract": "research/OTHER_CONTRACT.json"})
+    _reject, concern, _status = _run_contract_preflight(command, str(tmp_path))
+    assert "OTHER_CONTRACT.json" in concern

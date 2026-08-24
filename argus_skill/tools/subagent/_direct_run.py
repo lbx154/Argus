@@ -5,6 +5,8 @@ parsing, and the direct `_run_direct` dispatcher.
 """
 from __future__ import annotations
 
+import json
+import logging
 import os
 import shlex
 import signal
@@ -31,6 +33,8 @@ from ._registry import (
 )
 from ._reporting import _alert_engineer
 from ._text import _tail_file
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # RL detection and collapse-guidance helpers
@@ -163,16 +167,28 @@ def _parse_launch_flags(command: str) -> dict[str, str]:
 # Deterministic run-contract preflight
 # ---------------------------------------------------------------------------
 
-def _run_contract_preflight(command: str, cwd: str) -> tuple[bool, str]:
+#: Mirrors ``skills.run_contract.DEFAULT_RUN_CONTRACT_PATH``. Duplicated because
+#: the only caller needs it when that very import is what failed, so it cannot
+#: read the constant from there. ``test_default_contract_path_stays_in_sync``
+#: fails if the two ever drift.
+_DEFAULT_CONTRACT_REL = "research/RUN_CONTRACT.json"
+
+
+def _run_contract_preflight(command: str, cwd: str) -> tuple[bool, str, str]:
     """Deterministic provenance interlock for a ``scale=full`` RL launch.
 
     Refuses a full-scale launch that is not a faithful, feasibility-probed
     execution of the frozen ``research/RUN_CONTRACT.json`` (drift in LR / group
     size / steps / curriculum, or a missing/invalid feasibility packet). This is
     provenance/consistency enforcement, NOT a scientific verdict — adequacy stays
-    with the L2 reviewer. Fail-soft: any unexpected error yields ``(False, "")``
-    so a framework bug can never wedge a launch.
+    with the L2 reviewer. An unreadable or malformed contract is itself a
+    provenance failure and rejects the launch. Unexpected framework errors remain
+    fail-soft, returning status ``"skipped"`` so they cannot wedge a launch but
+    also cannot be mistaken for a completed interlock.
     """
+    # Rebound to the resolved path once the command's ``--run-contract`` flag has
+    # been read; until then the default is the only honest thing to name.
+    contract_path: Path | None = None
     try:
         from ...skills import run_contract as rc  # noqa: PLC0415
 
@@ -209,13 +225,33 @@ def _run_contract_preflight(command: str, cwd: str) -> tuple[bool, str]:
             packet_path = Path(packet_rel)
             if not packet_path.is_absolute():
                 packet_path = base / packet_path
-        return rc.check_full_run_launch(
+        reject, concern = rc.check_full_run_launch(
             contract_path=contract_path,
             packet_path=packet_path,
             knobs=knobs,
         )
-    except Exception:
-        return (False, "")
+        return reject, concern, ""
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        # The contract itself is unreadable or does not say what a contract has
+        # to say — ``run_contract`` raises ValueError for exactly that (a
+        # non-object payload, an empty materialized curriculum). Not being able
+        # to read the provenance record IS a provenance failure, so reject and
+        # name the file the engineer has to fix.
+        named = contract_path or f"{cwd}/{_DEFAULT_CONTRACT_REL}"
+        return (
+            True,
+            f"provenance contract {named} is unreadable or malformed: "
+            f"{type(exc).__name__}: {exc}",
+            "",
+        )
+    except Exception:  # noqa: BLE001 — framework bugs must not wedge a launch
+        # TypeError / KeyError / anything else escaping here is a bug in this
+        # harness, not a statement about the contract. Blocking a legitimate
+        # launch on our own defect is the wrong trade, so stay fail-soft — but
+        # say so, and let the caller record ``skipped`` on the run so nobody
+        # later reads this launch as provenance-checked.
+        log.exception("Run-contract provenance interlock could not run")
+        return (False, "", "skipped")
 
 
 # ---------------------------------------------------------------------------

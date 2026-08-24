@@ -8,12 +8,15 @@ backoff used by the supervised polling loop.
 from __future__ import annotations
 
 import json
+import logging
 
 from ._direct_run import _parse_launch_flags, _rl_collapse_guidance
 from ._llm import _run_supervisor_with_usage
 from ._normalize import _clean_concern
 from ._registry import _ZERO_USAGE_TUPLE, SUPERVISOR_INTERVAL_CAP, _read_task
 from ._text import _strip_code_fence
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # LLM config preflight (pre-launch sanity check for RL runs)
@@ -25,17 +28,18 @@ def _supervisor_preflight_with_usage(
     description: str,
     model: str,
     cwd: str,
-) -> tuple[bool, str, tuple[int, int, int, int]]:
+) -> tuple[bool, str, tuple[int, int, int, int], str]:
     """LLM-judged PRE-LAUNCH config sanity check for an RL/training run.
 
-    Returns ``(reject, concern)``. ``reject`` is True ONLY for a config that is
-    mechanically unlearnable regardless of the data or run length — the kind of
-    structural flaw a senior RL researcher rejects at a glance, before any GPU is
-    spent. Merely-suspicious or data-dependent settings (e.g. a possibly-short
-    ``max_completion_length``) are NOT blocked here — those are left to the
-    in-flight supervisor, which can see real metrics. Fail-soft: any error, an
-    unparseable verdict, or a reject without an actionable fix yields
-    ``(False, "")`` so a launch is never blocked by an LLM hiccup.
+    Returns ``(reject, concern, usage, preflight_status)``. ``reject`` is True
+    ONLY for a config that is mechanically unlearnable regardless of the data or
+    run length — the kind of structural flaw a senior RL researcher rejects at a
+    glance, before any GPU is spent. Merely-suspicious or data-dependent settings
+    (e.g. a possibly-short ``max_completion_length``) are NOT blocked here — those
+    are left to the in-flight supervisor, which can see real metrics. Unparseable
+    verdicts and rejects without actionable fixes still fail soft normally. A
+    backend exception also permits launch but returns status ``"unavailable"`` so
+    the missing preflight remains visible.
     """
     flags = _parse_launch_flags(command)
     flag_table = "\n".join(
@@ -113,18 +117,19 @@ def _supervisor_preflight_with_usage(
                 # is an LLM formatting hiccup and must fail-soft to a launch,
                 # never hard-block.
                 if data.get("reject") is not True:
-                    return (False, "", usage)
+                    return (False, "", usage, "")
                 concern = _clean_concern(data.get("concern", ""))
                 # Honor a reject only when it carries an actionable fix that names
                 # a specific flag and a concrete change, so a vague "reject:true"
                 # can never wedge a launch without telling the engineer what to
                 # change.
                 if concern and any(tok in concern for tok in ("->", "=", "--")):
-                    return (True, concern, usage)
-                return (False, "", usage)
-        return (False, "", usage)
-    except Exception:
-        return (False, "", _ZERO_USAGE_TUPLE)
+                    return (True, concern, usage, "")
+                return (False, "", usage, "")
+        return (False, "", usage, "")
+    except Exception:  # noqa: BLE001 — backend failure must not wedge a launch
+        log.exception("Supervisor config preflight unavailable for task %s", task_id)
+        return (False, "", _ZERO_USAGE_TUPLE, "unavailable")
 
 
 def _supervisor_preflight(
@@ -134,7 +139,7 @@ def _supervisor_preflight(
     model: str,
     cwd: str,
 ) -> tuple[bool, str]:
-    reject, concern, _usage = _supervisor_preflight_with_usage(
+    reject, concern, _usage, _preflight_status = _supervisor_preflight_with_usage(
         task_id,
         command,
         description,
@@ -163,7 +168,7 @@ def _next_monitor_interval(
     base = max(int(base), 1)
     cap = max(int(cap), base)
     current = max(int(current), base)
-    if health in {"degrading", "stuck", "diverging"}:
+    if health in {"degrading", "stuck", "diverging", "supervisor_unavailable"}:
         return base
     if health == "healthy":
         return min(current * 2, cap)

@@ -5,6 +5,7 @@ and the `_run_discussion` parking loop that bounds engineer wait time.
 """
 from __future__ import annotations
 
+import logging
 import os
 import time
 from typing import Any
@@ -24,8 +25,10 @@ from ._registry import (
     _read_task,
     _write_task_if_run_id,
 )
-from ._reporting import _queue_to_inbox
+from ._reporting import InboxDeliveryError, _life_dir_for_cwd, _queue_to_inbox
 from ._text import _strip_code_fence
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Discussion protocol timing constants
@@ -124,8 +127,15 @@ def _supervisor_discuss_with_usage(
                         usage,
                     )
         return (False, "", thread_id, usage)
-    except Exception:
-        return (False, "", thread_id, _ZERO_USAGE_TUPLE)
+    except Exception as exc:  # noqa: BLE001 — a dead supervisor must release the engineer
+        log.exception("Supervisor discussion turn unavailable for task %s", task_id)
+        message = (
+            f"The supervisor discussion turn failed ({type(exc).__name__}: {exc}). "
+            "Treat this discussion as resolved: decide from supervisor_log and "
+            "the run artifacts rather than waiting for a supervisor reply that "
+            "will not come."
+        )
+        return (True, message, thread_id, _ZERO_USAGE_TUPLE)
 
 
 def _supervisor_discuss(
@@ -261,15 +271,31 @@ def _run_discussion(
                 resolved = True
             _append_discussion(task_id, "supervisor", message)
             _mirror_discussion_md(task_id, run_dir)
-            _queue_to_inbox(
-                f"## Discussion: {task_id}\n\n**Supervisor reply** "
-                f"({'resolved' if resolved else 'still open'}): {message}\n\n"
-                f"Thread: `{_discussion_path(task_id)}`"
-                + ("" if resolved else
-                   f"\n\nReply again if you disagree:\n```bash\n"
-                   f"${{ARGUS_SKILL_PYTHON:-python3}} -m argus_skill.tools.subagent "
-                   f"reply --task-id {task_id} --message \"...\"\n```")
-            )
+            # Route to the RUN's project, not this worker's cwd, and keep a
+            # delivery failure local. ``_run_discussion`` is called from inside
+            # ``_run_supervised``'s broad handler, so an InboxDeliveryError
+            # escaping here would be settled as ``state: "error"`` and reported
+            # to the engineer as a CRASHED run — a notification fault dressed up
+            # as an experiment fault. The thread itself is already on disk.
+            try:
+                _queue_to_inbox(
+                    f"## Discussion: {task_id}\n\n**Supervisor reply** "
+                    f"({'resolved' if resolved else 'still open'}): {message}\n\n"
+                    f"Thread: `{_discussion_path(task_id)}`"
+                    + ("" if resolved else
+                       f"\n\nReply again if you disagree:\n```bash\n"
+                       f"${{ARGUS_SKILL_PYTHON:-python3}} -m argus_skill.tools.subagent "
+                       f"reply --task-id {task_id} --message \"...\"\n```"),
+                    task_id,
+                    life_dir=_life_dir_for_cwd(cwd),
+                )
+            except InboxDeliveryError:
+                log.exception(
+                    "subagent %s: discussion reply not queued to the engineer "
+                    "inbox; the thread is still at %s",
+                    task_id,
+                    _discussion_path(task_id),
+                )
             turns += 1
             if resolved:
                 resolution = "resolved"
