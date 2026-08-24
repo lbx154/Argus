@@ -76,13 +76,6 @@ ALLOWED_DIRECTIVE_ACTIONS = {
     "fix_reference_boundary",
 }
 
-MAX_BODY_FIGURES = 5
-# Full-width (``figure*``) body floats allowed on a two-column venue. Two is the
-# common well-composed maximum: a teaser (Figure 1) + a main pipeline/overview.
-# Single-column venues (``venue.two_column`` false) have no ``figure*`` notion,
-# so the cap does not apply to them.
-MAX_BODY_WIDE_FIGURES = 2
-
 # Figures whose ROLE is an overview/teaser/pipeline should span both columns
 # (``figure*``) on a two-column venue; when one is placed in a single-column
 # ``figure`` it reads as cramped. Matched against the graphic filename and the
@@ -608,38 +601,12 @@ def _deterministic_assessment(
         )
 
     body_tex = tex_text.split(r"\appendix", 1)[0]
-    body_figures = len(re.findall(r"\\begin\s*\{\s*figure\s*\}", body_tex))
-    if body_figures > MAX_BODY_FIGURES:
-        penalty += 0.8
-        issues.append(
-            _issue(
-                "too_many_body_figures",
-                "major",
-                (
-                    f"body contains {body_figures} figure environments; research.md limits "
-                    f"body figures to {MAX_BODY_FIGURES}"
-                ),
-                hard_gate=True,
-                action="move_float",
-            )
-        )
 
-    body_wide_figures = len(re.findall(r"\\begin\s*\{\s*figure\*\s*\}", body_tex))
-    if venue.two_column and body_wide_figures > MAX_BODY_WIDE_FIGURES:
-        penalty += 0.8
-        issues.append(
-            _issue(
-                "too_many_wide_figures",
-                "major",
-                (
-                    f"body contains {body_wide_figures} figure* environments; allow at most "
-                    f"{MAX_BODY_WIDE_FIGURES} full-width body figures (e.g. a teaser + a main "
-                    "pipeline); move the rest to single-column figures"
-                ),
-                hard_gate=True,
-                action="move_float",
-            )
-        )
+    # A sixth figure used to be a hard gate: six body figures failed the layout
+    # review outright, while accepted work in these areas carries between four
+    # and twenty-six. Whether a figure earns its space is what the argument
+    # needs it to show, which is the reviewing Agent's to judge and was never a
+    # number the host could hold.
 
     # Advisory (two-column venues only): a teaser/pipeline/overview graphic in a
     # single-column ``figure`` should usually span both columns via ``figure*``.
@@ -1193,7 +1160,8 @@ def _vision_prompt(
         f"page {rmin}.\n\n"
         f"Submission contract to enforce: conclusion by page {cmax}, {end_matter}, "
         f"References before Appendix, References/Appendix on page {rmin} or later with no total-page cap, "
-        f"no Overfull hbox above 5pt, <=5 body figures, at most {MAX_BODY_WIDE_FIGURES} "
+        "no Overfull hbox above 5pt, a figure count and width that follow what the "
+        "argument has to show rather than a quota, "
         "full-width figure*, meaningful figure/table anchors across the middle body when they improve readability, table "
         "captions with numerical headlines, readable research-style tables, adaptive/landscape "
         "conceptual figures rather than cramped squares, and no weird fonts, tiny labels, heavy "
@@ -1288,7 +1256,8 @@ def _vision_prompt_emnlp_literal(
         "page 9.\n\n"
         "Submission contract to enforce: conclusion by page 8, Limitations/Ethics after conclusion, "
         "References before Appendix, References/Appendix on page 9 or later with no total-page cap, "
-        f"no Overfull hbox above 5pt, <=5 body figures, at most {MAX_BODY_WIDE_FIGURES} "
+        "no Overfull hbox above 5pt, a figure count and width that follow what the "
+        "argument has to show rather than a quota, "
         "full-width figure*, meaningful figure/table anchors across the middle body when they improve readability, table "
         "captions with numerical headlines, readable research-style tables, adaptive/landscape "
         "conceptual figures rather than cramped squares, and no weird fonts, tiny labels, heavy "

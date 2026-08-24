@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 
 from argus_skill.verticals.research.paper_layout_review import (
-    MAX_BODY_WIDE_FIGURES,
     _deterministic_assessment,
     _single_column_wide_role_figures,
     _vision_prompt,
@@ -63,27 +62,33 @@ _ABLATION_SINGLE = (
 )
 
 
-# ---- cap raised to 2 -------------------------------------------------------
+# ---- no figure quota ------------------------------------------------------
 
-def test_teaser_plus_pipeline_wide_is_allowed() -> None:
-    assert MAX_BODY_WIDE_FIGURES == 2
-    codes = _assess(_TEASER + _PIPELINE_WIDE, EMNLP_PROFILE)
-    assert "too_many_wide_figures" not in codes
-
-
-def test_three_wide_figures_still_flagged() -> None:
-    extra = (
+def test_a_paper_is_not_failed_for_the_number_of_figures_it_carries() -> None:
+    """Six body figures used to fail the layout review outright, and three
+    full-width ones with it, while accepted work in these areas carries between
+    four and twenty-six. Five of seven campaigns had settled on exactly one
+    figure. Whether a figure earns its space is what the argument needs it to
+    show; the compiled page is what layout review can actually see.
+    """
+    many = "".join(
+        r"\begin{figure}[t]\includegraphics[width=\linewidth]{figures/f%d.pdf}"
+        r"\caption{C%d.}\label{fig:f%d}\end{figure}" % (i, i, i)
+        for i in range(8)
+    )
+    wide = (
         r"\begin{figure*}[t]\includegraphics[width=\textwidth]{figures/overview2.png}"
         r"\caption{X.}\label{fig:x}\end{figure*}"
     )
-    codes = _assess(_TEASER + _PIPELINE_WIDE + extra, EMNLP_PROFILE)
-    assert "too_many_wide_figures" in codes
+    codes = _assess(_TEASER + _PIPELINE_WIDE + wide + many, EMNLP_PROFILE)
+    assert "too_many_body_figures" not in codes
+    assert "too_many_wide_figures" not in codes
 
 
-def test_vision_prompt_uses_the_deterministic_wide_figure_cap() -> None:
+def test_vision_prompt_states_no_quota() -> None:
     for venue in (EMNLP_PROFILE, AAAI_PROFILE):
         prompt = _vision_prompt(deterministic={}, threshold=3.5, venue=venue)
-        assert f"at most {MAX_BODY_WIDE_FIGURES} full-width figure*" in prompt
+        assert "quota" in prompt
         assert "at most one full-width figure*" not in prompt
 
 
