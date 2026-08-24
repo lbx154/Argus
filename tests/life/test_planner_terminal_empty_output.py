@@ -126,6 +126,10 @@ class _EmptyThenTaskPlannerRunner(_EmptyPlannerThenManagerRunner):
                     [
                         "PROJECT_DONE=false",
                         "REASON=repair retry produced concrete next work",
+                        # The fixture project sits in the `delivery` stage, and
+                        # a decision that creates tasks while a stage is active
+                        # must name one.
+                        "ADVANCE_TO_STAGE=delivery",
                         "TASK_KEY=planner-empty-repair",
                         "TASK_TITLE=Repair empty planner verdict handling",
                         (
@@ -556,6 +560,10 @@ class _StructuredWorkKindPlannerRunner(_EmptyPlannerThenManagerRunner):
         payload = {
             "project_done": False,
             "reason": "one explicitly typed task remains",
+            # The fixture project sits in the `delivery` stage, and a decision
+            # that creates tasks while a stage is active must name one. This
+            # test is about work_kind reaching the Engineer, not about staging.
+            "advance_to_stage": "delivery",
             "tasks": [{
                 "key": "typed-task",
                 "deps": [],
