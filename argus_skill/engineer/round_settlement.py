@@ -53,9 +53,7 @@ def _enforce_operator_question_policy(
         and state.rounds[-1].review.review_source
         in OPERATOR_QUESTION_POLICY_REVIEW_SOURCES
     )
-    planner_report = (
-        dict(review.planner_report) if isinstance(review.planner_report, dict) else {}
-    )
+    planner_report = dict(review.planner_report)
     planner_report.update(
         {
             "plan_signal": "continue",
@@ -126,18 +124,12 @@ def enforce_question_policy_event(
 
 def _review_forward_progress(review: ReviewDecision) -> bool | None:
     """Return only the Reviewer's explicit structured progress judgment."""
-    report = review.planner_report
-    if not isinstance(report, dict):
-        return None
-    value = report.get("forward_progress")
+    value = review.planner_report.get("forward_progress")
     return value if isinstance(value, bool) else None
 
 
 def _review_plan_signal(review: ReviewDecision) -> str:
-    report = review.planner_report
-    if not isinstance(report, dict):
-        return ""
-    return str(report.get("plan_signal") or "").strip().lower()
+    return str(review.planner_report.get("plan_signal") or "").strip().lower()
 
 
 def _blocked_on_healthy_work(workdir: Path) -> bool:
@@ -210,7 +202,7 @@ class RoundSettlementMixin:
         policy_retry: bool = False,
     ) -> tuple[LoopStatus | None, str]:
         if _review_plan_signal(review) == "reconsider":
-            report = review.planner_report if isinstance(review.planner_report, dict) else {}
+            report = review.planner_report
             challenge = str(report.get("challenge") or review.reason or "").strip()
             authority = str(report.get("authority_impact") or "technical").strip()
             if authority == "operator" and review.operator_question:
@@ -353,8 +345,8 @@ class RoundSettlementMixin:
         # declares ``producer_role="reviewer"`` and the supervisor replays it
         # as independent stage evidence, so sealing a self-review here would
         # let the Engineer certify its own stage transition.
-        if supervised_config.context_packet_path and str(
-            getattr(review, "review_source", "reviewer") or "reviewer"
+        if supervised_config.context_packet_path and (
+            review.review_source or "reviewer"
         ) == "reviewer":
             try:
                 from ..life.context_packet import record_reviewed_handoff

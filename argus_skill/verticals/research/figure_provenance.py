@@ -300,7 +300,7 @@ def validate_figure_provenance(
         return report
     try:
         payload = _load_manifest(manifest)
-    except (OSError, json.JSONDecodeError, ValueError) as exc:
+    except (OSError, ValueError) as exc:
         report.issues.append(
             FigureProvenanceIssue("invalid_manifest", "", str(exc))
         )

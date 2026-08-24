@@ -552,7 +552,7 @@ def record_lean_evidence(
                     },
                 },
             )
-        except (OSError, UnicodeError, ValueError) as exc:
+        except (OSError, ValueError) as exc:
             return LeanRecording(
                 refusals=(
                     f"the compiler result could not be archived to {artifact}, "
@@ -880,7 +880,7 @@ def record_citation_evidence(
         artifact = _project_relative(target, root)
         try:
             _archive_retrieval(target, envelope)
-        except (OSError, UnicodeError, ValueError, TypeError) as exc:
+        except (OSError, ValueError, TypeError) as exc:
             return CitationRecording(
                 refusals=(
                     f"the retrieved material could not be archived to "

@@ -54,7 +54,7 @@ class RoundWaitsMixin:
                 )
             )
         )
-        if source_matches and external_work is not None and external_work.waitable:
+        if source_matches and external_work.waitable:
             from . import runner as _runner_module
 
             wait_reason, waited_s = _runner_module._run_external_work_wait(

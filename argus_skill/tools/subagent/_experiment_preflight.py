@@ -245,7 +245,7 @@ def _claim_run_dir(
             try:
                 handle.seek(0)
                 owner_record = json.load(handle)
-            except (OSError, ValueError, json.JSONDecodeError):
+            except (OSError, ValueError):
                 owner_record = {}
             handle.close()
             return (

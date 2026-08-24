@@ -793,7 +793,7 @@ class PlanningContextMixin:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return None
-        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        except (OSError, TypeError, ValueError):
             log.warning("Manager feedback is unreadable: %s", path, exc_info=True)
             return None
         if not isinstance(payload, dict) or payload.get("version") != 1:
@@ -932,7 +932,7 @@ class PlanningContextMixin:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return None
-        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        except (OSError, TypeError, ValueError):
             log.warning("planner waiting contract is unreadable: %s", path, exc_info=True)
             return None
         if not isinstance(payload, dict):
@@ -1123,7 +1123,7 @@ class PlanningContextMixin:
             for path in sorted(registry.glob("*.json")) if registry.is_dir() else []:
                 try:
                     payload = json.loads(path.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                except (OSError, TypeError, ValueError):
                     continue
                 if not isinstance(payload, dict):
                     continue

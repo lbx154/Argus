@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 from ...skills.stage_machine import ChecklistItem
 
 STAGE_ORDER = ["optimize"]
@@ -101,7 +99,7 @@ def prepare_mission(  # noqa: ARG001 - baseline isolation is per stage, not per 
 
     try:
         payload = read_pipeline_state(project_root)
-    except (OSError, ValueError, json.JSONDecodeError):
+    except (OSError, ValueError):
         payload = {}
     if isinstance(payload, dict):
         raw_stage = str(payload.get("current_stage") or raw_stage).strip().lower()

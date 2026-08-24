@@ -93,7 +93,7 @@ def _records(path: Path) -> list[dict[str, Any]]:
 def _identifiers(path: Path) -> set[str]:
     try:
         rows = _records(path)
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+    except (OSError, ValueError) as exc:
         raise ValueError(str(exc)) from exc
 
     identifiers: set[str] = set()

@@ -490,7 +490,7 @@ def _worker(run_dir: Path) -> int:
                     lake_bin=record.get("lake_bin"),
                     use_lake=bool(record["use_lake"]),
                 )
-            except (OSError, UnicodeError, ValueError) as exc:
+            except (OSError, ValueError) as exc:
                 outcome: dict[str, Any] = {
                     "ok": False,
                     "kind": "lost",

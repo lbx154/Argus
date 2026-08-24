@@ -313,7 +313,7 @@ def _read_jsonl_tail_rg(
     for raw in result.stdout.splitlines():
         try:
             row = json.loads(raw)
-        except (json.JSONDecodeError, ValueError):
+        except ValueError:
             continue
         if predicate is None or predicate(row):
             rows.append(row)
@@ -612,7 +612,7 @@ class EventJournal:
                     for raw in fh:
                         try:
                             row = json.loads(raw)
-                        except (json.JSONDecodeError, ValueError):
+                        except ValueError:
                             continue
                         if not isinstance(row, dict) or not self._is_journal_event(row):
                             continue

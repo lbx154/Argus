@@ -359,7 +359,7 @@ def _valid_shard(root: Path, task: dict[str, Any]) -> bool:
     try:
         path.relative_to(root.resolve())
         row = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
-    except (ValueError, OSError, IndexError, json.JSONDecodeError):
+    except (ValueError, OSError, IndexError):
         return False
     return bool(
         isinstance(row, dict)

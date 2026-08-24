@@ -922,7 +922,7 @@ def sync_paper_metadata(
 
     try:
         canonical_manifest_path = preflight_figure_provenance(project_root)
-    except (OSError, json.JSONDecodeError, ValueError) as exc:
+    except (OSError, ValueError) as exc:
         raise ImageToolError(
             f"canonical figure provenance is not writable/valid: {exc}"
         ) from exc

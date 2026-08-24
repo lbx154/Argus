@@ -57,16 +57,16 @@ def web_daemon_liveness(
     now: float | None = None,
 ) -> WebDaemonLiveness:
     """Return visible liveness without granting false host control."""
-    if bool(getattr(status, "alive", False)):
+    if status.alive:
         return WebDaemonLiveness(
             alive=True,
             control_available=True,
             source="pid_lock",
-            pid=getattr(status, "pid", None),
-            phase=str(getattr(status, "health_state", "active") or "active"),
-            last_progress_at=getattr(status, "last_progress_at", None),
-            last_progress_event=str(getattr(status, "last_progress_event", "") or ""),
-            seconds_since_progress=getattr(status, "seconds_since_progress", None),
+            pid=status.pid,
+            phase=status.health_state or "active",
+            last_progress_at=status.last_progress_at,
+            last_progress_event=status.last_progress_event,
+            seconds_since_progress=status.seconds_since_progress,
         )
 
     try:
@@ -84,7 +84,7 @@ def web_daemon_liveness(
         heartbeat_age = max(0.0, current - last_event_at)
         if heartbeat_age > _heartbeat_max_age():
             raise ValueError("heartbeat is stale")
-    except (FileNotFoundError, OSError, TypeError, ValueError, json.JSONDecodeError):
+    except (OSError, TypeError, ValueError):
         return WebDaemonLiveness(False, False, "none", None)
 
     return WebDaemonLiveness(

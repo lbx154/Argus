@@ -360,8 +360,8 @@ def reconcile_terminal_task(task_id: str, task: dict[str, Any]) -> dict[str, Any
         task["owner_lost"] = True
         stdout_path = Path(str(task.get("stdout_log") or ""))
         stderr_path = Path(str(task.get("stderr_log") or ""))
-        task["stdout_tail"] = _tail_file(stdout_path, 3000) if stdout_path else ""
-        task["stderr_tail"] = _tail_file(stderr_path, 3000) if stderr_path else ""
+        task["stdout_tail"] = _tail_file(stdout_path, 3000)
+        task["stderr_tail"] = _tail_file(stderr_path, 3000)
     task["completed_at"] = time.time()
     _write_task(task_id, task)
     return task
@@ -476,7 +476,7 @@ def _read_status_json(base: Path) -> dict[str, Any]:
         return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -530,7 +530,7 @@ def _progress_summary(run_dir: str | None) -> dict[str, Any]:
             if lines:
                 try:
                     summary["last_progress"] = json.loads(lines[-1])
-                except (ValueError, json.JSONDecodeError):
+                except ValueError:
                     summary["last_progress"] = lines[-1][:200]
             try:
                 summary["progress_age_seconds"] = round(time.time() - progress.stat().st_mtime, 1)
@@ -734,9 +734,9 @@ def _persist_experiment_record(
     codex authors the verdict prose; Python only writes files.
     """
     run_dir = td.get("run_dir")
-    metrics = _progress_summary(_effective_run_dir(td)) or {}
+    metrics = _progress_summary(_effective_run_dir(td))
     headline = ""
-    for m in metrics.get("metrics", []) or []:
+    for m in metrics.get("metrics", []):
         if "reward" in m:
             label = m.get("dataset") or m.get("condition") or "aggregate"
             headline = f"{label} reward={m['reward']}"

@@ -312,9 +312,7 @@ def start_project_daemon(
     startup_recovery_diagnostic = ""
     try:
         rc = _srv().spawn_detached_daemon(config, quiet=True)
-        startup_diagnostic = str(
-            getattr(config, "last_spawn_error", "") or ""
-        ).strip()
+        startup_diagnostic = config.last_spawn_error.strip()
         if _retryable_windows_spawn_failure(rc, startup_diagnostic):
             # The first launcher can finish just as its runtime publishes
             # status. Never create a second worker if that happened; otherwise
@@ -331,9 +329,7 @@ def start_project_daemon(
                     startup_diagnostic,
                 )
                 rc = _srv().spawn_detached_daemon(config, quiet=True)
-                second_diagnostic = str(
-                    getattr(config, "last_spawn_error", "") or ""
-                ).strip()
+                second_diagnostic = config.last_spawn_error.strip()
                 if rc == 0:
                     startup_recovery_diagnostic = startup_diagnostic
                     startup_diagnostic = ""

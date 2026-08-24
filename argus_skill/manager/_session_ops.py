@@ -114,7 +114,7 @@ def request_manager_pipeline_yield(root: Path | str) -> str:
 def _clear_pipeline_yield_if_token(path: Path, token: str) -> bool:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError):
         return False
     if not isinstance(payload, dict) or str(payload.get("token") or "") != token:
         return False
@@ -140,7 +140,7 @@ def manager_pipeline_yield_requested(root: Path | str) -> bool:
         token = str(payload.get("token") or "")
         pid = int(payload.get("pid") or 0)
         requested_at = float(payload.get("requested_at") or 0.0)
-    except (FileNotFoundError, OSError, json.JSONDecodeError, TypeError, ValueError):
+    except (OSError, TypeError, ValueError):
         return False
     if not token or pid <= 0:
         _clear_pipeline_yield_if_token(path, token)

@@ -140,7 +140,7 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
                 [row.model_dump() for row in body.attachments],
                 global_root=global_root,
             )
-        except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/api/projects/{sid}/attachments", dependencies=[Depends(ctx.require_auth)])
@@ -159,7 +159,7 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
                 payload,
                 global_root=project_root,
             )
-        except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/api/projects/{sid}/message", dependencies=[Depends(ctx.require_auth)])

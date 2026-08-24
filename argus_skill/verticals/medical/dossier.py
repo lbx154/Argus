@@ -484,7 +484,7 @@ def validate_dossier(project_root: Path | str) -> tuple[str, ...]:
                     issues.append(
                         f"evidence.jsonl line {index}: raw_artifact does not exist"
                     )
-        except (json.JSONDecodeError, ValueError) as exc:
+        except ValueError as exc:
             issues.append(f"evidence.jsonl is invalid: {exc}")
 
     matrix_path = medical / "evidence_matrix.csv"
@@ -537,7 +537,7 @@ def validate_dossier(project_root: Path | str) -> tuple[str, ...]:
                         issues.append(
                             f"queries.jsonl line {index}: raw artifact does not exist"
                         )
-        except (json.JSONDecodeError, ValueError) as exc:
+        except ValueError as exc:
             issues.append(f"queries.jsonl is invalid: {exc}")
     return tuple(issues)
 
@@ -593,7 +593,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             retrieved_at=args.retrieved_at or None,
             live=args.live,
         )
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError) as exc:
         print(f"medical dossier failed: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))

@@ -96,9 +96,9 @@ def _check_daemon(project_root: Path) -> Check:
     from ..daemon.life_worker import read_daemon_status
 
     st = read_daemon_status(project_root)
-    if getattr(st, "alive", False) and getattr(st, "pid", None):
-        backend = getattr(st, "backend", None) or "?"
-        uptime = getattr(st, "uptime_seconds", None)
+    if st.alive and st.pid:
+        backend = st.backend or "?"
+        uptime = st.uptime_seconds
         tail = f", up {uptime:.0f}s" if isinstance(uptime, (int, float)) else ""
         return Check(
             "daemon",
@@ -220,16 +220,16 @@ def _check_model_api(probe: Callable[..., Any] | None) -> Check:
             "retry, or set ARGUS_SKILL_SKIP_VAULT_PREFLIGHT=1 to bypass the probe",
         )
 
-    if getattr(report, "ok", False):
+    if report.ok:
         return Check(
             "model API capability", True, "required routes configured + reachable", ""
         )
 
-    fails = list(getattr(report, "required_failures", []))
+    fails = list(report.required_failures)
     detail = "; ".join(
         f"{c.name}: HTTP {c.http_status} {str(c.error)[:80]}".strip() for c in fails
     ) or "one or more required routes unreachable"
-    rate_limited = any(getattr(c, "http_status", None) == 429 for c in fails)
+    rate_limited = any(c.http_status == 429 for c in fails)
     if rate_limited:
         fix = (
             "gpt-5.5 backend rate-limited (429) — wait and retry, or switch "

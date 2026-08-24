@@ -1290,7 +1290,7 @@ def main(argv: list[str] | None = None) -> int:
                 lake_bin=args.lake_bin,
                 use_lake=args.lake,
             )
-        except (OSError, UnicodeError, ValueError) as exc:
+        except (OSError, ValueError) as exc:
             print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
             return 2
         payload = dict(result)
@@ -1333,7 +1333,7 @@ def main(argv: list[str] | None = None) -> int:
                 lake_bin=args.lake_bin,
                 use_lake=args.lake,
             )
-        except (OSError, UnicodeError, ValueError) as exc:
+        except (OSError, ValueError) as exc:
             print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
             return 2
         print(json.dumps(started, ensure_ascii=False, indent=2))
@@ -1344,7 +1344,7 @@ def main(argv: list[str] | None = None) -> int:
 
         try:
             payload = reclaim_lean_run(args.handle)
-        except (OSError, UnicodeError, ValueError) as exc:
+        except (OSError, ValueError) as exc:
             print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
             return 2
         print(json.dumps(payload, ensure_ascii=False, indent=2))

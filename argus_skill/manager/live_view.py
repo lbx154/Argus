@@ -183,7 +183,7 @@ def load_live_view_decision(
     manifest = Path(manifest_root or project_root) / LIVE_VIEW_MANIFEST
     try:
         payload = json.loads(manifest.read_text(encoding="utf-8"))
-    except (OSError, ValueError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return None
     return parse_live_view(payload)
 
@@ -195,13 +195,13 @@ def _response_payload(raw_text: str) -> dict[str, object] | None:
         cleaned = cleaned.rsplit("```", 1)[0].strip()
     try:
         payload = json.loads(cleaned)
-    except (TypeError, ValueError, json.JSONDecodeError):
+    except (TypeError, ValueError):
         start, end = cleaned.find("{"), cleaned.rfind("}")
         if start < 0 or end <= start:
             return None
         try:
             payload = json.loads(cleaned[start : end + 1])
-        except (TypeError, ValueError, json.JSONDecodeError):
+        except (TypeError, ValueError):
             return None
     return payload if isinstance(payload, dict) else None
 
@@ -538,7 +538,7 @@ def _workspace_artifact_exists(project_root: Path | str, relative_path: str) -> 
     try:
         target = (root / relative_path).resolve(strict=True)
         target.relative_to(root)
-    except (FileNotFoundError, OSError, RuntimeError, ValueError):
+    except (OSError, RuntimeError, ValueError):
         return False
     return target.is_file() and not target.is_symlink()
 

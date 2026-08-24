@@ -99,7 +99,7 @@ def _inside(parent: Path, child: Path) -> bool:
 def _safe_root(raw: str) -> Path:
     resolved = _resolved_directory(raw)
     bases = _allowed_bases()
-    if not bases or not any(_inside(base, resolved) for base in bases):
+    if not any(_inside(base, resolved) for base in bases):
         raise HTTPException(status_code=400, detail="workspace root is outside the allowed data roots")
     return resolved
 
@@ -129,7 +129,7 @@ def _workspace_profiles(ctx: ServerContext, sid: str) -> list[dict[str, Any]]:
             continue
         add_profile({
             "id": f"project:{row_sid}",
-            "label": str(row.get("display_name") or row.get("label") or row_sid or root.name),
+            "label": str(row.get("display_name") or row.get("label") or row_sid),
             "path": str(root),
             "source": "project",
             "project_sid": row_sid,
@@ -401,8 +401,6 @@ def _atomic_write_confined_windows(
         raise HTTPException(status_code=400, detail="invalid output directory")
     temporary = f".{name}.tmp-{os.getpid()}-{time.time_ns()}"
     descriptor: int | None = None
-    target: Path | None = None
-    temporary_path: Path | None = None
     with contextlib.ExitStack() as stack:
         current = _windows_guard_directory_chain(root, stack)
         for raw_part in parts:
@@ -450,9 +448,8 @@ def _atomic_write_confined_windows(
         finally:
             if descriptor is not None:
                 os.close(descriptor)
-            if temporary_path is not None:
-                with contextlib.suppress(FileNotFoundError):
-                    temporary_path.unlink()
+            with contextlib.suppress(FileNotFoundError):
+                temporary_path.unlink()
     return PurePosixPath(directory, name).as_posix()
 
 
@@ -603,7 +600,7 @@ def _git(root: Path, *args: str, max_bytes: int = 2 * 1024 * 1024) -> str:
         return ""
     finally:
         selector.close()
-    if timed_out or process is None or (process.returncode not in {0, -9} and not truncated):
+    if timed_out or (process.returncode not in {0, -9} and not truncated):
         return ""
     text = bytes(payload[:max_bytes]).decode("utf-8", errors="replace")
     return text + ("\n… output truncated\n" if truncated else "")
@@ -629,7 +626,7 @@ def _github_status() -> dict[str, Any]:
         payload = json.loads(result.stdout or "{}")
         rows = payload.get("hosts", {}).get("github.com", [])
         active = next((row for row in rows if row.get("active")), rows[0] if rows else None)
-    except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired, json.JSONDecodeError, AttributeError):
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError, AttributeError):
         active = None
     if not isinstance(active, dict):
         return {"authenticated": False, "host": "github.com", "login": "", "protocol": "", "scopes": []}
@@ -916,12 +913,11 @@ def register_workspace_v2_routes(app, ctx: ServerContext, server_mod) -> None:
         manuscript_path = body.manuscript_path or _latest_manuscript(workspace)
         if not manuscript_path:
             raise HTTPException(status_code=409, detail="no final manuscript was found in the approved project workspace")
-        if manuscript_path:
-            suffix = PurePosixPath(manuscript_path).suffix.lower()
-            if suffix not in {".tex", ".md", ".pdf"}:
-                raise HTTPException(status_code=415, detail="final manuscript must be TeX, Markdown, or PDF")
-            fd, _info = _open_confined_file(workspace, manuscript_path)
-            os.close(fd)
+        suffix = PurePosixPath(manuscript_path).suffix.lower()
+        if suffix not in {".tex", ".md", ".pdf"}:
+            raise HTTPException(status_code=415, detail="final manuscript must be TeX, Markdown, or PDF")
+        fd, _info = _open_confined_file(workspace, manuscript_path)
+        os.close(fd)
         created_at = time.time()
         request_id = f"fr-{time.time_ns()}"
         report_path = f"reviews/final_review_{request_id}.md"

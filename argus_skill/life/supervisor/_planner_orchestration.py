@@ -103,7 +103,7 @@ class PlannerOrchestrationMixin:
         project_root = self._project_workdir()
         try:
             pipeline = read_pipeline_state(artifact_root)
-        except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+        except (OSError, ValueError):
             pipeline = {}
 
         stage_rows: list[str] = []

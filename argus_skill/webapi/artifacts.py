@@ -331,7 +331,7 @@ def get_project_artifact(
     )
     if row is None:
         return None
-    row["source"] = str(allowed.get("source") or "reviewer_evidence")
+    row["source"] = allowed["source"]
     row["group_title"] = str(allowed.get("group_title") or "")
     return row
 

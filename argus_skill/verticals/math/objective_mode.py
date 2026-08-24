@@ -127,7 +127,7 @@ class MathObjective:
 def _read_state(project_root: object) -> dict[str, Any]:
     try:
         payload = read_pipeline_state(project_root)
-    except (OSError, ValueError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return {}
     return payload
 
@@ -318,7 +318,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             objective = set_objective(root, mode=args.mode, goal=args.goal)
         else:
             objective = resolve_objective(root)
-    except (OSError, UnicodeError, ValueError) as exc:
+    except (OSError, ValueError) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
         return 1
     payload = dict(objective.as_dict())

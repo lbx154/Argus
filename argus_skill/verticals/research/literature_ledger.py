@@ -396,7 +396,7 @@ def main(argv: list[str] | None = None) -> int:
     root = args.project_root.expanduser().resolve()
     try:
         payload = load_ledger(root)
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
         return 1
     issues = validate_literature_ledger(payload)

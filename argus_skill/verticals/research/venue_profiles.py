@@ -538,7 +538,7 @@ def _venue_key_from_pipeline_state(project_root: Path) -> str | None:
 
     try:
         data = read_pipeline_state(project_root)
-    except (OSError, ValueError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return None
     value = data.get("target_venue") or data.get("venue")
     return str(value) if value else None

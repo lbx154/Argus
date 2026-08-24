@@ -210,14 +210,14 @@ def _runner_result_has_successful_work_signal(
     *,
     engineer_message: str,
 ) -> bool:
-    if normalize_stop_kind(getattr(result, "stop_kind", None)) is not None:
+    if normalize_stop_kind(result.stop_kind) is not None:
         return False
     if engineer_message.strip():
         return True
-    if fatal_error_looks_like_backend_failure(getattr(result, "fatal_error", None)):
+    if fatal_error_looks_like_backend_failure(result.fatal_error):
         return False
 
-    for raw in getattr(result, "stdout_lines", []) or []:
+    for raw in result.stdout_lines:
         event = _parse_json_event(raw)
         if event is not None and _event_has_successful_work_signal(event):
             return True
@@ -225,10 +225,10 @@ def _runner_result_has_successful_work_signal(
 
 
 def runner_result_is_backend_failure(result: RunnerResult) -> bool:
-    stop_kind = normalize_stop_kind(getattr(result, "stop_kind", None))
+    stop_kind = normalize_stop_kind(result.stop_kind)
     if stop_kind is not None:
         return stop_kind in {"backend_unavailable", "transient_error"}
-    return fatal_error_looks_like_backend_failure(getattr(result, "fatal_error", None))
+    return fatal_error_looks_like_backend_failure(result.fatal_error)
 
 
 def should_clear_thread_id_after_outcome(

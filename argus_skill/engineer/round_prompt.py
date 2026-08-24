@@ -67,6 +67,8 @@ class RoundPromptMixin:
                 "approval again. Read the canonical checkpoint and latest reviewed "
                 "handoff below first."
             )
+        # ``getattr``, not attribute access: tests/test_checkpoint.py drives this
+        # phase with a partial ``SimpleNamespace`` config that omits the field.
         mission_brief = render_mission_brief(
             getattr(supervised_config, "context_packet_path", "")
         )

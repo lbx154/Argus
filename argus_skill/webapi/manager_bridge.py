@@ -304,8 +304,8 @@ def manager_message(
             daemon_alive, daemon_pid = _daemon_status(life_dir)
             item_payload = _item_to_dict(duplicate_item, operator_text or body)
             title = str(
-                (item_payload or {}).get("title")
-                or (item_payload or {}).get("objective")
+                item_payload.get("title")
+                or item_payload.get("objective")
                 or operator_text
                 or body
             )
@@ -326,7 +326,7 @@ def manager_message(
         pending_questions = [
             item
             for item in mem.backlog.all()
-            if str(getattr(item, "pending_question", "") or "").strip()
+            if item.pending_question.strip()
         ]
         pending_result = _handle_pending_question_turn(
             mem, pending_questions, body, chat_state, emitter

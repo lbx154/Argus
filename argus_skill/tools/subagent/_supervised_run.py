@@ -477,16 +477,12 @@ def _supervised_handle_early_stop(
     # poison unrelated runs or linger as stale root-owned cruft. Only fall
     # back to cwd when the run dir is unknown.
     stop_note = f"Early-stopped by supervisor at check #{check_number}\n"
-    if resolved_run_dir:
-        stop_targets = {Path(resolved_run_dir) / "STOP"}
-    else:
-        stop_targets = {Path(cwd) / "STOP"}
-    for stop_file in stop_targets:
-        try:
-            stop_file.parent.mkdir(parents=True, exist_ok=True)
-            stop_file.write_text(stop_note)
-        except OSError:
-            pass
+    stop_file = Path(resolved_run_dir or cwd) / "STOP"
+    try:
+        stop_file.parent.mkdir(parents=True, exist_ok=True)
+        stop_file.write_text(stop_note)
+    except OSError:
+        pass
     try:
         proc.wait(timeout=30)
     except subprocess.TimeoutExpired:

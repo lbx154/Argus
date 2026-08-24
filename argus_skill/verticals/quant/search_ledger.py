@@ -232,7 +232,7 @@ def _cli(argv: list[str] | None = None) -> int:
                     "a row was edited, deleted or reordered after it was written"
                 )
             )
-        except (KeyError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        except (KeyError, ValueError, TypeError) as exc:
             rows, valid = 0, False
             detail = (
                 f"search-ledger: NOT A LEDGER at {path} — "

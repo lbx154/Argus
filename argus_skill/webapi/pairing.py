@@ -104,16 +104,12 @@ def encodable(text: str, encoding: str) -> bool:
         return False
 
 
-def render_qr(text: str, *, encoding: str | None = None) -> str:
+def render_qr(text: str) -> str:
     """Render *text* as a terminal QR code, or return ``""`` if unavailable.
 
     Inverted so the light modules use the terminal foreground: the common case
     is a dark terminal, where printing dark modules as blocks would give a
     scanner reversed contrast.
-
-    Returns ``""`` when the target encoding cannot carry the block characters.
-    A QR printed with ``?`` substituted for every white module does not scan,
-    so a missing code is strictly better than a corrupted one.
     """
     try:
         import qrcode
@@ -127,8 +123,6 @@ def render_qr(text: str, *, encoding: str | None = None) -> str:
         code.print_ascii(out=buffer, invert=True)
         art = buffer.getvalue().rstrip("\n")
     except Exception:  # noqa: BLE001 - a missing QR must never block serving
-        return ""
-    if encoding and not encodable(art, encoding):
         return ""
     return art
 

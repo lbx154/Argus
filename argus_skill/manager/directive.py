@@ -41,7 +41,7 @@ def _current_objective_sha256(state_root: Path | str) -> str:
         payload = json.loads(
             (Path(state_root) / "continuous.json").read_text(encoding="utf-8")
         )
-    except (FileNotFoundError, OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError):
         return ""
     if not isinstance(payload, dict):
         return ""
@@ -56,7 +56,7 @@ def _current_objective(state_root: Path | str) -> str:
         payload = json.loads(
             (Path(state_root) / "continuous.json").read_text(encoding="utf-8")
         )
-    except (FileNotFoundError, OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError):
         return ""
     if not isinstance(payload, dict):
         return ""
@@ -148,7 +148,7 @@ def load_active_manager_directive(
         payload = json.loads(
             _directive_path(state_root).read_text(encoding="utf-8")
         )
-    except (FileNotFoundError, OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError):
         return None
     if not isinstance(payload, dict):
         return None

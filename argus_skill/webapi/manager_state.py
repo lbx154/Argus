@@ -367,9 +367,7 @@ def reset_manager_context(
     from ..manager import reset_manager_session
 
     root = Path(global_root) if global_root else None
-    life_dir = core_paths.session_state_root(sid, root=root) if root is not None else None
-    if life_dir is None:
-        life_dir = core_paths.session_state_root(sid)
+    life_dir = core_paths.session_state_root(sid, root=root)
     if not life_dir.is_dir():
         return False
     with _lock_for(sid):

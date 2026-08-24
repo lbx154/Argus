@@ -5,7 +5,6 @@ parsing, and the direct `_run_direct` dispatcher.
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 import shlex
@@ -231,7 +230,7 @@ def _run_contract_preflight(command: str, cwd: str) -> tuple[bool, str, str]:
             knobs=knobs,
         )
         return reject, concern, ""
-    except (OSError, json.JSONDecodeError, ValueError) as exc:
+    except (OSError, ValueError) as exc:
         # The contract itself is unreadable or does not say what a contract has
         # to say — ``run_contract`` raises ValueError for exactly that (a
         # non-object payload, an empty materialized curriculum). Not being able
@@ -269,7 +268,7 @@ def _terminate_proc(proc: "subprocess.Popen[Any]", grace: float = 10.0) -> None:
     if proc.poll() is not None:
         return
     if os.name == "nt":
-        pid = int(getattr(proc, "pid", 0) or 0)
+        pid = proc.pid
         if pid > 0:
             tree_stopped = terminate_windows_process_tree(
                 pid,

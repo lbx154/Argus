@@ -299,7 +299,7 @@ def normalize_ops(patch: dict[str, Any]) -> dict[str, Any]:
         return patch
     try:
         parsed = json.loads(patch["ops"])
-    except (json.JSONDecodeError, ValueError) as exc:
+    except ValueError as exc:
         raise PatchError(f"ops is a string but not valid JSON: {exc}") from exc
     if not isinstance(parsed, list):
         raise PatchError(

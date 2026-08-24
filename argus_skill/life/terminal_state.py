@@ -299,7 +299,7 @@ def build_terminal_idle_signature(
 
     try:
         digest.update(_json_bytes(read_pipeline_state(artifact_root)))
-    except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+    except (OSError, ValueError):
         digest.update(b"pipeline-state-unavailable")
     digest.update(b"\0")
 

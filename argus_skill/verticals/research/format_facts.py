@@ -188,10 +188,7 @@ def _count_unique_indexed(matches) -> tuple[int, int]:
     capture an integer in group 1."""
     nums = set()
     for m in matches:
-        try:
-            nums.add(int(m.group(1)))
-        except (TypeError, ValueError):
-            continue
+        nums.add(int(m.group(1)))
     if not nums:
         return 0, 0
     return len(nums), max(nums)

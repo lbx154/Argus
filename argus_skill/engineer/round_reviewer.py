@@ -156,9 +156,7 @@ class RoundReviewerMixin:
                 "checkpoint. Verify the current Engineer summary and artifacts, then "
                 "return the verdict for this round."
             )
-        mission_brief = render_mission_brief(
-            getattr(supervised_config, "context_packet_path", "")
-        )
+        mission_brief = render_mission_brief(supervised_config.context_packet_path)
         reviewer_background_context = "\n\n".join(
             part
             for part in (
@@ -200,10 +198,8 @@ class RoundReviewerMixin:
                 escalate_hint=escalate_hint,
                 engineer_log_path=supervised_config.engineer_log_path,
                 engineer_call_id=(
-                    str(getattr(engineer_result, "call_id", "") or "")
-                    if bool(
-                        getattr(engineer_result, "call_id_log_correlated", False)
-                    )
+                    str(engineer_result.call_id or "")
+                    if engineer_result.call_id_log_correlated
                     else ""
                 ),
                 preselected_skill_block=reviewer_skill_block,
@@ -411,19 +407,16 @@ class RoundReviewerMixin:
                 state=state,
                 on_event=on_event,
             )
-            reviewer_fatal_error = str(
-                getattr(review, "backend_fatal_error", "") or "")
-            reviewer_exit_code = int(
-                getattr(review, "backend_exit_code", 0) or 0
-            )
+            reviewer_fatal_error = str(review.backend_fatal_error or "")
+            reviewer_exit_code = int(review.backend_exit_code or 0)
             reviewer_stop_kind = normalize_stop_kind(
-                getattr(review, "backend_stop_kind", None)
+                review.backend_stop_kind
             ) or stop_kind_from_external_interrupt(reviewer_fatal_error)
             reviewer_pause_status = pause_status_for_stop_kind(
                 reviewer_stop_kind
             )
             if (
-                getattr(review, "backend_unavailable", False)
+                review.backend_unavailable
                 and reviewer_stop_kind in NON_FAILURE_STOP_KINDS
                 and reviewer_pause_status
             ):
@@ -450,10 +443,7 @@ class RoundReviewerMixin:
                     review.reason,
                     None,
                 ))
-            if (
-                getattr(review, "backend_unavailable", False)
-                and reviewer_stop_kind == "permanent_error"
-            ):
+            if review.backend_unavailable and reviewer_stop_kind == "permanent_error":
                 state.rounds.append(RoundRecord(
                     round_index=round_index,
                     engineer_message=engineer_message,
@@ -470,7 +460,7 @@ class RoundReviewerMixin:
                     None,
                 ))
             if (
-                getattr(review, "backend_unavailable", False)
+                review.backend_unavailable
                 and (
                     reviewer_stop_kind == "operator_abort"
                     or fatal_error_looks_like_operator_abort_request(
@@ -484,17 +474,13 @@ class RoundReviewerMixin:
                 )
                 interrupted_review = replace(
                     interrupted_review,
-                    input_tokens=int(getattr(review, "input_tokens", 0) or 0),
-                    cached_input_tokens=int(
-                        getattr(review, "cached_input_tokens", 0) or 0
-                    ),
-                    output_tokens=int(getattr(review, "output_tokens", 0) or 0),
+                    input_tokens=int(review.input_tokens or 0),
+                    cached_input_tokens=int(review.cached_input_tokens or 0),
+                    output_tokens=int(review.output_tokens or 0),
                     reasoning_output_tokens=int(
-                        getattr(review, "reasoning_output_tokens", 0) or 0
+                        review.reasoning_output_tokens or 0
                     ),
-                    premium_requests=float(
-                        getattr(review, "premium_requests", 0.0) or 0.0
-                    ),
+                    premium_requests=float(review.premium_requests or 0.0),
                 )
                 if on_event:
                     on_event(_review_event_payload(
@@ -520,7 +506,7 @@ class RoundReviewerMixin:
                     None,
                 ))
             if (
-                getattr(review, "backend_unavailable", False)
+                review.backend_unavailable
                 and (
                     reviewer_stop_kind == "daemon_shutdown"
                     or fatal_error_looks_like_daemon_stop_request(
@@ -559,7 +545,7 @@ class RoundReviewerMixin:
             # a silent continuation. Use the same retry and escalation path as
             # Engineer backend failures. A genuine `blocked` verdict remains a
             # model decision and follows normal classification.
-            if not getattr(review, "backend_unavailable", False):
+            if not review.backend_unavailable:
                 break
             state.reviewer_backend_failure_streak += 1
             rb_threshold = max(

@@ -89,9 +89,7 @@ def _parse_pending_question_decision(text: str) -> dict[str, Any] | None:
         return named
     cleaned = str(text or "").strip()
     if cleaned.startswith("```"):
-        lines = cleaned.splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
+        lines = cleaned.splitlines()[1:]
         if lines and lines[-1].strip() == "```":
             lines = lines[:-1]
         cleaned = "\n".join(lines).strip()
@@ -102,7 +100,7 @@ def _parse_pending_question_decision(text: str) -> dict[str, Any] | None:
     for candidate in candidates:
         try:
             payload = json.loads(candidate)
-        except (TypeError, ValueError, json.JSONDecodeError):
+        except ValueError:
             continue
         if (
             not isinstance(payload, dict)
@@ -231,7 +229,7 @@ def _apply_operator_answer(
     from ..core.event_catalog import EventType
     from ..life.event_log import JsonlEventSink
 
-    question = str(getattr(item, "pending_question", "") or "").strip()
+    question = str(item.pending_question or "").strip()
     blocked, continuation = mem.backlog.continue_with_operator_reply(
         item.id,
         answer,

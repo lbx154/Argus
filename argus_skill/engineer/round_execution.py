@@ -123,14 +123,14 @@ class RoundExecutionMixin:
             supervised_config=supervised_config,
             on_event=on_event,
         )
-        new_tid = getattr(engineer_result, "thread_id", None)
-        fatal_error = getattr(engineer_result, "fatal_error", None)
+        new_tid = engineer_result.thread_id
+        fatal_error = engineer_result.fatal_error
         safe_fatal_error = redact_secrets_text(
             str(fatal_error or ""),
             known_values=known_secret_values(),
         ) or None
         stop_kind = normalize_stop_kind(
-            getattr(engineer_result, "stop_kind", None)
+            engineer_result.stop_kind
         ) or stop_kind_from_external_interrupt(fatal_error)
         round_thread_id = new_tid
         process_decision = latest_role_decision(engineer_result, "engineer")
@@ -160,11 +160,9 @@ class RoundExecutionMixin:
                 "round_index": round_index,
                 "session_id": str(new_tid or ""),
                 "turns_on_session": engineer_session.turns,
-                "input_tokens": int(
-                    getattr(engineer_result, "input_tokens", 0) or 0
-                ),
+                "input_tokens": int(engineer_result.input_tokens or 0),
                 "cached_input_tokens": int(
-                    getattr(engineer_result, "cached_input_tokens", 0) or 0
+                    engineer_result.cached_input_tokens or 0
                 ),
                 "duration_ms": int((time.time() - round_started_at) * 1000),
                 "prompt_chars": len(engineer_prompt),
@@ -200,17 +198,11 @@ class RoundExecutionMixin:
             state.pending_secret_guard_notes.append(secret_guard_reviewer_note)
             del state.pending_secret_guard_notes[:-8]
         state.last_engineer_message = engineer_message or state.last_engineer_message
-        orphan_group_id = int(
-            getattr(engineer_result, "orphan_process_group_id", 0) or 0
-        )
+        orphan_group_id = int(engineer_result.orphan_process_group_id or 0)
         process_ownership_note = ""
         if orphan_group_id:
             cleanup_succeeded = bool(
-                getattr(
-                    engineer_result,
-                    "orphan_process_group_cleanup_succeeded",
-                    False,
-                )
+                engineer_result.orphan_process_group_cleanup_succeeded
             )
             process_ownership_note = (
                 "ARGUS PROCESS OWNERSHIP FACT: the provider turn exited while "
@@ -242,20 +234,20 @@ class RoundExecutionMixin:
                 "round_index": round_index,
                 "round_max": supervised_config.max_rounds,
                 "session_id": round_thread_id,
-                "exit_code": getattr(engineer_result, "exit_code", 0),
+                "exit_code": engineer_result.exit_code,
                 "fatal_error": safe_fatal_error,
                 "stop_kind": stop_kind,
                 "last_message": engineer_message,
-                "input_tokens": int(getattr(engineer_result, "input_tokens", 0) or 0),
+                "input_tokens": int(engineer_result.input_tokens or 0),
                 "cached_input_tokens": int(
-                    getattr(engineer_result, "cached_input_tokens", 0) or 0
+                    engineer_result.cached_input_tokens or 0
                 ),
-                "output_tokens": int(getattr(engineer_result, "output_tokens", 0) or 0),
+                "output_tokens": int(engineer_result.output_tokens or 0),
                 "reasoning_output_tokens": int(
-                    getattr(engineer_result, "reasoning_output_tokens", 0) or 0
+                    engineer_result.reasoning_output_tokens or 0
                 ),
                 "premium_requests": float(
-                    getattr(engineer_result, "premium_requests", 0.0) or 0.0
+                    engineer_result.premium_requests or 0.0
                 ),
                 "usage_scope": "delta",
             })
@@ -296,7 +288,7 @@ class RoundExecutionMixin:
         ):
             review = daemon_stop_review_decision(
                 fatal_error=fatal_error,
-                exit_code=getattr(engineer_result, "exit_code", 0),
+                exit_code=engineer_result.exit_code,
             )
             if on_event:
                 on_event(_review_event_payload(
@@ -328,7 +320,7 @@ class RoundExecutionMixin:
         ):
             review = operator_abort_review_decision(
                 fatal_error=fatal_error,
-                exit_code=getattr(engineer_result, "exit_code", 0),
+                exit_code=engineer_result.exit_code,
             )
             if on_event:
                 on_event(_review_event_payload(
@@ -358,7 +350,7 @@ class RoundExecutionMixin:
             engineer_session.rotate("model_configuration")
             review = model_configuration_review_decision(
                 fatal_error=fatal_error,
-                exit_code=getattr(engineer_result, "exit_code", 0),
+                exit_code=engineer_result.exit_code,
             )
             if on_event:
                 on_event({
@@ -398,7 +390,7 @@ class RoundExecutionMixin:
             review = external_pause_review_decision(
                 stop_kind=stop_kind,
                 fatal_error=fatal_error,
-                exit_code=getattr(engineer_result, "exit_code", 0),
+                exit_code=engineer_result.exit_code,
             )
             if on_event:
                 on_event(_review_event_payload(
@@ -430,12 +422,12 @@ class RoundExecutionMixin:
             review = (
                 authentication_review_decision(
                     fatal_error=fatal_error,
-                    exit_code=getattr(engineer_result, "exit_code", 0),
+                    exit_code=engineer_result.exit_code,
                 )
                 if auth_failure
                 else backend_failure_review_decision(
                     fatal_error=fatal_error,
-                    exit_code=getattr(engineer_result, "exit_code", 0),
+                    exit_code=engineer_result.exit_code,
                     streak=1,
                     threshold=1,
                 )
@@ -475,7 +467,7 @@ class RoundExecutionMixin:
             )
             review = backend_failure_review_decision(
                 fatal_error=fatal_error,
-                exit_code=getattr(engineer_result, "exit_code", 0),
+                exit_code=engineer_result.exit_code,
                 streak=state.backend_failure_streak,
                 threshold=threshold,
             )

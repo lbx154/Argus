@@ -99,7 +99,7 @@ def resolve_global_root(value: Path | str | None) -> Path:
 def daemon_upgrade_pending(life_dir: Path) -> bool:
     try:
         payload = json.loads((life_dir / DAEMON_UPGRADE_REQUEST_FILE).read_text(encoding="utf-8"))
-    except (FileNotFoundError, OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError):
         return False
     if not isinstance(payload, dict) or payload.get("schema_version") != 1:
         return False
@@ -331,7 +331,7 @@ def diagnostic(section: str, exc: BaseException) -> dict[str, str]:
     return {
         "section": section,
         "error_type": type(exc).__name__,
-        "message": str(exc or type(exc).__name__)[:500],
+        "message": str(exc)[:500],
     }
 
 
@@ -360,7 +360,7 @@ def daemon_error_dict(exc: BaseException) -> dict[str, Any]:
         "global_daily_cap_usd": global_daily,
         "mission_width": None,
         "read_status": "error",
-        "read_error": str(exc or type(exc).__name__)[:500],
+        "read_error": str(exc)[:500],
         "protocol": {"name": "", "major": None, "minor": None},
         "capabilities": [],
         "runtime": None,
@@ -438,33 +438,25 @@ def apply_campaign_workdir(
 
 
 def compact_backlog_item(item: Any) -> dict[str, Any]:
-    objective = str(getattr(item, "objective", "") or "")
-    title = str(getattr(item, "title", "") or "").strip()
+    objective = item.objective
+    title = item.title.strip()
     if not title:
         title = objective.splitlines()[0][:180]
     return {
-        "id": str(getattr(item, "id", "")),
+        "id": item.id,
         "title": title,
         "objective": "" if title else objective[:240],
-        "status": str(getattr(item, "status", "pending")),
-        "priority": int(getattr(item, "priority", 100)),
-        "iterate": bool(getattr(item, "iterate", False)),
-        "pending_question": str(getattr(item, "pending_question", "") or "")[:500],
-        "operator_decision": (
-            dict(getattr(item, "operator_decision", {}) or {})
-            if isinstance(getattr(item, "operator_decision", {}), dict)
-            else {}
-        ),
-        "started_ts": getattr(item, "started_ts", None),
-        "finished_ts": getattr(item, "finished_ts", None),
-        "deps": [str(dep) for dep in (getattr(item, "deps", None) or [])],
-        "iteration_max_cycles": int(getattr(item, "iteration_max_cycles", 0) or 0),
-        "iteration_cycles_done": int(getattr(item, "iteration_cycles_done", 0) or 0),
-        "outcome": (
-            dict(getattr(item, "outcome", {}) or {})
-            if isinstance(getattr(item, "outcome", {}), dict)
-            else {}
-        ),
+        "status": item.status,
+        "priority": item.priority,
+        "iterate": item.iterate,
+        "pending_question": item.pending_question[:500],
+        "operator_decision": dict(item.operator_decision),
+        "started_ts": item.started_ts,
+        "finished_ts": item.finished_ts,
+        "deps": [str(dep) for dep in item.deps],
+        "iteration_max_cycles": item.iteration_max_cycles,
+        "iteration_cycles_done": item.iteration_cycles_done,
+        "outcome": dict(item.outcome),
     }
 
 
@@ -483,7 +475,7 @@ def _carries_stage_state(root: Path) -> bool:
 
     try:
         payload = read_pipeline_state(root)
-    except (OSError, json.JSONDecodeError, ValueError):
+    except (OSError, ValueError):
         return False
     return bool(
         str(payload.get("current_stage") or "").strip()
@@ -590,7 +582,7 @@ def stat_signature(path: Path) -> tuple[int, int, int] | None:
     except OSError:
         return None
     return (
-        int(getattr(stat, "st_ino", 0) or 0),
+        int(stat.st_ino),
         int(stat.st_size),
         int(stat.st_mtime_ns),
     )
@@ -666,7 +658,7 @@ def build_snapshot(
     )
     if engineer and engineer.get("backend"):
         daemon["backend"] = engineer["backend"]
-        daemon["backend_label"] = engineer.get("backend_label") or daemon.get("backend")
+        daemon["backend_label"] = engineer.get("backend_label") or daemon["backend"]
 
     items: list[Any] = []
     try:
@@ -804,7 +796,7 @@ def build_snapshot(
     if compact:
         snapshot["continuous"] = continuous_payload
         snapshot["pending_questions"] = [
-            compact_backlog_item(item) for item in items if getattr(item, "pending_question", "")
+            compact_backlog_item(item) for item in items if item.pending_question
         ]
     snapshot["partial"] = bool(diagnostics)
     snapshot["diagnostics"] = diagnostics

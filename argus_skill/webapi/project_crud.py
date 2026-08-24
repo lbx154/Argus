@@ -139,7 +139,7 @@ def list_trashed_projects(
             value = json.loads((path / "session.json").read_text(encoding="utf-8"))
             if isinstance(value, dict):
                 payload = value
-        except (OSError, ValueError, json.JSONDecodeError):
+        except (OSError, ValueError):
             pass
         sid = str(payload.get("id") or path.name.split(".", 1)[0]).strip()
         label = str(payload.get("display_name") or payload.get("objective") or sid).strip()
@@ -156,7 +156,7 @@ def list_trashed_projects(
                 "trashed_at": trashed_at,
             }
         )
-    out.sort(key=lambda row: float(row.get("trashed_at") or 0.0), reverse=True)
+    out.sort(key=lambda row: row["trashed_at"], reverse=True)
     return out
 
 
@@ -190,7 +190,7 @@ def restore_trashed_project(
         value = json.loads((source / "session.json").read_text(encoding="utf-8"))
         if isinstance(value, dict):
             payload = value
-    except (OSError, ValueError, json.JSONDecodeError):
+    except (OSError, ValueError):
         pass
     sid = str(payload.get("id") or source.name.split(".", 1)[0]).strip()
     if not sid or Path(sid).name != sid:

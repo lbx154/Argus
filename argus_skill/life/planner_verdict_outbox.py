@@ -32,7 +32,7 @@ def load_planner_verdict_outbox(root: Path | str) -> dict[str, Any] | None:
         payload = json.loads(
             (Path(root) / OUTBOX_FILE).read_text(encoding="utf-8")
         )
-    except (FileNotFoundError, OSError, json.JSONDecodeError, ValueError):
+    except (OSError, ValueError):
         return None
     if (
         not isinstance(payload, dict)

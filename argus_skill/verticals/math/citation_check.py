@@ -533,7 +533,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 checked_by=args.by,
                 note=args.note,
             )
-    except (MathStateError, OSError, UnicodeError, ValueError) as exc:
+    except (MathStateError, OSError, ValueError) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
         return 1
     print(json.dumps(payload, ensure_ascii=False, indent=2))

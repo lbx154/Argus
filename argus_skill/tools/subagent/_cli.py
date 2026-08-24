@@ -214,8 +214,8 @@ def cmd_worker(args: argparse.Namespace) -> int:
     """Run one submitted task in a Windows worker subprocess."""
     task_id = args.task_id
     run_id = str((_read_task(task_id) or {}).get("run_id") or f"{task_id}-{time.time_ns()}")
-    mode = getattr(args, "mode", "direct") or "direct"
-    run_dir = getattr(args, "run_dir", None)
+    mode = args.mode
+    run_dir = args.run_dir
     worker_task = _read_task(task_id) or {
         "state": "starting",
         "task_id": task_id,
@@ -231,7 +231,7 @@ def cmd_worker(args: argparse.Namespace) -> int:
     _write_task(task_id, worker_task)
     try:
         _cpu_admission.apply_current_process_affinity(
-            _parse_worker_cpu_ids(getattr(args, "cpu_ids", None))
+            _parse_worker_cpu_ids(args.cpu_ids)
         )
     except (OSError, RuntimeError, ValueError) as exc:
         _write_worker_start_error(
@@ -251,11 +251,11 @@ def cmd_worker(args: argparse.Namespace) -> int:
             command=args.command,
             description=args.description,
             timeout=args.timeout,
-            monitor_interval=getattr(args, "monitor_interval", 120) or 120,
-            model=getattr(args, "model", None) or resolve_supervisor_model(),
+            monitor_interval=args.monitor_interval or 120,
+            model=args.model or resolve_supervisor_model(),
             cwd=args.cwd,
             run_dir=run_dir,
-            preflight=not getattr(args, "no_preflight", False),
+            preflight=not args.no_preflight,
         )
     else:
         _run_direct(
@@ -285,7 +285,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
 
     cwd = str(Path(args.cwd or os.getcwd()).expanduser().resolve())
     registry_cwd = str(Path.cwd().resolve())
-    mode = getattr(args, "mode", "direct") or "direct"
+    mode = args.mode
     run_id = f"{task_id}-{time.time_ns()}"
 
     # Resolve the run directory: prefer an explicit --run-dir, else recover it
@@ -293,7 +293,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
     # absolute path so status/report can read progress.jsonl/status.json/
     # summary.tsv regardless of the caller's cwd -- this is what makes the run
     # observable instead of a black box.
-    run_dir = getattr(args, "run_dir", None) or _run_dir_from_command(args.command)
+    run_dir = args.run_dir or _run_dir_from_command(args.command)
     if run_dir:
         rp = Path(run_dir).expanduser()
         run_dir = str((rp if rp.is_absolute() else Path(cwd) / rp).resolve())
@@ -303,8 +303,8 @@ def cmd_submit(args: argparse.Namespace) -> int:
     # so a concern can never be bypassed by silently starting something else. The
     # `reply` command is never blocked. A stale/dead supervisor does not wedge
     # this (liveness = live pid + fresh heartbeat). Break-glass: --override-discussion.
-    override = getattr(args, "override_discussion", None)
-    blockers = _open_discussion_blockers(_lane_of(getattr(args, "task_id", None)))
+    override = args.override_discussion
+    blockers = _open_discussion_blockers(_lane_of(task_id))
     if blockers and not override:
         b = blockers[0]
         rd = b.get("run_dir")
@@ -344,7 +344,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
     if run_dir:
         stop_path = Path(run_dir) / "STOP"
         if stop_path.exists():
-            if getattr(args, "clear_stop", False):
+            if args.clear_stop:
                 try:
                     stop_path.unlink()
                 except OSError:
@@ -372,8 +372,8 @@ def cmd_submit(args: argparse.Namespace) -> int:
                 }))
                 return 1
             selected_cpu_ids = _cpu_admission.select_cpu_ids(
-                cpu_count=getattr(args, "cpu_count", 0),
-                cpu_ids=getattr(args, "cpu_ids", None),
+                cpu_count=args.cpu_count,
+                cpu_ids=args.cpu_ids,
                 tasks=_list_tasks(),
                 is_pid_alive=_is_pid_alive,
             )
@@ -414,11 +414,11 @@ def cmd_submit(args: argparse.Namespace) -> int:
                 command=args.command,
                 mode=mode,
                 timeout=args.timeout,
-                monitor_interval=getattr(args, "monitor_interval", 120) or 120,
-                model=getattr(args, "model", None),
+                monitor_interval=args.monitor_interval or 120,
+                model=args.model,
                 cwd=cwd,
                 run_dir=run_dir,
-                preflight=not getattr(args, "no_preflight", False),
+                preflight=not args.no_preflight,
                 cpu_ids=selected_cpu_ids,
                 registry_cwd=registry_cwd,
             )
@@ -531,11 +531,11 @@ def cmd_submit(args: argparse.Namespace) -> int:
             command=args.command,
             description=args.description,
             timeout=args.timeout,
-            monitor_interval=getattr(args, "monitor_interval", 120) or 120,
-            model=getattr(args, "model", None) or resolve_supervisor_model(),
+            monitor_interval=args.monitor_interval or 120,
+            model=args.model or resolve_supervisor_model(),
             cwd=cwd,
             run_dir=run_dir,
-            preflight=not getattr(args, "no_preflight", False),
+            preflight=not args.no_preflight,
         )
     else:
         _run_direct(
@@ -738,7 +738,7 @@ def cmd_reply(args: argparse.Namespace) -> int:
         return 2
 
     message = args.message
-    if getattr(args, "message_file", None):
+    if args.message_file:
         try:
             message = sys.stdin.read() if args.message_file == "-" else \
                 Path(args.message_file).read_text(encoding="utf-8")

@@ -432,15 +432,9 @@ def _classify_operator_turn(
         chat_state.pop("_frontdoor_dispatch_body", "") or body
     )
     handoff = startup_handoff
-    send_body = (
-        f"{handoff}\n\n{dispatch_body}"
-        if handoff
-        else dispatch_body
-    )
     root_task_id = BacklogItem.new_id()
     if chat_state["turns"] > _rotate_after():
         handoff = _build_handoff(life_dir)
-        send_body = f"{handoff}\n\n{dispatch_body}"
         chat_state["last_thread_id"] = None  # start a fresh session thread
         # The cached runner keeps its OWN copy of the session id
         # (``_next_seed_thread_id``); ``_simple_quick_reply`` falls back to it
@@ -502,7 +496,7 @@ def _classify_operator_turn(
     if (
         self_mode == "reply"
         and (
-            int(chat_state.get("turns", 0) or 0) > 1
+            chat_state["turns"] > 1
             or _self_skill_context_available(chat_state)
         )
     ):
@@ -591,9 +585,7 @@ def _handle_authorization_control(
             raise ValueError(
                 "no current Manager-bound blocker is awaiting authorization"
             )
-        terminal_evidence = list(
-            snapshot.get("terminal_evidence") or []
-        ) if snapshot else []
+        terminal_evidence = list(snapshot.get("terminal_evidence") or [])
         diagnosis = (
             terminal_evidence[-1]
             if terminal_evidence
@@ -718,17 +710,17 @@ def _handle_steer_control(
         running = [
             item
             for item in LifeMemory.open(life_dir).backlog.all()
-            if str(getattr(item, "status", "") or "") == "running"
+            if item.status == "running"
         ]
         active_objective = ""
         if running:
             active = max(
                 running,
-                key=lambda item: float(getattr(item, "started_ts", 0.0) or 0.0),
+                key=lambda item: float(item.started_ts or 0.0),
             )
             active_objective = str(
-                getattr(active, "original_objective", "")
-                or getattr(active, "objective", "")
+                active.original_objective
+                or active.objective
                 or ""
             ).strip()
         standing_objective = active_objective or current.objective or manager_directive

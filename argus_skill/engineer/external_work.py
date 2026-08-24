@@ -399,7 +399,7 @@ def parse_external_wait_request(message: str | None) -> tuple[str, str] | None:
         return None
     try:
         payload = json.loads(non_empty[-1])
-    except (TypeError, ValueError, json.JSONDecodeError):
+    except (TypeError, ValueError):
         return None
     if not isinstance(payload, dict):
         return None

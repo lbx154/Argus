@@ -93,11 +93,8 @@ def leased_cpu_ids(
     for task in tasks:
         if not _task_lease_is_active(task, is_pid_alive=is_pid_alive, now=checked_at):
             continue
-        raw = task.get("cpu_ids")
-        if raw in (None, ""):
-            continue
         try:
-            leased.update(_normalized_cpu_ids(raw, field="active task cpu_ids"))
+            leased.update(_normalized_cpu_ids(task.get("cpu_ids"), field="active task cpu_ids"))
         except CpuAdmissionError as exc:
             task_id = str(task.get("task_id") or "<unknown>")
             raise CpuAdmissionError(

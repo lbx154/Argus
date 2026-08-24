@@ -80,7 +80,7 @@ def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
         if not separator or not prefix.isdigit():
             raise HTTPException(status_code=404, detail="unknown trash entry")
         index = int(prefix)
-        if index < 0 or index >= len(ctx.roots):
+        if index >= len(ctx.roots):
             raise HTTPException(status_code=404, detail="unknown trash entry")
         entry = next(
             (
@@ -169,7 +169,7 @@ def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
             sid,
         )
         if not result.get("ok"):
-            raise HTTPException(status_code=409, detail=result.get("error", "project is busy"))
+            raise HTTPException(status_code=409, detail=result["error"])
         return result
 
     @app.get(

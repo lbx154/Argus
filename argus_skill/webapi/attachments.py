@@ -636,7 +636,7 @@ def _windows_load_attachment_metadata(
             )
             try:
                 payload = json.loads(raw.decode("utf-8"))
-            except (UnicodeDecodeError, ValueError) as exc:
+            except ValueError as exc:
                 raise ValueError(f"attachment metadata is malformed for {attachment_id}") from exc
             if not isinstance(payload, dict):
                 raise ValueError(f"attachment metadata is malformed for {attachment_id}")
@@ -672,7 +672,7 @@ def _resolve_attachment_refs_windows(
             session_root = _windows_open_attachment_session_root(
                 workspace, sid, create=False, stack=stack
             )
-        except (FileNotFoundError, OSError) as exc:
+        except OSError as exc:
             first = str(refs[0].get("attachment_id") or "").strip()
             raise ValueError(f"unknown attachment_id for this session: {first}") from exc
         for ref in refs:
@@ -871,7 +871,6 @@ def _fsync_directory(descriptor: int) -> None:
 
 
 def _load_attachment_metadata(session_fd: int, sid: str, attachment_id: str) -> dict[str, Any]:
-    attachment_fd: int | None = None
     try:
         attachment_fd = _open_verified_directory(
             session_fd,
@@ -892,15 +891,10 @@ def _load_attachment_metadata(session_fd: int, sid: str, attachment_id: str) -> 
             stored_name,
             display_path=_attachment_payload_relative_path(sid, attachment_id, stored_name),
         )
-    except ValueError:
-        raise
-    except FileNotFoundError as exc:
-        raise ValueError(f"attachment payload is unavailable for {attachment_id}") from exc
     except OSError as exc:
         raise ValueError(f"attachment payload is unavailable for {attachment_id}") from exc
     finally:
-        if attachment_fd is not None:
-            os.close(attachment_fd)
+        os.close(attachment_fd)
 
     if actual_size != expected_size:
         raise ValueError(f"attachment payload size mismatch for {attachment_id}")
@@ -923,7 +917,7 @@ def _read_attachment_metadata_payload(attachment_fd: int, attachment_id: str) ->
         raise ValueError(f"cannot read attachment metadata for {attachment_id}") from exc
     try:
         payload = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError) as exc:
+    except ValueError as exc:
         raise ValueError(f"attachment metadata is malformed for {attachment_id}") from exc
     if not isinstance(payload, dict):
         raise ValueError(f"attachment metadata is malformed for {attachment_id}")
@@ -1024,7 +1018,6 @@ def _remove_tree_nofollow(parent_fd: int, name: str, *, display_path: str) -> No
         os.unlink(name, dir_fd=parent_fd)
         return
 
-    child_fd: int | None = None
     try:
         child_fd = _open_verified_directory(parent_fd, name, display_path=display_path)
     except FileNotFoundError:
@@ -1043,8 +1036,7 @@ def _remove_tree_nofollow(parent_fd: int, name: str, *, display_path: str) -> No
                 display_path=f"{display_path}/{entry.name}",
             )
     finally:
-        if child_fd is not None:
-            os.close(child_fd)
+        os.close(child_fd)
     try:
         os.rmdir(name, dir_fd=parent_fd)
     except FileNotFoundError:

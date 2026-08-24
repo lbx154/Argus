@@ -63,7 +63,7 @@ def _tail_file(path: Path, max_chars: int = 3000) -> str:
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
         return text[-max_chars:] if len(text) > max_chars else text
-    except (OSError, FileNotFoundError):
+    except OSError:
         return ""
 
 def _codex_agent_messages(stdout: str) -> list[str]:
