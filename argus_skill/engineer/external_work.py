@@ -397,10 +397,20 @@ def parse_external_wait_request(message: str | None) -> tuple[str, str] | None:
     non_empty = [line.strip() for line in message.splitlines() if line.strip()]
     if not non_empty:
         return None
-    try:
-        payload = json.loads(non_empty[-1])
-    except (TypeError, ValueError):
-        return None
+    final = non_empty[-1]
+    candidates = [final]
+    marker = final.rfind('{"wait_for"')
+    if marker > 0:
+        candidates.append(final[marker:])
+    payload = None
+    for candidate in candidates:
+        try:
+            value = json.loads(candidate)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(value, dict):
+            payload = value
+            break
     if not isinstance(payload, dict):
         return None
     wait_for = str(payload.get("wait_for") or "").strip()
