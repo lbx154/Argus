@@ -475,6 +475,10 @@ def manager_message(
             if _cancelled():
                 return _cancelled_result()
             log.warning("Manager could not safely prepare operator work: %s", exc)
+            from ..manager.front_door import ManagerModelCapabilityMismatchError
+
+            if isinstance(exc, ManagerModelCapabilityMismatchError):
+                return emitter.respond(str(exc), {"kind": "error"})
             error_reply = (
                 "I couldn't safely prepare that request, so nothing was queued "
                 "or executed. Clarify the target and allowed scope, or retry later."

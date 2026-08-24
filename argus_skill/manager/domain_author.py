@@ -39,6 +39,26 @@ class VerticalDecisionError(RuntimeError):
     """
 
 
+class ManagerClassificationContractError(VerticalDecisionError):
+    """A model reply violated a Manager classification capability clause.
+
+    This is intentionally narrower than :class:`VerticalDecisionError`:
+    provider timeouts, 429/5xx responses, auth failures, and configuration
+    errors must never be counted as evidence that a model lacks the role's
+    structured-decision or repository-grounding capability.
+    """
+
+    def __init__(self, message: str, *, clause: str) -> None:
+        super().__init__(message)
+        self.clause = clause
+        self.model_id = ""
+        self.consecutive_count = 0
+
+    def attach_streak(self, *, model_id: str, consecutive_count: int) -> None:
+        self.model_id = model_id
+        self.consecutive_count = consecutive_count
+
+
 @dataclass
 class DomainProposal:
     """A Manager-authored new domain (validated + sluggified)."""

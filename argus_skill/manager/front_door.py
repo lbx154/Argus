@@ -29,6 +29,63 @@ class ManagerHandoffSupersededError(ManagerHandoffError):
     """A newer continuous command superseded an in-flight Manager handoff."""
 
 
+class ManagerModelCapabilityMismatchError(ManagerHandoffError):
+    """The resolved model repeatedly failed a Manager role contract."""
+
+
+def _manager_model_capability_mismatch_message(
+    *,
+    model_id: str,
+    clause: str,
+    consecutive_count: int,
+) -> str:
+    return (
+        "[not dispatched] Manager model role-capability mismatch: "
+        f"model `{model_id}` failed the Manager classification contract "
+        f"{consecutive_count} consecutive times; the latest failed clause was "
+        f"\"{clause}\". "
+        "This is a role-capability mismatch, not a provider outage. No task was "
+        "queued and no daemon was started. Change the Manager model by setting "
+        "`ARGUS_SKILL_MANAGER_MODEL=<capable-model-id>` before starting Argus, "
+        "or open Settings → Advanced settings, set `manager_model` to a capable "
+        "model, and restart the affected Argus process. There is no `/model` "
+        "command."
+    )
+
+
+def _publish_manager_model_capability_mismatch(
+    mem: Any,
+    *,
+    text: str,
+    model_id: str,
+    clause: str,
+    consecutive_count: int,
+) -> None:
+    """Publish through the established transcript + operator-alert event path."""
+    try:
+        import hashlib
+
+        from ..core.operator_messages import publish_operator_message
+
+        signature = hashlib.sha256(
+            f"{model_id}\0{clause}\0{consecutive_count}".encode("utf-8")
+        ).hexdigest()[:16]
+        publish_operator_message(
+            _life_dir_for(mem),
+            text=text,
+            message_id=f"manager-model-capability-mismatch-{signature}",
+            event_fields={
+                "operator_alert": True,
+                "manager_model_capability_mismatch": True,
+                "model_id": model_id,
+                "failed_clause": clause,
+                "consecutive_count": consecutive_count,
+            },
+        )
+    except Exception:  # noqa: BLE001 - alerting must not mask fail-closed routing
+        log.exception("could not publish Manager model capability mismatch alert")
+
+
 def objective_update_requires_stage_reset(
     previous_objective: str,
     *updated_objectives: str,
@@ -714,6 +771,26 @@ def prepare_manager_execution_task(
             open_ended=configured_open_ended,
         )
         prepared.failed(exc)
+        from .classification_contract import MANAGER_CONTRACT_MISMATCH_THRESHOLD
+        from .domain_author import ManagerClassificationContractError
+
+        if (
+            isinstance(exc, ManagerClassificationContractError)
+            and exc.consecutive_count >= MANAGER_CONTRACT_MISMATCH_THRESHOLD
+        ):
+            message = _manager_model_capability_mismatch_message(
+                model_id=exc.model_id,
+                clause=exc.clause,
+                consecutive_count=exc.consecutive_count,
+            )
+            _publish_manager_model_capability_mismatch(
+                mem,
+                text=message,
+                model_id=exc.model_id,
+                clause=exc.clause,
+                consecutive_count=exc.consecutive_count,
+            )
+            raise ManagerModelCapabilityMismatchError(message) from exc
         if isinstance(exc, ManagerHandoffError):
             raise
         raise ManagerHandoffError(f"Manager handoff failed: {exc}") from exc
@@ -1259,6 +1336,7 @@ __all__ = [
     "_accepts_parameter",
     "_MANAGER_RUNNER_UNAVAILABLE",
     "ManagerHandoffError",
+    "ManagerModelCapabilityMismatchError",
     "ManagerHandoffSupersededError",
     "PreparedManagerHandoff",
     "_derive_session_name",

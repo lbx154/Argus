@@ -34,7 +34,11 @@ from ._helpers import (
     log,
 )
 from ._session_ops import _restore_files_on_error
-from .domain_author import VerticalDecision, VerticalDecisionError
+from .domain_author import (
+    ManagerClassificationContractError,
+    VerticalDecision,
+    VerticalDecisionError,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -344,6 +348,60 @@ class _VerticalDecisionMixin:
         root_task_id: str | None = None,
         allow_route_contract_change: bool = False,
     ) -> VerticalDecision:
+        """Classify one task and maintain the resolved model's durable streak.
+
+        Only the two typed capability-contract failures are recorded.  A full
+        successful classification clears this model's streak; provider and
+        other operational failures leave it unchanged and retain their
+        existing exception/message behavior.
+        """
+        from .classification_contract import (
+            record_contract_failure,
+            reset_contract_failures,
+        )
+
+        resolved_model_id = _manager_model() or "<backend default>"
+        try:
+            decision = self._decide_vertical_once(
+                task,
+                root_task_id=root_task_id,
+                allow_route_contract_change=allow_route_contract_change,
+                resolved_model_id=resolved_model_id,
+            )
+        except ManagerClassificationContractError as exc:
+            try:
+                with self.pipeline_lock():
+                    count = record_contract_failure(
+                        self.project_root,
+                        model_id=resolved_model_id,
+                        clause=exc.clause,
+                    )
+            except Exception:  # noqa: BLE001 - diagnostics must not mask fail-closed routing
+                log.exception("could not persist Manager contract-failure streak")
+                count = 0
+            exc.attach_streak(
+                model_id=resolved_model_id,
+                consecutive_count=count,
+            )
+            raise
+        try:
+            with self.pipeline_lock():
+                reset_contract_failures(
+                    self.project_root,
+                    model_id=resolved_model_id,
+                )
+        except Exception:  # noqa: BLE001 - a diagnostic reset must not reject a valid route
+            log.exception("could not reset Manager contract-failure streak")
+        return decision
+
+    def _decide_vertical_once(
+        self,
+        task: str,
+        *,
+        root_task_id: str | None = None,
+        allow_route_contract_change: bool = False,
+        resolved_model_id: str | None = None,
+    ) -> VerticalDecision:
         """Choose the vertical for ``task``.
 
         Every formal task is classified by the Manager. The Host supplies a
@@ -370,6 +428,7 @@ class _VerticalDecisionMixin:
             raise VerticalDecisionError(
                 "cannot decide the vertical: the Manager has no backend/runner"
             )
+        manager_model = resolved_model_id or _manager_model()
         from ..core.models import RunnerOptions
         from ..domains import BUILTIN_DOMAINS, DOMAIN_PURPOSES
         from ..roles.prompts.manager import (
@@ -517,7 +576,7 @@ class _VerticalDecisionMixin:
                         backend,
                         prompt=fast_prompt,
                         options=RunnerOptions(
-                            model=_manager_model(),
+                            model=manager_model,
                             reasoning_effort=_manager_vertical_reasoning_effort(),
                             working_dir=str(self.execution_workdir),
                             sandbox_mode="read-only",
@@ -601,7 +660,7 @@ class _VerticalDecisionMixin:
             else None
         )
         options = RunnerOptions(
-            model=_manager_model(),
+            model=manager_model,
             reasoning_effort=_manager_vertical_reasoning_effort(),
             working_dir=str(self.execution_workdir),
             sandbox_mode="read-only",
@@ -650,11 +709,14 @@ class _VerticalDecisionMixin:
                 allow_persisted_change=allow_route_contract_change,
             )
             if route_decision is None:
-                raise VerticalDecisionError(
+                from .classification_contract import STRUCTURED_DECISION_CLAUSE
+
+                raise ManagerClassificationContractError(
                     "Manager could not decide a vertical: the model reply was "
                     "missing, not a valid existing/new choice, or violated the "
                     "persisted route contract. "
-                    f"Task excerpt: {_task_excerpt(task)!r}"
+                    f"Task excerpt: {_task_excerpt(task)!r}",
+                    clause=STRUCTURED_DECISION_CLAUSE,
                 )
             return route_result, route_decision
 
@@ -727,9 +789,12 @@ class _VerticalDecisionMixin:
                 run_label="manager-classify-grounded-retry",
             )
             if not bool(getattr(result, "tool_activity_observed", False)):
-                raise VerticalDecisionError(
+                from .classification_contract import REPOSITORY_TOOL_CLAUSE
+
+                raise ManagerClassificationContractError(
                     "Manager grounded vertical decision did not inspect repository "
-                    "tools after one automatic retry"
+                    "tools after one automatic retry",
+                    clause=REPOSITORY_TOOL_CLAUSE,
                 )
         return finalize(decision)
 
