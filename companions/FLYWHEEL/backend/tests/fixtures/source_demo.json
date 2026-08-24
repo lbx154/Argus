@@ -1,0 +1,11 @@
+{
+  "items": [
+    {
+      "item_id": "demo-001",
+      "title": "Demo evidence item — not an external fetch",
+      "url": "https://example.invalid/demo-001",
+      "updated_at": "2026-08-23T00:00:00Z",
+      "metadata": {"fixture": true}
+    }
+  ]
+}

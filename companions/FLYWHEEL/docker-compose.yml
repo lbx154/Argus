@@ -1,0 +1,35 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      FLYWHEEL_DATABASE_PATH: /app/runtime/flywheel.db
+      FLYWHEEL_DATA_DIR: /app/runtime
+      FLYWHEEL_SEED_DATA_DIR: /app/data/seeds
+      FLYWHEEL_CORS_ORIGINS: http://localhost:8080
+      FLYWHEEL_POLL_INTERVAL_SECONDS: "8"
+      FLYWHEEL_GITHUB_TOKEN_ENV: GITHUB_TOKEN
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      FLYWHEEL_ARGUS_BASE_URL: ${FLYWHEEL_ARGUS_BASE_URL:-http://host.docker.internal:8799}
+      FLYWHEEL_ARGUS_TOKEN_ENV: ARGUS_SKILL_WEB_TOKEN
+      ARGUS_SKILL_WEB_TOKEN: ${ARGUS_SKILL_WEB_TOKEN:-}
+      FLYWHEEL_VIEWER_COMMAND_JSON: ${FLYWHEEL_VIEWER_COMMAND_JSON:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - flywheel-runtime:/app/runtime
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:8080:8080"
+    restart: unless-stopped
+
+volumes:
+  flywheel-runtime:

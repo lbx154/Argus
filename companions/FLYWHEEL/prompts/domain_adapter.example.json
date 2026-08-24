@@ -1,0 +1,9 @@
+{
+  "name": "AI / Machine Learning",
+  "evidence_requirements": [
+    "冻结数据划分并做污染审计",
+    "运行 compute-matched 的最强可行 baseline",
+    "至少两个 backbone、多个预注册 seed、置信区间与机制消融",
+    "明确区分探索性结果与确认性结果"
+  ]
+}
