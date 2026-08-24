@@ -163,11 +163,62 @@ def mission_is_running(mem: Any) -> bool:
 _MANAGER_RUNNER_UNAVAILABLE = object()
 
 
+class WorkspaceResolutionError(RuntimeError):
+    """No trustworthy operator workspace could be resolved.
+
+    Raised instead of guessing. The caller should treat front-door triage as
+    unavailable for this turn — ``_ensure_manager_runner`` already reports a
+    build failure to the operator with its reason — rather than proceed against
+    a root the Manager runner must not be given write access to.
+    """
+
+
+def _cwd_as_workspace() -> Path:
+    """The process cwd, but only when it can serve as a project workspace.
+
+    The cwd is not a safe default here. ``spawn_detached_daemon`` runs
+    ``os.chdir("/")`` (``daemon/process.py``), so a daemonized front door would
+    hand the Manager runner a workspace rooted at the filesystem root — the very
+    hazard ``core.sandbox.fail_closed_workdir`` exists to prevent for spawned
+    roles, reintroduced one layer up. The gate brain (``~/.argus-skill``), the
+    package source and the active venv are equally off-limits, for the reasons
+    ``core.sandbox.forbidden_write_roots`` sets out.
+    """
+    from ..core.sandbox import forbidden_write_roots
+
+    try:
+        cwd = Path.cwd().resolve()
+    except OSError as exc:  # cwd unlinked out from under the process
+        raise WorkspaceResolutionError(
+            f"cannot resolve an operator workspace: the current directory is "
+            f"unavailable ({type(exc).__name__}: {exc}) and no session root was "
+            f"supplied by the caller"
+        ) from exc
+    if cwd == Path(cwd.anchor):
+        raise WorkspaceResolutionError(
+            f"refusing to use {cwd} as the operator workspace: a detached daemon "
+            f"chdirs to the filesystem root, so this is what an unresolved "
+            f"workspace looks like, not a project. Pass an explicit session root "
+            f"(mem.project_root / life_dir) from the caller."
+        )
+    # Same containment test as ``core.sandbox._is_forbidden``, applied to the
+    # workspace we are about to hand the Manager runner.
+    for root in forbidden_write_roots():
+        real = os.path.realpath(root)
+        if str(cwd) == real or str(cwd).startswith(real.rstrip("/") + os.sep):
+            raise WorkspaceResolutionError(
+                f"refusing to use {cwd} as the operator workspace: it lies under "
+                f"{real}, which a Manager runner must never be able to write. "
+                f"Pass an explicit session root from the caller."
+            )
+    return cwd
+
+
 def _operator_workspace(chat_state: dict[str, Any], session_root: Any) -> Path:
     fallback = (
         Path(session_root).expanduser()
         if session_root
-        else Path.cwd()
+        else _cwd_as_workspace()
     )
     sid = str(chat_state.get("session_id") or "").strip()
     global_root = chat_state.get("global_root")

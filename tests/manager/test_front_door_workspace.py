@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
+from argus_skill.core.sandbox import forbidden_write_roots
 from argus_skill.core.session import SessionMeta, write_session_meta
 from argus_skill.life import MemoryBundle
 from argus_skill.manager import front_door
@@ -200,3 +204,68 @@ def test_manager_runner_scopes_acp_to_session_id(tmp_path, monkeypatch) -> None:
     assert result is runner
     assert default_scopes == [f"manager:{sid}"]
     assert manager_scopes == [f"manager:{sid}"]
+
+
+def test_operator_workspace_refuses_the_filesystem_root(monkeypatch) -> None:
+    """A detached daemon chdirs to ``/``; that is not a project workspace.
+
+    ``spawn_detached_daemon`` runs ``os.chdir("/")`` before the worker starts,
+    so an unresolved session root used to hand the Manager runner a writable
+    workspace rooted at the whole filesystem — the hazard
+    ``core.sandbox.fail_closed_workdir`` already guards for spawned roles.
+    """
+    monkeypatch.chdir("/")
+    with pytest.raises(front_door.WorkspaceResolutionError) as excinfo:
+        front_door._operator_workspace({}, None)
+    assert "detached daemon" in str(excinfo.value)
+
+
+def test_operator_workspace_refuses_a_forbidden_root(monkeypatch, tmp_path) -> None:
+    """The gate brain is never a workspace, however we arrived in it."""
+    gate = Path(forbidden_write_roots()[0])
+    gate.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(gate)
+    with pytest.raises(front_door.WorkspaceResolutionError) as excinfo:
+        front_door._operator_workspace({}, None)
+    assert str(gate) in str(excinfo.value)
+
+
+def test_operator_workspace_still_prefers_an_explicit_session_root(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """The refusal only covers the guess. A caller-supplied root is untouched."""
+    monkeypatch.chdir("/")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    assert front_door._operator_workspace({}, workspace) == workspace
+
+
+def test_unresolvable_workspace_reports_instead_of_building_a_runner(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Front-door triage goes unavailable — with a reason — rather than root at /.
+
+    ``_ensure_manager_runner`` already logs and surfaces build failures to the
+    operator; an unresolvable workspace joins that path instead of silently
+    handing the runner a workspace it must not have.
+    """
+    # A memory whose project_root never resolved — the only way into the guess.
+    memory = SimpleNamespace(
+        project_root=None,
+        root=tmp_path / "root",
+        global_root=tmp_path / "root",
+    )
+    monkeypatch.chdir("/")
+
+    def build(args):  # noqa: ARG001 — must never be reached
+        raise AssertionError("runner was built against an unresolved workspace")
+
+    monkeypatch.setattr("argus_skill.apps._runtime.build_life_runner", build)
+    state = {"backend": "codex"}
+
+    assert front_door._ensure_manager_runner(state, memory) is None
+    assert "WorkspaceResolutionError" in state["manager_runner_error"]
+    # Not cached: a later turn with a resolvable root must still get triage.
+    assert "manager_runner" not in state
