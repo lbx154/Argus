@@ -35,6 +35,8 @@ log = logging.getLogger(__name__)
 _OPENCODE_READ_ONLY_AGENT = "argus-read-only"
 _OPENCODE_FULL_ACCESS_AGENT = "argus-full-access"
 _OPENCODE_NO_TOOLS_AGENT = "argus-no-tools"
+_OPENCODE_OX_ALPHA_MODEL = "opencode/x-preview-f-free"
+_OPENCODE_OX_ALPHA_WARNED = False
 
 
 def _pi_session_dir() -> str:
@@ -98,6 +100,22 @@ def _opencode_model(model: str) -> str:
             return f"{provider}/{value}"
     _warn_unqualified_model_once(BACKEND_OPENCODE, value)
     return ""
+
+
+def _opencode_variant(model: str, reasoning_effort: str | None) -> str:
+    """Select a working OpenCode variant for the resolved model."""
+    if model != _OPENCODE_OX_ALPHA_MODEL:
+        return str(reasoning_effort or "").strip()
+    global _OPENCODE_OX_ALPHA_WARNED
+    requested = str(reasoning_effort or "").strip()
+    if requested not in {"", "low"} and not _OPENCODE_OX_ALPHA_WARNED:
+        _OPENCODE_OX_ALPHA_WARNED = True
+        log.warning(
+            "OpenCode Ox Alpha %r is unstable for tool turns; using variant "
+            "'low' instead",
+            requested,
+        )
+    return "low"
 
 
 def _configured_provider(knob: str) -> str:
@@ -532,8 +550,9 @@ class CommandBuilderMixin:
         model = _opencode_model(options.model)
         if model:
             command.extend(["--model", model])
-        if options.reasoning_effort:
-            command.extend(["--variant", options.reasoning_effort])
+        variant = _opencode_variant(model, options.reasoning_effort)
+        if variant:
+            command.extend(["--variant", variant])
         if options.working_dir:
             command.extend(["--dir", options.working_dir])
         if options.disable_tools:

@@ -59,6 +59,19 @@ def test_opencode_full_auto_uses_explicit_full_access_agent() -> None:
     assert config["agent"]["argus-full-access"]["permission"] == {"*": "allow"}
 
 
+@pytest.mark.parametrize("reasoning_effort", [None, "high", "max", "xhigh"])
+def test_opencode_ox_alpha_uses_stable_low_variant(reasoning_effort) -> None:
+    command = _runner()._build_opencode_command(
+        resume_thread_id=None,
+        options=RunnerOptions(
+            model="opencode/x-preview-f-free",
+            reasoning_effort=reasoning_effort,
+        ),
+    )
+
+    assert command[command.index("--variant") + 1] == "low"
+
+
 def test_opencode_no_tools_uses_restricted_agent_without_sandbox() -> None:
     child_env = _runner()._child_env(RunnerOptions(disable_tools=True))
 
