@@ -245,7 +245,10 @@ class SupervisedEngineer(
             control = self._handle_agent_driven_wait(
                 round_index=round_index,
                 supervised_config=supervised_config,
-                raw_engineer_message=outcome.raw_engineer_message,
+                raw_engineer_message=(
+                    outcome.engineer_result.last_agent_message
+                    or outcome.raw_engineer_message
+                ),
                 workdir=workdir,
                 state=state,
                 on_event=on_event,
