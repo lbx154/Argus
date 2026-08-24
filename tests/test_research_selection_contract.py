@@ -1583,3 +1583,20 @@ def test_the_engineer_is_told_which_figures_it_already_drew(tmp_path) -> None:
     # A campaign with nothing left over hears nothing.
     (paper / "figures" / "left_behind.pdf").unlink()
     assert fragment() == ""
+
+
+def test_a_sound_round_can_still_report_an_unpublishable_programme() -> None:
+    """Every mission closing correctly is how seven campaigns spent a night
+    without a paper moving: the round was done, the manuscript stayed where it
+    was, and nothing said the programme could not reach the venue bar.
+    `plan_signal=reconsider` existed for exactly this and was described only in
+    terms of repeated execution symptoms, so a locally sound round never
+    reached for it.
+    """
+    from argus_skill.verticals.research.stages import _REVIEWER_RESEARCH_JUDGEMENT
+
+    policy = _REVIEWER_RESEARCH_JUDGEMENT
+    assert "`reconsider`" in policy
+    # Accept the round; report the programme. Not the other way round.
+    assert "accept the round" in policy
+    assert "Manufacturing a local failure" in policy

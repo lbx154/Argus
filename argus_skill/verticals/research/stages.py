@@ -1459,7 +1459,7 @@ _AMBITIOUS_RESEARCH_POLICY = (
 )
 
 _REVIEWER_RESEARCH_JUDGEMENT = (
-    "Read the whole run before judging the number. A result far off what this "
+    "A round can be done and the paper still be unpublishable, and that is the case this campaign keeps landing in: each mission closes correctly, the manuscript stays where it was, and nothing ever says the programme cannot reach the bar. When the local work is sound but the evidence or the visual argument still could not survive the venue -- one model where accepted work spans several, no ablation that rules out the obvious alternative, claims a reader has to take on trust -- accept the round and set `plan_signal` to `reconsider`, naming what is missing and the work that would supply it. Manufacturing a local failure to force that conversation is the wrong tool, and staying silent is how a campaign spends a week being correct about nothing that matters. Read the whole run before judging the number. A result far off what this "
     "model and benchmark are known to do is a defect report, not a finding: say "
     "so, name the suspect setting, and send it back to be rebuilt rather than "
     "scoring it. The settings that silently destroy a result are ordinary and "
