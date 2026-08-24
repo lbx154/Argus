@@ -1409,3 +1409,33 @@ def test_a_single_wake_source_written_as_text_is_read_as_one() -> None:
     }
     verdict = parse_planner_payload(payload)
     assert verdict.waiting_contract.wake_on == ("subagent_state",)
+
+
+def test_live_subagent_ids_are_named_so_a_wait_can_bind() -> None:
+    """A subagent event wait binds by matching the Planner's own words against
+    a live work_id, exactly, and the ids were never shown to it. run-03 named
+    the parent mission (24456fcbddf9) while the live job was
+    bcpo-v14-margin-recovery-gpu3-run2; run-01 wrote "the active DARC-DPT
+    monitor/subagent". Both jobs were running and both waits were discarded for
+    lacking a revision only the host can compute.
+    """
+    import types
+
+    from argus_skill.life.supervisor._planner_orchestration import (
+        PlannerOrchestrationMixin,
+    )
+
+    def note(jobs) -> str:
+        host = types.SimpleNamespace(_waitable_subagent_jobs=lambda: jobs)
+        return PlannerOrchestrationMixin._live_subagent_id_line(host)
+
+    line = note([types.SimpleNamespace(work_id="bcpo-v14-margin-recovery-gpu3-run2")])
+    assert "live_subagent_work_ids" in line
+    assert "bcpo-v14-margin-recovery-gpu3-run2" in line
+
+    # A quiet campaign pays no prompt for it, and a broken probe is not fatal.
+    assert note([]) == ""
+    host = types.SimpleNamespace(
+        _waitable_subagent_jobs=lambda: (_ for _ in ()).throw(RuntimeError("x"))
+    )
+    assert PlannerOrchestrationMixin._live_subagent_id_line(host) == ""

@@ -22,6 +22,29 @@ _PLANNER_RECENT_HISTORY_WINDOW = 20
 
 
 class PlannerOrchestrationMixin:
+    def _live_subagent_id_line(self) -> str:
+        """Name the live subagent work_ids, or say nothing.
+
+        Empty while nothing is running, so a quiet campaign pays no prompt for
+        it, and empty on any probe failure because the digest is advisory.
+        """
+        try:
+            ids = sorted(
+                {
+                    work_id
+                    for job in self._waitable_subagent_jobs()
+                    if (work_id := str(getattr(job, "work_id", "") or ""))
+                }
+            )
+        except Exception:  # noqa: BLE001 - the digest is advisory
+            return ""
+        if not ids:
+            return ""
+        return (
+            "- live_subagent_work_ids (copy one exactly into any subagent "
+            "event wait): " + ", ".join(ids)
+        )
+
     def _planner_cycle_gate_reason(self) -> str:
         gate = self.config.planner_cycle_gate
         if gate is None:
@@ -108,6 +131,14 @@ class PlannerOrchestrationMixin:
             status = str(getattr(item, "status", "") or "unknown")
             backlog_counts[status] = backlog_counts.get(status, 0) + 1
 
+        # A subagent event wait is bound by matching the Planner's own words
+        # against a live work_id, exactly. The ids were never shown to it, so
+        # it wrote what it knew: run-03 named the parent mission, run-01
+        # described "the active DARC-DPT monitor/subagent". Both jobs were
+        # genuinely running and both waits were thrown away. Rendered only
+        # while something is live, so a quiet campaign pays nothing.
+        live_subagent_line = self._live_subagent_id_line()
+
         changed_paths: list[str] = []
         try:
             status_result = subprocess.run(
@@ -167,6 +198,7 @@ class PlannerOrchestrationMixin:
                 f"- current_stage: {pipeline.get('current_stage') or self._current_pipeline_stage() or '(unset)'}",
                 f"- stage_statuses: {', '.join(stage_rows) or '(none)'}",
                 f"- backlog_counts: {json.dumps(backlog_counts, sort_keys=True)}",
+                *([live_subagent_line] if live_subagent_line else []),
                 (
                     "- awaiting_operator_answer: "
                     + "; ".join(awaiting)
