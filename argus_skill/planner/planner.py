@@ -641,6 +641,7 @@ class Planner:
                 previous_raw_text=raw_attempts[-1],
                 previous_error=last_error,
                 open_ended=open_ended,
+                required_stage=required_stage,
             )
             try:
                 result = gateway_run_exec(
@@ -942,6 +943,7 @@ def _build_no_task_repair_prompt(
     previous_raw_text: str,
     previous_error: str,
     open_ended: bool = False,
+    required_stage: str = "",
 ) -> str:
     completion_rule = (
         "- This is a standing objective. Do not set `project_done=true` merely "
@@ -949,6 +951,11 @@ def _build_no_task_repair_prompt(
         "`waiting` only for a real external blocker.\n"
         if open_ended
         else "- Set `project_done=true` only when the operator objective is complete.\n"
+    )
+    stage_field = (
+        f',"advance_to_stage":{json.dumps(required_stage)}'
+        if required_stage
+        else ""
     )
     return (
         "The Host rejected your previous Planner decision event. Correct that event only. "
@@ -967,7 +974,9 @@ def _build_no_task_repair_prompt(
         "should happen next.\n\n"
         + decision_event_instruction(
             "planner",
-            '{"project_done":false,"reason":"why","advance_to_stage":"run",'
+            '{"project_done":false,"reason":"why"'
+            + stage_field
+            + ","
             '"tasks":[{"key":"k1","deps":[],"title":"Does pruning beat 4-bit at equal latency?",'
             '"objective":"match latency, read top-1","scope":"bounded",'
             '"work_kind":"algorithm_discovery"}]}',

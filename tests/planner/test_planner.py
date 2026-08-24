@@ -1064,6 +1064,8 @@ def test_plan_next_repairs_missing_staged_advance(monkeypatch) -> None:
     assert verdict.advance_to_stage == "benchmark"
     assert runner.calls[1]["run_label"] == "planner.cycle9.repair1"
     assert MISSING_STAGE_DECISION_ERROR in runner.calls[1]["prompt"]
+    assert '"advance_to_stage":"plan"' in runner.calls[1]["prompt"]
+    assert '"advance_to_stage":"run"' not in runner.calls[1]["prompt"]
 
 
 def test_plan_next_repairs_binary_outcome_label(monkeypatch) -> None:
