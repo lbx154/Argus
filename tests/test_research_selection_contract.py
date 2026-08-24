@@ -1211,7 +1211,8 @@ def test_draft_length_is_shown_against_the_campaigns_own_exemplars(tmp_path) -> 
     # Everything after the reference list is cut on both sides, so the
     # comparison is body against body.
     extract.write_text(
-        "body " * 4000 + "\nReferences\n" + "Hinton et al. " * 900,
+        "body " * 4000 + " See Figure 1 and Figure 3. "
+        + "\nReferences\n" + "Hinton et al. " * 900 + " Figure 9 ",
         encoding="utf-8",
     )
     org.write_text(
@@ -1225,7 +1226,8 @@ def test_draft_length_is_shown_against_the_campaigns_own_exemplars(tmp_path) -> 
     block = _manuscript_scale_block(tmp_path)
     # 301: the 300 body words plus the section heading.
     assert "301 words of body text" in block
-    assert "4,000" in block
+    # 4,004: the 4,000 body words plus the sentence naming the figures.
+    assert "4,004" in block
     # Two exemplars are not enough to quote a median from.
     assert "typically" not in block
 

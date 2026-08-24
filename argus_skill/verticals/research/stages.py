@@ -1521,6 +1521,7 @@ def _manuscript_scale_block(project_root: object) -> str:
             (root / ARGUMENT_ORGANIZATION_PATH).read_text(encoding="utf-8")
         )
         lengths: list[int] = []
+        figures: list[int] = []
         for exemplar in payload.get("exemplars") or []:
             if not isinstance(exemplar, dict):
                 continue
@@ -1531,6 +1532,11 @@ def _manuscript_scale_block(project_root: object) -> str:
             body = re.split(r"\n\s*(?:references|bibliography)\s*\n", text, 1,
                             re.IGNORECASE)[0]
             lengths.append(_word_count(body))
+            # The highest figure number the paper refers to is how many it
+            # carries, and it survives text extraction when the images do not.
+            numbered = [int(n) for n in re.findall(r"\bFigure\s+(\d{1,2})\b", body)]
+            if numbered:
+                figures.append(max(numbered))
         if not lengths:
             return ""
         lengths.sort()
@@ -1542,12 +1548,26 @@ def _manuscript_scale_block(project_root: object) -> str:
             if len(lengths) > 2
             else f"{lengths[0]:,} and {lengths[-1]:,}"
         )
+        drawn = len(
+            re.findall(
+                r"\\includegraphics",
+                (root / "paper" / "main.tex").read_text(
+                    encoding="utf-8", errors="ignore"
+                ),
+            )
+        )
+        figure_note = (
+            f" It includes {drawn} figure(s); those papers carry "
+            f"{min(figures)}-{max(figures)}."
+            if figures
+            else ""
+        )
         return (
             f"\nMANUSCRIPT SCALE: this draft is {draft:,} words of body text. "
             f"The accepted papers this campaign chose to be measured against "
-            f"run {span}. Length is a symptom, not the goal: a paper several "
-            f"times shorter than its own exemplars is usually missing "
-            f"analysis, not adjectives.\n"
+            f"run {span}.{figure_note} Length is a symptom, not the goal: a "
+            f"paper several times shorter than its own exemplars is usually "
+            f"missing analysis, not adjectives.\n"
         )
     except Exception:  # noqa: BLE001
         return ""
