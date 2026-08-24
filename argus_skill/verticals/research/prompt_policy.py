@@ -86,9 +86,43 @@ def _planner_fragment(stage: str, project_root: Path | None) -> str:
     return "\n\n".join(block for block in blocks if block)
 
 
-def _reviewer_fragment(stage: str, scope: str) -> str:
+def _manuscript_exists(project_root: Path | None) -> bool:
+    """Is there something here that a reviewer would call a manuscript?
+
+    Deliberately crude -- a file with a document body in it. Anything finer
+    would be the host deciding what counts as a paper, which is the judgement
+    this gate exists to hand to the Reviewer.
+    """
+    if project_root is None:
+        return False
+    try:
+        tex = (Path(project_root) / "paper" / "main.tex").read_text(
+            encoding="utf-8", errors="ignore"
+        )
+    except OSError:
+        return False
+    return "\\begin{document}" in tex
+
+
+def _reviewer_fragment(stage: str, scope: str, project_root: Path | None) -> str:
     blocks: list[str] = []
-    if scope == "final_submission" or stage in {"review", "submission"}:
+    # Reading the paper as a paper used to wait for the campaign to declare a
+    # writing stage. They do not: run-07 held a twenty-page manuscript at
+    # `benchmark` and spent a hundred and seventy consecutive reviews checking
+    # whether a measurement packet had the right JSON files in it, never once
+    # noticing it had no figures. run-04, at `review`, read main.tex end to
+    # end, pulled the PDF text and looked at the rendered pages -- same
+    # Reviewer, same model, one condition apart.
+    #
+    # So the question is asked as soon as there is something to ask it about.
+    # This routes authority; it does not spend it. What is wrong with the
+    # manuscript stays the Reviewer's to find by reading, which is the only
+    # way faults nobody enumerated in advance are ever found.
+    if (
+        scope == "final_submission"
+        or stage in {"review", "submission"}
+        or _manuscript_exists(project_root)
+    ):
         blocks.append(academic_paper_review_block())
     if scope == "final_submission":
         blocks.append(
@@ -119,7 +153,9 @@ def render_role_prompt_fragment(
     if normalized_role == "planner":
         return _planner_fragment(normalized_stage, project_root)
     if normalized_role == "reviewer":
-        return _reviewer_fragment(normalized_stage, normalized_scope)
+        return _reviewer_fragment(
+            normalized_stage, normalized_scope, project_root
+        )
     return ""
 
 

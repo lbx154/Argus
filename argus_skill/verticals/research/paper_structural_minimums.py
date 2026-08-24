@@ -92,7 +92,6 @@ _RE_INPUT = re.compile(r"\\(?:input|include)\s*\{([^}]+)\}")
 # empty \pdfinfo{} is non-compliant); [^}]* spans newlines since [^}] includes \n.
 _RE_PDFINFO = re.compile(r"\\pdfinfo\s*\{[^}]*TemplateVersion")
 _RE_BIBLIOGRAPHYSTYLE = re.compile(r"\\bibliographystyle\s*\{")
-_RE_BIB_AUTHOR = re.compile(r"^\s*author\s*=", re.IGNORECASE | re.MULTILINE)
 _RE_USEPACKAGE = re.compile(r"\\usepackage\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}")
 _RE_NOCOPYRIGHT = re.compile(r"\\nocopyright\b")
 # Require the literal "checklist" — a bare "Reproducibility Statement"/"appendix"
@@ -624,17 +623,9 @@ def _scan_visual_manifest(project_root: Path, paper_dir: Path) -> _VisualManifes
         return _scan_visual_manifest_locked(project_root, paper_dir)
 
 
-def _read_bib(paper_dir: Path) -> tuple[int, set[str], list[str]]:
-    """Return (total_entries, keys, keys_without_an_author) across bib paths.
-
-    A reference with no ``author`` field renders as a bare title: the reader
-    cannot see whose work it is, and neither can a reviewer checking whether
-    the related work is real. run-05 wrote all ten of its references that way
-    -- correct arXiv numbers, real titles, nobody's name on any of them --
-    while the count alone read as a thin but ordinary bibliography.
-    """
+def _read_bib(paper_dir: Path) -> tuple[int, set[str]]:
+    """Return (total_entry_count, set_of_keys) across the common bib paths."""
     keys: set[str] = set()
-    anonymous: list[str] = []
     total = 0
     for name in ("refs.bib", "references.bib", "bibliography.bib"):
         bib = paper_dir / name
@@ -642,13 +633,9 @@ def _read_bib(paper_dir: Path) -> tuple[int, set[str], list[str]]:
             continue
         text = bib.read_text(encoding="utf-8", errors="ignore")
         for m in _RE_BIBKEY.finditer(text):
-            key = m.group(1).strip()
-            keys.add(key)
+            keys.add(m.group(1).strip())
             total += 1
-            entry = text[m.end() : text.find("\n}", m.end())]
-            if not _RE_BIB_AUTHOR.search(entry):
-                anonymous.append(key)
-    return total, keys, anonymous
+    return total, keys
 
 
 def _unreferenced_figures(paper_dir: Path, referenced: set[str]) -> list[str]:
@@ -875,19 +862,8 @@ def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
         )
 
     # refs.bib reachable from body.
-    bib_total, bib_keys, anonymous_refs = _read_bib(paper_dir)
+    bib_total, bib_keys = _read_bib(paper_dir)
     report.bib_entries = bib_total
-    if anonymous_refs:
-        report.notes.append(
-            StructuralIssue(
-                code="references_without_authors",
-                detail=(
-                    f"{len(anonymous_refs)} of {bib_total} reference(s) have no "
-                    f"author field, for example {anonymous_refs[0]}; each one "
-                    "cites a title with nobody's name on it"
-                ),
-            )
-        )
     report.bib_entries_cited = len(report.cite_keys & bib_keys)
     if report.bib_entries_cited < MIN_CITED_BIB_ENTRIES:
         report.issues.append(

@@ -1115,37 +1115,6 @@ def test_backlog_never_claims_the_planner_prompts_example(tmp_path) -> None:
     assert "example" in example.last_error
 
 
-def test_a_reference_with_nobody_on_it_is_reported(tmp_path) -> None:
-    """run-05 wrote all ten of its references as bare titles: correct arXiv
-    numbers, real titles, no author on any of them. The reference count read as
-    a thin but ordinary bibliography, so nothing ever said the paper cites work
-    without saying whose it is.
-    """
-    from argus_skill.verticals.research.paper_structural_minimums import (
-        validate_paper_structural_minimums,
-    )
-
-    paper = tmp_path / "paper"
-    paper.mkdir()
-    (paper / "main.tex").write_text(
-        r"\documentclass{article}\begin{document}\cite{named}\cite{bare}\end{document}",
-        encoding="utf-8",
-    )
-    (paper / "refs.bib").write_text(
-        "@article{named,\n  author = {Hinton, Geoffrey E.},\n"
-        "  title = {A fast learning algorithm},\n  year = {2006}\n}\n\n"
-        "@misc{bare,\n  title = {Forecasting Side Effects of Activation Steering},\n"
-        "  howpublished = {arXiv:2608.11227},\n  year = {2026}\n}\n",
-        encoding="utf-8",
-    )
-
-    report = validate_paper_structural_minimums(tmp_path)
-    detail = {n.code: n.detail for n in report.notes}["references_without_authors"]
-    assert "references_without_authors" not in {i.code for i in report.issues}
-    assert "1 of 2" in detail
-    assert "bare" in detail
-
-
 def test_verified_reading_left_out_of_the_bibliography_is_reported(tmp_path) -> None:
     """run-05 searched harder than either campaign that ended with a real
     bibliography -- sixty-one searches against forty-one -- and wrote thirteen
@@ -1534,3 +1503,37 @@ def test_altitude_facts_are_read_from_the_worktree_not_the_state_root(tmp_path) 
     # The state root alone knows nothing about the paper.
     assert "EARLIER DRAFT" not in altitude()
     assert "EARLIER DRAFT" in altitude(altitude_root=worktree)
+
+
+def test_a_manuscript_is_reviewed_as_a_paper_before_the_writing_stage(tmp_path) -> None:
+    """Reading the paper as a paper used to wait for a declared writing stage.
+    Campaigns do not declare one: run-07 held a twenty-page manuscript at
+    `benchmark` and spent 170 consecutive reviews checking whether a
+    measurement packet had the right JSON files, never noticing it had no
+    figures at all. run-04, at `review`, read main.tex end to end, pulled the
+    PDF text and looked at the rendered pages -- same Reviewer, same model, one
+    condition apart.
+
+    This pins the routing, not any particular fault. What is wrong with a
+    manuscript stays the Reviewer's to find by reading it, which is the only
+    way a fault nobody thought of in advance is ever found.
+    """
+    from argus_skill.verticals.research.prompt_policy import (
+        render_role_prompt_fragment,
+    )
+
+    def reviewer_gets_paper_review(root) -> bool:
+        return "program-committee" in render_role_prompt_fragment(
+            role="reviewer", operation="evaluate", stage="benchmark",
+            scope="", project_root=root,
+        )
+
+    assert not reviewer_gets_paper_review(tmp_path)
+
+    paper = tmp_path / "paper"
+    paper.mkdir()
+    (paper / "main.tex").write_text(
+        r"\documentclass{article}\begin{document}Hello\end{document}",
+        encoding="utf-8",
+    )
+    assert reviewer_gets_paper_review(tmp_path)

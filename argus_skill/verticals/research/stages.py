@@ -878,6 +878,16 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
 }
 
 
+# Stages whose checklist already carries paper-facing items, taken from the
+# checklists rather than restated, so adding a paper question to a stage also
+# stops the reminder that nobody is asking one.
+_PAPER_FACING_STAGES = frozenset(
+    stage
+    for stage, items in STAGE_CHECKLISTS.items()
+    if any(item.id.startswith(("draft.", "review.", "submission.")) for item in items)
+)
+
+
 def list_stages() -> tuple[str, ...]:
     """Return the canonical stage order (research → submission)."""
 
@@ -1630,8 +1640,7 @@ def _literature_ledger_block(project_root: object) -> str:
         return (
             f"\nLITERATURE LEDGER: research/LITERATURE_GROUNDING.json holds "
             f"{len(papers)} verified papers, {named} with full author lists. "
-            f"{uncited}, among them {example!r}. The reading is already paid "
-            f"for.\n"
+            f"{uncited}, among them {example!r}.\n"
         )
     except Exception:  # noqa: BLE001
         return ""
@@ -1685,9 +1694,7 @@ def _manuscript_high_water_block(project_root: object) -> str:
         return (
             f"\nEARLIER DRAFT: this manuscript has been {peak_words:,} words "
             f"with {peak_figures} figure(s); it is now {words:,} with "
-            f"{figures}. If a rebuild replaced work that still holds, it is "
-            f"still in the repository history of your own evidence and "
-            f"figures.\n"
+            f"{figures}.\n"
         )
     except Exception:  # noqa: BLE001
         return ""
@@ -1788,8 +1795,7 @@ def _manuscript_scale_block(project_root: object) -> str:
         return (
             f"\nMANUSCRIPT SCALE: {draft:,} words, {drawn} figure(s). The "
             f"accepted papers this campaign chose run {span} words"
-            f"{figure_note}. Being several times shorter means missing "
-            f"analysis, not adjectives.\n"
+            f"{figure_note}.\n"
         )
     except Exception:  # noqa: BLE001
         return ""
@@ -1809,12 +1815,19 @@ def _paper_notes_block(project_root: object) -> str:
 
         from .paper_structural_minimums import validate_paper_structural_minimums
 
-        notes = validate_paper_structural_minimums(
+        report = validate_paper_structural_minimums(
             _Path(str(project_root)).resolve()
-        ).notes
-        if not notes:
+        )
+        # Only what reading the paper cannot show. A missing figure or a
+        # sixteen-decimal number is visible to anyone who opens the file, and
+        # listing those here is the host doing the reading -- which can only
+        # ever catch the faults someone thought of first. Work that was paid
+        # for and left outside the manuscript is different: it is invisible in
+        # the artifact, because it is not in it.
+        lines = [note.detail for note in report.notes]
+        if not lines:
             return ""
-        return "\nPAPER NOTES: " + " ".join(f"{n.detail}." for n in notes) + "\n"
+        return "\nPAPER NOTES: " + " ".join(f"{line}." for line in lines) + "\n"
     except Exception:  # noqa: BLE001
         return ""
 
@@ -1871,6 +1884,74 @@ def _framework_maintenance_share_block(project_root: object) -> str:
         return ""
 
 
+def _campaign_stage(root: object) -> str:
+    """The stage this campaign is actually in.
+
+    The pipeline state lives under the session directory, not the worktree, so
+    reading it from the worktree silently yields the default first stage --
+    which would make a campaign at `submission` look like one at `research`.
+    """
+    from pathlib import Path as _Path
+
+    from ...skills.stage_machine import current_stage
+
+    base = _Path(str(root)).resolve()
+    candidates = sorted(
+        base.glob("state/projects/*/.argus/PIPELINE_STATE.json"),
+        key=lambda path: path.stat().st_mtime,
+    )
+    for state in reversed(candidates):
+        stage = str(current_stage(state.parent.parent) or "").strip().lower()
+        if stage:
+            return stage
+    return str(current_stage(base) or "").strip().lower()
+
+
+def _unasked_manuscript_block(project_root: object) -> str:
+    """Ask the reviewer's question while the stage checklist is not asking it.
+
+    Only draft, review and submission carry paper-facing checklist items.
+    Campaigns write the paper long before they declare those stages: run-07
+    holds a 6,863-word, twenty-page manuscript with no figures at all and
+    numbers printed to sixteen decimal places, while its stage is `benchmark`
+    and every one of its last hundred and seventy reviews asked whether a
+    measurement packet had the right JSON files in it. Nobody had asked whether
+    the paper was a paper.
+
+    The question is asked here, and only the question. Enumerating what is
+    wrong with the manuscript would be the host doing the reading, and it can
+    only ever find the faults someone thought of in advance; the reviewing
+    Agent can open the file. Silent once the stage asks this itself, and silent
+    before there is a manuscript to ask about. Fail-soft: any error is silence.
+    """
+    try:
+        from pathlib import Path as _Path
+
+        root = _Path(str(project_root)).resolve()
+        words, figures = _manuscript_size(root)
+        if not words:
+            return ""
+        stage = _campaign_stage(root)
+        if stage in _PAPER_FACING_STAGES:
+            return ""
+        exemplars = root / "paper" / "style_ref" / "exemplars"
+        beside = (
+            f" beside the accepted papers whose full text is in "
+            f"{exemplars.relative_to(root)}"
+            if exemplars.is_dir()
+            else ""
+        )
+        return (
+            f"\nTHE PAPER IS ALREADY REAL: paper/main.tex holds {words:,} words "
+            f"and {figures} figure include(s) while this campaign's stage is "
+            f"{stage or 'unset'!r}, whose checklist asks nothing about the "
+            f"manuscript. Open it and judge it as the reviewer who will decide "
+            f"it{beside}. What would get it rejected is work, not a note.\n"
+        )
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def search_altitude_context(project_root: object) -> str:
     """Everything a role should have in view before it judges its own work.
 
@@ -1884,6 +1965,7 @@ def search_altitude_context(project_root: object) -> str:
         + _literature_ledger_block(project_root)
         + _manuscript_scale_block(project_root)
         + _paper_notes_block(project_root)
+        + _unasked_manuscript_block(project_root)
         + _framework_maintenance_share_block(project_root)
         + _manuscript_high_water_block(project_root)
     )
