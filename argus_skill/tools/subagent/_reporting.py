@@ -5,6 +5,7 @@ inbox queuing, and the EARLY-STOPPED reply-back instruction block.
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,8 @@ from ._registry import (
 from ._text import (
     _tail_file,
 )
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # LLM-authored supervisor summary
@@ -344,19 +347,165 @@ def _build_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:
 # Inbox delivery
 # ---------------------------------------------------------------------------
 
-def _queue_to_inbox(report: str, task_id: str = "subagent") -> None:
-    """Queue a message to the project inbox; fall back to a file on failure."""
+class InboxDeliveryError(RuntimeError):
+    """A subagent report could not be queued to the engineer inbox.
+
+    The handoff report is the ONLY channel by which the engineer learns that a
+    run completed, early-stopped, timed out or crashed, so a delivery that
+    failed must never read as one that succeeded. The report text is still
+    written to ``REGISTRY_DIR/<task_id>_ALERT.md`` for forensics before this is
+    raised.
+
+    A caller is expected to (a) stop treating the run as reported, and (b)
+    record the failure on the durable task record — ``report_delivery:
+    "failed"`` plus the error string — so ``subagent status`` can tell the
+    engineer a report exists that never reached them. It must NOT let this kill
+    the worker: the run itself is already over by the time a report is sent.
+    """
+
+
+def _life_dir_for_cwd(cwd: str | Path) -> Path:
+    """Map a run's working directory to that project's engineer inbox root."""
+    from ...core.paths import session_state_root  # noqa: PLC0415
+    from ...core.project import project_fingerprint  # noqa: PLC0415
+
+    return session_state_root(project_fingerprint(cwd).fingerprint)
+
+
+def _task_life_dir(task_id: str, task_data: dict[str, Any]) -> Path | None:
+    """Resolve the engineer inbox root from the task record's own cwd.
+
+    Returns ``None`` only when no cwd can be found on either the in-memory task
+    data or the persisted record, which leaves ``_queue_to_inbox`` to infer one
+    from this process — see the warning it logs when that happens.
+    """
+    cwd = str(task_data.get("cwd") or "").strip()
+    if not cwd:
+        persisted = _read_task(task_id)
+        cwd = str((persisted or {}).get("cwd") or "").strip()
+    if not cwd:
+        log.warning(
+            "subagent %s: task record carries no cwd, so the engineer inbox will "
+            "be inferred from this worker's own cwd — which is not necessarily "
+            "the project the run belongs to",
+            task_id,
+        )
+        return None
+    try:
+        return _life_dir_for_cwd(cwd)
+    except Exception:  # noqa: BLE001 — identity resolution shells out to git; a
+        # broken repo must not cost us the report, but it must not be silent
+        # either, so the guess that follows is logged with its traceback.
+        log.exception(
+            "subagent %s: could not resolve the engineer inbox for cwd %s; "
+            "falling back to inference from this worker's cwd",
+            task_id,
+            cwd,
+        )
+        return None
+
+
+def _queue_to_inbox(
+    report: str,
+    task_id: str = "subagent",
+    life_dir: str | Path | None = None,
+) -> None:
+    """Queue a report to the engineer inbox rooted at *life_dir*.
+
+    *life_dir* is supplied by the caller, which holds the task record and
+    therefore the run's real cwd. Identity is deliberately NOT inferred from
+    this process: the durable worker is ``setsid``-detached and can hold a cwd
+    of its own, while ``project_fingerprint()`` hashes the git remote (or the
+    path) of whatever cwd it is handed. Delivering to the wrong project's inbox
+    raises nothing at all, so that misdelivery is invisible on every side —
+    strictly worse than a loud failure. Inference survives only for callers that
+    have no cwd to give, and says so in the log when it is used.
+
+    Raises:
+        InboxDeliveryError: the report did not land. The text is written to
+            ``<task_id>_ALERT.md`` first so the evidence survives.
+    """
     try:
         from ...apps._inbox import queue_inbox_message  # noqa: PLC0415
-        from ...core.paths import session_state_root  # noqa: PLC0415
-        from ...core.project import project_fingerprint  # noqa: PLC0415
-        ident = project_fingerprint()
-        life_dir = session_state_root(ident.fingerprint)
-        queue_inbox_message(life_dir, report, source="subagent")
-    except Exception:
+
+        if life_dir is None:
+            from ...core.paths import session_state_root  # noqa: PLC0415
+            from ...core.project import project_fingerprint  # noqa: PLC0415
+
+            ident = project_fingerprint()
+            life_dir = session_state_root(ident.fingerprint)
+            log.warning(
+                "subagent %s: no life_dir supplied; inferring the engineer inbox "
+                "from this process's cwd (%s, source=%s, fingerprint=%s). If this "
+                "worker is detached from the run's project, the report lands in "
+                "another project's inbox.",
+                task_id,
+                ident.cwd,
+                ident.source,
+                ident.fingerprint,
+            )
+        queue_inbox_message(Path(life_dir), report, source="subagent")
+    except Exception as exc:  # noqa: BLE001 — the import, the identity lookup and
+        # the write itself can each fail, and they all mean one thing to the
+        # caller: the engineer was not told. They are converted to one signal.
         alert_path = REGISTRY_DIR / f"{task_id}_ALERT.md"
-        alert_path.parent.mkdir(parents=True, exist_ok=True)
-        alert_path.write_text(report + "\n", encoding="utf-8")
+        try:
+            alert_path.parent.mkdir(parents=True, exist_ok=True)
+            alert_path.write_text(report + "\n", encoding="utf-8")
+        except OSError:
+            log.exception(
+                "subagent %s: could not write the fallback alert file %s either",
+                task_id,
+                alert_path,
+            )
+        log.exception(
+            "subagent %s: report could not be queued to the engineer inbox "
+            "(life_dir=%s); forensic copy at %s",
+            task_id,
+            life_dir,
+            alert_path,
+        )
+        raise InboxDeliveryError(
+            f"subagent report for '{task_id}' never reached the engineer inbox "
+            f"(life_dir={life_dir}): {type(exc).__name__}: {exc}. "
+            f"Forensic copy: {alert_path}"
+        ) from exc
+
+
+def _record_report_delivery_failure(
+    task_id: str,
+    event: str,
+    task_data: dict[str, Any],
+    error: Exception,
+) -> None:
+    """Persist "the engineer was never told" onto the durable task record.
+
+    Without this the only trace of a lost report is an ``_ALERT.md`` nobody is
+    looking for; with it, ``subagent status`` can say so on the next poll.
+    """
+    fields: dict[str, Any] = {
+        "report_delivery": "failed",
+        "report_delivery_error": f"{type(error).__name__}: {error}",
+        "report_delivery_event": event,
+    }
+    task_data.update(fields)
+    persisted = _read_task(task_id)
+    if persisted is None:
+        log.warning(
+            "subagent %s: no task record on disk to mark the failed report "
+            "delivery on; the _ALERT.md copy is the only trace",
+            task_id,
+        )
+        return
+    persisted.update(fields)
+    expected_run_id = str(task_data.get("run_id") or persisted.get("run_id") or "")
+    if not _write_task_if_run_id(task_id, persisted, expected_run_id=expected_run_id):
+        log.warning(
+            "subagent %s: failed report delivery was not persisted — the task "
+            "record now belongs to a different run (expected run_id=%s)",
+            task_id,
+            expected_run_id,
+        )
 
 
 def _alert_engineer(task_id: str, event: str, task_data: dict[str, Any]) -> str:
@@ -364,7 +513,21 @@ def _alert_engineer(task_id: str, event: str, task_data: dict[str, Any]) -> str:
 
     Returns the report text so callers can also persist it as the durable,
     co-located supervisor verdict for the experiment.
+
+    A delivery failure is recorded, not raised: the run is already over by the
+    time a report is sent, and killing the worker here would lose the teardown
+    that follows. The record carries ``report_delivery="failed"`` so `subagent
+    status` surfaces it, and the report text survives as ``_ALERT.md``.
     """
     report = _build_report(task_id, event, task_data)
-    _queue_to_inbox(report, task_id)
+    try:
+        _queue_to_inbox(
+            report,
+            task_id,
+            life_dir=_task_life_dir(task_id, task_data),
+        )
+    except InboxDeliveryError as exc:
+        _record_report_delivery_failure(task_id, event, task_data, exc)
+    else:
+        task_data["report_delivery"] = "delivered"
     return report

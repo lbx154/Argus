@@ -6,15 +6,58 @@ import os
 import shutil
 from pathlib import Path
 
+#: System-wide install locations probed after PATH, for the case where a
+#: service-managed or ``setsid``-detached process was handed a trimmed PATH.
+_CODEX_SYSTEM_PATHS: tuple[str, ...] = ("/usr/local/bin/codex", "/usr/bin/codex")
+
+#: Operator escape hatch: absolute path to the agent CLI binary. The same knob
+#: the supervisor's own runner resolution honors (``core.role_config``), so the
+#: fix named in the error below is the fix that actually works.
+_RUNNER_BIN_ENV = "ARGUS_SKILL_RUNNER_BIN"
+
 
 def _find_codex() -> str:
+    """Resolve an executable path to the codex CLI.
+
+    Raises:
+        FileNotFoundError: when every probe came up empty. The probes *prove*
+            codex is absent, so handing back the bare name ``"codex"`` would
+            only defer the same failure to ``subprocess`` — which reports
+            ``FileNotFoundError: 'codex'`` and discards the trail, leaving the
+            operator unable to tell "not installed" from "PATH not exported to
+            this detached worker" from "installed somewhere else". The message
+            therefore carries the probed locations in order, the PATH in force,
+            and the override knob. This mirrors
+            ``agent_cli.runner_backend._resolve_explicit_candidate``, which
+            likewise reports absence instead of guessing.
+    """
+    probed: list[str] = []
+
+    configured = str(os.environ.get(_RUNNER_BIN_ENV, "") or "").strip()
+    if configured:
+        expanded = str(Path(configured).expanduser())
+        if os.path.isfile(expanded) and os.access(expanded, os.X_OK):
+            return expanded
+        probed.append(f"{_RUNNER_BIN_ENV}={configured!r} (not an executable file)")
+
     codex = shutil.which("codex")
     if codex:
         return codex
-    for candidate in ["/usr/local/bin/codex", "/usr/bin/codex"]:
+    probed.append("PATH lookup for 'codex' (shutil.which)")
+
+    for candidate in _CODEX_SYSTEM_PATHS:
         if os.path.isfile(candidate):
             return candidate
-    return "codex"
+        probed.append(candidate)
+
+    raise FileNotFoundError(
+        "codex CLI not found. Probed, in order: "
+        + "; ".join(probed)
+        + f". PATH={os.environ.get('PATH', '') or '(empty)'}. "
+        "Install the codex CLI, export a PATH containing it to this process "
+        "(a setsid-detached worker does not inherit an interactive shell's "
+        f"PATH), or set {_RUNNER_BIN_ENV} to the CLI's absolute path."
+    )
 
 def _tail_file(path: Path, max_chars: int = 3000) -> str:
     try:

@@ -803,6 +803,12 @@ def test_cmd_reply_reads_utf8_message_file(monkeypatch, tmp_path, capsys) -> Non
 
 
 def test_queue_fallback_writes_utf8_report(monkeypatch, tmp_path) -> None:
+    """The forensic copy keeps its UTF-8 contract — and no longer passes for delivery.
+
+    The alert file used to be the whole failure path: written, and then silently
+    returned from as though the engineer had been told. It is still written, but
+    the caller now learns the report never landed.
+    """
     monkeypatch.setattr(_sub._reporting, "REGISTRY_DIR", tmp_path)
     monkeypatch.setattr(
         "argus_skill.apps._inbox.queue_inbox_message",
@@ -810,7 +816,8 @@ def test_queue_fallback_writes_utf8_report(monkeypatch, tmp_path) -> None:
     )
     report = "实验报告 🔬 → α"
 
-    _sub._reporting._queue_to_inbox(report, task_id="unicode")
+    with pytest.raises(_sub._reporting.InboxDeliveryError):
+        _sub._reporting._queue_to_inbox(report, task_id="unicode")
 
     assert (tmp_path / "unicode_ALERT.md").read_text(encoding="utf-8") == report + "\n"
 
@@ -1016,7 +1023,14 @@ def test_run_supervised_persists_supervisor_usage_totals(monkeypatch, tmp_path) 
     monkeypatch.setattr(
         _sub._supervised_run,
         "_supervisor_check_with_usage",
-        lambda *a, **k: ("continue", "healthy", "", "sup-thread", (120, 15, 30, 6)),
+        lambda *a, **k: _sub._supervised_run.SupervisorCheck(
+            decision="continue",
+            health="healthy",
+            concern="",
+            thread_id="sup-thread",
+            usage=(120, 15, 30, 6),
+            error=None,
+        ),
     )
 
     _sub._run_supervised(

@@ -21,6 +21,7 @@ from ._discussion_log import (
 from ._llm import resolve_supervisor_model
 from ._registry import (
     DISCUSSION_STALE_AFTER_S,
+    REGISTRY_DIR,
     _append_experiment_history,
     _child_env,
     _effective_run_dir,
@@ -555,6 +556,36 @@ _OK_STATES = frozenset({"done", "running", "starting", "preflight", "early_stopp
 
 _FAILED_STATES = frozenset({"error", "crashed", "timeout"})
 
+
+def _undelivered_reports() -> list[dict[str, object]]:
+    """Reports that were written to disk because the inbox refused them.
+
+    ``_queue_to_inbox`` drops ``<task_id>_ALERT.md`` into the registry when a
+    handoff report cannot be queued. That report is the only signal that a run
+    finished, early-stopped, timed out or crashed, so an alert file nobody reads
+    is an engineer waiting forever. Status is the consumer: every poll, for any
+    task, lists whatever is sitting there.
+    """
+    suffix = "_ALERT.md"
+    try:
+        alerts = sorted(REGISTRY_DIR.glob(f"*{suffix}"))
+    except OSError:
+        return []
+    out: list[dict[str, object]] = []
+    for path in alerts:
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        out.append({
+            "task_id": path.name[: -len(suffix)],
+            "path": str(path),
+            "written_at": stat.st_mtime,
+            "bytes": stat.st_size,
+        })
+    return out
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     """Check status of a single task.
 
@@ -603,6 +634,18 @@ def cmd_status(args: argparse.Namespace) -> int:
             "--message",
             "<your rationale>",
         ])
+
+    # A report that never reached the inbox leaves an _ALERT.md behind. Surface
+    # every one of them on any status poll — the engineer whose report was lost
+    # is by definition not being told anything else.
+    alerts = _undelivered_reports()
+    if alerts:
+        task["undelivered_reports"] = alerts
+        task["UNDELIVERED_REPORTS"] = (
+            f"{len(alerts)} subagent report(s) never reached your inbox — the "
+            "run(s) below finished but nothing told you. Read each `path`, act "
+            "on it, then delete the file so it stops being reported."
+        )
 
     print(json.dumps(task, indent=2))
     state = task.get("state")
