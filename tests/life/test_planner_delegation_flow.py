@@ -12,10 +12,16 @@ import pytest
 from argus_skill.core.models import RunnerResult
 from argus_skill.daemon.state import write_continuous_config
 from argus_skill.life.event_log import JsonlEventSink
-from argus_skill.life.memory import BacklogItem, LifeMemory
+from argus_skill.life.memory import (
+    BacklogItem,
+    GlobalMemory,
+    LifeMemory,
+    MemoryBundle,
+    ProjectMemory,
+)
 from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 from argus_skill.life.supervisor._constants import PLAN_RETRY
-from argus_skill.planner import PlannerConfig
+from argus_skill.planner import Planner, PlannerConfig
 from argus_skill.skills.vertical_select import persist_vertical
 
 
@@ -653,8 +659,65 @@ def test_new_continuous_generation_interrupts_obsolete_planner(tmp_path: Path) -
     config = supervisor._planner_config()
     provider = config.external_interrupt_reason_provider
     assert provider() is None
-    assert config.add_dirs == [str(life)]
+    assert config.state_root == str(project)
+    assert config.add_dirs == []
 
     write_continuous_config(life, enabled=True, objective="new operator objective")
 
     assert provider() == "planner superseded by newer continuous generation"
+
+
+def test_split_memory_planner_resolves_vertical_from_project_state(
+    tmp_path: Path,
+) -> None:
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    global_root = tmp_path / "state"
+    project_memory = ProjectMemory.open(
+        "s-kernel",
+        global_root=global_root,
+    )
+    memory = MemoryBundle(
+        global_mem=GlobalMemory.open(global_root),
+        project=project_memory,
+        project_worktree=worktree,
+    )
+    memory.init()
+    write_continuous_config(
+        project_memory.root,
+        enabled=True,
+        objective="optimize full-model inference serving",
+    )
+    persist_vertical(
+        project_memory.root,
+        "kernel_engineering",
+        workflow_mode="direct",
+    )
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=_MissionRunner(),
+        sink=JsonlEventSink(None, life_dir=project_memory.root, verbosity="full"),
+        config=LifeSupervisorConfig(
+            continuous=True,
+            continuous_objective="optimize full-model inference serving",
+            open_ended=True,
+            project_worktree=worktree,
+            artifact_root=project_memory.root,
+        ),
+        planner_runner=object(),
+    )
+
+    config = supervisor._planner_config()
+    prompt = Planner._build_planner_prompt(
+        continuous_objective="optimize full-model inference serving",
+        journal_tail="(empty)",
+        planning_cycle=0,
+        open_ended=True,
+        project_root=worktree,
+        state_root=config.state_root,
+    )
+
+    assert config.state_root == str(project_memory.root)
+    assert config.role_session_path == project_memory.root / "role-sessions" / "planner.json"
+    assert str(global_root) not in config.add_dirs
+    assert "fill spare mission slots" in prompt

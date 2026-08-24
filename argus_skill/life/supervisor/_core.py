@@ -398,7 +398,7 @@ class LifeSupervisor(
         from ...core.role_session import objective_revision
 
         workdir = self._planner_workdir()
-        state_root = Path(self.memory.root)
+        state_root = self._artifact_root()
         try:
             from ...core.pipeline_state import read_pipeline_state
 
