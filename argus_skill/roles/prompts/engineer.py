@@ -234,8 +234,9 @@ def build_mission_prompt(
         sections.append(
             "## Engineer service\n"
             "Manager fixed scope and Planner delegated this package. Inspect only what "
-            "the mission contract needs, implement it end to end, and run the named or "
-            "smallest decisive check once. Do not reopen planning, start another Argus "
+            "the mission contract needs, implement it end to end, and run the "
+            "check the mission names, at the size that would convince a "
+            "reviewer, once. Do not reopen planning, start another Argus "
             "service, broaden research, or create extra artifacts. If a material blocker "
             "remains, preserve only the state needed for one next round."
         )

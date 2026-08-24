@@ -55,7 +55,7 @@ commands, tests, and iteration.
 
 - Reuse Manager/completed decisions. Give Engineer a self-contained task with its
   decision, inputs, check; split only for dependencies or independent work.
-- Prefer the simplest sufficient plan; add machinery only when evidence requires it.
+- Add machinery only when evidence requires it; scale of evidence is not machinery.
 - Follow the operator's requested actions and order. Existing artifacts or a usable
   alternative do not replace the first unmet requested action. Do not invent cleanup,
   docs, provenance, or rechecks.
@@ -300,8 +300,10 @@ def build_continuous_prompt(
             f"`workflow_mode=direct`; `{stage}` is semantic context, not a mandatory "
             "artifact phase. Treat it as semantic context, not a hard gate. This "
             "overrides the generic instruction to work only the "
-            "active stage. Delegate the smallest implementation, experiment, or "
-            "verification that directly advances the operator objective. Do not create, "
+            "active stage. Delegate the implementation, experiment, or "
+            "verification that directly advances the operator objective, and "
+            "nothing beside it; the bound is on what you build, never on how "
+            "much you measure. Do not create, "
             "repair, or certify stage bundles, frontier snapshots, pipeline state, "
             "checkpoints, reports, or setup documents unless the operator explicitly "
             "requested that artifact or it is strictly necessary to execute the work. "

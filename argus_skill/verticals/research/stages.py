@@ -447,7 +447,11 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "not the sole final evidence. A run marked full is not publication-"
                 "scale merely because its manifest says so: compare the executed "
                 "evidence dimensions with recent accepted same-area work, and run "
-                "what is missing to reach that bar. A claim worth making is worth "
+                "what is missing to reach that bar. Narrowing the claim until the "
+                "run you have already paid for covers it is not justification, it "
+                "is the same run with a smaller result attached: size the evidence "
+                "to the claim worth making, never the claim to the evidence you "
+                "happen to hold. A claim worth making is worth "
                 "the evidence that carries it."
             ),
             evidence_hint="experiments/**/manifest.json declares scale=full",
@@ -674,9 +678,16 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="draft.figures",
             statement=(
-                "The paper embeds a real external Figure 1 teaser/method/framework "
-                "overview plus any claim-bearing result visuals needed by the "
-                "argument. Figure 1 communicates the problem, mechanism and flow at "
+                "Every claim this paper asks a reader to accept either shows its "
+                "evidence in a figure or has a stated reason a table serves it "
+                "better. Ask which claims a reader currently has to take on trust "
+                "because nothing shows them, and draw those. Accepted work in this "
+                "area carries a mechanism diagram, the headline result, the ablation "
+                "that rules out the obvious alternative explanation, and the case "
+                "where the method stops working; arriving at one figure means the "
+                "argument was never asked what it needed. The paper embeds a real "
+                "external Figure 1 teaser/method/framework overview. "
+                "Figure 1 communicates the problem, mechanism and flow at "
                 "a glance; it is not a LaTeX table, prose box, or rule-bar diagnostic "
                 "inside a figure environment. image-2 is optional: when unavailable, "
                 "use PPT Master, browser-rendered HTML, FigureSpec, Draw.io, "
