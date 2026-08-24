@@ -42,7 +42,7 @@ PRIMARY_SOURCE_TYPES = frozenset(
 def _parse_time(value: object) -> datetime | None:
     try:
         return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(UTC)
-    except (TypeError, ValueError):
+    except ValueError:
         return None
 
 
@@ -248,7 +248,7 @@ def _compact_legacy_ledger_unlocked(project_root: Path) -> Path | None:
     archive_valid = False
     try:
         archive_valid = gzip.decompress(archive.read_bytes()) == original
-    except (OSError, EOFError, gzip.BadGzipFile):
+    except (OSError, EOFError):
         pass
     if not archive_valid:
         _atomic_write(archive, gzip.compress(original, mtime=0))

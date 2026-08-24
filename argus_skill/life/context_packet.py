@@ -81,7 +81,7 @@ def _model_visible_context_ref(ref: Mapping[str, Any]) -> dict[str, str]:
 def _read_json_object(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, TypeError, ValueError):
+    except (OSError, ValueError):
         return {}
     return payload if isinstance(payload, dict) else {}
 

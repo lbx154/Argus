@@ -176,7 +176,7 @@ def build_delivery_receipt(
         "review_status": str(review_status or "not_assessed").strip()[:80]
         or "not_assessed",
         "delivered_at": time.time(),
-        "primary_target": dict(targets[0]) if targets else None,
+        "primary_target": dict(targets[0]),
         "targets": targets,
     }
 

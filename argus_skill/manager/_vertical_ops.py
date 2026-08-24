@@ -475,7 +475,6 @@ class _VerticalDecisionMixin:
         )
         backend_name = str(
             getattr(backend, "_backend_name", "")
-            or getattr(self.runner, "_backend_name", "")
             or ""
         ).strip().lower()
         known_verticals = list(vertical_select.available_verticals())
@@ -1066,7 +1065,7 @@ class _VerticalDecisionMixin:
             vertical_adopt_operator_objective,
         )
 
-        request = str(getattr(decision, "execution_task", "") or "").strip() or task
+        request = decision.execution_task.strip() or task
         roots = [self.project_root]
         workdir = getattr(self, "execution_workdir", None)
         if workdir is not None and Path(workdir) != Path(self.project_root):

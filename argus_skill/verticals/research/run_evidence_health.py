@@ -123,11 +123,9 @@ def _scan_bundle(bundle_dir: Path) -> BundleHealth:
     for ctrf in ctrf_files:
         if _scan_ctrf(ctrf):
             health.ctrf_call_failed += 1
-            try:
-                rel = ctrf.relative_to(bundle_dir).as_posix()
-            except ValueError:
-                rel = ctrf.name
-            health.failing_examples.append(rel)
+            health.failing_examples.append(
+                ctrf.relative_to(bundle_dir).as_posix()
+            )
     return health
 
 

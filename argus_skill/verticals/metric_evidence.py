@@ -33,7 +33,7 @@ _TRUE_VALUES = {"1", "true", "yes", "pass", "passed", "correct"}
 def _finite_number(value: object) -> float | None:
     try:
         number = float(str(value).strip())
-    except (TypeError, ValueError):
+    except ValueError:
         return None
     return number if math.isfinite(number) else None
 

@@ -477,9 +477,7 @@ class RoundReviewerMixin:
                     input_tokens=int(review.input_tokens or 0),
                     cached_input_tokens=int(review.cached_input_tokens or 0),
                     output_tokens=int(review.output_tokens or 0),
-                    reasoning_output_tokens=int(
-                        review.reasoning_output_tokens or 0
-                    ),
+                    reasoning_output_tokens=int(review.reasoning_output_tokens or 0),
                     premium_requests=float(review.premium_requests or 0.0),
                 )
                 if on_event:

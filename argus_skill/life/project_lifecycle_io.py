@@ -96,7 +96,7 @@ def _parse_iso(s: Any) -> datetime | None:
         return s
     try:
         return datetime.fromisoformat(str(s))
-    except (TypeError, ValueError):
+    except ValueError:
         return None
 
 

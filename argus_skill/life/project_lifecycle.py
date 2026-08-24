@@ -238,7 +238,7 @@ def advisory_time_signals(
 
     if status.state == ProjectState.INCUBATING:
         age = _days_since(now, status.created_at)
-        if age is not None and status.last_evidence_at is None:
+        if status.last_evidence_at is None:
             signals.append(
                 AdvisorySignal(
                     kind="incubating_time",
@@ -251,7 +251,7 @@ def advisory_time_signals(
 
     elif status.state == ProjectState.RUNNING and status.last_evidence_at is not None:
         since = _days_since(now, status.last_evidence_at)
-        if since is not None and since > 0:
+        if since > 0:
             signals.append(
                 AdvisorySignal(
                     kind="running_evidence_gap",
@@ -271,7 +271,7 @@ def advisory_time_signals(
             or status.created_at
         )
         since = _days_since(now, anchor)
-        if since is not None and since > 0:
+        if since > 0:
             signals.append(
                 AdvisorySignal(
                     kind="writing_idle",

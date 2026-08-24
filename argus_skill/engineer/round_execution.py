@@ -161,9 +161,7 @@ class RoundExecutionMixin:
                 "session_id": str(new_tid or ""),
                 "turns_on_session": engineer_session.turns,
                 "input_tokens": int(engineer_result.input_tokens or 0),
-                "cached_input_tokens": int(
-                    engineer_result.cached_input_tokens or 0
-                ),
+                "cached_input_tokens": int(engineer_result.cached_input_tokens or 0),
                 "duration_ms": int((time.time() - round_started_at) * 1000),
                 "prompt_chars": len(engineer_prompt),
                 "prompt_estimated_tokens": (len(engineer_prompt) + 3) // 4,
@@ -201,9 +199,7 @@ class RoundExecutionMixin:
         orphan_group_id = int(engineer_result.orphan_process_group_id or 0)
         process_ownership_note = ""
         if orphan_group_id:
-            cleanup_succeeded = bool(
-                engineer_result.orphan_process_group_cleanup_succeeded
-            )
+            cleanup_succeeded = bool(engineer_result.orphan_process_group_cleanup_succeeded)
             process_ownership_note = (
                 "ARGUS PROCESS OWNERSHIP FACT: the provider turn exited while "
                 f"descendants remained in its private process group {orphan_group_id}. "
@@ -239,16 +235,10 @@ class RoundExecutionMixin:
                 "stop_kind": stop_kind,
                 "last_message": engineer_message,
                 "input_tokens": int(engineer_result.input_tokens or 0),
-                "cached_input_tokens": int(
-                    engineer_result.cached_input_tokens or 0
-                ),
+                "cached_input_tokens": int(engineer_result.cached_input_tokens or 0),
                 "output_tokens": int(engineer_result.output_tokens or 0),
-                "reasoning_output_tokens": int(
-                    engineer_result.reasoning_output_tokens or 0
-                ),
-                "premium_requests": float(
-                    engineer_result.premium_requests or 0.0
-                ),
+                "reasoning_output_tokens": int(engineer_result.reasoning_output_tokens or 0),
+                "premium_requests": float(engineer_result.premium_requests or 0.0),
                 "usage_scope": "delta",
             })
 

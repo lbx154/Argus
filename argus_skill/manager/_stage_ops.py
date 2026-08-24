@@ -71,10 +71,7 @@ class _StageDecisionMixin:
             cur,
             project_root=root,
         )
-        checklist_state = str(
-            getattr(getattr(checklist_contract, "state", ""), "value", "")
-            or getattr(checklist_contract, "state", "")
-        )
+        checklist_state = checklist_contract.state.value
         if (
             not checklist_contract.checklist_optional
             and checklist_state != "loaded"
@@ -92,7 +89,6 @@ class _StageDecisionMixin:
     def _build_stage_run_exec(
         self,
         run_exec: Any,
-        root: Path,
         on_event: Any,
     ) -> "tuple[Any, StageTransition | None]":  # noqa: F821
         """Phase 2: build the LLM caller (with cost metering) if not supplied.
@@ -104,7 +100,7 @@ class _StageDecisionMixin:
 
         if run_exec is not None:
             return run_exec, None
-        if self.runner is None and self._session is None:
+        if self.runner is None:
             return None, StageTransition(
                 "hold", "", "no manager backend", current_stage="",
                 source="no_runner_hold",
@@ -146,7 +142,6 @@ class _StageDecisionMixin:
         self,
         run_exec: Any,
         prompt: str,
-        root: Path,
         root_task_id: str | None,
     ) -> str:
         """Phase 3: run the model with empty-output retry and checkpoint refresh.
@@ -746,7 +741,7 @@ class _StageDecisionMixin:
                 )
 
         # --- Phase 5: Build the LLM caller ---
-        run_exec, hold = self._build_stage_run_exec(run_exec, root, on_event)
+        run_exec, hold = self._build_stage_run_exec(run_exec, on_event)
         if hold is not None:
             return StageTransition(
                 hold.action, cur, hold.reason, current_stage=cur,
@@ -756,7 +751,6 @@ class _StageDecisionMixin:
         # --- Phase 6–7: Run model, parse, finalize (wrapped in fail-safe) ---
         try:
             cur_idx = order.index(cur) if cur in order else -1
-            next_stage = order[cur_idx + 1] if 0 <= cur_idx < len(order) - 1 else ""
             later_stages = order[cur_idx + 1 :] if 0 <= cur_idx < len(order) - 1 else []
             earlier = order[:cur_idx] if cur_idx > 0 else []
             from ..roles.prompts import resolve_role_prompt
@@ -800,7 +794,6 @@ class _StageDecisionMixin:
             raw = self._run_stage_model(
                 run_exec,
                 prompt,
-                self.execution_workdir,
                 root_task_id,
             )
 

@@ -23,9 +23,6 @@ log = logging.getLogger(__name__)
 
 PANEL_KNOB = "ARGUS_SKILL_IDEA_PANEL"
 
-# Backends whose CLIs front genuinely different model families. Ordered by how
-# much a panel gains from adding them, not by preference.
-_CROSS_VENDOR_BACKENDS = ("codex", "claude", "copilot", "grok")
 
 
 def _resolve_bin(backend: str) -> str | None:

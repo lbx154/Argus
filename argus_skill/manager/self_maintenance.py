@@ -37,7 +37,7 @@ def _extract_json(text: str) -> dict[str, Any] | None:
     for candidate in candidates:
         try:
             value = json.loads(candidate)
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError:
             continue
         if isinstance(value, dict):
             return value

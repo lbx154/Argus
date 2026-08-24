@@ -73,7 +73,7 @@ class MedicalScope:
             object.__setattr__(self, name, _text(getattr(self, name)))
         parsed_dates: dict[str, date] = {}
         for name in ("date_from", "date_to"):
-            value = str(getattr(self, name) or "")
+            value = getattr(self, name)
             if not value:
                 continue
             try:

@@ -172,15 +172,12 @@ def _candidate_evidence(root: Path | None) -> str:
 
 def _team_learning_prompt(
     *,
-    project_root: Path,
-    project_state_dir: Path | None,
     project_skill_root: Path | None,
     shared_root: Path,
     mission_objective: str,
     mission_success: bool,
     mission_result: str,
 ) -> str:
-    del project_root, project_state_dir
     candidates = _candidate_evidence(project_skill_root)
     return (
         "You are an isolated post-mission TEAM learning reviewer. The TEAM mission "
@@ -276,7 +273,6 @@ def propagate_after_mission(
         log.debug("TEAM learning review skipped: no runner backend")
         return counts
 
-    project = Path(project_root).expanduser().resolve()
     state = (
         Path(project_state_dir).expanduser().resolve()
         if project_state_dir is not None
@@ -302,8 +298,6 @@ def propagate_after_mission(
         result = gateway_run_exec(
             backend,
             prompt=_team_learning_prompt(
-                project_root=project,
-                project_state_dir=state,
                 project_skill_root=project_skills,
                 shared_root=shared,
                 mission_objective=mission_objective,

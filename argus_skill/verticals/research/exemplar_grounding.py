@@ -565,14 +565,14 @@ def _normalize_facts(raw: dict) -> dict:
         # Only carry over numeric/quantitative keys; ignore audit
         # metadata flags like ``authoritative_for_acl_page_boundaries``.
         for k, v in manual.items():
-            if isinstance(v, (int, float)) and v is not None:
+            if isinstance(v, (int, float)):
                 out[k] = v
     # Top-level numeric keys take final precedence (covers shape 1 and
     # also lets the agent surface a corrected value at the top level).
     for k, v in raw.items():
         if k in ("tool_output", "manual_page_audit", "note", "source"):
             continue
-        if isinstance(v, (int, float, str, bool, list)) and v is not None:
+        if isinstance(v, (int, float, str, bool, list)):
             out.setdefault(k, v)
             # numeric overrides:
             if isinstance(v, (int, float)):

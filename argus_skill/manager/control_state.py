@@ -369,7 +369,7 @@ class CampaignControlStore:
             and current.campaign_epoch == identity.campaign_epoch
         )
         previous = self.read_snapshot(current) if same_campaign else None
-        revision = (current.state_revision + 1) if same_campaign and current else 1
+        revision = (current.state_revision + 1) if same_campaign else 1
         snapshot: dict[str, Any] = {
             "version": CONTROL_VERSION,
             "campaign_id": identity.campaign_id,
@@ -723,7 +723,7 @@ class CampaignControlStore:
                 return capability
 
             if latest.get("event") == "claimed":
-                return dict(raw) if active_matches else None
+                return dict(raw)
 
             if latest.get("event") != "acceptance_started":
                 return None

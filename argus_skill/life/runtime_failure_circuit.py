@@ -65,7 +65,7 @@ def _locked(root: Path) -> Iterator[None]:
 def _read_unlocked(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, TypeError):
+    except (OSError, ValueError):
         return {}
     return payload if isinstance(payload, dict) else {}
 
@@ -78,7 +78,7 @@ def _relevant_source_digest() -> str:
         path = Path(str(role_session.__file__ or ""))
         if path.is_file():
             return hashlib.sha256(path.read_bytes()).hexdigest()
-    except (OSError, TypeError, ValueError):
+    except (OSError, ValueError):
         pass
     return ""
 

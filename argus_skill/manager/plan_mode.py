@@ -191,7 +191,7 @@ def _steps_from_lines(text: str) -> list[PlanStep]:
         m = _NUMBERED_RE.match(line) or _BULLET_RE.match(line)
         if not m:
             continue
-        content = m.group(m.lastindex or 1)
+        content = m.group(m.lastindex)
         title, detail = _split_title_detail(content)
         if title:
             out.append(PlanStep(title, detail))

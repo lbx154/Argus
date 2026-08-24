@@ -887,7 +887,7 @@ def write_report(
 def _parse_timestamp(value: object) -> datetime | None:
     try:
         return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(UTC)
-    except (TypeError, ValueError):
+    except ValueError:
         return None
 
 

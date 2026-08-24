@@ -21,8 +21,7 @@ def _resolve_manager_workdir(mem: Any) -> Path:
     root = Path(global_root) if global_root is not None else life_dir.parent.parent
     meta = read_session_meta(root, life_dir.name)
     if meta is not None and (
-        str(getattr(meta, "workdir", "") or "").strip()
-        or str(getattr(meta, "cwd", "") or "").strip()
+        meta.workdir.strip() or meta.cwd.strip()
     ):
         base = resolve_session_workdir(meta, state_dir=life_dir)
     else:
@@ -390,7 +389,7 @@ def enqueue_mission(
                 except ValueError:
                     if (
                         str(getattr(node, "execution_workdir", "") or "").strip()
-                        and list(getattr(node, "deps", ()) or ())
+                        and list(node.deps)
                         and not raw_refs
                     ):
                         context_root = None
@@ -418,7 +417,7 @@ def enqueue_mission(
             chat_state,
             root_task_id=root_task_id,
         )
-        nodes = _stable_topological_nodes(tuple(getattr(plan, "tasks", ()) or ()))
+        nodes = _stable_topological_nodes(tuple(plan.tasks))
         if not nodes:
             raise front_door.ManagerHandoffError("bounded Planner produced no tasks")
         for node in nodes:

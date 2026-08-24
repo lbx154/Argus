@@ -138,7 +138,7 @@ def _decision_fields(
     if "CONFIDENCE" in values:
         try:
             fields["confidence"] = float(values["CONFIDENCE"])
-        except (TypeError, ValueError):
+        except ValueError:
             # Left absent rather than defaulted: the callers treat a missing
             # confidence as "not a usable answer" and escalate, which is the
             # correct response to a number we could not read.
@@ -531,10 +531,7 @@ def parse_fast_vertical_decision(
     allowed_domains = {
         str(value or "").strip().lower() for value in known_domains
     }
-    if name == "research":
-        if domain and domain not in allowed_domains:
-            return None
-    elif domain:
+    if name == "research" and domain and domain not in allowed_domains:
         return None
     targeted = {
         str(value or "").strip().lower()
@@ -683,10 +680,7 @@ def parse_vertical_decision(
         allowed_domains = {
             str(value or "").strip().lower() for value in known_domains
         }
-        if name == "research":
-            if domain and domain not in allowed_domains:
-                return None
-        elif domain:
+        if name == "research" and domain and domain not in allowed_domains:
             return None
         targeted = {
             str(value or "").strip().lower()

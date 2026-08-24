@@ -123,7 +123,7 @@ class _FrontDoorMixin:
                 return "complex"
             from ..core.models import RunnerOptions
 
-            _backend = self._session or self.runner
+            _backend = self._session
 
             def run_exec(prompt: str) -> Any:  # noqa: ANN401
                 return gateway_run_exec(

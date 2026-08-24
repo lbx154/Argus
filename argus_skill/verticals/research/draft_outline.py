@@ -331,7 +331,7 @@ def validate_outline(outline: DraftOutline | None) -> list[OutlineIssue]:
     # per-placeholder field check
     for f in outline.figures:
         for field_name in _REQUIRED_FIGURE_FIELDS:
-            if not getattr(f, field_name, ""):
+            if not getattr(f, field_name):
                 issues.append(OutlineIssue(
                     severity="incomplete",
                     code="figure_field_missing",
@@ -340,7 +340,7 @@ def validate_outline(outline: DraftOutline | None) -> list[OutlineIssue]:
                 ))
     for e in outline.experiments:
         for field_name in _REQUIRED_EXPERIMENT_FIELDS:
-            if not getattr(e, field_name, ""):
+            if not getattr(e, field_name):
                 issues.append(OutlineIssue(
                     severity="incomplete",
                     code="experiment_field_missing",
@@ -349,7 +349,7 @@ def validate_outline(outline: DraftOutline | None) -> list[OutlineIssue]:
                 ))
     for s in outline.sections:
         for field_name in _REQUIRED_SECTION_FIELDS:
-            if not getattr(s, field_name, ""):
+            if not getattr(s, field_name):
                 issues.append(OutlineIssue(
                     severity="incomplete",
                     code="section_field_missing",

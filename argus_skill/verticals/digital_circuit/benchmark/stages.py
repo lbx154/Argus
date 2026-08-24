@@ -70,7 +70,7 @@ def _preflight_requires_expectation(root: Path) -> bool:
     path = root / "evidence" / "preflight.json"
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, TypeError):
+    except (OSError, json.JSONDecodeError):
         return False
     if not isinstance(payload, dict):
         return False

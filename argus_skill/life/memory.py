@@ -326,9 +326,7 @@ def _path_signature(path: Path) -> tuple[int, int, int, int] | None:
         stat = path.stat()
     except OSError:
         return None
-    ino = int(getattr(stat, "st_ino", 0) or 0)
-    dev = int(getattr(stat, "st_dev", 0) or 0)
-    return (int(stat.st_mtime_ns), int(stat.st_size), dev, ino)
+    return (int(stat.st_mtime_ns), int(stat.st_size), int(stat.st_dev), int(stat.st_ino))
 
 
 def _atomic_rewrite_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
@@ -415,14 +413,14 @@ class JournalEntry:
     @classmethod
     def from_jsonable(cls, row: dict[str, Any]) -> "JournalEntry":
         return cls(
-            id=str(row.get("id", uuid.uuid4().hex[:12])),
-            ts=float(row.get("ts", time.time())),
-            kind=str(row.get("kind", "unknown")),
-            title=str(row.get("title", "")),
-            summary=str(row.get("summary", "")),
-            tags=list(row.get("tags", [])),
-            cost_usd=float(row.get("cost_usd", 0.0) or 0.0),
-            extra=dict(row.get("extra", {})),
+            id=str(row["id"]),
+            ts=float(row["ts"]),
+            kind=str(row["kind"]),
+            title=str(row["title"]),
+            summary=str(row["summary"]),
+            tags=list(row["tags"]),
+            cost_usd=float(row["cost_usd"] or 0.0),
+            extra=dict(row["extra"]),
         )
 
 
@@ -1122,7 +1120,7 @@ class Backlog:
             index += 1
             stack.append(node)
             on_stack.add(node)
-            for dep in graph.get(node, ()):
+            for dep in graph[node]:
                 if dep not in indices:
                     strongconnect(dep)
                     lowlinks[node] = min(lowlinks[node], lowlinks[dep])
@@ -1138,7 +1136,7 @@ class Backlog:
                 if member == node:
                     break
             if len(component) > 1 or (
-                len(component) == 1 and component[0] in graph.get(component[0], ())
+                len(component) == 1 and component[0] in graph[component[0]]
             ):
                 cycles.append(tuple(sorted(component)))
 

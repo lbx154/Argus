@@ -12,7 +12,6 @@ import os
 from typing import Any
 
 from ..core.run_gateway import run_exec as gateway_run_exec  # noqa: F401 — re-exported
-from ..core.runner_errors import result_has_missing_resume_target  # noqa: F401 — re-exported
 
 log = logging.getLogger(__name__)
 

@@ -195,13 +195,13 @@ def _response_payload(raw_text: str) -> dict[str, object] | None:
         cleaned = cleaned.rsplit("```", 1)[0].strip()
     try:
         payload = json.loads(cleaned)
-    except (TypeError, ValueError):
+    except ValueError:
         start, end = cleaned.find("{"), cleaned.rfind("}")
         if start < 0 or end <= start:
             return None
         try:
             payload = json.loads(cleaned[start : end + 1])
-        except (TypeError, ValueError):
+        except ValueError:
             return None
     return payload if isinstance(payload, dict) else None
 

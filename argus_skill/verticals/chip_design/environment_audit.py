@@ -119,7 +119,7 @@ def _scope(project_root: Path) -> dict[str, Any]:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return {}
-    except (OSError, json.JSONDecodeError, TypeError) as exc:
+    except (OSError, json.JSONDecodeError) as exc:
         raise ValueError(f"{path}: invalid chip scope: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError(f"{path}: expected a JSON object")
@@ -130,7 +130,7 @@ def _selected_pdk(scope: dict[str, Any], project_root: Path) -> str:
     target_path = project_root / "design" / "TARGET.json"
     try:
         target = json.loads(target_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, TypeError):
+    except (OSError, json.JSONDecodeError):
         target = {}
     if not isinstance(target, dict):
         target = {}
@@ -387,7 +387,7 @@ def check(
     path = project_root / report
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, TypeError) as exc:
+    except (OSError, json.JSONDecodeError) as exc:
         return False, [f"{path}: invalid or missing audit: {exc}"]
     if not isinstance(payload, dict):
         return False, [f"{path}: expected a JSON object"]

@@ -107,10 +107,7 @@ def classify_skill_placement(
         runner=runner,
         model=model,
         reasoning_effort=reasoning_effort,
-    ).get(
-        candidate_id,
-        PlacementVerdict("stay", "", "batch placement unavailable"),
-    )
+    )[candidate_id]
 
 
 def classify_skill_placements(

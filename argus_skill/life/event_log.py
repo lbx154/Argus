@@ -145,8 +145,6 @@ def _should_persist_for_verbosity(event: dict[str, Any], verbosity: str) -> bool
     """
     if verbosity != "signal":
         return True
-    if not isinstance(event, dict):
-        return True
     t = str(event.get("type", ""))
     if t in HIGH_VALUE_EVENT_TYPES:
         return True
@@ -243,8 +241,6 @@ class JsonlEventSink:
 
     @staticmethod
     def _is_idle_chatter(event: dict[str, Any]) -> bool:
-        if not isinstance(event, dict):
-            return False
         t = str(event.get("type", ""))
         text = str(event.get("text", ""))
         return (t, text) in DROP_FROM_DISK

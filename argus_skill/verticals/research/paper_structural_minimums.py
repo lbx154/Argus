@@ -33,6 +33,10 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .venue_profiles import VenueProfile
 
 # Venue-floor thresholds. Bump only with the operator's agreement —
 # raising these turns the gate into a quality judgment.
@@ -950,7 +954,7 @@ def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
 
 
 def _append_venue_compliance_issues(
-    report: StructuralReport, tex: str, venue: object
+    report: StructuralReport, tex: str, venue: VenueProfile
 ) -> None:
     """Append AAAI-style preamble/compliance issues when the profile requires.
 
@@ -965,34 +969,34 @@ def _append_venue_compliance_issues(
             if cleaned:
                 used_packages.add(cleaned)
 
-    style_package = getattr(venue, "style_package", "")
-    if getattr(venue, "requires_style_package", False) and style_package not in used_packages:
+    style_package = venue.style_package
+    if venue.requires_style_package and style_package not in used_packages:
         report.issues.append(
             StructuralIssue(
                 code="missing_aaai_style_package",
                 detail=(
                     f"main.tex does not \\usepackage{{{style_package}}} — a "
-                    f"{getattr(venue, 'display_name', 'venue')} paper must load the "
+                    f"{venue.display_name} paper must load the "
                     f"official {style_package}.sty style file (with "
                     "\\documentclass[letterpaper]{article} and times/helvet/courier)"
                 ),
             )
         )
 
-    if getattr(venue, "requires_pdfinfo", False) and not _RE_PDFINFO.search(tex):
+    if venue.requires_pdfinfo and not _RE_PDFINFO.search(tex):
         report.issues.append(
             StructuralIssue(
                 code="missing_pdfinfo_block",
                 detail=(
                     "main.tex is missing the mandatory \\pdfinfo{...} block "
                     "(with /TemplateVersion). Copy it verbatim from the official "
-                    f"{getattr(venue, 'display_name', 'venue')} template — "
+                    f"{venue.display_name} template — "
                     f"{style_package}.sty requires it"
                 ),
             )
         )
 
-    if not getattr(venue, "emit_bibliographystyle", True) and _RE_BIBLIOGRAPHYSTYLE.search(tex):
+    if not venue.emit_bibliographystyle and _RE_BIBLIOGRAPHYSTYLE.search(tex):
         report.issues.append(
             StructuralIssue(
                 code="forbidden_bibliographystyle",
@@ -1007,7 +1011,7 @@ def _append_venue_compliance_issues(
         )
 
     forbidden = sorted(
-        p for p in getattr(venue, "forbidden_packages", ()) if p in used_packages
+        p for p in venue.forbidden_packages if p in used_packages
     )
     if forbidden:
         report.issues.append(
@@ -1016,25 +1020,25 @@ def _append_venue_compliance_issues(
                 detail=(
                     f"main.tex loads package(s) incompatible with {style_package}.sty: "
                     f"{', '.join(forbidden)}. Remove them — they break the official "
-                    f"{getattr(venue, 'display_name', 'venue')} style"
+                    f"{venue.display_name} style"
                 ),
             )
         )
 
-    if getattr(venue, "forbids_nocopyright", False) and _RE_NOCOPYRIGHT.search(tex):
+    if venue.forbids_nocopyright and _RE_NOCOPYRIGHT.search(tex):
         report.issues.append(
             StructuralIssue(
                 code="uses_nocopyright",
                 detail=(
                     "main.tex uses \\nocopyright, which is forbidden for "
-                    f"{getattr(venue, 'display_name', 'venue')} — the copyright "
+                    f"{venue.display_name} — the copyright "
                     "notice is part of the style and may not be disabled"
                 ),
             )
         )
 
     if (
-        getattr(venue, "requires_reproducibility_checklist", False)
+        venue.requires_reproducibility_checklist
         and _section_span(tex, _REPRO_CHECKLIST_TITLES) is None
     ):
         report.issues.append(
@@ -1042,7 +1046,7 @@ def _append_venue_compliance_issues(
                 code="missing_reproducibility_checklist",
                 detail=(
                     "no Reproducibility Checklist section found — "
-                    f"{getattr(venue, 'display_name', 'venue')} requires the "
+                    f"{venue.display_name} requires the "
                     "reproducibility checklist in the PDF after References. Add a "
                     "\\section*{Reproducibility Checklist} answering the official items"
                 ),

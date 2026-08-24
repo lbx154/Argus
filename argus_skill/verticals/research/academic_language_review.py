@@ -2053,7 +2053,7 @@ def _float_or_none(value: object) -> float | None:
         return None
     try:
         return float(value)
-    except (TypeError, ValueError):
+    except ValueError:
         return None
 
 
