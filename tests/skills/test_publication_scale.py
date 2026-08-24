@@ -24,6 +24,10 @@ def _assessment(root: Path, **assessment_overrides) -> dict:
     result = root / "results" / "main.json"
     result.parent.mkdir(parents=True, exist_ok=True)
     result.write_text('{"metric": 0.7}\n', encoding="utf-8")
+    training = root / "results" / "training.json"
+    training.write_text('[{"prompt_id": "train-1"}]\n', encoding="utf-8")
+    evaluation = root / "results" / "evaluation.json"
+    evaluation.write_text('[{"prompt_id": "eval-1"}]\n', encoding="utf-8")
     assessment = {
         "pilot_only": False,
         "proxy_only": False,
@@ -75,6 +79,8 @@ def _assessment(root: Path, **assessment_overrides) -> dict:
                 "uncertainty_method": "paired confidence interval over repeated runs",
                 "strongest_comparisons": ["current strongest feasible baseline"],
                 "artifacts": ["results/main.json"],
+                "training_artifacts": ["results/training.json"],
+                "evaluation_artifact": "results/evaluation.json",
             }
         ],
         "scale_dimensions": {
@@ -178,6 +184,61 @@ def test_claim_bearing_artifacts_must_be_real_and_project_local(tmp_path: Path) 
 
     assert any("artifact does not exist" in issue for issue in issues)
     assert any("artifact escapes project root" in issue for issue in issues)
+
+
+def test_unlisted_nested_arm_config_difference_blocks(tmp_path: Path) -> None:
+    _target(tmp_path)
+    configs = tmp_path / "configs"
+    configs.mkdir()
+    (configs / "method.json").write_text(
+        json.dumps(
+            {
+                "decode": {"temperature": 0.0, "no_repeat_ngram_size": 2},
+                "seed": 7,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (configs / "baseline.json").write_text(
+        json.dumps(
+            {
+                "decode": {"temperature": 0.0, "no_repeat_ngram_size": 0},
+                "seed": 7,
+            }
+        ),
+        encoding="utf-8",
+    )
+    payload = _assessment(tmp_path)
+    payload["claim_bearing_evidence"][0]["arm_configs"] = {
+        "method": "configs/method.json",
+        "baseline": "configs/baseline.json",
+        "intended_differences": [],
+    }
+    _write(tmp_path, payload)
+
+    issues = publication_scale_issues(tmp_path)
+
+    assert any("decode.no_repeat_ngram_size" in issue for issue in issues)
+    assert any("method=2, baseline=0" in issue for issue in issues)
+
+
+def test_listed_arm_config_difference_does_not_block(tmp_path: Path) -> None:
+    _target(tmp_path)
+    configs = tmp_path / "configs"
+    configs.mkdir()
+    method = {"decode": {"temperature": 0.0, "no_repeat_ngram_size": 2}}
+    baseline = {"decode": {"temperature": 0.0, "no_repeat_ngram_size": 0}}
+    (configs / "method.json").write_text(json.dumps(method), encoding="utf-8")
+    (configs / "baseline.json").write_text(json.dumps(baseline), encoding="utf-8")
+    payload = _assessment(tmp_path)
+    payload["claim_bearing_evidence"][0]["arm_configs"] = {
+        "method": "configs/method.json",
+        "baseline": "configs/baseline.json",
+        "intended_differences": ["decode.no_repeat_ngram_size"],
+    }
+    _write(tmp_path, payload)
+
+    assert publication_scale_issues(tmp_path) == ()
 
 
 def test_scaffold_writes_the_schema_without_answering_it(tmp_path: Path) -> None:

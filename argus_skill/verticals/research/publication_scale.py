@@ -5,12 +5,25 @@ paper" merely by narrowing the prose claim. It deliberately avoids universal
 sample, seed, benchmark, or model-count thresholds. Instead, the project records
 how its claim-bearing evidence compares with recent accepted papers in the same
 area, and the independent Reviewer judges whether that calibration is credible.
+
+It also prevents an unmatched baseline from reading as an intervention win. In
+campaign run-06-control, the method reported 632/750 versus 520/750 (+14.93pp),
+but only the method arm used ``no_repeat_ngram_size=2`` and a repetition
+penalty. Declared arm configs are therefore compared key-by-key, with only named
+intended differences allowed.
+
+``arm_configs`` is required-if-present rather than a new unconditional field.
+Older valid assessments predate the contract, some primary claims are not
+comparisons, and every string returned here blocks stage completion; labeling a
+missing declaration "advisory" would still break those campaigns. Omission is
+thus grandfathered, while any declaration is enforced fail-closed.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import re
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -84,6 +97,98 @@ def _load(project_root: Path) -> tuple[dict[str, Any] | None, str]:
     if not isinstance(payload, dict):
         return None, f"{ASSESSMENT_PATH.as_posix()} must be a JSON object"
     return payload, ""
+
+
+_MISSING = object()
+
+
+def _load_arm_config(path: Path) -> dict[str, Any]:
+    suffix = path.suffix.lower()
+    try:
+        if suffix == ".json":
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        elif suffix == ".toml":
+            with path.open("rb") as handle:
+                payload = tomllib.load(handle)
+        else:
+            raise ValueError("config must use .json or .toml")
+    except (OSError, UnicodeError, json.JSONDecodeError, tomllib.TOMLDecodeError) as exc:
+        raise ValueError(str(exc)) from exc
+    if not isinstance(payload, dict):
+        raise ValueError("config must contain an object/table at the top level")
+    return payload
+
+
+def _flatten_config(value: Any, prefix: str = "") -> dict[str, Any]:
+    if isinstance(value, dict) and value:
+        flattened: dict[str, Any] = {}
+        for key, child in value.items():
+            dotted = f"{prefix}.{key}" if prefix else str(key)
+            flattened.update(_flatten_config(child, dotted))
+        return flattened
+    return {prefix: value}
+
+
+def _display_config_value(value: Any) -> str:
+    if value is _MISSING:
+        return "<missing>"
+    try:
+        return json.dumps(value, sort_keys=True)
+    except (TypeError, ValueError):
+        return repr(value)
+
+
+def _arm_config_issues(
+    project_root: Path,
+    row: dict[str, Any],
+    *,
+    prefix: str,
+) -> list[str]:
+    declaration = row.get("arm_configs")
+    if declaration is None:
+        return []
+    if not isinstance(declaration, dict):
+        return [f"{prefix}.arm_configs must be an object"]
+
+    intended = declaration.get("intended_differences", [])
+    if not isinstance(intended, list) or not all(
+        isinstance(item, str) and item.strip() for item in intended
+    ):
+        return [f"{prefix}.arm_configs.intended_differences must be a list of keys"]
+    allowed = {item.strip() for item in intended}
+
+    loaded: dict[str, dict[str, Any]] = {}
+    issues: list[str] = []
+    for arm in ("method", "baseline"):
+        raw_path = declaration.get(arm)
+        config_path, error = _contained_file(project_root, raw_path)
+        if error:
+            issues.append(f"{prefix}.arm_configs.{arm}: {error}")
+            continue
+        assert config_path is not None
+        try:
+            loaded[arm] = _load_arm_config(config_path)
+        except ValueError as exc:
+            issues.append(
+                f"{prefix}.arm_configs.{arm}: unreadable config "
+                f"{config_path.relative_to(project_root).as_posix()}: {exc}"
+            )
+    if len(loaded) != 2:
+        return issues
+
+    method = _flatten_config(loaded["method"])
+    baseline = _flatten_config(loaded["baseline"])
+    for key in sorted(method.keys() | baseline.keys()):
+        method_value = method.get(key, _MISSING)
+        baseline_value = baseline.get(key, _MISSING)
+        if method_value != baseline_value and key not in allowed:
+            issues.append(
+                f"{prefix}.arm_configs has unmatched difference at {key}: "
+                f"method={_display_config_value(method_value)}, "
+                f"baseline={_display_config_value(baseline_value)}; add it to "
+                "intended_differences only if the scientific intervention requires it"
+            )
+    return issues
 
 
 def publication_scale_issues(
@@ -165,6 +270,7 @@ def publication_scale_issues(
                 continue
             if str(row.get("role") or "").strip() == "primary":
                 primary_rows += 1
+                issues.extend(_arm_config_issues(root, row, prefix=prefix))
             for field in (
                 "claim",
                 "source_type",

@@ -12,7 +12,8 @@ assumes the project is producing a research paper:
   ``paper_infrastructure_review``, ``_review_contract_constants``,
   ``draft_outline``, ``paper_structural_minimums``, ``exemplar_grounding``,
   ``experiment_audit_gate``, ``method_differentiation``,
-  ``reviewer_simulation``, ``run_evidence_health``.
+  ``reviewer_simulation``, ``run_evidence_health``, ``contamination_check``,
+  ``artifact_freshness``.
 
 Submodules are imported directly (e.g.
 ``from argus_skill.verticals.research import academic_language_review``), and the

@@ -910,6 +910,7 @@ def stage_completion_issues(
         )
     if normalized in {"analysis", "draft", "review", "submission"}:
         from ...core.research_contract import resolve_research_target_level
+        from .contamination_check import contamination_issues
         from .publication_scale import publication_scale_issues
 
         target = resolve_research_target_level(state_root or project_root)
@@ -919,6 +920,17 @@ def stage_completion_issues(
                 project_root,
                 research_target_level=target,
             )
+        )
+        issues.extend(
+            f"[contamination] {issue}"
+            for issue in contamination_issues(project_root)
+        )
+    if normalized in {"review", "submission"}:
+        from .artifact_freshness import artifact_freshness_issues
+
+        issues.extend(
+            f"[artifact_freshness] {issue}"
+            for issue in artifact_freshness_issues(project_root)
         )
     if normalized in {"draft", "review", "submission"}:
         from .paper_structural_minimums import validate_paper_structural_minimums
@@ -1699,7 +1711,12 @@ def _selection_contract_block(project_root: object) -> str:
             "## What this campaign promised at selection\n"
             "From `research/IDEA_SELECTION.json`, written before the work began.\n"
             + "\n".join(lines)
-            + "\nIf the claim has moved since, say so and why: drift you argue for "
+            + "\nA margin filed here is a plan, not a verdict: it was written "
+            "before anyone knew the effect size. Decide on the measured effect "
+            "against the baseline and its interval -- a number under a self-set "
+            "line still counts if it separates, and one over it does not if it "
+            "cannot.\n"
+            "If the claim has moved since, say so and why: drift you argue for "
             "is research, and drift nobody mentions is how a soft baseline "
             "becomes a result.\n\n"
         )
