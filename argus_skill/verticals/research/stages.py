@@ -518,13 +518,14 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "Write `paper/PUBLICATION_SCALE_ASSESSMENT.json` from current "
                 "accepted-paper comparators and real local artifacts, then build the "
                 "primary evidence out until it stands on its own beside them rather "
-                "than only beside a pilot or a proxy. A negative, null, diagnostic or "
-                "boundary finding earns the paper on exactly the same terms as a "
-                "positive one: establish it at that scale and it is a contribution."
+                "than only beside a pilot or a proxy. Where it falls short of what it "
+                "was chosen against, that shortfall is the next experiment, not a "
+                "framing choice — narrower prose does not close it."
             ),
             evidence_hint=(
                 "`python -m argus_skill.verticals.research.publication_scale "
-                "--project-root .` + paper/PUBLICATION_SCALE_ASSESSMENT.json"
+                "--scaffold --project-root .` writes the schema and lists what "
+                "is still unanswered + paper/PUBLICATION_SCALE_ASSESSMENT.json"
             ),
         ),
         ChecklistItem(

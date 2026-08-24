@@ -88,16 +88,25 @@ def test_publishable_boundary_results_cannot_be_underpowered_pilots() -> None:
     assert "pilot_only" in analysis_skill
     assert "claim narrowing" in " ".join(peer_review.lower().split())
     assert "publication-scale evidence" in review["review.publication_value"]
-    # The bar is unchanged; the sentence carrying it is not. Stated as a
-    # prohibition ("a failed small experiment plus narrower prose is not a
-    # contribution") it taught the safest move — claim less — and the drafts
-    # read like audit reports. Stated as the standard a boundary finding is
-    # held to, it asks for the run instead of the hedge.
+    # The bar is unchanged; the sentence carrying it has now failed twice.
+    # Stated as a prohibition ("a failed small experiment plus narrower prose
+    # is not a contribution") it taught the safest move — claim less — and the
+    # drafts read like audit reports. Stated as the standard a boundary finding
+    # is held to ("earns the paper on exactly the same terms as a positive
+    # one") it read as permission: an observation campaign shipped a method
+    # scoring 0.792 against its own 0.812 comparator with the deficit
+    # propagated into five artifacts, and no stage asked for another round.
+    # Both wordings only ruled on how to DESCRIBE a result. This one puts the
+    # shortfall back in the work queue, which is what `submission.result_stands`
+    # already does one stage later and what analysis was missing.
     assert (
-        "same terms as a positive one"
+        "the next experiment"
         in analysis["analysis.publication_scale"]
     )
-    assert "at that scale" in analysis["analysis.publication_scale"]
+    assert (
+        "narrower prose does not close it"
+        in analysis["analysis.publication_scale"]
+    )
 
 
 def test_accepted_paper_and_code_organization_is_learned_without_copying() -> None:
