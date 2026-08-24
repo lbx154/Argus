@@ -75,6 +75,9 @@ def test_long_experiment_protocol_is_in_every_engineer_turn():
         assert "launch a supervised subagent" not in out
         assert "session-owned background shell" in out.lower()
         assert "do not poll in the foreground" in out.lower()
+        assert ".argus_external_work/<id>.json" in out
+        assert "activity_stale_after_seconds" in out
+        assert "`read_bash`" in out
 
 
 def test_engineer_must_not_spawn_a_subagent_to_impersonate_reviewer():

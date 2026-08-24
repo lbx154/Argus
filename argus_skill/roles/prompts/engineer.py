@@ -39,6 +39,11 @@ _AUDIT_FIDELITY_TASK = re.compile(
     r"provenance)\b|审计|账本|问题记录|命令日志|过程记录|只追加|来源归因",
     re.IGNORECASE,
 )
+_EXTERNAL_WORK_TASK = re.compile(
+    r"\b(?:experiment|evaluation|benchmark|training|serving|host[ _-]?job|"
+    r"external[ _-]?work|long[ _-]?run|sweep)\b|实验|评测|训练|长任务",
+    re.IGNORECASE,
+)
 
 
 def _audit_fidelity_section(task: str) -> str:
@@ -83,14 +88,28 @@ _WINDOWS_LONG_EXPERIMENT_RULE = (
     "`state=discussing`, answer with `reply_with`; do not poll in the foreground."
 )
 
+_EXTERNAL_OWNER_RULE = (
+    "If a host service or other owner outside Argus runs the work, require that "
+    "owner to maintain `.argus_external_work/<id>.json` with `started_at`, "
+    "`heartbeat_at`, `stale_after_seconds`, `activity_stale_after_seconds`, "
+    "`evidence_paths`, and concrete file `activity_paths`. Do not create or "
+    "heartbeat that owner record yourself. Once registered, yield with "
+    '`{"wait_for":"external_work","wait_id":"<id>"}`; never hold a provider '
+    "turn by foreground-polling it with `read_bash`."
+)
 
-def _long_experiment_rule() -> str:
+
+def _long_experiment_rule(task: str) -> str:
     shell_rule = (
         _WINDOWS_LONG_EXPERIMENT_RULE
         if native_shell_contract()
         else _POSIX_LONG_EXPERIMENT_RULE
     )
-    return shell_rule
+    return (
+        shell_rule + " " + _EXTERNAL_OWNER_RULE
+        if _EXTERNAL_WORK_TASK.search(task)
+        else shell_rule
+    )
 
 
 def append_live_guidance(prompt: str, guidance: list[str]) -> str:
@@ -298,7 +317,7 @@ def build_mission_prompt(
         "lines. At 18 tool calls, synthesize or checkpoint/yield; never exceed 24.\n"
         "Use primary sources when external behavior matters. If repeated attempts fail, "
         "recheck the underlying assumption instead of making another cosmetic tweak.\n"
-        + _long_experiment_rule()
+        + _long_experiment_rule(task)
     )
     if learning_block:
         sections.append(learning_block)
@@ -326,7 +345,7 @@ def build_mission_prompt(
         "Read CHECKPOINT.md, then execute the Reviewer next action. Do not repeat an "
         "unchanged failure; use the cheapest decisive diagnostic. The original task "
         "still applies.\n"
-        + _long_experiment_rule()
+        + _long_experiment_rule(task)
         + "\n\n"
         "## Handoff\n"
         "Use next_owner=operator only for an operator-owned choice; its question "

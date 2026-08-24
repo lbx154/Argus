@@ -45,6 +45,8 @@ class ExternalWorkStatus:
     source: str = "external"
     heartbeat_at: float = 0.0
     stale_after_seconds: float = 1800.0
+    activity_stale_after_seconds: float = 0.0
+    activity_silence_seconds: float = 0.0
     poll_after_seconds: float = 120.0
     outcome: str = ""
     reason: str = ""
@@ -115,6 +117,37 @@ def _read_record(path: Path) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def _activity_silence_seconds(
+    record: dict[str, Any], *, path: Path, now: float
+) -> float:
+    """Return silence on owner-declared project-local activity paths.
+
+    The external owner updates ``heartbeat_at`` to prove liveness. Reusing that
+    timestamp as progress lets a wedged job remain healthy forever, so activity
+    is measured only from the files the owner explicitly declared. Missing
+    paths can be judged only when the owner also supplied ``started_at``.
+    """
+    relative_paths = _safe_relative_paths(record.get("activity_paths"))
+    if not relative_paths:
+        return 0.0
+    try:
+        project_root = path.parent.parent.resolve(strict=False)
+    except OSError:
+        return 0.0
+    newest = 0.0
+    for relative in relative_paths:
+        try:
+            candidate = (project_root / relative).resolve(strict=False)
+            candidate.relative_to(project_root)
+            newest = max(newest, candidate.stat().st_mtime)
+        except (OSError, ValueError):
+            continue
+    if newest > 0:
+        return max(0.0, now - newest)
+    started_at = _coerce_float(record.get("started_at"), 0.0)
+    return max(0.0, now - started_at) if started_at > 0 else 0.0
+
+
 def _canonical_status(
     record: dict[str, Any], *, path: Path, now: float
 ) -> ExternalWorkStatus | None:
@@ -132,11 +165,29 @@ def _canonical_status(
         return None
     heartbeat_at = _coerce_float(record.get("heartbeat_at"), 0.0)
     stale_after = max(1.0, _coerce_float(record.get("stale_after_seconds"), 1800.0))
-    if state is ExternalWorkState.RUNNING_HEALTHY and (
-        heartbeat_at <= 0 or now - heartbeat_at > stale_after
-    ):
-        state = ExternalWorkState.STALLED
-        reason = "external-work heartbeat is stale"
+    activity_stale_after = max(
+        1.0,
+        _coerce_float(record.get("activity_stale_after_seconds"), stale_after),
+    )
+    activity_silence = 0.0
+    if state is ExternalWorkState.RUNNING_HEALTHY:
+        if heartbeat_at <= 0 or now - heartbeat_at > stale_after:
+            state = ExternalWorkState.STALLED
+            reason = "external-work heartbeat is stale"
+        else:
+            activity_silence = _activity_silence_seconds(
+                record,
+                path=path,
+                now=now,
+            )
+            if activity_silence > activity_stale_after:
+                state = ExternalWorkState.NEEDS_ATTENTION
+                reason = (
+                    "external work is alive but declared activity has not changed "
+                    f"for {int(activity_silence) // 60}m"
+                )
+            else:
+                reason = " ".join(str(record.get("reason") or "").split())[:500]
     else:
         reason = " ".join(str(record.get("reason") or "").split())[:500]
     return ExternalWorkStatus(
@@ -146,6 +197,8 @@ def _canonical_status(
         source=str(record.get("source") or "external").strip()[:80],
         heartbeat_at=heartbeat_at,
         stale_after_seconds=stale_after,
+        activity_stale_after_seconds=activity_stale_after,
+        activity_silence_seconds=activity_silence,
         poll_after_seconds=max(
             1.0, _coerce_float(record.get("poll_after_seconds"), 120.0)
         ),
@@ -153,6 +206,7 @@ def _canonical_status(
         reason=reason,
         evidence_paths=_safe_relative_paths(record.get("evidence_paths")),
         activity_paths=_safe_relative_paths(record.get("activity_paths")),
+        started_at=_coerce_float(record.get("started_at"), 0.0),
     )
 
 
@@ -436,5 +490,16 @@ def render_external_work_advisory(
             '    {"wait_for": "external_work", "wait_id": "<work_id>"}',
             'Use "subagent" instead of "external_work" for a listed subagent.',
             "Argus will monitor it without spending another Engineer round. File growth alone never counts as progress.",
+        ])
+    if any(
+        status.state in {
+            ExternalWorkState.NEEDS_ATTENTION,
+            ExternalWorkState.STALLED,
+        }
+        for status in statuses
+    ):
+        lines.extend([
+            "A NEEDS_ATTENTION or STALLED item must not be waited on or foreground-polled.",
+            "Diagnose it now from the declared activity/evidence paths and owner state; then repair, cancel, or restart it with a concrete check.",
         ])
     return "\n".join(lines)

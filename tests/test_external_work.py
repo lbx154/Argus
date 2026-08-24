@@ -60,6 +60,91 @@ def test_stale_healthy_record_downgrades_without_becoming_progress(tmp_path: Pat
     assert "stale" in status.reason
 
 
+def test_fresh_heartbeat_with_stale_declared_activity_needs_attention(
+    tmp_path: Path,
+) -> None:
+    progress = tmp_path / "experiments" / "progress.jsonl"
+    progress.parent.mkdir()
+    progress.write_text("started\n", encoding="utf-8")
+    os.utime(progress, (700, 700))
+    _write_external(
+        tmp_path,
+        "job-1",
+        heartbeat_at=990,
+        stale_after_seconds=60,
+        activity_stale_after_seconds=120,
+        started_at=600,
+    )
+
+    status = inspect_external_work(tmp_path, "job-1", now=1000)
+
+    assert status is not None
+    assert status.state is ExternalWorkState.NEEDS_ATTENTION
+    assert status.waitable is False
+    assert status.activity_silence_seconds == 300
+    assert "declared activity has not changed for 5m" in status.reason
+
+
+def test_recent_declared_activity_keeps_fresh_heartbeat_waitable(
+    tmp_path: Path,
+) -> None:
+    progress = tmp_path / "experiments" / "progress.jsonl"
+    progress.parent.mkdir()
+    progress.write_text("loading\n", encoding="utf-8")
+    os.utime(progress, (980, 980))
+    _write_external(
+        tmp_path,
+        "job-1",
+        heartbeat_at=990,
+        stale_after_seconds=60,
+        activity_stale_after_seconds=120,
+        started_at=600,
+    )
+
+    status = inspect_external_work(tmp_path, "job-1", now=1000)
+
+    assert status is not None
+    assert status.state is ExternalWorkState.RUNNING_HEALTHY
+    assert status.waitable is True
+    assert status.activity_silence_seconds == 20
+
+
+def test_external_wait_wakes_when_activity_stalls_despite_fresh_heartbeat(
+    tmp_path: Path,
+) -> None:
+    path = _write_external(
+        tmp_path,
+        "job-1",
+        heartbeat_at=100,
+        stale_after_seconds=60,
+        activity_stale_after_seconds=10,
+        poll_after_seconds=30,
+        started_at=100,
+    )
+    progress = tmp_path / "experiments" / "progress.jsonl"
+    progress.parent.mkdir(exist_ok=True)
+    progress.write_text("loading\n", encoding="utf-8")
+    os.utime(progress, (100, 100))
+    clock = [100.0]
+
+    def sleep(seconds: float) -> None:
+        clock[0] += seconds
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["heartbeat_at"] = clock[0]
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+    reason, waited = wait_for_external_work_cadence(
+        tmp_path,
+        "job-1",
+        sleep=sleep,
+        poll_interval=15,
+        now=lambda: clock[0],
+    )
+
+    assert reason == ExternalWorkState.NEEDS_ATTENTION.value
+    assert waited == 15
+
+
 def test_paths_are_project_relative_and_lookup_uses_declared_id(tmp_path: Path) -> None:
     _write_external(
         tmp_path,
@@ -242,3 +327,23 @@ def test_advisory_and_sentinel_are_explicit_about_liveness_only(tmp_path: Path) 
         'summary\n{"wait_for": "external_work", "wait_id": "job-1"}'
     ) == ("external_work", "job-1")
     assert parse_external_wait_request("WAIT_FOR_EXTERNAL_WORK: job-1") is None
+
+
+def test_advisory_requires_diagnosis_for_stale_activity(tmp_path: Path) -> None:
+    progress = tmp_path / "experiments" / "progress.jsonl"
+    progress.parent.mkdir()
+    progress.write_text("", encoding="utf-8")
+    os.utime(progress, (100, 100))
+    _write_external(
+        tmp_path,
+        "job-1",
+        heartbeat_at=990,
+        activity_stale_after_seconds=60,
+        started_at=100,
+    )
+
+    advisory = render_external_work_advisory(tmp_path, now=1000)
+
+    assert "needs_attention" in advisory
+    assert "must not be waited on or foreground-polled" in advisory
+    assert "repair, cancel, or restart" in advisory
