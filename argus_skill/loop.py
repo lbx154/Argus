@@ -292,6 +292,7 @@ class SkillLoop(
             mission_request(
                 vertical_state_root,
                 vertical=self.config.active_vertical or None,
+                altitude_root=workdir,
             )
         )
         active_vertical = engineer_prompt_context.vertical

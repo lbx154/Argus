@@ -377,11 +377,15 @@ def mission_request(
     project_root: Path | str,
     *,
     vertical: str | None = None,
+    altitude_root: Path | str | None = None,
 ) -> RolePromptRequest:
     return RolePromptRequest(
         role=RoleName.ENGINEER,
         operation=MISSION,
         project_root=project_root,
+        # Where the work is. The vertical fragment describes the workspace, and
+        # project_root here is the vertical state root, which contains no paper.
+        altitude_root=altitude_root,
         vertical=vertical,
     )
 

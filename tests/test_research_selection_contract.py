@@ -1657,3 +1657,32 @@ def test_the_appendix_is_not_the_paper(tmp_path) -> None:
     words, figures = _manuscript_size(tmp_path)
     assert figures == 1
     assert 100 <= words <= 110
+
+
+def test_every_role_reads_its_workspace_from_the_worktree(tmp_path) -> None:
+    """Three times in one night a workspace-aware prompt was wired to the
+    session directory instead of the worktree, found no paper/ there, and
+    fail-softed to nothing: the altitude facts, then the manuscript review
+    gate, then the Engineer's unused-figure list. Each looked correct and did
+    nothing.
+    """
+    from argus_skill.roles.prompts.engineer import mission_request
+    from argus_skill.roles.prompts.registry import resolve_role_prompt
+
+    worktree = tmp_path / "campaign"
+    state = worktree / "state" / "projects" / "s-1"
+    paper = worktree / "paper"
+    (paper / "figures").mkdir(parents=True)
+    state.mkdir(parents=True)
+    (paper / "main.tex").write_text(
+        r"\begin{document}Hello\end{document}", encoding="utf-8"
+    )
+    (paper / "figures" / "orphan.pdf").write_bytes(b"%PDF-1.4\n")
+
+    def banner(**kwargs) -> str:
+        return resolve_role_prompt(
+            mission_request(state, vertical="research", **kwargs)
+        ).role_banner
+
+    assert "orphan.pdf" not in banner()
+    assert "orphan.pdf" in banner(altitude_root=worktree)
