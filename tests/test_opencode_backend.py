@@ -59,6 +59,14 @@ def test_opencode_full_auto_uses_explicit_full_access_agent() -> None:
     assert config["agent"]["argus-full-access"]["permission"] == {"*": "allow"}
 
 
+def test_opencode_no_tools_uses_restricted_agent_without_sandbox() -> None:
+    child_env = _runner()._child_env(RunnerOptions(disable_tools=True))
+
+    assert child_env is not None
+    config = json.loads(child_env["OPENCODE_CONFIG_CONTENT"])
+    assert config["agent"]["argus-no-tools"]["permission"] == {"*": "deny"}
+
+
 def test_opencode_defers_bare_model_to_its_own_config(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

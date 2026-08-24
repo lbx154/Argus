@@ -228,6 +228,13 @@ class PromptDeliveryMixin:
         return prepared, None, None
 
     def _child_env(self, options) -> dict[str, str] | None:
+        if self.backend == BACKEND_OPENCODE:
+            if options.disable_tools:
+                return _opencode_no_tools_env()
+            if options.sandbox_mode == "read-only":
+                return _opencode_read_only_env()
+            if options.dangerous_yolo or options.full_auto:
+                return _opencode_full_access_env()
         if not options.sandbox_mode and not options.isolate_workdir:
             # Normally the child inherits our environment untouched. Copilot is
             # the exception: left alone it writes every session, log and
@@ -238,30 +245,12 @@ class PromptDeliveryMixin:
                 return apply_copilot_home(dict(os.environ))
             if self.backend == BACKEND_PI:
                 return _apply_pi_automation_env(dict(os.environ))
-            if (
-                self.backend == BACKEND_OPENCODE
-                and (options.dangerous_yolo or options.full_auto)
-            ):
-                return _opencode_full_access_env()
             if self.backend == BACKEND_DSH:
                 return _apply_dsh_env(
                     dict(os.environ), options, self.agent_bin
                 )
             return None
-        if self.backend == BACKEND_OPENCODE and options.disable_tools:
-            return _opencode_no_tools_env()
-        if (
-            self.backend == BACKEND_OPENCODE
-            and options.sandbox_mode == "read-only"
-        ):
-            return _opencode_read_only_env()
-        if (
-            self.backend == BACKEND_OPENCODE
-            and (options.dangerous_yolo or options.full_auto)
-        ):
-            env = _opencode_full_access_env()
-        else:
-            env = sandboxed_child_env()
+        env = sandboxed_child_env()
         if self.backend == BACKEND_COPILOT:
             apply_copilot_home(env)
         elif self.backend == BACKEND_PI:
