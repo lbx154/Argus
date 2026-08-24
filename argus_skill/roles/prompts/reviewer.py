@@ -407,7 +407,7 @@ def render_reviewer_prompt(
     ).strip().lower() in ("1", "true", "yes", "on")
     # Vertical-owned policy arrives through the prompt catalog; this module
     # contributes only role-wide review behavior.
-    optimize_banner = "" if direct_workflow else prompt_context.role_banner
+    optimize_banner = prompt_context.role_banner
     if prompt_context.requires_independent_review and not _requires_engineering_audit:
         optimize_banner = ""
     research_target_instruction = ""

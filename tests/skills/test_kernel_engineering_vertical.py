@@ -39,6 +39,8 @@ def test_kernel_engineering_banner_prioritizes_direct_measured_work() -> None:
 
     assert "improve the real kernel" in engineer
     assert "one coherent implementation" in engineer
+    assert "Treat unattended benchmark and profiler runs as asynchronous" in engineer
+    assert "Do not foreground-poll" in engineer
     assert "fill spare mission slots" in planner
     assert "`parallel_safe=true`" in planner
     assert "`owns_paths` disjoint" in planner

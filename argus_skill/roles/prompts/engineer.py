@@ -226,6 +226,8 @@ def build_mission_prompt(
         sections = [EFFECTIVE_TASK_CONTRACT]
         if shell_summary:
             sections.append(shell_summary)
+        if role_banner.strip():
+            sections.append("## Active vertical role\n" + role_banner.strip())
         if skill_text:
             sections.append(skill_text)
         sections.append(task)

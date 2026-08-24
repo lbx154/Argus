@@ -75,6 +75,6 @@ def test_direct_team_prompt_uses_one_mission_contract() -> None:
     assert "## Engineer receipt" in prompt
     assert "/skills/engineer" in prompt
     assert "## Original operator request" not in prompt
-    assert "FULL_VERTICAL_BANNER_MUST_NOT_REPEAT" not in prompt
+    assert prompt.count("FULL_VERTICAL_BANNER_MUST_NOT_REPEAT") == 1
     assert "## Shared project Wiki" not in prompt
     assert len(prompt) < 3_500
