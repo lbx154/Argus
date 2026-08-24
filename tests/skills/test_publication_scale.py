@@ -11,6 +11,7 @@ from argus_skill.verticals._base import (
 from argus_skill.verticals.research.publication_scale import (
     ASSESSMENT_PATH,
     publication_scale_issues,
+    scaffold_issues,
 )
 from argus_skill.verticals.research.stages import stage_completion_issues
 
@@ -177,3 +178,46 @@ def test_claim_bearing_artifacts_must_be_real_and_project_local(tmp_path: Path) 
 
     assert any("artifact does not exist" in issue for issue in issues)
     assert any("artifact escapes project root" in issue for issue in issues)
+
+
+def test_scaffold_writes_the_schema_without_answering_it(tmp_path: Path) -> None:
+    _target(tmp_path)
+
+    issues = scaffold_issues(tmp_path)
+    payload = json.loads((tmp_path / ASSESSMENT_PATH).read_text(encoding="utf-8"))
+
+    # The campaign can now see every field it has to answer, and answering
+    # none of them still fails: a scaffold is a form, not a pass.
+    assert payload["schema_version"] == 1
+    assert payload["research_target_level"] == "publishable"
+    assert set(payload) >= {
+        "accepted_comparators",
+        "assessment",
+        "claim_bearing_evidence",
+        "contribution_shape",
+        "scale_dimensions",
+    }
+    assert any("contribution_shape must be one of" in issue for issue in issues)
+    assert any("accepted_comparators must contain" in issue for issue in issues)
+    assert any("assessment.pilot_only must be false" in issue for issue in issues)
+
+
+def test_scaffold_stamps_the_contract_but_keeps_campaign_answers(tmp_path: Path) -> None:
+    _target(tmp_path)
+    payload = _assessment(tmp_path)
+    # Three concurrent campaigns each invented a version string here, so every
+    # substantive check below predicate one went unrun. The harness owns this
+    # field and overwrites it; the campaign owns the claims and keeps them.
+    payload["schema_version"] = "publication_scale_assessment_v1"
+    payload["campaign_local_notes"] = {"kept": True}
+    _write(tmp_path, payload)
+
+    assert scaffold_issues(tmp_path) == ()
+
+    rewritten = json.loads((tmp_path / ASSESSMENT_PATH).read_text(encoding="utf-8"))
+    assert rewritten["schema_version"] == 1
+    assert rewritten["campaign_local_notes"] == {"kept": True}
+    assert rewritten["contribution_shape"] == payload["contribution_shape"]
+    assert rewritten["assessment"]["strongest_reject_reason"] == (
+        payload["assessment"]["strongest_reject_reason"]
+    )

@@ -224,12 +224,94 @@ def publication_scale_issues(
     return tuple(dict.fromkeys(issues))
 
 
+def scaffold_issues(project_root: Path) -> tuple[str, ...]:
+    """Ensure the assessment file exists in this schema, adding only what is absent.
+
+    The shape was previously described nowhere: the checklist said "write
+    `paper/PUBLICATION_SCALE_ASSESSMENT.json`" and the required keys lived only
+    in the validator. Asked to emit an undocumented nested structure in one
+    turn, three concurrent campaigns each invented a different one --
+    ``schema_version`` 3, ``"publication_scale_assessment_v1"``, and no file at
+    all -- so ``publication_scale_issues`` failed at its first predicate and the
+    hundred lines of substantive checks below it never ran on any of them. The
+    campaigns were not evading the gate; they could not see it.
+
+    So the harness writes the skeleton and the campaign fills it in as the
+    evidence arrives, rather than reproducing the schema from memory at the end.
+    Merging key-by-key keeps that incremental: a claim already answered is never
+    overwritten, and a file in some other shape keeps its own keys alongside the
+    ones this contract reads.
+
+    Blank is not an answer. Every scaffolded value is empty or ``null``, which
+    fails ``_substantive`` and the three ``assessment`` booleans exactly as a
+    missing file did -- the gate still refuses until a human-meant value
+    replaces it. Returns the issues remaining after scaffolding.
+    """
+    root = project_root.resolve()
+    path = root / ASSESSMENT_PATH
+    payload, _ = _load(root)
+    if payload is None:
+        payload = {}
+
+    # Two kinds of field, and merging them the same way is what made the first
+    # version of this useless. ``schema_version`` and ``research_target_level``
+    # identify the contract; they are the harness's to state, so they are
+    # stamped over whatever is there -- a campaign that wrote
+    # ``"publication_scale_assessment_v1"`` keeps failing at predicate one
+    # forever if a merge politely leaves it alone. Everything below is the
+    # campaign's own claim about its evidence and is never overwritten, only
+    # added when absent.
+    payload["schema_version"] = SCHEMA_VERSION
+    payload["research_target_level"] = resolve_research_target_level(root) or ""
+
+    skeleton: dict[str, Any] = {
+        "contribution_shape": "",
+        "accepted_comparators": [],
+        "claim_bearing_evidence": [],
+        "scale_dimensions": {field: "" for field in _SCALE_DIMENSIONS},
+        "assessment": {
+            "pilot_only": None,
+            "proxy_only": None,
+            "publication_scale_supported": None,
+            "independent_value": "",
+            "comparison_to_accepted_work": "",
+            "strongest_reject_reason": "",
+        },
+    }
+    for key, value in skeleton.items():
+        if key not in payload:
+            payload[key] = value
+        elif isinstance(value, dict) and isinstance(payload[key], dict):
+            for sub_key, sub_value in value.items():
+                payload[key].setdefault(sub_key, sub_value)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return publication_scale_issues(root)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
     parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--scaffold",
+        action="store_true",
+        help=(
+            "create or complete paper/PUBLICATION_SCALE_ASSESSMENT.json in this "
+            "schema without overwriting answered fields, then report what is "
+            "still unanswered"
+        ),
+    )
     args = parser.parse_args(argv)
-    issues = publication_scale_issues(args.project_root)
+    issues = (
+        scaffold_issues(args.project_root)
+        if args.scaffold
+        else publication_scale_issues(args.project_root)
+    )
     if args.json:
         print(json.dumps({"ok": not issues, "issues": list(issues)}, indent=2))
     elif issues:
