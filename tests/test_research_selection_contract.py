@@ -1383,3 +1383,29 @@ def test_an_operator_wait_is_routed_to_authorization_by_the_host() -> None:
         pass  # persistence needs more of the host than this stub provides
     assert not [e for e in seen if "revision" in str(e.get("error", ""))]
     assert not [e for e in seen if "wake source" in str(e.get("error", ""))]
+
+
+def test_a_single_wake_source_written_as_text_is_read_as_one() -> None:
+    """A Planner that writes wake_on as "subagent_state" rather than
+    ["subagent_state"] means one source, and rejecting it discarded the whole
+    turn. Eight decisions were lost that way across four campaigns in ninety
+    minutes, and two of them spent missions trying to make the host accept it.
+    The same shape was already special-cased for non_goals by whoever hit it
+    there first.
+    """
+    from argus_skill.planner.planner import parse_planner_payload
+
+    payload = {
+        "project_done": False,
+        "reason": "waiting on the running job",
+        "tasks": [],
+        "waiting": {
+            "blocker_fingerprint": "job:abc",
+            "recheck_condition": "durable task state changes",
+            "recheck_token": "abc-v1",
+            "wait_mode": "event",
+            "wake_on": "subagent_state",
+        },
+    }
+    verdict = parse_planner_payload(payload)
+    assert verdict.waiting_contract.wake_on == ("subagent_state",)

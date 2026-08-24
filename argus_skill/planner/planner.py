@@ -1084,7 +1084,13 @@ def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
         return value
 
     def items(value: Any, name: str) -> list[str]:
-        if isinstance(value, str) and name == "non_goals":
+        # One value written as text rather than a one-element array. This was
+        # already special-cased for non_goals by whoever hit it there first;
+        # it is the same shape everywhere, and there is nothing to interpret.
+        # Rejecting it discarded the whole planner turn: eight wake_on
+        # decisions were lost this way across four campaigns in ninety minutes,
+        # and two of them spent missions trying to make the host accept it.
+        if isinstance(value, str):
             return [value.strip()] if value.strip() else []
         if not isinstance(value, list) or any(
             not isinstance(item, str) for item in value
