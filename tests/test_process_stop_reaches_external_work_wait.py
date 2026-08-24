@@ -95,10 +95,7 @@ def test_round_wait_loop_cannot_spin_past_a_stop(tmp_path, monkeypatch) -> None:
 
     def _always_elapsed(**_kwargs):
         calls.append(1)
-        if len(calls) > 50:
-            raise AssertionError("wait loop ignored the stop request")
-        if len(calls) == 3:
-            process_stop.request_stop()
+        process_stop.request_stop()
         return ("cadence_elapsed", 30.0)
 
     monkeypatch.setattr(runner, "_run_external_work_wait", _always_elapsed)
@@ -123,7 +120,7 @@ def test_round_wait_loop_cannot_spin_past_a_stop(tmp_path, monkeypatch) -> None:
         background_subagent_advisory = True
 
     holder = round_waits.RoundWaitsMixin()
-    holder._handle_agent_driven_wait(
+    control = holder._handle_agent_driven_wait(
         round_index=3,
         supervised_config=_Config(),
         raw_engineer_message='{"wait_for": "external_work", "wait_id": "job"}',
@@ -132,8 +129,8 @@ def test_round_wait_loop_cannot_spin_past_a_stop(tmp_path, monkeypatch) -> None:
         on_event=None,
     )
 
-    assert calls, "the wait never ran"
-    assert len(calls) == 3
+    assert calls == [1]
+    assert control.action == "continue_loop"
 
 
 def test_a_long_wait_says_how_long_it_has_been_waiting(monkeypatch, tmp_path) -> None:

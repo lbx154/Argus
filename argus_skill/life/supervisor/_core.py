@@ -458,6 +458,27 @@ class LifeSupervisor(
         if budget_ok:
             statuses.add("paused_budget")
         resumed = self.memory.backlog.resume_paused_statuses(statuses)
+        from ...engineer.external_work import inspect_external_work
+
+        for item in self.memory.backlog.all():
+            if item.status != "paused_external_work":
+                continue
+            wait = (
+                item.outcome.get("external_wait")
+                if isinstance(item.outcome, dict)
+                else None
+            )
+            if not isinstance(wait, dict):
+                ready = True
+            else:
+                work_id = str(wait.get("work_id") or "")
+                workdir = Path(str(wait.get("workdir") or self._project_workdir()))
+                status = inspect_external_work(workdir, work_id) if work_id else None
+                ready = status is None or not status.waitable
+            if ready:
+                resumed_item = self.memory.backlog.resume_paused(item.id)
+                if resumed_item is not None:
+                    resumed.append(resumed_item)
         if resumed:
             self._emit_status(
                 "auto-resumed recoverable mission(s): "
@@ -824,6 +845,7 @@ class LifeSupervisor(
                 "paused_provider_cooldown",
                 "paused_provider_fence",
                 "paused_daemon_shutdown",
+                "paused_external_work",
                 "paused_operator",
                 "iteration_cap",
                 "lifecycle_block",

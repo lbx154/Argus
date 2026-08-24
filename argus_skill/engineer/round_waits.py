@@ -13,7 +13,13 @@ from typing import TYPE_CHECKING, Callable
 from ..core import process_stop
 from .external_work import inspect_external_work, parse_external_wait_request
 from .round_signals import _pause_decision_clock
-from .round_state import RoundControl, RoundLoopState, control_continue_loop, control_proceed
+from .round_state import (
+    RoundControl,
+    RoundLoopState,
+    control_continue_loop,
+    control_proceed,
+    control_return,
+)
 
 if TYPE_CHECKING:
     from .runner import SupervisedConfig
@@ -51,24 +57,29 @@ class RoundWaitsMixin:
         if source_matches and external_work is not None and external_work.waitable:
             from . import runner as _runner_module
 
-            waited_s = 0.0
-            while True:
-                wait_reason, cadence_waited_s = _runner_module._run_external_work_wait(
-                    workdir=workdir,
-                    work_id=external_work.work_id,
-                    round_index=round_index,
-                    round_max=supervised_config.max_rounds,
-                    on_event=on_event,
-                    waited_total_s=waited_s,
-                )
-                waited_s += cadence_waited_s
-                if wait_reason != "cadence_elapsed":
-                    break
-                if process_stop.stop_requested():
-                    break
+            wait_reason, waited_s = _runner_module._run_external_work_wait(
+                workdir=workdir,
+                work_id=external_work.work_id,
+                round_index=round_index,
+                round_max=supervised_config.max_rounds,
+                on_event=on_event,
+                waited_total_s=0.0,
+            )
             state.last_decision_progress_at = _pause_decision_clock(
                 state.last_decision_progress_at,
                 waited_s,
             )
+            if wait_reason == "cadence_elapsed" and not process_stop.stop_requested():
+                session = state.engineer_session
+                return control_return((
+                    "paused_external_work",
+                    state.rounds,
+                    raw_engineer_message,
+                    (
+                        f"healthy {wait_kind} {external_work.work_id} is still "
+                        "running; released the mission slot"
+                    ),
+                    str(getattr(session, "thread_id", "") or "") or None,
+                ))
             return control_continue_loop()
         return control_proceed()

@@ -647,6 +647,89 @@ class MissionExecutionRuntimeMixin:
         """Return a pause result dict, or ``None`` to continue the lifecycle."""
         outcome = state.outcome
         item = state.item
+        if state.status == "paused_external_work":
+            from ...engineer.external_work import (
+                inspect_external_work,
+                parse_external_wait_request,
+            )
+
+            wait_request = parse_external_wait_request(
+                str(getattr(outcome, "final_message", "") or "")
+            )
+            if wait_request is None:
+                state.status = "error"
+                state.stop_reason = "external-work pause lacks a structured wait request"
+                return None
+            wait_kind, work_id = wait_request
+            workdir = Path(state.execution_workdir)
+            external_work = inspect_external_work(workdir, work_id)
+            if external_work is None or not external_work.waitable:
+                self.memory.backlog.update(
+                    item.id,
+                    status="pending",
+                    started_ts=None,
+                    running_owner="",
+                    last_error="external work changed before pause settlement",
+                )
+                return {
+                    "success": False,
+                    "status": "external_work_changed",
+                    "item_id": item.id,
+                    "external_wait": {
+                        "kind": wait_kind,
+                        "work_id": work_id,
+                        "workdir": str(workdir),
+                    },
+                }
+            pause_outcome = mission_outcome_dimensions(
+                status=state.status,
+                success=False,
+                review_status="",
+                stop_kind=None,
+                resumable=True,
+            )
+            pause_outcome["external_wait"] = {
+                "kind": wait_kind,
+                "work_id": work_id,
+                "workdir": str(workdir),
+            }
+            self.memory.backlog.update(
+                item.id,
+                status=state.status,
+                started_ts=None,
+                finished_ts=time.time(),
+                running_owner="",
+                last_error=state.stop_reason,
+                outcome=pause_outcome,
+            )
+            self._emit({
+                "type": EventType.LIFE_MISSION_COMPLETED,
+                "item_id": item.id,
+                "success": False,
+                "status": state.status,
+                "outcome_class": mission_outcome_class(
+                    status=state.status,
+                    success=False,
+                ),
+                "outcome": pause_outcome,
+                "stop_kind": None,
+                "recoverable": True,
+                "external_wait": pause_outcome["external_wait"],
+                "cost_usd": state.usd,
+                "known_cost_usd": state.known_usd,
+                "pricing_status": state.usage_summary.pricing_status,
+                "spent_usd": state.known_usd,
+            })
+            return {
+                "success": False,
+                "status": state.status,
+                "item_id": item.id,
+                "recoverable": True,
+                "external_wait": pause_outcome["external_wait"],
+                "cost_usd": state.usd,
+                "known_cost_usd": state.known_usd,
+                "pricing_status": state.usage_summary.pricing_status,
+            }
         pause_status = pause_status_for_stop_kind(state.stop_kind)
         if state.status == "budget_exhausted":
             state.status = "paused_budget"

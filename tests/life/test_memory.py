@@ -268,6 +268,39 @@ def test_parallel_claims_require_disjoint_explicit_ownership(tmp_path: Path) -> 
     ) is not None
 
 
+def test_paused_external_work_keeps_paths_owned_without_blocking_disjoint_work(
+    tmp_path: Path,
+) -> None:
+    backlog = Backlog(tmp_path / "backlog.jsonl")
+    paused = backlog.add(BacklogItem.new(
+        title="long benchmark",
+        objective="wait for the benchmark",
+        owns_paths=["results/control"],
+    ))
+    overlap = backlog.add(BacklogItem.new(
+        title="overlap",
+        objective="touch the control",
+        parallel_safe=True,
+        owns_paths=["results"],
+    ))
+    disjoint = backlog.add(BacklogItem.new(
+        title="kernel",
+        objective="build the next kernel",
+        parallel_safe=True,
+        owns_paths=["kernels"],
+    ))
+    backlog.update(paused.id, status="paused_external_work")
+
+    assert backlog.claim_next(
+        parallel_only=True,
+        expected_id=overlap.id,
+    ) is None
+    assert backlog.claim_next(
+        parallel_only=True,
+        expected_id=disjoint.id,
+    ) is not None
+
+
 def test_backlog_failed_carries_error(tmp_path: Path) -> None:
     b = Backlog(tmp_path / "backlog.jsonl")
     item = b.add(BacklogItem.new(title="t", objective="..."))

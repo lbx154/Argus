@@ -644,6 +644,7 @@ _BACKLOG_STATUSES = {
     "paused_provider_cooldown",
     "paused_provider_fence",
     "paused_daemon_shutdown",
+    "paused_external_work",
     "paused_operator",
     "research_incomplete",
     "paused_no_breakthrough",
@@ -662,6 +663,7 @@ _RECOVERABLE_PAUSE_STATUSES = {
     "paused_provider_cooldown",
     "paused_provider_fence",
     "paused_daemon_shutdown",
+    "paused_external_work",
     "paused_operator",
     "research_incomplete",
     "paused_no_breakthrough",
@@ -1078,13 +1080,18 @@ class Backlog:
         if tags & forbidden:
             return False
         running = [item for item in items if item.status == "running"]
+        paused_external = [
+            item for item in items if item.status == "paused_external_work"
+        ]
         if any(not item.parallel_safe or not item.owns_paths for item in running):
             return False
+        if any(not item.owns_paths for item in paused_external):
+            return False
         return not any(
-            cls._paths_overlap(candidate_path, running_path)
-            for item in running
+            cls._paths_overlap(candidate_path, active_path)
+            for item in (*running, *paused_external)
             for candidate_path in candidate.owns_paths
-            for running_path in item.owns_paths
+            for active_path in item.owns_paths
         )
 
     @staticmethod
@@ -1710,7 +1717,10 @@ class Backlog:
                 self._save(items)
             if parallel_only or (
                 respect_running
-                and any(item.status == "running" for item in items)
+                and any(
+                    item.status in {"running", "paused_external_work"}
+                    for item in items
+                )
             ):
                 ready = [
                     item

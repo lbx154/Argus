@@ -26,7 +26,7 @@ def test_incomplete_json_is_not_a_wait_request() -> None:
     assert parse_external_wait_request('"wait_for": "subagent"') is None
 
 
-def test_healthy_subagent_wait_does_not_consume_cadence_rounds(
+def test_healthy_subagent_wait_releases_the_mission_after_one_cadence(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -38,16 +38,11 @@ def test_healthy_subagent_wait_does_not_consume_cadence_rounds(
         "mode": "direct",
         "pid": os.getpid(),
     }), encoding="utf-8")
-    waits = iter([
-        ("cadence_elapsed", 120.0),
-        ("cadence_elapsed", 120.0),
-        ("terminal", 15.0),
-    ])
     calls: list[str] = []
 
     def wait_once(**kwargs):
         calls.append(kwargs["work_id"])
-        return next(waits)
+        return ("cadence_elapsed", 120.0)
 
     from argus_skill.engineer import runner
 
@@ -66,9 +61,11 @@ def test_healthy_subagent_wait_does_not_consume_cadence_rounds(
         on_event=None,
     )
 
-    assert control.action == "continue_loop"
-    assert calls == ["task-123", "task-123", "task-123"]
-    assert state.last_decision_progress_at == progress_at + 255.0
+    assert control.action == "return"
+    assert control.terminal is not None
+    assert control.terminal[0] == "paused_external_work"
+    assert calls == ["task-123"]
+    assert state.last_decision_progress_at == progress_at + 120.0
 
 
 def test_a_direct_job_that_writes_nothing_is_not_healthy(tmp_path) -> None:
