@@ -1557,17 +1557,13 @@ def _manuscript_scale_block(project_root: object) -> str:
             )
         )
         figure_note = (
-            f" It includes {drawn} figure(s); those papers carry "
-            f"{min(figures)}-{max(figures)}."
-            if figures
-            else ""
+            f" with {min(figures)}-{max(figures)} figures" if figures else ""
         )
         return (
-            f"\nMANUSCRIPT SCALE: this draft is {draft:,} words of body text. "
-            f"The accepted papers this campaign chose to be measured against "
-            f"run {span}.{figure_note} Length is a symptom, not the goal: a "
-            f"paper several times shorter than its own exemplars is usually "
-            f"missing analysis, not adjectives.\n"
+            f"\nMANUSCRIPT SCALE: {draft:,} words, {drawn} figure(s). The "
+            f"accepted papers this campaign chose run {span} words"
+            f"{figure_note}. Being several times shorter means missing "
+            f"analysis, not adjectives.\n"
         )
     except Exception:  # noqa: BLE001
         return ""

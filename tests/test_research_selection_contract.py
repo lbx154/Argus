@@ -1234,11 +1234,17 @@ def test_draft_length_is_shown_against_the_campaigns_own_exemplars(tmp_path) -> 
 
     block = _manuscript_scale_block(tmp_path)
     # 301: the 300 body words plus the section heading.
-    assert "301 words of body text" in block
+    assert "301 words" in block
     # 4,004: the 4,000 body words plus the sentence naming the figures.
     assert "4,004" in block
     # Two exemplars are not enough to quote a median from.
     assert "typically" not in block
+    # The structural floor passes a paper with one figure, so nothing ever said
+    # a one-figure draft was thin: run-01 fell from four figures to one and
+    # still read as complete. The exemplars say what the field carries, and
+    # Figure 9 after the reference list is not one of them.
+    assert "0 figure(s)" in block
+    assert "with 3-3 figures" in block
 
 
 def test_planner_is_told_the_grounding_budget_it_is_held_to() -> None:
