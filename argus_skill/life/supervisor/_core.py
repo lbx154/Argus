@@ -841,6 +841,12 @@ class LifeSupervisor(
                 continue
             results.append(outcome)
             if outcome.get("status") in {
+                # Nothing ran and the item is still there, so re-selecting it
+                # immediately just loses the claim again. run-07-panel emitted 154
+                # of these in five minutes and run-02 784 in ten, at 84% CPU with
+                # no model call for an hour, while the real evaluation it was
+                # waiting on still had ninety minutes to run.
+                "claim_lost",
                 "paused_budget",
                 "paused_provider_cooldown",
                 "paused_provider_fence",

@@ -1689,3 +1689,22 @@ def test_every_role_reads_its_workspace_from_the_worktree(tmp_path) -> None:
 
     assert "orphan.pdf" not in banner()
     assert "orphan.pdf" in banner(altitude_root=worktree)
+
+
+def test_a_lost_claim_backs_off_like_every_other_outcome_that_ran_nothing() -> None:
+    """A lost claim means the item is still there and nothing ran, so
+    re-selecting it immediately loses it again. run-07-panel emitted 154 in
+    five minutes and run-02 784 in ten, sitting at 84% CPU with no model call
+    for an hour while the real 500-example evaluation it was waiting on still
+    had ninety minutes to run. Nothing consumed the status at all.
+    """
+    import inspect
+
+    from argus_skill.life.supervisor import _core
+
+    source = inspect.getsource(_core.LifeSupervisor.run)
+    held = source[source.index('if outcome.get("status") in {') :]
+    held = held[: held.index("}")]
+    # It belongs with the other outcomes where no mission actually ran.
+    assert '"claim_lost"' in held
+    assert '"paused_budget"' in held
