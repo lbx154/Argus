@@ -1550,3 +1550,36 @@ def test_a_manuscript_is_reviewed_as_a_paper_before_the_writing_stage(tmp_path) 
         encoding="utf-8",
     )
     assert reviewer_gets_paper_review(tmp_path)
+
+
+def test_the_engineer_is_told_which_figures_it_already_drew(tmp_path) -> None:
+    """The Engineer writes the paper and puts the figures in it, and it was the
+    one role the altitude facts never reached. So the Reviewer asked for
+    figures while the hand doing the work could not see that run-06 had five
+    drawings in paper/figures the manuscript never included. Files beside the
+    paper are the one thing reading the paper cannot show.
+    """
+    from argus_skill.verticals.research.prompt_policy import (
+        render_role_prompt_fragment,
+    )
+
+    def fragment() -> str:
+        return render_role_prompt_fragment(
+            role="engineer", operation="mission", stage="run",
+            scope="", project_root=tmp_path,
+        )
+
+    paper = tmp_path / "paper"
+    (paper / "figures").mkdir(parents=True)
+    (paper / "main.tex").write_text(
+        r"\begin{document}\includegraphics{figures/used.pdf}\end{document}",
+        encoding="utf-8",
+    )
+    for name in ("used.pdf", "left_behind.pdf"):
+        (paper / "figures" / name).write_bytes(b"%PDF-1.4\n")
+
+    assert "left_behind.pdf" in fragment()
+
+    # A campaign with nothing left over hears nothing.
+    (paper / "figures" / "left_behind.pdf").unlink()
+    assert fragment() == ""

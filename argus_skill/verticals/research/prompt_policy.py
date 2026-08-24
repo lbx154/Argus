@@ -137,6 +137,36 @@ def _reviewer_fragment(stage: str, scope: str, project_root: Path | None) -> str
     return "\n\n".join(blocks)
 
 
+def _engineer_fragment(project_root: Path | None) -> str:
+    """Name the figures this campaign has already drawn and not used.
+
+    The Engineer is the role that writes the paper and puts figures in it, and
+    it is the one role the altitude facts never reach. So the Reviewer asks for
+    figures while the hand doing the work cannot see that run-06 had three
+    result figures sitting in paper/figures with two of them in the paper, or
+    that run-02 had thirteen files that were all the same overview redrawn.
+
+    Files beside the paper are the one thing reading the paper cannot show.
+    Everything else about the manuscript the Engineer can open and see, and
+    listing that here would be the host doing its looking for it.
+    """
+    if project_root is None:
+        return ""
+    try:
+        from .paper_structural_minimums import validate_paper_structural_minimums
+
+        unused = [
+            note.detail
+            for note in validate_paper_structural_minimums(Path(project_root)).notes
+            if note.code == "figures_drawn_but_unused"
+        ]
+    except Exception:  # noqa: BLE001 - context is advisory
+        return ""
+    if not unused:
+        return ""
+    return "## Already drawn\n" + unused[0] + "."
+
+
 def render_role_prompt_fragment(
     *,
     role: str,
@@ -152,6 +182,8 @@ def render_role_prompt_fragment(
     normalized_scope = str(scope or "").strip().lower().replace("-", "_")
     if normalized_role == "planner":
         return _planner_fragment(normalized_stage, project_root)
+    if normalized_role == "engineer":
+        return _engineer_fragment(project_root)
     if normalized_role == "reviewer":
         return _reviewer_fragment(
             normalized_stage, normalized_scope, project_root
