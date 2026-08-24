@@ -128,13 +128,14 @@ def _planner_manuscript_block(project_root: Path | None) -> str:
         "than something that happens at the end. Read it: ask which claims a "
         "reader has to take on trust because no figure shows them, where the "
         "evidence is thinner than in the accepted papers this campaign chose, "
-        "and what a reviewer would reject it for. Queue that work now. A figure "
-        "programme is one mission per claim that needs showing, not another "
-        "pass over Figure 1. Route each figure's rendering, caption, in-text "
-        "callout and main.tex integration through one mission whose owns_paths "
-        "covers the manuscript as well as that figure's sources: a mission that "
-        "may draw but not edit prose leaves the asset on disk, and a figure "
-        "mission is finished only when the figure is in the compiled paper."
+        "and what a reviewer would reject it for. Queue that work now. Every "
+        "figure needs the manuscript to embed it, so figure missions cannot run "
+        "beside each other: give one mission the whole set the argument is "
+        "missing rather than one claim each, with owns_paths covering the "
+        "manuscript and every source it will draw from. A mission that may draw "
+        "but not edit prose leaves the asset on disk, and the work is finished "
+        "only when the figures are in the compiled paper -- not another pass "
+        "over Figure 1."
     )
 
 
