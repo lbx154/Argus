@@ -1,28 +1,4 @@
-"""Regression test: a prescriptive gate must state its prescription.
-
-``_research_project_done_issue`` and ``_journal_has_final_certification`` both
-read one journal entry, and ``_mission_execution_settlement`` writes it for
-exactly one shape of mission: succeeded, ``item_scope == final_submission``,
-certified by the Reviewer. Nothing else satisfies either gate.
-
-The runtime note named that mechanism for ``final_certification_missing`` but
-sent ``research_target_incomplete`` — the diagnostic the research verticals
-actually hit — down the "harness does not prescribe a repair or delivery task"
-branch, telling the Planner to use its judgement about a gate that accepts one
-prescribed action and nothing else.
-
-Observed live: testbed run 8 (s-fed750c2) spent missions 2, 3 and 4 guessing at
-it, each independently reviewed ``done`` and each rejected with
-``missing_exploratory_reviewer_certification``; run 9 (s-1828745c) instead
-escalated into the self-maintenance subsystem and patched
-``argus_skill/planner/planner.py``.
-
-Citations:
-- argus_skill/life/supervisor/_planning_context.py
-  — ``_manager_planner_feedback_runtime_note``
-- argus_skill/life/supervisor/_mission_execution_settlement.py
-  — ``final_submission_certified``
-"""
+"""Completion feedback keeps role prose natural and Host metadata exact."""
 
 from __future__ import annotations
 
@@ -31,10 +7,7 @@ import pytest
 from argus_skill.core.models import RunnerResult
 from argus_skill.life.memory import LifeMemory
 from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus_skill.life.supervisor._constants import PLAN_ERROR
 from argus_skill.life.supervisor._planning_context import PlanningContextMixin
-
-PRESCRIBED = "`TASK_SCOPE=final_submission`"
 
 
 def _note(diagnostic: str, reason: str = "gate held") -> str:
@@ -59,29 +32,32 @@ def test_certification_gates_name_the_only_action_that_clears_them(
 ) -> None:
     note = _note(diagnostic)
 
-    assert PRESCRIBED in note, (
-        f"{diagnostic} is cleared only by a certified final_submission-scoped "
-        "mission, but the note does not tell the Planner to author one"
-    )
+    assert "Host will record its final-submission scope" in note
+    assert "TASK_SCOPE" not in note
     assert "harness does not prescribe" not in note
 
 
-def test_the_research_gate_says_bounded_scope_cannot_clear_it() -> None:
-    """Run 8's four rejected missions were all complete, and all bounded."""
+def test_the_research_gate_asks_for_natural_verification_work() -> None:
     note = _note(
         "research_target_incomplete",
         "Research project completion gate held: "
         "missing_exploratory_reviewer_certification.",
     )
 
-    assert "bounded scope cannot satisfy this gate" in note
+    assert "Describe the next executable verification task naturally" in note
+
+
+def test_stage_gate_records_host_owned_closing_metadata() -> None:
+    note = _note("staged_goal_gate_incomplete")
+
+    assert "Host will record it as stage-closing work" in note
+    assert "TASK_SCOPE" not in note
+    assert "harness does not prescribe" not in note
 
 
 def test_unprescribed_diagnostics_still_leave_the_planner_its_judgement() -> None:
-    """The prescription is a claim about two gates, not a blanket one."""
-    note = _note("staged_goal_gate_incomplete")
+    note = _note("external_completion_gate_held")
 
-    assert PRESCRIBED not in note
     assert "harness does not prescribe" in note
 
 
@@ -93,9 +69,18 @@ def test_no_feedback_means_no_note() -> None:
     assert Harness()._manager_planner_feedback_runtime_note() == ""
 
 
-def test_feedback_prescription_rejects_bounded_scope_task_before_enqueue(
+@pytest.mark.parametrize(
+    ("diagnostic", "expected_scope"),
+    [
+        ("final_certification_missing", "scope:final_submission"),
+        ("staged_goal_gate_incomplete", "scope:bounded"),
+    ],
+)
+def test_feedback_writes_gate_metadata_during_enqueue(
     tmp_path,
     monkeypatch,
+    diagnostic: str,
+    expected_scope: str,
 ) -> None:
     class _Sink:
         def __init__(self) -> None:
@@ -119,10 +104,7 @@ def test_feedback_prescription_rejects_bounded_scope_task_before_enqueue(
                             "REASON=final certification remains",
                             "TASK_KEY=final-certification",
                             "TASK_TITLE=Make final certification host-visible",
-                            (
-                                "TASK_OBJECTIVE=Run Reviewer certification with "
-                                "TASK_SCOPE=final_submission so the gate can consume it."
-                            ),
+                            "TASK_OBJECTIVE=Run the final independent verification.",
                             "TASK_ACCEPTANCE_CHECK=Reviewer PASS is recorded.",
                         ]
                     )
@@ -162,18 +144,26 @@ def test_feedback_prescription_rejects_bounded_scope_task_before_enqueue(
     monkeypatch.setattr(
         supervisor,
         "_render_journal_for_planner",
-        lambda: _note("final_certification_missing"),
+        lambda: _note(diagnostic),
     )
+    monkeypatch.setattr(
+        supervisor,
+        "_load_manager_planner_feedback",
+        lambda: {
+            "active": True,
+            "diagnostic": diagnostic,
+            "reason": "gate held",
+        },
+    )
+    monkeypatch.setattr(supervisor, "_clear_manager_planner_feedback", lambda: None)
+    monkeypatch.setattr(supervisor, "_final_submission_scope_applies", lambda _root: True)
     monkeypatch.setattr(supervisor, "_recent_no_progress_failures", lambda: {})
     monkeypatch.setattr(supervisor, "_recent_subagent_family_failures", lambda: {})
     monkeypatch.setattr(supervisor, "_planner_runtime_with_idle_note", lambda: "")
 
-    assert supervisor._plan_next_work() == PLAN_ERROR
+    assert supervisor._plan_next_work() is True
     assert planner_runner.calls == 1
-    assert supervisor.memory.backlog.all() == []
-    error = next(
-        event for event in sink.events if event.get("type") == "life.planner.error"
-    )
-    assert "final_submission scope must be declared in structured task scope" in (
-        error["error"]
-    )
+    item = supervisor.memory.backlog.all()[0]
+    assert expected_scope in item.tags
+    assert "stage_closing" in item.tags
+    assert "review:required" in item.tags

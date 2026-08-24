@@ -353,6 +353,12 @@ class PlanningCycleEnqueueMixin:
         key_map: dict[str, str] = {}
         pending_items: list[tuple[Any, Any]] = []  # (task, item)
         planned_tasks = list(state.verdict.new_tasks)
+        feedback_reader = getattr(self, "_load_manager_planner_feedback", None)
+        manager_feedback = feedback_reader() if callable(feedback_reader) else {}
+        manager_feedback = manager_feedback or {}
+        feedback_diagnostic = str(
+            manager_feedback.get("diagnostic") or ""
+        ).strip()
         context_root = self._project_workdir()
         state_reader = getattr(self, "_artifact_root", None)
         state_root = state_reader() if callable(state_reader) else Path(context_root)
@@ -410,7 +416,7 @@ class PlanningCycleEnqueueMixin:
                 return PLAN_RETRY
             except Exception:  # noqa: BLE001 - normal Manager planning remains available
                 log.debug("automatic research stage advance failed", exc_info=True)
-        for task in planned_tasks:
+        for task_index, task in enumerate(planned_tasks):
             task = replace(task, context_refs=[], execution_workdir="")
             sanitized_title = _sanitize_planner_task_text(task.title)
             sanitized_objective = _sanitize_planner_task_text(task.objective)
@@ -445,6 +451,17 @@ class PlanningCycleEnqueueMixin:
             canonical_scope = self._normalize_planner_scope(
                 getattr(task, "scope", "")
             )
+            host_final_submission = bool(
+                task_index == 0
+                and feedback_diagnostic
+                in {"final_certification_missing", "research_target_incomplete"}
+            )
+            host_stage_closing = bool(
+                task_index == 0
+                and feedback_diagnostic == "staged_goal_gate_incomplete"
+            )
+            if host_final_submission:
+                canonical_scope = PLANNER_SCOPE_FINAL_SUBMISSION
             if (
                 canonical_scope == PLANNER_SCOPE_FINAL_SUBMISSION
                 and not self._final_submission_scope_applies(self._artifact_root())
@@ -470,6 +487,7 @@ class PlanningCycleEnqueueMixin:
                 canonical_scope == PLANNER_SCOPE_FINAL_SUBMISSION
                 or getattr(task, "stage_repair", False)
                 or _stage_closing_forced()
+                or host_stage_closing
             )
             canonical_require_review = bool(
                 canonical_stage_closing or _independent_review_forced()

@@ -81,6 +81,6 @@ def test_final_certification_feedback_requires_final_submission_scope() -> None:
 
     note = FeedbackHarness()._manager_planner_feedback_runtime_note()
 
-    assert "`TASK_SCOPE=final_submission`" in note
-    assert "successful Reviewer verdict" in note
+    assert "Host will record its final-submission scope" in note
+    assert "TASK_SCOPE" not in note
     assert "which bounded tasks" not in note
