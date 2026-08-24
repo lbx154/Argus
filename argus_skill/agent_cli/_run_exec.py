@@ -368,7 +368,10 @@ class RunExecMixin:
                 self._stream_name("stderr", run_label),
                 f"[watchdog] {state.watchdog_reason}",
             )
-            self._terminate_process(process)
+            self._terminate_process(
+                process,
+                include_detached_children=self.backend == BACKEND_OPENCODE,
+            )
             state.watchdog_terminated = True
             return True
 
@@ -395,7 +398,10 @@ class RunExecMixin:
                 self._stream_name("stderr", run_label),
                 f"[watchdog] {state.watchdog_reason}",
             )
-            self._terminate_process(process)
+            self._terminate_process(
+                process,
+                include_detached_children=self.backend == BACKEND_OPENCODE,
+            )
             state.watchdog_terminated = True
             return True
 
@@ -438,7 +444,10 @@ class RunExecMixin:
                 # orphaned and does not keep burning tokens, then re-raise so
                 # the interactive caller can return to its prompt.
                 if process.poll() is None:
-                    self._terminate_process(process)
+                    self._terminate_process(
+                        process,
+                        include_detached_children=self.backend == BACKEND_OPENCODE,
+                    )
                 raise
             except queue.Empty:
                 now = time.monotonic()
@@ -475,7 +484,10 @@ class RunExecMixin:
                             self._stream_name("stderr", run_label),
                             f"[watchdog] {state.watchdog_reason}",
                         )
-                        self._terminate_process(process)
+                        self._terminate_process(
+                            process,
+                            include_detached_children=self.backend == BACKEND_OPENCODE,
+                        )
                         state.watchdog_terminated = True
 
                 last_message_chars = len(state.agent_messages[-1]) if state.agent_messages else 0
@@ -513,7 +525,10 @@ class RunExecMixin:
                             self._stream_name("stderr", run_label),
                             f"[watchdog] {state.watchdog_reason}",
                         )
-                        self._terminate_process(process)
+                        self._terminate_process(
+                            process,
+                            include_detached_children=self.backend == BACKEND_OPENCODE,
+                        )
                         state.watchdog_terminated = True
                 continue
 
