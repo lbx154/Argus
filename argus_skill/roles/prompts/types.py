@@ -40,6 +40,12 @@ class RolePromptRequest:
     checklist_mode: ChecklistMode = ChecklistMode.NONE
     checklist_role: RoleName | None = None
     include_search_altitude: bool = False
+    # Stage and vertical resolve from the state root; the altitude facts are
+    # about the work itself and live in the project worktree. Passing one root
+    # for both meant every altitude block was handed
+    # state/projects/<session>/, found no paper/ there, and fail-softed to
+    # nothing -- silently, in production, for every campaign.
+    altitude_root: Path | str | None = None
 
 
 @dataclass(frozen=True)

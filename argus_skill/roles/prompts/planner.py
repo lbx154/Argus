@@ -114,9 +114,11 @@ def continuous_request(
     stage: str | None = None,
     operation: str = CONTINUOUS,
     include_search_altitude: bool = True,
+    altitude_root: Path | str | None = None,
 ) -> RolePromptRequest:
     return RolePromptRequest(
         role=RoleName.PLANNER,
+        altitude_root=altitude_root,
         operation=operation,
         project_root=project_root,
         stage=stage,
@@ -227,7 +229,9 @@ def build_continuous_prompt(
         if state_root is not None
         else _workspace
     )
-    prompt_context = resolve_role_prompt(continuous_request(_proot))
+    prompt_context = resolve_role_prompt(
+        continuous_request(_proot, altitude_root=_workspace)
+    )
     stage = prompt_context.stage
     stage_checklist = prompt_context.stage_checklist
     workflow_mode = resolve_workflow_mode(_proot)
@@ -476,7 +480,9 @@ def build_continuous_resume_prompt(
 
     workspace = resolve_project_root(project_root)
     state = resolve_project_root(state_root) if state_root is not None else workspace
-    prompt_context = resolve_role_prompt(continuous_request(state))
+    prompt_context = resolve_role_prompt(
+        continuous_request(state, altitude_root=workspace)
+    )
     skill_block = ""
     if mission is not None:
         try:

@@ -1499,3 +1499,38 @@ def test_a_draft_that_shrank_is_told_what_it_used_to_be(tmp_path) -> None:
         encoding="utf-8",
     )
     assert _manuscript_high_water_block(tmp_path) == ""
+
+
+def test_altitude_facts_are_read_from_the_worktree_not_the_state_root(tmp_path) -> None:
+    """Stage and vertical resolve from state/projects/<session>/; the altitude
+    facts are about the work and live in the worktree. One root served both, so
+    every altitude block was handed the state dir, found no paper/ there, and
+    fail-softed to an empty string -- silently, in production, for every
+    campaign. Seventeen planning cycles produced no trace of any of them.
+    """
+    from argus_skill.roles.prompts.registry import resolve_role_prompt
+    from argus_skill.roles.prompts.types import RolePromptRequest, RoleName
+
+    worktree = tmp_path / "campaign"
+    state = worktree / "state" / "projects" / "s-1"
+    (worktree / "paper").mkdir(parents=True)
+    state.mkdir(parents=True)
+    (worktree / "paper" / "main.tex").write_text(
+        r"\includegraphics{a} " + "word " * 40, encoding="utf-8"
+    )
+    (worktree / "paper" / ".manuscript_peak.json").write_text(
+        '{"words": 9000, "figures": 7}', encoding="utf-8"
+    )
+
+    def altitude(**kwargs) -> str:
+        return resolve_role_prompt(
+            RolePromptRequest(
+                role=RoleName.PLANNER, operation="continuous",
+                project_root=state, vertical="research",
+                include_search_altitude=True, **kwargs,
+            )
+        ).search_altitude
+
+    # The state root alone knows nothing about the paper.
+    assert "EARLIER DRAFT" not in altitude()
+    assert "EARLIER DRAFT" in altitude(altitude_root=worktree)

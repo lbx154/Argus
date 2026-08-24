@@ -77,6 +77,7 @@ _PLAN_SIGNAL_VOCABULARY = (
 def evaluate_request(
     project_root: Path | str,
     *,
+    altitude_root: Path | str | None = None,
     scope: str = "",
     stage: str | None = None,
     vertical: str | None = None,
@@ -86,6 +87,9 @@ def evaluate_request(
         role=RoleName.REVIEWER,
         operation=EVALUATE,
         project_root=project_root,
+        # The facts are about the work, which lives in the worktree, not in
+        # state/projects/<session>/ where the stage is read from.
+        altitude_root=altitude_root,
         vertical=vertical,
         stage=stage,
         scope=scope,
@@ -347,6 +351,7 @@ def render_reviewer_prompt(
     prompt_context = resolve_role_prompt(
         evaluate_request(
             _proot,
+            altitude_root=resolve_project_root(working_dir) if working_dir else None,
             scope=scope_normalized,
             vertical=routed_vertical,
             # Suppressed only when this project has no pipeline state to read a

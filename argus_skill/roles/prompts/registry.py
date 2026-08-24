@@ -143,9 +143,14 @@ class RolePromptCatalog:
                 project_root=root,
             )
 
+        altitude_root = (
+            Path(request.altitude_root).expanduser()
+            if request.altitude_root is not None
+            else root
+        )
         search_altitude = (
-            contract.altitude(root)
-            if request.include_search_altitude and root is not None
+            contract.altitude(altitude_root)
+            if request.include_search_altitude and altitude_root is not None
             else ""
         )
         fragment_ids: list[str] = []
