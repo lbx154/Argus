@@ -654,7 +654,11 @@ class MissionExecutionRuntimeMixin:
             )
 
             wait_request = parse_external_wait_request(
-                str(getattr(outcome, "final_message", "") or "")
+                str(
+                    getattr(outcome, "final_message", "")
+                    or getattr(outcome, "summary", "")
+                    or ""
+                )
             )
             if wait_request is None:
                 state.status = "error"

@@ -460,7 +460,7 @@ def test_external_work_wait_releases_and_auto_resumes_the_mission(tmp_path) -> N
             success=False,
             status="paused_external_work",
             stop_reason="healthy external work is still running",
-            final_message='{"wait_for":"external_work","wait_id":"job-1"}',
+            summary='{"wait_for":"external_work","wait_id":"job-1"}',
         ),
     )
     workdir = supervisor._project_workdir()
