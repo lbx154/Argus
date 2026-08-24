@@ -540,10 +540,16 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="analysis.figure1",
             statement=(
-                "Design and render the paper's reader-facing Figure 1 teaser or "
-                "framework overview from a written communication brief. It must "
-                "show the problem, core mechanism/architecture or taxonomy, and "
-                "claim-bearing flow in one coherent visual. Route it through the "
+                "Design the paper's visual argument, then render it. Go through "
+                "the claims this paper will make and decide for each whether a "
+                "reader can see the evidence or only read that it exists; the "
+                "ones they cannot see are the figures, and each is its own "
+                "mission that ends with the figure in the compiled paper. Figure "
+                "1 is one of them, not the whole of it: the reader-facing teaser "
+                "or framework overview, built from a written communication brief, "
+                "showing the problem, core mechanism/architecture or taxonomy, and "
+                "claim-bearing flow in one coherent visual. Route every one "
+                "through the "
                 "Research Visualization Router: prefer PPT Master for polished "
                 "editable composition, or browser-rendered HTML, FigureSpec, "
                 "Draw.io, Mermaid/Graphviz as appropriate. image-2 is optional and "

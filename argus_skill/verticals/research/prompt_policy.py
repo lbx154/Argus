@@ -130,7 +130,11 @@ def _planner_manuscript_block(project_root: Path | None) -> str:
         "evidence is thinner than in the accepted papers this campaign chose, "
         "and what a reviewer would reject it for. Queue that work now. A figure "
         "programme is one mission per claim that needs showing, not another "
-        "pass over Figure 1."
+        "pass over Figure 1. Route each figure's rendering, caption, in-text "
+        "callout and main.tex integration through one mission whose owns_paths "
+        "covers the manuscript as well as that figure's sources: a mission that "
+        "may draw but not edit prose leaves the asset on disk, and a figure "
+        "mission is finished only when the figure is in the compiled paper."
     )
 
 
