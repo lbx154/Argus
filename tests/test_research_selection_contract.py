@@ -1485,7 +1485,8 @@ def test_altitude_facts_are_read_from_the_worktree_not_the_state_root(tmp_path) 
     (worktree / "paper").mkdir(parents=True)
     state.mkdir(parents=True)
     (worktree / "paper" / "main.tex").write_text(
-        r"\includegraphics{a} " + "word " * 40, encoding="utf-8"
+        r"\begin{document}\includegraphics{a} " + "word " * 40 + r"\end{document}",
+        encoding="utf-8",
     )
     (worktree / "paper" / ".manuscript_peak.json").write_text(
         '{"words": 9000, "figures": 7}', encoding="utf-8"
@@ -1500,9 +1501,21 @@ def test_altitude_facts_are_read_from_the_worktree_not_the_state_root(tmp_path) 
             )
         ).search_altitude
 
-    # The state root alone knows nothing about the paper.
+    # The state root alone knows nothing about the paper -- which is also how
+    # a manuscript-aware gate in the vertical fragment silently never fired.
     assert "EARLIER DRAFT" not in altitude()
     assert "EARLIER DRAFT" in altitude(altitude_root=worktree)
+
+    def banner(**kwargs) -> str:
+        return resolve_role_prompt(
+            RolePromptRequest(
+                role=RoleName.REVIEWER, operation="evaluate",
+                project_root=state, vertical="research", **kwargs,
+            )
+        ).role_banner
+
+    assert "program-committee" not in banner()
+    assert "program-committee" in banner(altitude_root=worktree)
 
 
 def test_a_manuscript_is_reviewed_as_a_paper_before_the_writing_stage(tmp_path) -> None:

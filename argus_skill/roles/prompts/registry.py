@@ -87,12 +87,21 @@ class RolePromptCatalog:
             from ...skills.stage_machine import current_stage
 
             stage = current_stage(root or ".")
+        # Where the work is, as opposed to where its state is kept. Both the
+        # vertical fragment and the altitude facts describe the work, so both
+        # need the worktree; `root` is the session directory and contains no
+        # paper/, which is how a manuscript-aware gate silently never fired.
+        altitude_root = (
+            Path(request.altitude_root).expanduser()
+            if request.altitude_root is not None
+            else root
+        )
         vertical_fragment = contract.prompt_fragment(
             role=banner_role,
             operation=request.operation,
             stage=stage,
             scope=scope,
-            project_root=root,
+            project_root=altitude_root,
         )
         if vertical_fragment.strip():
             vertical_banner = "\n\n".join(
@@ -143,11 +152,6 @@ class RolePromptCatalog:
                 project_root=root,
             )
 
-        altitude_root = (
-            Path(request.altitude_root).expanduser()
-            if request.altitude_root is not None
-            else root
-        )
         search_altitude = (
             contract.altitude(altitude_root)
             if request.include_search_altitude and altitude_root is not None
