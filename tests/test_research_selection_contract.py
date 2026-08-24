@@ -1630,7 +1630,10 @@ def test_the_planner_is_asked_about_the_paper_it_already_has(tmp_path) -> None:
     asked = fragment()
     assert "The paper is work" in asked
     # A question, not a checklist: no fault is named for it.
-    assert "one mission per claim that needs showing" in asked
+    assert "take on trust because no figure shows them" in asked
+    # And the work is not split per claim: every figure needs the manuscript to
+    # embed it, so per-claim missions cannot run beside each other.
+    assert "one mission the whole set" in asked
 
 
 def test_the_appendix_is_not_the_paper(tmp_path) -> None:
