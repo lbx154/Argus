@@ -448,6 +448,13 @@ def test_engineer_turn_wall_clock_default_and_override(monkeypatch) -> None:
         "router-classify",
         "simple-1",
         "chat-1",
+        "planner-bounded-plan",
+        "planner-preview",
+        "self-debug",
+        "self-implement",
+        "self-micro",
+        "self-review",
+        "self-synthesize",
     ],
 )
 def test_manager_turn_wall_clock_is_bounded_by_default(monkeypatch, run_label: str) -> None:

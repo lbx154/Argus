@@ -36,24 +36,34 @@ def test_idle_escalation_emits_once_and_resets_on_activity() -> None:
     assert escalation.newly_due(30) == (WARNING_STAGE, STALLED_STAGE)
 
 
-@pytest.mark.parametrize("run_label", ["manager-classify-grounded", "simple-1"])
+@pytest.mark.parametrize(
+    ("backend", "run_label"),
+    [
+        ("codex", "manager-classify-grounded"),
+        ("opencode", "simple-1"),
+        ("opencode", "planner-bounded-plan"),
+        ("opencode", "self-implement"),
+    ],
+)
 def test_manager_wall_clock_stops_reconnect_chatter(
     monkeypatch: pytest.MonkeyPatch,
+    backend: str,
     run_label: str,
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_TURN_MAX_SECONDS", "1")
     events: list[tuple[str, str]] = []
     runner = AgentCliRunner(
         agent_bin=sys.executable,
+        backend=backend,
         event_callback=lambda stream, line: events.append((stream, line)),
     )
     command = [
         sys.executable,
         "-c",
         (
-            "import sys, time\n"
+            "import json, time\n"
             "while True:\n"
-            "    print('Reconnecting... 1/100', file=sys.stderr, flush=True)\n"
+            "    print(json.dumps({'type': 'step_start'}), flush=True)\n"
             "    time.sleep(0.05)\n"
         ),
     ]

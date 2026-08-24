@@ -26,14 +26,20 @@ _DEFAULT_SCIENTIST_TURN_MAX_SECONDS = 0
 # Five minutes matches the existing Copilot ACP Manager timeout.
 _MANAGER_TURN_MAX_SECONDS_ENV = "ARGUS_SKILL_MANAGER_TURN_MAX_SECONDS"
 _DEFAULT_MANAGER_TURN_MAX_SECONDS = 5 * 60
-# These labels predate the explicit ``manager-*`` namespace but still run on
-# the Manager control plane. In particular ``simple-1`` is the full reply path
-# used by ``apps._self_reply``. Treating only the newer prefix as Manager work
-# leaves the oldest, busiest path without the wall-clock safety bound.
-_LEGACY_MANAGER_TURN_LABELS = frozenset(
+# These labels sit inside the synchronous Manager request even though they use
+# older or role-specific names. Leaving them unbounded lets provider chatter
+# keep the Web request alive indefinitely.
+_SYNCHRONOUS_MANAGER_TURN_LABELS = frozenset(
     {
         "chat-1",
+        "planner-bounded-plan",
+        "planner-preview",
         "router-classify",
+        "self-debug",
+        "self-implement",
+        "self-micro",
+        "self-review",
+        "self-synthesize",
         "simple-1",
     }
 )
@@ -61,7 +67,10 @@ def _nonnegative_env_int(name: str, default: int) -> int:
 
 def _is_manager_turn_label(run_label: str | None) -> bool:
     label = str(run_label or "").strip().lower()
-    return label.startswith(("manager-", "manager.")) or label in _LEGACY_MANAGER_TURN_LABELS
+    return (
+        label.startswith(("manager-", "manager."))
+        or label in _SYNCHRONOUS_MANAGER_TURN_LABELS
+    )
 
 
 def _turn_wall_clock_seconds(run_label: str | None) -> int:
