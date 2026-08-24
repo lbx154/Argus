@@ -379,11 +379,23 @@ class Planner:
                 )
                 if text
             )
+            # A turn that ends on the budget deliberately does not rotate the
+            # session, so everything the previous turn read is still in this
+            # conversation. Nothing said so, and six of seven campaigns spent
+            # missions trying to raise a cap they cannot reach while their
+            # planners re-read their way into the same wall.
+            carried = (
+                " You have already read in this session and that context is "
+                "still here; prefer answering from it over reading again."
+                if session.turns
+                else ""
+            )
             prompt = (
                 f"GROUNDING BUDGET: you have {limits} to look around before "
                 "you answer. Reaching either limit discards this whole turn, "
                 "including work already done, so read what the decision needs "
-                "and then decide. A plan from partial reading beats no plan.\n\n"
+                f"and then decide.{carried} A plan from partial reading beats "
+                "no plan.\n\n"
             ) + prompt
         grounding_budget = _PlannerGroundingBudget(
             max_seconds=cfg.grounding_max_seconds,

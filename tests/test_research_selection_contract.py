@@ -1241,14 +1241,16 @@ def test_planner_is_told_the_grounding_budget_it_is_held_to() -> None:
     from argus_skill.planner import planner
 
     source = inspect.getsource(planner)
-    end = source.index("GROUNDING BUDGET:")
-    # The limits are computed just above the sentence that states them.
-    stated = source[end - 700 : end + 400]
     # The numbers come from the config that enforces them, never a literal.
-    assert "cfg.grounding_max_tool_calls" in stated
-    assert "cfg.grounding_max_seconds" in stated
-    # And it must say what running out costs, or the number means nothing.
-    assert "discards this whole turn" in stated
+    assert 'f"{cfg.grounding_max_tool_calls} tool calls"' in source
+    assert 'f"{cfg.grounding_max_seconds} seconds"' in source
+    # It must say what running out costs, or the number means nothing.
+    assert "discards this whole turn" in source
+    # A turn that ends on the budget does not rotate the session, so the
+    # previous turn's reading is still in context. Six of seven campaigns
+    # spent missions on the cap while their planners re-read into the wall.
+    assert "prefer answering from it over reading again" in source
+    assert "if session.turns" in source
 
 
 def _wait_state(**overrides) -> dict:
