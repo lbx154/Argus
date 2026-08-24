@@ -421,7 +421,7 @@ _CONFIG_ALIASES = {
     "engineer_model": "ARGUS_SKILL_ENGINEER_MODEL",
     "reviewer_model": "ARGUS_SKILL_REVIEWER_MODEL",
     "planner_model": "ARGUS_SKILL_PLAN_MODEL",
-    "manager_model": "ARGUS_SKILL_MODEL",
+    "manager_model": "ARGUS_SKILL_MANAGER_MODEL",
     "manager_reply_model": "ARGUS_SKILL_MANAGER_REPLY_MODEL",
     "frontdoor_model": "ARGUS_SKILL_FRONTDOOR_MODEL",
     "engineer_effort": "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
