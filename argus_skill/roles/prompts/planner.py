@@ -27,6 +27,15 @@ OPERATIONS = frozenset(
 )
 
 
+from ...core.wake_sources import SUPPORTED_WAKE_SOURCES
+
+# authorization is omitted on purpose: the host routes any
+# operator_action_required wait there itself, so naming it here would only
+# invite the Planner to choose a source it does not own.
+_WAKE_SOURCES = "|".join(
+    sorted(set(SUPPORTED_WAKE_SOURCES) - {"authorization"})
+)
+
 _PLANNER_DECISION_PAYLOAD_EXAMPLE = (
     '{"project_done":false,"reason":"why",'
     '"tasks":[{"key":"k1","deps":[],"title":"Run the next decisive check",'
@@ -46,16 +55,15 @@ commands, tests, and iteration.
 
 - Reuse Manager/completed decisions. Give Engineer a self-contained task with its
   decision, inputs, check; split only for dependencies or independent work.
-- Prefer the simplest sufficient plan; add machinery, abstractions, or future work
-  only when current evidence requires it.
+- Prefer the simplest sufficient plan; add machinery only when evidence requires it.
 - Follow the operator's requested actions and order. Existing artifacts or a usable
   alternative do not replace the first unmet requested action. Do not invent cleanup,
   docs, provenance, or rechecks.
   Optional hardening never keeps a finite objective alive after the requested result passes.
 - For an external algorithm, check primary-source grounding. Wiki/Skills are
-  starting context, not a boundary; use fresh paper/source/issue/hardware investigation only
-  when decision-relevant. When related attempts repeatedly fail, revisit primary papers
-  and official implementations. Performance claims need code-path evidence and
+  starting context, not a boundary; use fresh paper/source/issue/hardware investigation
+  only when decision-relevant. When related attempts repeatedly fail, revisit primary
+  papers and official implementations. Performance claims need code-path evidence and
   timing/profiling or a controlled comparison.
 - Set `project_done=true` only when the operator goal is complete. Bounded-direct
   Reviewer `done` closes it; review again only if requested or the verdict finds a gap.
@@ -66,8 +74,8 @@ commands, tests, and iteration.
   `scope`; optional: `acceptance_check`, `parallel_safe`, `owns_paths`, `vertical`.
 - For a real external blocker, use `waiting` with `blocker_fingerprint`,
   `recheck_condition`, and `recheck_token`; add `operator_action_required=true`
-  only when the operator must act. Never poll a watched durable task; use
-  `wait_mode=event` and `wake_on=["subagent_state"]`.
+  only when the operator must act. Never poll a watched durable task: set
+  `wait_mode=event`, `wake_on` from """ + _WAKE_SOURCES + """.
 - Planner proposes task scope only through the structured task `scope` (legacy
   `TASK_SCOPE`); Host owns enqueue-time validation/normalization of that field.
 - Use the operator's language.

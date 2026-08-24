@@ -14,6 +14,7 @@ from typing import Any
 from ...core.event_catalog import EventType
 from ...core.planner_verdict import PlannerVerdictStatus
 from ..memory import BacklogItem
+from ...core.wake_sources import SUPPORTED_WAKE_SOURCES
 from ._constants import IDLE_BACKOFF_CAP_SECONDS
 from ._constants import (
     PLAN_AWAITING,
@@ -1313,18 +1314,24 @@ class PlanningContextMixin:
         wait_mode = str(getattr(contract, "wait_mode", "poll") or "poll")
         wake_on = [str(value) for value in getattr(contract, "wake_on", ())]
         watched_paths = [str(value) for value in getattr(contract, "watched_paths", ())]
+        # operator_action_required means only fresh operator input can change
+        # this blocker, so the source it wakes on is not the Planner's to pick.
+        # run-05 declared operator waits against subagent_state and had
+        # nineteen contracts rejected for lacking a revision only the host can
+        # compute, then invented operator_answer and operator_message and lost
+        # sixteen more. Reading the authority it already declared costs nothing
+        # and cannot be got wrong.
+        operator_action_required = bool(
+            getattr(contract, "operator_action_required", False)
+        )
+        if operator_action_required:
+            wait_mode = "event"
+            wake_on = ["authorization"]
         contract_observed_revision = str(
             getattr(contract, "observed_revision", "") or ""
         )
-        supported_wake_sources = {
-            "authorization",
-            "manager_stage",
-            "artifact_revision",
-            "subagent_terminal",
-            "subagent_state",
-        }
         unsupported_wake_sources = sorted(
-            set(wake_on).difference(supported_wake_sources)
+            set(wake_on).difference(SUPPORTED_WAKE_SOURCES)
         )
         if wait_mode == "event" and unsupported_wake_sources:
             self._emit(
@@ -1441,7 +1448,7 @@ class PlanningContextMixin:
             "stage_reconciliation_required": bool(
                 getattr(contract, "stage_reconciliation_required", False)
             ),
-            "operator_action_required": bool(getattr(contract, "operator_action_required", False)),
+            "operator_action_required": operator_action_required,
             "allow_verification_probe": bool(getattr(contract, "allow_verification_probe", False)),
             "recheck_after_seconds": max(
                 0,

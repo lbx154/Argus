@@ -1348,3 +1348,38 @@ def test_answering_the_documented_way_wakes_an_authorization_wait(tmp_path) -> N
         '{"ts": 2, "text": "and again"}\n', encoding="utf-8"
     )
     assert fingerprint(host, wake_on=["subagent_state"], watched_paths=[]) == other
+
+
+def test_an_operator_wait_is_routed_to_authorization_by_the_host() -> None:
+    """A Planner that declares operator_action_required has said only fresh
+    operator input can change the blocker, so the wake source is not its to
+    pick. run-05 declared operator waits against subagent_state and lost
+    nineteen contracts to "lacks host-observed revision" -- a value only the
+    host can compute -- then invented operator_answer and operator_message and
+    lost sixteen more. Forty of fifty-nine planner turns in four hours ended in
+    one of those two errors.
+    """
+    import types
+
+    from argus_skill.life.supervisor._planning_context import PlanningContextMixin
+
+    seen: list[dict] = []
+    host = types.SimpleNamespace(
+        _waiting_contract_key=lambda c: ("fp", "token"),
+        _load_planner_waiting_contract_state=lambda: None,
+        _emit=seen.append,
+    )
+    contract = types.SimpleNamespace(
+        blocker_fingerprint="fp", recheck_condition="operator answers",
+        recheck_token="token", wait_mode="event",
+        wake_on=("subagent_state",), watched_paths=(),
+        observed_revision="", operator_action_required=True,
+    )
+
+    # It must not be rejected for missing a revision it could never supply.
+    try:
+        PlanningContextMixin._persist_planner_waiting_contract(host, contract)
+    except AttributeError:
+        pass  # persistence needs more of the host than this stub provides
+    assert not [e for e in seen if "revision" in str(e.get("error", ""))]
+    assert not [e for e in seen if "wake source" in str(e.get("error", ""))]

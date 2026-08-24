@@ -297,7 +297,20 @@ def test_planner_prompt_requires_read_only_delegation_and_process_decision() -> 
     assert "not parsed" in _PLANNER_CORE_CONTRACT
     assert "Never poll a watched durable task" in _PLANNER_CORE_CONTRACT
     assert "`wait_mode=event`" in _PLANNER_CORE_CONTRACT
-    assert '`wake_on=["subagent_state"]`' in _PLANNER_CORE_CONTRACT
+    # Naming one example taught the Planner a vocabulary of one. In four hours
+    # run-05 proposed operator_answer, operator_message, artifact_change and
+    # project_state -- each a plausible synonym for a real source -- and had
+    # sixteen waiting contracts rejected. Every source the host accepts is now
+    # named, rendered from the host's own set so the two cannot drift.
+    from argus_skill.core.wake_sources import SUPPORTED_WAKE_SOURCES
+
+    assert "`wake_on`" in _PLANNER_CORE_CONTRACT
+    for source in SUPPORTED_WAKE_SOURCES:
+        # authorization is the one the Planner never picks: the host routes
+        # any operator_action_required wait there itself.
+        if source == "authorization":
+            continue
+        assert source in _PLANNER_CORE_CONTRACT
     for field in ("`title`", "`objective`", "`acceptance_check`"):
         assert field in _PLANNER_CORE_CONTRACT
     for field in (
