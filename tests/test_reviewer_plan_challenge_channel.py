@@ -24,7 +24,7 @@ from argus_skill.reviewer import Reviewer
 from argus_skill.reviewer._parsing import _PLAN_SIGNALS, parse_decision_text
 from argus_skill.skills.store import SkillStore
 
-_SHOWN_SIGNAL = re.compile(r'"plan_signal"\s*:\s*"([^"]+)"')
+_SHOWN_SIGNAL = re.compile(r"(?im)^\s*PLAN_SIGNAL\s*=\s*([a-z_]+)")
 
 
 def _reviewer_prompt(tmp_path) -> str:

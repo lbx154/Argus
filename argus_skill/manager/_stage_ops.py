@@ -144,18 +144,10 @@ class _StageDecisionMixin:
         prompt: str,
         root_task_id: str | None,
     ) -> str:
-        """Phase 3: run the model with empty-output retry and checkpoint refresh.
+        """Phase 3: run the model with empty-output retry.
 
         Returns the raw model output string (may be empty on repeated failure).
         """
-        from ..roles.prompts.manager import (
-            build_manager_checkpoint_correction_prompt,
-        )
-        from .live_view import (
-            manager_checkpoint_refresh_required,
-            repair_manager_checkpoint_response,
-        )
-
         with self._task_usage_scope(root_task_id):
             raw = self._extract_answer_safe(run_exec(prompt))
             # gpt-5.5/fnyweg (and other backends) occasionally return an EMPTY
@@ -171,27 +163,6 @@ class _StageDecisionMixin:
                 _empty_retries += 1
                 time.sleep(1.0)
                 raw = self._extract_answer_safe(run_exec(prompt))
-            if str(raw or "").strip() and manager_checkpoint_refresh_required(
-                self.execution_workdir,
-                raw,
-                manifest_root=self.manager_session_root,
-            ):
-                correction_prompt = build_manager_checkpoint_correction_prompt(
-                    prompt
-                )
-                candidate = self._extract_answer_safe(run_exec(correction_prompt))
-                if str(candidate or "").strip():
-                    raw = candidate
-            if str(raw or "").strip() and manager_checkpoint_refresh_required(
-                self.execution_workdir,
-                raw,
-                manifest_root=self.manager_session_root,
-            ):
-                raw = repair_manager_checkpoint_response(
-                    self.execution_workdir,
-                    raw,
-                    manifest_root=self.manager_session_root,
-                )
         return raw or ""
 
     @staticmethod
@@ -685,18 +656,35 @@ class _StageDecisionMixin:
             if cur in order and order.index(cur) + 1 < len(order)
             else ""
         )
+        from ..skills.vertical_select import resolve_workflow_mode
+
+        final_direct_stage = bool(
+            not next_stage
+            and not open_ended
+            and normalized_scope == "bounded"
+            and resolve_workflow_mode(root) == "direct"
+        )
         external_gate_issue = ""
-        if next_stage:
+        if next_stage or final_direct_stage:
             from ..core.external_completion_gate import external_completion_gate_issue
 
             external_gate_issue = external_completion_gate_issue(
                 self.execution_workdir
             )
+        review_source_is_authoritative = review_source == "reviewer"
+        if final_direct_stage and review_source == "engineer_self_review":
+            from ..skills.vertical_select import resolve_vertical
+            from ..verticals._base import load_vertical_contract
+
+            review_source_is_authoritative = not load_vertical_contract(
+                resolve_vertical(root),
+                project_root=root,
+            ).requires_independent_review
         deterministic_candidate = bool(
             stage_closing
-            and next_stage
+            and (next_stage or final_direct_stage)
             and review_status == "done"
-            and review_source == "reviewer"
+            and review_source_is_authoritative
             and not next_action
             and not operator_question
             and not operator_options
@@ -724,8 +712,8 @@ class _StageDecisionMixin:
                 )
                 return self._apply_stage_decision_to_disk(
                     StageDecision(
-                        "advance",
-                        next_stage,
+                        "advance" if next_stage else "complete",
+                        next_stage or cur,
                         "Reviewer certified the current-stage checklist and "
                         "deterministic completion checks passed",
                         "deterministic_reviewer_done",
@@ -757,7 +745,6 @@ class _StageDecisionMixin:
             from ..roles.prompts.manager import (
                 assemble_manager_prompt,
                 build_stage_decision_prompt,
-                manager_rendering_prompt,
                 stage_decision_request,
             )
 
@@ -776,11 +763,6 @@ class _StageDecisionMixin:
                     checklist_md=prompt_context.stage_checklist,
                     review=review,
                     planner_verdict=planner_verdict,
-                    rendering_block=manager_rendering_prompt(
-                        self.execution_workdir,
-                        review=review,
-                        manifest_root=self.manager_session_root,
-                    ),
                     open_ended=open_ended,
                     continuous_objective=continuous_objective,
                 ),

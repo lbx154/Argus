@@ -62,6 +62,16 @@ class _RawRunner:
         return RunnerResult(exit_code=0, agent_messages=[self.text])
 
 
+class _SequenceRunner:
+    def __init__(self, *texts: str) -> None:
+        self.texts = list(texts)
+        self.calls = []
+
+    def run_exec(self, **kwargs):
+        self.calls.append(kwargs)
+        return RunnerResult(exit_code=0, agent_messages=[self.texts.pop(0)])
+
+
 def test_bounded_planner_parses_real_fanout_fanin_dag(tmp_path) -> None:
     runner = _Runner(
         {
@@ -101,6 +111,12 @@ def test_bounded_planner_parses_real_fanout_fanin_dag(tmp_path) -> None:
             ],
         }
     )
+    state = tmp_path / ".argus" / "PIPELINE_STATE.json"
+    state.parent.mkdir()
+    state.write_text(json.dumps({
+        "vertical": "kernel_engineering",
+        "current_stage": "optimize",
+    }))
 
     plan = plan_bounded_dag(runner, "build the tool", workdir=tmp_path)
 
@@ -112,26 +128,112 @@ def test_bounded_planner_parses_real_fanout_fanin_dag(tmp_path) -> None:
     assert plan.tasks[2].non_goals == ("do not publish", "do not edit pipeline state")
     assert plan.tasks[2].execution_workdir == "nested/target"
     assert plan.tasks[2].work_kind == "validation"
+    assert plan.tasks[2].hypothesis == "This task tests its stated mechanism."
+    assert plan.tasks[2].goal_contribution == (
+        "This task advances the requested deliverable."
+    )
+    assert plan.tasks[2].decision_rule.startswith("Replan if the mechanism")
     assert not hasattr(plan.tasks[2], "context_refs")
     prompt = runner.calls[0]["prompt"]
     assert "primary-source semantics are materially missing" in prompt
     assert "Existing grounding never forbids fresh upstream research" in prompt
     assert "When related attempts repeatedly fail" in prompt
-    assert "`deps` (same-batch keys only)" in prompt
+    assert "Active vertical context: `kernel_engineering` stage `optimize`" in prompt
+    assert "`TASK_DEPS` (same-batch keys only)" in prompt
     assert plan.tasks[2].require_independent_review is True
     call = runner.calls[0]
     assert call["run_label"] == "planner.bounded_dag"
     assert call["options"].working_dir == str(tmp_path.resolve())
     assert not hasattr(call["options"], "output_schema_path")
-    assert "ARGUS_ROLE_DECISION=" in call["prompt"]
-    assert "Any later response is plain language and is not parsed." in call["prompt"]
+    assert "ARGUS_ROLE_DECISION=" not in call["prompt"]
+    assert "Reason naturally" in call["prompt"]
+    assert "PLAN_REASON=" in call["prompt"]
     assert "TASK_CONTEXT_REFS" not in call["prompt"]
     assert "TASK_STAGE_CLOSING" not in call["prompt"]
     assert "`require_independent_review:true`" in call["prompt"]
     assert "`execution_workdir`" in call["prompt"]
+    assert "`hypothesis`" in call["prompt"]
+    assert "`decision_rule`" in call["prompt"]
     assert "`work_kind` (validated; no prose inference)" in call["prompt"]
     assert "The Host owns execution and enforces review policy" in call["prompt"]
     assert "Never create a review-only or validation-only task" in call["prompt"]
+    assert "`develop`" in call["prompt"]
+    assert "feedback-producing experiment ran honestly" in call["prompt"]
+
+
+def test_bounded_planner_reads_policy_from_session_state(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    state_root = tmp_path / "session-state"
+    workspace.mkdir()
+    pipeline = state_root / ".argus" / "PIPELINE_STATE.json"
+    pipeline.parent.mkdir(parents=True)
+    pipeline.write_text(
+        json.dumps({
+            "vertical": "argus_maintenance",
+            "current_stage": "inspect",
+        }),
+        encoding="utf-8",
+    )
+    runner = _Runner(
+        {
+            "reason": "one task",
+            "tasks": [{
+                "key": "a",
+                "deps": [],
+                "title": "Inspect",
+                "objective": "Inspect the defect",
+            }],
+        }
+    )
+
+    plan = plan_bounded_dag(
+        runner,
+        "inspect the defect",
+        workdir=workspace,
+        state_root=state_root,
+    )
+
+    assert not plan.error
+    prompt = runner.calls[0]["prompt"]
+    assert "Active vertical context: `argus_maintenance` stage `inspect`" in prompt
+    assert "`explore`" in prompt
+    assert runner.calls[0]["options"].working_dir == str(workspace.resolve())
+
+
+def test_bounded_repair_keeps_session_policy_context(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    state_root = tmp_path / "state"
+    workspace.mkdir()
+    pipeline = state_root / ".argus" / "PIPELINE_STATE.json"
+    pipeline.parent.mkdir(parents=True)
+    pipeline.write_text(json.dumps({
+        "vertical": "argus_maintenance",
+        "current_stage": "inspect",
+    }))
+    runner = _SequenceRunner(
+        "PLAN_REASON=broken\nTASK_KEY=a\nTASK_TITLE=Missing objective",
+        "PLAN_REASON=repaired\n"
+        "TASK_KEY=a\n"
+        "TASK_DEPS=\n"
+        "TASK_TITLE=Inspect\n"
+        "TASK_OBJECTIVE=Inspect the defect",
+    )
+
+    plan = plan_bounded_dag(
+        runner,
+        "inspect the defect",
+        workdir=workspace,
+        state_root=state_root,
+    )
+
+    assert not plan.error
+    assert len(runner.calls) == 2
+    assert (
+        "Active vertical context: `argus_maintenance` stage `inspect`"
+        in runner.calls[1]["prompt"]
+    )
 
 
 def test_bounded_planner_accepts_observed_control_value_explanations(

@@ -920,6 +920,21 @@ class MissionExecutionSettlementMixin:
         success = state.success
         status = state.status
 
+        self._evolve_runtime_skills_after_mission(
+            success=bool(success and not state.iteration_requeued),
+            usage_mission_id=state.usage_attempt_id,
+            mission_objective=str(
+                item.original_objective or item.objective or item.title or ""
+            ),
+            mission_result=(
+                f"status={status}; stop_kind={state.stop_kind or 'none'}; "
+                f"reason={state.stop_reason or 'none'}"
+            ),
+        )
+        state.usage_summary = state.cost_sink.usage_summary()
+        state.usd = state.usage_summary.cost_usd
+        state.known_usd = state.usage_summary.known_cost_usd
+
         kind = (
             "mission_iterated"
             if state.iteration_requeued

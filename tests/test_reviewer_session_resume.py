@@ -121,6 +121,9 @@ def test_matching_resume_request_sends_delta_only() -> None:
     assert _REEVALUATE in r2
     assert _DELTA_HEADER in r2
     assert "ROUND TWO WORK" in r2
+    assert "settled context" in r2
+    assert "ONLY evidence" not in r2
+    assert "from scratch" not in r2
     resumes = [t for label, t in backend.resume_history if label == "reviewer"]
     assert resumes == [None, "rv1"]
 

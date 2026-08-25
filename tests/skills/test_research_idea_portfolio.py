@@ -83,7 +83,12 @@ def _review_payload(task: dict, *, verdict: str) -> dict:
     return payload
 
 
-def _probe_payload(*, idea_id: str, idea_status: str) -> dict:
+def _probe_payload(
+    *,
+    idea_id: str,
+    idea_status: str,
+    decision: str = "continue",
+) -> dict:
     if idea_status == "supported":
         execution, failure = "completed", "none"
     elif idea_status == "refuted":
@@ -104,7 +109,7 @@ def _probe_payload(*, idea_id: str, idea_status: str) -> dict:
         "comparison_identity": "simple baseline revision 1",
         "summary": f"{idea_status} smoke observation",
         "evidence": "raw/results.jsonl and REPORT.md",
-        "decision": "continue",
+        "decision": decision,
     }
 
 
@@ -187,6 +192,7 @@ def _complete_selection(
     selected_route: dict,
     selected_review: dict,
     probe_idea_status: str = "inconclusive",
+    probe_decision: str = "continue",
 ) -> tuple[dict, dict]:
     root = _selection_root(project_root)
     selector = task_board.claim_top(root, "selector", now=time.time())
@@ -233,6 +239,7 @@ def _complete_selection(
             _probe_payload(
                 idea_id=selected_route["target"],
                 idea_status=probe_idea_status,
+                decision=probe_decision,
             ),
             indent=2,
         ) + "\n",
@@ -430,6 +437,27 @@ def test_refuted_smoke_cannot_block_quorum_selected_idea(tmp_path: Path) -> None
         selected_route=selected_route,
         selected_review=selected_review,
         probe_idea_status="refuted",
+    )
+
+    selection = idea_portfolio_selection(tmp_path)
+    assert selection is not None
+    assert selection["route_task_id"] == selected_route["task_id"]
+    assert idea_portfolio_completion_issues(tmp_path) == ()
+
+
+def test_skipped_probe_cannot_block_quorum_selected_idea(tmp_path: Path) -> None:
+    _pipeline(tmp_path)
+    root = ensure_idea_portfolio(tmp_path, direction="agent reliability")
+    reviewed = _complete_quorum(tmp_path, root)
+    ensure_idea_portfolio(tmp_path, direction="agent reliability")
+    selected_route, selected_review = reviewed[4]
+
+    _complete_selection(
+        tmp_path,
+        selected_route=selected_route,
+        selected_review=selected_review,
+        probe_idea_status="untested",
+        probe_decision="skipped",
     )
 
     selection = idea_portfolio_selection(tmp_path)

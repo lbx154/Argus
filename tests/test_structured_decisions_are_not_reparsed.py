@@ -266,6 +266,38 @@ def test_a_round_without_a_decision_falls_back_to_its_message() -> None:
     assert _round_handoff(outcome).next_owner == "reviewer"
 
 
+def test_fallback_handoff_reads_only_the_explicit_footer() -> None:
+    outcome = _outcome(
+        "The task quoted OPERATOR_QUESTION=Should I stop?\n"
+        "Decision:\n"
+        "MILESTONE_STATUS=done\n"
+        "NEXT_OWNER=reviewer",
+        None,
+    )
+
+    assert _milestone_is_done(outcome) is True
+    assert _round_handoff(outcome).next_owner == "reviewer"
+    assert _round_handoff(outcome).waits_for_operator is False
+
+
+def test_legacy_review_request_is_not_mistaken_for_operator_authority() -> None:
+    handoff = parse_engineer_handoff(
+        "OPERATOR_QUESTION=Run an independent reviewer before the production release."
+    )
+
+    assert handoff.next_owner == "reviewer"
+    assert handoff.waits_for_operator is False
+
+
+def test_legacy_publication_choice_still_belongs_to_operator() -> None:
+    handoff = parse_engineer_handoff(
+        "OPERATOR_QUESTION=Should I publish this production release?"
+    )
+
+    assert handoff.next_owner == "operator"
+    assert handoff.waits_for_operator is True
+
+
 def test_both_handoff_readers_agree_on_the_same_fields() -> None:
     """The prose reader is a fallback, not a second policy."""
     payload = {

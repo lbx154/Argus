@@ -87,8 +87,8 @@ def test_planner_resolution_chain_reads_physics_role_banner(tmp_path: Path) -> N
 
     banner = vertical_role_banner(mod, "planner")
     assert "MISSION TYPE: PHYSICS" in banner
-    assert "physics-specific route selection" in banner
-    assert "no fixed paper pipeline" in banner
+    assert "Let the physical question choose" in banner
+    assert "expected information gain" in banner
 
 
 def test_physics_is_custom_kind_not_optimize_not_paper() -> None:

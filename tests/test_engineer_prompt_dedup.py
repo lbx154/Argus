@@ -56,7 +56,8 @@ def test_engineer_prompt_marks_detail_dependent_operator_options() -> None:
     )
 
     assert "operator_options" in prompt
-    assert "requires_note:true" in prompt
+    assert "id::true::label::description" in prompt
+    assert "requires_note:true" not in prompt
 
 
 def test_direct_team_prompt_uses_one_mission_contract() -> None:

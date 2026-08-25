@@ -561,9 +561,10 @@ class MissionExecutionRuntimeMixin:
     def _derive_basic_outcome_fields(self, state: _MissionRunState) -> None:
         """Fill in success/status/stop_kind and settle mission-level bookkeeping.
 
-        This covers skill evolution, the legacy usage-ledger fallback append,
-        and the ``auth_failure`` advisory event — all independent of whatever
-        happens next (pause / repair settlement / stage transitions).
+        This covers the legacy usage-ledger fallback append and the
+        ``auth_failure`` advisory event. Skill evolution waits for final
+        settlement because repair rejection or a Manager HOLD may still turn a
+        locally successful run into a failed mission.
         """
         outcome = state.outcome
         item = state.item
@@ -574,17 +575,6 @@ class MissionExecutionRuntimeMixin:
         state.stop_kind = normalize_stop_kind(getattr(outcome, "stop_kind", None))
         if state.status == "budget_exhausted" and state.stop_kind is None:
             state.stop_kind = "budget_exhausted"
-        self._evolve_runtime_skills_after_mission(
-            success=state.success,
-            usage_mission_id=state.usage_attempt_id,
-            mission_objective=str(
-                item.original_objective or item.objective or item.title or ""
-            ),
-            mission_result=(
-                f"status={state.status}; stop_kind={state.stop_kind or 'none'}; "
-                f"reason={state.stop_reason or 'none'}"
-            ),
-        )
         usage_summary = state.cost_sink.usage_summary()
         state.usage_summary = usage_summary
         state.usd = usage_summary.cost_usd

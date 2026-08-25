@@ -68,6 +68,8 @@ def test_paper_review_requires_idea_and_built_artifact_quality():
     assert "`plan_alternative`" in block
     assert "same selector is not a bolder plan" in block
     assert "cross-model, cross-benchmark" in block
+    assert "what materially improved" in block
+    assert "whether the current manuscript clears the venue bar" in block
 
     assert "undefined citations" in block
     assert "bibliography warnings" in block
@@ -145,6 +147,21 @@ def test_certified_medical_review_does_not_inherit_paper_policy(tmp_path) -> Non
     assert "## Final paper review" not in prompt
 
 
+def test_final_submission_forces_certify_over_operator_explore(tmp_path) -> None:
+    _persist_review_stage(tmp_path, "research")
+    state_path = tmp_path / ".argus" / "PIPELINE_STATE.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["verification_profile"] = "explore"
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    prompt, _reviewer = _project_reviewer_prompt(
+        tmp_path,
+        scope="final_submission",
+    )
+
+    assert "This round: `certify`" in prompt
+
+
 def test_build_prompt_uses_trust_first_not_old_rerun(monkeypatch):
     p = _prompt(measured=False, monkeypatch=monkeypatch)
     assert "Trust clear, consistent evidence" in p
@@ -169,12 +186,12 @@ def test_non_measured_blocks_only_on_claim_critical_evidence(monkeypatch):
     assert "optional evidence and minor weaknesses stay advisory" in p
 
 
-def test_done_is_default_for_materially_complete_outcome(monkeypatch):
+def test_done_tracks_the_current_verification_profile(monkeypatch):
     p = _prompt(measured=False, monkeypatch=monkeypatch)
 
-    assert "Default to `done`" in p
+    assert "works at the current verification profile" in p
     assert "not exhaustive proof or artifact completeness" in p
-    assert "Current operator > objective > mission" in p
+    assert "Operator>objective>mission>preregistration" in p
     assert "One timeout, failed attempt" in p
 
 
@@ -182,7 +199,7 @@ def test_reviewer_separates_integrity_from_scientific_value(monkeypatch):
     p = _prompt(measured=False, monkeypatch=monkeypatch)
     assert "Integrity is mandatory" in p
     assert "not scientific value by itself" in p
-    assert "`replan_requested` rarely" in p
+    assert "`replan_requested` for a wrong target" in p
 
 
 def test_reviewer_reasons_in_prose_structured_only_at_handoff(monkeypatch):
@@ -192,6 +209,6 @@ def test_reviewer_reasons_in_prose_structured_only_at_handoff(monkeypatch):
     # the property stronger, not weaker: the prose and the verdict now live in
     # the same message instead of the verdict replacing it.
     p = _prompt(measured=False, monkeypatch=monkeypatch)
-    assert "Any later response is plain language" in p
-    assert "ARGUS_ROLE_DECISION=" in p
-    assert '"status":"done"' in p
+    assert "Reason naturally" in p
+    assert "ARGUS_ROLE_DECISION=" not in p
+    assert "STATUS=done" in p

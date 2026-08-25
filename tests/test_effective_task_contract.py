@@ -20,10 +20,10 @@ def test_effective_task_contract_is_compact() -> None:
     # The sentence earns its place — a bare verdict is the failure mode it names
     # — so the ceiling moves to match rather than the sentence coming out.
     assert len(contract) <= 600
-    assert "Current operator" in contract
+    assert "Operator>objective>mission>preregistration" in contract
     assert "preregistration" in contract
-    assert "bounded output" in contract
-    assert "no `.git` means no Git retries" in contract
+    assert "Bound output" in contract
+    assert "no `.git`, no Git retries" in contract
     assert "ambiguous_objective" in contract
 
 

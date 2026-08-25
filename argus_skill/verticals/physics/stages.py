@@ -68,10 +68,11 @@ completion_gate = "none"
 # ``review`` runs the Novelty gate and the Paper-Type classifier in ADVISORY mode
 # (never blocks review->manuscript). The Paper-Type gate CONSUMES the literature /
 # novelty / numerical gate results: a paper cannot be an original research article
-# candidate unless those gates support it. ``review`` also runs the Novelty-Seeking
-# Loop gate in ADVISORY mode (only ENFORCES in original-research-required mode:
-# >=10 scored candidate directions with the top 2-3 selected and verified) and the
-# Manuscript-Package contract gate in ADVISORY mode, which surfaces the SAME
+# candidate unless those gates support it. The old Novelty-Seeking table gate is
+# retired: fixed idea counts, exact columns, and numeric scores rewarded table
+# completion rather than discovery. Planner and Reviewer now judge whether routes
+# are materially different and whether feedback justifies a pivot. The
+# Manuscript-Package contract gate remains ADVISORY and surfaces the SAME
 # deterministic contract as the terminal ``manuscript`` checker once a paper
 # package exists, so ``role_banner`` injects an executable repair loop into the
 # next round.
@@ -348,46 +349,40 @@ def _current_stage(project_root: object) -> str:
         return ""
 
 
-# Stage-ENTRY contracts (gate-forward): the required artifacts, minimum standard,
-# claim constraints, and forbidden overclaims are stated BEFORE the stage runs — so
-# the agent builds to the gate standard from the start instead of running-then-repairing.
 _STAGE_ENTRY_CONTRACTS: dict[str, str] = {
     "scope": (
-        "## STAGE-ENTRY CONTRACT — scope (build to this BEFORE finishing the stage)\n"
-        "- REQUIRED ARTIFACT: PRIOR_WORK_MATRIX.csv — >= 8 direct prior works, >= 6 read FULL-TEXT "
-        "(honest fulltext_status), per-paper overlap/difference/claim-implication.\n"
-        "- MIN STANDARD: every headline claim maps to a closest_prior_work.\n"
-        "- CLAIM CONSTRAINT: no original-research-article framing until the Literature gate passes.\n"
-        "- FORBIDDEN: citing metadata-only as full text; asserting novelty without a prior-work map.\n"
+        "## Scope focus\n"
+        "Define the physical system, regime, observables, and success criterion. "
+        "Search current primary literature far enough to identify the closest work "
+        "and a real separation; use whatever notes make that judgment clear, not a "
+        "fixed matrix or paper count.\n"
     ),
     "model": (
-        "## STAGE-ENTRY CONTRACT — model\n"
-        "- REQUIRED ARTIFACTS: DOMAIN_CLASSIFICATION.json + THEORY_OPPORTUNITY_AUDIT.csv "
-        "(which theory capabilities apply, which were used, at what tier, with evidence).\n"
-        "- MIN STANDARD: variables/units/equations explicit; approximation validity ranges stated.\n"
-        "- CLAIM CONSTRAINT: a claim depending on a theory capability you did NOT execute must be downgraded.\n"
-        "- FORBIDDEN: applying an approximation (e.g. RWA, continuum, mean-field) without a stated validity check.\n"
+        "## Model focus\n"
+        "State variables, units, equations or data sources, assumptions, validity "
+        "ranges, and boundary/initial conditions. Choose theory tools because the "
+        "problem needs them, not to fill a capability inventory.\n"
     ),
     "execute": (
-        "## STAGE-ENTRY CONTRACT — execute\n"
-        "- REQUIRED ARTIFACTS: NUMERICAL_STUDY_PLAN.csv + reproducible scripts/ + generated data/ with provenance.\n"
-        "- MIN STANDARD: convergence/finite-size/scan checks proportional to each claim; each result has an evidence_file.\n"
-        "- CLAIM CONSTRAINT: 'robust'/'protected' needs an executed robustness study; 'universal'/'phase diagram' needs an executed scan — else downgrade.\n"
-        "- FORBIDDEN: presenting finite/toy numerics as a universal or infinite-system proof; missing-condition work that pretends to finish.\n"
+        "## Execute focus\n"
+        "Produce claim-bearing derivation, computation, data analysis, or experiment "
+        "evidence. Use convergence, scans, controls, and uncertainty in proportion "
+        "to the claim. Treat weak or negative feedback as a reason to repair or "
+        "change the route, not as a paper conclusion.\n"
     ),
     "review": (
-        "## STAGE-ENTRY CONTRACT — review\n"
-        "- REQUIRED ARTIFACTS: NOVELTY_CLAIM_TABLE.csv (closest prior work, already-known vs what-is-new, significance, calibrated wording) + PAPER_TYPE_CLASSIFIER.json.\n"
-        "- MIN STANDARD: every final claim labeled supported/partial/inconclusive/unknown with its boundary.\n"
-        "- CLAIM CONSTRAINT: paper type must be consistent with the upstream gates; original-article ONLY if Literature AND Novelty gates pass.\n"
-        "- FORBIDDEN: original framing without genuine, prior-work-separated novelty.\n"
+        "## Review focus\n"
+        "Independently judge physical correctness, novelty against current closest "
+        "work, significance, and the evidence boundary of each claim. Replan when "
+        "the central idea is too weak; do not convert uncertainty into paperwork.\n"
     ),
     "manuscript": (
-        "## STAGE-ENTRY CONTRACT — manuscript\n"
-        "- REQUIRED: MANUSCRIPT.{md,tex,pdf} + SUPPLEMENT.{tex,pdf} + PAPER_BUILD_LOG.md, honoring PAPER_TYPE_CLASSIFIER.json and NOVELTY_CLAIM_TABLE allowed_wording.\n"
-        "- MIN STANDARD: ONE central thesis + one stated non-trivial physical insight; boundaries/disclaimers stated at most TWICE total, in Results/Limitations — NOT repeated in every section.\n"
-        "- CLAIM CONSTRAINT: spend the space on the PHYSICAL MEANING of what WAS done, not on lists of what was not done.\n"
-        "- FORBIDDEN: over-hedging (repeating 'not a new phase / not universal / no disorder / no materials / no interactions / not a new bulk-edge theorem' across many sections); finite->universal or synthetic->real leaps.\n"
+        "## Manuscript focus\n"
+        "Write a conventional paper around one central physical insight. Use "
+        "claim-driven figures, real citations, reproducible methods, and concise "
+        "limitations. The Reviewer judges venue quality from the paper itself; no "
+        "fixed figure count, exact ledger schema, or internal-process narrative "
+        "proves readiness.\n"
     ),
 }
 
@@ -407,41 +402,24 @@ def stage_completion_issues(stage: str, project_root: Path) -> tuple[str, ...]:
 
 
 def _mode_banner(project_root: object = None) -> str:
-    """Tiered run-mode notice for the active innovation tier.
-
-    Replaces the old single Nature/Science original-research notice. The reviewer must
-    evaluate against the ACTIVE tier (from TIER_STATE.json / START_TIER), downgrade is a
-    change of claim TYPE (not a rigor cut). Original-research-required mode (if the
-    operator opted in) is still honoured as a stretch."""
+    """Short strategy note for the active innovation tier."""
     try:
         from .downgrade import read_current_tier
-        from .tiers import tier_rubric_banner
-
         tier = read_current_tier(project_root)
-        block = "\n" + tier_rubric_banner(tier)
-        block += (
-            "## TIERED RESEARCH MODE\n"
-            "The innovation gate is TIERED (S/A/B/C/D), default target Tier B. If the current tier is "
-            "not supported after the allowed effort (pivot / model<->execute caps, repeated blockers, "
-            "or an existing closure artifact), the Auto-Downgrade gate steps DOWN one rung (a change of "
-            "claim TYPE, never a cut in rigor); the reviewer ratifies and then judges against the new "
-            "tier only. "
-        )
-        block += "\n"
-        # Original-research stretch notice (only when the operator opted in).
+        stretch = ""
         try:
             from .mode_config import is_original_research_required
 
             if is_original_research_required():
-                block += (
-                    "## STRETCH — ORIGINAL RESEARCH REQUESTED\n"
-                    "The operator set an original-research stretch target. Run the Novelty-Seeking Loop "
-                    "(<=2 pivots); if insufficient, DOWNGRADE per the tier ladder to a bounded contribution "
-                    "or preserve the Tier-D negative evidence and replan — do not livelock at the stretch tier.\n"
-                )
+                stretch = " The operator requested original research, so pursue a real prior-work-separated contribution."
         except Exception:  # noqa: BLE001
             pass
-        return block
+        return (
+            f"## Physics strategy\nActive tier: {tier}.{stretch} Seek materially "
+            "different high-upside routes and current evidence. Let feedback "
+            "strengthen, combine, pivot, or retire them; never replace exploration "
+            "with a scorecard.\n"
+        )
     except Exception:  # noqa: BLE001 — mode banner must never break the role banner
         return ""
 
@@ -464,31 +442,6 @@ def role_banner(role: str, project_root: object = None) -> str:
                 repair = "\n\n" + block
         except Exception:  # noqa: BLE001 — repair context must never break the banner
             repair = ""
-        try:
-            from ...skills.research_gates import render_active_repair_blocks
-
-            gblocks = render_active_repair_blocks(project_root)
-            if gblocks:
-                repair += "\n\n" + gblocks
-        except Exception:  # noqa: BLE001 — research-gate repair context must never break the banner
-            pass
-        # Structured gate-fail feedback (role-addressed): who/what/how-checked/next-stage.
-        try:
-            from .gate_feedback import render_active_feedback
-
-            fblocks = render_active_feedback(project_root)
-            if fblocks:
-                repair += "\n\n" + fblocks
-        except Exception:  # noqa: BLE001 — gate-fail feedback must never break the banner
-            pass
-        # Context-compaction policy: refresh the digest + prepend the pointer directive.
-        try:
-            from .context_policy import context_policy_banner, write_digest
-
-            write_digest(project_root)
-            repair = "\n\n" + context_policy_banner() + repair
-        except Exception:  # noqa: BLE001 — context policy must never break the banner
-            pass
     # Gate-forward: prepend the CURRENT stage's entry contract + run-mode notice so the
     # agent builds to the gate standard from the start (not only after a failed exit check).
     entry = stage_entry_contract(_current_stage(project_root))
@@ -498,120 +451,34 @@ def role_banner(role: str, project_root: object = None) -> str:
     if mode:
         repair = "\n\n" + mode + repair
     common = (
-        "MISSION TYPE: PHYSICS. Work on a real physical system via theory, "
-        "simulation, data analysis, literature synthesis, or experiment design. "
-        "This is NOT a metric-optimization mission. The pipeline has FIVE stages — "
-        "scope -> model -> execute -> review -> manuscript — and the TERMINAL "
-        "deliverable of a completed physics mission is a standard research-paper "
-        "package delivered in THREE layers. "
-        "(1) VERIFICATION SOURCE LAYER: MANUSCRIPT.md (Abstract/Summary, Introduction, "
-        "Background, Model/Theory, Methods, Results, Discussion, Limitations, "
-        "Conclusion, References, Data & Code Availability), >=6 numbered figures with "
-        "formal legends, >=8 real references, a CLAIMS.csv evidence ledger (its header "
-        "MUST be exactly claim_id,claim_text,claim_type,evidence_type,evidence_pointer,"
-        "status,boundary,reviewer_notes — no synonyms; do not use 'claim' or "
-        "'evidence'), REPRODUCIBILITY.md, METHODS_DETAIL.md, and REVIEW.md. "
-        "(2) PAPER COMPOSITION LAYER: a LaTeX-compiled, journal-style paper — "
-        "MANUSCRIPT.tex -> MANUSCRIPT.pdf and SUPPLEMENT.tex -> SUPPLEMENT.pdf, plus a "
-        "PAPER_BUILD_LOG.md. The default layout profile is physics_two_column_article "
-        "(a two-column, article-based layout — 'revtex-like' means two columns, NOT a "
-        "revtex dependency); use broad_science_review_draft (single-column, 12pt, "
-        "double-spaced) only when the task explicitly asks for a Nature/Science "
-        "initial-submission style. The paper needs >=4 numbered LaTeX display equations "
-        "(each \\label'd, with >=3 in-text 'Eq. (n)' references), >=2 main tables and "
-        ">=2 supplementary tables, every numbered figure placed near its discussion and "
-        "cited as 'Fig. N', and a real References section (12-30 references for a formal "
-        "run). "
-        "(3) OPTIONAL PRESENTATION LAYER: HTML_DEMO/index.html or PRESENTATION/index.html "
-        "for a manager view — this layer NEVER gates and is not required. "
-        "PAPER-LANGUAGE POLISH: the paper main text must read as scientific prose, not an "
-        "engineering report. Keep numbered citations in ONE consistent style ([n] or "
-        "superscript, resolved via \\cite), and DISTRIBUTE them: >= 12 in-text citations "
-        "spread through the core sections — every substantive subsection (>= 60 words) and "
-        "every one-to-two substantive paragraphs carry a citation; do not pile them in the "
-        "Introduction. Cite the source for each mechanism, model/method choice, and "
-        "comparison with prior work; a Results subsection reporting only this study's own "
-        "numerics may cite a Fig./Table instead. The main text must NOT contain the tokens "
-        "artifact, verifier, stage_check, project_done, Argus, workspace, 'generated by', "
-        "'source table', CLAIMS.csv, REVIEW.md, METHODS_DETAIL.md, REPRODUCIBILITY.md; the "
-        "path/extension tokens scripts/, data/, .json, .csv are allowed ONLY inside the "
-        "Data/Code availability statement or the Supplement. Data & Code availability use "
-        "plain language with no absolute paths and no long command blocks (commands, file "
-        "names, and hashes belong in the Supplement). REVIEW.md must contain a section "
-        "titled exactly '## " + PAPER_AUDIT_HEADING + "' (this heading lives in REVIEW.md "
-        "only, never in the paper). No finite-numerics->universal and no synthetic->real "
-        "overclaim.\n"
-        "RESEARCH RAW MATERIALS (produced at the stages, not improvised at the end): at the "
-        "SCOPE stage, actually read and position the closest DIRECT prior work — build "
-        "PRIOR_WORK_MATRIX.csv (>= 8 direct prior works, >= 6 read full-text, honest "
-        "fulltext_status, per-paper overlap/difference/special-features and claim implication) "
-        "and run the Literature Positioning gate "
-        "(`python -m argus_skill.verticals.physics.gates.literature check --project-root .`). "
-        "This gate is ADVISORY (it does not block scope->model), but you MUST resolve every "
-        "failure_id it reports before relying on the literature positioning: read "
-        "research/LITERATURE_GATE_REPAIR_TASKS.md and fix each item. If the literature gate has "
-        "NOT passed, the paper may NOT be framed as an original research article — claims that "
-        "lack a mapped closest prior work must be downgraded (partial/inconclusive) or moved to "
-        "Limitations, and the review must record the gap. "
-        "At the MODEL stage, classify the domain (DOMAIN_CLASSIFICATION.json) and audit which "
-        "theoretical capabilities apply, which you used and at what depth "
-        "(THEORY_OPPORTUNITY_AUDIT.csv), then run the Theory Capability gate "
-        "(`python -m argus_skill.verticals.physics.gates.theory check --project-root .`). "
-        "This gate is ADVISORY; resolve every failure_id, and if a theory capability a claim "
-        "depends on is missing, either execute it or downgrade the claim. "
-        "At the EXECUTE stage, plan and evidence a numerical study proportional to the claims "
-        "(NUMERICAL_STUDY_PLAN.csv) and run the Numerical Capability gate "
-        "(`python -m argus_skill.verticals.physics.gates.numerical check --project-root .`). "
-        "This gate is ADVISORY, but a robust/protected claim needs a used+evidenced robustness "
-        "study and a phase-diagram/universal claim needs a used+evidenced parameter scan — "
-        "otherwise downgrade the claim. "
-        "At the REVIEW stage, audit novelty per claim (NOVELTY_CLAIM_TABLE.csv: closest prior "
-        "work, known vs new, significance, calibrated wording) and classify the result type "
-        "(PAPER_TYPE_CLASSIFIER.json), then run the Novelty and Paper-Type gates "
-        "(`python -m argus_skill.verticals.physics.gates.novelty check --project-root .` and "
-        "`... gates.paper_type check --project-root .`). These are ADVISORY, but the paper "
-        "type must be consistent with the upstream gates: a paper may be an original research "
-        "article candidate ONLY if the Literature and Novelty gates pass; otherwise use a lower "
-        "type (benchmark / reproduction / training report) and the calibrated allowed_wording.\n"
+        "MISSION TYPE: PHYSICS. Let the physical question choose theory, simulation, "
+        "data, literature, or experiment work. Keep units, assumptions, evidence, and "
+        "claim boundaries honest. No fixed table, artifact count, or gate output proves "
+        "scientific value.\n"
     )
     role_norm = (role or "").strip().lower()
     if role_norm == "planner":
         return common + (
-            "Drive physics-specific route selection from the actual physical "
-            "structure of the task: decide whether it needs theoretical derivation, "
-            "numerical simulation, data analysis, literature synthesis, experiment "
-            "design, or a bounded negative result. There is no fixed paper pipeline here; do "
-            "not force a fixed sequence of stages onto the problem. Before execute, "
-            "require that the physical system, its domain, the observables, the "
-            "assumptions, and the success criteria are explicit. Reuse "
-            "reviewer-certified prior-stage evidence by precise reference; do not "
-            "assign another full-tree audit, snapshot, manifest, or checksum without "
-            "a concrete new dependency that requires it."
+            "Choose the route from the physics and expected information gain. Keep "
+            "multiple mechanisms alive when uncertainty warrants it, and turn weak "
+            "feedback into a changed route rather than more paperwork. Delegate "
+            "cohesive claim-bearing work and reuse settled evidence."
         ) + repair
     if role_norm == "engineer":
         return common + (
-            "Dynamically choose the path that fits this task — derivation, "
-            "simulation, data analysis, literature synthesis, experiment design, or "
-            "a bounded negative result — instead of mechanically running a fixed workflow. "
-            "Make the variables, equations, units, assumptions, and boundary/initial "
-            "conditions explicit, and state the evidence limits of every result. In "
-            "the relevant tasks report residual, convergence, uncertainty, and "
-            "provenance. Do not treat a toy demo, metadata, or a workflow artifact "
-            "as physical success; when a key condition (data, apparatus, or "
-            "full-text literature) is missing, return an explicit blocker or a clearly "
-            "bounded surrogate rather than pretending to finish."
+            "Execute the most informative physical route, then follow the feedback. "
+            "Make equations, units, assumptions, and boundary/initial conditions "
+            "explicit. Report residuals, convergence, uncertainty, provenance, and "
+            "evidence limits when they matter to the claim. A toy, metadata record, "
+            "or workflow artifact is not physical evidence."
         ) + repair
     if role_norm == "reviewer":
         return common + (
-            "Independently audit physical-system fidelity, model validity, unit and "
-            "dimensional consistency, boundary and initial conditions, numerical and "
-            "data evidence, uncertainty, and the claim boundary. Check units and "
-            "dimensions where they apply and check boundary and initial conditions "
-            "where they apply. Reject agent-workflow and meta-paper drift, "
-            "unsupported novelty, and fake success. Distinguish full-text, excerpt, "
-            "code/data, metadata-only, and unavailable evidence, and never treat "
-            "metadata-only as full text. Require every final claim to be labeled "
-            "supported, partial, inconclusive, or unknown."
+            "Independently judge physical-system fidelity, dimensional consistency, "
+            "boundary/initial conditions, numerical or data evidence, uncertainty, "
+            "novelty, significance, and claim boundaries. Reject fabricated, "
+            "metadata-only, or agent-workflow evidence, but do not demand fixed "
+            "tables, counts, or certificates. Ask for replan when the idea is weak."
         ) + repair
     return common + repair
 

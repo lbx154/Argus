@@ -67,6 +67,47 @@ def test_provider_completion_validator_is_typed_and_normalized(tmp_path: Path) -
     assert contract.assurance_level == "hybrid"
 
 
+def test_vertical_validator_can_defer_checks_by_verification_profile(
+    tmp_path: Path,
+) -> None:
+    from argus_skill.core.pipeline_state import write_pipeline_state
+
+    seen: list[str | None] = []
+
+    def issues(stage, root, *, verification_profile=None):
+        _ = (stage, root)
+        seen.append(verification_profile)
+        return [] if verification_profile == "explore" else ["certify now"]
+
+    contract = vertical_contract(
+        "feedback_loop",
+        SimpleNamespace(
+            CHECKLIST_STAGE_ORDER=("propose", "final"),
+            CHECKLIST_ITEMS={
+                "propose": (_item("propose.output"),),
+                "final": (_item("final.output"),),
+            },
+            VERIFICATION_STAGE_PROFILES={
+                "propose": "explore",
+                "final": "certify",
+            },
+            completion_gate="none",
+            stage_completion_issues=issues,
+        ),
+    )
+
+    assert contract.completion_issues("propose", tmp_path) == ()
+    assert contract.completion_issues("final", tmp_path) == ("certify now",)
+    state_root = tmp_path / "state"
+    write_pipeline_state(state_root, {"verification_profile": "certify"})
+    assert contract.completion_issues(
+        "propose",
+        tmp_path,
+        state_root=state_root,
+    ) == ("certify now",)
+    assert seen == ["explore", "certify", "certify"]
+
+
 def test_non_callable_completion_validator_fails_visibly() -> None:
     with pytest.raises(VerticalContractError, match="non-callable"):
         vertical_contract(

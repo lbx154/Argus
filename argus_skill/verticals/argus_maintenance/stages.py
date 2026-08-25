@@ -6,6 +6,11 @@ from ...skills.stage_machine import ChecklistItem
 STAGE_ORDER = ["inspect", "change", "verify"]
 CHECKLIST_STAGE_ORDER = tuple(STAGE_ORDER)
 WORKFLOW_MODE = "staged"
+VERIFICATION_STAGE_PROFILES = {
+    "inspect": "explore",
+    "change": "develop",
+    "verify": "certify",
+}
 MISSION_KIND = "software"
 GROUND_BEFORE_HANDOFF = True
 REQUIRE_INDEPENDENT_REVIEW = True
@@ -26,7 +31,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="change.small_reusable_patch",
             statement=(
-                "Make the smallest coherent change. Keep generic orchestration in core "
+                "Make the coherent change justified by the causal surface. Keep generic orchestration in core "
                 "and concrete tools, Skills, stages, and workflow in their vertical."
             ),
             evidence_hint="the source diff",
@@ -47,13 +52,17 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
 
 def role_banner(role: str) -> str:
     common = (
-        "ARGUS MAINTENANCE: improve Argus itself with small, reusable changes. "
+        "ARGUS MAINTENANCE: improve Argus itself with coherent, reusable changes. "
         "Core owns generic orchestration and long-running state; verticals own "
         "domain tools, Skills, stages, checklists, and workflow. Audit matches are "
         "candidates, not automatic edits. Remove code that has no behavior or caller."
     )
     if role == "reviewer":
-        return common + " Review the full diff and rerun the decisive checks."
+        return (
+            common
+            + " Review the changed causal surface and reuse unchanged evidence; "
+            "certify the full result only at the verify stage."
+        )
     return common
 
 
@@ -62,6 +71,7 @@ __all__ = [
     "CHECKLIST_STAGE_ORDER",
     "STAGE_ORDER",
     "WORKFLOW_MODE",
+    "VERIFICATION_STAGE_PROFILES",
     "completion_gate",
     "role_banner",
 ]

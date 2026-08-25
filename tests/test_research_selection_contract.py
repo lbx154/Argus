@@ -155,10 +155,8 @@ def test_a_run_that_cannot_see_the_win_does_not_retire_the_idea() -> None:
     from argus_skill.verticals.research.stages import _AMBITIOUS_RESEARCH_POLICY
 
     policy = _AMBITIOUS_RESEARCH_POLICY.lower()
-    assert "could have seen the win" in policy
-    assert "spread of your own repeated measurements" in policy
-    assert "margin declared at selection" in policy
-    assert "only failed to look at it" in policy
+    assert "scale that can resolve the claimed effect" in policy
+    assert "weak instrument is not a scientific refutation" in policy
     # The bar is the campaign's own declared margin, never a number we invent.
     for invented in ("0.05", "95%", "three seeds", "p <"):
         assert invented not in policy
@@ -193,19 +191,23 @@ def test_the_paper_quality_chain_has_no_missing_link() -> None:
     ).lower()
 
     # 1. selection names the baseline and the margin
-    assert "strongest resource" in stages._PLANNER_RESEARCH_ORCHESTRATION.lower()
+    assert "strongest relevant baseline" in stages._PLANNER_RESEARCH_ORCHESTRATION.lower()
     # 2. that promise is put back in front of every role
     assert "promised at selection" in stages.search_altitude_context.__doc__
-    # 3. a miss is a repair, not a refutation
-    assert "debugging signal" in policy
+    # 3. a miss is feedback, not an automatic paper or a forced positive
+    assert "negative or mixed results as feedback" in policy
+    assert "decision rule" in policy
     # 4. a run too coarse to see the win cannot retire the idea
-    assert "could have seen the win" in policy
+    assert "scale that can resolve the claimed effect" in policy
     # 5. only the Manager closes an idea, and it costs
-    assert "rare and expensive" in stages._MANAGER_RESEARCH_STEWARDSHIP
+    assert (
+        "retire only when trustworthy evidence"
+        in stages._MANAGER_RESEARCH_STEWARDSHIP.lower()
+    )
     # 6. submission asks whether the result stands
     assert any(i.id == "submission.result_stands" for i in stages.STAGE_CHECKLISTS["submission"])
     # 7. no defensive paper that lists what it declines to claim
-    assert "listing non-claims" in policy
+    assert "report a real win plainly and early" in policy.lower()
     # 8. the work is measured against papers that were actually accepted
     assert "accepted same-area" in checklists
     # 9. and the reader can see who won
@@ -258,12 +260,8 @@ def test_the_evidence_run_is_sized_to_convince_not_to_save() -> None:
 
     planner = _PLANNER_RESEARCH_ORCHESTRATION.lower()
     assert "cheapest faithful run" not in planner
-    assert "wants the claim to be false" in planner
-    assert "scale is part of the argument, not a cost to minimize" in planner
-    # The sizing bar stays the campaign's own observed spread, not a fixed n.
-    assert "outside their own spread" in planner
-    # A budget that cannot buy the convincing run is staged, never shrunk.
-    assert "stage it and buy it in pieces" in planner
+    assert "convince a skeptical reader" in planner
+    assert "claim-bearing evidence at faithful scale" in planner
 
 
 def test_a_long_wait_is_not_an_idle_campaign() -> None:
@@ -276,9 +274,9 @@ def test_a_long_wait_is_not_an_idle_campaign() -> None:
     from argus_skill.verticals.research.stages import _PLANNER_RESEARCH_ORCHESTRATION
 
     planner = _PLANNER_RESEARCH_ORCHESTRATION.lower()
-    assert "will sit for hours on external" in planner
-    assert "does not need its result" in planner
-    assert "wall-clock is most of what a paper costs" in planner
+    assert "when long compute runs" in planner
+    assert "queue independent literature" in planner
+    assert "disjoint writable paths" in planner
 
 
 def test_a_suppressed_status_probe_points_somewhere() -> None:
@@ -498,12 +496,13 @@ def test_queueing_work_beside_a_run_says_how_to_make_it_claimable() -> None:
     every candidate while ANY running item lacks parallel_safe or owns_paths, so
     one unmarked GPU run switches parallelism off campaign-wide.
     """
+    from argus_skill.roles.prompts.planner import _PLANNER_CORE_CONTRACT
     from argus_skill.verticals.research.stages import _PLANNER_RESEARCH_ORCHESTRATION
 
     planner = _PLANNER_RESEARCH_ORCHESTRATION
-    assert "`parallel_safe` with a concrete `owns_paths` list" in planner
-    assert "every running task" in planner
-    assert "switches parallelism off for the whole" in planner
+    assert "disjoint writable paths" in planner
+    assert "`TASK_PARALLEL_SAFE`" in _PLANNER_CORE_CONTRACT
+    assert "`TASK_OWNS_PATHS`" in _PLANNER_CORE_CONTRACT
 
 
 def test_the_accepted_papers_block_says_to_count_what_they_carry(tmp_path) -> None:
@@ -588,6 +587,8 @@ def test_a_caveat_is_stated_once_not_in_every_section() -> None:
     assert "Say each caveat once, where it belongs" in draft
     assert "organised around an absence" in " ".join(draft.split())
     assert "let every other section say what the work does establish" in draft
+    assert "never narrates its internal approval machinery" in draft
+    assert "Internal version suffixes" in draft
 
 
 def test_renaming_a_baseline_does_not_replace_running_a_real_one() -> None:
@@ -656,9 +657,8 @@ def test_a_protocol_is_worth_the_evidence_it_governs() -> None:
     from argus_skill.verticals.research.stages import _PLANNER_RESEARCH_ORCHESTRATION
 
     planner = " ".join(_PLANNER_RESEARCH_ORCHESTRATION.split())
-    assert "worth only the evidence it ends up governing" in planner
-    assert "Specification is unbounded and costs nothing" in planner
-    assert "longer than the science it protects" in planner
+    assert "claim-bearing evidence" in planner
+    assert "not standalone certification, schema, or bookkeeping" in planner
 
 
 def test_the_paper_may_be_the_by_product() -> None:
@@ -735,28 +735,22 @@ def test_reviewer_suspects_the_setup_before_the_idea() -> None:
     from argus_skill.verticals._base import load_vertical, vertical_role_banner
 
     reviewer = " ".join(vertical_role_banner(load_vertical("research"), "reviewer").split())
-    assert "is a defect report, not a finding" in reviewer
-    assert "send it back to be rebuilt" in reviewer
-    # Named because they are the ones that actually happened, then generalised.
-    assert "generation cap shorter than the answer needs" in reviewer
-    assert "executing the tool in tool-integrated reasoning" in reviewer
-    assert "shorter than what the task requires at inference" in reviewer
-    assert "examples, not a list to tick" in reviewer
-    assert "which single setting, if wrong, would produce exactly the number" in reviewer
+    assert "defect signal before a finding" in reviewer
+    assert "outlying result" in reviewer
+    assert "method, baseline, and evaluator" in reviewer
 
 
 def test_manager_keeps_the_campaign_optimizing_instead_of_settling() -> None:
     """Every campaign here drifted toward writing up whatever it had. The
-    Manager holds the altitude where that is visible: keep buying fixes while
-    budget remains, and separately notice a run that is not worth improving
+    Manager holds the altitude where that is visible: use feedback to improve
+    or branch, and separately notice a run that is not worth interpreting
     because it was broken."""
     from argus_skill.verticals._base import load_vertical, vertical_role_banner
 
     manager = " ".join(vertical_role_banner(load_vertical("research"), "manager").split())
-    assert "many rounds of better engineering and larger runs" in manager
-    assert "the campaign that stops early is the one that ships a bounded negative" in manager
-    assert "not worth improving because it was broken" in manager
-    assert "instead of letting the campaign interpret it" in manager
+    assert "shortfall starts an optimization loop" in manager
+    assert "meet the route's decision rule" in manager
+    assert "replace the plan rather than polishing the retreat" in manager
 
 
 def test_the_setup_skill_teaches_the_shape_not_a_checklist() -> None:
@@ -812,9 +806,8 @@ def test_manager_watches_the_mission_ratio() -> None:
     from argus_skill.verticals._base import load_vertical, vertical_role_banner
 
     manager = " ".join(vertical_role_banner(load_vertical("research"), "manager").split())
-    assert "that ratio is the campaign's real strategy" in manager
-    assert "A method almost never wins in its first form" in manager
-    assert "maintaining infrastructure rather than doing research" in manager
+    assert "missions improve the method and argument" in manager
+    assert "merely maintain the harness" in manager
 
 
 def test_the_experiment_is_designed_not_only_diagnosed() -> None:
@@ -862,9 +855,8 @@ def test_rigour_apparatus_is_proportional_to_the_doubt() -> None:
     from argus_skill.verticals._base import load_vertical, vertical_role_banner
 
     manager = " ".join(vertical_role_banner(load_vertical("research"), "manager").split())
-    assert "Rigour apparatus is proportional too, and it is not free" in manager
-    assert "where the answer is genuinely in doubt" in manager
-    assert "more seeds answer nothing" in manager
+    assert "only where the answer is genuinely in doubt" in manager
+    assert "reuse settled evidence" in manager
 
 
 def test_the_campaign_is_trying_to_win() -> None:
@@ -874,10 +866,9 @@ def test_the_campaign_is_trying_to_win() -> None:
     from argus_skill.verticals.research.stages import _AMBITIOUS_RESEARCH_POLICY as policy
 
     text = " ".join(policy.split())
-    assert "You are trying to win, not trying to be safe" in text
-    assert "only trying not to overclaim" in text
-    assert "say so plainly and immediately, in the first sentence, with the number" in text
-    assert "burying a real win under qualifications is as much a misreport as inventing one" in text
+    assert "more likely to win" in text
+    assert "Report a real win plainly and early" in text
+    assert "never trade ambition for fabrication" in text
 
 
 def test_training_below_its_own_baseline_is_a_defect_report() -> None:
@@ -895,9 +886,8 @@ def test_training_below_its_own_baseline_is_a_defect_report() -> None:
     from argus_skill.verticals._base import load_vertical, vertical_role_banner
 
     reviewer = " ".join(vertical_role_banner(load_vertical("research"), "reviewer").split())
-    assert "below its own untrained starting checkpoint" in reviewer
-    assert "ranking the variants against each other hides it" in reviewer
-    assert "untrained checkpoint under the identical protocol in every table" in reviewer
+    assert "below its own untrained checkpoint" in reviewer
+    assert "setup/optimization defect signal" in reviewer
 
     skill = (
         Path(argus_skill.__file__).parent
@@ -1022,7 +1012,7 @@ def test_a_long_mission_keeps_getting_planning_opportunities(tmp_path, monkeypat
 
 
 def test_the_planner_cannot_return_its_own_schema_example() -> None:
-    """The planner prompt's JSON example is a realistic-looking task, and the
+    """The planner prompt's footer example is a realistic-looking task, and the
     Planner returns it verbatim often enough to matter. run-01 spent a mission
     slot on "Does pruning beat 4-bit at equal latency?" -- objective "match
     latency, read top-1", 25 characters, node key k1 -- in place of the
@@ -1030,20 +1020,23 @@ def test_the_planner_cannot_return_its_own_schema_example() -> None:
     produced the identical row a day later. From outside it is indistinguishable
     from a real task; I nearly aborted run-01's real experiment because of it.
     """
-    import json
-
     import pytest
 
     from argus_skill.core.prompt_example_tasks import PROMPT_EXAMPLE_TASKS
+    from argus_skill.core.role_reply import read_records
     from argus_skill.planner.bounded_dag import _validate
-    from argus_skill.roles.prompts.planner import _PLANNER_DECISION_PAYLOAD_EXAMPLE
+    from argus_skill.roles.prompts.planner import _BOUNDED_DAG_FOOTER
 
     # Pinned to whatever the prompt ships today rather than to one wording:
     # the example was rewritten once already after this guard landed, and a
     # guard listing a retired example protects nothing.
-    shipped = json.loads(_PLANNER_DECISION_PAYLOAD_EXAMPLE)["tasks"][0]
-    example_title = shipped["title"]
-    example_objective = shipped["objective"]
+    shipped = read_records(
+        _BOUNDED_DAG_FOOTER,
+        ("TASK_KEY", "TASK_TITLE", "TASK_OBJECTIVE"),
+        start_key="TASK_KEY",
+    )[0]
+    example_title = shipped["TASK_TITLE"]
+    example_objective = shipped["TASK_OBJECTIVE"]
     assert (
         example_title.lower(),
         example_objective.lower(),
@@ -1633,10 +1626,9 @@ def test_a_sound_round_can_still_report_an_unpublishable_programme() -> None:
     from argus_skill.verticals.research.stages import _REVIEWER_RESEARCH_JUDGEMENT
 
     policy = _REVIEWER_RESEARCH_JUDGEMENT
-    assert "`reconsider`" in policy
-    # Accept the round; report the programme. Not the other way round.
-    assert "accept the round" in policy
-    assert "Manufacturing a local failure" in policy
+    assert "`plan_signal=reconsider`" in policy
+    assert "Accept sound work" in policy
+    assert "cannot clear the venue" in policy
 
 
 def test_the_planner_is_asked_about_the_paper_it_already_has(tmp_path) -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from argus_skill.core.models import ReviewDecision, RunnerResult
 from argus_skill.reviewer import Reviewer, ReviewerConfig
+from argus_skill.reviewer._parsing import parse_decision_text
 
 
 def test_done_is_the_reviewers_completion_judgment() -> None:
@@ -18,6 +19,32 @@ def test_non_done_does_not_certify_completion() -> None:
     for status in ("continue", "blocked", "replan_requested"):
         review = ReviewDecision(status=status, reason="Not complete.", next_action="Act.")
         assert review.final_submission_certified is False
+
+
+def test_prose_only_trailing_footer_falls_back_to_named_verdict() -> None:
+    review = parse_decision_text(
+        "STATUS=done\n"
+        "REASON=The requested outcome is complete.\n"
+        "Final decision:\n"
+        "Approved."
+    )
+
+    assert review is not None
+    assert review.status == "done"
+
+
+def test_operator_options_are_scoped_to_the_final_footer() -> None:
+    review = parse_decision_text(
+        "A quoted draft contained:\n"
+        "OPERATOR_OPTIONS=a::Stop::This is not the verdict\n"
+        "Decision:\n"
+        "STATUS=done\n"
+        "REASON=The requested outcome is complete.\n"
+        "NEXT_ACTION=\n"
+    )
+
+    assert review is not None
+    assert review.operator_options == []
 
 
 def test_review_event_contains_only_verdict_and_runtime_metadata() -> None:
@@ -68,6 +95,11 @@ class _ReviewerRunner:
         )
 
 
+class _EmptyReviewerRunner(_ReviewerRunner):
+    def run_exec(self, **_kwargs) -> RunnerResult:
+        return RunnerResult(exit_code=0, agent_messages=[])
+
+
 def _evaluate(runner: _ReviewerRunner, tmp_path) -> ReviewDecision:
     return Reviewer(runner).evaluate(
         objective="Verify the completed task.",
@@ -79,11 +111,19 @@ def _evaluate(runner: _ReviewerRunner, tmp_path) -> ReviewDecision:
     )
 
 
-def test_done_requires_real_independent_tool_activity(tmp_path) -> None:
+def test_done_is_not_rewritten_into_continue_for_tool_ceremony(tmp_path) -> None:
     decision = _evaluate(_ReviewerRunner(tool_activity=False), tmp_path)
 
-    assert decision.status == "continue"
-    assert "without independently inspecting" in decision.reason
+    assert decision.status == "done"
+
+
+def test_empty_reviewer_output_does_not_create_engineer_work(tmp_path) -> None:
+    decision = _evaluate(_EmptyReviewerRunner(tool_activity=False), tmp_path)
+
+    assert decision.status == "blocked"
+    assert decision.backend_unavailable is True
+    assert "says nothing about the Engineer" in decision.reason
+    assert "Retry Reviewer" in decision.next_action
 
 
 def test_done_remains_reviewer_judgment_after_real_tool_activity(tmp_path) -> None:

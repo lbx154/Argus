@@ -105,20 +105,18 @@ def latest_role_decision(result: Any, role: str) -> dict[str, Any] | None:
     return None
 
 
-def decision_event_instruction(role: str, payload_example: str) -> str:
-    """Render the small shared process-decision instruction."""
+def decision_footer_instruction(example: str) -> str:
+    """Ask for natural reasoning followed by the minimum actionable footer."""
     return (
-        "First send this clear decision event:\n"
-        f"{ROLE_DECISION_PREFIX}"
-        f'{{"role":"{role}","payload":{payload_example}}}\n'
-        "The Host saves this event. Any later response is plain language and is "
-        "not parsed. Detail-dependent operator options set `requires_note:true`."
+        "Reason naturally, then end with only the Host actions below "
+        "(replace examples; omit unused lines):\nDecision:\n"
+        + str(example or "").strip()
     )
 
 
 __all__ = [
     "ROLE_DECISION_PREFIX",
-    "decision_event_instruction",
+    "decision_footer_instruction",
     "encode_role_decision",
     "extract_role_decisions",
     "latest_role_decision",

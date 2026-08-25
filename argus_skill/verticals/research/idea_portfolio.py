@@ -720,7 +720,11 @@ def _selection_from_tasks(
         return None
     selection = _selection_payload(project_root)
     probe_payload = _probe_payload(project_root, probe)
-    if selection is None or probe_payload is None or probe_payload.get("decision") != "continue":
+    if (
+        selection is None
+        or probe_payload is None
+        or probe_payload.get("decision") not in _PROBE_DECISIONS
+    ):
         return None
     route_task_id = str(selection.get("route_task_id") or "")
     review_task_id = str(selection.get("review_task_id") or "")

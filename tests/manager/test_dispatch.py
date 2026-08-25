@@ -248,6 +248,10 @@ def test_bounded_dispatch_persists_real_dependency_dag(memory, monkeypatch):
                 deps=("a", "b"),
                 title="Integrate",
                 objective="read a.txt and b.txt; write result.txt; test -s result.txt",
+                hypothesis="The integrated route improves the measured outcome.",
+                goal_contribution="Turn measured feedback into the requested result.",
+                expected_regressions="One component may trade off against the other.",
+                decision_rule="Revise the route when measured feedback misses the target.",
                 acceptance_check="validator exits zero",
                 non_goals=("do not edit pipeline state",),
                 context_refs=({
@@ -282,7 +286,10 @@ def test_bounded_dispatch_persists_real_dependency_dag(memory, monkeypatch):
     assert {item.plan_id for item in items.values()} == {items["a"].plan_id}
     assert items["a"].plan_id.startswith("bounded-")
     assert all("bounded_dag_node" in item.tags for item in items.values())
-    assert all(item.iterate is False for item in items.values())
+    assert all(item.iterate for item in items.values())
+    assert all(item.iteration_max_cycles == 3 for item in items.values())
+    assert items["c"].plan_hypothesis.startswith("The integrated route")
+    assert items["c"].decision_rule.startswith("Revise the route")
     assert all(item.original_objective == "managed: operator request" for item in items.values())
     assert items["c"].acceptance_check == "validator exits zero"
     assert items["c"].non_goals == ["do not edit pipeline state"]

@@ -17,10 +17,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from ..roles.prompts.manager import (
-    manager_rendering_prompt,
-    manager_workspace_capability_prompt,
-)
+from ..roles.prompts.manager import manager_workspace_capability_prompt
 
 LIVE_VIEW_MANIFEST = Path(".argus") / "live-view.json"
 MANAGER_LIVE_DIR = Path(".argus") / "live"
@@ -352,153 +349,6 @@ def parse_manager_presentations(raw_text: str) -> tuple[ManagerPresentation, ...
     return tuple(presentations)
 
 
-def _manager_progress_context(
-    project_root: Path | str,
-    *,
-    manifest_root: Path | str | None = None,
-) -> dict[str, object]:
-    try:
-        from ..core.mission_view import load_mission_view
-
-        view = load_mission_view(manifest_root or project_root)
-    except Exception:  # noqa: BLE001 — rendering context is fail-soft
-        return {}
-    dag = [row for row in view.get("dag", []) if isinstance(row, dict)]
-    active = next(
-        (
-            row for row in dag
-            if str(row.get("status") or "")
-            in {"running", "in_progress", "claimed"}
-        ),
-        None,
-    )
-    pending = next(
-        (row for row in dag if str(row.get("status") or "") == "pending"),
-        None,
-    )
-    mission = view.get("mission", {}) if isinstance(view.get("mission"), dict) else {}
-    return {
-        "stage": view.get("stage", {}),
-        "round": view.get("round", {}),
-        "active_role": view.get("active_role", ""),
-        "current_node": {
-            "title": str((active or {}).get("title") or mission.get("title") or ""),
-            "status": str((active or {}).get("status") or mission.get("status") or ""),
-        },
-        "completed_nodes": [
-            str(row.get("title") or "")
-            for row in dag
-            if str(row.get("status") or "") == "done"
-        ][-6:],
-        "next_node": str((pending or {}).get("title") or ""),
-        "verified_artifacts": [
-            str(row.get("title") or row.get("path") or "")
-            for row in view.get("artifacts", [])
-            if isinstance(row, dict) and row.get("exists")
-        ][-6:],
-    }
-
-
-def _useful_manager_presentation(content: str) -> bool:
-    lines = [line.strip() for line in str(content or "").splitlines() if line.strip()]
-    return len(str(content or "").encode("utf-8")) >= 160 and len(lines) >= 5
-
-
-def manager_checkpoint_refresh_required(
-    project_root: Path | str,
-    raw_text: str,
-    *,
-    manifest_root: Path | str | None = None,
-) -> bool:
-    """Whether a stage ruling failed to maintain its Manager-owned checkpoint."""
-    current = load_live_view_decision(project_root, manifest_root=manifest_root)
-    if current is None or not any(
-        path.startswith(f"{MANAGER_LIVE_DIR.as_posix()}/")
-        for path in current.paths
-    ):
-        return False
-    payload = _response_payload(raw_text)
-    if payload is None or payload.get("clear_live_view") is True:
-        return False
-    _decided, selected = parse_live_view_response(raw_text)
-    target = selected or current
-    manager_paths = [
-        path for path in target.paths
-        if path.startswith(f"{MANAGER_LIVE_DIR.as_posix()}/")
-    ]
-    if not manager_paths:
-        return False
-    presentations = {item.path: item.content for item in parse_manager_presentations(raw_text)}
-    return any(
-        not _useful_manager_presentation(presentations.get(path, ""))
-        for path in manager_paths
-    )
-
-
-def repair_manager_checkpoint_response(
-    project_root: Path | str,
-    raw_text: str,
-    *,
-    manifest_root: Path | str | None = None,
-) -> str:
-    """Guarantee a substantive boundary checkpoint from Manager + mission state."""
-    payload = _response_payload(raw_text)
-    current = load_live_view_decision(project_root, manifest_root=manifest_root)
-    if payload is None or current is None or payload.get("clear_live_view") is True:
-        return raw_text
-    _decided, selected = parse_live_view_response(raw_text)
-    target = selected or current
-    manager_paths = [
-        path for path in target.paths
-        if path.startswith(f"{MANAGER_LIVE_DIR.as_posix()}/")
-    ]
-    if not manager_paths:
-        return raw_text
-    context = _manager_progress_context(project_root, manifest_root=manifest_root)
-    current_node = context.get("current_node") if isinstance(context.get("current_node"), dict) else {}
-    completed = [str(item) for item in context.get("completed_nodes", []) if str(item)]
-    artifacts = [str(item) for item in context.get("verified_artifacts", []) if str(item)]
-    next_node = str(context.get("next_node") or "")
-    lines = [
-        f"# {target.title}",
-        "",
-        "## Current node",
-        f"- {str(current_node.get('title') or 'No active DAG node')}"
-        f" — `{str(current_node.get('status') or 'idle')}`",
-        f"- Active role: `{str(context.get('active_role') or 'none')}`",
-        "",
-        "## Verified progress",
-    ]
-    lines.extend(f"- {item}" for item in completed[-5:])
-    lines.extend(f"- Artifact: `{item}`" for item in artifacts[-4:])
-    if not completed and not artifacts:
-        lines.append("- No reviewed increment has been registered yet.")
-    lines.extend([
-        "",
-        "## Current blocker",
-        f"- {str(payload.get('reason') or target.reason or 'Awaiting the next verified result.')}",
-        "",
-        "## Next action",
-        f"- {next_node or 'Finish the current node and hand it to Reviewer.'}",
-        "",
-    ])
-    content = "\n".join(lines)
-    payload["live_view"] = {
-        "title": target.title,
-        "reason": target.reason,
-        "paths": list(target.paths),
-    }
-    existing = {
-        item.path: item.content for item in parse_manager_presentations(raw_text)
-        if _useful_manager_presentation(item.content)
-    }
-    payload["presentations"] = [
-        {"path": path, "content": existing.get(path, content)}
-        for path in manager_paths
-    ]
-    return json.dumps(payload, ensure_ascii=False)
-
-
 def _manager_argus_root(project_root: Path | str) -> Path:
     root = Path(project_root).expanduser().resolve()
     argus_dir = root / ".argus"
@@ -747,13 +597,10 @@ __all__ = [
     "apply_manager_rendering_response",
     "apply_live_view_decision",
     "load_live_view_decision",
-    "manager_checkpoint_refresh_required",
-    "manager_rendering_prompt",
     "manager_workspace_capability_prompt",
     "manager_workspace_context",
     "normalize_live_view_path",
     "parse_manager_presentations",
     "parse_live_view",
     "parse_live_view_response",
-    "repair_manager_checkpoint_response",
 ]

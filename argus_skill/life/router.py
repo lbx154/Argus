@@ -86,9 +86,14 @@ def _front_door_fields(result: Any) -> dict[str, str]:
             name: str(decision.get(name, "") or "").strip()
             for name in _FRONT_DOOR_FIELDS
         }
-    text = _answer_text(result)
+    from ..core.role_reply import read_key_values
+
+    values = read_key_values(
+        _answer_text(result),
+        (name.upper() for name in _FRONT_DOOR_FIELDS),
+    )
     return {
-        name: (_line_after_prefix(text, f"{name.upper()}:") or "").strip()
+        name: str(values.get(name.upper()) or "").strip()
         for name in _FRONT_DOOR_FIELDS
     }
 

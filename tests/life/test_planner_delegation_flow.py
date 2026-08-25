@@ -166,6 +166,61 @@ def test_planner_reuses_front_door_route_without_manager_reclassification(
     assert supervisor.memory.backlog.pending()[0].manager_decision["vertical"] == "software"
 
 
+def test_bounded_manager_direct_task_skips_planner_decomposition(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    life = tmp_path / "life"
+    planner = _PlannerBackend([])
+    memory = LifeMemory.open(life)
+    objective = "Fix src/parser.py and run python -m unittest."
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=_MissionRunner(),
+        sink=JsonlEventSink(None, life_dir=memory.root, verbosity="full"),
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(),
+            continuous=True,
+            continuous_objective=objective,
+            open_ended=False,
+            project_worktree=project,
+            artifact_root=project,
+        ),
+        planner_runner=planner,
+    )
+    persist_vertical(project, "software", workflow_mode="direct")
+    (life / "continuous.json").write_text(
+        json.dumps({
+            "enabled": True,
+            "objective": objective,
+            "generation": 1,
+        }),
+        encoding="utf-8",
+    )
+    (life / "events.jsonl").write_text(
+        json.dumps({
+            "type": "life.manager.intent.completed",
+            "execution_task": objective,
+            "continuous_generation": 1,
+            "vertical": "software",
+            "current_stage": "delivery",
+            "workflow_mode": "direct",
+        }) + "\n",
+        encoding="utf-8",
+    )
+
+    assert supervisor._plan_next_work() is True
+
+    pending = supervisor.memory.backlog.pending()
+    assert len(pending) == 1
+    assert pending[0].objective == objective
+    assert "manager_direct" in pending[0].tags
+    assert "stage_closing" in pending[0].tags
+    assert "review:required" not in pending[0].tags
+    assert planner.calls == []
+
+
 def _kernel_supervisor(
     project: Path,
     life: Path,
@@ -469,7 +524,9 @@ def test_0d3_later_no_gap_evidence_replaces_skip_zero_plan(
     assert rows["skip-zero-rollout"].status == "superseded"
     replacement = next(item for item in rows.values() if item.status == "pending")
     assert replacement.title == "Adopt the no-gap validator"
-    assert replacement.plan_hypothesis == ""
+    assert replacement.plan_hypothesis.startswith("The no-gap validator")
+    assert replacement.decision_rule.startswith("Abandon if no-gap fails")
+    assert replacement.iterate is True
     prompt = planner.calls[0]["prompt"]
     assert "challenged_assumption: The preselected skip-zero candidate" in prompt
     assert "proposed_alternative: Use the no-gap validator" in prompt

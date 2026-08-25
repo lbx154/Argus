@@ -117,7 +117,7 @@ def test_vertical_prompt_composes_chemistry_with_research() -> None:
 
     assert "`chemistry`" in prompt
     assert "`domain`" in prompt
-    assert "ARGUS_ROLE_DECISION=" in prompt
+    assert "CHOICE=existing" in prompt
 
 
 def test_vertical_prompt_does_not_escalate_bounded_repo_fix_to_new_domain() -> None:
@@ -127,7 +127,7 @@ def test_vertical_prompt_does_not_escalate_bounded_repo_fix_to_new_domain() -> N
     )
 
     assert "capability VERTICAL" in prompt
-    assert '"workflow_mode":"direct"' in prompt
+    assert "WORKFLOW_MODE=direct" in prompt
     assert "software" in prompt
 
 
@@ -594,7 +594,6 @@ def test_a_string_of_earlier_stages_is_not_rendered_letter_by_letter() -> None:
         checklist_md="- x",
         review=review,
         planner_verdict=None,
-        rendering_block="",
         open_ended=True,
         continuous_objective="obj",
     )

@@ -37,6 +37,22 @@ def test_parse_key_value_completion_after_freeform_progress() -> None:
     assert verdict.reason == "Updated the parser and verified the regression suite."
 
 
+def test_planner_uses_only_the_explicit_final_footer() -> None:
+    verdict = parse_planner_text(
+        "A quoted example says PROJECT_DONE=true, but work remains.\n"
+        "TASK_TITLE=Discarded thought\n"
+        "Decision:\n"
+        "PROJECT_DONE=false\n"
+        "REASON=Run the real benchmark.\n"
+        "TASK_KEY=benchmark\n"
+        "TASK_TITLE=Run benchmark\n"
+        "TASK_OBJECTIVE=Execute the official harness."
+    )
+
+    assert verdict.project_done is False
+    assert [task.title for task in verdict.new_tasks] == ["Run benchmark"]
+
+
 def test_structured_planner_payload_preserves_list_item_text() -> None:
     verdict = parse_planner_payload({
         "project_done": False,
@@ -46,6 +62,10 @@ def test_structured_planner_payload_preserves_list_item_text() -> None:
             "deps": [],
             "title": "Repair the parser",
             "objective": "Preserve structured fields.",
+            "hypothesis": "The parser drops measured feedback.",
+            "goal_contribution": "Keep the proposer loop evidence-driven.",
+            "expected_regressions": "Legacy text may need a compatibility path.",
+            "decision_rule": "Revise the parser if feedback fields still disappear.",
             "scope": "bounded",
             "non_goals": ["Do not rewrite A | B."],
             "owns_paths": ["tests/a,b.txt"],
@@ -55,6 +75,10 @@ def test_structured_planner_payload_preserves_list_item_text() -> None:
     assert verdict.error == ""
     assert verdict.new_tasks[0].non_goals == ["Do not rewrite A | B."]
     assert verdict.new_tasks[0].owns_paths == ["tests/a,b.txt"]
+    assert verdict.new_tasks[0].hypothesis == (
+        "The parser drops measured feedback."
+    )
+    assert verdict.new_tasks[0].decision_rule.startswith("Revise the parser")
 
 
 @pytest.mark.parametrize("work_kind", WORK_KINDS)
@@ -139,7 +163,7 @@ def test_structured_planner_payload_rejects_wrong_field_types() -> None:
     )
 
 
-def test_parse_planner_task_ignores_legacy_workdir_and_quality_controls() -> None:
+def test_parse_planner_task_carries_feedback_contract_but_not_legacy_workdir() -> None:
     verdict = parse_planner_text(
         "\n".join([
             "PROJECT_DONE=false",
@@ -151,6 +175,7 @@ def test_parse_planner_task_ignores_legacy_workdir_and_quality_controls() -> Non
             "TASK_GOAL_CONTRIBUTION=Fix the operator's target repository.",
             "TASK_EXPECTED_REGRESSIONS=The focused test may stay red during repair.",
             "TASK_DECISION_RULE=Replan if the defect is outside this repository.",
+            "TASK_WORK_KIND=engineering_optimization",
             "TASK_WORKDIR=flash-linear-attention",
             "TASK_ACCEPTANCE_CHECK=pytest tests/ops/test_attnres.py -q",
         ])
@@ -158,10 +183,19 @@ def test_parse_planner_task_ignores_legacy_workdir_and_quality_controls() -> Non
 
     assert verdict.error == ""
     assert verdict.new_tasks[0].execution_workdir == ""
-    assert verdict.new_tasks[0].hypothesis == ""
+    assert verdict.new_tasks[0].hypothesis == (
+        "The target kernel contains the defect."
+    )
+    assert verdict.new_tasks[0].goal_contribution.startswith(
+        "Fix the operator"
+    )
+    assert verdict.new_tasks[0].decision_rule.startswith(
+        "Replan if the defect"
+    )
     assert verdict.new_tasks[0].acceptance_check == (
         "pytest tests/ops/test_attnres.py -q"
     )
+    assert verdict.new_tasks[0].work_kind == "engineering_optimization"
 
 
 def test_parse_planner_emits_disjoint_parallel_task_batch() -> None:
@@ -310,13 +344,13 @@ def test_planner_accepts_json_decision_without_event_prefix(text: str) -> None:
     assert verdict.raw_text == text
 
 
-def test_planner_prompt_requires_read_only_delegation_and_process_decision() -> None:
+def test_planner_prompt_requires_read_only_delegation_and_minimal_footer() -> None:
     assert "Planner read-only delegation contract" in _PLANNER_CORE_CONTRACT
     assert "Do not edit project files" in _PLANNER_CORE_CONTRACT
     assert "Engineer owns edits" in _PLANNER_CORE_CONTRACT
-    assert "ARGUS_ROLE_DECISION=" in _PLANNER_CORE_CONTRACT
-    assert '"role":"planner"' in _PLANNER_CORE_CONTRACT
-    assert "not parsed" in _PLANNER_CORE_CONTRACT
+    assert "ARGUS_ROLE_DECISION=" not in _PLANNER_CORE_CONTRACT
+    assert "PROJECT_DONE=false" in _PLANNER_CORE_CONTRACT
+    assert "TASK_KEY=k1" in _PLANNER_CORE_CONTRACT
     assert "poll: use `wait_mode=event`" in _PLANNER_CORE_CONTRACT
     assert "`wait_mode=event`" in _PLANNER_CORE_CONTRACT
     assert "`artifact_revision`" in _PLANNER_CORE_CONTRACT
@@ -335,7 +369,7 @@ def test_planner_prompt_requires_read_only_delegation_and_process_decision() -> 
         if source == "authorization":
             continue
         assert source in _PLANNER_CORE_CONTRACT
-    for field in ("`title`", "`objective`", "`acceptance_check`"):
+    for field in ("`TASK_TITLE`", "`TASK_OBJECTIVE`", "`TASK_ACCEPTANCE_CHECK`"):
         assert field in _PLANNER_CORE_CONTRACT
     for field in (
         "TASK_WORKDIR",
@@ -344,10 +378,8 @@ def test_planner_prompt_requires_read_only_delegation_and_process_decision() -> 
         "TASK_STAGE_CLOSING",
     ):
         assert field not in _PLANNER_CORE_CONTRACT
-    assert "Planner proposes task scope only through the structured task" in (
-        _PLANNER_CORE_CONTRACT
-    )
-    assert "enqueue-time validation/normalization of that" in _PLANNER_CORE_CONTRACT
+    assert "`TASK_SCOPE`" in _PLANNER_CORE_CONTRACT
+    assert "enqueue-time validation/normalization" not in _PLANNER_CORE_CONTRACT
     assert "external algorithm" in _PLANNER_CORE_CONTRACT
     assert "primary-source grounding" in _PLANNER_CORE_CONTRACT
     assert "starting context, not a" in _PLANNER_CORE_CONTRACT
@@ -743,19 +775,26 @@ def test_plan_next_repairs_not_done_empty_task_response(monkeypatch) -> None:
     assert verdict.error == ""
     assert verdict.project_done is False
     assert [task.title for task in verdict.new_tasks] == ["Repair verifier path"]
-    assert verdict.new_tasks[0].hypothesis == ""
-    assert verdict.new_tasks[0].goal_contribution == ""
+    assert verdict.new_tasks[0].hypothesis == (
+        "The verifier path is the remaining defect."
+    )
+    assert verdict.new_tasks[0].goal_contribution.startswith(
+        "Restore trustworthy verification"
+    )
+    assert verdict.new_tasks[0].decision_rule.startswith(
+        "Replan if the failing evidence"
+    )
     assert runner.calls[0]["run_label"] == "planner.cycle7"
     assert runner.calls[1]["run_label"] == "planner.cycle7.repair1"
     assert runner.calls[1]["resume_thread_id"] == "planner-thread"
     assert "Original Planner prompt" not in runner.calls[1]["prompt"]
     assert "Do not use tools" in runner.calls[1]["prompt"]
     assert NO_CONCRETE_TASKS_ERROR in runner.calls[1]["prompt"]
-    assert "ARGUS_ROLE_DECISION=" in runner.calls[1]["prompt"]
+    assert "PROJECT_DONE=false" in runner.calls[1]["prompt"]
     assert "If work remains, include concrete tasks" in runner.calls[1]["prompt"]
-    assert '"title":"Run the next decisive check"' in runner.calls[1]["prompt"]
+    assert "TASK_TITLE=Run the next decisive check" in runner.calls[1]["prompt"]
     assert (
-        '"objective":"execute the concrete check required by current evidence"'
+        "TASK_OBJECTIVE=execute the concrete check required by current evidence"
         in runner.calls[1]["prompt"]
     )
     assert runner.calls[1]["options"].working_dir == "/tmp/project"
@@ -868,10 +907,10 @@ def test_plan_next_repairs_missing_staged_advance(monkeypatch) -> None:
     assert verdict.advance_to_stage == "benchmark"
     assert runner.calls[1]["run_label"] == "planner.cycle9.repair1"
     assert MISSING_STAGE_DECISION_ERROR in runner.calls[1]["prompt"]
-    assert '"advance_to_stage":"plan"' in runner.calls[1]["prompt"]
+    assert "ADVANCE_TO_STAGE=plan" in runner.calls[1]["prompt"]
     assert '"advance_to_stage":"run"' not in runner.calls[1]["prompt"]
-    assert '"title":"Run benchmark"' in runner.calls[1]["prompt"]
-    assert '"objective":"Execute the real benchmark."' in runner.calls[1]["prompt"]
+    assert "TASK_TITLE=Run benchmark" in runner.calls[1]["prompt"]
+    assert "TASK_OBJECTIVE=Execute the real benchmark." in runner.calls[1]["prompt"]
 
 
 def test_plan_next_repairs_binary_outcome_label(monkeypatch) -> None:

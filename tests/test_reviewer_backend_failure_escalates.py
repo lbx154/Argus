@@ -64,10 +64,9 @@ def test_backend_death_is_blocked_not_continue() -> None:
     assert decision.backend_unavailable is True
 
 
-def test_empty_clean_output_stays_continue() -> None:
-    # A clean exit (exit_code==0, no fatal) with empty output is a MODEL-quality
-    # miss, NOT infra death: it must stay "continue" and NOT trip the backend
-    # escalation path (otherwise a flaky empty turn would falsely fail the loop).
+def test_empty_clean_output_is_reviewer_failure_not_engineer_work() -> None:
+    # An empty Reviewer turn says nothing about implementation. Routing it as
+    # continue manufactures another Engineer round from no evidence.
     class _EmptyCleanResult:
         agent_messages: list[str] = []
         exit_code = 0
@@ -79,8 +78,8 @@ def test_empty_clean_output_stays_continue() -> None:
             return _EmptyCleanResult()
 
     decision = _evaluate(Reviewer(runner=_EmptyRunner()))
-    assert decision.status == "continue"
-    assert decision.backend_unavailable is False
+    assert decision.status == "blocked"
+    assert decision.backend_unavailable is True
 
 
 def test_process_decision_succeeds_without_final_reviewer_message() -> None:
@@ -115,7 +114,8 @@ def test_invalid_named_footer_is_not_credited_as_evidence() -> None:
 
     decision = _evaluate(Reviewer(runner=_InvalidRunner()))
 
-    assert decision.status == "continue"
+    assert decision.status == "blocked"
+    assert decision.backend_unavailable is True
 
 
 def test_unavailable_engineer_model_blocks_once_with_actionable_error(

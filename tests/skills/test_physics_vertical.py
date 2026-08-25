@@ -70,19 +70,12 @@ def test_physics_planner_banner_encodes_dynamic_route_and_no_fixed_pipeline() ->
     # fixed paper pipeline.
     planner = vertical_role_banner(load_vertical("physics"), "planner")
 
-    assert "physics-specific route selection" in planner
-    assert "no fixed paper pipeline" in planner
-    # The route menu itself must include real physics methods.
-    assert "theoretical derivation" in planner
-    assert "numerical simulation" in planner
-    assert "data analysis" in planner
-    assert "literature synthesis" in planner
-    assert "experiment design" in planner
-    assert "bounded negative result" in planner
-    # It must require the scope to be pinned before execute.
-    assert "Before execute" in planner
-    assert "observables" in planner
-    assert "success criteria" in planner
+    assert "Let the physical question choose" in planner
+    for route in ("theory", "simulation", "data", "literature", "experiment"):
+        assert route in planner
+    assert "expected information gain" in planner
+    assert "multiple mechanisms" in planner
+    assert "rather than more paperwork" in planner
 
 
 def test_physics_engineer_banner_encodes_units_equations_assumptions_evidence() -> None:
@@ -93,15 +86,13 @@ def test_physics_engineer_banner_encodes_units_equations_assumptions_evidence() 
     assert "equations" in engineer
     assert "assumptions" in engineer
     assert "evidence limits" in engineer
-    # Plus dynamic path selection and the honest, bounded reporting expectations.
-    assert "fixed workflow" in engineer
     assert "boundary/initial conditions" in engineer
     assert "residual" in engineer
     assert "convergence" in engineer
     assert "uncertainty" in engineer
     assert "provenance" in engineer
-    assert "toy demo" in engineer
-    assert "explicit blocker" in engineer
+    assert "toy" in engineer
+    assert "not physical evidence" in engineer
 
 
 def test_physics_reviewer_banner_encodes_fidelity_units_bcic_evidence_and_antidrift() -> None:
@@ -110,22 +101,14 @@ def test_physics_reviewer_banner_encodes_fidelity_units_bcic_evidence_and_antidr
     reviewer = vertical_role_banner(load_vertical("physics"), "reviewer")
 
     assert "physical-system fidelity" in reviewer
-    assert "unit and dimensional consistency" in reviewer
-    assert "boundary and initial conditions" in reviewer
-    assert "numerical and data evidence" in reviewer
-    assert "claim boundary" in reviewer
-    # Anti-drift + fake-success rejection.
+    assert "dimensional consistency" in reviewer
+    assert "boundary/initial conditions" in reviewer
+    assert "numerical or data evidence" in reviewer
+    assert "claim boundaries" in reviewer
     assert "agent-workflow" in reviewer
-    assert "meta-paper drift" in reviewer
-    assert "fake success" in reviewer
-    # Evidence-level distinctions.
-    assert "full-text" in reviewer
-    assert "excerpt" in reviewer
-    assert "code/data" in reviewer
     assert "metadata-only" in reviewer
-    assert "unavailable" in reviewer
-    # Final claim-status vocabulary.
-    assert "supported, partial, inconclusive, or unknown" in reviewer
+    assert "do not demand fixed tables, counts, or certificates" in reviewer
+    assert "Ask for replan" in reviewer
 
 
 def test_every_physics_stage_has_checklist_items() -> None:

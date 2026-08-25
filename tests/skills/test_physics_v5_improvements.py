@@ -6,7 +6,6 @@ in-source base); mode env vars set via monkeypatch.
 """
 from __future__ import annotations
 
-import csv
 import json
 from pathlib import Path
 
@@ -29,18 +28,18 @@ def _seed_stage(root: Path, stage: str) -> None:
 def test_stage_entry_contract_text_present() -> None:
     for stage in ("scope", "model", "execute", "review", "manuscript"):
         c = stages.stage_entry_contract(stage)
-        assert "STAGE-ENTRY CONTRACT" in c and stage in c.lower()
+        assert "focus" in c.lower() and stage in c.lower()
 
 
 def test_stage_entry_contract_injected_into_banner(tmp_path: Path) -> None:
     _seed_stage(tmp_path, "scope")
     banner = stages.role_banner("engineer", project_root=tmp_path)
-    assert "STAGE-ENTRY CONTRACT — scope" in banner
-    assert "PRIOR_WORK_MATRIX.csv" in banner
+    assert "## Scope focus" in banner
+    assert "not a fixed matrix or paper count" in banner
     # a different stage yields that stage's contract
     _seed_stage(tmp_path, "execute")
     b2 = stages.role_banner("engineer", project_root=tmp_path)
-    assert "STAGE-ENTRY CONTRACT — execute" in b2 and "NUMERICAL_STUDY_PLAN.csv" in b2
+    assert "## Execute focus" in b2 and "claim-bearing" in b2
 
 
 # ---- 2. original-research-required mode banner ----------------------------- #
@@ -51,14 +50,15 @@ def test_mode_banner_only_in_original_mode(tmp_path: Path, monkeypatch: pytest.M
     # "RUN MODE — ORIGINAL RESEARCH REQUIRED" no-downgrade pin.
     auto = stages.role_banner("engineer", project_root=tmp_path)
     assert "RUN MODE — ORIGINAL RESEARCH REQUIRED" not in auto
-    assert "TIERED RESEARCH MODE" in auto
+    assert "## Physics strategy" in auto
+    assert "scorecard" in auto
     # Opt-in original-research: now a STRETCH target (not a hard no-downgrade gate).
     monkeypatch.setenv("ARGUS_SKILL_PHYSICS_TARGET_PAPER_TYPE", "original_research_article")
     monkeypatch.setenv("ARGUS_SKILL_PHYSICS_ALLOW_DOWNGRADE", "false")
     assert mode_config.is_original_research_required()
     stretch = stages.role_banner("engineer", project_root=tmp_path)
-    assert "ORIGINAL RESEARCH REQUESTED" in stretch
-    assert "TIERED RESEARCH MODE" in stretch  # still tiered even at the stretch target
+    assert "operator requested original research" in stretch
+    assert "## Physics strategy" in stretch
 
 
 # ---- 3. capability consumption trace --------------------------------------- #
@@ -74,58 +74,36 @@ def test_capability_trace_records_gate_run(tmp_path: Path) -> None:
     assert "NOV-000" in rec["failure_ids_caused_by_missing_capability"]
 
 
-# ---- 4. Novelty-Seeking Loop schema ---------------------------------------- #
-
-def _full_pool(root: Path, n: int = 10) -> None:
-    root.mkdir(parents=True, exist_ok=True)
-    cols = list(nsl.REASONING_COLUMNS) + list(nsl.SCORE_COLUMNS) + ["selected"]
-    with (root / nsl.ARTIFACT).open("w", newline="", encoding="utf-8") as fh:
-        w = csv.DictWriter(fh, fieldnames=cols)
-        w.writeheader()
-        for i in range(n):
-            row = {c: "x" for c in cols}
-            row["direction_id"] = f"D{i+1}"
-            row["selected"] = "yes" if i < 2 else ""
-            w.writerow(row)
-    for f in ("PIVOT_SELECTION.md", "REVISED_RESEARCH_OBJECTIVE.md",
-              "ADDITIONAL_THEORY_PLAN.md", "ADDITIONAL_NUMERICAL_PLAN.md"):
-        (root / f).write_text("selected: D1, D2\n", encoding="utf-8")
-
-
-def test_nsl_noop_in_auto_mode(tmp_path: Path) -> None:
-    assert nsl.verify_novelty_seeking(tmp_path) == []  # auto mode -> nothing required
-
-
-def test_nsl_requires_pool_in_original_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_PHYSICS_TARGET_PAPER_TYPE", "original_research_article")
-    monkeypatch.setenv("ARGUS_SKILL_PHYSICS_ALLOW_DOWNGRADE", "false")
-    codes = [f["failure_id"] for f in nsl.verify_novelty_seeking(tmp_path)]
-    assert codes == ["NSL-000"]
-
-
-def test_nsl_too_few_and_missing_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_PHYSICS_TARGET_PAPER_TYPE", "original_research_article")
-    monkeypatch.setenv("ARGUS_SKILL_PHYSICS_ALLOW_DOWNGRADE", "false")
-    _full_pool(tmp_path, n=3)  # too few
-    codes = {f["failure_id"] for f in nsl.verify_novelty_seeking(tmp_path)}
-    assert "NSL-001" in codes
-
-
-def test_nsl_complete_pool_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_PHYSICS_TARGET_PAPER_TYPE", "original_research_article")
-    monkeypatch.setenv("ARGUS_SKILL_PHYSICS_ALLOW_DOWNGRADE", "false")
-    _full_pool(tmp_path, n=10)
-    assert nsl.verify_novelty_seeking(tmp_path) == []
-
-
-def test_negative_note_does_not_bypass_novelty_work(
+def test_retired_novelty_table_gate_never_blocks_research(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from argus_skill.skills.research_gates import (
+        read_gate_state,
+        update_gate_state,
+    )
+
     monkeypatch.setenv("ARGUS_SKILL_PHYSICS_TARGET_PAPER_TYPE", "original_research_article")
     monkeypatch.setenv("ARGUS_SKILL_PHYSICS_ALLOW_DOWNGRADE", "false")
-    (tmp_path / "NEGATIVE_RESULT.md").write_text("no sufficient novelty after 2 pivots\n")
-    assert nsl.verify_novelty_seeking(tmp_path)
+    update_gate_state(
+        tmp_path,
+        nsl.GATE_ID,
+        [{
+            "failure_id": "NSL-OLD",
+            "severity": "major",
+            "stage": "review",
+            "artifact": "NOVELTY_IDEA_POOL.csv",
+            "field": "rows",
+            "message": "stale table failure",
+            "required_action": "fill the table",
+            "blocks_progress": False,
+        }],
+    )
+    assert nsl.verify_novelty_seeking(tmp_path) == []
+    assert nsl.run_gate(tmp_path) == (True, [])
+    assert read_gate_state(tmp_path, nsl.GATE_ID) is None
+    assert nsl.REASONING_COLUMNS == ()
+    assert nsl.SCORE_COLUMNS == ()
 
 
 # ---- 5. original-research mode blocks a downgrade terminal ------------------ #

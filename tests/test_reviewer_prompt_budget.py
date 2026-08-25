@@ -98,15 +98,14 @@ def test_windows_fixed_contract_prose_within_budget(monkeypatch):
     assert _fixed_prose_chars(reviewer) < FIXED_PROSE_BUDGET
 
 
-def test_reviewer_performs_live_product_acceptance_when_applicable(monkeypatch):
+def test_reviewer_scopes_product_acceptance_to_the_claim(monkeypatch):
     prompt = _prompt(measured=False, monkeypatch=monkeypatch)
 
-    assert "product-user acceptance" in prompt
-    assert "isolated state, non-production port" in prompt
-    assert "test-only credentials" in prompt
+    assert "mission claims a user-facing" in prompt
+    assert "test the safe public entry point" in prompt
+    assert "Internal exploratory changes need no product ceremony" in prompt
+    assert "feedback experiment is the trial" in prompt
     assert "Never cause external or irreversible effects" in prompt
-    assert "Unit tests alone do not prove that flow" in prompt
-    assert "stop it" in prompt
 
 
 def test_the_budget_ignores_content_a_vertical_owns(monkeypatch):
@@ -259,13 +258,13 @@ def test_research_target_context_stays_compact(tmp_path, monkeypatch):
     assert stats["estimated_tokens"] < 340
 
 
-def test_reviewer_prompt_records_process_decision_without_final_footer(monkeypatch) -> None:
+def test_reviewer_prompt_uses_a_minimal_prose_footer(monkeypatch) -> None:
     prompt = _prompt(measured=False, monkeypatch=monkeypatch)
 
-    assert "ARGUS_ROLE_DECISION=" in prompt
-    assert '"role":"reviewer"' in prompt
-    assert "Any later response is plain language and is not parsed." in prompt
-    assert "STATUS=done|continue|blocked|replan_requested" not in prompt
+    assert "ARGUS_ROLE_DECISION=" not in prompt
+    assert "Reason naturally" in prompt
+    assert "STATUS=done" in prompt
+    assert "REASON=requested outcome is materially complete" in prompt
     assert "JSON Schema" not in prompt
     assert "OUTPUT CONTRACT (STRICT)" not in prompt
 
@@ -277,5 +276,6 @@ def test_reviewer_accepts_implementation_grounding_proportionally(
 
     assert "primary-source grounding" in prompt
     assert "community implementations may suffice for implementation details" in prompt
-    assert "`replan_requested` rarely" in prompt
-    assert "Do not demand extra research" in prompt
+    assert "`replan_requested` for a wrong target" in prompt
+    assert "Do not demand work outside the current profile" in prompt
+    assert "feedback-producing experiments or research" in prompt

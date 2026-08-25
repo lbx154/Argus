@@ -31,9 +31,9 @@ def _exec(answer: str, exit_code: int = 0):
         assert all(
             field in prompt
             for field in (
-                '"config"', '"control"', '"authorization"', '"steer_directive"',
-                '"operator_question_policy"',
-                '"route"', '"self_mode"', '"reply"', '"lifetime"', '"greeting"', '"name"',
+                "CONFIG:", "CONTROL:", "AUTHORIZATION:", "STEER_DIRECTIVE:",
+                "OPERATOR_QUESTION_POLICY:", "ROUTE:", "SELF_MODE:", "REPLY:",
+                "LIFETIME:", "GREETING:", "NAME:",
             )
         )
         return _FakeResult(answer, exit_code)
@@ -58,12 +58,13 @@ def test_front_door_prompt_has_a_strict_token_efficiency_budget() -> None:
     assert all(
         field in prompt
         for field in (
-            '"config"', '"control"', '"authorization"', '"steer_directive"',
-            '"operator_question_policy"',
-            '"route"', '"self_mode"', '"reply"', '"lifetime"', '"greeting"', '"name"',
+            "CONFIG:", "CONTROL:", "AUTHORIZATION:", "STEER_DIRECTIVE:",
+            "OPERATOR_QUESTION_POLICY:", "ROUTE:", "SELF_MODE:", "REPLY:",
+            "LIFETIME:", "GREETING:", "NAME:",
         )
     )
-    assert "ARGUS_ROLE_DECISION=" in prompt
+    assert "ARGUS_ROLE_DECISION=" not in prompt
+    assert "Reason naturally" in prompt
     assert "VERTICAL:" not in prompt
     assert "TARGET:" not in prompt
     assert "explicit continue/resume after a pause is not a control token" in prompt

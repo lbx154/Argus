@@ -94,8 +94,8 @@ def test_math_scope_prompt_is_compact_and_deduplicated(
     assert "## Original operator request (immutable anchor)" not in prompt
     assert "Argus planner role skill:" not in prompt
     assert "waiting_contract" not in prompt
-    assert prompt.count("ARGUS_ROLE_DECISION=") == 1
-    assert '"role":"planner"' in prompt
+    assert prompt.count("PROJECT_DONE=false") == 1
+    assert "TASK_KEY=k1" in prompt
     assert "not a routing command" in prompt
     assert prompt.count(
         "Integrity and reproducibility are admission constraints"

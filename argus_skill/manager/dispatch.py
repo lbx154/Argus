@@ -124,6 +124,7 @@ def _plan_bounded_execution(
             backend,
             execution_body,
             workdir=workdir,
+            state_root=getattr(mem, "project_root", None),
             model=model,
             reasoning_effort=resolve_role_reasoning_effort(
                 "ARGUS_SKILL_BOUNDED_DAG_REASONING_EFFORT",
@@ -515,6 +516,10 @@ def enqueue_mission(
                 hydrated_refs.get(node.key, []),
                 context_refs,
             )
+            hypothesis = str(getattr(node, "hypothesis", "") or "").strip()
+            decision_rule = str(
+                getattr(node, "decision_rule", "") or ""
+            ).strip()
             node_manager_decision = dict(manager_decision)
             node_vertical = str(getattr(node, "vertical", "") or "").strip()
             if node_vertical:
@@ -564,8 +569,8 @@ def enqueue_mission(
                     ),
                     *([f"stage:{stage}"] if stage else []),
                 ],
-                iterate=False,
-                iteration_max_cycles=1,
+                iterate=True,
+                iteration_max_cycles=3,
                 deps=[ids[dep] for dep in node.deps],
                 plan_id=plan_id,
                 plan_version=1,
@@ -573,14 +578,14 @@ def enqueue_mission(
                 context_refs=item_context_refs,
                 work_kind=str(getattr(node, "work_kind", "") or ""),
                 acceptance_check=str(getattr(node, "acceptance_check", "") or ""),
-                plan_hypothesis=str(getattr(node, "hypothesis", "") or ""),
+                plan_hypothesis=hypothesis,
                 goal_contribution=str(
                     getattr(node, "goal_contribution", "") or ""
                 ),
                 expected_regressions=str(
                     getattr(node, "expected_regressions", "") or ""
                 ),
-                decision_rule=str(getattr(node, "decision_rule", "") or ""),
+                decision_rule=decision_rule,
                 execution_workdir=persisted_workdir,
                 non_goals=list(getattr(node, "non_goals", ()) or ()),
                 manager_decision=node_manager_decision,

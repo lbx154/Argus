@@ -89,11 +89,14 @@ def test_advisory_cli_and_banner(tmp_path: Path) -> None:
     assert pt.main(["check", "--project-root", str(tmp_path), "--advisory"]) == 0
     assert pt.main(["check", "--project-root", str(tmp_path)]) == 1
     banner = stages.role_banner("reviewer", project_root=tmp_path)
-    assert "PAPER_TYPE_GATE REPAIR REQUIRED" in banner and "PT-000" in banner
+    assert "PAPER_TYPE_GATE REPAIR REQUIRED" not in banner
+    assert "PT-000" not in banner
+    assert "Independently judge" in banner
 
 
-def test_review_stage_check_includes_paper_type() -> None:
+def test_review_stage_uses_semantic_judgment_not_paper_type_gate() -> None:
     assert not hasattr(stages, "STAGE_CHECKS")
     banner = stages.role_banner("reviewer")
-    assert "gates.paper_type" in banner
-    assert "ADVISORY" in banner
+    assert "gates.paper_type" not in banner
+    assert "novelty" in banner
+    assert "significance" in banner

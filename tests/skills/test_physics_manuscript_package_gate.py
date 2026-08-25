@@ -71,9 +71,7 @@ def test_present_but_failing_surfaces_failures_and_repair_loop(tmp_path: Path) -
     assert "FIGURE_LEGENDS.md" in blocks
 
 
-def test_review_stage_role_banner_injects_the_repair_block(tmp_path: Path) -> None:
-    """End-to-end: with the gate failing, the physics review-stage role_banner
-    embeds the deterministic failures (this is exactly what was missing before)."""
+def test_review_stage_role_banner_does_not_inject_gate_repairs(tmp_path: Path) -> None:
     (tmp_path / ".argus").mkdir(parents=True, exist_ok=True)
     (tmp_path / ".argus" / "PIPELINE_STATE.json").write_text(
         '{"current_stage": "review", "vertical": "physics"}', encoding="utf-8"
@@ -84,7 +82,9 @@ def test_review_stage_role_banner_injects_the_repair_block(tmp_path: Path) -> No
     from argus_skill.verticals.physics.stages import role_banner
 
     banner = role_banner("engineer", project_root=tmp_path)
-    assert PREFIX in banner and "FIGURE_LEGENDS.md" in banner
+    assert PREFIX not in banner
+    assert "FIGURE_LEGENDS.md" not in banner
+    assert "## Review focus" in banner
 
 
 def test_advisory_cli_exits_zero_even_when_failing(tmp_path: Path) -> None:

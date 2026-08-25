@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 from ...core.model_visible_text import sanitize_model_visible_text
-from ...core.role_decision import decision_event_instruction
+from ...core.role_decision import decision_footer_instruction
 from ..task_contract import (
     EFFECTIVE_TASK_CONTRACT,
     native_shell_contract,
@@ -234,10 +234,12 @@ def build_mission_prompt(
         sections.append(
             "## Engineer service\n"
             "Manager fixed scope and Planner delegated this package. Inspect only what "
-            "the mission contract needs, implement it end to end, and run the "
-            "check the mission names, at the size that would convince a "
-            "reviewer, once. Do not reopen planning, start another Argus "
-            "service, broaden research, or create extra artifacts. If a material blocker "
+            "the mission contract needs and implement it end to end. Run the named "
+            "feedback-producing check at the size this verification profile needs; "
+            "use changed feedback, never repeat an unchanged check. Do not reopen "
+            "campaign planning, start another Argus service, or create unrelated "
+            "artifacts. Within an explore/develop mission, follow feedback into the "
+            "alternative proposal the decision rule authorizes. If a material blocker "
             "remains, preserve only the state needed for one next round."
         )
         if learning_block:
@@ -245,10 +247,10 @@ def build_mission_prompt(
         sections.append(
             "## Engineer receipt\n"
             "Return the material result and decisive check; Reviewer owns acceptance.\n"
-            + decision_event_instruction(
-                "engineer",
-                '{"status":"done","result":"material result and decisive check",'
-                '"next_owner":"reviewer"}',
+            + decision_footer_instruction(
+                "MILESTONE_STATUS=done\n"
+                "RESULT=material result and decisive check\n"
+                "NEXT_OWNER=reviewer"
             )
         )
         return sanitize_model_visible_text("\n\n".join(sections))
@@ -330,11 +332,13 @@ def build_mission_prompt(
         "handoff or evidence packets. Host invokes Reviewer only when required; do not "
         "spawn a Reviewer subagent. Normally set next_owner=reviewer. Use operator only "
         "for a real operator decision; include one operator_question and at most five "
-        "operator_options; that parks the task, so record it and yield.\n\n"
-        + decision_event_instruction(
-            "engineer",
-            '{"status":"done","result":"what changed and the decisive check",'
-            '"next_owner":"reviewer"}',
+        "operator_options; that parks the task, so record it and yield. Options use "
+        "`id::label::description`, or `id::true::label::description` when a note "
+        "is required.\n\n"
+        + decision_footer_instruction(
+            "MILESTONE_STATUS=done\n"
+            "RESULT=what changed and the decisive check\n"
+            "NEXT_OWNER=reviewer"
         )
     )
     static_text = "\n\n".join(sections)
@@ -346,7 +350,7 @@ def build_mission_prompt(
     compact = (
         "## Continuation turn\n"
         "Read CHECKPOINT.md, then execute the Reviewer next action. Do not repeat an "
-        "unchanged failure; use the cheapest decisive diagnostic. The original task "
+        "unchanged failure; use the most informative decisive diagnostic. The original task "
         "still applies.\n"
         + _long_experiment_rule(task)
         + "\n\n"
@@ -354,10 +358,10 @@ def build_mission_prompt(
         "Use next_owner=operator only for an operator-owned choice; its question "
         "parks the task. Include operator_question and operator_options in that "
         "decision.\n"
-        + decision_event_instruction(
-            "engineer",
-            '{"status":"done","result":"short result and decisive check",'
-            '"next_owner":"reviewer"}',
+        + decision_footer_instruction(
+            "MILESTONE_STATUS=done\n"
+            "RESULT=short result and decisive check\n"
+            "NEXT_OWNER=reviewer"
         )
     )
     if diagnostic_block:

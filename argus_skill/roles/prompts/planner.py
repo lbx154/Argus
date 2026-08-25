@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ...core.model_visible_text import sanitize_model_visible_text
-from ...core.role_decision import decision_event_instruction
+from ...core.role_decision import decision_footer_instruction
 from ...planner.work_kind import planner_work_kind_guidance
 from ..task_contract import native_shell_contract, native_shell_summary
 from .types import ChecklistMode, RoleName, RolePromptRequest
@@ -36,15 +36,22 @@ _WAKE_SOURCES = "|".join(
     sorted(set(SUPPORTED_WAKE_SOURCES) - {"authorization"})
 )
 
-_PLANNER_DECISION_PAYLOAD_EXAMPLE = (
-    '{"project_done":false,"reason":"why",'
-    '"tasks":[{"key":"k1","deps":[],"title":"Run the next decisive check",'
-    '"objective":"execute the concrete check required by current evidence",'
-    '"scope":"bounded"}]}'
+_PLANNER_DECISION_FOOTER = decision_footer_instruction(
+    "PROJECT_DONE=false\n"
+    "REASON=why\n"
+    "TASK_KEY=k1\n"
+    "TASK_DEPS=\n"
+    "TASK_TITLE=Run the next decisive check\n"
+    "TASK_OBJECTIVE=execute the concrete check required by current evidence\n"
+    "TASK_SCOPE=bounded"
 )
-_PLANNER_DECISION_EVENT = decision_event_instruction(
-    "planner",
-    _PLANNER_DECISION_PAYLOAD_EXAMPLE,
+_BOUNDED_DAG_FOOTER = decision_footer_instruction(
+    "PLAN_REASON=why this is a coherent executable DAG\n"
+    "TASK_KEY=k1\n"
+    "TASK_DEPS=\n"
+    "TASK_TITLE=Run the next decisive check\n"
+    "TASK_OBJECTIVE=execute the concrete check required by current evidence\n"
+    "TASK_WORK_KIND=validation"
 )
 
 _PLANNER_CORE_CONTRACT = """
@@ -69,17 +76,19 @@ commands, tests, and iteration.
   Reviewer `done` closes it; review again only if requested or the verdict finds a gap.
   Integrity and reproducibility are admission constraints, not a routing command.
   Never emit a bare launch verdict; say what happened and the next action or Host rejects it.
-- Payload: `project_done`, `reason`, `tasks`, `advance_to_stage`; staged decisions
-  require a Host-validated stage. Tasks require `key`, `deps`, `title`, `objective`,
-  `scope`; optional: `acceptance_check`, `parallel_safe`, `owns_paths`, `vertical`.
+- End with `PROJECT_DONE` and `REASON`; repeat one `TASK_*` block per task.
+  `ADVANCE_TO_STAGE` requires a Host-validated stage. Tasks require `TASK_KEY`,
+  `TASK_DEPS`, `TASK_TITLE`, `TASK_OBJECTIVE`, `TASK_SCOPE`; feedback work adds
+  `TASK_HYPOTHESIS`, `TASK_GOAL_CONTRIBUTION`,
+  `TASK_EXPECTED_REGRESSIONS`, `TASK_DECISION_RULE`; optional:
+  `TASK_ACCEPTANCE_CHECK`, `TASK_PARALLEL_SAFE`, `TASK_OWNS_PATHS`,
+  `TASK_VERTICAL`.
 - External waits require `blocker_fingerprint`, `recheck_condition` and
   `recheck_token`; set `operator_action_required` only for the operator. Never
   poll: use `wait_mode=event`, `wake_on` from """ + _WAKE_SOURCES + """;
   `artifact_revision` requires nonempty `watched_paths`.
-- Planner proposes task scope only through the structured task `scope` (legacy
-  `TASK_SCOPE`); Host owns enqueue-time validation/normalization of that field.
 - Use the operator's language.
-""" + _PLANNER_DECISION_EVENT
+""" + _PLANNER_DECISION_FOOTER
 
 _EXTERNAL_TARGET_CONTRACT = (
     "## External-target optimization\n"
@@ -135,11 +144,46 @@ def preview_request(project_root: Path | str) -> RolePromptRequest:
     )
 
 
-def build_bounded_dag_prompt(objective: str) -> str:
+def build_bounded_dag_prompt(
+    objective: str,
+    *,
+    project_root: Path | str | None = None,
+    state_root: Path | str | None = None,
+) -> str:
+    verification = ""
+    policy_root = state_root if state_root is not None else project_root
+    if policy_root is not None:
+        from ...core.verification_policy import policy_line, resolve_policy
+        from .registry import resolve_role_prompt
+
+        context = resolve_role_prompt(
+            RolePromptRequest(
+                role=RoleName.PLANNER,
+                operation=BOUNDED_DAG,
+                project_root=policy_root,
+                altitude_root=project_root,
+                checklist_mode=ChecklistMode.STAGE,
+            )
+        )
+        if context.verification_stage_profiles:
+            policy = resolve_policy(
+                policy_root,
+                stage=context.stage,
+                vertical=context.vertical,
+                stage_profiles=context.verification_stage_profiles,
+            )
+            verification = (
+                "\n\nActive vertical context: "
+                f"`{context.vertical}` stage `{context.stage or 'unset'}`; "
+                f"{policy_line(policy)}. In explore/develop, acceptance means "
+                "the feedback-producing experiment ran honestly, not that the "
+                "hypothesis won; certification belongs to the final profile."
+            )
     shell_contract = native_shell_contract()
     shell_block = "\n\n" + shell_contract if shell_contract else ""
     return sanitize_model_visible_text(
         "Plan the Manager handoff as a small executable DAG. Do not do the work."
+        + verification
         + shell_block
         + "\n\n"
         "Rules:\n"
@@ -166,15 +210,18 @@ def build_bounded_dag_prompt(objective: str) -> str:
         "`require_independent_review:true` on the owned work node when the operator "
         "explicitly requests independent review or the task crosses an independent "
         "authority boundary; otherwise omit it.\n"
-        "- Put `reason` and `tasks` in the Planner decision event. Each task uses "
-        "`key`, `deps` (same-batch keys only), `title`, and `objective`; add "
-        "`acceptance_check`, `non_goals`, `vertical`, `execution_workdir` "
+        "- End with `PLAN_REASON` and one repeated `TASK_*` block per task. Each "
+        "task uses `TASK_KEY`, `TASK_DEPS` (same-batch keys only), `TASK_TITLE`, "
+        "and `TASK_OBJECTIVE`; add "
+        "`hypothesis`, `goal_contribution`, `expected_regressions`, and "
+        "`decision_rule` for feedback-driven work; add `acceptance_check`, "
+        "`non_goals`, `vertical`, `execution_workdir` "
         "(project-relative nested repository), " + planner_work_kind_guidance() + ", and "
         "`require_independent_review` when useful. Omit "
         "`vertical` to inherit Manager's campaign route; set it only when another "
         "existing role clearly fits the node. Use the operator objective's "
         "language. Keys must be unique and the graph acyclic.\n\n"
-        + _PLANNER_DECISION_EVENT
+        + _BOUNDED_DAG_FOOTER
         + "\n\n"
         "Manager execution handoff:\n" + objective.strip()
     )
@@ -184,15 +231,22 @@ def build_bounded_dag_repair_prompt(
     objective: str,
     previous_output: str,
     validation_error: str,
+    *,
+    project_root: Path | str | None = None,
+    state_root: Path | str | None = None,
 ) -> str:
     """Request one complete replacement after a mechanically invalid DAG."""
     prior = sanitize_model_visible_text(str(previous_output or "")[-40_000:])
     error = sanitize_model_visible_text(str(validation_error or ""))
     return (
-        build_bounded_dag_prompt(objective)
-        + "\n\nYour previous decision event was rejected by the mechanical DAG contract. "
-        "Send one complete corrected decision event. Keep "
-        "the intended deliverables and correct only the malformed minimal DAG "
+        build_bounded_dag_prompt(
+            objective,
+            project_root=project_root,
+            state_root=state_root,
+        )
+        + "\n\nYour previous conclusion could not be read as an executable DAG. "
+        "Send one complete corrected footer. Keep "
+        "the intended deliverables and correct only the malformed action-footer "
         "fields.\n"
         + f"VALIDATION_ERROR={error}\n"
         + "PREVIOUS_ANSWER:\n"
@@ -336,18 +390,10 @@ def build_continuous_prompt(
     # The Planner gets the same library paths as other roles and searches them
     # independently. No Skill content is selected or copied into this prompt.
     matched_planner_skill_block = ""
-    planner_memory_block = ""
     if mission is not None:
         planner_libraries = mission.libraries()
         if planner_libraries.block:
             matched_planner_skill_block = planner_libraries.block + "\n\n"
-        from ...skills.role_memory import role_skill_maintenance_block
-
-        planner_memory_block = role_skill_maintenance_block(
-            mission.skill_store,
-            "planner",
-            enabled=memory_maintenance_enabled,
-        )
 
     # ------------------------------------------------------------------
     # Shared declarative knowledge. Planner may maintain pages directly; task
@@ -382,8 +428,8 @@ def build_continuous_prompt(
         "ordinary Engineer work, not an external operator dependency. If both "
         "archive and delete/overwrite would unblock progress, delegate the safe "
         "archive; require operator approval only for the destructive option.\n"
-        "- Record the decision event as soon as the plan is clear. Any later prose "
-        "is only a brief explanation for the operator.\n\n"
+        "- Once the plan is clear, explain it briefly and end with the actionable "
+        "footer.\n\n"
     )
 
     objective_contract_block = (
@@ -457,7 +503,6 @@ def build_continuous_prompt(
         stage_checklist,
         stage_gate_block,
         matched_planner_skill_block,
-        planner_memory_block,
         wiki_block,
         search_altitude_block,
         "## Manager mission brief (authoritative)\n" + continuous_objective.strip(),
@@ -469,7 +514,7 @@ def build_continuous_prompt(
         cycle_line,
         "Use only the focused read/search budget above, delegate the next concrete "
         "work or report a real "
-        "blocker, then record the Planner decision event.",
+        "blocker, then end with the Planner decision footer.",
     )
 
 
@@ -530,7 +575,7 @@ def build_continuous_resume_prompt(
         + (runtime_change_summary.strip() or "(no additional runtime context)"),
         f"This is planning cycle #{planning_cycle + 1}.",
         "Inspect only what is needed to choose the next concrete task or a real "
-        "blocker, then record the Planner decision event.",
+        "blocker, then end with the Planner decision footer.",
     )
 
 

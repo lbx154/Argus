@@ -32,6 +32,77 @@ from ._planning_cycle_helpers import (
 class PlanningCycleIntakeMixin:
     """Gate checks + preflight short-circuits run before planner invocation."""
 
+    def _enqueue_bounded_manager_direct(
+        self,
+        state: _PlanCycleState,
+    ) -> bool | None:
+        """Turn a finite Manager-direct objective into one reviewed mission."""
+        if (
+            state.revision_request is not None
+            or bool(getattr(self.config, "open_ended", False))
+            or self._effective_final_certification_gate(self._artifact_root())
+        ):
+            return None
+        intent = state.manager_intent if isinstance(state.manager_intent, dict) else {}
+        if str(intent.get("workflow_mode") or "").strip().lower() != "direct":
+            return None
+        objective = str(
+            intent.get("execution_task")
+            or self.config.continuous_objective
+            or ""
+        ).strip()
+        if not objective:
+            return None
+        if any(
+            item.status in {"pending", "running", "claimed"}
+            for item in self.memory.backlog.all()
+        ):
+            return None
+
+        from ..memory import BacklogItem
+
+        compact = " ".join(objective.split()).replace("`", "")
+        title = compact if len(compact) <= 96 else compact[:93] + "..."
+        stage = str(
+            intent.get("current_stage") or intent.get("stage") or ""
+        ).strip().lower()
+        vertical = str(intent.get("vertical") or "").strip()
+        from ...verticals._base import load_vertical_contract
+
+        requires_review = load_vertical_contract(
+            vertical,
+            project_root=self._artifact_root(),
+        ).requires_independent_review
+        manager_decision = {**intent, "routed": True, "route_source": "manager"}
+        item = BacklogItem.new(
+            title=title,
+            objective=objective,
+            tags=[
+                "manager",
+                "manager_direct",
+                "scope:bounded",
+                "stage_closing",
+                *(["review:required"] if requires_review else []),
+                *([f"stage:{stage}"] if stage else []),
+            ],
+            iterate=False,
+            iteration_max_cycles=1,
+            original_objective=objective,
+            manager_decision=manager_decision,
+        )
+        self.memory.backlog.add(item)
+        self._emit({
+            "type": EventType.LIFE_PLANNER_TASK_ADDED,
+            "item_id": item.id,
+            "title": item.title,
+            "objective": item.objective,
+            "deps": [],
+            "priority": item.priority,
+            "source": "manager_direct",
+        })
+        self._emit_status("manager: direct bounded mission queued")
+        return True
+
     def _bounded_completion_reason(self) -> str:
         """Return a deterministic completion reason for a finite campaign."""
         artifact_root = self._artifact_root()
@@ -301,6 +372,9 @@ class PlanningCycleIntakeMixin:
                 return PLAN_RETRY
             self._emit_status(f"planner: project done — {reason}")
             return False
+        direct = self._enqueue_bounded_manager_direct(state)
+        if direct is not None:
+            return direct
         return None
 
 

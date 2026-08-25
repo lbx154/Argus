@@ -145,18 +145,21 @@ def test_advisory_cli_and_repair_context(tmp_path: Path) -> None:
     assert (tmp_path / "research" / "THEORY_GATE_STATE.json").is_file()
 
 
-def test_theory_failures_reach_model_banner(tmp_path: Path) -> None:
+def test_theory_failures_do_not_become_model_prompt_work(tmp_path: Path) -> None:
     _write(tmp_path, _good_rows(), domain=False)
     th.run_gate(tmp_path)
     banner = stages.role_banner("engineer", project_root=tmp_path)
-    assert "THEORY_GATE REPAIR REQUIRED" in banner and "TH-001" in banner
+    assert "THEORY_GATE REPAIR REQUIRED" not in banner
+    assert "TH-001" not in banner
+    assert "Make equations, units, assumptions" in banner
 
 
-def test_model_stage_check_includes_advisory_theory() -> None:
+def test_model_stage_focus_does_not_require_theory_gate() -> None:
     assert not hasattr(stages, "STAGE_CHECKS")
     banner = stages.role_banner("engineer")
-    assert "gates.theory" in banner
-    assert "ADVISORY" in banner
+    assert "gates.theory" not in banner
+    assert "equations" in banner
+    assert "follow the feedback" in banner
 
 
 def test_theory_capabilities_still_load_via_registry() -> None:

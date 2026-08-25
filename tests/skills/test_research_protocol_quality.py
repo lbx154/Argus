@@ -332,8 +332,9 @@ def test_route_review_precedes_quorum_selection_and_advisory_probe() -> None:
     assert "thesis may evolve later" in research["research.thesis"]
     assert "After research.thesis admits" in research["research.signal_derisk"]
     normalized_planner = " ".join(role_banner("planner").split())
-    assert "At an 80% review quorum" in normalized_planner
-    assert "Probe only that winner when" in normalized_planner
+    assert "independent selector" in normalized_planner
+    assert "without waiting for every late route" in normalized_planner
+    assert "Use early probes only when" in normalized_planner
     assert "80% review quorum" not in generic_planner
     assert "must not silently change the frozen premise" in creator
     assert "Keep route reviews parallel until at least 80%" in " ".join(
@@ -353,9 +354,7 @@ def test_reviewer_treats_research_smokes_as_advisory() -> None:
     from argus_skill.verticals.research.stages import role_banner
 
     reviewer_banner = role_banner("reviewer")
-    assert "Research-stage smoke probes are short advisory observations" in (
-        reviewer_banner
-    )
+    assert "Weak or underpowered probes" in reviewer_banner
     assert "cannot by themselves trigger replan" in reviewer_banner
     assert "smoke is advisory" not in generic_verification_policy
     assert "research-stage smoke probes" not in generic_results_review.lower()
@@ -367,14 +366,14 @@ def test_research_prompt_policy_does_not_leak_to_other_verticals() -> None:
     research = load_vertical("research")
     software = load_vertical("software")
 
-    assert "80% review quorum" in vertical_role_banner(research, "planner")
-    assert "Research-stage smoke probes" in vertical_role_banner(
+    assert "independent selector" in vertical_role_banner(research, "planner")
+    assert "underpowered probes" in vertical_role_banner(
         research, "reviewer"
     )
     for role in ("planner", "engineer", "reviewer"):
         banner = vertical_role_banner(software, role)
-        assert "80% review quorum" not in banner
-        assert "Research-stage smoke probes" not in banner
+        assert "independent selector" not in banner
+        assert "underpowered probes" not in banner
 
 
 def test_dynamic_paper_policy_is_owned_by_research_vertical() -> None:
@@ -451,12 +450,11 @@ def test_process_artifacts_are_finishing_steps_not_missions() -> None:
     from argus_skill.verticals.research.stages import role_banner
 
     planner = role_banner("planner")
-    assert "Each mission advances the argument the paper will make" in planner
-    assert "Name missions after the question they answer" in planner
-    assert "are not missions of" in planner
+    assert "Each mission must advance the paper's argument" in planner
+    assert "not standalone certification, schema, or bookkeeping" in planner
 
     reviewer = role_banner("reviewer")
-    assert "belongs in next_action, not in a returned verdict" in reviewer
+    assert "ceremony stays advisory" in reviewer
 
 
 def test_a_shortfall_is_a_gap_to_close_not_a_verdict() -> None:
@@ -471,16 +469,15 @@ def test_a_shortfall_is_a_gap_to_close_not_a_verdict() -> None:
     reviewer = vertical_role_banner(research, "reviewer")
 
     # Selection fixes the number the campaign then spends itself improving.
-    for named in ("end-task claim", "resource-matched", "wants the claim to be false"):
+    for named in ("end claim", "strongest relevant", "skeptical reader"):
         assert named in planner
-    assert "close it" in planner
+    assert "claim-bearing evidence" in planner
 
     # A miss buys the next fix. It becomes evidence against the claim only
     # after the stack under it has been checked — before that it is evidence
     # about the harness, and after it, refusing to count it is not rigour.
-    assert "name what the gap is made of" in reviewer
-    assert "A miss is evidence about the tested system" in reviewer
-    assert "Then repeated misses count." in reviewer
+    assert "method, baseline, and evaluator can resolve the effect" in reviewer
+    assert "Count misses only after" in reviewer
     assert "a loss is never the paper" in reviewer
 
 
@@ -504,15 +501,12 @@ def test_only_the_manager_retires_an_idea_and_only_reluctantly() -> None:
     manager = vertical_role_banner(research, "manager")
     reviewer = vertical_role_banner(research, "reviewer")
 
-    assert "Only you can judge that an idea is genuinely dead" in manager
-    assert "rare and expensive" in manager
-    assert "impatience" in manager
-    # A dead idea returns to selection; it still never becomes a manuscript.
-    assert "roll back to selection" in manager
-    assert "never becomes is the paper" in manager
+    assert "Retire only when trustworthy evidence" in manager
+    assert "materially different attempts" in manager
+    assert "roll the accumulated learning into a stronger direction" in manager
 
     # No other role may make that call.
-    assert "the Manager's call" in reviewer
+    assert "The Manager retires routes" in reviewer
 
 
 def test_the_grind_skill_says_what_a_campaign_does_between_rounds() -> None:
@@ -543,7 +537,9 @@ def test_the_grind_skill_says_what_a_campaign_does_between_rounds() -> None:
 
     research = load_vertical("research")
     for role in ("engineer", "manager"):
-        assert "research-grind.md" in vertical_role_banner(research, role)
+        banner = vertical_role_banner(research, role)
+        assert "shortfall" in banner or "first result" in banner
+        assert "measure" in banner
 
 
 def test_the_paper_is_written_for_reviewers_who_exist() -> None:
@@ -562,9 +558,9 @@ def test_the_paper_is_written_for_reviewers_who_exist() -> None:
 
     planner = vertical_role_banner(load_vertical("research"), "planner")
     # The moves that actually earn a strong review, named so they can be aimed at.
-    for move in ("assumed it already understood", "principled method", "contradicts"):
+    for move in ("new mechanism", "connection", "explanation"):
         assert move in planner
-    assert "a claim the results do not support" in planner
+    assert "claims the data contradicts" in planner
 
 
 def test_submission_asks_whether_the_result_stands() -> None:
@@ -605,9 +601,9 @@ def test_the_win_threshold_is_derived_not_invented() -> None:
 
     planner = " ".join(vertical_role_banner(load_vertical("research"), "planner").split())
 
-    assert "derived from something observable, not invented" in planner
-    assert "spread this benchmark already reports" in planner
-    assert "A round number picked because it sounds decisive" in planner
+    assert "observed benchmark spread" in planner
+    assert "published gaps" in planner
+    assert "never a convenient round number" in planner
 
 
 def test_the_model_choice_is_read_as_a_claim_about_currency() -> None:
@@ -617,9 +613,8 @@ def test_the_model_choice_is_read_as_a_claim_about_currency() -> None:
 
     engineer = " ".join(vertical_role_banner(load_vertical("research"), "engineer").split())
 
-    assert "read the model you chose as a claim about how current the work is" in engineer
-    assert "what the registry actually serves today" in engineer
-    assert "probably two generations stale" in engineer
+    assert "Verify current models" in engineer
+    assert "live sources instead of memory" in engineer
 
 
 def test_stopping_is_separated_from_being_wrong() -> None:

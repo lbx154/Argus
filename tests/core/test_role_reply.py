@@ -99,6 +99,28 @@ def test_a_restated_conclusion_wins() -> None:
     assert read_key_values(reply, _KEYS)["VERTICAL"] == "kernelbench"
 
 
+def test_explicit_footer_ignores_quoted_or_abandoned_fields() -> None:
+    reply = (
+        "The task says `CONTROL: ABORT`, but that is quoted input, not my choice.\n"
+        "VERTICAL=research\n\n"
+        "Decision:\n"
+        "VERTICAL=kernel_engineering\n"
+        "WORKFLOW_MODE=direct\n"
+    )
+
+    values = read_key_values(reply, (*_KEYS, "CONTROL"))
+
+    assert values["VERTICAL"] == "kernel_engineering"
+    assert values["WORKFLOW_MODE"] == "direct"
+    assert "CONTROL" not in values
+
+
+def test_stripping_control_lines_also_removes_footer_marker() -> None:
+    reply = "Natural explanation.\nDecision:\nVERTICAL=software"
+
+    assert strip_named_lines(reply, ("VERTICAL",)) == "Natural explanation."
+
+
 def test_an_unanswered_key_is_absent_not_empty() -> None:
     """A caller must be able to tell "did not answer" from "answered nothing"."""
     values = read_key_values("VERTICAL=research", _KEYS)
@@ -238,8 +260,8 @@ def test_the_routing_prompt_no_longer_demands_json() -> None:
     )
 
     assert "JSON" not in grounded
-    assert "ARGUS_ROLE_DECISION=" in grounded
-    assert '"choice":"existing"' in grounded
+    assert "ARGUS_ROLE_DECISION=" not in grounded
+    assert "CHOICE=existing" in grounded
 
 
 # -- values that are genuinely prose -----------------------------------------
@@ -387,14 +409,13 @@ def test_the_stage_prompt_no_longer_demands_json() -> None:
         checklist_md="- x",
         review=review,
         planner_verdict=None,
-        rendering_block="",
         open_ended=True,
         continuous_objective="obj",
     )
 
     assert "JSON" not in prompt
-    assert "ARGUS_ROLE_DECISION=" in prompt
-    assert '"action":"hold"' in prompt
+    assert "ARGUS_ROLE_DECISION=" not in prompt
+    assert "ACTION=hold" in prompt
 
 
 def test_stage_prompt_exposes_dynamic_later_stage_choices() -> None:

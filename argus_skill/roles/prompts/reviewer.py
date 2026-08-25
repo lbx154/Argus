@@ -11,7 +11,7 @@ from ...core.model_visible_text import (
     MODEL_INTEGRITY_BOUNDARY,
     sanitize_model_visible_text,
 )
-from ...core.role_decision import decision_event_instruction
+from ...core.role_decision import decision_footer_instruction
 from ..task_contract import (
     EFFECTIVE_TASK_CONTRACT,
     format_native_shell_command,
@@ -26,11 +26,11 @@ OPERATIONS = frozenset({EVALUATE})
 _REEVALUATE_HEADER = (
     "## NEW ROUND — RE-EVALUATE INDEPENDENTLY (resumed reviewer)\n"
     "You are resuming your OWN thread ONLY to avoid re-sending the static rubric "
-    "— NOT to defer to your previous verdict. The role, rubric, and decision "
-    "rules from earlier in this thread still bind, but THIS round's artifacts "
-    "below are the ONLY evidence: re-verify against them from scratch. Your prior "
-    "verdict is not a prior and must never be rubber-stamped; judge this round on "
-    "its own artifacts, summary, and log audit.\n\n"
+    "— NOT to rubber-stamp your previous verdict. Previously certified evidence "
+    "remains settled context. Independently judge the current delta, rechecking "
+    "only inputs it changed, evidence that is stale or contradictory, and gaps "
+    "the prior verdict left unresolved. The role, rubric, and decision rules "
+    "still bind.\n\n"
 )
 
 _MAX_SHARED_CTX_CHARS = 100_000_000
@@ -134,11 +134,11 @@ def _verification_directive() -> str:
 
 
 _PRODUCT_ACCEPTANCE_DIRECTIVE = (
-    "For UI/API/CLI/service changes, require product-user acceptance. Safely use "
-    "isolated state, non-production port, test-only credentials and the public entry "
-    "point; inspect, then stop it. Never cause external or irreversible effects. Unit "
-    "tests alone do not prove that flow. Report unavailable trials; use a decisive "
-    "check for library work.\n\n"
+    "When a mission claims a user-facing UI/API/CLI/service flow, test the safe "
+    "public entry point; unit tests alone do not prove it. Internal exploratory "
+    "changes need no product ceremony: their feedback experiment is the trial. "
+    "Never cause external or irreversible effects. Report unavailable trials; "
+    "use a decisive check for library work.\n\n"
 )
 
 
@@ -434,6 +434,7 @@ def render_reviewer_prompt(
             _stage = ""
         _policy = resolve_policy(
             _proot,
+            scope=scope_normalized,
             stage=_stage,
             vertical=_persisted_vertical(_proot),
             target_level=_research_target_level,
@@ -639,8 +640,10 @@ def render_reviewer_prompt(
     )
     handoff_policy = (
         "`done` closes a bounded direct task when its mission contract and decisive "
-        "check pass. Use `continue` for one concrete material gap and give one next "
-        "action; leave optional hardening advisory."
+        "check pass at the current verification profile. It does not certify the "
+        "project or suppress a programme-level `plan_signal=reconsider`. Use "
+        "`continue` for a concrete material gap and give the next work package; "
+        "leave optional hardening advisory."
         if direct_workflow
         else (
             "`done` needs enough evidence for the material outcome, not exhaustive proof or "
@@ -663,35 +666,41 @@ def render_reviewer_prompt(
         + "\n\n"
         + _PRODUCT_ACCEPTANCE_DIRECTIVE
         + "\n\n## Reviewer role\n"
-        "Default to `done` when the outcome materially works; optional polish is advisory. "
-        "Inspect claim-critical uncertainty; use tools only in proportion to unresolved "
-        "uncertainty. You do not change the work under review: not its sources, not its "
+        "Use `done` when the outcome works at the current verification profile; "
+        "polish is advisory. Inspect claim-critical uncertainty with proportional "
+        "tools. You do not change the work under review: not its sources, not its "
         "artifacts, not its build. Recording your own verdict through a command your "
         "vertical gives you is review. Use `continue` for one "
-        "concrete in-scope material gap, `replan_requested` rarely for a wrong target or "
+        "concrete in-scope material gap, `replan_requested` for a wrong target or "
         "real boundary change, and `blocked` only for an external blocker. Semantic "
         "external claims need primary-source grounding; community implementations may "
-        "suffice for implementation details. Do not demand extra research, abstractions, "
-        "defensive machinery, or future-proofing.\n\n"
+        "suffice for implementation details. Do not demand work outside the current "
+        "profile, defensive machinery, or future-proofing. In `explore`/`develop`, "
+        "require feedback-producing experiments or research instead of premature "
+        "certification.\n\n"
         + ("" if _requires_engineering_audit else _verification_directive())
         + audit_integrity_block
         + "## Decision\n"
-        "The payload uses `status`, `reason`, `next_action`, `forward_progress`, "
-        "`plan_signal`, and only when relevant `operator_question` and "
-        "`operator_options`. Each option must be an object like "
-        "{\"id\":\"a\",\"label\":\"Use A\",\"description\":\"What choosing A does.\"}, "
-        "not a bare string."
+        "Conclude with status, reason, next action, forward progress, and plan "
+        "signal. Add an operator question only for a genuinely operator-owned "
+        "choice; write options as `id::label::description`, separated by semicolons."
         + (
             " Include the inspected `research_result` contract."
             if _research_target_level is not None
             else ""
         )
         + "\n"
-        + decision_event_instruction(
-            "reviewer",
-            '{"status":"done","reason":"requested outcome is materially complete",'
-            '"next_action":"","forward_progress":true,"plan_signal":"continue"}',
+        + decision_footer_instruction(
+            "STATUS=done\n"
+            "REASON=requested outcome is materially complete\n"
+            "NEXT_ACTION=\n"
+            "FORWARD_PROGRESS=true\n"
+            "PLAN_SIGNAL=continue"
         )
+        + "\nFor a real operator-owned choice only, add "
+        "`OPERATOR_QUESTION=...` and "
+        "`OPERATOR_OPTIONS=a::Use A::What choosing A does; "
+        "b::Use B::What choosing B does`.\n"
         + "\nJudge forward_progress against the operator goal, not activity: a "
         "repair can be locally correct and still leave the objective where it "
         "was, and saying so is not a rejection of the work.\n"

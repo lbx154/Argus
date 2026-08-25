@@ -191,27 +191,27 @@ def test_wrong_claims_header_fails_with_rename_hint(complete_package: Path) -> N
     assert "rename 'claim'" in r.stderr
 
 
-def test_exact_claims_header_documented_in_contract() -> None:
+def test_exact_claims_header_stays_out_of_role_prompt() -> None:
     mod = load_vertical("physics")
     header = "claim_id,claim_text,claim_type,evidence_type,evidence_pointer,status,boundary,reviewer_notes"
     assert ms.CLAIMS_HEADER == header
-    # The exact header must appear in the tool contract, role framing, and the
-    # vertical-owned checklist consumed by the Reviewer.
+    # The deterministic compatibility checker may still read the legacy table,
+    # but the model is no longer asked to optimize an exact CSV schema.
     assert header in ms.manuscript_review_items()
-    assert header in mod.role_banner("engineer")
+    assert header not in mod.role_banner("engineer")
     manuscript_items = " ".join(
         i.statement + " " + i.evidence_hint for i in mod.CHECKLIST_ITEMS["manuscript"]
     )
     assert header in manuscript_items
 
 
-def test_paper_audit_heading_documented_in_contract() -> None:
+def test_paper_audit_heading_stays_out_of_role_prompt() -> None:
     mod = load_vertical("physics")
     heading = ms.PAPER_AUDIT_HEADING
     assert heading == "Paper-Style Delivery Audit"
-    # The exact REVIEW.md audit heading must appear in the active agent-facing surfaces.
+    # Compatibility tooling retains the old heading; the active role prompt does not.
     assert heading in ms.manuscript_review_items()
-    assert heading in mod.role_banner("engineer")
+    assert heading not in mod.role_banner("engineer")
     manuscript_items = " ".join(
         i.statement + " " + i.evidence_hint for i in mod.CHECKLIST_ITEMS["manuscript"]
     )
@@ -249,14 +249,16 @@ def test_html_demo_absence_does_not_fail_manuscript_verifier(complete_package: P
 # --------------------------------------------------------------------------- #
 # 14. banner: terminal deliverable is a manuscript package (no "thin" wording) #
 # --------------------------------------------------------------------------- #
-def test_role_banner_declares_manuscript_terminal_deliverable() -> None:
+def test_manuscript_stage_focus_declares_a_real_paper() -> None:
     mod = load_vertical("physics")
+    focus = mod.stage_entry_contract("manuscript")
     for role in ("planner", "engineer", "reviewer"):
         banner = mod.role_banner(role)
-        assert "research-paper package" in banner
-        assert "manuscript" in banner.lower()
         assert "do not write a manuscript" not in banner
         assert "stay thin" not in banner.lower()
+    assert "conventional paper" in focus
+    assert "claim-driven figures" in focus
+    assert "no fixed figure count" in focus
 
 
 def test_manuscript_reviewer_checklist_audits_paper_and_no_overclaim() -> None:

@@ -46,18 +46,22 @@ def _round_handoff(outcome: EngineerTurnOutcome) -> EngineerHandoff:
 def _milestone_is_done(outcome: EngineerTurnOutcome) -> bool:
     if isinstance(outcome.decision, dict):
         return str(outcome.decision.get("status") or "").strip().lower() == "done"
+    from ..core.role_reply import decision_footer_text
+
     return any(
         _control_line(line).casefold() == "milestone_status=done"
-        for line in outcome.engineer_message.splitlines()
+        for line in decision_footer_text(outcome.engineer_message).splitlines()
     )
 
 
 def _milestone_is_blocked(outcome: EngineerTurnOutcome) -> bool:
     if isinstance(outcome.decision, dict):
         return str(outcome.decision.get("status") or "").strip().lower() == "blocked"
+    from ..core.role_reply import decision_footer_text
+
     return any(
         _control_line(line).casefold() == "milestone_status=blocked"
-        for line in outcome.engineer_message.splitlines()
+        for line in decision_footer_text(outcome.engineer_message).splitlines()
     )
 
 

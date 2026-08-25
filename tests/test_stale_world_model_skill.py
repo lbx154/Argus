@@ -49,8 +49,8 @@ def test_unavailable_is_a_substitution_not_a_blocker() -> None:
 
 def test_the_research_engineer_is_pointed_at_it() -> None:
     engineer = vertical_role_banner(load_vertical("research"), "engineer")
-    assert "stale-world-model.md" in engineer
-    assert "probe it before the plan hardens" in engineer
+    assert "Verify current models" in engineer
+    assert "live sources instead of memory" in engineer
 
 
 def test_it_is_discoverable_from_any_domain() -> None:

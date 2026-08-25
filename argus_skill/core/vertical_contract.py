@@ -273,17 +273,35 @@ class VerticalContract:
         if self.stage_completion_validator is None:
             return ()
         validator = self.stage_completion_validator
-        accepts_state_root = False
-        if state_root is not None:
-            try:
-                parameter = inspect.signature(validator).parameters.get("state_root")
-                accepts_state_root = parameter is not None
-            except (TypeError, ValueError):
-                accepts_state_root = False
-        value = (
-            validator(stage, project_root, state_root=state_root)
-            if accepts_state_root
-            else validator(stage, project_root)
+        try:
+            parameters = inspect.signature(validator).parameters
+        except (TypeError, ValueError):
+            parameters = {}
+        kwargs: dict[str, object] = {}
+        if state_root is not None and "state_root" in parameters:
+            kwargs["state_root"] = state_root
+        if "verification_profile" in parameters:
+            from .verification_policy import resolve_policy
+
+            final_scope = (
+                "final_submission"
+                if self.completion_gate == "certified"
+                and self.stage_order
+                and stage == self.stage_order[-1]
+                else None
+            )
+            policy = resolve_policy(
+                state_root if state_root is not None else project_root,
+                scope=final_scope,
+                stage=stage,
+                vertical=self.name,
+                stage_profiles=self.verification_stage_profiles,
+            )
+            kwargs["verification_profile"] = policy.profile
+        value = validator(
+            stage,
+            project_root,
+            **kwargs,
         )
         if value is None:
             return ()

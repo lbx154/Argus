@@ -21,6 +21,10 @@ class BoundedDagNode:
     deps: tuple[str, ...]
     title: str
     objective: str
+    hypothesis: str = ""
+    goal_contribution: str = ""
+    expected_regressions: str = ""
+    decision_rule: str = ""
     acceptance_check: str = ""
     non_goals: tuple[str, ...] = ()
     vertical: str = ""
@@ -41,10 +45,19 @@ class BoundedDagPlan:
     premium_requests: float = 0.0
 
 
-def _prompt(objective: str) -> str:
+def _prompt(
+    objective: str,
+    project_root: Path | str,
+    *,
+    state_root: Path | str | None = None,
+) -> str:
     from ..roles.prompts.planner import build_bounded_dag_prompt
 
-    return build_bounded_dag_prompt(objective)
+    return build_bounded_dag_prompt(
+        objective,
+        project_root=project_root,
+        state_root=state_root,
+    )
 
 
 def _extract(result: Any) -> str:
@@ -56,7 +69,9 @@ def _extract(result: Any) -> str:
 
 _PLAN_LINE = re.compile(
     r"^(?P<key>PLAN_REASON|TASK_KEY|TASK_DEPS|TASK_TITLE|TASK_OBJECTIVE|"
-    r"TASK_ACCEPTANCE_CHECK|TASK_NON_GOALS|TASK_VERTICAL|TASK_WORKDIR|"
+    r"TASK_HYPOTHESIS|TASK_GOAL_CONTRIBUTION|TASK_EXPECTED_REGRESSIONS|"
+    r"TASK_DECISION_RULE|TASK_ACCEPTANCE_CHECK|TASK_NON_GOALS|"
+    r"TASK_VERTICAL|TASK_WORKDIR|"
     r"TASK_WORK_KIND|"
     r"TASK_REQUIRE_INDEPENDENT_REVIEW)"
     r"\s*[:=]\s*(?P<value>.*)$",
@@ -65,6 +80,8 @@ _PLAN_LINE = re.compile(
 
 
 def _parse_key_value_plan(text: str) -> dict[str, Any]:
+    from ..core.role_reply import decision_footer_text
+
     reason = ""
     tasks: list[dict[str, Any]] = []
     current: dict[str, Any] | None = None
@@ -72,12 +89,16 @@ def _parse_key_value_plan(text: str) -> dict[str, Any]:
         "TASK_KEY": "key",
         "TASK_TITLE": "title",
         "TASK_OBJECTIVE": "objective",
+        "TASK_HYPOTHESIS": "hypothesis",
+        "TASK_GOAL_CONTRIBUTION": "goal_contribution",
+        "TASK_EXPECTED_REGRESSIONS": "expected_regressions",
+        "TASK_DECISION_RULE": "decision_rule",
         "TASK_ACCEPTANCE_CHECK": "acceptance_check",
         "TASK_VERTICAL": "vertical",
         "TASK_WORKDIR": "execution_workdir",
         "TASK_WORK_KIND": "work_kind",
     }
-    for raw_line in text.splitlines():
+    for raw_line in decision_footer_text(text).splitlines():
         line = raw_line.strip().strip("`").strip()
         match = _PLAN_LINE.match(line)
         if match is None:
@@ -189,6 +210,14 @@ def _validate(payload: object) -> tuple[str, tuple[BoundedDagNode, ...]]:
                 deps=tuple(deps),
                 title=title,
                 objective=objective,
+                hypothesis=str(row.get("hypothesis") or "").strip(),
+                goal_contribution=str(
+                    row.get("goal_contribution") or ""
+                ).strip(),
+                expected_regressions=str(
+                    row.get("expected_regressions") or ""
+                ).strip(),
+                decision_rule=str(row.get("decision_rule") or "").strip(),
                 acceptance_check=str(row.get("acceptance_check") or "").strip(),
                 non_goals=non_goals,
                 vertical=str(row.get("vertical") or "").strip(),
@@ -229,6 +258,7 @@ def plan_bounded_dag(
     objective: str,
     *,
     workdir: Path | str,
+    state_root: Path | str | None = None,
     model: str | None = None,
     reasoning_effort: str = "high",
 ) -> BoundedDagPlan:
@@ -239,7 +269,7 @@ def plan_bounded_dag(
         "reasoning_output_tokens": 0,
         "premium_requests": 0.0,
     }
-    prompt = _prompt(objective)
+    prompt = _prompt(objective, workdir, state_root=state_root)
     for attempt in range(2):
         try:
             result = gateway_run_exec(
@@ -304,6 +334,8 @@ def plan_bounded_dag(
                     objective,
                     output,
                     validation_error,
+                    project_root=workdir,
+                    state_root=state_root,
                 )
                 continue
             return BoundedDagPlan(

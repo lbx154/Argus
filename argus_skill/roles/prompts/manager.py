@@ -10,7 +10,7 @@ from ...core.model_visible_text import (
     MODEL_INTEGRITY_BOUNDARY,
     sanitize_model_visible_text,
 )
-from ...core.role_decision import decision_event_instruction
+from ...core.role_decision import decision_footer_instruction
 from ..task_contract import format_native_shell_command
 from .types import ChecklistMode, RoleName, RolePromptRequest
 
@@ -225,13 +225,18 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
         "BOUNDED (default BOUNDED). SELF uses NONE.\n\n"
         "GREETING: GREETING only for a pure greeting. NAME: a short title in the "
         "message language.\n\n"
-        + decision_event_instruction(
-            "manager",
-            '{"config":"NONE","control":"NONE","authorization":"NONE",'
-            '"steer_directive":"NONE","operator_question_policy":"unchanged",'
-            '"route":"SELF","self_mode":"REPLY",'
-            '"reply":"full user-facing answer","lifetime":"NONE",'
-            '"greeting":"NONE","name":"short title"}',
+        + decision_footer_instruction(
+            "CONFIG: NONE\n"
+            "CONTROL: NONE\n"
+            "AUTHORIZATION: NONE\n"
+            "STEER_DIRECTIVE: NONE\n"
+            "OPERATOR_QUESTION_POLICY: unchanged\n"
+            "ROUTE: SELF\n"
+            "SELF_MODE: REPLY\n"
+            "REPLY: full user-facing answer\n"
+            "LIFETIME: NONE\n"
+            "GREETING: NONE\n"
+            "NAME: short title"
         )
         + "\n"
         "SET syntax: SET <knob> <comma-separated roles|ALL|-> <verbatim value>.\n\n"
@@ -311,11 +316,13 @@ def build_fast_vertical_decision_prompt(
         "infer a publication venue.\n\n"
         "## Task\n"
         f"{(task or '').strip()}\n\n"
-        + decision_event_instruction(
-            "manager",
-            '{"choice":"existing","vertical":"software","domain":"",'
-            '"workflow_mode":"direct","confidence":0.9,'
-            '"rationale":"brief reason"}',
+        + decision_footer_instruction(
+            "CHOICE=existing\n"
+            "VERTICAL=software\n"
+            "DOMAIN=\n"
+            "WORKFLOW_MODE=direct\n"
+            "CONFIDENCE=0.9\n"
+            "RATIONALE=brief reason"
         )
         + "\nUse choice `grounded` with an empty vertical when repository inspection "
         "is needed. Add research target fields only when the operator stated them.\n"
@@ -394,8 +401,8 @@ def build_vertical_decision_prompt(
         "when the direction is still being discovered or `locked` when the operator fixed "
         "the hypothesis/direction; values such as `exploratory`, `publishable`, or "
         "`experimental_validation` are invalid. Never infer a venue.\n\n"
-        "The payload uses `choice`, `vertical`, `domain`, `workflow_mode`, and "
-        "`rationale`. Add `stages` only for a revised project domain or new vertical. "
+        "State `choice`, `vertical`, `domain`, `workflow_mode`, and `rationale` "
+        "at the end. Add `stages` only for a revised project domain or new vertical. "
         "Omit `execution_task` for a standalone existing route; include it only when "
         "bounded context must be rewritten as a standalone handoff or for a new "
         "vertical. Preserve stated paths, commands, order, and stopping conditions. "
@@ -403,10 +410,12 @@ def build_vertical_decision_prompt(
         "`target_venue` only when stated. For a new vertical also add `confidence`, "
         "`precise_constraints`, `exclusions`, and `ambiguities`; copy these from the "
         "operator's words.\n\n"
-        + decision_event_instruction(
-            "manager",
-            '{"choice":"existing","vertical":"software","domain":"",'
-            '"workflow_mode":"direct","rationale":"brief reason"}',
+        + decision_footer_instruction(
+            "CHOICE=existing\n"
+            "VERTICAL=software\n"
+            "DOMAIN=\n"
+            "WORKFLOW_MODE=direct\n"
+            "RATIONALE=brief reason"
         )
         + "\n"
         "Never invent a constraint; a missing number is an ambiguity, not permission "
@@ -447,10 +456,9 @@ def build_research_target_prompt(
         f"{(task or '').strip()}\n\n"
         "Allowed levels for this vertical: "
         f"{', '.join(supported_levels)}.\n\n"
-        + decision_event_instruction(
-            "manager",
-            '{"research_target_level":"publishable",'
-            '"rationale":"brief reason tied to the requested success bar"}',
+        + decision_footer_instruction(
+            "RESEARCH_TARGET_LEVEL=publishable\n"
+            "RATIONALE=brief reason tied to the requested success bar"
         )
         + "\n"
     )
@@ -710,108 +718,6 @@ def manager_workspace_capability_prompt(
     )
 
 
-def manager_rendering_prompt(
-    project_root: Path | str,
-    *,
-    review: object | None = None,
-    manifest_root: Path | str | None = None,
-) -> str:
-    """Prompt block making right-sidebar presentation Manager-owned."""
-    from ...manager.live_view import (
-        _manager_progress_context,
-        load_live_view_decision,
-    )
-
-    current = load_live_view_decision(
-        project_root,
-        manifest_root=manifest_root,
-    )
-    current_text = (
-        json.dumps(
-            {
-                "title": current.title,
-                "reason": current.reason,
-                "paths": list(current.paths),
-            },
-            ensure_ascii=False,
-        )
-        if current is not None
-        else "null"
-    )
-    status = str(getattr(review, "status", "") or "")
-    reason = str(getattr(review, "reason", "") or "")
-    progress_context = _manager_progress_context(
-        project_root,
-        manifest_root=manifest_root,
-    )
-    return (
-        manager_workspace_capability_prompt(
-            project_root,
-            manifest_root=manifest_root,
-        )
-        + "\n"
-        "## Right-sidebar presentation — MANAGER ownership\n"
-        "You alone own what Argus Web renders in the right sidebar. Do not assign "
-        "rendering work, Manager paths, or presentation-only files to Engineer.\n"
-        "Use read-only tools to inspect current intermediate artifacts. Never "
-        "write files with tools. You "
-        "may point the panel directly at a useful existing text/image/PDF artifact. "
-        "If it is missing, stale, or unattractive, author presentation content "
-        "for a single-file path under `.argus/live/` using the PRESENTATION "
-        "block below; the harness will write it safely. Never alter source evidence, task outputs, code, or "
-        "paper claims merely for display.\n"
-        f"Current live view: {current_text}\n"
-        f"Latest reviewer status: {status or '(none)'}\n"
-        f"Latest reviewer reason: {reason or '(none)'}\n"
-        "Current event-sourced progress: "
-        f"{json.dumps(progress_context, ensure_ascii=False)}\n"
-        "All existing artifact paths are resolved relative to the canonical "
-        "workspace shown by your working directory, never the session state/life "
-        "directory. Do not use `manager_live/...`; use an existing workspace path "
-        "such as `research/...`, or author content under `.argus/live/` through "
-        "`presentations`. A selection with zero materialized workspace artifacts is "
-        "rejected and the prior view is preserved. "
-        "At every stage decision, if the current view uses `.argus/live/`, refresh "
-        "that checkpoint in `presentations`. It must contain substantive sections "
-        "for `Current node`, `Verified progress`, `Current blocker`, and `Next action`; "
-        "a slogan, a restatement of the mission, or stale prose is invalid. "
-        "Choose 1-6 safe workspace-relative files. If this turn has no better "
-        "view, set `live_view` to null and the last valid view is preserved. Set "
-        "`clear_live_view` to true only when keeping the prior view would actively "
-        "mislead the operator. "
-        "You may select existing Markdown, HTML, JSON, CSV/TSV, text/code, image, "
-        "PDF, audio, or video artifacts. You may also CREATE the operator-facing "
-        "view yourself under `.argus/live/` as Markdown, sandboxed HTML, JSON, "
-        "CSV/TSV, or text; the harness supplies safe transport, not content choices. "
-        "Every `.argus/live/` path newly selected in `live_view.paths` MUST have a "
-        "matching entry in `presentations` in the same response. Never name a new "
-        "Manager path without its content. If you omit that content for an existing "
-        "`.argus/live/` path, the harness replaces it with a minimal status page "
-        "from this response so the sidebar never displays stale prose. "
-        "State the panel choice on these lines:\n"
-        "LIVE_VIEW_PATHS=<existing artifact or .argus/live/file>; <another>\n"
-        "LIVE_VIEW_TITLE=<short title>\n"
-        "LIVE_VIEW_REASON=<why this is useful now>\n"
-        "Omit LIVE_VIEW_PATHS entirely to preserve the last valid view; give it "
-        "empty only when keeping the prior view would actively mislead.\n"
-        "For each `.argus/live/` file you author, give its path then its content "
-        "in a fenced block:\n"
-        "PRESENTATION=.argus/live/<file>.<md|html|json|csv|tsv|txt>\n"
-        "```\n<Manager-authored presentation>\n```\n"
-    )
-
-
-def build_manager_checkpoint_correction_prompt(prompt: str) -> str:
-    return (
-        prompt
-        + "\n\n## Required correction\n"
-        + "Your previous response did not refresh the Manager-owned "
-        + "checkpoint. Return the same evidence-based stage ruling, "
-        + "but include a substantive `.argus/live/` presentation with "
-        + "Current node, Verified progress, Current blocker, and Next action."
-    )
-
-
 def assemble_manager_prompt(
     prompt: str,
     *,
@@ -853,7 +759,6 @@ def build_stage_decision_prompt(
     checklist_md: str,
     review: Any,
     planner_verdict: Any = None,
-    rendering_block: str = "",
     open_ended: bool = False,
     continuous_objective: str = "",
 ) -> str:
@@ -975,7 +880,6 @@ def build_stage_decision_prompt(
         f"{mission_scope_block}"
         f"{objective_block}"
         f"{open_ended_block}"
-        f"{rendering_block.strip()}\n\n"
         "## Your decision\n"
         "- ADVANCE only when the checklist is supported by concrete evidence.\n"
         "- HOLD when work remains or evidence is unclear, including when Reviewer asks "
@@ -986,10 +890,10 @@ def build_stage_decision_prompt(
         "never complete automatically.\n"
         "- A weak proxy or one failed attempt is not completion. Do not repeat the "
         "Reviewer's checks without a contradiction. When unsure, HOLD.\n\n"
-        + decision_event_instruction(
-            "manager",
-            '{"action":"hold","target_stage":"current stage",'
-            '"reason":"clear explanation"}',
+        + decision_footer_instruction(
+            "ACTION=hold\n"
+            "TARGET_STAGE=current stage\n"
+            "REASON=clear explanation"
         )
         + (
             "\nInclude `resolves_wait` when a Planner waiting contract is active."
@@ -1051,7 +955,6 @@ __all__ = [
     "build_quick_reply_prompt",
     "build_front_door_prompt",
     "build_maintenance_prompt",
-    "build_manager_checkpoint_correction_prompt",
     "build_pending_question_prompt",
     "build_plan_prompt",
     "build_prompt_rewrite_prompt",
@@ -1062,7 +965,6 @@ __all__ = [
     "build_stage_decision_prompt",
     "build_steer_confirmation_prompt",
     "build_vertical_decision_prompt",
-    "manager_rendering_prompt",
     "manager_workspace_capability_prompt",
     "stage_decision_request",
 ]

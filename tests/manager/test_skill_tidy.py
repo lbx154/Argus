@@ -102,8 +102,39 @@ def test_team_learning_promotes_to_profile_and_new_session_discovers_it(
         "team.learning.review.completed",
     ]
 
+    second_events: list[dict[str, Any]] = []
+    second = propagate_after_mission(
+        project,
+        backend,
+        project_state_dir=state,
+        shared_root=shared,
+        mission_objective="Repair another parser edge case",
+        on_event=second_events.append,
+    )
 
-def test_failed_team_mission_prompt_requires_verified_or_repeated_root_cause(
+    assert second["to_shared"] == 0
+    assert len(backend.calls) == 1
+    assert [event["type"] for event in second_events] == [
+        "team.learning.review.skipped"
+    ]
+    assert second_events[0]["reason"] == "no project skill delta"
+
+    candidate.write_text(
+        candidate.read_text(encoding="utf-8")
+        + "\nCheck the minimized case against the original input.\n",
+        encoding="utf-8",
+    )
+    propagate_after_mission(
+        project,
+        backend,
+        project_state_dir=state,
+        shared_root=shared,
+        mission_objective="Repair a changed parser procedure",
+    )
+    assert len(backend.calls) == 2
+
+
+def test_failed_mission_does_not_launch_team_learning(
     tmp_path: Path,
 ) -> None:
     project = tmp_path / "workspace"
@@ -128,15 +159,12 @@ def test_failed_team_mission_prompt_requires_verified_or_repeated_root_cause(
         on_event=events.append,
     )
 
-    prompt = backend.calls[0]["prompt"]
-    assert counts["to_shared"] == 1
-    assert "Mission verdict: failure" in prompt
-    assert "same mechanism/assumption failing repeatedly" in prompt
-    assert "single transient, ambiguous, interrupted, or unresolved failure" in prompt
-    assert "Reviewer self-evolution belongs in `reviewer/`" in prompt
-    assert "Do not make the main Reviewer edit Skills itself" in prompt
-    assert events[0]["mission_success"] is False
-    assert events[-1]["mission_success"] is False
+    assert counts["to_shared"] == 0
+    assert backend.calls == []
+    assert [event["type"] for event in events] == [
+        "team.learning.review.skipped"
+    ]
+    assert events[0]["reason"] == "mission failed"
 
 
 @dataclass
@@ -204,7 +232,7 @@ def test_names_the_verifier_reports_which_name_it_found() -> None:
     assert names_the_verifier("") == ""
 
 
-def test_a_promoted_gate_repair_does_not_reach_the_shared_library(
+def test_no_project_skill_delta_cannot_invent_a_shared_skill(
     tmp_path: Path,
 ) -> None:
     """The circularity, closed.
@@ -233,16 +261,13 @@ def test_a_promoted_gate_repair_does_not_reach_the_shared_library(
         on_event=events.append,
     )
 
-    assert counts["quarantined"] == 1
+    assert backend.calls == []
+    assert counts["quarantined"] == 0
     assert counts["to_shared"] == 0
     assert not (shared / "engineer" / "stage-goal-gate-repair.md").exists()
-    assert (shared / "_uncertified" / "stage-goal-gate-repair.md").is_file()
-    quarantined = [
-        event for event in events
-        if event["type"] == "team.learning.promotion.quarantined"
-    ]
-    assert len(quarantined) == 1
-    assert quarantined[0]["marker"] == "complete_final_stage"
+    assert not (shared / "_uncertified" / "stage-goal-gate-repair.md").exists()
+    assert events[-1]["type"] == "team.learning.review.skipped"
+    assert events[-1]["reason"] == "no project skill delta"
 
 
 def test_the_quarantine_is_outside_every_role_directory(tmp_path: Path) -> None:
@@ -332,7 +357,7 @@ def test_a_candidate_naming_the_verifier_is_withheld_from_the_evidence(
     assert "Cut the input in half" in prompt, "ordinary candidates are unaffected"
 
 
-def test_the_prompt_says_the_verdict_cannot_certify_its_own_machinery(
+def test_no_project_skill_directory_skips_team_learning(
     tmp_path: Path,
 ) -> None:
     """The rule is stated even with no candidate to withhold.
@@ -355,10 +380,79 @@ def test_the_prompt_says_the_verdict_cannot_certify_its_own_machinery(
         mission_result="status=done",
     )
 
-    prompt = backend.calls[0]["prompt"]
-    assert "verified evidence about the work" in prompt
-    assert "certified by the very thing it altered" in prompt
-    assert "say in your final message that you saw one and stopped" in prompt
-    assert "may be promoted after that one success" in prompt, (
-        "learning from a single success stays intact; only the circular class is out"
+    assert backend.calls == []
+
+
+def test_team_learning_honors_configured_project_skill_root(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "workspace"
+    state = tmp_path / "session-state"
+    configured = tmp_path / "configured-skills"
+    shared = tmp_path / "profile-skills"
+    project.mkdir()
+    candidate = configured / "engineer" / "configured.md"
+    candidate.parent.mkdir(parents=True)
+    candidate.write_text(
+        "---\n"
+        "name: configured procedure\n"
+        "description: A procedure from the configured project layer\n"
+        "---\n",
+        encoding="utf-8",
     )
+    monkeypatch.setenv("ARGUS_SKILL_PROJECT_SKILLS_DIR", str(configured))
+    backend = _SilentBackend()
+
+    propagate_after_mission(
+        project,
+        backend,
+        project_state_dir=state,
+        shared_root=shared,
+    )
+
+    assert len(backend.calls) == 1
+    assert "configured.md" in backend.calls[0]["prompt"]
+
+
+def test_unseen_candidate_batch_remains_pending_for_next_success(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "workspace"
+    state = tmp_path / "session-state"
+    shared = tmp_path / "profile-skills"
+    project.mkdir()
+    skill_root = state / "skills" / "engineer"
+    skill_root.mkdir(parents=True)
+    for index in range(9):
+        (skill_root / f"candidate-{index}.md").write_text(
+            "---\n"
+            f"name: candidate {index}\n"
+            f"description: Reusable procedure {index}\n"
+            "---\n",
+            encoding="utf-8",
+        )
+    backend = _SilentBackend()
+
+    propagate_after_mission(
+        project,
+        backend,
+        project_state_dir=state,
+        shared_root=shared,
+    )
+    propagate_after_mission(
+        project,
+        backend,
+        project_state_dir=state,
+        shared_root=shared,
+    )
+    propagate_after_mission(
+        project,
+        backend,
+        project_state_dir=state,
+        shared_root=shared,
+    )
+
+    assert len(backend.calls) == 2
+    assert "candidate-8.md" not in backend.calls[0]["prompt"]
+    assert "candidate-8.md" in backend.calls[1]["prompt"]

@@ -101,6 +101,68 @@ def test_ordinary_bounded_direct_done_keeps_manager_adjudication(tmp_path) -> No
     assert _state(state_root)["current_stage"] == "setup"
 
 
+def test_stage_closing_direct_final_done_completes_without_manager_model(
+    tmp_path,
+) -> None:
+    state_root = tmp_path / "state"
+    workdir = tmp_path / "worktree"
+    workdir.mkdir()
+    persist_vertical(state_root, "software", workflow_mode="direct")
+    manager = Manager(
+        project_root=state_root,
+        execution_workdir=workdir,
+        runner=object(),
+    )
+    calls: list[str] = []
+
+    def manager_model(prompt: str):
+        calls.append(prompt)
+        raise AssertionError("Reviewer done already settles a direct final stage")
+
+    decision = manager.decide_stage_transition(
+        review=_review(),
+        project_root=state_root,
+        mission_scope="bounded",
+        stage_closing=True,
+        run_exec=manager_model,
+    )
+
+    assert calls == []
+    assert decision.action == "complete"
+    assert decision.target_stage == "delivery"
+    assert decision.source == "manager_deterministic"
+    state = _state(state_root)
+    assert state["stages"]["delivery"]["status"] == "done"
+    assert state["stage_history"][-1]["direction"] == "complete"
+
+
+def test_direct_final_self_review_completes_when_vertical_needs_no_reviewer(
+    tmp_path,
+) -> None:
+    state_root = tmp_path / "state"
+    workdir = tmp_path / "worktree"
+    workdir.mkdir()
+    persist_vertical(state_root, "software", workflow_mode="direct")
+    manager = Manager(
+        project_root=state_root,
+        execution_workdir=workdir,
+        runner=object(),
+    )
+
+    decision = manager.decide_stage_transition(
+        review=_review(review_source="engineer_self_review"),
+        project_root=state_root,
+        mission_scope="bounded",
+        stage_closing=True,
+        run_exec=lambda _prompt: (_ for _ in ()).throw(
+            AssertionError("low-risk direct completion needs no second model")
+        ),
+    )
+
+    assert decision.action == "complete"
+    assert decision.source == "manager_deterministic"
+
+
 @pytest.mark.parametrize(
     ("review_changes", "mission_scope"),
     [

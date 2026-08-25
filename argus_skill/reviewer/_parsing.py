@@ -353,6 +353,7 @@ def _parse_named_verdict(text: str) -> ReviewDecision | None:
     answer we could not understand.
     """
     from ..core.role_reply import (
+        decision_footer_text,
         read_block,
         read_key_values,
         read_optional,
@@ -385,7 +386,9 @@ def _parse_named_verdict(text: str) -> ReviewDecision | None:
             reason=reason.strip()[:5000],
             next_action=read_block(text, "NEXT_ACTION", _VERDICT_KEYS).strip()[:1500],
             operator_question=read_optional(values, "OPERATOR_QUESTION")[:500],
-            operator_options=parse_agent_operator_options(text),
+            operator_options=parse_agent_operator_options(
+                decision_footer_text(text)
+            ),
             checkpoint_recommended=(
                 read_optional(values, "CHECKPOINT_RECOMMENDED").casefold() == "true"
             ),

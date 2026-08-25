@@ -5,9 +5,9 @@ GROUND_TRUTH_RELPATH = "research/GROUND_TRUTH.md"
 
 _MODE_LINES = {
     "staged": (
-        f"Inspect the real code, data, logs, and measurements. If binding facts are "
-        f"still unknown, record only those facts in `{GROUND_TRUTH_RELPATH}` before "
-        "acting; never fabricate or treat a summary as a conclusion."
+        f"Inspect real code, data, logs, and measurements. Resolve a binding unknown "
+        f"with a read or reversible probe; record it in `{GROUND_TRUTH_RELPATH}` only "
+        "when later rounds need it. Never fabricate or treat a summary as a conclusion."
     ),
     "direct": (
         f"Verify only facts material to the requested deliverable. Use "
