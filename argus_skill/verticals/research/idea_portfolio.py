@@ -7,6 +7,7 @@ import json
 import math
 import os
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -15,7 +16,7 @@ from ...core.research_contract import (
     resolve_research_direction_mode,
     resolve_research_target_level,
 )
-from ...team import formation, pool, task_board
+from ...team import formation, pool, registry, task_board
 
 TEAM_ID = "research-idea-pipeline-v5"
 TEAM_WIDTH = 12
@@ -817,12 +818,115 @@ def _materialize_selection(
             os.replace(tmp, path)
         finally:
             tmp.unlink(missing_ok=True)
-    for campaign_root in (root, selection_root):
-        if str(pool.read(campaign_root).get("state") or "") not in {
-            "draining",
-            "dissolved",
-        }:
-            pool.update(campaign_root, state="draining")
+    if str(pool.read(selection_root).get("state") or "") not in {
+        "draining",
+        "dissolved",
+    }:
+        pool.update(selection_root, state="draining")
+
+
+def late_selection_reviews(
+    project_root: Path,
+) -> tuple[dict[str, str], ...]:
+    """Qualified reviews that settled after the original quorum selection."""
+    project_root = Path(project_root).expanduser().resolve()
+    active = _active_portfolio(project_root)
+    state = _state_payload(project_root)
+    quorum = {
+        str(item) for item in state.get("quorum_review_task_ids") or ()
+    }
+    if active is None or len(quorum) != QUORUM_COUNT:
+        return ()
+    root, team_id, artifact_root, _digest = active
+    specs = {
+        str(task["task_id"]): task
+        for task in portfolio_tasks(team_id, artifact_root)
+    }
+    actual = {
+        str(task.get("task_id") or ""): task
+        for task in task_board.snapshot(root)
+    }
+    late_ids = tuple(
+        sorted(
+            task_id
+            for task_id, spec in specs.items()
+            if spec.get("role") == "idea-review" and task_id not in quorum
+        )
+    )
+    if not late_ids or any(
+        str(actual.get(task_id, {}).get("state") or "")
+        not in {"done", "failed", "blocked"}
+        for task_id in late_ids
+    ):
+        return ()
+    rows: list[dict[str, str]] = []
+    for review_id in late_ids:
+        review = actual.get(review_id, {})
+        route_id = review_id.removesuffix("-review")
+        route = actual.get(route_id, {})
+        payload = _review_payload(project_root, review)
+        if (
+            review.get("state") != "done"
+            or route.get("state") != "done"
+            or not _valid_shard(root, review)
+            or not _valid_shard(root, route)
+            or payload is None
+            or payload.get("verdict") != "qualified"
+        ):
+            continue
+        rows.append({
+            "route_task_id": route_id,
+            "route_artifact": str(specs[route_id]["owns_paths"][0]),
+            "review_task_id": review_id,
+            "review_artifact": str(specs[review_id]["owns_paths"][0]),
+            "summary": " ".join(str(payload.get("summary") or "").split()),
+            "novelty_delta": " ".join(
+                str(payload.get("novelty_delta") or "").split()
+            ),
+        })
+    return tuple(rows)
+
+
+def refresh_idea_portfolio(project_root: Path) -> None:
+    """Keep late routes claimable without delaying quorum-selected work."""
+    project_root = Path(project_root).expanduser().resolve()
+    active = _active_portfolio(project_root)
+    if active is None or idea_portfolio_selection(project_root) is None:
+        return
+    root, team_id, artifact_root, _digest = active
+    specs = portfolio_tasks(team_id, artifact_root)
+    actual = {
+        str(task.get("task_id") or ""): task
+        for task in task_board.snapshot(root)
+    }
+    state = _state_payload(project_root)
+    quorum = {
+        str(item) for item in state.get("quorum_review_task_ids") or ()
+    }
+    late_ids = [
+        str(task["task_id"])
+        for task in specs
+        if task.get("role") == "idea-review"
+        and str(task["task_id"]) not in quorum
+    ]
+    unsettled = any(
+        str(actual.get(task_id, {}).get("state") or "")
+        not in {"done", "failed", "blocked"}
+        for task_id in late_ids
+    )
+    if unsettled:
+        marker = registry.marker_path(project_root, team_id)
+        if not marker.exists():
+            registry.write_marker(
+                project_root,
+                team_id=team_id,
+                team_root=root,
+                cwd=str(project_root),
+                now=time.time(),
+            )
+        pool.update(root, width=TEAM_WIDTH, state="running")
+    elif str(pool.read(root).get("state") or "") != "dissolved":
+        pool.update(root, state="draining")
 
 
 def idea_portfolio_completion_issues(project_root: Path) -> tuple[str, ...]:
@@ -873,6 +977,8 @@ __all__ = [
     "ensure_idea_portfolio",
     "idea_portfolio_completion_issues",
     "idea_portfolio_selection",
+    "late_selection_reviews",
     "portfolio_required",
     "portfolio_tasks",
+    "refresh_idea_portfolio",
 ]

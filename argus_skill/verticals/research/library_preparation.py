@@ -31,6 +31,7 @@ def prepare_skill_libraries(context: VerticalLibraryContext) -> None:
         ensure_idea_portfolio,
         idea_portfolio_selection,
         portfolio_required,
+        refresh_idea_portfolio,
     )
 
     if context.stage == "research" and portfolio_required(context.workdir):
@@ -68,6 +69,7 @@ def prepare_skill_libraries(context: VerticalLibraryContext) -> None:
             })
     if context.team_task_id:
         return
+    refresh_idea_portfolio(context.workdir)
     if (
         _enabled("ARGUS_SKILL_VENUE_RESEARCH")
         and context.stage in _VENUE_STAGES

@@ -13,9 +13,14 @@ from argus_skill.verticals.research.idea_portfolio import (
     ensure_idea_portfolio,
     idea_portfolio_completion_issues,
     idea_portfolio_selection,
+    late_selection_reviews,
+    refresh_idea_portfolio,
 )
 from argus_skill.verticals.research.library_preparation import prepare_skill_libraries
-from argus_skill.verticals.research.stages import stage_completion_issues
+from argus_skill.verticals.research.stages import (
+    _late_selection_reviews_block,
+    stage_completion_issues,
+)
 
 
 def _pipeline(root: Path, *, direction: str = "broad") -> None:
@@ -339,8 +344,51 @@ def test_quorum_selector_can_choose_best_not_earliest(tmp_path: Path) -> None:
         if task["role"] == "idea-route" and task["state"] != "done"
     ]
     assert len(unfinished_routes) == 2
-    assert pool.read(root)["state"] == "draining"
+    # Selection starts at quorum; the two late routes keep running and never
+    # delay the selected programme.
+    assert pool.read(root)["state"] == "running"
     assert pool.read(selection_root)["state"] == "draining"
+
+
+def test_late_routes_remain_claimable_and_reach_reviewer_once_settled(
+    tmp_path: Path,
+) -> None:
+    _pipeline(tmp_path)
+    root = ensure_idea_portfolio(tmp_path, direction="agent reliability")
+    reviewed = _complete_quorum(tmp_path, root)
+    ensure_idea_portfolio(tmp_path, direction="agent reliability")
+    _complete_selection(
+        tmp_path,
+        selected_route=reviewed[0][0],
+        selected_review=reviewed[0][1],
+    )
+
+    # Research is already free to proceed while routes 11/12 remain claimable.
+    assert idea_portfolio_completion_issues(tmp_path) == ()
+    assert pool.read(root)["state"] == "running"
+    late = [
+        _complete_reviewed_route(
+            tmp_path,
+            root,
+            prefix=f"late-{index}",
+        )
+        for index in range(2)
+    ]
+    refresh_idea_portfolio(tmp_path)
+
+    rows = late_selection_reviews(tmp_path)
+    assert {row["route_task_id"] for row in rows} == {
+        pair[0]["task_id"] for pair in late
+    }
+    block = _late_selection_reviews_block(tmp_path)
+    assert "settled after the original selector" in block
+    assert "plan_signal=reconsider" in block
+    assert pool.read(root)["state"] == "draining"
+
+    # Refresh is idempotent and never rewrites the original selection.
+    before = (tmp_path / "research" / "IDEA_SELECTION.json").read_bytes()
+    refresh_idea_portfolio(tmp_path)
+    assert (tmp_path / "research" / "IDEA_SELECTION.json").read_bytes() == before
 
 
 def test_default_resulting_critical_path_is_below_one_hour(tmp_path: Path) -> None:

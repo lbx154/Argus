@@ -1990,6 +1990,36 @@ def _unasked_manuscript_block(project_root: object) -> str:
         return ""
 
 
+def _late_selection_reviews_block(project_root: object) -> str:
+    """Put routes unseen by the original quorum selector before Reviewer."""
+    try:
+        from .idea_portfolio import late_selection_reviews
+
+        rows = late_selection_reviews(Path(str(project_root)).resolve())
+        if not rows:
+            return ""
+        lines = [
+            "\nLATE SELECTION EVIDENCE: these qualified routes settled after "
+            "the original selector had already started the active programme."
+        ]
+        for row in rows:
+            lines.append(
+                f"- `{row['route_artifact']}` + `{row['review_artifact']}`: "
+                f"{row['summary']} Novelty delta: {row['novelty_delta']}"
+            )
+        lines.append(
+            "Independently compare them with the current selection. If a late "
+            "route is materially more novel, ambitious or important and the "
+            "current plan has not already incorporated it, accept the local "
+            "round and use plan_signal=reconsider with the stronger direction; "
+            "otherwise continue. Do not reopen a route already rebutted by "
+            "current evidence."
+        )
+        return "\n".join(lines) + "\n"
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def search_altitude_context(project_root: object) -> str:
     """Everything a role should have in view before it judges its own work.
 
@@ -1999,6 +2029,7 @@ def search_altitude_context(project_root: object) -> str:
     """
     return (
         _selection_contract_block(project_root)
+        + _late_selection_reviews_block(project_root)
         + _accepted_papers_block(project_root)
         + _literature_ledger_block(project_root)
         + _manuscript_scale_block(project_root)
