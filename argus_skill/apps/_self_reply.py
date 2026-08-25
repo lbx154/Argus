@@ -24,10 +24,12 @@ from ..engineer.runner import should_clear_thread_id_after_outcome
 from ._env import env_flag, env_int
 from ._runtime_backends import _Outcome
 
-_SELF_RETRYABLE_ACP_ERRORS = (
+_SELF_RETRYABLE_TRANSPORT_ERRORS = (
     "acp restart requested",
     "acp process died",
     "stopreason=cancelled",
+    "upstream request failed: endpoint is unavailable",
+    "provider finish_reason: network_error",
 )
 _SELF_LEARNING_REVIEW_INTERVAL = 5
 _SELF_EXECUTION_CONTRACTS = {
@@ -128,7 +130,7 @@ def _redact_live_event(event: dict[str, Any]) -> dict[str, Any]:
 
 
 def self_retryable_transport_failure(result: Any) -> bool:
-    """Retry only an empty ACP transport failure with no possible side effects."""
+    """Retry one empty transport failure with no possible side effects."""
     if (getattr(result, "last_agent_message", "") or "").strip():
         return False
     if bool(getattr(result, "tool_activity_observed", False)):
@@ -138,7 +140,7 @@ def self_retryable_transport_failure(result: Any) -> bool:
         return int(getattr(result, "exit_code", 0) or 0) == 0
     if fatal.startswith(("external interrupt:", "refused before start:")):
         return False
-    return any(marker in fatal for marker in _SELF_RETRYABLE_ACP_ERRORS)
+    return any(marker in fatal for marker in _SELF_RETRYABLE_TRANSPORT_ERRORS)
 
 
 def build_status_snapshot_reply(root: Path | str, objective: str) -> str:
@@ -871,7 +873,8 @@ class SelfReplyMixin:
                     "kind": "provider_retry",
                     "agent_layer": "manager",
                     "text": (
-                        "Copilot reply transport stalled; retrying once in a fresh session"
+                        "Provider transport failed before output; retrying once "
+                        "in a fresh session"
                     ),
                 })
                 result = gateway_run_exec(

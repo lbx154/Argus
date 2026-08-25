@@ -752,6 +752,36 @@ def test_self_timeout_returns_visible_failure_without_second_long_wait() -> None
     assert not any(event.get("kind") == "provider_retry" for event in sink.events)
 
 
+def test_self_retries_empty_opencode_endpoint_failure_once() -> None:
+    class _FlakyOpenCodeBackend(_FakeBackend):
+        def run_exec(self, **kwargs: Any) -> RunnerResult:
+            self.calls.append(dict(kwargs))
+            if len(self.calls) == 1:
+                return RunnerResult(
+                    exit_code=1,
+                    fatal_error=(
+                        "Error from provider (Console): Upstream request failed: "
+                        "Endpoint is unavailable."
+                    ),
+                )
+            return RunnerResult(
+                exit_code=0,
+                thread_id="fresh-session",
+                agent_messages=["implemented"],
+            )
+
+    backend = _FlakyOpenCodeBackend()
+    runner = _make_runner(backend)
+    sink = _RecordingSink()
+
+    out = runner._simple_quick_reply(objective="implement the task", sink=sink)
+
+    assert out.success is True
+    assert len(backend.calls) == 2
+    assert backend.calls[1]["resume_thread_id"] is None
+    assert any(event.get("kind") == "provider_retry" for event in sink.events)
+
+
 def test_self_retries_empty_success_then_returns_explicit_error() -> None:
     backend = _FakeBackend(response_message="")
     runner = _make_runner(backend)
