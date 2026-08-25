@@ -460,6 +460,14 @@ class LifeSupervisor(
         resumed = self.memory.backlog.resume_paused_statuses(statuses)
         from ...engineer.external_work import inspect_external_work
 
+        # Subagent records are reconciled only by the interactive CLI listing,
+        # so unattended nobody ever notices a job whose process is gone: run-01
+        # held darc-v9-full915-claim-run-r2 as `running` for eight hours after
+        # its pid died, and a paused mission kept reserving paths on its
+        # behalf. Reconciling here costs a stat per record and is the same
+        # check the CLI already makes.
+        self._reconcile_dead_subagent_records()
+
         for item in self.memory.backlog.all():
             if item.status != "paused_external_work":
                 continue
@@ -485,6 +493,39 @@ class LifeSupervisor(
                 + ", ".join(item.id for item in resumed)
             )
         return resumed
+
+    def _reconcile_dead_subagent_records(self) -> None:
+        """Mark subagent records whose process is gone, fail-soft throughout."""
+        try:
+            import json
+
+            from ...tools.subagent._registry import reconcile_terminal_task
+
+            root = Path(self._project_workdir()) / ".argus_subagents"
+            if not root.is_dir():
+                return
+            for record_path in root.glob("*.json"):
+                try:
+                    record = json.loads(record_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                if not isinstance(record, dict):
+                    continue
+                if record.get("state") not in {"starting", "preflight", "running"}:
+                    continue
+                before = record.get("state")
+                task_id = str(record.get("task_id") or record_path.stem)
+                updated = reconcile_terminal_task(task_id, dict(record))
+                if updated.get("state") != before:
+                    record_path.write_text(
+                        json.dumps(updated, ensure_ascii=False), encoding="utf-8"
+                    )
+                    self._emit_status(
+                        f"external job {record_path.stem} is {updated.get('state')}: "
+                        "its process is gone"
+                    )
+        except Exception:  # noqa: BLE001 - reconciliation never blocks work
+            log.exception("life supervisor: subagent reconciliation failed")
 
     def _adjudicate_mission_challenge(self, outcome: dict[str, Any]) -> str:
         """Persist the Manager authority decision before Planner sees a challenge."""

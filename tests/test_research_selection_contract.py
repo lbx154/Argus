@@ -1754,3 +1754,27 @@ def test_a_certified_campaign_still_hears_the_operator() -> None:
     assert "_drain_user_inbox" in gate
     # ...and what it says is carried into the next planning turn.
     assert "_operator_guidance_carryover" in gate
+
+
+def test_a_subagent_whose_process_died_stops_counting_as_running() -> None:
+    """Subagent records are reconciled only when the interactive CLI lists
+    them, so unattended nobody notices a job whose process is gone. run-01 held
+    darc-v9-full915-claim-run-r2 as running for eight hours after its pid died,
+    with zero bytes on both logs, while a paused mission kept reserving paths
+    on its behalf and the campaign idled out and restarted every half hour.
+    """
+    import inspect
+
+    from argus_skill.life.supervisor import _core
+
+    resume = inspect.getsource(_core.LifeSupervisor._resume_automatic_pauses)
+    # The check happens where paused external work is reconsidered...
+    assert "_reconcile_dead_subagent_records" in resume
+
+    reconcile = inspect.getsource(
+        _core.LifeSupervisor._reconcile_dead_subagent_records
+    )
+    # ...using the same reconciler the CLI already trusts, not a new rule.
+    assert "reconcile_terminal_task" in reconcile
+    # A record that is not claiming to run is left alone.
+    assert '{"starting", "preflight", "running"}' in reconcile
