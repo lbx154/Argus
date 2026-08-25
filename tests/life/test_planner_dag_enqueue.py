@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from argus_skill.life.memory import Backlog, BacklogItem
 from argus_skill.life.supervisor._constants import PLAN_RETRY
 from argus_skill.life.supervisor._helpers import _resolve_task_dep_ids
 from argus_skill.life.supervisor._planning_cycle_enqueue import (
@@ -43,6 +44,50 @@ def test_resolve_dep_ids_dedupes_preserving_order() -> None:
     )
     assert resolved == ["id-a", "id-b"]
     assert unresolved == []
+
+
+def test_commit_resolves_dependency_from_prior_planning_cycle(tmp_path: Path) -> None:
+    backlog = Backlog(tmp_path / "backlog.jsonl")
+    implementation = backlog.add(
+        BacklogItem.new(
+            title="Implement the scheduler",
+            objective="Complete the implementation.",
+            node_key="eng-implement",
+        )
+    )
+    backlog.mark_done(implementation.id)
+    review = BacklogItem.new(
+        title="Independent Reviewer acceptance check",
+        objective="Review the completed implementation.",
+        node_key="review",
+    )
+    task = SimpleNamespace(
+        deps=["eng-implement"],
+        impact_score=0,
+        impact_area="",
+    )
+
+    class Harness(PlanningCycleEnqueueMixin):
+        _planning_cycles = 2
+        memory = SimpleNamespace(backlog=backlog)
+
+        def _emit(self, _event: dict[str, object]) -> None:
+            return None
+
+        def _emit_status(self, _text: str) -> None:
+            return None
+
+        def _enter_idle_backoff(self) -> float:
+            raise AssertionError("known cross-cycle dependency must not back off")
+
+    state = _PlanCycleState(None)
+    state.existing_items = backlog.all()
+    state.manager_intent = {}
+    state.pending_items = [(task, review)]
+
+    assert Harness()._pc_commit_pending_items(state) is None
+    persisted = next(item for item in backlog.all() if item.id == review.id)
+    assert persisted.deps == [implementation.id]
 
 
 def test_planner_task_inherits_manager_routing_without_optional_fields() -> None:

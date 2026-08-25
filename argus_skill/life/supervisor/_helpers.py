@@ -13,18 +13,14 @@ def _resolve_task_dep_ids(
     deps: list[str],
     key_map: dict[str, str],
 ) -> tuple[list[str], list[str]]:
-    """Map a task's *local* dep keys to real backlog item ids.
+    """Map a task's dependency keys to real backlog item ids.
 
-    ``deps`` are the local ``key`` references the planner emitted on a task;
-    ``key_map`` maps each in-batch local key to the real ``BacklogItem.id``
-    chosen for the task that declared it. Returns ``(resolved_ids,
-    unresolved_keys)``:
+    ``key_map`` includes local keys from this batch plus persisted node keys
+    from earlier planning cycles. Returns ``(resolved_ids, unresolved_keys)``:
 
-    * a local key present in ``key_map`` becomes its real item id (de-duped,
+    * a known key becomes its real item id (de-duped,
       order-preserving — a dep can only be satisfied once);
-    * a local key NOT in ``key_map`` (typo, or a cross-cycle reference, which
-      is unsupported) is dropped and reported in ``unresolved_keys`` so the
-      caller can ``log.warning`` it.
+    * an unknown key is dropped and reported in ``unresolved_keys``.
 
     A task with no ``deps`` yields ``([], [])`` — i.e. a flat item, scheduled
     exactly as before the DAG existed.

@@ -875,15 +875,24 @@ class PlanningCycleEnqueueMixin:
         expected_plan_version = state.expected_plan_version
         manager_intent = state.manager_intent
 
-        # Pass 2: resolve local dep keys to real item ids, then enqueue. Only
-        # intra-batch deps are supported. Reject the whole batch if filtering or
-        # a malformed plan leaves any dependency unresolved; executing a child
-        # without its required parent is unsafe.
+        # Pass 2: resolve dep keys to real item ids, then enqueue. A later
+        # planning cycle may naturally depend on a prior node, so include stable
+        # node keys already persisted in the backlog. Unknown keys still reject
+        # the whole batch; executing a child without its required parent is unsafe.
+        known_key_map = {
+            str(item.node_key): item.id
+            for item in state.existing_items
+            if str(item.node_key or "").strip()
+        }
+        known_key_map.update(state.key_map)
         unresolved: list[tuple[str, list[str]]] = []
         for task, item in state.pending_items:
             task_deps = list(getattr(task, "deps", []) or [])
             if task_deps:
-                resolved_ids, unresolved_keys = _resolve_task_dep_ids(task_deps, state.key_map)
+                resolved_ids, unresolved_keys = _resolve_task_dep_ids(
+                    task_deps,
+                    known_key_map,
+                )
                 item.deps = resolved_ids
                 if unresolved_keys:
                     unresolved.append((item.title, unresolved_keys))
