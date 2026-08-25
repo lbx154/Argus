@@ -18,7 +18,7 @@ from ._constants import (
 )
 
 log = logging.getLogger(__name__)
-_DAEMON_IDLE_EXIT_DEFAULT_MINUTES = 30.0
+_DAEMON_IDLE_EXIT_DEFAULT_MINUTES = 0.0
 def _idle_exit_seconds() -> float:
     """Idle wall-clock (s) before a continuous daemon auto-exits; 0 = never."""
     raw = os.environ.get("ARGUS_SKILL_DAEMON_IDLE_EXIT_MIN", "").strip()
@@ -243,9 +243,21 @@ class IdleCycleMixin:
         """
         if not getattr(self.config, "continuous", False):
             return ""
-        cap = _idle_exit_seconds()
         idle_since = getattr(self, "_idle_since", None)
-        if cap <= 0 or idle_since is None:
+        if idle_since is None:
+            return ""
+        messages = self._drain_user_inbox()
+        if messages:
+            carryover = getattr(self, "_operator_guidance_carryover", None)
+            if carryover is None:
+                carryover = []
+                self._operator_guidance_carryover = carryover
+            carryover.extend(messages)
+            self._reset_idle_backoff()
+            self._emit_status("operator guidance woke the idle Planner")
+            return ""
+        cap = _idle_exit_seconds()
+        if cap <= 0:
             return ""
         if time.monotonic() - idle_since >= cap:
             return "idle_timeout"

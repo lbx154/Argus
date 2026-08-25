@@ -21,6 +21,9 @@ class _FakeSup:
         self._suggested_sleep_s = 0.0
         self._idle_since = None
         self._last_open_ended_project_done_signature = ""
+        self._inbox: list[str] = []
+        self._operator_guidance_carryover: list[str] = []
+        self.statuses: list[str] = []
 
     # bind the real methods under test
     _enter_idle_backoff = sup_core.LifeSupervisor._enter_idle_backoff
@@ -28,18 +31,26 @@ class _FakeSup:
     _maybe_idle_timeout = sup_core.LifeSupervisor._maybe_idle_timeout
     _idle_backoff_seconds = sup_core.LifeSupervisor._idle_backoff_seconds
 
+    def _drain_user_inbox(self):
+        messages = list(self._inbox)
+        self._inbox.clear()
+        return messages
+
+    def _emit_status(self, text):
+        self.statuses.append(text)
+
 
 # ---- env knob -------------------------------------------------------------
 
 def test_idle_exit_seconds_default_and_override(monkeypatch):
     monkeypatch.delenv("ARGUS_SKILL_DAEMON_IDLE_EXIT_MIN", raising=False)
-    assert _idle_exit_seconds() == 30.0 * 60.0
+    assert _idle_exit_seconds() == 0.0
     monkeypatch.setenv("ARGUS_SKILL_DAEMON_IDLE_EXIT_MIN", "5")
     assert _idle_exit_seconds() == 5 * 60.0
     monkeypatch.setenv("ARGUS_SKILL_DAEMON_IDLE_EXIT_MIN", "0")  # disabled
     assert _idle_exit_seconds() == 0.0
     monkeypatch.setenv("ARGUS_SKILL_DAEMON_IDLE_EXIT_MIN", "garbage")
-    assert _idle_exit_seconds() == 30.0 * 60.0  # bad value -> default
+    assert _idle_exit_seconds() == 0.0  # bad value -> default
 
 
 # ---- idle clock semantics -------------------------------------------------
@@ -80,6 +91,19 @@ def test_idle_timeout_disabled_and_non_continuous(monkeypatch):
     s2._enter_idle_backoff()
     s2._idle_since = time.monotonic() - 10_000
     assert s2._maybe_idle_timeout() == ""
+
+
+def test_unread_operator_guidance_cancels_idle_timeout(monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_DAEMON_IDLE_EXIT_MIN", "1")
+    s = _FakeSup(continuous=True)
+    s._enter_idle_backoff()
+    s._idle_since = time.monotonic() - 120
+    s._inbox.append("explore another mechanism")
+
+    assert s._maybe_idle_timeout() == ""
+    assert s._idle_since is None
+    assert s._operator_guidance_carryover == ["explore another mechanism"]
+    assert s.statuses == ["operator guidance woke the idle Planner"]
 
 
 # ---- operator clock-out: graceful stop quiesces continuous (别干了) ---------

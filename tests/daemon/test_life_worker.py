@@ -2153,6 +2153,8 @@ def test_resume_with_explicit_new_objective_runs_manager_handoff(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    objective_file = tmp_path / "OBJECTIVE.md"
+    objective_file.write_text("new raw objective", encoding="utf-8")
     LifeMemory.open(tmp_path).init()
     write_continuous_config(
         tmp_path,
@@ -2230,6 +2232,7 @@ def test_resume_with_explicit_new_objective_runs_manager_handoff(
             poll_interval=0.01,
             continuous=True,
             continuous_objective="new raw objective",
+            continuous_objective_file=objective_file,
             resume_continuous=True,
         )
     )
@@ -2241,6 +2244,12 @@ def test_resume_with_explicit_new_objective_runs_manager_handoff(
     assert seen["objective"] == "new manager-clean objective"
     assert seen["vertical_resolved"] is True
     assert read_continuous_state(tmp_path).objective == "new manager-clean objective"
+    identity = json.loads((tmp_path / "manager-handoff.json").read_text())
+    assert identity["version"] == 3
+    assert identity["source_objective_path"] == str(objective_file.resolve())
+    assert identity["source_objective_sha256"] == life_worker_mod._objective_sha256(
+        "new raw objective"
+    )
     events = [
         json.loads(line)
         for line in (tmp_path / "events.jsonl").read_text().splitlines()

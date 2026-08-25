@@ -25,6 +25,7 @@ from ._life_worker_identity import (
     _daemon_objective_requires_stage_reset,
     _legacy_manager_handoff_identity,
     _read_manager_handoff_identity,
+    _refresh_file_backed_objective_for_resume,
     _rearm_operator_drain_for_resume,
     _resume_matches_manager_handoff,
     _write_manager_handoff_identity,
@@ -325,6 +326,11 @@ class LifeWorkerBootMixin:
             runtime_root=rf_state.runtime_root,
             state=rf_state.boot,
         )
+        _refresh_file_backed_objective_for_resume(
+            cfg=rf_state.cfg,
+            runtime_root=rf_state.runtime_root,
+            state=rf_state.boot,
+        )
         rf_state.suppress = {
             "active": bool(rf_state.boot.enabled) and not rf_state.resume_intent,
             "objective": (rf_state.boot.objective or "").strip(),
@@ -598,6 +604,15 @@ class LifeWorkerBootMixin:
                         domain=str(getattr(division, "domain", "") or ""),
                         continuous_generation=expected_state.generation + 1,
                         intent_id=intent_id,
+                        source_objective=source_objective,
+                        source_objective_path=str(
+                            getattr(
+                                rf_state.cfg,
+                                "continuous_objective_file",
+                                "",
+                            )
+                            or ""
+                        ),
                     )
                 else:
                     if (

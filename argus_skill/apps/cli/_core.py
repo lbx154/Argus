@@ -360,8 +360,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     objective_file = getattr(args, "objective_file", None)
     if objective_file:
+        objective_path = Path(objective_file).expanduser().resolve()
         try:
-            args.objective = Path(objective_file).expanduser().read_text(encoding="utf-8")
+            args.objective = objective_path.read_text(encoding="utf-8")
         except (OSError, UnicodeError) as exc:
             sys.stderr.write(
                 f"argus-skill: could not read --objective-file {objective_file!r}: {exc}\n"
@@ -370,6 +371,7 @@ def main(argv: list[str] | None = None) -> int:
         if not str(args.objective).strip():
             sys.stderr.write("argus-skill: --objective-file must not be empty\n")
             return 2
+        args.objective_file = str(objective_path)
     from ...core.knobs import resolve_role_backend
 
     # ``--backend`` parses with ``default=None``, so a value here was typed on
@@ -734,6 +736,11 @@ def _build_worker_config(args: argparse.Namespace):
         poll_interval=float(os.environ.get("ARGUS_SKILL_DAEMON_POLL_S", "5.0")),
         continuous=getattr(args, "continuous", False),
         continuous_objective=getattr(args, "objective", ""),
+        continuous_objective_file=(
+            Path(str(args.objective_file)).expanduser()
+            if getattr(args, "objective_file", None)
+            else None
+        ),
         resume_continuous=getattr(args, "resume_continuous", False),
         continuous_open_ended=not bool(getattr(args, "bounded", False)),
     )

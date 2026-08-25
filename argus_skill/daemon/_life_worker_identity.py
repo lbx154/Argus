@@ -51,11 +51,13 @@ def _write_manager_handoff_identity(
     domain: str,
     continuous_generation: int,
     intent_id: str,
+    source_objective: str = "",
+    source_objective_path: str = "",
 ) -> bool:
     path = _manager_handoff_identity_path(runtime_root)
     tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
     payload = {
-        "version": 2,
+        "version": 3,
         "objective_sha256": _objective_sha256(objective),
         "vertical": str(vertical).strip(),
         "domain": str(domain).strip(),
@@ -63,6 +65,12 @@ def _write_manager_handoff_identity(
         "intent_id": str(intent_id),
         "recorded_at": time.time(),
     }
+    source_path = str(source_objective_path or "").strip()
+    if source_path:
+        payload["source_objective_path"] = str(
+            Path(source_path).expanduser().resolve()
+        )
+        payload["source_objective_sha256"] = _objective_sha256(source_objective)
     try:
         tmp.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
@@ -87,9 +95,66 @@ def _read_manager_handoff_identity(runtime_root: Path) -> dict[str, Any] | None:
         )
     except (FileNotFoundError, OSError, json.JSONDecodeError, TypeError):
         return None
-    if not isinstance(payload, dict) or payload.get("version") not in {1, 2}:
+    if not isinstance(payload, dict) or payload.get("version") not in {1, 2, 3}:
         return None
     return payload
+
+
+def _refresh_file_backed_objective_for_resume(
+    *,
+    cfg: LifeWorkerConfig,
+    runtime_root: Path,
+    state: ContinuousConfigState,
+) -> bool:
+    """Promote a changed file-backed objective into a fresh Manager handoff.
+
+    A normal ``--resume-continuous`` launch reuses the Manager-clean execution
+    objective persisted in ``continuous.json``. When that handoff records the
+    operator's original ``--objective-file``, compare the current file before
+    adopting it. A changed file becomes an explicit replacement objective;
+    unchanged or stale metadata keeps the fast crash-recovery path.
+    """
+    if (
+        getattr(cfg, "continuous", False)
+        or not getattr(cfg, "resume_continuous", False)
+        or not state.enabled
+    ):
+        return False
+    identity = _read_manager_handoff_identity(runtime_root)
+    if not _manager_handoff_identity_matches(
+        identity,
+        objective=state.objective,
+        vertical=str(identity.get("vertical") or "") if identity else "",
+        domain=str(identity.get("domain") or "") if identity else "",
+        generation=state.generation,
+    ):
+        return False
+    source_path = str((identity or {}).get("source_objective_path") or "").strip()
+    expected_sha = str(
+        (identity or {}).get("source_objective_sha256") or ""
+    ).strip()
+    if not source_path or len(expected_sha) != 64:
+        return False
+    path = Path(source_path).expanduser()
+    try:
+        objective = path.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        log.warning(
+            "daemon: file-backed continuous objective is unreadable; "
+            "keeping persisted Manager handoff (%s)",
+            path,
+        )
+        return False
+    if not objective or _objective_sha256(objective) == expected_sha:
+        return False
+    cfg.continuous = True
+    cfg.continuous_objective = objective
+    cfg.continuous_objective_file = path.resolve()
+    log.info(
+        "daemon: objective file changed; requesting a fresh Manager handoff (%s)",
+        path,
+    )
+    return True
 
 
 def _legacy_manager_handoff_identity(

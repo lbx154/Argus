@@ -46,6 +46,7 @@ class LifeWorkerConfig:
     event_log_verbosity: str = "full"
     continuous: bool = False
     continuous_objective: str = ""
+    continuous_objective_file: Path | None = None
     # Opt-in to adopt THIS project's persisted continuous campaign
     # (``<life_dir>/continuous.json``) at boot. Off by default: a fresh/manual
     # daemon must NOT silently inherit a project-level campaign it was not asked
@@ -88,6 +89,11 @@ def config_payload(config: LifeWorkerConfig) -> dict[str, Any]:
         "project_workdir": str(config.project_workdir) if config.project_workdir is not None else "",
         "continuous": config.continuous,
         "continuous_objective": config.continuous_objective,
+        "continuous_objective_file": (
+            str(config.continuous_objective_file)
+            if config.continuous_objective_file is not None
+            else ""
+        ),
         "resume_continuous": config.resume_continuous,
         "continuous_open_ended": config.continuous_open_ended,
     }
@@ -99,6 +105,7 @@ def config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
     log_path = str(data.get("log_path") or "")
     global_root = str(data.get("global_root") or "")
     project_workdir = str(data.get("project_workdir") or "")
+    continuous_objective_file = str(data.get("continuous_objective_file") or "")
     backend = str(data.get("backend") or "codex")
 
     def _model(name: str, route: str, role_env: str) -> str:
@@ -148,6 +155,11 @@ def config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
         log_path=Path(log_path).expanduser() if log_path else None,
         continuous=bool(data.get("continuous")),
         continuous_objective=str(data.get("continuous_objective") or ""),
+        continuous_objective_file=(
+            Path(continuous_objective_file).expanduser()
+            if continuous_objective_file
+            else None
+        ),
         resume_continuous=bool(data.get("resume_continuous")),
         continuous_open_ended=bool(data.get("continuous_open_ended", True)),
     )

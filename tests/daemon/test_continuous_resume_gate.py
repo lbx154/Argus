@@ -14,6 +14,10 @@ from argus_skill.daemon.life_worker import (
     _apply_continuous_suppression,
     _rearm_operator_drain_for_resume,
 )
+from argus_skill.daemon._life_worker_identity import (
+    _refresh_file_backed_objective_for_resume,
+    _write_manager_handoff_identity,
+)
 from argus_skill.daemon.state import (
     GRACEFUL_STOP_REASON,
     read_continuous_state,
@@ -217,3 +221,124 @@ def test_resume_continuous_preserves_operator_authority_hold(
 
     assert state == before
     assert read_continuous_state(tmp_path) == before
+
+
+def test_resume_continuous_refreshes_changed_objective_file(tmp_path: Path) -> None:
+    objective_file = tmp_path / "OBJECTIVE.md"
+    objective_file.write_text("original operator objective", encoding="utf-8")
+    write_continuous_config(
+        tmp_path,
+        enabled=True,
+        objective="Manager-clean execution task",
+    )
+    state = read_continuous_state(tmp_path)
+    assert _write_manager_handoff_identity(
+        tmp_path,
+        objective=state.objective,
+        vertical="kernel_engineering",
+        domain="",
+        continuous_generation=state.generation,
+        intent_id="intent-1",
+        source_objective=objective_file.read_text(encoding="utf-8"),
+        source_objective_path=str(objective_file),
+    )
+    objective_file.write_text("updated operator objective", encoding="utf-8")
+    cfg = SimpleNamespace(
+        continuous=False,
+        resume_continuous=True,
+        continuous_objective="",
+        continuous_objective_file=None,
+    )
+
+    changed = _refresh_file_backed_objective_for_resume(
+        cfg=cfg,
+        runtime_root=tmp_path,
+        state=state,
+    )
+
+    assert changed is True
+    assert cfg.continuous is True
+    assert cfg.continuous_objective == "updated operator objective"
+    assert cfg.continuous_objective_file == objective_file.resolve()
+
+
+def test_resume_continuous_keeps_unchanged_file_fast_path(tmp_path: Path) -> None:
+    objective_file = tmp_path / "OBJECTIVE.md"
+    objective_file.write_text("operator objective", encoding="utf-8")
+    write_continuous_config(
+        tmp_path,
+        enabled=True,
+        objective="Manager-clean execution task",
+    )
+    state = read_continuous_state(tmp_path)
+    assert _write_manager_handoff_identity(
+        tmp_path,
+        objective=state.objective,
+        vertical="kernel_engineering",
+        domain="",
+        continuous_generation=state.generation,
+        intent_id="intent-1",
+        source_objective=objective_file.read_text(encoding="utf-8"),
+        source_objective_path=str(objective_file),
+    )
+    cfg = SimpleNamespace(
+        continuous=False,
+        resume_continuous=True,
+        continuous_objective="",
+        continuous_objective_file=None,
+    )
+
+    changed = _refresh_file_backed_objective_for_resume(
+        cfg=cfg,
+        runtime_root=tmp_path,
+        state=state,
+    )
+
+    assert changed is False
+    assert cfg.continuous is False
+    assert cfg.continuous_objective == ""
+
+
+def test_stale_file_identity_does_not_override_newer_objective(
+    tmp_path: Path,
+) -> None:
+    objective_file = tmp_path / "OBJECTIVE.md"
+    objective_file.write_text("old source objective", encoding="utf-8")
+    write_continuous_config(
+        tmp_path,
+        enabled=True,
+        objective="old Manager task",
+    )
+    old_state = read_continuous_state(tmp_path)
+    assert _write_manager_handoff_identity(
+        tmp_path,
+        objective=old_state.objective,
+        vertical="kernel_engineering",
+        domain="",
+        continuous_generation=old_state.generation,
+        intent_id="intent-1",
+        source_objective=objective_file.read_text(encoding="utf-8"),
+        source_objective_path=str(objective_file),
+    )
+    write_continuous_config(
+        tmp_path,
+        enabled=True,
+        objective="new cockpit objective",
+    )
+    state = read_continuous_state(tmp_path)
+    objective_file.write_text("changed old source", encoding="utf-8")
+    cfg = SimpleNamespace(
+        continuous=False,
+        resume_continuous=True,
+        continuous_objective="",
+        continuous_objective_file=None,
+    )
+
+    changed = _refresh_file_backed_objective_for_resume(
+        cfg=cfg,
+        runtime_root=tmp_path,
+        state=state,
+    )
+
+    assert changed is False
+    assert cfg.continuous is False

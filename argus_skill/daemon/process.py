@@ -85,7 +85,11 @@ def _windows_daemon_command(config: Any) -> list[str]:
         ]
     )
     if config.continuous:
-        command.extend(["--continuous", "--objective", config.continuous_objective])
+        objective_file = getattr(config, "continuous_objective_file", None)
+        if objective_file is not None:
+            command.extend(["--continuous", "--objective-file", str(objective_file)])
+        else:
+            command.extend(["--continuous", "--objective", config.continuous_objective])
     if config.resume_continuous:
         command.append("--resume-continuous")
     if not config.continuous_open_ended:
