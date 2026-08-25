@@ -64,6 +64,8 @@ def test_paper_review_requires_idea_and_built_artifact_quality():
     assert "small scoreboard gain is not paper-level success" in block
     assert "`plan_signal` to `reconsider`" in block
     assert "`plan_alternative`" in block
+    assert "same selector is not a bolder plan" in block
+    assert "cross-model, cross-benchmark" in block
 
     assert "undefined citations" in block
     assert "bibliography warnings" in block
