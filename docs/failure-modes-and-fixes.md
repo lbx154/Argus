@@ -138,85 +138,77 @@ must force a second opinion from a model trained by someone else.
 
 ---
 
-## 3. It had no reason to be ambitious
+## 3. It settles for finishing instead of achieving something
 
-**What we saw.** The system does not propose ambitious things. Round after round
-it takes the smallest step that can be certified, and the output is a sequence of
-individually defensible increments that add up to nothing anyone would call a
-discovery. Asked for original research, it will happily converge on a diagnostic
-benchmark or a reproduction and present it as the deliverable — because that is
-what it could verify.
+**What we saw.** The system treats *having run the experiment* as progress.
+Whether the result was right, or whether it was worth anything, does not enter
+the judgement. Round after round it takes the smallest step that can be signed
+off, and the output is a sequence of individually defensible increments that add
+up to nothing anyone would call a discovery. Asked for original research, it will
+converge on a diagnostic benchmark and present it as the deliverable — not
+because it failed, but because finishing *is* what it optimizes for.
 
-**Why it happens.** "Minimum verifiable progress" is not a defect in the agent.
-It is the **optimum of the objective we actually gave it.** Every mechanism in
-the runtime rewards a certified increment; nothing rewards an uncertified leap.
-Under that objective an ambitious idea is strictly dominated — it costs more, it
-fails more often, and when it fails there is nothing to admit. A rational agent
-in that position finds the smallest thing that passes, every time, forever.
+**Whose defect this is.** Ours.
 
-So this cannot be fixed by asking for more creativity. Telling a system to "be
-innovative" while paying it for safe increments changes the wording of its
-prompts and nothing about its behaviour. Two structural changes were needed
-instead: **remove the safe terminal state, and make novelty something a gate can
-count.**
+An earlier version of this document said "minimum verifiable progress is not a
+defect in the agent, it is the optimum of the objective we gave it." That
+sentence is an excuse dressed as an analysis. We wrote the objective. Explaining
+that the agent is behaving rationally under it does not make the system less
+broken — it just moves the blame somewhere it cannot be fixed. **The defect is
+ours, and it is a design defect.**
 
-**Remove the safe terminal state.** The physics vertical has an explicit
-`original-research-required` mode
-([`mode_config.py`](../argus_skill/verticals/physics/mode_config.py)) that
-controls "whether a mission is allowed to succeed as a downgraded paper type
-(diagnostic benchmark / reproduction) or must reach an original research
-article." When it is on, **a downgraded paper type is only an intermediate
-result** — the comfortable landing place stops being a way to finish.
+**The fix we tried first, and why it was wrong.** Our first instinct was to add a
+gate: a required artifact of ten candidate directions, eleven reasoning columns
+each, six novelty scores, and failure codes `NSL-000` through `NSL-005`. It is in
+the tree. An earlier version of this document presented it as the answer.
 
-**Make novelty countable.** A prohibition alone would just produce a stuck
-campaign, so the
-[Novelty-Seeking Loop gate](../argus_skill/verticals/physics/gates/novelty_seeking.py)
-turns ambition into a required artifact. Before the terminal manuscript, the
-agent "must actively seek novelty rather than settle for a diagnostic benchmark":
+It is not the answer, and the instinct behind it is the disease rather than the
+cure. You cannot enumerate the ways a system can be unambitious, so no set of
+gates will catch them; and every gate you add moves the work further from the
+research and closer to the paperwork. An agent required to produce ten scored
+directions will produce ten scored directions, nine of them padding, and the gate
+will pass. **Defensive checks do not produce good work. They produce work that
+passes checks.**
 
-- **at least 10** candidate directions (`MIN_DIRECTIONS = 10`), not one;
-- each carrying its own reasoning columns — `closest_prior_work`,
-  `already_known`, `possible_gap`, `why_physically_meaningful`,
-  `risk_of_already_known`, and a **`kill_criterion`**;
-- each scored on six axes, including `novelty_potential` and
-  `prior_work_separation`;
-- then the top 2–3 selected, with a written `PIVOT_SELECTION.md`,
-  `REVISED_RESEARCH_OBJECTIVE.md`, and additional theory and numerical plans.
+The same is true of the anti-fraud apparatus. Hashing artifacts so that evidence
+is traceable buys nothing against a system that was never going to fabricate, and
+charges the cost to every honest round. It is ceremony defending against a threat
+we do not have.
 
-Failure codes `NSL-000` through `NSL-005` make each of those a checkable
-condition rather than an aspiration. The gate never invents ideas — it only
-inspects what the agent produced — but it makes "I could not think of anything
-ambitious" an artifact-level failure instead of a quiet default.
+**What we are doing instead.** Stop building fences and give each role a
+substantive judgement to make — then get out of its way.
 
-The same standard applies at generation time. Candidates must "propose a METHOD
-with a concrete, reproduced baseline it aims to beat," and **"pure diagnostic /
-probing / benchmark-only ideas are rejected at generation"**
-([`idea_search.py`](../argus_skill/verticals/research/idea_search.py)). The
-Planner posture in the kernel vertical matches: prefer expected upside and
-information gain over low execution risk, and **do not** prefer the smallest
-patch or the easiest immediate validation.
+| Role | What it judges |
+| --- | --- |
+| **Reviewer** | **Is this actually innovative, and what is it good for?** The value of the strategy, not the completeness of the paperwork. |
+| **Manager** | The global picture — is this campaign heading somewhere, or circling a local optimum? |
+| **Planner** | Decomposition — turn a direction into steps that can really be carried out. |
+| **Engineer** | Execution — with its own internal backtracking, review, and planning, rather than waiting to be told. |
 
-**The counterweight, and why it has to exist.** Forcing ambition without a
-release valve produces a different failure: a campaign pinned at an unreachable
-target that never terminates. That happened — it is recorded in the code as the
-`s-cbac6ede` livelock — and it is why
-[`downgrade.py`](../argus_skill/verticals/physics/downgrade.py) exists, letting a
-vertical "start high but converge to the tier the evidence supports, instead of
-pinning the gate at Nature/Science and livelocking." The line that makes this
-safe rather than a loophole is explicit:
+The posture already exists in one place, and it works. The kernel Reviewer is
+told, in as many words, to ignore the ceremony and judge the substance:
 
-> Downgrade is a change of **CLAIM TYPE**, never a cut in **rigor**.
+> Ignore GROUND_TRUTH/gate/marker/status/provenance files […] and artifact
+> hygiene — the scorer's number is the only evidence.
 
-Ambition is applied to *what the campaign is trying to be*. It is never applied
-to the evidence bar.
+and to judge ambition directly rather than through an artifact:
 
-**What is still open.** `original-research-required` and the Novelty-Seeking Loop
-are **physics-vertical mechanisms**, and the ideation standard is a research
-vertical one. The general runtime still has no equivalent — nothing stops an
-arbitrary campaign from settling for the smallest certifiable thing. This is the
-most important unfinished piece of work in this document.
+> First judge: was this mechanism genuinely novel or a re-tweak of a direction
+> that already lost? `next_action` MUST name a CONCRETE new direction […] push
+> mechanism diversity; never ask to re-tweak a losing direction.
 
----
+That is the whole idea. The work is to generalize that posture and to encourage
+boldness **in the prompts and skills themselves**, not to add another artifact.
+
+**And it must not be formalized.** The obvious failure of a role table like the
+one above is to turn each row into a schema — a novelty score, a global-strategy
+checklist, a decomposition template. That would recreate exactly the problem this
+section is about. Four roles with clear judgement and real authority is not a
+complicated system, and it should not be made into one.
+
+**What is still open.** The gates described above are still in the tree. The
+generalization is not done, and until it is, this section describes a direction
+rather than a finished change.
 
 ## 4. It performed ceremony instead of research
 
@@ -244,11 +236,14 @@ maturity of the claim rather than applying uniformly. From
 > Exploration is allowed to be speculative, unimplemented, unverified, and not
 > yet reproducible. A performance claim is not.
 
-**What is still open.** This posture separation is currently written into the
-**`kernel_engineering` vertical only**. The research vertical has a related rule
-— a recovery is judged "with evidence proportional to its actual claim" and "need
-not win on every seed" — but the explicit *no ceremony during exploration* policy
-has not been generalized to every vertical. It should be.
+**What is still open, and where this does not go far enough.** The posture
+separation is currently written into the **`kernel_engineering` vertical only**,
+and should be generalized. But scaling ceremony to the maturity of a claim is the
+weaker half of the answer. Per §3, the stronger question to ask of any check is
+not *when* it applies but **whether it earns its place at all** — a hash that
+defends against fabrication we have never seen is not cheaper when deferred to
+the claim stage, it is simply unnecessary. Ceremony that survives that question
+should stay; the rest should be deleted rather than rescheduled.
 
 ---
 
@@ -338,7 +333,7 @@ toward the ambitious result. We have not solved this.
 
 ## The tension underneath all of it
 
-Problems 3, 4, 5, and 6 share one root, and it is not a bug we can simply remove.
+Problems 3, 4, 5, and 6 share one root.
 
 The properties that make Argus safe to leave alone — the worker cannot certify
 its own work, every claim carries its evidence, informative failure counts as
@@ -347,7 +342,15 @@ ambition. Applied to a finished claim it is exactly right; applied to an idea
 that has not yet earned it, it is a machine for producing small, safe,
 uninteresting work.
 
-So the fixes above are not about relaxing standards. Every one of them separates
+The mistake to avoid is treating that as an unavoidable trade to be tuned. Much
+of what makes the system timid is not rigor at all — it is defensive machinery
+guarding against failures we do not actually have, and the correct response to
+that machinery is deletion, not calibration. A system does not become trustworthy
+by accumulating checks; it becomes tedious, and the work bends toward satisfying
+the checks.
+
+What remains after the deletions is not a relaxation of standards. Every fix
+above separates
 **what the system is willing to investigate** from **what the system is allowed
 to claim**. The first must be broad, cheap, and unafraid. The second must stay
 strict.

@@ -417,7 +417,7 @@ If you are an agent enthusiast, deploy Argus locally and make the complete loop 
 
 One worked engineering case is **[exploration without local hill climbing](docs/exploration-without-local-hill-climbing.md)**: how report-only research, high-risk mechanism portfolios, single-run screening, and strict final claims were separated after an MI300X serving campaign exposed overly conservative incentives.
 
-For the wider set, **[what goes wrong and what we did about it](docs/failure-modes-and-fixes.md)** records six real failure modes — an experiment that measured its own token cap, world knowledge frozen at the training cut-off, no reason to be ambitious when only certified increments are rewarded, ceremony applied before an idea had earned it, local hill climbing, and a reluctance to report a win — with the fix for each and an honest note on what is still unsolved.
+For the wider set, **[what goes wrong and what we did about it](docs/failure-modes-and-fixes.md)** records six real failure modes — an experiment that measured its own token cap, world knowledge frozen at the training cut-off, settling for finishing rather than achieving something, ceremony applied before an idea had earned it, local hill climbing, and a reluctance to report a win. It also records a fix we got wrong: adding a gate to enforce ambition, when the honest answer was that defensive checks do not produce good work, they produce work that passes checks.
 
 ### Build your own Vertical
 
