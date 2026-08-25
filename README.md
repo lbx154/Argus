@@ -421,6 +421,8 @@ For the wider set, **[what goes wrong and what we did about it](docs/failure-mod
 
 A measured counterpart is **[system audit: six complaints, checked against the code](docs/system-audit.md)** — over-defensiveness, a rigorous verification bar, unnecessary operator questions, weak instruction following, redundancy, and schema abuse, each confirmed or refuted with counts from the tree.
 
+The follow-up **[architecture simplification plan](docs/architecture-simplification-plan.md)** separates a short direct-engineering lane from the full research team, proposes one Host-generated shared mission view, and outlines a compatibility-first Vertical package split.
+
 ### Build your own Vertical
 
 A Vertical gives your field its own stages, Skills, datasets, tools, evidence expectations, evaluation methods, and completion criteria. Planning and review can then follow the real standards of your domain instead of a generic process.

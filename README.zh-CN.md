@@ -389,6 +389,8 @@ export ARGUS_SKILL_AUTONOMY_MODE=autonomous
 
 与之配套的实测版本是 **[系统审计：六条抱怨，逐条拿代码核对](docs/system-audit.zh-CN.md)** —— 过度防御、验证门槛过严、不必要的人类打扰、指令遵循弱、冗余，以及 schema 乱用，每条都用代码树上的实测数字给出成立与否。
 
+后续的 **[架构精简规划](docs/architecture-simplification-plan.md)** 把普通工程短链与完整研究团队分开，设计由 Host 生成的单一任务上下文，并规划兼容优先的 Vertical 拆库路径。
+
 ### 创建自己的 Vertical
 
 Vertical 可以为你的领域提供专属阶段、Skill、数据集、工具、证据要求、评测方法与完成标准。规划与审查将遵循该领域真正重要的规范，而不是一套通用流程。

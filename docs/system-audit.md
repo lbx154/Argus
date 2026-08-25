@@ -59,6 +59,11 @@ cells of table to earn the right to make a claim.
 The cost is not the check. The cost is that the work bends toward filling the
 table.
 
+**Resolved:** the novelty-table gate is now a non-blocking compatibility entry
+point. Planner and Reviewer judge materially different routes, expected upside,
+information gain, and experimental feedback; no fixed idea count, CSV schema,
+or scorecard is required.
+
 ## 3. Unnecessary operator questions — partly confirmed
 
 ```
@@ -196,6 +201,25 @@ sets; 19 modules parse frontmatter; 274 `@dataclass` and 21 `BaseModel`
 definitions describe internal shapes, some of which the model is asked to
 produce. The principle exists and is written down. It has not been carried
 through the rest of the system.
+
+---
+
+## Remediation now landed
+
+Role prompts now ask for natural reasoning followed by only the few actionable
+footer lines; legacy JSON remains readable but is no longer requested. The
+unconditional Manager rendering prompt and its checkpoint-repair path were
+deleted. Operator review routing no longer treats ordinary words such as
+`production`, `release`, or `delete` as authority by themselves. The 170-cell
+novelty table is retired, physics role banners are all below 800 characters, and
+the research banners now range from 771 to 2,096 characters instead of roughly
+2,800 to 9,800. TEAM learning runs only after final settlement and only for a
+new candidate batch.
+
+The direct engineering path now skips Planner decomposition for one cohesive
+finite task and invokes Reviewer only when the Vertical or operator requires it.
+In a matched user test this reduced Argus from more than 15 minutes and 19 model
+calls to 53.35 seconds and 2 calls while preserving the same passing tests.
 
 ---
 

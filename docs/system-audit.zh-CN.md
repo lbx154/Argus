@@ -55,6 +55,10 @@ grep -rc "^\s*try:" --include=*.py argus_skill/ | awk -F: '{s+=$2} END{print s}'
 
 代价不在于这道检查本身，而在于**工作会朝着"把表格填满"弯过去**。
 
+**已修复：** novelty 表格门现在只保留为不阻塞旧会话的兼容入口。Planner 和 Reviewer
+直接判断路线是否真正不同、预期上限、信息增益和实验反馈；不再要求固定想法数量、CSV schema
+或打分表。
+
 ## 3. 不必要的人类打扰 —— 部分成立
 
 ```
@@ -174,6 +178,20 @@ for d in sorted(pathlib.Path('argus_skill/verticals').iterdir()):
 **它没有被推广到的地方。** 5 个物理门仍然要求精确的 CSV 列集合；19 个模块在解析
 frontmatter；274 个 `@dataclass` 和 21 个 `BaseModel` 描述着内部形状，其中一部分是要模型去
 产出的。**这个原则已经存在、也已经写下来了，只是没有贯穿到系统其余部分。**
+
+---
+
+## 当前已落地的修复
+
+角色现在先自然思考，末尾只写 Host 真正执行所需的少数字段；旧 JSON 仍能读取，但新 prompt
+不再要求。无条件追加的 Manager 渲染 prompt 和 checkpoint 修复路径已经删除。Operator 路由
+不再仅因为 `production`、`release`、`delete` 等普通工程词就把工作留给人类。170 格创新表已
+退休，physics 各角色 banner 均低于 800 字符，research banner 从原约 2,800–9,800 字符降到
+771–2,096。TEAM learning 只在最终结算成功且出现新候选批次时运行。
+
+普通有限 direct 工程任务现在跳过 Planner 的单节点重包装，并只在 Vertical 或操作者要求时
+调用 Reviewer。同题用户对照中，Argus 从超过 15 分钟、19 次模型调用降到 53.35 秒、2 次调用，
+同一组测试仍全部通过。
 
 ---
 
