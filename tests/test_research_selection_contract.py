@@ -1751,6 +1751,8 @@ def test_a_placeholder_ledger_is_not_the_thing_being_judged() -> None:
     assert "Never invent a final" in block
     # But a placeholder is for a result that is coming, not one already held.
     assert "never for one already on disk" in block
+    assert "abstract never contains a placeholder" in block
+    assert "strongest completed result" in block
     # And the pass is judged on whether it reads as a paper, not on the ledger.
     assert "reads as a paper" in block
 
