@@ -13,7 +13,7 @@ English version: [system-audit.md](system-audit.md)
 | 1 | 过度防御 | **成立** —— 2,277 个 `try:`，其中 235 个吞掉错误继续跑 |
 | 2 | 验证门槛过于 rigorous | **成立** —— 39 个失败码，5 个门要求精确的 CSV 列 |
 | 3 | 太经常问人类不必要的问题 | **部分成立** —— 频率并不高，但**路由靠一张词表** |
-| 4 | 指令遵循能力弱 | **成立，且是自找的** —— Manager 常驻指令 7,438 token |
+| 4 | 指令遵循能力弱 | **成立** —— 任务之前已有 3,665 token 常驻指令，大头是 vertical banner |
 | 5 | 冗余、过复杂、空转 | **成立** —— 24% 的事件类型是死的；同一件事有四套实现 |
 | 6 | schema 乱用 | **在最要紧的地方已经修好了，但没推广** |
 
@@ -74,31 +74,38 @@ grep -rc "^\s*try:" --include=*.py argus_skill/ | awk -F: '{s+=$2} END{print s}'
 
 **一张词表分不清"权限"和"词汇"。**
 
-## 4. 指令遵循能力弱 —— 成立，而且是自找的
+## 4. 指令遵循能力弱 —— 成立，但不在我们最初说的那个地方
 
-按各角色提示词模块里字符串字面量的净载荷实测：
+**我们第一次测错了口径，而这个修正很重要。** 我们把
+`argus_skill/roles/prompts/manager.py` 里所有字符串字面量加总，报出"Manager 常驻指令
+7,438 token"。但那个模块里装的是 **20 个针对不同场景的 prompt 构造器**，一次调用只触发一
+个。把它们加总，什么也没测到。
 
-| 角色 | 提示词文本 | ≈ token |
-| --- | ---: | ---: |
-| Manager | 29,753 字符 | 7,438 |
-| Reviewer | 13,045 字符 | 3,261 |
-| Planner | 12,016 字符 | 3,004 |
-| Engineer | 7,513 字符 | 1,878 |
-| **合计** | **62,327 字符** | **15,581** |
+按正确口径实测——一次真实的 Manager 阶段决策，在任何检查表、证据和任务内容加入之前：
 
-这还只是**常驻指令**——任务内容、项目状态、技能和证据都还没加进去。一个被塞了 7,438 token
-规则的模型不可能全部遵守，而这个失败看起来像"不听话"，其实是：**我们写的规则超过了指令遵循
-的预算。**
+| 组成 | 字符 | 是否总是出现 |
+| --- | ---: | --- |
+| `build_stage_decision_prompt` | 3,844 | 是 |
+| `manager_rendering_prompt`（live-view 块） | 2,923 | 是——在 `manager/_stage_ops.py:779` 无条件追加 |
+| vertical 的 `role_banner`（物理） | 7,893 | 在该 vertical 下，是 |
+| **合计** | **14,660**（约 3,665 token） | |
 
-**修法不是把语气写得更硬，而是把规则写得更少。**
+**所以抱怨成立，但元凶不是我们点名的那个。** Manager 核心提示词是 3,844 字符。**最大的一
+块常驻文本是 vertical 自己的 banner，7,893 字符——是它所包裹的那个决策提示词的两倍。** 而
+一个 live-view 渲染块会被追加到**每一次**阶段决策上，无论这次决策跟渲染有没有关系。
+
+一个在看到任务之前先被塞了 3,665 token 常驻规则的模型不可能全部遵守，而这个失败看起来像
+"不听话"，其实是：**规则比指令遵循的预算更多。** 修法不是把语气写得更硬，而是**把规则写得
+更少——先从 vertical banner 开刀。**
 
 ```bash
 python3 -c "
 import ast,pathlib
-for f in ['manager','reviewer','planner','engineer']:
-    t=ast.parse(pathlib.Path(f'argus_skill/roles/prompts/{f}.py').read_text())
-    print(f, sum(len(x.value) for x in ast.walk(t)
-          if isinstance(x,ast.Constant) and isinstance(x.value,str)))"
+t=ast.parse(pathlib.Path('argus_skill/verticals/physics/stages.py').read_text())
+for n in t.body:
+    c=sum(len(x.value) for x in ast.walk(n)
+          if isinstance(x,ast.Constant) and isinstance(x.value,str))
+    if c>2000: print(c, getattr(n,'name',None) or n.targets[0].id)"
 ```
 
 ## 5. 冗余、过复杂、空转 —— 成立
@@ -154,8 +161,8 @@ frontmatter；274 个 `@dataclass` 和 21 个 `BaseModel` 描述着内部形状�
 六条里五条被代码证实，第六条在"既有修法没被应用到"的所有地方也都成立。**它们不是六个问题，
 而是同一个习惯的六种症状：出了事，我们就加一个机制。**
 
-每一次添加在局部都有正当理由。加总起来，是一个有 2,277 个 `try:`、7,438 token 常驻 Manager
-指令、31 个死事件类型、四种加锁方式的运行时——以及一个**忙着填表、为"delete"这个词请示权
+每一次添加在局部都有正当理由。加总起来，是一个有 2,277 个 `try:`、任务前 3,665 token
+常驻指令、31 个死事件类型、四种加锁方式的运行时——以及一个**忙着填表、为"delete"这个词请示权
 限、并且不遵守那些它根本没有余量读完的指令**的 Agent。
 
 **纠正的办法不是再加一个机制，而是删除。**

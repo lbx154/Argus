@@ -14,7 +14,7 @@ skill documents totalling 22,765 lines.
 | 1 | Over-defensive | **Confirmed** — 2,277 `try:` blocks, 235 that swallow and continue |
 | 2 | Verification bar too rigorous | **Confirmed** — 39 failure codes, 5 gates demanding exact CSV columns |
 | 3 | Asks the operator unnecessary questions | **Partly** — the rate is low, but the routing is a word list |
-| 4 | Weak instruction following | **Confirmed, and self-inflicted** — 7,438 tokens of standing Manager instruction |
+| 4 | Weak instruction following | **Confirmed** — 3,665 tokens of standing instruction before the task, most of it the vertical banner |
 | 5 | Redundant, over-complex, spins | **Confirmed** — 24% of event types are dead; four parallel implementations of the same concerns |
 | 6 | Schema abuse | **Already fixed at the decision boundary, not elsewhere** |
 
@@ -81,32 +81,43 @@ words stays with the human by default.
 
 A word list cannot tell authority from vocabulary.
 
-## 4. Weak instruction following — confirmed, and self-inflicted
+## 4. Weak instruction following — confirmed, but not where we first said
 
-Measured as string-literal payload in each role prompt module:
+Our first measurement was wrong, and the correction matters. We reported 7,438
+tokens of "standing Manager instruction" by summing every string literal in
+`argus_skill/roles/prompts/manager.py`. That module holds **20 different prompt
+builders**, one per situation, and only one fires per call. Summing them measures
+nothing.
 
-| Role | Prompt text | ≈ tokens |
-| --- | ---: | ---: |
-| Manager | 29,753 chars | 7,438 |
-| Reviewer | 13,045 chars | 3,261 |
-| Planner | 12,016 chars | 3,004 |
-| Engineer | 7,513 chars | 1,878 |
-| **Total** | **62,327 chars** | **15,581** |
+Measured properly — one real Manager stage decision, before any checklist,
+evidence, or task content:
 
-This is standing instruction, before any task content, project state, skill, or
-evidence is added. A model handed 7,438 tokens of rules will not follow all of
-them, and the failure will look like disobedience rather than what it is:
-**we wrote more rules than fit in an instruction-following budget.**
+| Component | Chars | Always present? |
+| --- | ---: | --- |
+| `build_stage_decision_prompt` | 3,844 | yes |
+| `manager_rendering_prompt` (live-view block) | 2,923 | yes — appended unconditionally at `manager/_stage_ops.py:779` |
+| vertical `role_banner` (physics) | 7,893 | yes, under that vertical |
+| **Total** | **14,660** (~3,665 tokens) | |
 
-The fix is not a firmer tone. It is fewer rules.
+So the complaint holds, but the culprit is not the one we named. The core Manager
+prompt is 3,844 characters. **The single largest block of standing text is the
+vertical's own banner at 7,893 characters — twice the size of the decision prompt
+it wraps.** A live-view rendering block is appended to every stage decision
+whether or not the decision concerns rendering.
+
+A model handed 3,665 tokens of standing rules before it sees the task will not
+follow all of them, and the failure will look like disobedience rather than what
+it is: **more rules than fit in an instruction-following budget.** The fix is not
+a firmer tone. It is fewer rules — starting with the vertical banner.
 
 ```bash
 python3 -c "
 import ast,pathlib
-for f in ['manager','reviewer','planner','engineer']:
-    t=ast.parse(pathlib.Path(f'argus_skill/roles/prompts/{f}.py').read_text())
-    print(f, sum(len(x.value) for x in ast.walk(t)
-          if isinstance(x,ast.Constant) and isinstance(x.value,str)))"
+t=ast.parse(pathlib.Path('argus_skill/verticals/physics/stages.py').read_text())
+for n in t.body:
+    c=sum(len(x.value) for x in ast.walk(n)
+          if isinstance(x,ast.Constant) and isinstance(x.value,str))
+    if c>2000: print(c, getattr(n,'name',None) or n.targets[0].id)"
 ```
 
 ## 5. Redundant, over-complex, spins — confirmed
@@ -173,7 +184,7 @@ everywhere the existing fix was not applied. They are not six problems. They are
 one habit with six symptoms: **when something went wrong, we added a mechanism.**
 
 Each addition was locally justified. The aggregate is a runtime with 2,277
-`try:` blocks, 7,438 tokens of standing Manager instruction, 31 dead event types,
+`try:` blocks, 3,665 tokens of standing instruction before the task, 31 dead event types,
 and four ways to take a lock — and an agent that fills in tables, asks permission
 for the word "delete", and does not follow instructions it never had room to
 read.
