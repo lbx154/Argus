@@ -283,6 +283,33 @@ def test_missing_completion_marker_is_retryable() -> None:
     assert verdict.error == "planner missing key-value completion marker"
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        (
+            '{"project_done":false,"reason":"grounded","tasks":['
+            '{"key":"k1","deps":[],"title":"Implement it",'
+            '"objective":"Implement the grounded task.","scope":"bounded"}]}'
+        ),
+        (
+            "```json\n"
+            '{"role":"planner","payload":{"project_done":false,'
+            '"reason":"grounded","tasks":[{"key":"k1","deps":[],'
+            '"title":"Implement it","objective":"Implement the grounded task.",'
+            '"scope":"bounded"}]}}\n'
+            "```\nBrief operator explanation."
+        ),
+    ],
+)
+def test_planner_accepts_json_decision_without_event_prefix(text: str) -> None:
+    verdict = parse_planner_text(text)
+
+    assert verdict.error == ""
+    assert verdict.reason == "grounded"
+    assert [task.title for task in verdict.new_tasks] == ["Implement it"]
+    assert verdict.raw_text == text
+
+
 def test_planner_prompt_requires_read_only_delegation_and_process_decision() -> None:
     assert "Planner read-only delegation contract" in _PLANNER_CORE_CONTRACT
     assert "Do not edit project files" in _PLANNER_CORE_CONTRACT

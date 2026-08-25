@@ -12,7 +12,7 @@ import json
 import re
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -1050,8 +1050,39 @@ def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
     )
 
 
+def _planner_payload_from_text(text: str) -> dict[str, Any] | None:
+    raw = text.lstrip()
+    if raw.startswith("```"):
+        first_line, separator, remainder = raw.partition("\n")
+        if not separator or first_line.strip().casefold() not in {"```", "```json"}:
+            return None
+        raw, closing, _trailing = remainder.partition("```")
+        if not closing:
+            return None
+        raw = raw.strip()
+    if not raw.startswith("{"):
+        return None
+    try:
+        candidate, _end = json.JSONDecoder().raw_decode(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(candidate, dict):
+        return None
+    if candidate.get("role") == "planner" and isinstance(
+        candidate.get("payload"),
+        dict,
+    ):
+        return dict(candidate["payload"])
+    if any(
+        key in candidate
+        for key in ("project_done", "waiting", "reason", "tasks")
+    ):
+        return candidate
+    return None
+
+
 def parse_planner_text(text: str) -> PlannerVerdict:
-    """Parse the legacy Planner ``KEY=VALUE`` completion footer."""
+    """Parse a Planner JSON decision or the legacy ``KEY=VALUE`` footer."""
     if not text:
         return PlannerVerdict(
             project_done=False,
@@ -1059,6 +1090,9 @@ def parse_planner_text(text: str) -> PlannerVerdict:
             raw_text=text,
             error="empty planner output",
         )
+    payload = _planner_payload_from_text(text)
+    if payload is not None:
+        return replace(parse_planner_payload(payload), raw_text=text)
     values, task_rows = _planner_key_values(text)
     return _planner_verdict_from_fields(text, values, task_rows)
 
