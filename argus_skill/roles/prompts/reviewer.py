@@ -415,9 +415,12 @@ def render_reviewer_prompt(
     optimize_banner = prompt_context.role_banner
     if prompt_context.requires_independent_review and not _requires_engineering_audit:
         optimize_banner = ""
-    research_target_instruction = ""
+    verification_instruction = ""
     _research_target_level = resolve_research_target_level(_proot)
-    if _research_target_level is not None:
+    if (
+        _research_target_level is not None
+        or prompt_context.verification_stage_profiles
+    ):
         # Two separate things, previously one sentence: `research_target_level`
         # says what finishing the PROJECT means, and the verification profile
         # says what THIS round has to show. Conflating them made every early
@@ -436,23 +439,37 @@ def render_reviewer_prompt(
             target_level=_research_target_level,
             stage_profiles=prompt_context.verification_stage_profiles,
         )
-        research_target_instruction = (
-            f"Project target `{_research_target_level}` defines project completion, "
-            f"not this round's bar. This round: {policy_line(_policy)}. The integrity "
-            "floor is identical at every profile. Judge directly and explain in "
-            "`reason`. If the direction cannot reach the target, return "
-            "`replan_requested`.\n"
-            "End with `RESEARCH_RESULT=<JSON>` over evidence you inspected. "
-            "`evidence` and `limitations` are JSON string arrays; a survey is "
-            "`literature_review` with `novelty_status` `known` or `not_applicable`. "
-            "Every field below takes one listed value verbatim — any other value "
-            "voids the whole result, however well it describes the work:\n"
-            + "".join(
-                f"{_field}: {' '.join(_choices)}\n"
-                for _field, _choices in RESULT_FIELD_CHOICES
+        verification_instruction = (
+            (
+                f"Project target `{_research_target_level}` defines project "
+                "completion, not this round's bar. "
             )
-            + "\n"
+            if _research_target_level is not None
+            else (
+                "The active vertical owns when verification becomes final; "
+                "judge this mission at its current stage, not at the last "
+                "stage's acceptance bar. "
+            )
+        ) + (
+            f"This round: {policy_line(_policy)}. The integrity floor is "
+            "identical at every profile. Judge directly and explain in `reason`. "
         )
+        if _research_target_level is not None:
+            verification_instruction += (
+                "If the direction cannot reach the target, return "
+                "`replan_requested`.\n"
+                "End with `RESEARCH_RESULT=<JSON>` over evidence you inspected. "
+                "`evidence` and `limitations` are JSON string arrays; a survey is "
+                "`literature_review` with `novelty_status` `known` or "
+                "`not_applicable`. Every field below takes one listed value "
+                "verbatim — any other value voids the whole result, however well "
+                "it describes the work:\n"
+                + "".join(
+                    f"{_field}: {' '.join(_choices)}\n"
+                    for _field, _choices in RESULT_FIELD_CHOICES
+                )
+                + "\n"
+            )
     # Live search-altitude facts (NO verdict) so the reviewer can SEE the
     # floor history when judging forward_progress — i.e. distinguish "this
     # round advanced a declared structural line" from "Nth single-knob
@@ -638,7 +655,7 @@ def render_reviewer_prompt(
         )
     )
     static = (
-        research_target_instruction
+        verification_instruction
         + EFFECTIVE_TASK_CONTRACT
         + "\n\n"
         + (shell_contract + "\n\n" if shell_contract else "")
@@ -729,7 +746,7 @@ def render_reviewer_prompt(
             "matched_skill": matched_review_skill_block,
             "direct_memory": direct_memory_edit_block,
             "wiki_curator": wiki_curator_skill_block,
-            "research_target": research_target_instruction,
+            "research_target": verification_instruction,
             "objective_context": objective_context,
             "checkpoint": checkpoint_block,
             "execution_log_audit": engineer_log_audit_block,

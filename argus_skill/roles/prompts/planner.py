@@ -242,7 +242,10 @@ def build_continuous_prompt(
 
     research_target_block = ""
     _research_target_level = resolve_research_target_level(_proot)
-    if _research_target_level is not None:
+    if (
+        _research_target_level is not None
+        or prompt_context.verification_stage_profiles
+    ):
         # The target is the PROJECT bar; the profile is THIS round's bar. A
         # publishable target does not mean every probe must already be
         # publishable — that reading is what kills seed ideas.
@@ -259,19 +262,29 @@ def build_continuous_prompt(
             target_level=_research_target_level,
             stage_profiles=prompt_context.verification_stage_profiles,
         )
-        research_target_block = (
-            "## Manager-owned research target\n"
-            f"Preserve `research_target_level={_research_target_level}` from "
-            "`.argus/PIPELINE_STATE.json`; it sets `PROJECT_DONE`, not this "
-            f"round (`{_policy.profile}`/{_policy.posture}). At "
-            "`publishable`/`doctoral` original research needs a nontrivial "
-            "technical core, verified originality, formal/causal grounding, and "
-            "field-level significance. A literature review needs independently "
-            "verified scope, coverage, synthesis, claims, and writing quality at "
-            "that level; originality is not required. Known results, finite checks, and honest "
-            "negative reports are progress, not done. At `exploratory`, an "
-            "independently verified negative report may satisfy the objective."
-        )
+        if _research_target_level is not None:
+            research_target_block = (
+                "## Manager-owned research target\n"
+                f"Preserve `research_target_level={_research_target_level}` from "
+                "`.argus/PIPELINE_STATE.json`; it sets `PROJECT_DONE`, not this "
+                f"round (`{_policy.profile}`/{_policy.posture}). At "
+                "`publishable`/`doctoral` original research needs a nontrivial "
+                "technical core, verified originality, formal/causal grounding, "
+                "and field-level significance. A literature review needs "
+                "independently verified scope, coverage, synthesis, claims, and "
+                "writing quality at that level; originality is not required. "
+                "Known results, finite checks, and honest negative reports are "
+                "progress, not done. At `exploratory`, an independently verified "
+                "negative report may satisfy the objective."
+            )
+        else:
+            research_target_block = (
+                "## Vertical verification staging\n"
+                f"This mission uses `{_policy.profile}` verification at stage "
+                f"`{_stage or 'unset'}`. Plan only the evidence this stage needs; "
+                "the vertical's final stage owns certification. Integrity and "
+                "truth do not get weaker in earlier profiles."
+            )
 
     standing_continuous_block = ""
     if open_ended:

@@ -62,6 +62,8 @@ def test_paper_review_requires_idea_and_built_artifact_quality():
     # local plan through the existing Manager-adjudicated channel.
     assert "central research idea is novel" in block
     assert "small scoreboard gain is not paper-level success" in block
+    assert "repeat a date-sorted live search" in block
+    assert "selection is context, not a boundary" in block
     assert "`plan_signal` to `reconsider`" in block
     assert "`plan_alternative`" in block
     assert "same selector is not a bolder plan" in block
