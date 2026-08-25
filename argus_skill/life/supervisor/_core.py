@@ -687,11 +687,35 @@ class LifeSupervisor(
                 and self._effective_final_certification_gate(self._artifact_root())
                 and self._journal_has_final_certification()
             ):
-                self._emit_status(
-                    "auto-stop: EMNLP gate passes, project complete"
-                )
-                stopped_by = "project_done"
-                break
+                # This fires before every tick, and the daemon then disables
+                # continuous mode for good, so a campaign that certifies once
+                # can never act again -- including on anything the operator
+                # says afterwards. run-04 certified a 4,176-word paper using
+                # four of its seven figures, and every note sent to it for the
+                # next eight hours went into an inbox nothing would read; it
+                # took hand-editing continuous.json to bring it back.
+                #
+                # Someone writing to a finished campaign is asking for more
+                # work. Consuming that is not second-guessing the
+                # certification, it is the only reading of an operator message
+                # that leaves the operator any say.
+                operator_input = self._drain_user_inbox(max_messages=1)
+                if operator_input:
+                    carryover = getattr(self, "_operator_guidance_carryover", None)
+                    if carryover is None:
+                        carryover = []
+                        self._operator_guidance_carryover = carryover
+                    carryover.extend(operator_input)
+                    self._emit_status(
+                        "certified complete, and the operator has asked for more"
+                    )
+                    self._reset_idle_backoff()
+                else:
+                    self._emit_status(
+                        "auto-stop: EMNLP gate passes, project complete"
+                    )
+                    stopped_by = "project_done"
+                    break
             try:
                 outcome = self.tick()
             except Exception as exc:  # noqa: BLE001

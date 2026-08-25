@@ -1733,3 +1733,24 @@ def test_a_placeholder_ledger_is_not_the_thing_being_judged() -> None:
     assert "never for one already on disk" in block
     # And the pass is judged on whether it reads as a paper, not on the ledger.
     assert "reads as a paper" in block
+
+
+def test_a_certified_campaign_still_hears_the_operator() -> None:
+    """Certification fires before every tick and the daemon then disables
+    continuous mode for good, so a campaign that certifies once can never act
+    again -- including on anything said to it afterwards. run-04 certified a
+    4,176-word paper using four of its seven figures, and eight hours of
+    operator notes went into an inbox nothing would read. Bringing it back took
+    hand-editing continuous.json.
+    """
+    import inspect
+
+    from argus_skill.life.supervisor import _core
+
+    source = inspect.getsource(_core.LifeSupervisor.run)
+    gate = source[source.index("EMNLP gate passes") - 2000 :]
+    gate = gate[: gate.index("stopped_by = \"project_done\"") + 40]
+    # The inbox is consulted before the campaign is closed for good...
+    assert "_drain_user_inbox" in gate
+    # ...and what it says is carried into the next planning turn.
+    assert "_operator_guidance_carryover" in gate
