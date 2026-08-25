@@ -423,6 +423,8 @@ A measured counterpart is **[system audit: six complaints, checked against the c
 
 The follow-up **[architecture simplification plan](docs/architecture-simplification-plan.md)** separates a short direct-engineering lane from the full research team, proposes one Host-generated shared mission view, and outlines a compatibility-first Vertical package split.
 
+What follows from that audit is **[the simplification plan](docs/simplification-plan.md)**: an ordered set of deletions, a mechanical rule for sorting 2,277 exception handlers, an explicit list of what must not be removed, and the trap to avoid — replacing deleted machinery with a unified system that becomes the same mistake.
+
 ### Build your own Vertical
 
 A Vertical gives your field its own stages, Skills, datasets, tools, evidence expectations, evaluation methods, and completion criteria. Planning and review can then follow the real standards of your domain instead of a generic process.
