@@ -28,37 +28,59 @@ than the task needs score zero reward on trajectories that were on their way to 
 correct answer, so the gradient teaches the model to stop early — and the damage
 looks exactly like the method failing.
 
-**Why it happens.** A wrong setting and a wrong idea produce the same artifact: a
-low number with clean plumbing. Nothing about the run announces which one you
-have. The agent, finding a low number, interpreted it instead of debugging it.
+**Why it happens — and this is the deeper problem.** Twelve is not a typo. Each
+individual step was locally defensible: a config needs a token cap, the number
+was filled in, the harness ran, the scorer scored. What never happened is the
+one-line cross-check that any researcher performs without noticing they are
+performing it — *a proof takes paragraphs, so twelve tokens cannot possibly be
+enough.* The agent reasons **in isolation and mechanically**: it optimizes each
+local decision without ever holding the whole experiment in view at once, so a
+setting and the task it is supposed to serve are never compared.
 
-**What we did.** A skill,
-[`suspect-the-setup.md`](../argus_skill/verticals/research/skills/engineer/suspect-the-setup.md),
+That is why this is not fixed by "be more careful." A wrong setting and a wrong
+idea produce the same artifact — a low number with clean plumbing — and nothing
+about the run announces which one you have. Finding a low number, the agent
+*interpreted* it instead of debugging it, because interpreting is a local
+operation and debugging requires the global view it does not have.
+
+**What we did.** Supply the missing global check as an explicit rule rather than
+hoping for judgement. The skill
+[`suspect-the-setup.md`](../argus_skill/verticals/research/skills/engineer/suspect-the-setup.md)
 inverts the default: *a result far from what this model, method, or benchmark is
-known to do is a defect report until proven otherwise.* It requires the
-generation budget to be derived from the length distribution of correct
-completions rather than picked as a round number, and requires reporting the
-fraction of generations that hit the cap — anything materially above zero means
-you are measuring the cap. It carries the same treatment for RL rollout length,
-samples per prompt, KL and clip settings, scorers, and protocol steps.
+known to do is a defect report until proven otherwise.* Concretely it forces the
+comparison the agent will not make on its own — the generation budget must be
+**derived from the length distribution of correct completions**, not picked as a
+round number, and the run must report the fraction of generations that hit the
+cap, because anything materially above zero means you are measuring the cap. The
+same treatment covers RL rollout length, samples per prompt, KL and clip
+settings, scorers, and protocol steps.
+
+The second half of the answer is in §2: a single model cannot audit its own blind
+spot, so the fix for isolated reasoning is to put a stranger in the room.
 
 ---
 
-## 2. It kept picking outdated models
+## 2. Its world knowledge does not update
 
 **What we saw.** Given a free choice of backbone, the agent reached repeatedly
 for models like Qwen2.5-7B — a previous-generation choice that no main-conference
-reviewer would accept as the carrier of a headline claim.
+reviewer would accept as the carrier of a headline claim. The same reflex shows
+up in literature: a capable model will happily write a plausible bibliography
+from memory, "guessing arXiv ids for famous benchmarks and writing abstracts from
+memory — **without ever touching the network**."
 
-**Why it happens.** This one is not a reasoning failure, and it cannot be fixed
-by better reasoning. Model names are distributed in pretraining data by how often
-they were written about, which is a function of *how long they have existed*. The
-agent's prior is therefore permanently biased toward whatever was popular a
-generation ago. Left alone, an agent will always reach for last year's model,
-confidently, and give a fluent justification for it.
+**Why it happens.** This is not a reasoning failure and cannot be fixed by better
+reasoning. Model names, library versions, and paper ids are distributed in
+pretraining data by how often they were written about, which is a function of
+*how long they have existed*. The agent's prior is therefore permanently biased
+toward whatever was popular a generation ago, and it is **frozen at the training
+cut-off while the world keeps moving**. Left alone, an agent will always reach
+for last year's model, confidently, and give a fluent justification for it.
 
-**What we did.** Model recency is enforced as a rule rather than left to
-judgement, in
+**What we did.** Two things: forbid recall where recency matters, and give the
+runtime a way to actually look things up.
+
+**Forbid recall.** Model recency is a rule, not a judgement call, in
 [`training-infrastructure-guide.md`](../argus_skill/builtin_skills/engineer/training-infrastructure-guide.md):
 
 > **Current generation only.** The backbone must be from a **current, actively
@@ -68,15 +90,51 @@ judgement, in
 > downloads fast.
 
 Recency must be *verified at decision time* against the model hub or a recent
-leaderboard, not recalled. The choice must be written down with the exact model
-id, parameter count, and release date, and if a small model is chosen
-deliberately the reason must be a research reason — not "it was easier to train."
-A stale backbone may remain a compatibility baseline, but it cannot carry the
-main empirical claim when a current generation exists.
+leaderboard, and the choice written down with the exact model id, parameter
+count, and release date. The literature path is stricter still —
+[`deep-research-via-api.md`](../argus_skill/verticals/research/skills/engineer/deep-research-via-api.md)
+carries a flat prohibition, **"No model-knowledge literature"**: every entry must
+trace to a real primary URL, and writing `"queried"` or `"retrieved from"` when
+no query ran is classified as fabrication.
+
+**Then give it a way to look things up.** A prohibition alone would just block
+work, so the runtime spawns **separate agents that carry live web search** and
+treats their output as the knowledge base instead of the model's memory:
+
+| Mechanism | What it looks up |
+| --- | --- |
+| [`idea_panel.py`](../argus_skill/verticals/research/idea_panel.py) | Several independently-trained models, each with live search, propose and then cross-examine each other |
+| [`idea_search.py`](../argus_skill/verticals/research/idea_search.py) | A live-search call that surfaces literature-grounded gaps and appends them as *additional* candidates — a source, never a selector |
+| [`venue_research.py`](../argus_skill/verticals/research/venue_research.py) | A venue's official submission facts, fetched rather than recalled |
+| [`frontier_watch.py`](../argus_skill/verticals/kernel_engineering/frontier_watch.py) | Persists and validates continuous frontier search per stage, across the target repository, official toolchains, and the research frontier |
+
+The panel is also the answer to §1's isolated reasoning, and its rationale says
+why plainly:
+
+> One model asked once returns six candidates that share one model's taste and
+> one model's blind spots. […] an objection a GPT-family model cannot see is
+> often obvious to a Gemini- or Claude-family one, and a candidate that survives
+> cross-examination by a stranger is a better bet than one nobody argued with.
+
+Seats are filled by whichever CLIs are installed, and two seats on one backend
+serving one model are collapsed to one — *"one model arguing with itself, which
+is worse than not seating a panel, because it looks like one."*
+
+**What we measured, including the part that did not work.** The panel is opt-in,
+because we measured it and it is not a free win:
+
+> Across four directions and thirty-two blind-scored candidates a panel did not
+> beat single-model ideation on the mean — it produced the best candidate in the
+> batch and more than twice as many weak ones, so it buys **spread rather than
+> level**.
+
+That is a trade an operator chooses deliberately, not one a campaign inherits
+from which CLIs happen to be installed.
 
 **The general lesson.** Anything the agent knows from pretraining is, by
 construction, out of date. Where recency matters, the runtime must force a lookup
-instead of trusting recall.
+instead of trusting recall — and where a single model's taste is the risk, it
+must force a second opinion from a model trained by someone else.
 
 ---
 
