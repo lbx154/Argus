@@ -10,6 +10,10 @@ description: "Implement and measure one production kernel or inference improveme
 2. Reproduce the current behavior or baseline with the repository's own environment.
 3. Identify the measured bottleneck and choose one coherent mechanism with a cheap
    falsification check.
+   Proactively inspect current primary papers and official implementations whenever
+   outside mechanisms could materially improve the plan. A bounded research mission
+   may deliver a concise report only; it does not need code or an executable gate unless
+   the task explicitly requests one.
 4. Implement it in production code, preserving the public API and safe fallback.
 5. Run correctness first, then comparable warm target-hardware measurements.
 6. Retain only a verified improvement; otherwise revert or leave it disabled and

@@ -12,6 +12,7 @@ from argus_skill.skills.vertical_select import (
 )
 from argus_skill.verticals._base import (
     load_vertical,
+    load_vertical_contract,
     vertical_completion_gate,
     vertical_role_banner,
     vertical_workflow_mode,
@@ -45,8 +46,31 @@ def test_kernel_engineering_banner_prioritizes_direct_measured_work() -> None:
     assert "`parallel_safe=true`" in planner
     assert "`owns_paths` disjoint" in planner
     assert "never queue status polling" in planner
+    assert "Proactively use fresh primary-source research" in planner
+    assert "`work_kind=algorithm_discovery`" in planner
+    assert "do not wait for repeated failures" in planner
+    assert "does not need to produce code" in planner
+    assert "produce a concise decision-useful research report" in engineer
+    assert "Implementation is optional" in engineer
+    assert "report-only research mission is valid" in reviewer
     assert "never fail work merely because" in reviewer
     assert "process documents" in engineer
+
+
+def test_kernel_optimization_missions_have_live_search_available() -> None:
+    contract = load_vertical_contract("kernel_engineering")
+    default = frozenset({"research"})
+
+    assert contract.live_search_stages(
+        default,
+        work_kind="algorithm_discovery",
+        preserve_configured=False,
+    ) == frozenset({"optimize"})
+    assert contract.live_search_stages(
+        default,
+        work_kind="engineering_optimization",
+        preserve_configured=False,
+    ) == frozenset({"optimize"})
 
 
 def test_kernel_engineering_checklist_has_no_process_artifact_stages(tmp_path: Path) -> None:
@@ -77,7 +101,10 @@ def test_kernel_engineering_vertical_skills_are_packaged(tmp_path: Path) -> None
     reviewer_text = reviewer.read_text(encoding="utf-8").lower()
     assert "without framework paperwork" in engineer_text
     assert "do not create scope documents" in engineer_text
+    assert "bounded research mission" in engineer_text
+    assert "does not need code" in engineer_text
     assert "without requiring process documents" in reviewer_text
+    assert "report-only research mission" in reviewer_text
     assert "never block completion" in reviewer_text
 
 

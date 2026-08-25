@@ -12,6 +12,8 @@ Review the implemented change and the evidence that decides it:
 - tests cover relevant shapes, dtypes, and failure boundaries;
 - baseline and candidate measurements use comparable warm conditions;
 - latency, memory, and other claimed benefits exceed noise without hidden regressions.
+- a report-only research mission is judged on primary-source quality, factual accuracy,
+  synthesis, and usefulness to the next engineering decision; code is not required.
 
 Request a repair only for a concrete code or evidence defect. Never block completion
 because a framework-specific scope, frontier, environment, baseline, outcome,
