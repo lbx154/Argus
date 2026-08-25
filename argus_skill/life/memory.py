@@ -2004,7 +2004,10 @@ class Backlog:
             ready = [item for item in items if self._is_ready(item, done)]
             if parallel_only or (
                 respect_running
-                and any(item.status == "running" for item in items)
+                and any(
+                    item.status in {"running", "paused_external_work"}
+                    for item in items
+                )
             ):
                 ready = [
                     item

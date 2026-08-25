@@ -416,6 +416,11 @@ class LifeWorkerRunMixin:
                         log.info("daemon: drain pass interrupted by stop request")
                         break
                     log.exception("daemon: drain pass raised; sleeping and retrying")
+                log.info(
+                    "daemon: drain pass stopped_by=%s suggested_sleep=%s",
+                    summary.get("stopped_by") or "",
+                    summary.get("suggested_sleep") or 0,
+                )
                 # Reset per-run counters so future drain passes work.
                 for supervisor in (
                     getattr(rf_state, "supervisors", None) or [rf_state.sup]

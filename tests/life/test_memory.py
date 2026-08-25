@@ -291,6 +291,10 @@ def test_paused_external_work_keeps_paths_owned_without_blocking_disjoint_work(
     ))
     backlog.update(paused.id, status="paused_external_work")
 
+    # Selection and atomic claim must use the same active-path rule. They used
+    # to disagree only for paused external work: preview returned ``overlap``,
+    # claim rejected it, and the supervisor emitted claim_lost forever.
+    assert backlog.next_pending(respect_running=True).id == disjoint.id
     assert backlog.claim_next(
         parallel_only=True,
         expected_id=overlap.id,
