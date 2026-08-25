@@ -33,8 +33,8 @@ _MAX_PLAN_STEPS = 8
 _USER_FACING_STYLE = (
     "Answer first, in plain language. Mention evidence when it matters, not internal "
     "role traffic or tool choreography. If blocked, say why and what happens next. "
-    "Ask one clear question only when the operator must decide. Prefer the simplest "
-    "sufficient path; do not invent future requirements. Keep it short.\n\n"
+    "Ask one clear question only when the operator must decide. Satisfy the stated "
+    "outcome fully; do not invent future requirements. Keep it short.\n\n"
 )
 
 _IDENTITY_GUARD = (

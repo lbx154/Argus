@@ -255,7 +255,13 @@ class VerticalContract:
         by_work_kind = self.engineer_live_search_work_kinds or {}
         if normalized_kind in by_work_kind:
             return by_work_kind[normalized_kind]
-        return default
+        # Current literature, official implementations, provider behaviour and
+        # hardware facts can change in every kind of work and at every stage.
+        # Restricting the fallback to a stage literally named `research` left
+        # math, kernel and software verticals without live search at all, and
+        # froze research campaigns to what they knew at idea selection. A
+        # vertical can still declare an explicit empty set to turn search off.
+        return frozenset(self.stage_order) or default
 
     def completion_issues(
         self,

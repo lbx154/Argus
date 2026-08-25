@@ -43,7 +43,6 @@ REQUIRE_INDEPENDENT_REVIEW = True
 # counterexamples, and prior results. ``review`` is deliberately excluded: it is
 # independent verification of an argument already in hand, and the Reviewer
 # (which always runs with live search) owns the source checks there.
-ENGINEER_LIVE_SEARCH_STAGES = frozenset({"scope", "solve"})
 
 # Math missions end through the ordinary reviewer-certified final-stage path.
 # They are neither paper-submission missions nor metric-optimization campaigns.
@@ -542,7 +541,6 @@ __all__ = [
     "CHECKLIST_ITEMS",
     "CHECKLIST_STAGE_ORDER",
     "COMPLETION_CONTRACT_VERSION",
-    "ENGINEER_LIVE_SEARCH_STAGES",
     "PROTECTED_ITEM_IDS",
     "REQUIRE_INDEPENDENT_REVIEW",
     "RESEARCH_TARGET_LEVELS",

@@ -1583,6 +1583,17 @@ _ENGINEER_RESEARCH_EXECUTION = (
 
 _MANAGER_RESEARCH_STEWARDSHIP = (
     _AMBITIOUS_RESEARCH_POLICY +
+    "The frontier is live throughout the campaign, not a packet read once at "
+    "selection. Re-search current papers and official implementations whenever "
+    "a headline result lands, a baseline wins, the thesis changes, or a paper "
+    "claim is written. Ask what current belief the result overturns, what "
+    "assumption the field has left untested, and whether the selected idea has "
+    "become another safe selector, allocator or local score improvement. "
+    "Literature is not decoration for Related Work: use it to make the method "
+    "less obvious, the experiment harder to dismiss, and the programme bolder. "
+    "If the campaign has retreated from the idea it selected, treat that as a "
+    "plan-level failure and reopen the technical direction with what the new "
+    "evidence taught you. "
     "Research stewardship: the campaign's normal state is closing the gap to the "
     "baseline named at selection — round after round of the fix that the current "
     "shortfall points at, the way a leaderboard result is earned. Missing is the "

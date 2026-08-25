@@ -171,13 +171,13 @@ def _live_search_provider(**extra: object) -> SimpleNamespace:
     )
 
 
-def test_undeclared_live_search_stages_keep_the_framework_default() -> None:
-    """A vertical that says nothing must not have its behaviour changed."""
+def test_undeclared_live_search_stages_cover_the_vertical() -> None:
+    """A vertical that says nothing searches throughout its own stage order."""
     contract = vertical_contract("quiet", _live_search_provider())
 
     assert contract.engineer_live_search_stages is None
-    assert contract.live_search_stages(_CORE_LIVE_SEARCH_DEFAULT) == (
-        _CORE_LIVE_SEARCH_DEFAULT
+    assert contract.live_search_stages(_CORE_LIVE_SEARCH_DEFAULT) == frozenset(
+        contract.stage_order
     )
 
 
@@ -210,7 +210,7 @@ def test_vertical_declares_live_search_for_one_persisted_work_kind() -> None:
     assert contract.live_search_stages(
         _CORE_LIVE_SEARCH_DEFAULT,
         work_kind="engineering_optimization",
-    ) == _CORE_LIVE_SEARCH_DEFAULT
+    ) == frozenset(contract.stage_order)
     assert contract.live_search_stages(
         frozenset(),
         work_kind="algorithm_discovery",
