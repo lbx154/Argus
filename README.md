@@ -32,29 +32,295 @@ Long-running agent work that can plan, execute, verify, pause, and continue beyo
 > are synchronized between both repositories; Watch or Star either repository
 > to follow the project.
 
-## What is Argus?
+## The Driver–Harness Model
 
-Most agents are optimized for one conversation or one coding turn. Argus is built for work that lasts: it keeps state, separates execution from judgment, and resumes from verified progress instead of starting over.
+> **In short.** Today's AI agents can *do* things — edit files, run commands, compile
+> code, run experiments. What they cannot do is decide what to work on next, judge
+> whether the last result was actually any good, and know when to stop and ask a
+> human. A person has to sit there and do that. Which is why the work stops when that
+> person goes to bed.
+>
+> **Argus does that job instead.** It splits it across four roles that are deliberately
+> not allowed to do each other's jobs: a **Manager** that decides when the project
+> moves forward and what the system gets to keep, a **Planner** that picks the next
+> task, an **Engineer** that does the actual work, and a **Reviewer** that is the only
+> one allowed to say "this is finished" — and which cannot edit anything, so it cannot
+> quietly fix the evidence it is judging.
+>
+> Because the worker cannot grade its own work, you do not have to watch it. Across 27
+> campaigns and 1,548 hours of running, it needed a human to make a research decision
+> about **once every 310 hours**, and spent **95–99%** of its available time actually
+> working. It also gets better at a subject as it goes, without ever retraining the
+> model.
 
-| Capability | What it means |
-|---|---|
-| **Persistent state** | Tasks, checkpoints, decisions, Skills, and evidence survive sessions and runtime upgrades. |
-| **Independent review** | Execution and verification stay separate; normal rounds end with a Reviewer judgment. |
-| **Four-role runtime** | Manager, Planner, Engineer, and Reviewer have distinct authority and responsibilities. |
-| **Real tool use** | Agents work through files, terminals, experiments, APIs, and inspectable artifacts. |
-| **Domain extensibility** | Verticals can define custom stages, tools, evidence requirements, and completion standards. |
-| **Multiple backends** | Run with GitHub Copilot CLI, Pi, Codex CLI, Claude Code, OpenCode, Grok Build, Qoder, or DeepSeek Harness. |
+### What this actually looks like
 
-## Runtime model
+Here is one real campaign, compressed. MiniMax-H3 is a model that generates video with
+synchronized sound. Its weights are about **62 GiB**. You have a MacBook with **24 GB**
+of memory. You ask Argus to make it run, and you go to sleep.
 
-| | Authority | Responsibility |
+1. The **Planner** sets the shape of the problem. The obvious move — shrink the model —
+   is off the table, because a shrunk model is a different model and the answer would
+   be worthless. The real goal is: never have all of it in memory *at once*.
+2. The **Engineer** takes the model apart and finds it is 50 big blocks of about
+   **1.29 GB** each, which must run strictly in order. So it builds a loader that keeps
+   only **two blocks in memory at a time**: load two, compute, throw them away, load the
+   next two. Disk holds 62 GiB; memory never does.
+3. Along the way it finds something that is not in any documentation. The text encoder
+   has 64 layers, but this model only ever reads the output of **layer 50**. The last 14
+   layers are not merely wasted work — running them *changes* what the model is
+   conditioned on. So it runs exactly 50 and stops.
+4. The **Reviewer** does not check whether a video came out. It checks whether the
+   *claim* survives: are these still the original full-precision weights, or were they
+   quietly compressed? Is the attention exact, or approximated? Were any blocks skipped?
+   Was the order changed? Any one of those would make "runs the full model" false.
+5. It passes. **1344×768, 124 frames, 24 FPS, with 5.17 seconds of stereo audio, in 47
+   minutes 58.7 seconds, peaking at about 15.8 GB** — roughly a quarter of the model's
+   own size, on a laptop.
+6. What the system gets to **keep** is decided by the **Manager**, and it is split by
+   how far it generalizes: a technique like *stream weights through a fixed-size
+   window* is not specific to this model, so it belongs in the **Skill** library; a
+   fact like *this model reads `hidden_states[50]`* is true only here, so it belongs in
+   the **Wiki** as a finding about this domain.
+7. You wake up to a public repository with the exact commands, pinned checkpoint
+   hashes, and the generated video published with its SHA256 — so you can run it and
+   check you got the same bytes.
+
+**Step 4 is the whole point.** Compressing the model would have made this work in an
+afternoon, and in a headline the two results look identical. That shortcut was
+unavailable because the party that did the work is not the party allowed to certify it
+— so the repository states plainly what it did *not* do: no sparse attention
+approximation, no skipped blocks, no low-bit reconstruction, no reordered computation.
+
+<sub>Source: **[Argus-AiTeam/minimax-h3-mac](https://github.com/Argus-AiTeam/minimax-h3-mac)**
+— measured on a MacBook Pro (Mac16,8), Apple M4 Pro, 24 GB unified memory.</sub>
+
+---
+
+A language model is an engine. It burns compute and puts out tokens, and tokens are
+the power. An agent **harness** is the drivetrain: it couples that output to files,
+shells, compilers, GPUs, and test suites, turning tokens into motion against the real
+world. Most of the last two years of agent engineering went into building good
+harnesses, and the results are real.
+
+But a car with no one at the wheel does not go anywhere worth going. Motion is not
+progress. Something has to choose the destination, read the road, decide whether the
+last turn was right, and know when to pull over and ask. We call that role the
+**Driver**, and it is the part nobody automated. In every deployed agent system we
+know of, the answer to who drives the harness is that a person does — which also
+answers how long it can be driven, since nobody drives for eight days without
+stopping.
+
+That bound is not a capacity bound. The operator reads the diff, decides it is not
+what they meant, types the correction, and the loop advances one step. When the
+operator goes to dinner, the project stops — not because the model ran out, but
+because the only component authorized to say *"that is not right, do this instead"*
+has gone home. **Human intelligence is discrete**: it arrives in bursts bounded by
+attention and sleep, and every long-horizon agent trajectory is stitched together from
+the waking hours of whoever is babysitting it. Measured on current systems, a strong
+coding agent driven turn by turn sustains roughly **one hour** before it needs its
+operator back.
+
+The work that matters has the opposite shape. A **dense-intelligence task** — one that
+sustains reasoning, tool use, verification, and revision continuously until it
+produces a measurable result — will not hold still between bursts. Supplying such a
+task from a discrete source is the mismatch that has bounded this field.
+
+**Driver intelligence is dense, and it compounds.** It does not rest, so the
+campaign's clock and the calendar's clock are the same clock. And a premise adopted on
+day one is still under revision on day eight by the same accumulated state, instead of
+being re-established each morning by a person reading yesterday's log.
+
+Argus takes the Driver's seat.
+
+### The four questions
+
+A Driver answers four questions, over and over, and they nest — each is asked about
+the answer to the one before it.
+
+| | Question | Scope |
 |---:|---|---|
-| `01` | **Manager · Control** | Interprets operator intent, selects the workflow, and owns stage transitions. |
-| `02` | **Planner · Direction** | Chooses the next high-value task and defines the evidence it must produce. |
-| `03` | **Engineer · Execution** | Implements, researches, runs experiments, and creates inspectable artifacts. |
-| `04` | **Reviewer · Verification** | Independently checks correctness, evidence, limitations, and completion. |
+| **Q1** | **Is this done, and is it any good?** Not whether a command exited zero, but whether it discharges the obligation that motivated it, at the standard its claim requires. | An artifact |
+| **Q2** | **What is worth doing next?** Given everything now known, including what just failed, where should the next unit of effort go? | A trajectory |
+| **Q3** | **How does the system get better at this?** What did this round teach that should change how the next one is attempted — and does that lesson hold for this project, this field, or everywhere? | The capability |
+| **Q4** | **Does this need a person?** Which obstacles are the machine's to resolve, and which belong to someone with authority it does not have? | The boundary |
 
-A project can stop, resume, survive a runtime replacement, and continue from its latest verified position.
+Each is answerable only if the one before it was answered honestly: a system that
+cannot tell finished from good cannot tell which lesson is worth keeping, and a system
+that keeps the wrong lessons gets confidently worse.
+
+These questions are hard only where there is no score. Given an explicit numeric
+reward — a test to turn green, a leaderboard to climb, a latency to halve — all four
+collapse into it. That is why self-improvement has progressed fastest exactly where
+such signals exist, and why that progress has not transferred. **The Driver's seat is
+not a separate problem from the missing score. It is what the missing score leaves
+behind.**
+
+### Four roles, one seat
+
+Automating Q2 alone yields an agent that confidently executes a plan nobody checked.
+Q1 and Q2 without Q3 yields an agent that solves the same problem the same way
+forever, paying full price each time for a lesson it already had. The first three
+without Q4 yields an agent that spends a credential or force-pushes a branch because
+no rule told it that class of decision was not its to make. The four have to be
+answered together, **by different parties**, or the seat cannot be delegated safely.
+
+| | Role | Answers | What it does | What it may **not** do |
+|---:|---|:---:|---|---|
+| `01` | **Manager**<br>*Control* | Q3 | Interprets operator intent, selects the workflow, owns stage transitions, and decides whether a lesson stays project-local, enters a vertical's contract, or becomes global | Perform the work it is admitting |
+| `02` | **Planner**<br>*Direction* | Q2 | Decomposes the current research state into bounded tasks and defines the evidence each must produce | Move the campaign to the next stage |
+| `03` | **Engineer**<br>*Execution* | — | Implements, researches, runs experiments, creates inspectable artifacts, and proposes what the round taught | Declare its own work complete |
+| `04` | **Reviewer**<br>*Verification* | Q1 | Independently checks correctness, evidence, limitations, and completion; may return `blocked` | Edit anything — it runs **read-only** |
+
+The rightmost column is the point. Each role is defined as much by what it is denied
+as by what it owns.
+
+The Reviewer is deliberately weak. Because it runs read-only, it *cannot* repair the
+evidence it is judging even if that would make the round look better, and it can
+refuse to certify work rather than manufacture a completion.
+
+This inverts the usual reading of verification. Independent review is normally a
+quality filter: run the work, then check it. Here it is structural. The reason a
+person must watch a conventional agent is that the component doing the work is also
+the component declaring it finished, and no one should accept a self-certified result
+on a task that matters. Separate those two, give the certifying party no ability to
+edit what it certifies, and let it refuse — and the human can leave the room.
+**Independent review is not a quality feature. Separating who does the work from who
+may certify it is the load-bearing wall that makes unattended operation possible at
+all.**
+
+Q4 is an explicit authority boundary: credentials, payment, irreversible actions, and
+publication stop for a human in every autonomy mode, while an ordinary timeout, failed
+test, or unavailable backend does not.
+
+### Evidence-driven, not goal-driven
+
+The seat could not be delegated earlier for a reason specific to research work: **the
+objective itself moves.** A mathematical campaign rarely ends in the theorem it set
+out to prove. A software request is often underspecified until a candidate
+implementation exposes what was missing. In chip design and materials research, the
+measurement that would settle the question is frequently the thing under construction.
+
+The objective a domain expert writes at the outset is not a specification handed down
+to be obeyed; it is their best hypothesis about what should be built, formed with the
+least information anyone will ever have about the problem. Prior systems treat
+departure from it as *goal drift* — a failure mode to detect and suppress. That
+reasoning assumes the target was right. When it was not, suppressing the departure
+preserves the error, and the system spends its budget executing faithfully toward a
+destination the evidence has already refuted. **If the objective is wrong, drifting
+from it is the correct behavior.**
+
+The genuine difficulty is that a principled revision and a rationalized failure look
+identical in the final artifact. So Argus holds the current objective as a revisable
+hypothesis and admits revision only when it is backed by evidence, crosses an explicit
+role boundary, and is recorded with its justification — which is what separates the
+two, since a rationalizing system can produce the narrative but not the refuting
+measurement.
+
+There is also no manufactured score. Rather than have one system produce both the work
+and its grade, Argus records progress as a typed frontier transition in which an
+informative failure counts as forward motion, and makes certain readings mechanically
+impossible — most importantly, that an experiment which never ran can never be
+recorded as a refuted idea.
+
+### Self-evolution: Wiki and Skills, with the weights frozen
+
+Argus executes a sequence of **bounded missions** against durable project state. Model
+parameters never move, yet later missions begin from a changed search policy rather
+than merely a longer transcript. We call this **verification-gated fixed-model runtime
+self-evolution**: *gated* because a candidate becomes reusable only with task-native
+evidence and an authorized commit; *fixed-model* because the weights never move.
+
+A complete update cycle has four parts, and anything that does not survive all four is
+not counted as self-evolution: **(1)** a trajectory produces a candidate; **(2)** the
+responsible role checks it against artifacts and task-native evidence; **(3)** the
+authorized owner commits, revises, or rejects it; **(4)** a later mission retrieves it
+as part of its starting context or execution policy.
+
+**Knowledge is two surfaces, and neither substitutes for the other.**
+
+| | **Wiki** | **Skills** |
+|---|---|---|
+| Records | What a domain *turned out to be like* | Procedures that can be *matched to later tasks* |
+| Authored by | Engineer, from reviewed outcomes | Engineer, after its own task completes |
+| Committed by | **Reviewer** | **Manager** placement review |
+| Persistent form | Source-linked semantic pages | Versioned, layered skill library |
+
+A procedure with no account of why it works cannot be revised when conditions change;
+a finding no mission can act on is inert. Neither is treated as automatically correct —
+entries are revised, archived, or retired when later results contradict them.
+
+**Skills are scoped to where they were shown to hold.** The Manager placement review —
+never the author — puts each admitted skill in one of three layers:
+
+| Layer | Admitted when | Effect |
+|---|---|---|
+| `project` | It worked here | Stays with this project |
+| `vertical` | It proved general to the domain | Written into that field's contract — every future campaign in that domain inherits it |
+| `global` | It survived beyond any one domain | Available everywhere |
+
+**Knowledge is not Memory, and the distinction is load-bearing.** Knowledge is what the
+runtime has *established and may reuse*: certified, scoped, and intended to outlive the
+campaign that produced it. **Memory** — the append-only event journal, the mission
+backlog, durable artifacts on disk, the per-role rolling context — is what the runtime
+needs in order to *keep working*. Memory takes no certification pass, because it
+records what happened rather than what is true. The two also fail differently: losing
+Memory costs a mission its bearings, while admitting bad Knowledge corrupts every
+mission that later reuses it.
+
+This does not imply monotonic improvement. Some missions commit no reusable state,
+retained state can go stale, and a harder task distribution can raise cost even after
+useful state has accumulated.
+
+A project can stop, resume, survive a runtime replacement, and continue from its latest
+verified position.
+
+### Verticals: domain depth without touching the core
+
+Domain expertise and decision authority are separated architecturally. A **vertical**
+is a domain package declaring what counts as evidence in a field — its stages, tools,
+evidence requirements, and completion standards.
+
+A vertical may **raise** the evidence bar and never lower it. It also cannot reach the
+authority boundary or the escalation path: across all **53,871 lines** of vertical
+code there are **zero** references to the autonomy mode, the operator-escalation path,
+or the approval boundary, because that logic lives in the core and is not reachable
+from a domain package. A vertical cannot grant itself approval, and it cannot let an
+Engineer certify its own work where policy requires a Reviewer.
+
+**24 verticals** ship against a **130,362-line core that does not change when a domain
+is added.** The smallest costs **108 lines**; the median is 775.
+
+What a specialist writes is a **seed, not a ceiling.** The declaration sets the
+field's initial standard; campaigns running under it then promote sharpened checks
+back into its contract. A vertical may also declare `PROTECTED_ITEM_IDS` — a floor of
+gates the promotion path restores against later edits, so the checks a domain
+considers irreducible cannot be optimized away by the same process that adds new ones.
+Growth is permitted upward from the seed; the floor does not move.
+
+→ **[Build your own Vertical](#build-your-own-vertical)**
+
+### Does the seat stay empty?
+
+The claim is measurable, so we measure it. Across **27 campaigns**, **1,548 wall-clock
+hours**, and **306,691 logged events**, Argus raised **38** requests for a human — one
+every **40.7 hours**. What they asked for is more informative than the rate:
+
+| What the interruption asked for | Share |
+|---|---:|
+| Broken infrastructure — failed GPU driver, corrupted container storage, auth outage | 34% |
+| Credentials, budget, or authorization — the boundary behaving as designed | 26% |
+| Missing context files | 18% |
+| **Research judgment** — work in hand, could not decide how to proceed | **13%** (5 requests in 1,548 hours) |
+| Framework defects | 8% |
+
+With work in hand, duty cycle runs **95.1–98.7%**, against a ceiling of 33% for any
+harness whose Driver has to sleep. Where it falls short, the interruption logs record
+failed drivers and corrupted storage: **the binding constraint on unattended operation
+is infrastructure availability, not agent autonomy.**
+
+Full derivations, campaign inventory, and stated limitations are in the
+[technical report](https://arxiv.org/pdf/2608.05144).
 
 **Native backends:** `GitHub Copilot CLI` · `Pi` · `OpenAI Codex CLI` · `Claude Code` · `OpenCode` · `Grok Build` · `Qoder` · `DeepSeek Harness`
 
@@ -513,3 +779,73 @@ logs.
   Argus directly.
 - Use `argus --config-help` to check the effective backend/model before blaming
   setup or authentication.
+
+## What Argus has done so far
+
+A partial record — the campaigns we have finished measuring. Everything below is
+grouped by **who decides whether the result counts**, and none of those deciders is
+Argus.
+
+### Open artifacts you can inspect
+
+| Artifact | What it is |
+|---|---|
+| **[ACE-2](https://github.com/Argus-AiTeam/ace-2)** | A Qwen2.5-0.5B W4A8 inference accelerator whose spec, RTL, verification environment, and physical-flow evidence have no human author of record. 18/18 Layer-0 operators exact; **13,914/13,914** runtime commands over 1,240,410,384 simulator cycles; SKY130 mapped synthesis at **0.614 mm²** (operator cap 2.0), **+0.6966 ns** setup slack, WNS/TNS **0.00 ns**, 100 MHz. The certificate enumerates its own exclusions: no routed timing, no power signoff, no DRC/LVS, no GDS or tapeout, no silicon. |
+| **[minimax-h3-mac](https://github.com/Argus-AiTeam/minimax-h3-mac)** | MiniMax-H3's BF16 diffusion transformer is ~62 GiB. Not shrunk — run. On an **M4 Pro with 24 GB** unified memory via MLX block-wise streaming: 1344×768, 124 frames, 24 FPS, 5.17 s stereo audio, **47 min 58.7 s** end to end, **~15.8 GB** peak. |
+| **[minimax-h3-desktop](https://github.com/Argus-AiTeam/minimax-h3-desktop)** | Full FL2VA fidelity on **one RTX A6000**. BF16 warm baseline 1,792.202 s (N=10); Turbo 8-step **290.998 s, 6.159×**, adopted as the practical default; Sol-Attn r=8 at +15.203% over 10/10 pairs; 30-second final-AV formal N=10 at **+4.326%**. Candidates that failed the quality gate are published as *rejected*, not folded into the headline. |
+| **[ComfyUI-MiniMax-H3-MLX](https://github.com/Argus-AiTeam/ComfyUI-MiniMax-H3-MLX)** | MiniMax-H3 video and stereo-audio nodes for ComfyUI on Apple Silicon. |
+| **[FlashDA](https://github.com/SJTU-DENG-Lab/FlashDA/tree/feature/dllm-fa4-adaptation)** · **[Diffulex](https://github.com/SJTU-DENG-Lab/Diffulex)** | Diffusion LMs do not use causal attention. Argus was given one campaign — **21.85 hours** of model compute — to carry six mask families (block-causal, prefix-full, prefix-causal, prefix-hole, sliding-window, cache-only, plus compositions) into a current-generation **FlashAttention-4 CuTe DSL** kernel, with **Diffulex** as the executable iteration environment. **19/19** parity cases pass across SM80 and SM90, paged and dense, and CUDA Graph replay is bit-identical to direct invocation. On **H200/SM90** it reaches **92–95% of native FA4** and runs **1.61–2.57× faster than the Diffulex Triton backend** — both sides CUDA-Graph captured, like for like. Total model spend: under **80 CNY**, with 2 human interruptions across an 87.7-hour span. |
+
+FlashDA is built on the excellent FlashAttention-4 / CuTe DSL work by
+[Tri Dao](https://github.com/tridao) and collaborators. Feedback, reproductions,
+and ports beyond SM90 are very welcome — the dLLM adaptation lives on the
+[`feature/dllm-fa4-adaptation`](https://github.com/SJTU-DENG-Lab/FlashDA/tree/feature/dllm-fa4-adaptation)
+branch, and its full measurement protocol, rejected routes, and per-scenario
+latencies are in
+[`EXPERIMENT_RESULTS.md`](https://github.com/SJTU-DENG-Lab/FlashDA/blob/feature/dllm-fa4-adaptation/EXPERIMENT_RESULTS.md).
+
+The instructive part is not the endpoint. The campaign's early dense-plus-block-sparsity
+route was not slightly worse but **4.9–29.6× slower** than native. The result came from
+recognising that the data path was wrong and abandoning it — and that rejected route is
+retained in the skill library with its evidence, rather than discarded.
+
+### Judged by maintainers who owe us nothing
+
+| Submission | Outcome |
+|---|---|
+| **[`sgl-project/sglang#35038`](https://github.com/sgl-project/sglang/pull/35038)** — native SenseNova U1 multimodal generation and interleave serving | 36 files, **+11,263/−72**, 14 commits, across five workstreams usually staffed separately. 1,116 tensors load with zero missing or unknown; VQA exact on **160/160** generated tokens; concurrency-8 exact **8/8**; **5.108×** throughput at batch size 8. A cross-batch determinism defect was found, localised, and fixed. One engineer with a turn-by-turn coding agent invested **60+ hours** without completing it; a blind agent run stopped at 1 h 21 min with a draft carrying no real weights; Argus completed it inside a **24.14-hour** envelope. *Open, under review.* |
+| **[`fla-org#1045`](https://github.com/fla-org/flash-linear-attention/pull/1045)** — TileLang RWKV6 forward-intra backend | **Merged.** 1.18× forward, 1.21× fwd+bwd on H100 NVL. No inline change requests. Its description states plainly that the implementation, optimisation loop, validation, and performance evidence were completed autonomously — and an outside maintainer accepted that sentence along with the code. |
+| **[`fla-org#1109`](https://github.com/fla-org/flash-linear-attention/pull/1109)** — SM100 backward-autotuning illegal memory access | **Merged.** Two lines, no speedup to report: before the fix the test file could not run to completion; after it, **76 tests pass**. The maintainer independently re-derived that 24 autotune candidates survive the filter and approved with no required changes. |
+| **[`fla-org#1128`](https://github.com/fla-org/flash-linear-attention/pull/1128)** — four TileLang kernels for KDA training | 1.29× over Triton across four stages on B200. The best single stage reached 1.541×, but dispatch was enabled only for the one workload with both verified correctness and a repeatable end-to-end gain, measuring 1.078–1.099×. The larger number was available and was not used. *Open.* |
+| **[`fla-org#1114`](https://github.com/fla-org/flash-linear-attention/pull/1114)** — parallelized long-sequence `AttnRes` reduction | 1.102× geomean across five bf16 shapes on B200, best case 1.237×. The submission reports its **worst** row, 1.033×, alongside the mean. *Open.* |
+
+### Scored by official harnesses
+
+| Arena | Result |
+|---|---|
+| SWE-Bench Pro (731 tasks) | **≈78%** vs **59%** for direct Copilot — same model on both sides (GPT-5.5/xhigh through Copilot) — and **35** tasks declared `blocked` rather than reported as unsupported successes |
+| SOL-ExecBench | Rank **#6 globally**; 7 kernels placed top-3; beat the #1 entrant on 2 |
+| MLE-Bench Lite | **69.2%** medal rate (9/13 graded): 3 gold, 3 silver, 3 bronze, against Kaggle leaderboards |
+| AARRI-Bench | **63/82 (76.8%)** vs 68.3% paper best |
+| nanochat (B200 / H100) | 0.9636 / 0.9855 BPB vs 0.9646 / 0.9879 human best |
+| nanoGPT speedrun | **79.77 s** vs 80.18 s same-device human record |
+| Math-reasoning data synthesis | 28.0 gap vs 20.83 / 8.33 / 6.25 baselines, under a frozen solver |
+| FlashAttention-4 for diffusion LLMs | See **FlashDA** above — 19/19 bit-exact parity cases decided by an fp32 reference, not by a score |
+
+### Decided by external checkers and reviewers
+
+- **MOF generation** — chemical control at 92.5 / 100.0 / 74.5%, AUC 0.594 → 0.833, verified by the external `MOFChecker`. The admitted method is *smaller* than the published method it replaces, which is not an outcome a score-optimizing system tends to reach.
+- **Erdős–Gyárfás** — six proof-backed frontier updates against a proof checker, with one falsified route retained as evidence rather than deleted.
+- **Research writing** — six paper pipelines carried to submission across 254 missions, including 16 Stage rollbacks under review; 41 de-duplicated public artifacts across six programs.
+
+### The runtime on itself
+
+- **Parameter-invariant self-evolution:** at maturity, **21% fewer tokens** and **15% less active time** per solved SWE-Bench Pro task than at startup — with model weights unchanged throughout.
+- **Parameter-changing axis:** a from-scratch 1B pretraining stack built and run end to end on 8×B200.
+- **Endurance:** longest single campaign **8.1 days**; 4 campaigns over a week; largest single trace 61,797 events.
+
+> [!NOTE]
+> Every number above is reproduced from the technical report or from the linked
+> public repository, and each carries the scope conditions stated there. Where a
+> result is narrow — one shape, one GPU generation, one demonstrated scope — the
+> source says so, and so do we.
