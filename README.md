@@ -417,6 +417,8 @@ If you are an agent enthusiast, deploy Argus locally and make the complete loop 
 
 One worked engineering case is **[exploration without local hill climbing](docs/exploration-without-local-hill-climbing.md)**: how report-only research, high-risk mechanism portfolios, single-run screening, and strict final claims were separated after an MI300X serving campaign exposed overly conservative incentives.
 
+For the wider set, **[what goes wrong and what we did about it](docs/failure-modes-and-fixes.md)** records five real failure modes — an experiment that measured its own token cap, a standing bias toward last-generation models, ceremony applied before an idea had earned it, local hill climbing, and a reluctance to report a win — with the fix for each and an honest note on what is still unsolved.
+
 ### Build your own Vertical
 
 A Vertical gives your field its own stages, Skills, datasets, tools, evidence expectations, evaluation methods, and completion criteria. Planning and review can then follow the real standards of your domain instead of a generic process.

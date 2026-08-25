@@ -385,6 +385,8 @@ export ARGUS_SKILL_AUTONOMY_MODE=autonomous
 
 一个完整工程案例是 **[避免局部爬山](docs/exploration-without-local-hill-climbing.zh-CN.md)**：MI300X serving 任务暴露出过度保守激励后，Argus 如何把纯报告研究、高风险机制组合、单次探索筛选与严格最终声明分开。
 
+更完整的一份是 **[Argus 会出什么问题，我们怎么修的](docs/failure-modes-and-fixes.zh-CN.md)**：记录了五种真实失效——一个测的其实是自己 token 上限的实验、对上一代模型的固有偏好、在想法还没配得上时就施加的仪式、局部爬山，以及不愿意报喜——每条都给出修法，并诚实标注哪些仍未解决。
+
 ### 创建自己的 Vertical
 
 Vertical 可以为你的领域提供专属阶段、Skill、数据集、工具、证据要求、评测方法与完成标准。规划与审查将遵循该领域真正重要的规范，而不是一套通用流程。
