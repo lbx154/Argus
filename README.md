@@ -419,6 +419,8 @@ One worked engineering case is **[exploration without local hill climbing](docs/
 
 For the wider set, **[what goes wrong and what we did about it](docs/failure-modes-and-fixes.md)** records six real failure modes — an experiment that measured its own token cap, world knowledge frozen at the training cut-off, settling for finishing rather than achieving something, ceremony applied before an idea had earned it, local hill climbing, and a reluctance to report a win. It also records a fix we got wrong: adding a gate to enforce ambition, when the honest answer was that defensive checks do not produce good work, they produce work that passes checks.
 
+A measured counterpart is **[system audit: six complaints, checked against the code](docs/system-audit.md)** — over-defensiveness, a rigorous verification bar, unnecessary operator questions, weak instruction following, redundancy, and schema abuse, each confirmed or refuted with counts from the tree.
+
 ### Build your own Vertical
 
 A Vertical gives your field its own stages, Skills, datasets, tools, evidence expectations, evaluation methods, and completion criteria. Planning and review can then follow the real standards of your domain instead of a generic process.
