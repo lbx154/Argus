@@ -1240,7 +1240,8 @@ def test_planner_has_no_grounding_hard_limit() -> None:
 
 def _wait_state(**overrides) -> dict:
     state = {"idle_capacity_turn_used": True, "operator_action_required": False,
-             "idle_capacity_turn_ts": 0.0}
+             "idle_capacity_turn_ts": 0.0,
+             "idle_capacity_backlog_revision": "r1"}
     state.update(overrides)
     return state
 
@@ -1261,15 +1262,20 @@ def test_a_wait_only_the_operator_can_end_keeps_asking_for_other_work() -> None:
         PlanningContextMixin,
     )
 
-    def check(state: dict, *, busy: bool = False) -> bool:
+    def check(state: dict, *, busy: bool = False, revision: str = "r1") -> bool:
         host = types.SimpleNamespace(
-            _nothing_queued_behind_the_wait=lambda: not busy
+            _nothing_queued_behind_the_wait=lambda: not busy,
+            _waiting_backlog_revision=lambda: revision,
         )
         return PlanningContextMixin._planner_turn_available_during_wait(host, state)
 
     # A wait that ends by itself still gets exactly one turn, ever.
     assert check(_wait_state(idle_capacity_turn_used=False))
     assert not check(_wait_state())
+
+    # A changed backlog is new scheduling evidence and gets one turn without
+    # polling the external dependency again.
+    assert check(_wait_state(), revision="r2")
 
     # A wait only the operator can end re-arms on the idle cadence.
     operator = _wait_state(operator_action_required=True,

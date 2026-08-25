@@ -1074,10 +1074,11 @@ class PlanningContextMixin:
         Planner every cycle.
         """
         try:
-            return not any(
-                str(getattr(item, "status", "")) == "pending"
-                for item in self.memory.backlog.all()
-            )
+            # A pending item the parallel worker cannot claim is not work
+            # waiting its turn -- it is the fact Planner must be allowed to
+            # see and replace. Counting it here left run-01 idling and
+            # respawning every 34 minutes behind a path conflict.
+            return self.memory.backlog.next_pending(parallel_only=True) is None
         except Exception:  # noqa: BLE001 - visibility must not break planning
             return False
 
@@ -1228,6 +1229,9 @@ class PlanningContextMixin:
         if self._planner_turn_available_during_wait(state):
             state["idle_capacity_turn_used"] = True
             state["idle_capacity_turn_ts"] = time.time()
+            state["idle_capacity_backlog_revision"] = (
+                self._waiting_backlog_revision()
+            )
             state["updated_at"] = time.time()
             self._write_planner_waiting_contract_state(state)
             return ""
@@ -1277,6 +1281,15 @@ class PlanningContextMixin:
         self._emit_status("awaiting declared event; Planner call skipped")
         return PLAN_AWAITING
 
+    def _waiting_backlog_revision(self) -> str:
+        """A cheap stable revision for facts that can change scheduling."""
+        try:
+            path = Path(self.memory.root) / "backlog.jsonl"
+            stat = path.stat()
+            return f"{stat.st_mtime_ns}:{stat.st_size}"
+        except OSError:
+            return ""
+
     def _planner_turn_available_during_wait(self, state: dict) -> bool:
         """Is the Planner owed a turn while this wait contract holds?
 
@@ -1288,6 +1301,15 @@ class PlanningContextMixin:
         if not self._nothing_queued_behind_the_wait():
             return False
         if not state.get("idle_capacity_turn_used"):
+            return True
+        # New backlog state is new evidence, not another poll of the same
+        # blocker. Re-grant one turn so the Planner can route around a task that
+        # arrived after the original opportunity or became unclaimable.
+        if (
+            "idle_capacity_backlog_revision" in state
+            and state.get("idle_capacity_backlog_revision")
+            != self._waiting_backlog_revision()
+        ):
             return True
         if not state.get("operator_action_required"):
             return False
