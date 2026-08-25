@@ -638,8 +638,7 @@ def render_reviewer_prompt(
         )
     )
     static = (
-        optimize_banner
-        + research_target_instruction
+        research_target_instruction
         + EFFECTIVE_TASK_CONTRACT
         + "\n\n"
         + (shell_contract + "\n\n" if shell_contract else "")
@@ -699,6 +698,7 @@ def render_reviewer_prompt(
         f"{operator_text}\n\n"
         "Planner guidance:\n"
         f"{planner_review_instruction or 'none'}\n\n"
+        + (optimize_banner + "\n\n" if optimize_banner else "")
     )
     # Per-round DELTA — everything that changes round to round. Fresh
     # Reviewers receive this after the full static rubric every time.
