@@ -34,235 +34,165 @@ Long-running agent work that can plan, execute, verify, pause, and continue beyo
 
 ## The Driver–Harness Model
 
-> **In short.** Today's AI agents can *do* things — edit files, run commands, compile
-> code, run experiments. What they cannot do is decide what to work on next, judge
-> whether the last result was any good, and know when to stop and ask a human. A person
-> has to sit there and do that, which is why the work stops when that person goes to bed.
+> **In short.** Today's AI agents can *do* things — edit files, run commands, run
+> experiments. What they cannot do is decide what to work on next, judge whether the
+> last result was any good, and know when to stop and ask. A person does that, which is
+> why the work stops when that person goes to bed.
 >
 > **Argus does that job instead**, splitting it across four roles deliberately not
 > allowed to do each other's jobs: a **Manager** that decides when the project moves
 > forward and what the system keeps, a **Planner** that picks the next task, an
-> **Engineer** that does the work, and a **Reviewer** that is the only one allowed to say
-> "this is finished" — and which cannot edit anything, so it cannot quietly fix the
-> evidence it is judging.
+> **Engineer** that does the work, and a **Reviewer** that alone may say "finished" —
+> and which cannot edit anything, so it cannot quietly fix the evidence it judges.
 >
 > Because the worker cannot grade its own work, you do not have to watch it. Across 27
 > campaigns and 1,548 hours it needed a human research decision about **once every 310
-> hours**, spending **95–99%** of its available time working. It also gets better at a
-> subject as it goes, without ever retraining the model.
+> hours**, spending **95–99%** of available time working.
 
 ### What this actually looks like
 
-MiniMax-H3 generates video with synchronized sound. Its weights are about **62 GiB**.
-You have a MacBook with **24 GB** of memory. You ask Argus to make it run, and you go
-to sleep.
+MiniMax-H3 generates video with sound. Its weights are ~**62 GiB**. Your MacBook has
+**24 GB**. You ask Argus to make it run, and you go to sleep.
 
-1. **Planner** sets the shape of the problem. Shrinking the model is off the table — a
-   shrunk model is a different model, so the answer would be worthless. The real goal:
-   never have all of it in memory *at once*.
-2. **Engineer** takes it apart: 50 blocks of ~**1.29 GB**, which must run strictly in
-   order. So it builds a loader that keeps only **two blocks resident**: load two,
-   compute, discard, load the next two. Disk holds 62 GiB; memory never does.
-3. Along the way it finds something no documentation mentions. The text encoder has 64
-   layers, but this model only ever reads the output of **layer 50** — and the last 14
-   are not merely wasted work, running them *changes* what the model is conditioned on.
-   So it runs exactly 50 and stops.
-4. **Reviewer** does not check whether a video came out. It checks whether the *claim*
-   survives: still the original full-precision weights, or quietly compressed? Attention
-   exact, or approximated? Blocks skipped? Order changed? Any one would make "runs the
-   full model" false.
-5. It passes: **1344×768, 124 frames, 24 FPS, 5.17 s of stereo audio, in 47 min 58.7 s,
-   peaking near 15.8 GB** — about a quarter of the model's own size, on a laptop.
-6. **Manager** decides what the system keeps, split by how far it generalizes:
-   *stream weights through a fixed-size window* is not specific to this model, so it
-   belongs in the **Skill** library; *this model reads `hidden_states[50]`* is true only
-   here, so it belongs in the **Wiki**.
-7. You wake up to a public repo with the exact commands, pinned checkpoint hashes, and
-   the generated video published with its SHA256 — so you can check you got the same
-   bytes.
+1. **Planner:** shrinking the model is off the table — a shrunk model is a different
+   model. The goal is to never have all of it in memory *at once*.
+2. **Engineer:** 50 blocks of ~1.29 GB, strictly ordered. It builds a loader that keeps
+   **two resident** — load two, compute, discard, repeat. Disk holds 62 GiB; memory
+   never does.
+3. It finds something undocumented: the text encoder has 64 layers, but the model only
+   reads **layer 50**, and running the last 14 *changes* what it is conditioned on. So
+   it runs exactly 50.
+4. **Reviewer** does not check that a video came out. It checks whether the *claim*
+   survives: still full-precision weights? attention exact? blocks skipped? order
+   changed? Any one would make "runs the full model" false.
+5. It passes: **1344×768, 124 frames, 24 FPS, 5.17 s stereo audio, 47 min 58.7 s, peak
+   ~15.8 GB** — a quarter of the model's own size, on a laptop. You wake up to a public
+   repo with pinned checkpoint hashes and the video's SHA256.
 
-**Step 4 is the whole point.** Compressing the model would have finished this in an
-afternoon, and in a headline the two results look identical. That shortcut was
-unavailable because the party that did the work is not the party allowed to certify it
-— so the repo states plainly what it did *not* do: no sparse attention approximation,
-no skipped blocks, no low-bit reconstruction, no reordered computation.
+**Step 4 is the point.** Compressing the model would have finished this in an afternoon,
+and in a headline the two results look identical. That shortcut was unavailable because
+the party that did the work may not certify it — so the repo states what it did *not*
+do: no sparse attention, no skipped blocks, no low-bit reconstruction, no reordering.
 
-<sub>Source: **[Argus-AiTeam/minimax-h3-mac](https://github.com/Argus-AiTeam/minimax-h3-mac)**
-— MacBook Pro (Mac16,8), Apple M4 Pro, 24 GB unified memory.</sub>
+<sub>[Argus-AiTeam/minimax-h3-mac](https://github.com/Argus-AiTeam/minimax-h3-mac) —
+MacBook Pro (Mac16,8), Apple M4 Pro, 24 GB unified memory.</sub>
 
 ---
 
-A language model is an engine; an agent **harness** is the drivetrain that couples its
-output to files, shells, compilers, GPUs, and test suites. Most of the last two years
-of agent engineering went into building good harnesses, and the results are real.
+A language model is an engine; an agent **harness** is the drivetrain coupling its
+output to files, shells, compilers, GPUs, and tests. But a car with no one at the wheel
+does not go anywhere worth going. Something must choose the destination, judge whether
+the last turn was right, and know when to pull over and ask. That is the **Driver** —
+the part nobody automated. In every deployed agent system a person drives, which also
+answers how long it can be driven: nobody drives for eight days without stopping.
 
-But a car with no one at the wheel does not go anywhere worth going. Something has to
-choose the destination, judge whether the last turn was right, and know when to pull
-over and ask. That is the **Driver** — the part nobody automated. In every deployed
-agent system we know of a person drives, which also answers how long it can be driven:
-nobody drives for eight days without stopping. When the operator goes to dinner the
-project stops, because the only component authorized to say *"that is not right, do
-this instead"* has gone home.
-
-**Human intelligence is discrete.** It arrives in bursts bounded by attention and
-sleep, and a strong coding agent driven turn by turn sustains about **one hour** before
-it needs its operator back. The work that matters has the opposite shape: a
-**dense-intelligence task** sustains reasoning, tool use, verification, and revision
-continuously until a measurable result exists, and will not hold still between bursts.
-
-**Driver intelligence is dense, and it compounds.** The campaign's clock and the
-calendar's clock become the same clock, and a premise adopted on day one is still under
-revision on day eight by the same accumulated state — rather than re-established each
-morning by a person reading yesterday's log.
+**Human intelligence is discrete**, arriving in bursts bounded by attention and sleep; a
+strong coding agent driven turn by turn sustains about **one hour** before it needs its
+operator back. The work that matters is the opposite shape — a **dense-intelligence
+task** sustains reasoning, tool use, verification, and revision continuously until a
+measurable result exists, and will not hold still between bursts. **Driver intelligence
+is dense, and it compounds:** the campaign's clock and the calendar's clock become the
+same clock, and a premise adopted on day one is still under revision on day eight by the
+same accumulated state.
 
 ### Four questions, four owners
 
-A Driver answers four questions, over and over, and they nest — each is asked about the
-answer to the one before it. Automating some but not all fails predictably: Q2 alone
-gives an agent that executes a plan nobody checked; without Q3 it solves the same
-problem the same way forever; without Q4 it spends a credential because no rule said
-that decision was not its to make. So each is owned by a **different party**.
+A Driver answers four nested questions, each asked about the answer to the one before.
+Automating some but not all fails predictably: Q2 alone executes a plan nobody checked;
+without Q3 it solves the same problem the same way forever; without Q4 it spends a
+credential because no rule said that decision was not its to make.
 
 | | The question | Owner | May **not** |
 |---:|---|---|---|
-| **Q1** | **Is this done, and is it any good?** Not whether a command exited zero, but whether it discharges the obligation that motivated it. | **Reviewer** — independently checks correctness, evidence, limitations, completion; may return `blocked` | Edit anything. It runs **read-only** |
-| **Q2** | **What is worth doing next?** Given everything now known, including what just failed. | **Planner** — decomposes research state into bounded tasks and defines the evidence each must produce | Move the campaign to the next stage |
-| **Q3** | **How does the system get better at this?** And does that lesson hold for this project, this field, or everywhere? | **Manager** — owns stage transitions, and decides whether a lesson stays project-local, enters a vertical's contract, or becomes global | Perform the work it is admitting |
-| **Q4** | **Does this need a person?** Which obstacles belong to someone with authority the machine does not have. | **A fixed boundary** — credentials, payment, irreversible actions, and publication always stop for a human, in every autonomy mode | Be re-decided by model judgement |
+| **Q1** | **Is this done, and is it any good?** Not whether a command exited zero, but whether it discharges the obligation that motivated it. | **Reviewer** — checks correctness, evidence, limitations, completion; may return `blocked` | Edit anything. It runs **read-only** |
+| **Q2** | **What is worth doing next?** Given everything now known, including what just failed. | **Planner** — decomposes state into bounded tasks and defines the evidence each must produce | Move the campaign to the next stage |
+| **Q3** | **How does the system get better at this?** And does that lesson hold for this project, this field, or everywhere? | **Manager** — owns stage transitions and where an admitted lesson is placed | Perform the work it is admitting |
+| **Q4** | **Does this need a person?** | **A fixed boundary** — credentials, payment, irreversible actions, and publication always stop for a human | Be re-decided by model judgement |
 
-The **Engineer** owns none of them, and that is the design: it implements, researches,
-runs experiments, and proposes what the round taught — but it may not declare its own
-work complete.
+The **Engineer** owns none of them: it implements, researches, runs experiments, and
+proposes what the round taught — but may not declare its own work complete.
 
-Each question is answerable only if the one before it was answered honestly: a system
-that cannot tell finished from good cannot tell which lesson is worth keeping, and one
-that keeps the wrong lessons gets confidently worse. They are hard only where there is
-no score — given a test to turn green or a leaderboard to climb, all four collapse into
-it. **The Driver's seat is not a separate problem from the missing score. It is what
-the missing score leaves behind.**
-
-This inverts the usual reading of verification. Independent review is normally a quality
-filter: run the work, then check it. Here it is structural — the reason a person must
-watch a conventional agent is that the component doing the work is also the component
-declaring it finished. Separate those two, deny the certifier any ability to edit what
-it certifies, and let it refuse, and the human can leave the room. **Independent review
-is not a quality feature. Separating who does the work from who may certify it is the
-load-bearing wall that makes unattended operation possible at all.**
+These questions are hard only where there is no score; given a test to turn green, all
+four collapse into it. **The Driver's seat is not a separate problem from the missing
+score. It is what the missing score leaves behind.** And separating who works from who
+certifies is not a quality feature — it is **the load-bearing wall that makes unattended
+operation possible at all.**
 
 ### Evidence-driven, not goal-driven
 
-The seat could not be delegated earlier for a reason specific to research work: **the
-objective itself moves.** A mathematical campaign rarely ends in the theorem it set out
-to prove; a software request is often underspecified until a candidate implementation
-exposes what was missing; in chip design and materials research, the measurement that
-would settle the question is frequently the thing under construction.
-
-What a domain expert writes at the outset is not a specification to be obeyed — it is
+**The objective itself moves.** A mathematical campaign rarely ends in the theorem it
+set out to prove; a software request stays underspecified until an implementation
+exposes what was missing. What an expert writes at the outset is not a specification but
 their best hypothesis, formed with the least information anyone will ever have about the
-problem. Prior systems treat departure from it as *goal drift*, a failure mode to
-suppress; that assumes the target was right, and when it was not, suppressing the
-departure preserves the error. **If the objective is wrong, drifting from it is the
+problem. Prior systems treat departure from it as *goal drift* to suppress — which
+assumes the target was right. **If the objective is wrong, drifting from it is the
 correct behavior.**
 
 The difficulty is that a principled revision and a rationalized failure look identical
-in the final artifact. So Argus holds the objective as a revisable hypothesis and admits
-revision only when it is backed by evidence, crosses an explicit role boundary, and is
-recorded with its justification — a rationalizing system can produce the narrative but
-not the refuting measurement. Nor is there a manufactured score: informative failure
-counts as progress, and an experiment that never ran can never be recorded as a refuted
-idea.
+in the final artifact. So Argus admits revision only when it is backed by evidence,
+crosses an explicit role boundary, and is recorded with its justification — a
+rationalizing system can produce the narrative but not the refuting measurement. Nor is
+there a manufactured score: informative failure counts as progress, and an experiment
+that never ran can never be recorded as a refuted idea.
 
-### Self-evolution: Wiki and Skills, with the weights frozen
+### Self-evolution: Wiki and Skills, weights frozen
 
-Argus executes a sequence of **bounded missions** against durable project state. Model
-parameters never move, yet later missions begin from a changed search policy rather
-than merely a longer transcript. We call this **verification-gated fixed-model runtime
-self-evolution**: *gated* because a candidate becomes reusable only with task-native
-evidence and an authorized commit; *fixed-model* because the weights never move.
-
-A complete update cycle has four parts, and anything that does not survive all four is
-not counted as self-evolution: **(1)** a trajectory produces a candidate; **(2)** the
-responsible role checks it against artifacts and task-native evidence; **(3)** the
-authorized owner commits, revises, or rejects it; **(4)** a later mission retrieves it.
-
-**Knowledge is two surfaces, and neither substitutes for the other.**
+Model parameters never move, yet later missions begin from a changed search policy
+rather than merely a longer transcript. A candidate becomes reusable only with
+task-native evidence and an authorized commit — **verification-gated fixed-model runtime
+self-evolution**. Knowledge is two surfaces, and neither substitutes for the other:
 
 | | **Wiki** | **Skills** |
 |---|---|---|
-| Records | What a domain *turned out to be like* | Procedures that can be *matched to later tasks* |
+| Records | What a domain *turned out to be like* | Procedures *matched to later tasks* |
 | Authored by | Engineer, from reviewed outcomes | Engineer, after its own task completes |
 | Committed by | **Reviewer** | **Manager** placement review |
-| Persistent form | Source-linked semantic pages | Versioned, layered skill library |
+| Scope | Source-linked pages | `project` → `vertical` → `global`, by how far it was shown to hold |
 
 A procedure with no account of why it works cannot be revised when conditions change; a
 finding no mission can act on is inert. Neither is automatically correct — entries are
-revised, archived, or retired when later results contradict them.
-
-**Skills are scoped to where they were shown to hold.** The Manager placement review —
-never the author — puts each admitted skill in one of three layers:
-
-| Layer | Admitted when | Effect |
-|---|---|---|
-| `project` | It worked here | Stays with this project |
-| `vertical` | It proved general to the domain | Written into that field's contract — every future campaign in that domain inherits it |
-| `global` | It survived beyond any one domain | Available everywhere |
-
-**Knowledge is not Memory.** Knowledge is *established and reusable*: certified, scoped,
-intended to outlive the campaign. **Memory** — journal, backlog, artifacts, per-role
-rolling context — is what the runtime needs to *keep working*, and takes no
-certification pass because it records what happened rather than what is true. Losing
-Memory costs a mission its bearings; admitting bad Knowledge corrupts every mission that
-later reuses it.
+revised, archived, or retired when later results contradict them. And **Knowledge is not
+Memory**: the journal, backlog, and rolling context take no certification pass, because
+they record what happened rather than what is true.
 
 None of this implies monotonic improvement: some missions commit no reusable state, and
-retained state can go stale. A project can stop, resume, survive a runtime replacement,
+retained state goes stale. A project can stop, resume, survive a runtime replacement,
 and continue from its latest verified position.
 
 ### Verticals: domain depth without touching the core
 
-A **vertical** is a domain package declaring what counts as evidence in a field — its
-stages, tools, evidence requirements, and completion standards. Domain expertise and
-decision authority are separated architecturally.
+A **vertical** declares what counts as evidence in a field — its stages, tools, evidence
+requirements, and completion standards. It may **raise** the bar and never lower it, and
+it cannot reach the authority boundary at all: across **53,871 lines** of vertical code
+there are **zero** references to the autonomy mode, the escalation path, or the approval
+boundary, because that logic lives in the core. **24 verticals** ship against a
+**130,362-line core that does not change when a domain is added**; the smallest costs
+**108 lines**.
 
-A vertical may **raise** the evidence bar and never lower it, and it cannot reach the
-authority boundary at all: across **53,871 lines** of vertical code there are **zero**
-references to the autonomy mode, the operator-escalation path, or the approval
-boundary, because that logic lives in the core. A vertical cannot grant itself
-approval, nor let an Engineer certify its own work where policy requires a Reviewer.
-
-**24 verticals** ship against a **130,362-line core that does not change when a domain
-is added.** The smallest costs **108 lines**; the median is 775.
-
-What a specialist writes is a **seed, not a ceiling** — campaigns running under a
-vertical promote sharpened checks back into its contract. A vertical may also declare
-`PROTECTED_ITEM_IDS`, a floor of gates the promotion path restores against later edits,
-so the checks a domain considers irreducible cannot be optimized away by the same
-process that adds new ones. Growth is permitted upward from the seed; the floor does
-not move.
+What a specialist writes is a **seed, not a ceiling** — campaigns promote sharpened
+checks back into the contract, while `PROTECTED_ITEM_IDS` pins a floor of gates that
+cannot be optimized away by the same process that adds new ones.
 
 → **[Build your own Vertical](#build-your-own-vertical)**
 
 ### Does the seat stay empty?
 
-The claim is measurable, so we measure it. Across **27 campaigns**, **1,548 wall-clock
-hours**, and **306,691 logged events**, Argus raised **38** requests for a human — one
-every **40.7 hours**. What they asked for is more informative than the rate:
+Across **27 campaigns**, **1,548 wall-clock hours**, and **306,691 logged events**,
+Argus raised **38** requests for a human — one every **40.7 hours**. What they asked for
+is more informative than the rate:
 
 | What the interruption asked for | Share |
 |---|---:|
-| Broken infrastructure — failed GPU driver, corrupted container storage, auth outage | 34% |
+| Broken infrastructure — failed GPU driver, corrupted storage, auth outage | 34% |
 | Credentials, budget, or authorization — the boundary behaving as designed | 26% |
 | Missing context files | 18% |
-| **Research judgment** — work in hand, could not decide how to proceed | **13%** (5 requests in 1,548 hours) |
+| **Research judgment** — work in hand, could not decide how to proceed | **13%** (5 in 1,548 h) |
 | Framework defects | 8% |
 
 With work in hand, duty cycle runs **95.1–98.7%**, against a ceiling of 33% for any
-harness whose Driver has to sleep. Where it falls short, the interruption logs record
-failed drivers and corrupted storage: **the binding constraint on unattended operation
-is infrastructure availability, not agent autonomy.**
-
-Full derivations, campaign inventory, and stated limitations are in the
-[technical report](https://arxiv.org/pdf/2608.05144).
+harness whose Driver has to sleep: **the binding constraint on unattended operation is
+infrastructure availability, not agent autonomy.** Full derivations, campaign inventory,
+and stated limitations are in the [technical report](https://arxiv.org/pdf/2608.05144).
 
 **Native backends:** `GitHub Copilot CLI` · `Pi` · `OpenAI Codex CLI` · `Claude Code` · `OpenCode` · `Grok Build` · `Qoder` · `DeepSeek Harness`
 
