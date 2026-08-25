@@ -13,7 +13,7 @@ English version: [system-audit.md](system-audit.md)
 | 1 | 过度防御 | **成立** —— 2,277 个 `try:`，其中 235 个吞掉错误继续跑 |
 | 2 | 验证门槛过于 rigorous | **成立** —— 39 个失败码，5 个门要求精确的 CSV 列 |
 | 3 | 太经常问人类不必要的问题 | **部分成立** —— 频率并不高，但**路由靠一张词表** |
-| 4 | 指令遵循能力弱 | **成立** —— 任务之前已有 3,665 token 常驻指令，大头是 vertical banner |
+| 4 | 指令遵循能力弱 | **成立** —— 任务之前已有约 2,000 token 常驻指令，其中三分之一是无条件追加的 |
 | 5 | 冗余、过复杂、空转 | **成立** —— 24% 的事件类型是死的；同一件事有四套实现 |
 | 6 | schema 乱用 | **在最要紧的地方已经修好了，但没推广** |
 
@@ -76,36 +76,57 @@ grep -rc "^\s*try:" --include=*.py argus_skill/ | awk -F: '{s+=$2} END{print s}'
 
 ## 4. 指令遵循能力弱 —— 成立，但不在我们最初说的那个地方
 
-**我们第一次测错了口径，而这个修正很重要。** 我们把
-`argus_skill/roles/prompts/manager.py` 里所有字符串字面量加总，报出"Manager 常驻指令
-7,438 token"。但那个模块里装的是 **20 个针对不同场景的 prompt 构造器**，一次调用只触发一
-个。把它们加总，什么也没测到。
+**我们前后测错了两次，两次修正都重要。**
 
-按正确口径实测——一次真实的 Manager 阶段决策，在任何检查表、证据和任务内容加入之前：
+**第一次错。** 我们把 `argus_skill/roles/prompts/manager.py` 里所有字符串字面量加总，报出
+"Manager 常驻指令 7,438 token"。但那个模块里装的是 **20 个针对不同场景的 prompt 构造
+器**，一次调用只触发一个。把它们加总，什么也没测到。
 
-| 组成 | 字符 | 是否总是出现 |
+**第二次错。** 我们接着拿物理 vertical 那个 7,893 字符的 banner 当作典型。**它不典型，而且
+它不会串**：`role_banner` 只从**当前激活的** vertical 解析出来
+（`roles/prompts/registry.py:76`），物理的 banner 永远不会进到一个 kernel 任务里。
+
+按正确口径实测。一次 Manager 阶段决策，在任何检查表、证据、任务内容之前：
+
+| 组成 | 字符 | 作用范围 |
 | --- | ---: | --- |
-| `build_stage_decision_prompt` | 3,844 | 是 |
-| `manager_rendering_prompt`（live-view 块） | 2,923 | 是——在 `manager/_stage_ops.py:779` 无条件追加 |
-| vertical 的 `role_banner`（物理） | 7,893 | 在该 vertical 下，是 |
-| **合计** | **14,660**（约 3,665 token） | |
+| `build_stage_decision_prompt` | 3,844 | 每次阶段决策 |
+| `manager_rendering_prompt`（live-view 块） | 2,923 | **每次阶段决策，无条件追加**（`manager/_stage_ops.py:779`） |
+| vertical 的 `role_banner` | 102 – 9,749 | 仅当前 vertical；**中位数 1,318** |
 
-**所以抱怨成立，但元凶不是我们点名的那个。** Manager 核心提示词是 3,844 字符。**最大的一
-块常驻文本是 vertical 自己的 banner，7,893 字符——是它所包裹的那个决策提示词的两倍。** 而
-一个 live-view 渲染块会被追加到**每一次**阶段决策上，无论这次决策跟渲染有没有关系。
+所以**典型**的一次阶段决策带着约 **8,100 字符（约 2,000 token）**常驻指令，最差的 vertical
+约 **16,500（约 4,100）**。
 
-一个在看到任务之前先被塞了 3,665 token 常驻规则的模型不可能全部遵守，而这个失败看起来像
-"不听话"，其实是：**规则比指令遵循的预算更多。** 修法不是把语气写得更硬，而是**把规则写得
-更少——先从 vertical banner 开刀。**
+**banner 的开销是真的，但它是集中的，不是系统性的。** 23 个 vertical 里中位数只有 1,318 字
+符；重量几乎全压在四个上：
+
+```
+nanochat      9,749      chip_design   6,362
+physics       7,893      math_synth    4,282
+speedrun      7,786      …中位数         1,318
+```
+
+**真正系统性的那一项是渲染块。** 2,923 个描述 live-view 和呈现的字符，被追加到**每一个**
+vertical 的**每一次**阶段决策上，无论这次决策跟渲染有没有关系——**它比 vertical banner 的中
+位数还大，几乎和它所伴随的那个决策提示词一样大。**
+
+一个在看到任务之前先被塞了约 2,000 token 常驻规则的模型不可能全部遵守，而这个失败看起来像
+"不听话"，其实是：**规则比指令遵循的预算更多。** 修法不是把语气写得更硬，而是**把规则写得更
+少——先从那个"相关不相关都要追加"的块开刀，然后是那四个离群的 banner。**
 
 ```bash
 python3 -c "
 import ast,pathlib
-t=ast.parse(pathlib.Path('argus_skill/verticals/physics/stages.py').read_text())
-for n in t.body:
-    c=sum(len(x.value) for x in ast.walk(n)
-          if isinstance(x,ast.Constant) and isinstance(x.value,str))
-    if c>2000: print(c, getattr(n,'name',None) or n.targets[0].id)"
+for d in sorted(pathlib.Path('argus_skill/verticals').iterdir()):
+    f=d/'stages.py'
+    if not f.is_file(): continue
+    t=ast.parse(f.read_text())
+    for n in ast.walk(t):
+        nm=getattr(n,'name','')
+        if 'banner' in nm.lower():
+            c=sum(len(x.value) for x in ast.walk(n)
+                  if isinstance(x,ast.Constant) and isinstance(x.value,str))
+            if c: print(f'{c:6} {d.name}')"
 ```
 
 ## 5. 冗余、过复杂、空转 —— 成立
@@ -161,7 +182,7 @@ frontmatter；274 个 `@dataclass` 和 21 个 `BaseModel` 描述着内部形状�
 六条里五条被代码证实，第六条在"既有修法没被应用到"的所有地方也都成立。**它们不是六个问题，
 而是同一个习惯的六种症状：出了事，我们就加一个机制。**
 
-每一次添加在局部都有正当理由。加总起来，是一个有 2,277 个 `try:`、任务前 3,665 token
+每一次添加在局部都有正当理由。加总起来，是一个有 2,277 个 `try:`、任务前约 2,000 token
 常驻指令、31 个死事件类型、四种加锁方式的运行时——以及一个**忙着填表、为"delete"这个词请示权
 限、并且不遵守那些它根本没有余量读完的指令**的 Agent。
 
