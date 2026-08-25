@@ -1708,3 +1708,28 @@ def test_a_lost_claim_backs_off_like_every_other_outcome_that_ran_nothing() -> N
     # It belongs with the other outcomes where no mission actually ran.
     assert '"claim_lost"' in held
     assert '"paused_budget"' in held
+
+
+def test_a_placeholder_ledger_is_not_the_thing_being_judged() -> None:
+    """The parallel drafting pass was judged by "useful prose plus placeholder
+    integrity", so keeping the ledger tidy was success. run-01 reached 76
+    PLACEHOLDER markers and 66 TBDs with nineteen inside its own abstract, and
+    thirteen consecutive reviews returned done because the ledger had its
+    backfill conditions -- while the run it was gated on had been dead four
+    hours and it already held a finished 41,175-image result it had not
+    written up.
+    """
+    from argus_skill.verticals.research.prompt_policy import (
+        render_role_prompt_fragment,
+    )
+
+    block = render_role_prompt_fragment(
+        role="planner", operation="continuous", stage="run",
+        scope="", project_root=None,
+    )
+    # Integrity still matters -- never invent a number.
+    assert "Never invent a final" in block
+    # But a placeholder is for a result that is coming, not one already held.
+    assert "never for one already on disk" in block
+    # And the pass is judged on whether it reads as a paper, not on the ledger.
+    assert "reads as a paper" in block
