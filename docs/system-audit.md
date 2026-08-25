@@ -15,7 +15,7 @@ skill documents totalling 22,765 lines.
 | 2 | Verification bar too rigorous | **Confirmed** — 39 failure codes, 5 gates demanding exact CSV columns |
 | 3 | Asks the operator unnecessary questions | **Partly** — the rate is low, but the routing is a word list |
 | 4 | Weak instruction following | **Confirmed, and self-inflicted** — 7,438 tokens of standing Manager instruction |
-| 5 | Redundant, over-complex, spins | **Confirmed** — 28% of event types are dead; four parallel implementations of the same concerns |
+| 5 | Redundant, over-complex, spins | **Confirmed** — 24% of event types are dead; four parallel implementations of the same concerns |
 | 6 | Schema abuse | **Already fixed at the decision boundary, not elsewhere** |
 
 ---
@@ -111,10 +111,16 @@ for f in ['manager','reviewer','planner','engineer']:
 
 ## 5. Redundant, over-complex, spins — confirmed
 
-**Dead instrumentation.** Of 129 `EventType` members, **37 (28%)** are never
-referenced anywhere outside the catalog that defines them. Twenty-one of those are
-`SKILL_*` and `WIKI_*` events — the two knowledge surfaces the system is supposed
-to learn through are instrumented with events nothing emits.
+**Dead instrumentation.** Of 129 `EventType` members, **31 (24%)** are never
+referenced anywhere — not by the enum symbol, not by their string value. **Twenty of
+those 31 are `SKILL_*` and `WIKI_*` events**: the two knowledge surfaces the system is
+supposed to learn through are instrumented almost entirely with events nothing emits.
+
+A further **6** are emitted by raw string literal rather than through the enum
+(`LIFE_MISSION_SKIPPED`, `LIFE_MISSION_REQUEUED`, `LIFE_VERTICAL_RESOLVED`,
+`LIFE_INBOX_QUEUED`, `SKILL_OUTCOME`, `OPERATOR_ALERT`). Those are not dead; they are
+the same event emitted two different ways, which is how the catalog stopped being a
+reliable index of what the runtime actually does.
 
 **A function that does nothing, elaborately.**
 `argus_skill/wiki/lifecycle.py:54` takes seven parameters, discards five, and
@@ -167,7 +173,7 @@ everywhere the existing fix was not applied. They are not six problems. They are
 one habit with six symptoms: **when something went wrong, we added a mechanism.**
 
 Each addition was locally justified. The aggregate is a runtime with 2,277
-`try:` blocks, 7,438 tokens of standing Manager instruction, 37 dead event types,
+`try:` blocks, 7,438 tokens of standing Manager instruction, 31 dead event types,
 and four ways to take a lock — and an agent that fills in tables, asks permission
 for the word "delete", and does not follow instructions it never had room to
 read.
