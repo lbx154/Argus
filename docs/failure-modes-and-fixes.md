@@ -138,7 +138,87 @@ must force a second opinion from a model trained by someone else.
 
 ---
 
-## 3. It performed ceremony instead of research
+## 3. It had no reason to be ambitious
+
+**What we saw.** The system does not propose ambitious things. Round after round
+it takes the smallest step that can be certified, and the output is a sequence of
+individually defensible increments that add up to nothing anyone would call a
+discovery. Asked for original research, it will happily converge on a diagnostic
+benchmark or a reproduction and present it as the deliverable — because that is
+what it could verify.
+
+**Why it happens.** "Minimum verifiable progress" is not a defect in the agent.
+It is the **optimum of the objective we actually gave it.** Every mechanism in
+the runtime rewards a certified increment; nothing rewards an uncertified leap.
+Under that objective an ambitious idea is strictly dominated — it costs more, it
+fails more often, and when it fails there is nothing to admit. A rational agent
+in that position finds the smallest thing that passes, every time, forever.
+
+So this cannot be fixed by asking for more creativity. Telling a system to "be
+innovative" while paying it for safe increments changes the wording of its
+prompts and nothing about its behaviour. Two structural changes were needed
+instead: **remove the safe terminal state, and make novelty something a gate can
+count.**
+
+**Remove the safe terminal state.** The physics vertical has an explicit
+`original-research-required` mode
+([`mode_config.py`](../argus_skill/verticals/physics/mode_config.py)) that
+controls "whether a mission is allowed to succeed as a downgraded paper type
+(diagnostic benchmark / reproduction) or must reach an original research
+article." When it is on, **a downgraded paper type is only an intermediate
+result** — the comfortable landing place stops being a way to finish.
+
+**Make novelty countable.** A prohibition alone would just produce a stuck
+campaign, so the
+[Novelty-Seeking Loop gate](../argus_skill/verticals/physics/gates/novelty_seeking.py)
+turns ambition into a required artifact. Before the terminal manuscript, the
+agent "must actively seek novelty rather than settle for a diagnostic benchmark":
+
+- **at least 10** candidate directions (`MIN_DIRECTIONS = 10`), not one;
+- each carrying its own reasoning columns — `closest_prior_work`,
+  `already_known`, `possible_gap`, `why_physically_meaningful`,
+  `risk_of_already_known`, and a **`kill_criterion`**;
+- each scored on six axes, including `novelty_potential` and
+  `prior_work_separation`;
+- then the top 2–3 selected, with a written `PIVOT_SELECTION.md`,
+  `REVISED_RESEARCH_OBJECTIVE.md`, and additional theory and numerical plans.
+
+Failure codes `NSL-000` through `NSL-005` make each of those a checkable
+condition rather than an aspiration. The gate never invents ideas — it only
+inspects what the agent produced — but it makes "I could not think of anything
+ambitious" an artifact-level failure instead of a quiet default.
+
+The same standard applies at generation time. Candidates must "propose a METHOD
+with a concrete, reproduced baseline it aims to beat," and **"pure diagnostic /
+probing / benchmark-only ideas are rejected at generation"**
+([`idea_search.py`](../argus_skill/verticals/research/idea_search.py)). The
+Planner posture in the kernel vertical matches: prefer expected upside and
+information gain over low execution risk, and **do not** prefer the smallest
+patch or the easiest immediate validation.
+
+**The counterweight, and why it has to exist.** Forcing ambition without a
+release valve produces a different failure: a campaign pinned at an unreachable
+target that never terminates. That happened — it is recorded in the code as the
+`s-cbac6ede` livelock — and it is why
+[`downgrade.py`](../argus_skill/verticals/physics/downgrade.py) exists, letting a
+vertical "start high but converge to the tier the evidence supports, instead of
+pinning the gate at Nature/Science and livelocking." The line that makes this
+safe rather than a loophole is explicit:
+
+> Downgrade is a change of **CLAIM TYPE**, never a cut in **rigor**.
+
+Ambition is applied to *what the campaign is trying to be*. It is never applied
+to the evidence bar.
+
+**What is still open.** `original-research-required` and the Novelty-Seeking Loop
+are **physics-vertical mechanisms**, and the ideation standard is a research
+vertical one. The general runtime still has no equivalent — nothing stops an
+arbitrary campaign from settling for the smallest certifiable thing. This is the
+most important unfinished piece of work in this document.
+
+---
+
+## 4. It performed ceremony instead of research
 
 **What we saw.** Effort spent on multiple random seeds, repeated identical
 experiments, and SHA256 content hashes — at the stage where the only question was
@@ -172,7 +252,7 @@ has not been generalized to every vertical. It should be.
 
 ---
 
-## 4. It hill-climbed instead of exploring
+## 5. It hill-climbed instead of exploring
 
 **What we saw.** During a full-BF16 GLM-5.2 serving campaign on 8 AMD MI300X
 GPUs, Argus opened with genuinely broad research: **1,851** GLM/ROCm-relevant web
@@ -210,7 +290,7 @@ Full account: [exploration without local hill climbing](exploration-without-loca
 
 ---
 
-## 5. It would not report a win
+## 6. It would not report a win
 
 **What we saw.** A persistent negative-result bias. The agent volunteers
 limitations, prefers "inconclusive," and is markedly more comfortable reporting
@@ -258,7 +338,7 @@ toward the ambitious result. We have not solved this.
 
 ## The tension underneath all of it
 
-Problems 3, 4, and 5 share one root, and it is not a bug we can simply remove.
+Problems 3, 4, 5, and 6 share one root, and it is not a bug we can simply remove.
 
 The properties that make Argus safe to leave alone — the worker cannot certify
 its own work, every claim carries its evidence, informative failure counts as

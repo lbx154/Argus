@@ -385,7 +385,7 @@ export ARGUS_SKILL_AUTONOMY_MODE=autonomous
 
 一个完整工程案例是 **[避免局部爬山](docs/exploration-without-local-hill-climbing.zh-CN.md)**：MI300X serving 任务暴露出过度保守激励后，Argus 如何把纯报告研究、高风险机制组合、单次探索筛选与严格最终声明分开。
 
-更完整的一份是 **[Argus 会出什么问题，我们怎么修的](docs/failure-modes-and-fixes.zh-CN.md)**：记录了五种真实失效——一个测的其实是自己 token 上限的实验、对上一代模型的固有偏好、在想法还没配得上时就施加的仪式、局部爬山，以及不愿意报喜——每条都给出修法，并诚实标注哪些仍未解决。
+更完整的一份是 **[Argus 会出什么问题，我们怎么修的](docs/failure-modes-and-fixes.zh-CN.md)**：记录了六种真实失效——一个测的其实是自己 token 上限的实验、冻结在训练截止时刻的世界知识、只奖励可认证增量因而没有理由变得进取、在想法还没配得上时就施加的仪式、局部爬山，以及不愿意报喜——每条都给出修法，并诚实标注哪些仍未解决。
 
 ### 创建自己的 Vertical
 
