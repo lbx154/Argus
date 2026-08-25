@@ -34,82 +34,33 @@ Long-running agent work that can plan, execute, verify, pause, and continue beyo
 
 ## The Driver–Harness Model
 
-Today's AI agents can *do* things — edit files, run commands, run experiments. What they
-cannot do is decide what to work on next, judge whether the last result was any good, and
-know when to stop and ask. A person does that, which is why the work stops when that
-person goes to bed. An agent **harness** is the drivetrain; the **Driver** is the seat,
-and nobody automated it.
+A **model** is an engine: it burns compute and puts out tokens. A **harness** is the
+drivetrain that couples those tokens to files, shells, compilers, GPUs, and tests. The
+**Driver** is the seat — choosing what to do next, judging whether the last result was
+any good, and knowing when to stop and ask. In every other agent system that seat holds a
+human, which is why the work stops when they go to bed.
 
-**Argus takes that seat**, splitting it across four roles deliberately not allowed to do
-each other's jobs. Because the worker cannot grade its own work, you do not have to watch
-it: across 27 campaigns and 1,548 hours it needed a human research decision about **once
-every 310 hours**, spending **95–99%** of available time working.
+**Argus takes the Driver's seat**, splitting it across four roles deliberately not allowed
+to do each other's jobs:
 
-| | The question it answers | May **not** |
+| | Owns | May **not** |
 |---|---|---|
-| **Manager** | *How does the system get better at this?* Owns stage transitions and where an admitted lesson is placed. | Perform the work it is admitting |
-| **Planner** | *What is worth doing next?* Decomposes state into bounded tasks and defines the evidence each must produce. | Move the campaign to the next stage |
-| **Engineer** | — Implements, researches, runs experiments, proposes what the round taught. | Declare its own work complete |
-| **Reviewer** | *Is this done, and is it any good?* Checks correctness, evidence, limitations; may return `blocked`. | Edit anything. It runs **read-only** |
+| **Manager** | Stage transitions, and where an admitted lesson is kept | Perform the work it is admitting |
+| **Planner** | The next task, and the evidence it must produce | Move the campaign to the next stage |
+| **Engineer** | Implementation, research, experiments, artifacts | Declare its own work complete |
+| **Reviewer** | The verdict — correctness, evidence, limitations; may return `blocked` | Edit anything. It runs **read-only** |
 
-A fourth question — *does this need a person?* — is a fixed boundary, not a judgement call:
-credentials, payment, irreversible actions, and publication always stop for a human.
+Credentials, payment, irreversible actions, and publication always stop for a human.
 
-**Independent review is not a quality feature.** The reason a person must watch a
-conventional agent is that the component doing the work is also the component declaring it
-finished. Separating those two is the load-bearing wall that makes unattended operation
-possible at all.
+It also improves without retraining: admitted Skills and source-linked Wiki findings are
+scoped `project` → `vertical` → `global` by how far they were shown to hold, and new
+domains ship as **verticals** against a core that does not change — 24 of them, with zero
+references to the authority boundary across 53,871 lines of domain code.
 
-### What this looks like
-
-MiniMax-H3 generates video with sound; its weights are ~**62 GiB**. Your MacBook has
-**24 GB**. You ask Argus to make it run, and you go to sleep.
-
-Shrinking the model is off the table — a shrunk model is a different model. So the
-Engineer streams it: 50 blocks of ~1.29 GB, **two resident at a time**, strictly ordered.
-Along the way it finds something undocumented — the text encoder has 64 layers but the
-model only reads **layer 50**, and running the last 14 *changes* what it is conditioned on.
-
-The Reviewer does not check that a video came out. It checks whether the *claim* survives:
-still full-precision weights? attention exact? blocks skipped? order changed? Any one would
-make "runs the full model" false. It passes: **1344×768, 124 frames, 5.17 s stereo audio,
-47 min 58.7 s, peak ~15.8 GB** — a quarter of the model's own size, on a laptop.
-
-**That check is the point.** Compressing the model would have finished this in an
-afternoon, and in a headline the two results look identical. The shortcut was unavailable
-because the party that did the work may not certify it — so
-[the repo](https://github.com/Argus-AiTeam/minimax-h3-mac) states what it did *not* do: no
-sparse attention, no skipped blocks, no low-bit reconstruction, no reordering.
-
-### Getting better without retraining
-
-Model weights never move, yet later missions start from a changed search policy rather
-than a longer transcript. Knowledge is admitted only with task-native evidence and an
-authorized commit, across two surfaces that do not substitute for each other: a **Wiki**
-of source-linked findings, committed by the Reviewer, and a **Skill** library, placed by
-the Manager into `project`, `vertical`, or `global` scope by how far it was shown to hold.
-Neither is automatically correct — entries are revised, archived, or retired when later
-results contradict them.
-
-A **vertical** declares what counts as evidence in a field. It may **raise** the bar and
-never lower it, and cannot reach the authority boundary at all: across **53,871 lines** of
-vertical code there are **zero** references to the autonomy mode, escalation path, or
-approval boundary. **24 verticals** ship against a **130,362-line core that does not change
-when a domain is added**; the smallest costs **108 lines**.
-→ **[Build your own Vertical](#build-your-own-vertical)**
-
-### Does the seat stay empty?
-
-Across 27 campaigns, **1,548 wall-clock hours**, and 306,691 logged events, Argus raised
-**38** requests for a human. Only **13%** were research judgment — 5 requests in 1,548
-hours. The rest were broken infrastructure (34%), credentials or authorization (26%),
-missing context files (18%), and framework defects (8%). With work in hand, duty cycle runs
-**95.1–98.7%**, against a ceiling of 33% for any harness whose Driver has to sleep:
-**the binding constraint on unattended operation is infrastructure availability, not agent
-autonomy.**
-
-Full derivations, the four nested Driver questions, evidence-driven control, and stated
-limitations are in the **[technical report](https://arxiv.org/pdf/2608.05144)**.
+Because the worker cannot grade its own work, nobody has to watch it: across 27 campaigns
+and 1,548 hours it needed a human research decision about **once every 310 hours**, at
+**95–99%** duty cycle. Everything else is in the
+**[technical report](https://arxiv.org/pdf/2608.05144)**.
 
 **Native backends:** `GitHub Copilot CLI` · `Pi` · `OpenAI Codex CLI` · `Claude Code` · `OpenCode` · `Grok Build` · `Qoder` · `DeepSeek Harness`
 
