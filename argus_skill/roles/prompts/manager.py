@@ -818,10 +818,10 @@ def assemble_manager_prompt(
     role_banner: str = "",
     role_skill_block: str = "",
 ) -> str:
-    """Apply all dynamic Manager prompt prefixes in their authoritative order."""
+    """Apply dynamic Manager policy with vertical authority last."""
     context = str(role_banner or "").strip()
     with_vertical = (
-        f"## Active vertical Manager skill\n{context}\n\n{prompt}"
+        f"{prompt}\n\n## Active vertical Manager skill\n{context}"
         if context
         else prompt
     )
