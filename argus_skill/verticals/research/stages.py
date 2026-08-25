@@ -2047,7 +2047,28 @@ def _selection_contract_block(project_root: object) -> str:
         root = _Path(str(project_root)).resolve()
         path = root / "research" / "IDEA_SELECTION.json"
         if not path.is_file():
-            return ""
+            research = root / "research"
+            candidates = sorted(
+                relative
+                for candidate in research.rglob("*")
+                if candidate.is_file()
+                and candidate.suffix.lower() in {".json", ".md"}
+                and any(
+                    token in candidate.name.lower()
+                    for token in ("idea", "selection", "portfolio", "route_review")
+                )
+                and (
+                    relative := candidate.relative_to(root).as_posix()
+                )
+            )
+            if not candidates:
+                return ""
+            return (
+                "\nSELECTION RECORDS: no canonical IDEA_SELECTION.json exists. "
+                "The campaign's own selection evidence is at "
+                + ", ".join(f"`{candidate}`" for candidate in candidates)
+                + ".\n"
+            )
         payload = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
             return ""

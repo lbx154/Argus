@@ -108,6 +108,23 @@ def test_shallower_wins_when_a_name_repeats(tmp_path):
     assert "end task: the real one" in _selection_contract_block(tmp_path)
 
 
+def test_selection_evidence_stays_visible_without_the_canonical_file(tmp_path):
+    """run-03 selected a causal-credit idea through these records, but never
+    wrote IDEA_SELECTION.json; without their paths the later Reviewer saw only
+    the final one-point scoreboard title and had nothing to compare it with.
+    """
+    research = tmp_path / "research"
+    research.mkdir()
+    (research / "IDEA_CANDIDATES.md").write_text("# candidates\n")
+    (research / "frontier_selection_sprint.md").write_text("# selected route\n")
+
+    block = _selection_contract_block(tmp_path)
+
+    assert "no canonical IDEA_SELECTION.json" in block
+    assert "research/IDEA_CANDIDATES.md" in block
+    assert "research/frontier_selection_sprint.md" in block
+
+
 @pytest.mark.parametrize(
     "payload", ["{not json", "[]", '"a string"', json.dumps({"unrelated": 1})]
 )
