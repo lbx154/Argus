@@ -54,8 +54,16 @@ def test_directive_trusts_and_drops_reflexive_rerun():
     assert "use *your own* output as ground truth" not in d
 
 
-def test_paper_review_requires_built_artifact_quality_checks():
+def test_paper_review_requires_idea_and_built_artifact_quality():
     block = academic_paper_review_block()
+
+    # Truth is necessary and not sufficient: the PC reviewer owns the separate
+    # judgement of whether the idea is worth the venue, and can reopen a sound
+    # local plan through the existing Manager-adjudicated channel.
+    assert "central research idea is novel" in block
+    assert "small scoreboard gain is not paper-level success" in block
+    assert "`plan_signal` to `reconsider`" in block
+    assert "`plan_alternative`" in block
 
     assert "undefined citations" in block
     assert "bibliography warnings" in block
