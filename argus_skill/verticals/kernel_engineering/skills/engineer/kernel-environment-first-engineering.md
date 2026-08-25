@@ -5,19 +5,18 @@ description: "Implement and measure one production kernel or inference improveme
 
 # Direct Kernel Engineering
 
-1. Read the smallest relevant repository instructions, implementation path, tests,
-   and existing result that prevents duplicate work.
-2. Reproduce the current behavior or baseline with the repository's own environment.
-3. Identify the measured bottleneck and choose one coherent mechanism with a cheap
-   falsification check.
-   Proactively inspect current primary papers and official implementations whenever
-   outside mechanisms could materially improve the plan. A bounded research mission
-   may deliver a concise report only; it does not need code or an executable gate unless
-   the task explicitly requests one.
-4. Implement it in production code, preserving the public API and safe fallback.
-5. Run correctness first, then comparable warm target-hardware measurements.
-6. Retain only a verified improvement; otherwise revert or leave it disabled and
-   state the concrete reason.
+1. Read repository evidence and current primary sources as broadly and deeply as useful.
+2. Reuse a settled baseline when available; exploration does not need to rerun it.
+3. Explore multiple high-upside mechanism families, including radical and uncertain
+   ideas. Do not prefer the smallest patch, cheapest test, immediate verifiability, or
+   immediate reproducibility.
+4. A bounded research mission may stop with a concise report that separates sourced
+   facts, reasoned hypotheses, open questions, and promising mechanisms. Code is optional.
+5. When the task is implementation, choose one coherent mechanism, preserve the public
+   API and safe fallback, then run correctness and comparable target-hardware measurement
+   before claiming or retaining a win.
+6. A failed implementation remains useful evidence, but it does not close exploration of
+   other mechanism families.
 
 Do not create scope documents, algorithm plans, frontier ledgers, environment
 reports, baseline protocols, outcome schemas, validation matrices, results reports,

@@ -38,7 +38,7 @@ def test_kernel_engineering_banner_prioritizes_direct_measured_work() -> None:
     planner = vertical_role_banner(mod, "planner")
     reviewer = vertical_role_banner(mod, "reviewer")
 
-    assert "improve the real kernel" in engineer
+    assert "maximize the real kernel" in engineer
     assert "one coherent implementation" in engineer
     assert "Treat unattended benchmark and profiler runs as asynchronous" in engineer
     assert "Do not foreground-poll" in engineer
@@ -50,9 +50,13 @@ def test_kernel_engineering_banner_prioritizes_direct_measured_work() -> None:
     assert "`work_kind=algorithm_discovery`" in planner
     assert "do not wait for repeated failures" in planner
     assert "does not need to produce code" in planner
+    assert "portfolio of genuinely different mechanisms" in planner
+    assert "Do not prefer the smallest patch" in engineer
     assert "produce a concise decision-useful research report" in engineer
-    assert "Implementation is optional" in engineer
+    assert "immediate verification" in engineer
+    assert "immediate reproducibility" in engineer
     assert "report-only research mission is valid" in reviewer
+    assert "not-yet-reproducible idea" in reviewer
     assert "never fail work merely because" in reviewer
     assert "process documents" in engineer
 
@@ -102,9 +106,13 @@ def test_kernel_engineering_vertical_skills_are_packaged(tmp_path: Path) -> None
     assert "without framework paperwork" in engineer_text
     assert "do not create scope documents" in engineer_text
     assert "bounded research mission" in engineer_text
-    assert "does not need code" in engineer_text
+    assert "code is optional" in engineer_text
+    assert "do not prefer the smallest patch" in engineer_text
+    assert "immediate verifiability" in engineer_text
+    assert "immediate reproducibility" in engineer_text
     assert "without requiring process documents" in reviewer_text
     assert "report-only research mission" in reviewer_text
+    assert "not-yet-reproducible ideas" in reviewer_text
     assert "never block completion" in reviewer_text
 
 

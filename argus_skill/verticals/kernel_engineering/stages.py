@@ -117,15 +117,18 @@ def prepare_mission(  # noqa: ARG001 - baseline isolation is per stage, not per 
 
 def role_banner(role: str) -> str:
     common = (
-        "MISSION — improve the real kernel or inference path directly. Read only the "
-        "repository instructions and existing evidence needed for the next decision; "
-        "reuse the project toolchain and current primary sources when relevant. Establish "
-        "a baseline, make one coherent implementation or configuration change, run the "
-        "decisive correctness check and comparable target-hardware measurement, then "
-        "retain or revert. Do not create process documents, stage bundles, proof packages, "
-        "frontier ledgers, environment reports, or checkpoint churn unless the operator "
-        "explicitly requests that artifact or a concise durable result is necessary for "
-        "a later task."
+        "MISSION — maximize the real kernel or inference path while preserving room for "
+        "curiosity. Explore high-upside mechanisms broadly, including radical, uncertain, "
+        "cross-stack, and mutually competing ideas. Read repository evidence and current "
+        "primary sources as deeply as useful. Do not prefer the smallest patch, the "
+        "easiest immediate validation, or an idea that is already reproducible merely "
+        "because it is safer to execute. Research reports and explicit hypotheses are "
+        "valid exploration even before implementation. Distinguish hypotheses from "
+        "claimed results; only a claimed or retained performance result requires the "
+        "decisive correctness check and comparable target-hardware measurement. Do not "
+        "create process documents, stage bundles, proof packages, frontier ledgers, "
+        "environment reports, or checkpoint churn unless the operator explicitly "
+        "requests that artifact or a concise durable result is necessary for later work."
     )
     if role == "planner":
         return (
@@ -138,7 +141,10 @@ def role_banner(role: str) -> str:
             "for repeated failures or a constraint change. A bounded report-only "
             "`work_kind=algorithm_discovery` task is valid when its synthesis can guide "
             "later engineering. It may run path-disjoint during an external benchmark, "
-            "and it does not need to produce code or an executable gate. "
+            "and it does not need to produce code or an executable gate. Maintain a "
+            "portfolio of genuinely different mechanisms instead of converging early on "
+            "the nearest implementation. Parallel research tasks may investigate "
+            "independent mechanism families when mission slots permit. "
             "When a long external benchmark is already running or a task will launch "
             "one, use the same decision to fill spare mission slots with useful "
             "independent source analysis or implementation that does not need its "
@@ -153,8 +159,11 @@ def role_banner(role: str) -> str:
             "reading or implementation within the mission's owned paths. Do not "
             "foreground-poll or spend a round only checking status. On an "
             "`algorithm_discovery` mission, inspect current primary sources rather than "
-            "generic summaries and produce a concise decision-useful research report. "
-            "Implementation is optional unless the task explicitly asks for it."
+            "generic summaries, follow surprising leads, compare genuinely different "
+            "mechanism families, and produce a concise decision-useful research report. "
+            "Implementation, immediate verification, and immediate reproducibility are "
+            "optional unless the task explicitly asks for them. Once implementation "
+            "begins, keep it one coherent implementation rather than unrelated edits."
         )
     if role == "reviewer":
         return (
@@ -163,7 +172,9 @@ def role_banner(role: str) -> str:
             "impact; never fail work merely because a framework-specific document is absent. "
             "A report-only research mission is valid: review source quality, factual "
             "accuracy, synthesis, and usefulness to the next decision without demanding "
-            "an implementation or executable gate."
+            "an implementation or executable gate. Do not reject a speculative, radical, "
+            "or not-yet-reproducible idea merely for lacking immediate validation; require "
+            "evidence only when the report presents a hypothesis as an established result."
         )
     return common
 
