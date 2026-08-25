@@ -5,6 +5,11 @@ description: "A hard-won, worked trace on why a \"speedup\" can be a total illus
 
 # Kernel Benchmark Measurement Integrity
 
+This discipline applies when a performance result will be claimed or retained. It is
+not a gate on research or exploratory screening. One clean isolated run is enough to
+screen an idea; do not require multiple seeds or repeated trials until a candidate is
+promising enough to certify.
+
 **The single most expensive lesson:** a kernel's measured latency is only meaningful
 if it was measured in **isolation**. Measure it while other work shares the hardware
 and the number inflates — silently, by **3-5x** — and every "speedup" computed against

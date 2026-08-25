@@ -2,11 +2,10 @@
 
 ## Purpose
 
-Keep decisions grounded in the current public frontier without rerunning the same
-research at every stage. Search when selecting scope, refresh after relevant
-upstream/toolchain changes, repeated mechanism failures, or before a route change,
-and refresh again before an upstream PR/report. Refresh is event-driven, not
-stage- or timer-driven.
+Keep curiosity connected to the current public frontier. Search proactively whenever
+new external mechanisms may expand the plan; do not require a failure, route change,
+stage transition, or timer trigger. Independent mechanism families may be researched
+in parallel. A decision-useful report is a valid result even without implementation.
 
 ## Required search surfaces
 
@@ -40,7 +39,7 @@ repositories, or standards. Record secondary sources only as discovery aids.
 
 ## Evidence artifact
 
-Create a fresh snapshot for each real refresh trigger at
+When a durable report is useful, create a fresh snapshot at
 `research/frontier/<stage>.json` and append it with the provided recorder to
 `research/FRONTIER_WATCH.jsonl`. A stage transition alone does not require a new
 snapshot. The JSONL file is append-only audit output; never load it in full.
@@ -55,10 +54,10 @@ python -m argus_skill.verticals.kernel_engineering.frontier_watch check \
   --project-root . --stage optimize
 ```
 
-Each snapshot must contain concise focused queries, checked surfaces, sources
-that support the decision, material findings and actions, or an explicit
-`no_material_update=true` with a decision-impact explanation. Reviewer judgment,
-not fixed query/source counts, decides whether the evidence is sufficient.
+Each snapshot may contain broad or focused queries, checked surfaces, sourced facts,
+speculative hypotheses, mechanism comparisons, and open questions. It need not end in
+an action, implementation, or immediately verifiable claim. Reviewer judgment, not
+fixed query/source counts, decides whether the exploration is useful.
 `frontier_watch check` validates both the current snapshot and its latest
 same-stage ledger record, so agents and reviewers do not need to read the ledger.
 

@@ -51,12 +51,17 @@ def test_kernel_engineering_banner_prioritizes_direct_measured_work() -> None:
     assert "do not wait for repeated failures" in planner
     assert "does not need to produce code" in planner
     assert "portfolio of genuinely different mechanisms" in planner
+    assert "Prefer expected upside and information gain over low execution risk" in planner
+    assert "one clean screen is enough" in planner
     assert "Do not prefer the smallest patch" in engineer
     assert "produce a concise decision-useful research report" in engineer
     assert "immediate verification" in engineer
     assert "immediate reproducibility" in engineer
+    assert "high-uncertainty mechanisms over low-risk incrementalism" in engineer
+    assert "do not default to multi-seed" in engineer
     assert "report-only research mission is valid" in reviewer
     assert "not-yet-reproducible idea" in reviewer
+    assert "Never demand multiple seeds" in reviewer
     assert "never fail work merely because" in reviewer
     assert "process documents" in engineer
 
@@ -110,10 +115,38 @@ def test_kernel_engineering_vertical_skills_are_packaged(tmp_path: Path) -> None
     assert "do not prefer the smallest patch" in engineer_text
     assert "immediate verifiability" in engineer_text
     assert "immediate reproducibility" in engineer_text
+    assert "expected upside and information gain over low risk" in engineer_text
+    assert "do not default to" in engineer_text
+    assert "multiple seeds, repeated controls" in engineer_text
     assert "without requiring process documents" in reviewer_text
     assert "report-only research mission" in reviewer_text
     assert "not-yet-reproducible ideas" in reviewer_text
+    assert "one clean exploratory screen is sufficient" in reviewer_text
     assert "never block completion" in reviewer_text
+
+
+def test_kernel_reference_guidance_does_not_gate_exploration() -> None:
+    root = (
+        Path(__file__).resolve().parents[2]
+        / "argus_skill"
+        / "verticals"
+        / "kernel_engineering"
+    )
+    frontier = (root / "references" / "frontier-search-protocol.md").read_text()
+    idgl = (root / "references" / "idgl-loop.md").read_text()
+    measurement = (
+        root
+        / "skills"
+        / "engineer"
+        / "kernel-benchmark-measurement-integrity.md"
+    ).read_text()
+
+    assert "do not require a failure" in frontier
+    assert "valid result even without implementation" in frontier
+    assert "not a gate on research" in idgl
+    assert "high-risk exploration" in idgl
+    assert "One clean run is enough for exploratory screening" in idgl
+    assert "do not require multiple seeds" in measurement
 
 
 def test_kernel_optimize_stage_has_no_framework_file_gate() -> None:

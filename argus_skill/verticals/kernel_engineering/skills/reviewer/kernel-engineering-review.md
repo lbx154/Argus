@@ -16,6 +16,9 @@ Review the implemented change and the evidence that decides it:
   synthesis, and usefulness to the next engineering decision; code is not required.
 - speculative, radical, unimplemented, or not-yet-reproducible ideas remain valid
   exploration when they are clearly labeled as hypotheses rather than claimed results.
+- one clean exploratory screen is sufficient; do not request multiple seeds, repeated
+  controls, or confidence campaigns unless a promising candidate is being claimed or
+  retained.
 
 Request a repair only for a concrete code or evidence defect. Never block completion
 because a framework-specific scope, frontier, environment, baseline, outcome,

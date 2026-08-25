@@ -9,12 +9,13 @@ description: "Implement and measure one production kernel or inference improveme
 2. Reuse a settled baseline when available; exploration does not need to rerun it.
 3. Explore multiple high-upside mechanism families, including radical and uncertain
    ideas. Do not prefer the smallest patch, cheapest test, immediate verifiability, or
-   immediate reproducibility.
+   immediate reproducibility. Prefer expected upside and information gain over low risk.
 4. A bounded research mission may stop with a concise report that separates sourced
    facts, reasoned hypotheses, open questions, and promising mechanisms. Code is optional.
 5. When the task is implementation, choose one coherent mechanism, preserve the public
-   API and safe fallback, then run correctness and comparable target-hardware measurement
-   before claiming or retaining a win.
+   API where required, and use one clean run for exploratory screening. Do not default to
+   multiple seeds, repeated controls, or confidence campaigns. Run broader correctness and
+   comparable target-hardware repetitions only before claiming or retaining a win.
 6. A failed implementation remains useful evidence, but it does not close exploration of
    other mechanism families.
 

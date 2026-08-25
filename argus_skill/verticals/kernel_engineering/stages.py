@@ -124,8 +124,12 @@ def role_banner(role: str) -> str:
         "easiest immediate validation, or an idea that is already reproducible merely "
         "because it is safer to execute. Research reports and explicit hypotheses are "
         "valid exploration even before implementation. Distinguish hypotheses from "
-        "claimed results; only a claimed or retained performance result requires the "
-        "decisive correctness check and comparable target-hardware measurement. Do not "
+        "claimed results. During exploration, one clean screen, an inconclusive attempt, "
+        "or a report with no run may be sufficient; do not demand repeated trials, "
+        "multiple seeds, confidence intervals, or baseline recertification. Reserve "
+        "those costs for a genuinely promising candidate whose performance will be "
+        "claimed or retained. Only such a result requires the decisive correctness "
+        "check and comparable target-hardware measurement. Do not "
         "create process documents, stage bundles, proof packages, frontier ledgers, "
         "environment reports, or checkpoint churn unless the operator explicitly "
         "requests that artifact or a concise durable result is necessary for later work."
@@ -144,7 +148,10 @@ def role_banner(role: str) -> str:
             "and it does not need to produce code or an executable gate. Maintain a "
             "portfolio of genuinely different mechanisms instead of converging early on "
             "the nearest implementation. Parallel research tasks may investigate "
-            "independent mechanism families when mission slots permit. "
+            "independent mechanism families when mission slots permit. Prefer expected "
+            "upside and information gain over low execution risk. Do not spend mission "
+            "slots repeating seeds, controls, or unchanged benchmarks for exploratory "
+            "ideas; one clean screen is enough until a candidate is promising. "
             "When a long external benchmark is already running or a task will launch "
             "one, use the same decision to fill spare mission slots with useful "
             "independent source analysis or implementation that does not need its "
@@ -162,8 +169,11 @@ def role_banner(role: str) -> str:
             "generic summaries, follow surprising leads, compare genuinely different "
             "mechanism families, and produce a concise decision-useful research report. "
             "Implementation, immediate verification, and immediate reproducibility are "
-            "optional unless the task explicitly asks for them. Once implementation "
-            "begins, keep it one coherent implementation rather than unrelated edits."
+            "optional unless the task explicitly asks for them. Prefer high-upside, "
+            "high-uncertainty mechanisms over low-risk incrementalism when their potential "
+            "justifies exploration. Use one clean run for exploratory screening; do not "
+            "default to multi-seed or repeated-run campaigns. Once implementation begins, "
+            "keep it one coherent implementation rather than unrelated edits."
         )
     if role == "reviewer":
         return (
@@ -174,7 +184,9 @@ def role_banner(role: str) -> str:
             "accuracy, synthesis, and usefulness to the next decision without demanding "
             "an implementation or executable gate. Do not reject a speculative, radical, "
             "or not-yet-reproducible idea merely for lacking immediate validation; require "
-            "evidence only when the report presents a hypothesis as an established result."
+            "evidence only when the report presents a hypothesis as an established result. "
+            "Never demand multiple seeds or repeated trials for an exploratory screen; "
+            "request them only for a promising candidate being claimed or retained."
         )
     return common
 
