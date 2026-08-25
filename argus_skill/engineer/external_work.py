@@ -117,6 +117,33 @@ def _read_record(path: Path) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def _log_silence_seconds(
+    record: dict[str, Any], *, path: Path, now: float
+) -> float:
+    """Seconds since this job last wrote a byte anywhere in its own logs.
+
+    Used only when the owner declared no activity paths. A job still starting
+    up has written nothing yet, so silence is measured from ``started_at``
+    when the directory is empty, and not at all when neither is known.
+    """
+    # The directory is named from the record file, not from a work_id field --
+    # live records mostly do not carry one, and reading it there reported a
+    # healthy job as silent for four hours.
+    newest = 0.0
+    try:
+        logs = path.parent / f"{path.stem}_logs"
+        if logs.is_dir():
+            for entry in logs.iterdir():
+                if entry.is_file() and entry.stat().st_size > 0:
+                    newest = max(newest, entry.stat().st_mtime)
+    except OSError:
+        return 0.0
+    if newest > 0:
+        return max(0.0, now - newest)
+    started_at = _coerce_float(record.get("started_at"), 0.0)
+    return max(0.0, now - started_at) if started_at > 0 else 0.0
+
+
 def _activity_silence_seconds(
     record: dict[str, Any], *, path: Path, now: float
 ) -> float:
@@ -129,7 +156,14 @@ def _activity_silence_seconds(
     """
     relative_paths = _safe_relative_paths(record.get("activity_paths"))
     if not relative_paths:
-        return 0.0
+        # Every live job in seven campaigns declared none, so this returned
+        # zero for all of them and nothing was ever judged stalled. A job that
+        # writes nothing anywhere is silent by any definition, and its own log
+        # directory always exists: run-01 waited four hours on a claim run with
+        # zero bytes on both streams at 0% CPU while a GPU sat idle, and only
+        # stopped because a human looked. Silence on the logs is an
+        # observation, not a verdict about the work.
+        return _log_silence_seconds(record, path=path, now=now)
     try:
         project_root = path.parent.parent.resolve(strict=False)
     except OSError:

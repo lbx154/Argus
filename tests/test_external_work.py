@@ -347,3 +347,34 @@ def test_advisory_requires_diagnosis_for_stale_activity(tmp_path: Path) -> None:
     assert "needs_attention" in advisory
     assert "must not be waited on or foreground-polled" in advisory
     assert "repair, cancel, or restart" in advisory
+
+
+def test_a_job_that_declares_no_activity_paths_is_still_watched(tmp_path) -> None:
+    """The stall detector measured only owner-declared activity paths, and
+    every live job across seven campaigns declared none, so it returned zero
+    for all of them and nothing was ever judged stalled. run-01 waited four
+    hours on a claim run with zero bytes on both streams at 0% CPU while a GPU
+    sat idle, and it stopped only because a human looked at it.
+    """
+    import time
+
+    from argus_skill.engineer.external_work import _activity_silence_seconds
+
+    now = time.time()
+    subagents = tmp_path / ".argus_subagents"
+    (subagents / "quiet_logs").mkdir(parents=True)
+    (subagents / "busy_logs").mkdir(parents=True)
+    record = {"started_at": now - 4 * 3600}
+
+    # Nothing written anywhere: silence runs from the start of the job.
+    quiet = subagents / "quiet.json"
+    assert _activity_silence_seconds(record, path=quiet, now=now) > 3 * 3600
+
+    # A job writing to its own log is not silent, even with no declared paths.
+    busy = subagents / "busy.json"
+    (subagents / "busy_logs" / "stdout.log").write_text("progress\n")
+    assert _activity_silence_seconds(record, path=busy, now=now) < 60
+
+    # An empty file is not a byte written.
+    (subagents / "quiet_logs" / "stdout.log").write_text("")
+    assert _activity_silence_seconds(record, path=quiet, now=now) > 3 * 3600
