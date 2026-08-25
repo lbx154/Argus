@@ -130,7 +130,12 @@ def test_round_wait_loop_cannot_spin_past_a_stop(tmp_path, monkeypatch) -> None:
     )
 
     assert calls == [1]
-    assert control.action == "continue_loop"
+    assert control.action == "return"
+    assert control.terminal is not None
+    assert control.terminal[0] == "paused_daemon_shutdown"
+    assert control.terminal[3] == (
+        "daemon shutdown requested during external-work wait"
+    )
 
 
 def test_a_long_wait_says_how_long_it_has_been_waiting(monkeypatch, tmp_path) -> None:

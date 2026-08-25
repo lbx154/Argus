@@ -81,5 +81,14 @@ class RoundWaitsMixin:
                     ),
                     str(getattr(session, "thread_id", "") or "") or None,
                 ))
+            if wait_reason == "stop_requested" or process_stop.stop_requested():
+                session = state.engineer_session
+                return control_return((
+                    "paused_daemon_shutdown",
+                    state.rounds,
+                    raw_engineer_message,
+                    "daemon shutdown requested during external-work wait",
+                    str(getattr(session, "thread_id", "") or "") or None,
+                ))
             return control_continue_loop()
         return control_proceed()
