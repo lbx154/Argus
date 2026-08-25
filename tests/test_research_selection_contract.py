@@ -1227,7 +1227,7 @@ def test_draft_length_is_shown_against_the_campaigns_own_exemplars(tmp_path) -> 
     assert "with 3-3 figures" in block
 
 
-def test_planner_has_no_grounding_hard_limit() -> None:
+def test_planner_uses_the_backend_hard_idle_watchdog() -> None:
     import inspect
 
     from argus_skill.planner import planner
@@ -1236,6 +1236,9 @@ def test_planner_has_no_grounding_hard_limit() -> None:
     assert "grounding_max_tool_calls" not in source
     assert "grounding_max_seconds" not in source
     assert "_argus_tool_call_observer" not in source
+    # No Planner-specific override: None lets the shared backend default own
+    # liveness, while zero would disable it completely.
+    assert "watchdog_hard_idle_seconds=0" not in source
 
 
 def _wait_state(**overrides) -> dict:

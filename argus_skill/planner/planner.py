@@ -285,7 +285,11 @@ class Planner:
                 str(path) for path in self.mission.libraries().native_paths
             ],
             external_interrupt_reason_provider=cfg.external_interrupt_reason_provider,
-            watchdog_hard_idle_seconds=0,
+            # Use the backend's existing hard-idle watchdog. Setting this to
+            # zero disabled it entirely: run-01 sat in planner.cycle1 with no
+            # stream for forty-two minutes and no control path could progress.
+            # The provider default is the one already used by every other
+            # role, not another Planner-specific timeout.
         )
         started_at = time.monotonic()
         try:

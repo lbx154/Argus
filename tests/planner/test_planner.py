@@ -533,7 +533,9 @@ def test_plan_next_disables_schema_and_forces_read_only_tools(monkeypatch) -> No
     assert not hasattr(PlannerConfig(), "grounding_max_tool_calls")
     assert not hasattr(PlannerConfig(), "grounding_max_seconds")
     assert options.external_interrupt_reason_provider is interrupt
-    assert options.watchdog_hard_idle_seconds == 0
+    # None delegates liveness to the shared backend default; zero disables the
+    # watchdog and lets a silent Planner call block a campaign indefinitely.
+    assert options.watchdog_hard_idle_seconds is None
     assert options.dangerous_yolo is False
     assert options.full_auto is False
     assert options.sandbox_mode == "read-only"
