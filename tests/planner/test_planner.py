@@ -317,8 +317,10 @@ def test_planner_prompt_requires_read_only_delegation_and_process_decision() -> 
     assert "ARGUS_ROLE_DECISION=" in _PLANNER_CORE_CONTRACT
     assert '"role":"planner"' in _PLANNER_CORE_CONTRACT
     assert "not parsed" in _PLANNER_CORE_CONTRACT
-    assert "Never poll a watched durable task" in _PLANNER_CORE_CONTRACT
+    assert "poll: use `wait_mode=event`" in _PLANNER_CORE_CONTRACT
     assert "`wait_mode=event`" in _PLANNER_CORE_CONTRACT
+    assert "`artifact_revision`" in _PLANNER_CORE_CONTRACT
+    assert "nonempty `watched_paths`" in _PLANNER_CORE_CONTRACT
     # Naming one example taught the Planner a vocabulary of one. In four hours
     # run-05 proposed operator_answer, operator_message, artifact_change and
     # project_state -- each a plausible synonym for a real source -- and had

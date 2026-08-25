@@ -72,10 +72,10 @@ commands, tests, and iteration.
 - Payload: `project_done`, `reason`, `tasks`, `advance_to_stage`; staged decisions
   require a Host-validated stage. Tasks require `key`, `deps`, `title`, `objective`,
   `scope`; optional: `acceptance_check`, `parallel_safe`, `owns_paths`, `vertical`.
-- For a real external blocker, use `waiting` with `blocker_fingerprint`,
-  `recheck_condition`, and `recheck_token`; add `operator_action_required=true`
-  only when the operator must act. Never poll a watched durable task: set
-  `wait_mode=event`, `wake_on` from """ + _WAKE_SOURCES + """.
+- External waits require `blocker_fingerprint`, `recheck_condition` and
+  `recheck_token`; set `operator_action_required` only for the operator. Never
+  poll: use `wait_mode=event`, `wake_on` from """ + _WAKE_SOURCES + """;
+  `artifact_revision` requires nonempty `watched_paths`.
 - Planner proposes task scope only through the structured task `scope` (legacy
   `TASK_SCOPE`); Host owns enqueue-time validation/normalization of that field.
 - Use the operator's language.
