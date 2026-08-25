@@ -1830,11 +1830,10 @@ class LifeSupervisor(
             self.config.continuous_objective = objective
 
             items = self.memory.backlog.all()
-            if any(
-                str(getattr(item, "pending_question", "") or "").strip()
-                for item in items
-            ):
-                return
+            # An operator question belongs to its item, not to the spare
+            # campaign slot. The main idle path already plans around unanswered
+            # questions; returning here reintroduced the same whole-campaign
+            # stop whenever a long external job was also active.
             if self.memory.backlog.next_pending(parallel_only=True) is not None:
                 return
 

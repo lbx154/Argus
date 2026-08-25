@@ -937,6 +937,17 @@ def test_a_long_mission_keeps_getting_planning_opportunities(tmp_path, monkeypat
     running = backlog.add(BacklogItem.new(title="long GPU run", objective="hours"))
     backlog.update(running.id, status="running")
     running = next(r for r in backlog.all() if r.id == running.id)
+    # A question on a different item belongs to that item, not to the spare
+    # campaign slot. run-01 held one while a long ablation ran and its paper
+    # writer remained unclaimable; planning around the job was also suppressed.
+    question = backlog.add(
+        BacklogItem.new(title="operator choice", objective="wait for operator")
+    )
+    backlog.update(
+        question.id,
+        status="paused_operator",
+        pending_question="Which irreversible option?",
+    )
 
     sup = LifeSupervisor.__new__(LifeSupervisor)
     sup.config = SimpleNamespace(
