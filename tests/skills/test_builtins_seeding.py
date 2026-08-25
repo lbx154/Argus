@@ -307,10 +307,17 @@ def test_all_builtins_valid_including_stubs() -> None:
             _validate_builtin(name, text)
 
 
-def test_reference_corpora_are_not_enumerated_as_skills() -> None:
+def test_reference_corpora_are_assets_not_matchable_skills(tmp_path) -> None:
     names = {name for name, _text in iter_builtin_skill_texts()}
 
     assert not any("/references/" in f"/{name}" for name in names)
+    seed_vertical_skills(tmp_path, "research", overwrite=True)
+    # The owning idea-discovery Skill opens these paths directly. Excluding
+    # them from matching must not exclude them from the runtime cache.
+    assert (
+        tmp_path
+        / "engineer/references/ideation/anti-patterns.md"
+    ).is_file()
 
 
 def test_seed_for_vertical_overwrites_stub_with_real_body(tmp_path) -> None:
@@ -368,7 +375,10 @@ def test_seed_vertical_skills_writes_only_research_runtime_layer(
 ) -> None:
     written = seed_vertical_skills(tmp_path, "research")
 
-    assert set(written) == RESEARCH_SKILLS
+    assert RESEARCH_SKILLS.issubset(written)
+    assets = set(written) - RESEARCH_SKILLS
+    assert assets
+    assert all("/references/" in f"/{name}" for name in assets)
 
 
 def test_remove_unmodified_vertical_seeds_preserves_learned_edits(tmp_path) -> None:

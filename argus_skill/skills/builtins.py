@@ -145,6 +145,62 @@ def iter_context_skill_texts(
     yield from merged.items()
 
 
+def _iter_reference_assets(
+    root: Traversable,
+    prefix: str = "",
+    *,
+    inside_references: bool = False,
+) -> Iterable[tuple[str, str]]:
+    """Yield supporting reference cards without making them matchable Skills."""
+    for entry in sorted(root.iterdir(), key=lambda item: item.name):
+        if entry.name.startswith(("_", ".")):
+            continue
+        relative_name = f"{prefix}{entry.name}"
+        if entry.is_dir():
+            yield from _iter_reference_assets(
+                entry,
+                f"{relative_name}/",
+                inside_references=(
+                    inside_references or entry.name == "references"
+                ),
+            )
+        elif inside_references and entry.name.endswith(".md"):
+            yield relative_name, entry.read_text(encoding="utf-8")
+
+
+def iter_context_skill_assets(
+    vertical: str,
+    domain: str | None = None,
+) -> Iterable[tuple[str, str]]:
+    """Yield reference corpora consumed by context Skills.
+
+    ``iter_context_skill_texts`` deliberately excludes ``references/`` because
+    those cards are not independently matchable Skills. Excluding them from the
+    seeder too left the owning Skill pointing at files that did not exist:
+    run-01 had 43 of 94 research resources and none of the 51 ideation cards.
+    """
+    from ..verticals._registry import vertical_plugin
+
+    merged: dict[str, str] = {}
+    for source_vertical in (
+        *_VERTICAL_SKILL_INHERITANCE.get(vertical, ()),
+        vertical,
+    ):
+        plugin = vertical_plugin(source_vertical)
+        root = (
+            plugin.skills_root
+            if plugin and plugin.skills_root is not None
+            else vertical_skill_source_path(source_vertical)
+        )
+        if root.is_dir():
+            merged.update(dict(_iter_reference_assets(root)))
+    if domain:
+        root = domain_skill_source_path(domain)
+        if root.is_dir():
+            merged.update(dict(_iter_reference_assets(root)))
+    yield from merged.items()
+
+
 def _iter_builtin_skill_resources(
     root: Traversable,
     prefix: str = "",
@@ -395,6 +451,13 @@ def seed_builtin_skills_for_context(
             overwrite=overwrite,
         )
     )
+    created.update(
+        _seed_texts(
+            skills_dir,
+            iter_context_skill_assets(vertical, domain),
+            overwrite=overwrite,
+        )
+    )
 
     return created
 
@@ -434,6 +497,14 @@ def seed_context_skills(
         dest = skills_dir / filename
         if dest.exists() and not overwrite:
             _ = overwrite_unidentified
+            created[filename] = False
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write_text(dest, text)
+        created[filename] = True
+    for filename, text in iter_context_skill_assets(vertical, domain):
+        dest = skills_dir / filename
+        if dest.exists() and not overwrite:
             created[filename] = False
             continue
         dest.parent.mkdir(parents=True, exist_ok=True)
