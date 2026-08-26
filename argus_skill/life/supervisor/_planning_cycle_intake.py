@@ -28,6 +28,8 @@ from ._planning_cycle_helpers import (
     _revision_reason,
 )
 
+_REVISION_TERMINAL_STATUSES = {"done", "failed", "aborted", "skipped", "superseded"}
+
 
 class PlanningCycleIntakeMixin:
     """Gate checks + preflight short-circuits run before planner invocation."""
@@ -313,9 +315,15 @@ class PlanningCycleIntakeMixin:
                             by_id[item_id] for item_id in witness_ids
                         ]
                         state.revision_witness_active_item_ids = witness_ids
-            if not state.revision_active_items or requested_item_id not in {
-                item.id for item in state.revision_active_items
-            }:
+            requested_item = next(
+                (item for item in backlog_items if item.id == requested_item_id),
+                None,
+            )
+            if (
+                requested_item is None
+                or requested_item.plan_id != state.expected_plan_id
+                or requested_item.plan_version != state.expected_plan_version
+            ):
                 self._emit({
                     "type": EventType.LIFE_PLAN_REVISION_REJECTED,
                     "reason": "plan revision conflict: active revision changed",
@@ -323,11 +331,46 @@ class PlanningCycleIntakeMixin:
                     "expected_plan_version": state.expected_plan_version,
                 })
                 return PLAN_ERROR
+            if (
+                requested_item.status in _REVISION_TERMINAL_STATUSES
+                and not state.revision_active_items
+            ):
+                self._emit({
+                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                    "reason": (
+                        "terminal replan trigger has no active same-plan siblings; "
+                        "planning fresh work instead"
+                    ),
+                    "expected_plan_id": state.expected_plan_id,
+                    "expected_plan_version": state.expected_plan_version,
+                    "item_id": requested_item.id,
+                    "trigger_status": requested_item.status,
+                })
+                state.revision_request = None
+                revision_request = None
+            elif (
+                requested_item.status not in _REVISION_TERMINAL_STATUSES
+                and requested_item.id not in {item.id for item in state.revision_active_items}
+            ):
+                self._emit({
+                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                    "reason": "plan revision conflict: active revision changed",
+                    "expected_plan_id": state.expected_plan_id,
+                    "expected_plan_version": state.expected_plan_version,
+                })
+                return PLAN_ERROR
+        if revision_request is not None:
             self._emit({
                 "type": EventType.LIFE_PLAN_REVISION_PROPOSED,
                 "expected_plan_id": state.expected_plan_id,
                 "expected_plan_version": state.expected_plan_version,
                 "active_item_ids": [item.id for item in state.revision_active_items],
+                "trigger_item_id": requested_item_id,
+                **(
+                    {"terminal_trigger_status": requested_item.status}
+                    if requested_item.status in _REVISION_TERMINAL_STATUSES
+                    else {}
+                ),
                 "reason": _revision_reason(revision_request),
             })
 

@@ -1083,6 +1083,168 @@ def test_replan_with_no_planner_tasks_reaches_the_manager(
     assert outcome != PLAN_ERROR
 
 
+def test_terminal_replan_trigger_revises_active_same_plan_siblings(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    supervisor, backend, sink = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        terminal_stage_done=False,
+        backend=_StructuredWorkKindPlannerRunner(WORK_KINDS[0]),
+    )
+    trigger = BacklogItem(
+        id=BacklogItem.new_id(),
+        ts=time.time(),
+        title="Score completed run",
+        objective="Score the completed run.",
+        status="failed",
+        plan_id="plan-1",
+        plan_version=1,
+        node_key="score-run",
+    )
+    sibling = BacklogItem(
+        id=BacklogItem.new_id(),
+        ts=time.time(),
+        title="Gate matched follow-up",
+        objective="Gate the matched follow-up.",
+        status="pending",
+        plan_id="plan-1",
+        plan_version=1,
+        node_key="gate-follow-up",
+    )
+    supervisor.memory.backlog.add_many([trigger, sibling])
+
+    outcome = supervisor._plan_next_work(
+        revision_request={
+            "item_id": trigger.id,
+            "expected_plan_id": "plan-1",
+            "expected_plan_version": 1,
+            "review_reason": "the completed run invalidates the sibling path",
+        }
+    )
+
+    assert outcome is True
+    assert backend.planner_calls == 1
+    stored = {item.id: item for item in supervisor.memory.backlog.all()}
+    assert stored[trigger.id].status == "failed"
+    assert stored[sibling.id].status == "superseded"
+    replacement = next(
+        item for item in stored.values()
+        if item.plan_id != "plan-1" and item.status == "pending"
+    )
+    assert replacement.plan_version == 2
+    proposed = next(
+        event for event in sink.events
+        if event.get("type") == "life.plan.revision.proposed"
+    )
+    assert proposed["active_item_ids"] == [sibling.id]
+    committed = next(
+        event for event in sink.events
+        if event.get("type") == "life.plan.revision.committed"
+    )
+    assert committed["superseded_item_ids"] == [sibling.id]
+
+
+def test_terminal_replan_trigger_without_active_siblings_plans_fresh(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    supervisor, backend, sink = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        terminal_stage_done=False,
+        backend=_StructuredWorkKindPlannerRunner(WORK_KINDS[0]),
+    )
+    trigger = BacklogItem(
+        id=BacklogItem.new_id(),
+        ts=time.time(),
+        title="Score completed run",
+        objective="Score the completed run.",
+        status="failed",
+        plan_id="plan-1",
+        plan_version=1,
+        node_key="score-run",
+    )
+    supervisor.memory.backlog.add(trigger)
+
+    outcome = supervisor._plan_next_work(
+        revision_request={
+            "item_id": trigger.id,
+            "expected_plan_id": "plan-1",
+            "expected_plan_version": 1,
+            "review_reason": "the completed run leaves no same-plan work",
+        }
+    )
+
+    assert outcome is True
+    assert backend.planner_calls == 1
+    stored = {item.id: item for item in supervisor.memory.backlog.all()}
+    assert stored[trigger.id].status == "failed"
+    pending = supervisor.memory.backlog.pending()
+    assert len(pending) == 1
+    assert pending[0].plan_version == 1
+    rejected = next(
+        event for event in sink.events
+        if event.get("type") == "life.plan.revision.rejected"
+    )
+    assert "planning fresh work instead" in rejected["reason"]
+    assert rejected["expected_plan_id"] == "plan-1"
+    assert rejected["expected_plan_version"] == 1
+
+
+def test_stale_terminal_replan_trigger_still_rejects(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    supervisor, backend, sink = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        terminal_stage_done=False,
+        backend=_StructuredWorkKindPlannerRunner(WORK_KINDS[0]),
+    )
+    trigger = BacklogItem(
+        id=BacklogItem.new_id(),
+        ts=time.time(),
+        title="Score old completed run",
+        objective="Score the old completed run.",
+        status="failed",
+        plan_id="plan-1",
+        plan_version=1,
+        node_key="score-old-run",
+    )
+    active_current = BacklogItem(
+        id=BacklogItem.new_id(),
+        ts=time.time(),
+        title="Continue current run",
+        objective="Continue the current run.",
+        status="pending",
+        plan_id="plan-2",
+        plan_version=2,
+        node_key="continue-current",
+    )
+    supervisor.memory.backlog.add_many([trigger, active_current])
+
+    outcome = supervisor._plan_next_work(
+        revision_request={
+            "item_id": trigger.id,
+            "expected_plan_id": "plan-2",
+            "expected_plan_version": 2,
+            "review_reason": "old evidence must not revise the current plan",
+        }
+    )
+
+    assert outcome == PLAN_ERROR
+    assert backend.planner_calls == 0
+    stored = {item.id: item for item in supervisor.memory.backlog.all()}
+    assert stored[active_current.id].status == "pending"
+    rejected = next(
+        event for event in sink.events
+        if event.get("type") == "life.plan.revision.rejected"
+    )
+    assert rejected["reason"] == "plan revision conflict: active revision changed"
+
+
 def test_unversioned_item_replan_degrades_to_planning_not_a_dead_end(
     tmp_path: Path,
     monkeypatch,
