@@ -420,6 +420,7 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.follow)
         + bool(getattr(args, "web", False))
         + bool(args.notify)
+        + (getattr(args, "ask", None) is not None)
         + bool(getattr(args, "answer", None))
         + bool(args.init_identity)
         + bool(args.setup)
@@ -477,7 +478,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.write(
             "argus-skill: --daemon / --daemon-fg / --daemon-stop / --status / "
             "--daemon-runbook / --update / --config-help / --config-snapshot / "
-            "--watch / --follow / --notify / --init-identity / "
+            "--watch / --follow / --notify / --ask / --init-identity / "
             "--setup / --doctor / "
             "--model-api-status / --init-model-api / "
             "--install-ppt-master / --ppt-master-status / "
@@ -600,6 +601,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_answer(args)
     if args.notify:
         return _run_with_path_resolution_errors(lambda: _cmd_notify(args))
+    if getattr(args, "ask", None) is not None:
+        return _run_with_path_resolution_errors(lambda: _cmd_ask(args))
     if args.init_identity:
         return _run_with_path_resolution_errors(lambda: _cmd_init_identity(args))
     if args.setup:
@@ -1256,6 +1259,56 @@ def _cmd_follow(args: argparse.Namespace) -> int:
         coalescer.flush()
         if fh is not None:
             fh.close()
+    return 0
+
+
+def _cmd_ask(args: argparse.Namespace) -> int:
+    """Answer ``--ask <question>`` inline via the Manager quick-reply path.
+
+    Reuses the same fast path the chat/web ``/ask`` is built on —
+    ``build_quick_reply_prompt`` fed through ``run_exec`` via the front-door
+    Manager runner — so a CLI question is answered headlessly (no TTY, no
+    ``--continuous``, no daemon) and, by that path's contract, is never queued
+    as a backlog item. The reply goes to stdout and the process exits 0.
+    """
+    question = (getattr(args, "ask", "") or "").strip()
+    if not question:
+        sys.stderr.write("argus-skill: --ask requires a non-empty question\n")
+        return 2
+    bundle = _resolve_project_bundle(args)
+    from ...core.models import RunnerOptions
+    from ...core.run_gateway import run_exec as gateway_run_exec
+    from ...manager.front_door import _ensure_manager_runner
+    from ...manager.stage_decider import extract_answer
+    from ...roles.prompts.manager import build_quick_reply_prompt
+    from ...webapi.manager_state import _chat_state_for
+
+    sid = bundle.project.root.name
+    chat_state = _chat_state_for(sid)
+    chat_state["session_id"] = sid
+    chat_state["global_root"] = str(bundle.global_root)
+    runner = _ensure_manager_runner(chat_state, bundle)
+    if runner is None:
+        reason = str(chat_state.get("manager_runner_error") or "").strip()
+        sys.stderr.write(
+            "argus-skill: --ask cannot answer inline"
+            + (f": {reason}" if reason else "")
+            + " — nothing was queued\n"
+        )
+        return 1
+    result = gateway_run_exec(
+        runner,
+        prompt=build_quick_reply_prompt(objective=question),
+        options=RunnerOptions(skip_git_repo_check=True),
+        run_label="manager-ask",
+    )
+    reply = extract_answer(result).strip()
+    if not reply:
+        sys.stderr.write(
+            "argus-skill: --ask received an empty reply; nothing was queued\n"
+        )
+        return 1
+    sys.stdout.write(reply.rstrip() + "\n")
     return 0
 
 

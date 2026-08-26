@@ -29,6 +29,7 @@ _PYTHON_ADMIN_FLAGS = frozenset(
         "--follow",
         "--pair-plan",
         "--answer",
+        "--ask",
         "--notify",
         "--init-identity",
         "--setup",

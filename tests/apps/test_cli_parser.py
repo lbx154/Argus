@@ -123,6 +123,11 @@ def test_parser_accepts_stage_targeted_notify() -> None:
     assert args.notify_stage == "optimize"
 
 
+def test_parser_accepts_ask_question() -> None:
+    args = build_parser().parse_args(["--ask", "what is 2+2?"])
+    assert args.ask == "what is 2+2?"
+
+
 def test_parser_accepts_noninteractive_backend_setup_contract() -> None:
     args = build_parser().parse_args(
         [

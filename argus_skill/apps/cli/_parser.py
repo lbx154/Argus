@@ -268,6 +268,12 @@ def build_parser() -> argparse.ArgumentParser:
              "waiting",
     )
     cockpit_grp.add_argument(
+        "--ask",
+        metavar="QUESTION",
+        help="answer a one-shot question inline with the Manager and exit; "
+             "nothing is queued and no daemon/--continuous is required",
+    )
+    cockpit_grp.add_argument(
         "--notify-stage",
         default="",
         metavar="STAGE",

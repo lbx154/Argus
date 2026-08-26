@@ -192,6 +192,24 @@ def test_public_admin_flags_stay_on_python_admin_path(monkeypatch) -> None:
     ]
 
 
+def test_ask_stays_on_python_admin_path(monkeypatch) -> None:
+    """`--ask` is a headless admin surface; it must never launch the cockpit."""
+    seen = []
+    monkeypatch.setattr(
+        tui_launcher,
+        "_run_python_admin",
+        lambda argv: seen.append(argv) or 7,
+    )
+    monkeypatch.setattr(
+        tui_launcher,
+        "_bundle_path",
+        lambda: (_ for _ in ()).throw(AssertionError("TUI must not launch")),
+    )
+
+    assert tui_launcher.main(["--ask", "what is 2+2?"]) == 7
+    assert seen == [["--ask", "what is 2+2?"]]
+
+
 def test_web_launch_uses_tui_unless_raw_backend_options_are_requested(
     monkeypatch, tmp_path: Path,
 ) -> None:
