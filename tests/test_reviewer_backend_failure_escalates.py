@@ -326,7 +326,7 @@ def test_watchdog_timeout_retries_once_from_checkpoint_in_fresh_session(
     assert status == "done"
     assert runner.calls == 2
     assert runner.resume_thread_ids == [None, None]
-    assert [include_static for include_static, _prompt in prompts] == [True, False]
+    assert [include_static for include_static, _prompt in prompts] == [True, True]
     assert reviewer.calls == 1
     assert len(rounds) == 2
     retry = next(event for event in events if event["type"] == "round.watchdog.retry")
