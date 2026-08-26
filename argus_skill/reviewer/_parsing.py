@@ -192,26 +192,13 @@ def _apply_model_judgment_policy(decision: ReviewDecision) -> ReviewDecision:
             for key in ("cause", "scope", "budget", "recovery_test", "exit_trigger")
         )
         if change == "bounded_regression" and not envelope_complete:
-            decision.status = "replan_requested"
             decision.reason += (
-                " The reported regression has no complete cause, scope, budget, "
-                "recovery test, and exit trigger, so it cannot be accepted as bounded."
+                " Note: the bounded-regression report omitted one or more of cause, "
+                "scope, budget, recovery test, and exit trigger."
             )
-            decision.next_action = (
-                "Replan with a complete regression envelope or restore the prior frontier."
-            )
-            decision.planner_report.update({
-                "forward_progress": False,
-                "plan_signal": "reconsider",
-                "challenge": "The proposed regression was not bounded.",
-                "alternative": "Bound the repair debt or choose a route without it.",
-                "authority_impact": "technical",
-            })
         elif change == "expanding_regression" and decision.status == "done":
-            decision.status = "replan_requested"
-            decision.next_action = (
-                decision.next_action
-                or "Diagnose the expanding regression and revise or abandon the route."
+            decision.reason += (
+                " Note: the same verdict reports an expanding regression."
             )
     return decision
 
@@ -321,6 +308,10 @@ def decision_from_payload(payload: Mapping[str, Any]) -> ReviewDecision | None:
     )
 
 
+# Compatibility reader, not a prompt schema. Several older sessions emitted
+# frontier/session bookkeeping; accepting it is cheap, but the current prompt
+# only asks for fields that affect settlement, operator routing, research
+# certification, or Manager plan adjudication.
 _VERDICT_KEYS = (
     "STATUS",
     "REASON",
