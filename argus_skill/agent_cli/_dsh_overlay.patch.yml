@@ -6,6 +6,7 @@
 #   ARGUS_DSH_PROVIDER / ARGUS_DSH_MODEL — per-role model selection
 #   ARGUS_DSH_SUBAGENT_MODEL             — dsh subagent (child agent) model
 #   ARGUS_DSH_APPROVAL                   — approval policy override
+#   ARGUS_DSH_DISABLE_TOOLS               — tool-free Argus calls
 #
 # A patch row replaces the targeted row's whole config rather than merging,
 # which is why this file restates the full {provider, model} pair.
@@ -14,18 +15,58 @@
     provider: !!js process.env.ARGUS_DSH_PROVIDER ?? "deepseek-official"
     model: !!js process.env.ARGUS_DSH_MODEL ?? "deepseek-v4-flash"
 
+# Manager fast-path calls explicitly disable tools. Mirror that contract in
+# dsh's plugin profile rather than relying on the prompt to avoid them.
+- id: tool-bash
+  disabled: !!js process.platform === "win32" || process.env.ARGUS_DSH_DISABLE_TOOLS === "1"
+- id: tool-pwsh
+  disabled: !!js process.platform !== "win32" || process.env.ARGUS_DSH_DISABLE_TOOLS === "1"
+- id: tool-jobs
+  disabled: !!js process.env.ARGUS_DSH_DISABLE_TOOLS === "1"
+- id: tool-fs
+  disabled: !!js process.env.ARGUS_DSH_DISABLE_TOOLS === "1"
+- id: tool-fs-search
+  disabled: !!js process.env.ARGUS_DSH_DISABLE_TOOLS === "1"
+- id: tool-skill
+  disabled: !!js process.env.ARGUS_DSH_DISABLE_TOOLS === "1"
+- id: tool-todo
+  disabled: !!js process.env.ARGUS_DSH_DISABLE_TOOLS === "1"
+- id: tool-goal
+  disabled: !!js process.env.ARGUS_DSH_DISABLE_TOOLS === "1"
+- id: tool-ralph
+  disabled: !!js process.env.ARGUS_DSH_DISABLE_TOOLS === "1"
+- id: tool-str-replace-editor
+  disabled: !!js process.env.ARGUS_DSH_DISABLE_TOOLS === "1"
+- id: tool-web
+  disabled: !!js process.env.ARGUS_DSH_DISABLE_TOOLS === "1"
+
 # dsh subagents inherit their parent agent's model unless pinned here:
 # ARGUS_DSH_SUBAGENT_MODEL wins when set, otherwise the child follows the
 # parent's effective model (ARGUS_DSH_MODEL) and finally the deployment
 # default. The base values for provider / toolName / backgroundMode are
 # restated verbatim (a patch row replaces the whole config).
 - id: tool-subagent
+  disabled: !!js process.env.ARGUS_DSH_DISABLE_TOOLS === "1"
   config:
     provider: spawn
     toolName: subagent
     backgroundMode: continuable
     agentOptions:
       model: !!js process.env.ARGUS_DSH_SUBAGENT_MODEL ?? (process.env.ARGUS_DSH_MODEL ?? "deepseek-v4-flash")
+
+# Tool-free calls also hide native delegation. Read-only Planner and Reviewer
+# calls deliberately retain it: an operator may allow their DSH child agents to
+# perform writes even though the parent role remains read-only.
+- id: tool-subagent-fork
+  disabled: !!js process.env.ARGUS_DSH_DISABLE_TOOLS === "1"
+- id: tool-subagent-control
+  disabled: !!js process.env.ARGUS_DSH_DISABLE_TOOLS === "1"
+- id: tool-subagent-list-agents
+  disabled: !!js process.env.ARGUS_DSH_DISABLE_TOOLS === "1"
+- id: tool-subagent-report
+  disabled: !!js process.env.ARGUS_DSH_DISABLE_TOOLS === "1"
+- id: tool-workflow
+  disabled: !!js process.env.ARGUS_DSH_DISABLE_TOOLS === "1"
 
 # Approval policy follows dsh's own base formula so the composed
 # sandbox+approval defaults always match one of the permission presets:

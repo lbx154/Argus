@@ -311,6 +311,7 @@ _BACKEND_MODEL_CATALOG: dict[str, str] = {
 #: :func:`_check_backend_model_catalog` to say so out loud.
 _BACKEND_DEFAULT_MODELS: dict[str, str] = {
     "claude": "claude-opus-5",
+    "dsh": "deepseek-official/deepseek-v4-flash",
 }
 
 

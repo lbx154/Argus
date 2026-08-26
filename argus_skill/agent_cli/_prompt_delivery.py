@@ -327,7 +327,11 @@ def _apply_dsh_env(
             env["ARGUS_DSH_MODEL"] = model_id
     elif model:
         env["ARGUS_DSH_MODEL"] = model
-    if getattr(options, "sandbox_mode", None) == "read-only":
+    disable_tools = bool(getattr(options, "disable_tools", False))
+    read_only = getattr(options, "sandbox_mode", None) == "read-only"
+    if disable_tools:
+        env["ARGUS_DSH_DISABLE_TOOLS"] = "1"
+    if read_only:
         env["DSH_PERMISSION_MODE"] = "read-only"
     else:
         env["DSH_PERMISSION_MODE"] = "danger-full-access"

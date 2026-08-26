@@ -20,6 +20,7 @@ from argus_skill.agent_cli.runner_backend import (
     default_runner_bin,
     normalize_runner_backend,
 )
+from argus_skill.core.backend_readiness import default_model_for_backend
 
 
 def _runner(agent_bin: str = "dsh") -> AgentCliRunner:
@@ -61,6 +62,14 @@ def test_dsh_registers_as_a_native_backend_not_claude_family() -> None:
     assert BACKEND_DSH not in CLAUDE_FAMILY
 
 
+def test_dsh_adopts_official_v4_flash_when_no_model_was_selected() -> None:
+    assert default_model_for_backend(
+        BACKEND_DSH,
+        env={},
+        persisted={},
+    ) == "deepseek-official/deepseek-v4-flash"
+
+
 def test_dsh_overlay_patch_resource_exists_and_targets_model() -> None:
     overlay = _overlay_path()
     assert overlay.is_file()
@@ -68,6 +77,9 @@ def test_dsh_overlay_patch_resource_exists_and_targets_model() -> None:
     assert "id: agent-default-model" in text
     assert "ARGUS_DSH_MODEL" in text
     assert "ARGUS_DSH_PROVIDER" in text
+    assert "ARGUS_DSH_DISABLE_TOOLS" in text
+    assert "id: tool-subagent-fork" in text
+    assert "id: tool-workflow" in text
 
 
 # ---------------------------------------------------------------------- command
@@ -175,6 +187,41 @@ def test_dsh_env_splits_qualified_model_and_read_only() -> None:
     assert env["ARGUS_DSH_PROVIDER"] == "third-party"
     assert env["ARGUS_DSH_MODEL"] == "model-x"
     assert env["DSH_PERMISSION_MODE"] == "read-only"
+    assert "ARGUS_DSH_DISABLE_TOOLS" not in env
+
+
+def test_dsh_env_disables_tools_for_tool_free_calls() -> None:
+    from argus_skill.agent_cli._prompt_delivery import _apply_dsh_env
+
+    env = _apply_dsh_env(
+        {"PATH": "/usr/bin"},
+        RunnerOptions(disable_tools=True),
+        agent_bin="/usr/bin/dsh",
+    )
+    assert env["ARGUS_DSH_DISABLE_TOOLS"] == "1"
+
+
+def test_dsh_resolves_beside_real_node_when_only_node_shim_is_on_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from argus_skill.agent_cli import runner_backend
+
+    prefix_bin = tmp_path / "node-prefix" / "bin"
+    shim_bin = tmp_path / "shims"
+    prefix_bin.mkdir(parents=True)
+    shim_bin.mkdir()
+    node = prefix_bin / "node"
+    dsh = prefix_bin / "dsh"
+    node.write_text("", encoding="utf-8")
+    dsh.write_text("", encoding="utf-8")
+    node.chmod(0o755)
+    dsh.chmod(0o755)
+    (shim_bin / "node").symlink_to(node)
+    monkeypatch.setenv("PATH", str(shim_bin))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+    assert runner_backend.resolve_runner_bin(BACKEND_DSH) == str(dsh)
 
 
 # ----------------------------------------------------------- finalize branch

@@ -157,6 +157,19 @@ def resolve_runner_bin(
         if resolved:
             return resolved
     if chosen == BACKEND_DSH:
+        # User-local Node installations often expose `node` through a stable
+        # shim while npm's global package links remain beside the shim target.
+        # Resolve that target before falling back to nvm-specific locations.
+        node = shutil.which("node")
+        if node:
+            try:
+                node_sibling = Path(node).resolve().parent / expanded
+            except (OSError, RuntimeError):
+                node_sibling = None
+            if node_sibling is not None:
+                resolved = _resolve_explicit_candidate(node_sibling)
+                if resolved:
+                    return resolved
         # dsh is installed through the nvm-managed Node toolchain, whose bin
         # directory is absent from non-interactive PATHs (the daemon may be
         # started from one). Probe the per-version nvm bins newest-first.
