@@ -46,7 +46,7 @@ def prepare_skill_libraries(context: VerticalLibraryContext) -> None:
                 "text": "team worker reused the parent portfolio without recursive fanout",
             })
         else:
-            context.required_skill_paths.append("engineer/agent-team-lead.md")
+            context.required_skill_paths.append("agent-team-lead.md")
             team_root = ensure_idea_portfolio(
                 context.workdir,
                 direction=context.direction,

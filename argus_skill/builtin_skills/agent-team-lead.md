@@ -1,6 +1,6 @@
 ---
 name: "Agent Team Lead"
-description: "How the engineer acts as a team lead — decompose a mission into file-disjoint subtasks, spawn self-looping teammate engineers, coordinate via a shared task board and mailbox, then synthesize and gate the merged result."
+description: "Shared Argus Team contract: recognize when parallel teammates are justified, preserve Team execution while planning, form and coordinate file-disjoint teammate work as the lead, and independently review the synthesis."
 ---
 
 ## Title
@@ -8,6 +8,18 @@ Agent Team Lead
 
 ## Description
 Use a team only to parallelize several genuinely independent tasks. The lead writes a priority backlog and remains responsible for synthesis; the daemon-resident Curator claims tasks, starts one fresh teammate mission per claim, reaps it, and refills the pool. Solo execution is the default.
+
+## Role authority
+
+Every role may discover this Skill, but it does not erase role boundaries:
+
+- Manager recognizes a Team request and preserves it in the mission handoff.
+- Planner delegates Team formation unchanged; Planner does not infer availability
+  from its own role-specific Skill directory.
+- Engineer or an explicitly assigned lead forms and operates the Team.
+- Reviewer remains read-only and audits teammate evidence plus the lead synthesis.
+- Self may explain or route Team work, but does not execute it unless it is
+  explicitly acting as the mission's Engineer/lead.
 
 ## Admission gate
 Form a team only when all of these hold:

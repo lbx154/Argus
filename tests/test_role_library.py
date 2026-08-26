@@ -83,7 +83,7 @@ def test_each_role_searches_same_library_independently(tmp_path: Path) -> None:
     assert engineer.library_roots == reviewer.library_roots
     assert "OWN: engineer, root" in engineer.block
     assert "REFERENCE only: reviewer, self" in engineer.block
-    assert "OWN: reviewer" in reviewer.block
+    assert "OWN: root, reviewer" in reviewer.block
     assert "REFERENCE only: engineer, self" in reviewer.block
     assert engineer.native_paths == [
         store.skills_dir.resolve() / "engineer",
@@ -122,6 +122,17 @@ def test_general_native_root_requires_a_direct_skill(tmp_path: Path) -> None:
     assert role_skill_libraries(store, role="engineer").native_paths == [
         store.skills_dir.resolve()
     ]
+
+
+def test_general_skill_is_visible_to_every_runtime_role(tmp_path: Path) -> None:
+    store = SkillStore(tmp_path / "skills")
+    common = store.skills_dir / "agent-team-lead.md"
+    common.write_text("shared Team contract", encoding="utf-8")
+
+    for role in ("self", "manager", "planner", "engineer", "reviewer"):
+        libraries = role_skill_libraries(store, role=role)
+        assert store.skills_dir.resolve() in libraries.own_paths
+        assert store.skills_dir.resolve() in libraries.native_paths
 
 
 def test_role_library_event_exposes_precedence_without_skill_content(

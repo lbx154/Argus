@@ -22,7 +22,6 @@ _BUILTIN_SEED_STATE = ".argus-builtin-seeds.json"
 _MOVED_SKILL_MARKER = ".moved-from-global.json"
 _LEGACY_BUILTIN_SEED_HASHES = {
     "agent-md-optimize-project-template.md": "52fbd7e60f85042624a54b563945b26739a590120d21c830c8f2d4eda0b3db7d",
-    "engineer/agent-team-lead.md": "bdaf7b78b57b3fec45bc9108d0c36f2bd0d07e191657cdffd4299c25f9f98722",
     "engineer/argus-engineer-role.md": "8823e0c01e377e1be5293d1529344213e0f1326ebe94a6863dc4ee0e2730dadd",
     "engineer/environment-readiness-gate.md": "f8615f2a465cbe7b2ce838179c24a575baf4fbe6370730035c85cd4dd907de9b",
     "engineer/mermaid-graphviz-diagrams.md": "d340f45b0aeb7ee5f239aa79f1c8f3ed94be4a56af036dd7b80a60cd72953542",

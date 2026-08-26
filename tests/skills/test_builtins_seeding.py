@@ -10,6 +10,7 @@ from argus_skill.skills.builtins import (
     _RETIRED_BUILTIN_SEED_HASHES,
     _validate_builtin,
     iter_builtin_skill_texts,
+    iter_common_builtin_skill_texts,
     iter_vertical_skill_texts,
     remove_unmodified_inactive_context_skill_seeds,
     remove_unmodified_vertical_skill_seeds,
@@ -141,6 +142,15 @@ def test_minimal_coding_agent_skill_is_packaged() -> None:
     body = packaged["engineer/minimal-coding-agent.md"]
     assert "最少且足够的代码" in body
     assert "答不出来就不要添加" in body
+
+
+def test_agent_team_lead_is_a_common_builtin() -> None:
+    common = dict(iter_common_builtin_skill_texts())
+    packaged = dict(iter_builtin_skill_texts())
+
+    assert "agent-team-lead.md" in common
+    assert "engineer/agent-team-lead.md" not in packaged
+    assert "Every role may discover this Skill" in common["agent-team-lead.md"]
 
 
 def test_machine_specific_nanochat_playbooks_are_retired() -> None:

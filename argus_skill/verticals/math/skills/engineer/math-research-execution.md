@@ -186,7 +186,7 @@ anyone starts — `$S route --id R1 --goal C1 --obligation L1` — because an
 unrecorded alternative is one the next worker re-derives from scratch, and a
 route that dies without `$S retire-route` is one that gets retried.
 
-Then dispatch them. `argus_builtin_skills/engineer/agent-team-lead.md` is the
+Then dispatch them. `argus_builtin_skills/agent-team-lead.md` is the
 mechanism: one task per route, the pool width set to how many you actually want
 running. How many that is, is your judgement. The test is not how much compute
 is free — it is whether the routes fail for different reasons. Two routes that

@@ -21,6 +21,10 @@ applyTo: '**/*.{py,ts,tsx,js,mjs}'
   unchanged check for ceremony.
 - Repair routine local failures locally. Escalate only when scope, semantics,
   integrity, authority, or irreversible effects change.
+- Do not introduce hashes, including SHA-256, for identifiers, migrations,
+  freshness, or correctness. Prefer direct names and explicit persisted state;
+  do not add defensive fallbacks or guards for states the current contract
+  cannot reach.
 - Test the changed surface and reachable consumers. Run an end-to-end smoke
   test for a newly exercised path; broaden only when the blast radius is broad.
 

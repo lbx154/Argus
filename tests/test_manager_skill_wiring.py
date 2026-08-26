@@ -49,7 +49,7 @@ def test_planner_role_skill_no_longer_classified_as_engineer() -> None:
 # --------------------------------------------------------------------------
 def test_manager_in_role_subdirs_and_pools() -> None:
     assert "manager" in _ROLE_SUBDIRS
-    assert ROLE_SKILL_POOLS["manager"] == frozenset({"manager"})
+    assert ROLE_SKILL_POOLS["manager"] == frozenset({"manager", "general"})
     # Manager sees every other role's standards as read-only references.
     assert ROLE_CROSS_READ_POOLS["manager"] == frozenset({
         "engineer",

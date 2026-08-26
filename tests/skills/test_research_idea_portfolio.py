@@ -564,7 +564,7 @@ def test_research_library_hook_forms_quorum_pipeline(
     assert required == [
         "engineer/idea-discovery.md",
         "engineer/idea-creator.md",
-        "engineer/agent-team-lead.md",
+        "agent-team-lead.md",
     ]
     assert events[0]["type"] == "idea.portfolio.formed"
     assert events[0]["policy"] == "frontier_ambition_v2"

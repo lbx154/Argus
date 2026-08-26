@@ -30,9 +30,9 @@ from typing import Iterable
 ROLE_SKILL_POOLS: dict[str, frozenset[str]] = {
     "self": frozenset({"self", "manager", "engineer", "general"}),
     "engineer": frozenset({"engineer", "general"}),
-    "reviewer": frozenset({"reviewer"}),
-    "planner": frozenset({"planner"}),
-    "manager": frozenset({"manager"}),
+    "reviewer": frozenset({"reviewer", "general"}),
+    "planner": frozenset({"planner", "general"}),
+    "manager": frozenset({"manager", "general"}),
 }
 ROLE_CROSS_READ_POOLS: dict[str, frozenset[str]] = {
     "self": frozenset({"planner", "reviewer"}),

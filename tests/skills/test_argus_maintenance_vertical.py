@@ -85,6 +85,7 @@ def test_explicit_vertical_reaches_engineer_and_reviewer_without_pipeline_state(
         str(reviewer_dir),
     ]
     assert reviewer_options.skill_paths == [
+        str(skills.resolve()),
         str(reviewer_dir),
         str(engineer_dir),
     ]
