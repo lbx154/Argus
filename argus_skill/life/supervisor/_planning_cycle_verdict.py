@@ -188,7 +188,9 @@ class PlanningCycleVerdictMixin:
                     ),
                     config=self._planner_config(),
                 )
-                self._apply_research_plan_update(state.verdict.raw_text)
+                self._apply_research_plan_update(
+                    getattr(state.verdict, "raw_text", "") or ""
+                )
             finally:
                 if stream_ctx:
                     stream_ctx.__exit__(None, None, None)
