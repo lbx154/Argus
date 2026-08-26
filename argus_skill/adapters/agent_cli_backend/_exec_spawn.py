@@ -111,7 +111,10 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
             run_label=ctx.run_label,
         )
     except FileNotFoundError as exc:
-        log.exception("codex CLI binary not found")
+        log.error(
+            "runner binary not found: %s",
+            getattr(exc, "filename", None) or exc,
+        )
         finish_quota(ctx, error_text=str(exc), success=False)
         backend._log_agent_io(ctx.log_path, {
             "type": EventType.AGENT_IO_ERROR,

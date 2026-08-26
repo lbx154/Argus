@@ -4,7 +4,8 @@ The CLI answer reuses the Manager quick-reply path (``build_quick_reply_prompt``
 fed through ``run_exec`` via the front-door runner), the same fast path the
 chat/web ``/ask`` is built on. It must work headless (non-TTY, no
 ``--continuous``, no daemon) and must never turn the question into a backlog
-item. Both tests script the backend so the whole path is deterministic.
+item. The backend is scripted (a canned ``dsh`` binary, or its absence) so
+the whole path is deterministic.
 """
 from __future__ import annotations
 
@@ -118,6 +119,46 @@ def test_ask_runs_the_real_quick_reply_path_against_a_scripted_cli(
     assert rc == 0
     assert "canned answer from scripted dsh" in out
     assert "what is 2+2?" in out
+    assert _queued_rows(tmp_path / "life") == []
+
+
+def test_ask_reports_backend_failure_when_runner_is_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Real path with the runner binary absent: a distinct backend failure.
+
+    No internals are monkeypatched: the front-door Manager runner is built
+    for real and its spawn fails because ``dsh`` is not on PATH (the PATH
+    here is an empty directory, so the outcome is deterministic). The CLI
+    must gate on the runner's ``exit_code``/``fatal_error`` and report the
+    backend failure, never the misleading "empty reply" text — and the
+    spawn layer must name the missing binary without a raw traceback.
+    """
+    work = tmp_path / "work"
+    work.mkdir()
+    empty_bin = tmp_path / "bin"
+    empty_bin.mkdir()
+
+    monkeypatch.setenv("PATH", str(empty_bin))
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "dsh")
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("ARGUS_SKILL_AGENT_IO_LOG", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_ENGINEER_BACKEND", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_REVIEWER_BACKEND", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_MANAGER_BACKEND", raising=False)
+    monkeypatch.chdir(work)
+
+    rc = main(["--ask", "what is 2+2?", "--life-dir", str(tmp_path / "life")])
+    err = capsys.readouterr().err
+
+    assert rc == 1
+    assert "runner binary not found" in err
+    assert "dsh" in err
+    assert "empty reply" not in err
+    assert "codex" not in err
+    assert "Traceback" not in err
     assert _queued_rows(tmp_path / "life") == []
 
 

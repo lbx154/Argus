@@ -1302,6 +1302,19 @@ def _cmd_ask(args: argparse.Namespace) -> int:
         options=RunnerOptions(skip_git_repo_check=True),
         run_label="manager-ask",
     )
+    # A permanent spawn failure (missing runner binary, backend down) is a
+    # backend fault, not an empty reply. Gate on it the way the daemon gates
+    # on readiness (``daemon/_life_worker_run.py:_rf_vault_preflight``), so the
+    # operator sees the actual reason instead of "received an empty reply".
+    exit_code = int(getattr(result, "exit_code", 0) or 0)
+    fatal_error = str(getattr(result, "fatal_error", "") or "").strip()
+    if exit_code != 0 or fatal_error:
+        sys.stderr.write(
+            "argus-skill: --ask refused before answering inline"
+            + (f": {fatal_error}" if fatal_error else f" (exit {exit_code})")
+            + "; nothing was queued\n"
+        )
+        return 1
     reply = extract_answer(result).strip()
     if not reply:
         sys.stderr.write(
