@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from argus_skill.tools import ppt_master as ppt_master_module
 from argus_skill.tools.ppt_master import (
     install_ppt_master,
     install_root,
@@ -162,3 +163,36 @@ def test_status_requires_dependencies_for_current_python(
     assert status.valid is True
     assert status.dependencies_installed is False
     assert status.detail == "toolkit installed; dependencies not recorded for this Python"
+
+
+def test_dependency_install_uses_uv_when_python_has_no_pip(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("", encoding="utf-8")
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(ppt_master_module, "_python_has_pip", lambda _python: False)
+    monkeypatch.setattr(
+        ppt_master_module.shutil,
+        "which",
+        lambda command: "/usr/local/bin/uv" if command == "uv" else None,
+    )
+    monkeypatch.setattr(
+        ppt_master_module,
+        "_run",
+        lambda argv, **_kwargs: calls.append(list(argv)),
+    )
+
+    ppt_master_module._install_requirements("/managed/python", requirements)
+
+    assert calls == [[
+        "/usr/local/bin/uv",
+        "pip",
+        "install",
+        "--python",
+        "/managed/python",
+        "-r",
+        str(requirements),
+    ]]

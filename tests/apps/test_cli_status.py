@@ -463,7 +463,7 @@ def test_status_names_the_question_it_is_waiting_on(
 ) -> None:
     """A run that stopped because it needs the operator must say what it needs.
 
-    Seen in a real session on 2026-07-26: a mission ended `blocked` having asked
+    Seen in a real session on 2026-07-26: a mission paused having asked
     for a CUDA-visible GPU, and --status reported only "outcome: blocked". The
     question was persisted on the item for exactly this purpose but nothing read
     it, so the operator had to open events.jsonl to find out what was being

@@ -99,6 +99,7 @@ dev = [
   "build>=1",
   "mypy>=1.8,<2",
   "pytest>=7",
+  "qrcode>=7.4,<9",
   "ruff>=0.4",
   "cryptography>=41",
   "httpx2>=2.9,<3",

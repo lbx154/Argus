@@ -460,6 +460,7 @@ def test_project_limit_backfills_sessions_shadowed_by_primary_root(
 ) -> None:
     primary = tmp_path / "private"
     machine = tmp_path / "machine"
+    newest = time.time() + 100
     for index in range(3):
         sid = f"s-duplicate{index}"
         (primary / "projects" / sid).mkdir(parents=True)
@@ -469,7 +470,7 @@ def test_project_limit_backfills_sessions_shadowed_by_primary_root(
             SessionMeta(
                 id=sid,
                 display_name=f"Shadowed {index}",
-                last_active=100 - index,
+                last_active=newest - index,
             ),
         )
     for index in range(2):
@@ -480,7 +481,7 @@ def test_project_limit_backfills_sessions_shadowed_by_primary_root(
             SessionMeta(
                 id=sid,
                 display_name=f"Unique {index}",
-                last_active=90 - index,
+                last_active=newest - 10 - index,
             ),
         )
     client = TestClient(

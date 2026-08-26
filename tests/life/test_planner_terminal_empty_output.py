@@ -800,7 +800,7 @@ def test_newer_replan_review_blocks_older_stage_replay(
         },
     )
 
-    assert supervisor._plan_next_work() is True
+    assert supervisor._plan_next_work() == PLAN_RETRY
 
     assert backend.planner_calls == 2
     assert backend.manager_calls == 0
