@@ -37,8 +37,34 @@ from ._helpers import (
     _sanitize_planner_task_text,
 )
 from ._planning_cycle_helpers import _PlanCycleState, _revision_reason
+from ._planner_rendering import _forward_progress
 
 log = logging.getLogger(__name__)
+
+
+def _latest_planner_forward_progress(
+    memory: Any,
+    revision_request: dict[str, Any] | None,
+) -> bool:
+    """Whether the latest settled mission explicitly advanced the objective."""
+    if isinstance(revision_request, dict):
+        report = revision_request.get("planner_report")
+        value = report.get("forward_progress") if isinstance(report, dict) else None
+        if isinstance(value, bool):
+            return value
+    try:
+        entries = memory.journal.tail(32)
+    except Exception:  # noqa: BLE001 - backoff remains conservative on read failure
+        return False
+    for entry in reversed(entries):
+        if str(getattr(entry, "kind", "") or "") not in {
+            "mission_complete",
+            "mission_failed",
+            "mission_replan_requested",
+        }:
+            continue
+        return _forward_progress(entry) is True
+    return False
 
 
 def _independent_review_forced() -> bool:
@@ -1089,10 +1115,12 @@ class PlanningCycleEnqueueMixin:
                 )
             return PLAN_RETRY
         self._clear_manager_planner_feedback()
-        # Real new work was queued: clear the no-work backoff so the next cycle
-        # runs promptly.
-        self._reset_idle_backoff()
+        # A queued task is not itself evidence that the objective moved. Preserve
+        # the accumulated backoff across hollow/repeated planning cycles; only
+        # the Reviewer's explicit objective-level signal clears it.
+        if _latest_planner_forward_progress(self.memory, state.revision_request):
+            self._reset_idle_backoff()
         return True
 
 
-__all__ = ["PlanningCycleEnqueueMixin"]
+__all__ = ["PlanningCycleEnqueueMixin", "_latest_planner_forward_progress"]

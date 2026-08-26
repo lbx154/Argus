@@ -187,3 +187,49 @@ def test_rejected_stage_request_is_returned_to_planner(
         "diagnostic": "stage_completion_gate_failed",
     }]
     assert events[-1]["skip_category"] == "invalid_stage_transition_request"
+
+
+@pytest.mark.parametrize(
+    ("forward_progress", "expected_resets"),
+    [(False, 0), (True, 1)],
+)
+def test_enqueued_task_resets_idle_backoff_only_after_forward_progress(
+    forward_progress: bool,
+    expected_resets: int,
+) -> None:
+    entry = SimpleNamespace(
+        kind="mission_complete",
+        extra={"planner_report": {"forward_progress": forward_progress}},
+    )
+
+    class Harness(PlanningCycleEnqueueMixin):
+        _planning_cycles = 3
+        memory = SimpleNamespace(
+            journal=SimpleNamespace(tail=lambda _count: [entry]),
+        )
+        resets = 0
+
+        def _emit_planner_verdict(self, **_kwargs: object) -> bool:
+            return True
+
+        def _clear_manager_planner_feedback(self) -> None:
+            return None
+
+        def _reset_idle_backoff(self) -> None:
+            self.resets += 1
+
+        def _enter_idle_backoff(self) -> float:
+            raise AssertionError("a successfully enqueued task is not an idle verdict")
+
+    state = _PlanCycleState(None)
+    state.verdict = SimpleNamespace(
+        new_tasks=[SimpleNamespace(title="next")],
+        project_done=False,
+        reason="schedule the next experiment",
+    )
+    state.added_titles = ["next"]
+    state.added_impact_scores = [1]
+
+    harness = Harness()
+    assert harness._pc_emit_final_verdict(state) is True
+    assert harness.resets == expected_resets
