@@ -595,6 +595,7 @@ _TASK_KEY_VALUE_FIELDS = (
     "PARALLEL_SAFE",
     "OWNS_PATHS",
     "VERTICAL",
+    "REQUIRE_INDEPENDENT_REVIEW",
 )
 _KEY_VALUE_LINE = re.compile(
     r"^(?:[-*]\s*)?(?:ARGUS_)?(?P<key>(?:"
@@ -873,6 +874,16 @@ def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
             raise TypeError(f"{name} must be true or false")
         return value
 
+    def review_boolean(source: Mapping[str, Any], name: str) -> bool:
+        # Mirrors the bounded-DAG validation contract: a structured boolean or
+        # the literal strings "true"/"false"; anything else is a metadata error.
+        value = source.get(name, False)
+        if isinstance(value, bool):
+            return value
+        if str(value).strip().casefold() in {"true", "false"}:
+            return str(value).strip().casefold() == "true"
+        raise TypeError(f"{name} must be true or false")
+
     try:
         project_done = payload.get("project_done")
         if not isinstance(project_done, bool):
@@ -982,6 +993,9 @@ def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
                     key=key,
                     deps=deps,
                     parallel_safe=boolean(raw_task, "parallel_safe"),
+                    require_independent_review=review_boolean(
+                        raw_task, "require_independent_review"
+                    ),
                     owns_paths=items(
                         raw_task.get("owns_paths", []), "owns_paths"
                     ),
@@ -1210,6 +1224,9 @@ def _planner_verdict_from_fields(
                 deps=deps,
                 parallel_safe=_key_value_bool(
                     row.get("TASK_PARALLEL_SAFE", "")
+                ),
+                require_independent_review=_key_value_bool(
+                    row.get("TASK_REQUIRE_INDEPENDENT_REVIEW", "")
                 ),
                 owns_paths=[
                     path.strip()

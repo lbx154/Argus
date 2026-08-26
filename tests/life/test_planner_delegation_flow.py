@@ -121,6 +121,40 @@ def test_planner_delegates_to_engineer_and_continues_after_one_increment(
     assert not list(project.glob("**/*.py")), "Planner must not create implementation files"
 
 
+def test_planner_require_independent_review_survives_enqueue(
+    tmp_path: Path,
+) -> None:
+    """A Planner task emitted with TASK_REQUIRE_INDEPENDENT_REVIEW=true must be
+    enqueued with the review:required tag so the mission runs an independent
+    Reviewer instead of self-settling with "independent review was not
+    required"."""
+    from argus_skill.life.supervisor._planning_context import PlanningContextMixin
+
+    project = tmp_path / "project"
+    project.mkdir()
+    planner = _PlannerBackend([
+        "\n".join([
+            "PROJECT_DONE=false",
+            "REASON=delegate the reviewed bounded repair",
+            "TASK_KEY=reviewed",
+            "TASK_TITLE=Adopt the reviewed bounded candidate",
+            "TASK_OBJECTIVE=Implement the candidate and close it through "
+            "the independent Reviewer.",
+            "TASK_REQUIRE_INDEPENDENT_REVIEW=true",
+        ])
+    ])
+    supervisor = _supervisor(project, tmp_path / "life", planner)
+
+    assert supervisor._plan_next_work() is True
+
+    pending = supervisor.memory.backlog.pending()
+    assert [item.title for item in pending] == [
+        "Adopt the reviewed bounded candidate"
+    ]
+    assert "review:required" in pending[0].tags
+    assert PlanningContextMixin._item_requires_independent_review(pending[0]) is True
+
+
 def test_planner_reuses_front_door_route_without_manager_reclassification(
     tmp_path: Path,
 ) -> None:

@@ -516,7 +516,9 @@ class PlanningCycleEnqueueMixin:
                 or host_stage_closing
             )
             canonical_require_review = bool(
-                canonical_stage_closing or _independent_review_forced()
+                canonical_stage_closing
+                or _independent_review_forced()
+                or getattr(task, "require_independent_review", False)
             )
             task = replace(
                 task,
