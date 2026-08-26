@@ -558,9 +558,13 @@ def test_the_paper_is_written_for_reviewers_who_exist() -> None:
 
     planner = vertical_role_banner(load_vertical("research"), "planner")
     # The moves that actually earn a strong review, named so they can be aimed at.
-    for move in ("new mechanism", "connection", "explanation"):
+    for move in (
+        "explaining something the field assumed it already understood",
+        "connection between two areas",
+        "principled method",
+    ):
         assert move in planner
-    assert "claims the data contradicts" in planner
+    assert "claim the results do not support" in planner
 
 
 def test_submission_asks_whether_the_result_stands() -> None:

@@ -155,8 +155,8 @@ def test_a_run_that_cannot_see_the_win_does_not_retire_the_idea() -> None:
     from argus_skill.verticals.research.stages import _AMBITIOUS_RESEARCH_POLICY
 
     policy = _AMBITIOUS_RESEARCH_POLICY.lower()
-    assert "scale that can resolve the claimed effect" in policy
-    assert "weak instrument is not a scientific refutation" in policy
+    assert "when the noise is wider than the margin" in policy
+    assert "the run has not tested the idea" in policy
     # The bar is the campaign's own declared margin, never a number we invent.
     for invented in ("0.05", "95%", "three seeds", "p <"):
         assert invented not in policy
@@ -195,10 +195,10 @@ def test_the_paper_quality_chain_has_no_missing_link() -> None:
     # 2. that promise is put back in front of every role
     assert "promised at selection" in stages.search_altitude_context.__doc__
     # 3. a miss is feedback, not an automatic paper or a forced positive
-    assert "negative or mixed results as feedback" in policy
-    assert "decision rule" in policy
+    assert "negative or mixed result as a debugging signal" in policy
+    assert "answer is better evidence, not a smaller sentence" in policy
     # 4. a run too coarse to see the win cannot retire the idea
-    assert "scale that can resolve the claimed effect" in policy
+    assert "when the noise is wider than the margin" in policy
     # 5. only the Manager closes an idea, and it costs
     assert (
         "retire only when trustworthy evidence"
@@ -207,7 +207,7 @@ def test_the_paper_quality_chain_has_no_missing_link() -> None:
     # 6. submission asks whether the result stands
     assert any(i.id == "submission.result_stands" for i in stages.STAGE_CHECKLISTS["submission"])
     # 7. no defensive paper that lists what it declines to claim
-    assert "report a real win plainly and early" in policy.lower()
+    assert "win, say so plainly and immediately" in policy.lower()
     # 8. the work is measured against papers that were actually accepted
     assert "accepted same-area" in checklists
     # 9. and the reader can see who won
@@ -855,8 +855,8 @@ def test_rigour_apparatus_is_proportional_to_the_doubt() -> None:
     from argus_skill.verticals._base import load_vertical, vertical_role_banner
 
     manager = " ".join(vertical_role_banner(load_vertical("research"), "manager").split())
-    assert "only where the answer is genuinely in doubt" in manager
-    assert "reuse settled evidence" in manager
+    assert "where the answer is genuinely in doubt" in manager
+    assert "Reuse certified upstream evidence" in manager
 
 
 def test_the_campaign_is_trying_to_win() -> None:
@@ -866,9 +866,9 @@ def test_the_campaign_is_trying_to_win() -> None:
     from argus_skill.verticals.research.stages import _AMBITIOUS_RESEARCH_POLICY as policy
 
     text = " ".join(policy.split())
-    assert "more likely to win" in text
-    assert "Report a real win plainly and early" in text
-    assert "never trade ambition for fabrication" in text
+    assert "You are trying to win, not trying to be safe" in text
+    assert "seven campaigns here each measured carefully" in text
+    assert "burying a real win under qualifications is as much a misreport" in text
 
 
 def test_training_below_its_own_baseline_is_a_defect_report() -> None:
