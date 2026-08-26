@@ -32,8 +32,11 @@ from argus_skill.skills.vertical_select import persist_vertical
 # — after those were replaced with angle-bracket slots — one titled
 # "<question>". An example a model can paste verbatim without producing
 # nonsense is worth fifty characters of fixed policy.
-MATH_SCOPE_BUDGET = 9_050
-MATURE_MATH_SCOPE_BUDGET = 14_850
+# Raised for the stage checklist intentionally added to staged Planner prompts:
+# this is now the shared definition of useful progress for Planner and Reviewer,
+# rather than unrelated prompt ceremony. Direct workflows still omit it.
+MATH_SCOPE_BUDGET = 11_250
+MATURE_MATH_SCOPE_BUDGET = 17_050
 
 
 def _build_math_scope_prompt(
@@ -113,7 +116,7 @@ def test_math_scope_prompt_excludes_unrelated_modules(
     assert "## Planner read-only delegation contract" in prompt
     assert "## Current workflow stage" in prompt
     assert "current: `scope`" in prompt
-    assert "## Stage checklist" not in prompt
+    assert "## Stage checklist (scope)" in prompt
     assert "## Stage gate" not in prompt
     assert "## Parallel paper-drafting track" not in prompt
     assert "PAPER_INFRASTRUCTURE_REVIEW.json" not in prompt

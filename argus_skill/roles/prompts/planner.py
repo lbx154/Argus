@@ -41,16 +41,16 @@ _PLANNER_DECISION_FOOTER = decision_footer_instruction(
     "REASON=why\n"
     "TASK_KEY=k1\n"
     "TASK_DEPS=\n"
-    "TASK_TITLE=Run the next decisive check\n"
-    "TASK_OBJECTIVE=execute the concrete check required by current evidence\n"
+    "TASK_TITLE=Launch the strongest untested attack on the core hypothesis\n"
+    "TASK_OBJECTIVE=design and run the experiment whose outcome most changes what we believe, with success and failure criteria stated in advance\n"
     "TASK_SCOPE=bounded"
 )
 _BOUNDED_DAG_FOOTER = decision_footer_instruction(
     "PLAN_REASON=why this is a coherent executable DAG\n"
     "TASK_KEY=k1\n"
     "TASK_DEPS=\n"
-    "TASK_TITLE=Run the next decisive check\n"
-    "TASK_OBJECTIVE=execute the concrete check required by current evidence\n"
+    "TASK_TITLE=Launch the strongest untested attack on the core hypothesis\n"
+    "TASK_OBJECTIVE=design and run the experiment whose outcome most changes what we believe, with success and failure criteria stated in advance\n"
     "TASK_WORK_KIND=validation"
 )
 

@@ -21,11 +21,16 @@ PROMPT_EXAMPLE_TASKS = frozenset(
         # The example shipped when this guard was written. Still listed: a
         # backlog that stored it before the guard existed keeps it forever.
         ("does pruning beat 4-bit at equal latency?", "match latency, read top-1"),
-        # The example the prompt ships today. It was changed after the guard
-        # landed, which is exactly the drift the pinning test exists to catch.
+        # Retired schema example: keep rejecting copies already in a backlog.
         (
             "run the next decisive check",
             "execute the concrete check required by current evidence",
+        ),
+        # The ambitious experiment-program example the prompt ships today.
+        (
+            "launch the strongest untested attack on the core hypothesis",
+            "design and run the experiment whose outcome most changes what we "
+            "believe, with success and failure criteria stated in advance",
         ),
     }
 )

@@ -21,7 +21,11 @@ from argus_skill.planner.work_kind import (
     INVALID_WORK_KIND_ERROR,
     WORK_KINDS,
 )
-from argus_skill.roles.prompts.planner import _PLANNER_CORE_CONTRACT
+from argus_skill.roles.prompts.planner import (
+    _BOUNDED_DAG_FOOTER,
+    _PLANNER_CORE_CONTRACT,
+    _PLANNER_DECISION_FOOTER,
+)
 
 
 def test_parse_key_value_completion_after_freeform_progress() -> None:
@@ -388,6 +392,25 @@ def test_planner_prompt_requires_read_only_delegation_and_minimal_footer() -> No
         _PLANNER_CORE_CONTRACT
     )
     assert "official implementations" in _PLANNER_CORE_CONTRACT
+
+
+@pytest.mark.parametrize(
+    "footer",
+    [_PLANNER_DECISION_FOOTER, _BOUNDED_DAG_FOOTER],
+)
+def test_planner_footer_example_is_an_ambitious_experiment_program(
+    footer: str,
+) -> None:
+    assert (
+        "TASK_TITLE=Launch the strongest untested attack on the core hypothesis"
+        in footer
+    )
+    assert (
+        "TASK_OBJECTIVE=design and run the experiment whose outcome most changes "
+        "what we believe, with success and failure criteria stated in advance"
+        in footer
+    )
+    assert "TASK_TITLE=Run the next decisive check" not in footer
 
 
 def test_planner_forbids_binary_outcome_labels_and_standing_keeps_exploring(
