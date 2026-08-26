@@ -290,6 +290,8 @@ async function main() {
     preferredPort: args.port,
     token: args.token,
     explicit: args.portExplicit,
+    ownerFile: args.ownerFile,
+    backendBin: resolveBin(),
   });
   if (selectedPort !== args.port) args = withSelectedPort(args, selectedPort);
 

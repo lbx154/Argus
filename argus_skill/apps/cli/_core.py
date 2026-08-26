@@ -2119,6 +2119,30 @@ def _cmd_gc(args: argparse.Namespace) -> int:
     return 0
 
 
+def _latest_user_visible_reply(project_root: Path, *, limit: int = 240) -> str:
+    """Return the latest cockpit reply without replaying internal role events."""
+    path = project_root / "events.jsonl"
+    try:
+        with path.open("rb") as handle:
+            handle.seek(0, 2)
+            end = handle.tell()
+            handle.seek(max(0, end - 64 * 1024))
+            lines = handle.read().decode("utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    for line in reversed(lines[-200:]):
+        try:
+            event = json.loads(line)
+        except (TypeError, ValueError):
+            continue
+        if str(event.get("type") or "") != "ui.argus":
+            continue
+        text = _clean_follow_text(str(event.get("text") or ""), limit=limit)
+        if text:
+            return text
+    return ""
+
+
 def _cmd_status(args: argparse.Namespace) -> int:
     from ...daemon.life_worker import (
         format_budget_status,
@@ -2235,6 +2259,9 @@ def _cmd_status(args: argparse.Namespace) -> int:
             getattr(latest_outcome_item, "outcome", None)
         )
         print(f"  outcome  : {' · '.join(summary)}")
+    latest_reply = _latest_user_visible_reply(Path(bundle.project.root))
+    if latest_reply:
+        print(f"  last reply: {latest_reply}")
     # Total cost from the idempotent call ledger.
     try:
         from ...core.usage import format_usage_cost, project_usage_summary
@@ -2261,6 +2288,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
     # Both are projections of observable state — surfacing facts the
     # agent already acts on; the harness makes no decision here.
     research_workdir = _resolve_research_workdir(bundle)
+    active_vertical = None
     try:
         from ...skills.vertical_select import (
             resolve_domain_if_decided,
@@ -2274,12 +2302,15 @@ def _cmd_status(args: argparse.Namespace) -> int:
             print(f"  pipeline : vertical={active_vertical}{domain_suffix}")
     except Exception:  # noqa: BLE001 - status projection remains best effort
         pass
-    lifecycle_lines = _render_lifecycle_status_lines(
-        research_workdir,
-        state_root=Path(bundle.project.root),
-    )
-    for line in lifecycle_lines:
-        print(line)
+    if all_items or cont.objective or active_vertical or not latest_reply:
+        lifecycle_lines = _render_lifecycle_status_lines(
+            research_workdir,
+            state_root=Path(bundle.project.root),
+        )
+        for line in lifecycle_lines:
+            print(line)
+    elif latest_reply:
+        print("  lifecycle: chat/local task (no background campaign)")
 
     # Mid-mission progress (Opt #3). Tails events.jsonl for the
     # currently-running mission so the operator doesn't need to

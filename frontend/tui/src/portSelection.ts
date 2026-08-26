@@ -1,6 +1,6 @@
 import { createServer } from 'node:net';
 
-import { isLocalApiHost } from './apiOwnership.js';
+import { isLocalApiHost, readOwnedApi } from './apiOwnership.js';
 import { probeApi, type ApiProbeResult } from './ensureApi.js';
 
 export interface SelectApiPortOptions {
@@ -9,11 +9,14 @@ export interface SelectApiPortOptions {
   token?: string;
   explicit: boolean;
   maxAttempts?: number;
+  ownerFile?: string;
+  backendBin?: string;
 }
 
 export interface SelectApiPortDeps {
   probe?: (host: string, port: number, token?: string) => Promise<ApiProbeResult>;
   available?: (host: string, port: number) => Promise<boolean>;
+  replaceable?: (probe: ApiProbeResult) => Promise<boolean>;
 }
 
 export async function isPortAvailable(host: string, port: number): Promise<boolean> {
@@ -53,7 +56,17 @@ export async function selectApiPort(
     && preferredProbe.meta
     && isLocalApiHost(options.host)
   ) {
-    return options.preferredPort;
+    const replaceable = deps.replaceable ?? (async (probe: ApiProbeResult) => {
+      if (!options.ownerFile || !options.backendBin || !probe.meta) return false;
+      const record = await readOwnedApi({
+        path: options.ownerFile,
+        host: options.host,
+        port: options.preferredPort,
+        backendBin: options.backendBin,
+      });
+      return record?.pid === probe.meta.runtime.pid;
+    });
+    if (await replaceable(preferredProbe)) return options.preferredPort;
   }
   const host = options.host.trim().toLowerCase();
   const localBind = isLocalApiHost(host) || host === '0.0.0.0' || host === '::' || host === '::0';

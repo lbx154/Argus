@@ -446,7 +446,7 @@ def project_blocked_on_operator(
     )
     mem.backlog.update(
         blocked.id,
-        status="failed",
+        status="paused_operator",
         pending_question=(
             "Provision or move this session to an environment where a local "
             "NVIDIA GPU and nvidia-smi are visible."
@@ -485,3 +485,32 @@ def test_status_says_nothing_about_questions_when_there_are_none(
     _cmd_status(Namespace(life_dir=None))
 
     assert "waiting on you" not in capsys.readouterr().out
+
+
+def test_status_shows_latest_self_result_without_research_lifecycle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    home = tmp_path / "home"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(home))
+    monkeypatch.chdir(repo)
+    mem = MemoryBundle.for_cwd(repo, global_root=home)
+    mem.init()
+    (mem.project.root / "events.jsonl").write_text(
+        json.dumps({
+            "type": "ui.argus",
+            "text": "Fixed src/duration.py; 7 tests passed.",
+            "ts": time.time(),
+        }) + "\n",
+        encoding="utf-8",
+    )
+
+    _cmd_status(Namespace(life_dir=None))
+
+    out = capsys.readouterr().out
+    assert "last reply: Fixed src/duration.py; 7 tests passed." in out
+    assert "lifecycle: chat/local task (no background campaign)" in out
+    assert "incubating_time" not in out
