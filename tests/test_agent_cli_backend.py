@@ -30,12 +30,11 @@ import pytest
 
 from argus_skill.adapters.agent_cli_backend import (
     AgentCliBackend,
-    _sum_token_counts,
     build_agent_cli_backend_from_env,
 )
 from argus_skill.adapters.agent_cli_backend._core import _RepeatedToolCallGuard
 from argus_skill.core.models import RunnerOptions
-from argus_skill.core.token_usage import extract_token_usage
+from argus_skill.core.token_usage import extract_token_usage, sum_token_counts
 from argus_skill.provider_integrations.copilot_usage import (
     CopilotCallUsage,
     CopilotModelUsage,
@@ -1521,9 +1520,9 @@ def test_run_exec_handles_generic_exception(
 
 
 def test_token_count_extraction_handles_missing_events():
-    in_tok, cached_tok, out_tok, reasoning_out_tok = _sum_token_counts(None)
+    in_tok, cached_tok, out_tok, reasoning_out_tok = sum_token_counts(None)
     assert (in_tok, cached_tok, out_tok, reasoning_out_tok) == (0, 0, 0, 0)
-    in_tok, cached_tok, out_tok, reasoning_out_tok = _sum_token_counts([])
+    in_tok, cached_tok, out_tok, reasoning_out_tok = sum_token_counts([])
     assert (in_tok, cached_tok, out_tok, reasoning_out_tok) == (0, 0, 0, 0)
 
 
@@ -1545,7 +1544,7 @@ def test_token_count_extraction_picks_latest_nonzero():
             "output_tokens": 80,
         },
     ]
-    in_tok, cached_tok, out_tok, reasoning_out_tok = _sum_token_counts(events)
+    in_tok, cached_tok, out_tok, reasoning_out_tok = sum_token_counts(events)
     assert (in_tok, cached_tok, out_tok, reasoning_out_tok) == (250, 25, 80, 0)
 
 
@@ -1566,7 +1565,7 @@ def test_token_count_extraction_uses_final_usage_tuple_even_with_zero_cached():
             },
         },
     ]
-    in_tok, cached_tok, out_tok, reasoning_out_tok = _sum_token_counts(events)
+    in_tok, cached_tok, out_tok, reasoning_out_tok = sum_token_counts(events)
     assert (in_tok, cached_tok, out_tok, reasoning_out_tok) == (150, 0, 40, 0)
 
 
@@ -1577,7 +1576,7 @@ def test_token_count_extraction_handles_nested_content():
             "content": {"input_tokens": 42, "cached_input_tokens": 5, "output_tokens": 7},
         }
     ]
-    in_tok, cached_tok, out_tok, reasoning_out_tok = _sum_token_counts(events)
+    in_tok, cached_tok, out_tok, reasoning_out_tok = sum_token_counts(events)
     assert (in_tok, cached_tok, out_tok, reasoning_out_tok) == (42, 5, 7, 0)
 
 
@@ -1590,14 +1589,14 @@ def test_token_count_extraction_handles_top_level_cached_tokens():
             "output_tokens": 3,
         }
     ]
-    in_tok, cached_tok, out_tok, reasoning_out_tok = _sum_token_counts(events)
+    in_tok, cached_tok, out_tok, reasoning_out_tok = sum_token_counts(events)
     assert (in_tok, cached_tok, out_tok, reasoning_out_tok) == (17, 4, 3, 0)
 
 
 def test_token_count_extraction_reads_codex_0_121_usage_field():
     """codex-cli >=0.121 emits usage on turn.completed.
 
-    Regression test for the $0.0000 cost bug: previously _sum_token_counts
+    Regression test for the $0.0000 cost bug: previously sum_token_counts
     only inspected top-level / nested-content fields, so the usage payload
     on turn.completed was silently ignored.
     """
@@ -1610,7 +1609,7 @@ def test_token_count_extraction_reads_codex_0_121_usage_field():
             "usage": {"input_tokens": 12944, "cached_input_tokens": 1234, "output_tokens": 75},
         },
     ]
-    in_tok, cached_tok, out_tok, reasoning_out_tok = _sum_token_counts(events)
+    in_tok, cached_tok, out_tok, reasoning_out_tok = sum_token_counts(events)
     assert (in_tok, cached_tok, out_tok, reasoning_out_tok) == (12944, 1234, 75, 0)
 
 
@@ -1627,7 +1626,7 @@ def test_token_count_extraction_reads_reasoning_tokens_from_turn_completed_usage
             },
         },
     ]
-    in_tok, cached_tok, out_tok, reasoning_out_tok = _sum_token_counts(events)
+    in_tok, cached_tok, out_tok, reasoning_out_tok = sum_token_counts(events)
     assert (in_tok, cached_tok, out_tok, reasoning_out_tok) == (
         954691,
         846976,

@@ -43,8 +43,6 @@ from ._options import (
 )
 from ._result import (
     _raw_backend_stop_kind,
-    _sum_copilot_premium_requests,
-    _sum_token_counts,
     looks_like_auth_failure,
 )
 
@@ -57,6 +55,4 @@ __all__ = [
     "looks_like_auth_failure",
     "_raw_backend_stop_kind",
     "_needed_for_live_progress",
-    "_sum_token_counts",
-    "_sum_copilot_premium_requests",
 ]

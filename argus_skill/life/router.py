@@ -265,18 +265,6 @@ def _parse_config_decision(line: str | None) -> ConfigDecision:
     return intents[0] if len(intents) == 1 else tuple(intents)
 
 
-def _line_after_prefix(answer: str, prefix: str) -> "str | None":
-    """First line whose stripped form starts (case-insensitively) with
-    ``prefix``, returned with the prefix removed and stripped. ``None`` when no
-    such line exists — the caller then applies that axis's safe default."""
-    up = prefix.upper()
-    for ln in str(answer or "").splitlines():
-        s = ln.strip()
-        if s.upper().startswith(up):
-            return s[len(prefix) :].strip()
-    return None
-
-
 def _plain_reply(value: str) -> str:
     """Unwrap a reply that arrived as the JSON string the old renderer wrote."""
     if len(value) > 1 and value.startswith('"') and value.endswith('"'):

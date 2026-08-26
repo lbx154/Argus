@@ -12,9 +12,9 @@ daily cap blind. These tests pin the fix end to end:
 """
 from __future__ import annotations
 
-from argus_skill.adapters.agent_cli_backend import (
-    AgentCliBackend,
-    _sum_copilot_premium_requests,
+from argus_skill.adapters.agent_cli_backend import AgentCliBackend
+from argus_skill.adapters.agent_cli_backend._result import (
+    _extract_copilot_premium_requests,
 )
 from argus_skill.life.supervisor._cost import _CostTrackingSink
 
@@ -31,22 +31,22 @@ def _sink() -> _CostTrackingSink:
 
 # --- extractor: picks the LAST (cumulative) premiumRequests -------------------
 
-def test_sum_copilot_premium_requests_takes_last_cumulative() -> None:
+def test_extract_copilot_premium_requests_takes_last_cumulative() -> None:
     events = [
         {"type": "assistant.message", "data": {"content": "hi", "outputTokens": 5}},
         {"type": "result", "usage": {"premiumRequests": 7.5}},
     ]
-    assert _sum_copilot_premium_requests(events) == 7.5
+    assert _extract_copilot_premium_requests(events) == (7.5, True)
     # a resumed turn reports the running total; we take the latest
     events.append({"type": "result", "usage": {"premiumRequests": 15}})
-    assert _sum_copilot_premium_requests(events) == 15.0
-    # no result / no usage → 0.0, fail-soft (codex/claude streams)
-    assert _sum_copilot_premium_requests([{"type": "turn.completed"}]) == 0.0
-    assert _sum_copilot_premium_requests(None) == 0.0
+    assert _extract_copilot_premium_requests(events) == (15.0, True)
+    # no result / no usage → 0.0 with present=False, fail-soft (codex/claude streams)
+    assert _extract_copilot_premium_requests([{"type": "turn.completed"}]) == (0.0, False)
+    assert _extract_copilot_premium_requests(None) == (0.0, False)
     # bool must not be mistaken for a number
-    assert _sum_copilot_premium_requests(
+    assert _extract_copilot_premium_requests(
         [{"type": "result", "usage": {"premiumRequests": True}}]
-    ) == 0.0
+    ) == (0.0, False)
 
 
 # --- adapter: de-cumulates the running total into per-call deltas -------------
