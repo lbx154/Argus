@@ -211,6 +211,7 @@ class _PlanCycleState:
         self.operator_messages: list[str] = []
         self.fresh_operator_messages: list[str] = []
         self.revision_active_items: list[BacklogItem] = []
+        self.revision_witness_active_item_ids: list[str] = []
         self.expected_plan_id: str = ""
         self.expected_plan_version: int = 0
         self.manager_intent: Any = None

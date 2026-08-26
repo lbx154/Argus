@@ -1301,6 +1301,8 @@ class Backlog:
         supersede_item_ids: Iterable[str],
         new_items: Iterable[BacklogItem],
         reason: str,
+        expected_active_item_ids: Iterable[str] | None = None,
+        terminalized_source_item_id: str = "",
     ) -> PlanRevisionResult:
         """Atomically replace every active item in one plan revision."""
         expected_version = int(expected_version)
@@ -1308,7 +1310,14 @@ class Backlog:
         reason = str(reason).strip()
         if not str(expected_plan_id).strip():
             raise ValueError("expected plan id must not be empty")
-        supersede_ids = tuple(dict.fromkeys(str(item_id) for item_id in supersede_item_ids))
+        supersede_ids = tuple(
+            dict.fromkeys(str(item_id) for item_id in supersede_item_ids)
+        )
+        expected_active_ids = (
+            tuple(dict.fromkeys(str(item_id) for item_id in expected_active_item_ids))
+            if expected_active_item_ids is not None
+            else ()
+        )
         replacements = list(new_items)
         if not reason:
             raise ValueError("plan revision reason must not be empty")
@@ -1339,10 +1348,54 @@ class Backlog:
                 and item.plan_version == expected_version
                 and item.status not in _TERMINAL_STATUSES
             }
-            if not active_ids:
+            if not active_ids and not expected_active_ids:
                 raise RuntimeError(
                     "plan revision conflict: expected active plan revision not found"
                 )
+            if expected_active_ids:
+                expected_set = set(expected_active_ids)
+                terminalized_source_item_id = str(terminalized_source_item_id).strip()
+                if terminalized_source_item_id not in expected_set:
+                    raise ValueError(
+                        "plan revision witness must include the source item"
+                    )
+                if set(supersede_ids) != expected_set:
+                    raise ValueError(
+                        "plan revision witness must match superseded item ids"
+                    )
+                if not active_ids.issubset(expected_set):
+                    raise RuntimeError(
+                        "plan revision conflict: active plan grew after witness capture"
+                    )
+                by_id = {item.id: item for item in items}
+                missing_ids = [
+                    item_id for item_id in expected_active_ids if item_id not in by_id
+                ]
+                if missing_ids:
+                    raise RuntimeError(
+                        "plan revision conflict: witnessed item missing from backlog"
+                    )
+                for item_id in expected_active_ids:
+                    item = by_id[item_id]
+                    if (
+                        item.plan_id != expected_plan_id
+                        or item.plan_version != expected_version
+                    ):
+                        raise RuntimeError(
+                            "plan revision conflict: witnessed item changed plan identity"
+                        )
+                    if item.status in {"done", "aborted", "skipped", "superseded"}:
+                        raise RuntimeError(
+                            "plan revision conflict: witnessed item already terminalized"
+                        )
+                    if (
+                        item.status == "failed"
+                        and item.id != terminalized_source_item_id
+                    ):
+                        raise RuntimeError(
+                            "plan revision conflict: non-source item terminalized"
+                        )
+                active_ids = expected_set
             existing_ids = {item.id for item in items}
             if replacement_id_set & existing_ids:
                 raise ValueError("replacement plan reuses an existing backlog item id")

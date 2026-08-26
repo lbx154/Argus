@@ -241,20 +241,78 @@ class PlanningCycleIntakeMixin:
                 revision_request = None
         if revision_request is not None:
             try:
-                state.revision_active_items = [
-                    item
-                    for item in self.memory.backlog.all()
-                    if item.plan_id == state.expected_plan_id
-                    and item.plan_version == state.expected_plan_version
-                    and item.status not in {"done", "failed", "skipped", "superseded"}
-                ]
+                backlog_items = self.memory.backlog.all()
             except Exception as exc:  # noqa: BLE001
                 self._emit({
                     "type": EventType.LIFE_PLAN_REVISION_REJECTED,
                     "reason": f"cannot inspect active plan: {type(exc).__name__}: {exc}",
                 })
                 return PLAN_ERROR
+            state.revision_active_items = [
+                item
+                for item in backlog_items
+                if item.plan_id == state.expected_plan_id
+                and item.plan_version == state.expected_plan_version
+                and item.status not in {"done", "failed", "skipped", "superseded"}
+            ]
             requested_item_id = str(revision_request.get("item_id") or "")
+            witness = revision_request.get("plan_revision_witness")
+            if isinstance(witness, dict):
+                try:
+                    witness_version = int(witness.get("plan_version") or 0)
+                except (TypeError, ValueError):
+                    witness_version = 0
+                witness_ids = [
+                    str(item_id)
+                    for item_id in (witness.get("active_item_ids") or [])
+                    if str(item_id)
+                ]
+                witness_ids = list(dict.fromkeys(witness_ids))
+                witness_matches_request = (
+                    str(witness.get("plan_id") or "") == state.expected_plan_id
+                    and witness_version == state.expected_plan_version
+                    and str(witness.get("source_item_id") or "") == requested_item_id
+                    and requested_item_id in witness_ids
+                )
+                if witness_matches_request:
+                    by_id = {item.id: item for item in backlog_items}
+                    witness_set = set(witness_ids)
+                    current_active_ids = {
+                        item.id for item in state.revision_active_items
+                    }
+                    missing_ids = [
+                        item_id for item_id in witness_ids if item_id not in by_id
+                    ]
+                    plan_mismatches = [
+                        item_id
+                        for item_id in witness_ids
+                        if item_id in by_id
+                        and (
+                            by_id[item_id].plan_id != state.expected_plan_id
+                            or by_id[item_id].plan_version != state.expected_plan_version
+                        )
+                    ]
+                    invalid_terminal = [
+                        item.id
+                        for item in (
+                            by_id[item_id]
+                            for item_id in witness_ids
+                            if item_id in by_id
+                        )
+                        if item.status in {"done", "aborted", "skipped", "superseded"}
+                        or (item.status == "failed" and item.id != requested_item_id)
+                    ]
+                    unexpected_active = sorted(current_active_ids - witness_set)
+                    if not (
+                        missing_ids
+                        or plan_mismatches
+                        or invalid_terminal
+                        or unexpected_active
+                    ):
+                        state.revision_active_items = [
+                            by_id[item_id] for item_id in witness_ids
+                        ]
+                        state.revision_witness_active_item_ids = witness_ids
             if not state.revision_active_items or requested_item_id not in {
                 item.id for item in state.revision_active_items
             }:

@@ -1099,6 +1099,9 @@ class MissionExecutionSettlementMixin:
             "outcome": state.outcome_dimensions,
             "planner_report": planner_report,
             "plan_challenge": plan_challenge,
+            "plan_revision_witness": (
+                dict(state.plan_revision_witness) if state.replan_requested else {}
+            ),
             "rounds": state.rounds,
             "elapsed_seconds": state.elapsed,
             "cost_usd": state.usd,
@@ -1216,6 +1219,9 @@ class MissionExecutionSettlementMixin:
             "delivery": delivery,
             "planner_report": planner_report,
             "plan_challenge": plan_challenge,
+            "plan_revision_witness": (
+                dict(state.plan_revision_witness) if state.replan_requested else {}
+            ),
             "expected_plan_id": item.plan_id,
             "expected_plan_version": item.plan_version,
             "context_packet": (

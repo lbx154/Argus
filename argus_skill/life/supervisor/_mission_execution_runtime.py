@@ -145,6 +145,27 @@ class MissionExecutionRuntimeMixin:
         state.usage_attempt_id = f"{item.id}:attempt:{max(1, int(item.attempt or 1))}"
         self._missions_started += 1
         state.item_scope = self._planner_scope_from_item(item)
+        if item.plan_id and item.plan_version is not None:
+            try:
+                active_item_ids = [
+                    row.id
+                    for row in self.memory.backlog.all()
+                    if row.plan_id == item.plan_id
+                    and row.plan_version == item.plan_version
+                    and row.status
+                    not in {"done", "failed", "aborted", "skipped", "superseded"}
+                ]
+            except Exception:  # noqa: BLE001 - revision conflicts fail closed later
+                log.exception("life supervisor: failed to capture plan revision witness")
+                active_item_ids = []
+            if item.id in active_item_ids:
+                state.plan_revision_witness = {
+                    "plan_id": item.plan_id,
+                    "plan_version": item.plan_version,
+                    "source_item_id": item.id,
+                    "active_item_ids": active_item_ids,
+                    "captured_at": time.time(),
+                }
 
         self._emit({
             "type": EventType.LIFE_MISSION_STARTED,

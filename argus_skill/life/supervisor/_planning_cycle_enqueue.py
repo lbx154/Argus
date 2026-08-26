@@ -1029,7 +1029,17 @@ class PlanningCycleEnqueueMixin:
                     expected_version=expected_plan_version,
                     new_plan_id=state.new_plan_id,
                     new_version=state.new_plan_version,
-                    supersede_item_ids=[item.id for item in state.revision_active_items],
+                    supersede_item_ids=[
+                        item.id for item in state.revision_active_items
+                    ],
+                    expected_active_item_ids=(
+                        state.revision_witness_active_item_ids or None
+                    ),
+                    terminalized_source_item_id=(
+                        str(revision_request.get("item_id") or "")
+                        if state.revision_witness_active_item_ids
+                        else ""
+                    ),
                     new_items=replacement_items,
                     reason=_revision_reason(revision_request),
                 )
