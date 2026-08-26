@@ -1,8 +1,8 @@
 """Round-loop phase: engineer prompt/context assembly.
 
 Owns building the per-round engineer prompt (static task/skill contract on
-round 1 or when compact continuation prompts are disabled; otherwise a
-compact Reviewer-delta prompt), attaching the shared CHECKPOINT.md and the
+every fresh provider session, or when compact continuation prompts are
+disabled; otherwise a compact Reviewer-delta prompt), attaching the shared CHECKPOINT.md and the
 background-subagent / external-work
 advisories, and emitting the ``round.start`` event. This is purely prompt
 text assembly — it makes no completion or control-flow decisions.
@@ -42,6 +42,7 @@ class RoundPromptMixin:
         # free-form reviewer prose in the next Engineer prompt.
         include_static = (
             round_index == 1
+            or role_session.policy == "fresh"
             or not supervised_config.compact_continuation_prompts
             or (
                 role_session.policy != "fresh"
