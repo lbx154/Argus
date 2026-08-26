@@ -125,7 +125,8 @@ def test_the_gate_stays_blocking_regardless_of_the_message() -> None:
 
     source = inspect.getsource(mod.generate_academic_language_review)
     call_site = source[source.index("model_review_unavailable"):][:400]
-    assert "hard_gate=True" in call_site
+    assert '"blocking"' in call_site
+    assert "hard_gate" not in call_site
     assert "describe_reviewer_route_unavailable" in call_site
 
 

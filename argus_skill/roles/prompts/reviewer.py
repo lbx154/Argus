@@ -657,6 +657,11 @@ def render_reviewer_prompt(
             "Bounded `done` closes; final-submission `done` may certify."
         )
     )
+    # Keep the requested footer smaller than the compatibility parser. Legacy
+    # FRONTIER_*, NEXT_DECISION_POINT, REGRESSION_ENVELOPE,
+    # CHECKPOINT_RECOMMENDED, and SESSION_SIGNAL lines remain readable, but the
+    # Reviewer is not asked to fill them in. The fields below each feed round
+    # settlement, operator routing, research certification, or plan adjudication.
     static = (
         verification_instruction
         + EFFECTIVE_TASK_CONTRACT

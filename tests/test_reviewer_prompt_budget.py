@@ -141,6 +141,26 @@ def test_compression_removed_redundant_examples(monkeypatch):
     assert "## Evidence policy" not in p
 
 
+def test_ceremonial_frontier_footer_fields_are_not_requested(monkeypatch):
+    prompt = _prompt(measured=False, monkeypatch=monkeypatch)
+
+    for field in (
+        "FRONTIER_CHANGE",
+        "FRONTIER_SUMMARY",
+        "FRONTIER_OBLIGATIONS",
+        "FRONTIER_EVIDENCE",
+        "NEXT_DECISION_POINT",
+        "REGRESSION_ENVELOPE",
+        "SESSION_SIGNAL",
+    ):
+        assert field not in prompt
+
+    # These affect round settlement or Manager plan routing and remain requested.
+    assert "FORWARD_PROGRESS=true" in prompt
+    assert "PLAN_SIGNAL=continue" in prompt
+    assert "plan_alternative" in prompt
+
+
 def test_the_verdict_vocabulary_is_stated_once(monkeypatch):
     # `done`/`continue`/`replan_requested`/`blocked` used to be defined twice —
     # once in the role block and again, at greater length, in the handoff
