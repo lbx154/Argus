@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from argus_skill.core.models import RunnerResult
 from argus_skill.planner.bounded_dag import plan_bounded_dag
@@ -157,6 +158,9 @@ def test_bounded_planner_parses_real_fanout_fanin_dag(tmp_path) -> None:
     assert "`work_kind` (validated; no prose inference)" in call["prompt"]
     assert "The Host owns execution and enforces review policy" in call["prompt"]
     assert "Never create a review-only or validation-only task" in call["prompt"]
+    assert "never declare an Engineer Skill unavailable from Planner visibility" in call[
+        "prompt"
+    ]
     assert "`develop`" in call["prompt"]
     assert "feedback-producing experiment ran honestly" in call["prompt"]
 
