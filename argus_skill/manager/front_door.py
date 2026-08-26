@@ -699,6 +699,9 @@ class PreparedManagerHandoff:
             "domain": getattr(division, "domain", ""),
             "route": "team",
             "workflow_mode": workflow_mode,
+            "require_independent_review": bool(
+                getattr(division, "require_independent_review", False)
+            ),
             "lifetime": lifetime,
             "continuous": continuous,
             "open_ended": open_ended,
@@ -988,6 +991,9 @@ def _bounded_handoff_division(
         stages=list(prepared.manager.plan_stages(vertical)),
         workflow_mode=resolve_workflow_mode(project_root),
         execution_task=prepared.execution_task,
+        require_independent_review=bool(
+            getattr(prepared.decision, "require_independent_review", False)
+        ),
     )
 
 

@@ -472,6 +472,45 @@ def test_manager_no_action_never_creates_make_work(tmp_path: Path) -> None:
     assert manager.calls == 2
 
 
+def test_periodic_audit_does_not_model_review_success_only(
+    tmp_path: Path,
+) -> None:
+    manager = _Manager(action="no_action")
+    controller = _controller(tmp_path, manager)
+    controller.observe({
+        "type": "life.mission.completed",
+        "ts": 10.0,
+        "success": True,
+        "status": "done",
+        "summary": "implemented the requested cache",
+    })
+    controller._write_state(last_audit_at=0.0, event_audit_pending=False)
+
+    assert controller.audit_if_due(daemon_state={}) == ""
+    assert manager.calls == 0
+    assert controller._observations() == []
+
+
+def test_periodic_audit_still_reviews_failed_mission(
+    tmp_path: Path,
+) -> None:
+    manager = _Manager(action="no_action")
+    controller = _controller(tmp_path, manager)
+    controller.observe({
+        "type": "life.mission.completed",
+        "ts": 10.0,
+        "item_id": "failed-mission",
+        "status": "error",
+        "terminal_status": "error",
+        "failure_reason": "runner crashed after the tool call",
+        "stop_kind": "permanent_error",
+    })
+    controller._write_state(last_audit_at=0.0, event_audit_pending=False)
+
+    assert controller.audit_if_due(daemon_state={}) == ""
+    assert manager.calls == 1
+
+
 def test_repeated_failed_repair_family_is_suppressed(
     tmp_path: Path,
     monkeypatch,

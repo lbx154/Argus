@@ -847,28 +847,43 @@ def check_backend_readiness(
         )
     elif probe_auth:
         report.auth_checked = True
-        # Pi's auth probe already reads the full authenticated catalog; reuse
-        # that one subprocess to also validate the selectors Argus will send.
-        pi_catalog: dict[str, set[str]] = {}
-        if profile.backend == "pi":
-            pi_catalog, detail = _probe_pi_catalog(executable, timeout_s)
-            ok = bool(pi_catalog)
+        custom_codex_provider = None
+        if profile.backend == "codex":
+            from ..tools.capability_vault import read_codex_provider_config
+
+            custom_codex_provider = read_codex_provider_config(env_map)
+        if (
+            custom_codex_provider is not None
+            and not custom_codex_provider.requires_openai_auth
+        ):
+            report.warnings.append(
+                "Codex custom provider "
+                f"{custom_codex_provider.name!r} declares "
+                "requires_openai_auth=false; skipped irrelevant `codex login status`"
+            )
         else:
-            ok, detail = _probe_cli_auth(
-                profile.backend,
-                executable,
-                timeout_s=timeout_s,
-            )
-        if not ok:
-            report.problems.append(
-                ReadinessProblem(
-                    "authentication",
-                    f"{profile.backend} authentication is not usable: {detail}",
-                    f"run `{_LOGIN_COMMANDS[profile.backend]}`, then `argus --doctor`",
+            # Pi's auth probe already reads the full authenticated catalog; reuse
+            # that one subprocess to also validate the selectors Argus will send.
+            pi_catalog: dict[str, set[str]] = {}
+            if profile.backend == "pi":
+                pi_catalog, detail = _probe_pi_catalog(executable, timeout_s)
+                ok = bool(pi_catalog)
+            else:
+                ok, detail = _probe_cli_auth(
+                    profile.backend,
+                    executable,
+                    timeout_s=timeout_s,
                 )
-            )
-        elif pi_catalog:
-            _check_pi_model_routing(report, pi_catalog, env=env_map)
+            if not ok:
+                report.problems.append(
+                    ReadinessProblem(
+                        "authentication",
+                        f"{profile.backend} authentication is not usable: {detail}",
+                        f"run `{_LOGIN_COMMANDS[profile.backend]}`, then `argus --doctor`",
+                    )
+                )
+            elif pi_catalog:
+                _check_pi_model_routing(report, pi_catalog, env=env_map)
     if profile.auth_mode == AUTH_MODE_SUBSCRIPTION:
         # Subscription mode only: under model_api the operator points Codex at
         # an arbitrary OpenAI-compatible endpoint, so a foreign-looking id may

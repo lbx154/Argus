@@ -123,11 +123,13 @@ def test_decision_evidence_keeps_the_routing_facts() -> None:
         stage = "run"
         workflow_mode = "bounded"
         research_target_level = "publishable"
+        require_independent_review = True
 
     evidence = decision_evidence(_Decision())
 
     assert evidence["routed"] is True
     assert evidence["vertical"] == "research"
+    assert evidence["require_independent_review"] is True
     assert evidence["research_target_level"] == "publishable"
 
 

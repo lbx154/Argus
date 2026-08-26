@@ -60,6 +60,8 @@ class CodexProviderConfig:
     name: str
     base_url: str
     wire_api: str
+    env_key: str = ""
+    requires_openai_auth: bool = True
 
 
 @dataclass(frozen=True)
@@ -176,7 +178,13 @@ def read_codex_provider_config(
     if not base_url:
         return None
     wire_api = str(provider.get("wire_api") or "responses").strip() or "responses"
-    return CodexProviderConfig(name=provider_name, base_url=base_url, wire_api=wire_api)
+    return CodexProviderConfig(
+        name=provider_name,
+        base_url=base_url,
+        wire_api=wire_api,
+        env_key=str(provider.get("env_key") or "").strip(),
+        requires_openai_auth=provider.get("requires_openai_auth") is not False,
+    )
 
 
 def read_codex_default_model(

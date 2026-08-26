@@ -367,6 +367,32 @@ def test_bounded_planner_carries_structured_independent_review_policy(
     assert plan.tasks[0].require_independent_review is True
 
 
+def test_manager_required_review_is_explicit_in_bounded_prompt(tmp_path) -> None:
+    runner = _Runner({
+        "reason": "one reviewed work package",
+        "tasks": [{
+            "key": "implement",
+            "deps": [],
+            "title": "Implement",
+            "objective": "implement and test the feature",
+            "require_independent_review": "true",
+        }],
+    })
+
+    plan = plan_bounded_dag(
+        runner,
+        "implement the feature",
+        workdir=tmp_path,
+        require_independent_review=True,
+    )
+
+    assert not plan.error
+    prompt = runner.calls[0]["prompt"]
+    assert "Manager review policy: independent review is required" in prompt
+    assert "do not create a review-only task" in prompt
+    assert plan.tasks[0].require_independent_review is True
+
+
 def test_bounded_planner_resolves_casefolded_dep_to_canonical_key(tmp_path) -> None:
     runner = _Runner(
         {

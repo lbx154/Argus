@@ -351,6 +351,25 @@ def strip_named_lines(text: str, keys: Iterable[str]) -> str:
     ).strip()
 
 
+def strip_control_footer(text: str, keys: Iterable[str]) -> str:
+    """Remove named control fields even after a summary collapsed newlines."""
+    names = sorted(
+        {str(key).strip().upper() for key in keys if str(key).strip()},
+        key=len,
+        reverse=True,
+    )
+    cleaned = strip_named_lines(text, names)
+    if not names:
+        return cleaned
+    marker = re.search(
+        r"(?i)(?:^|(?<=" + _SENTENCE_END_CLASS + r")\s+)(?:ARGUS_)?(?:"
+        + "|".join(re.escape(name) for name in names)
+        + r")\s*=",
+        cleaned,
+    )
+    return cleaned[: marker.start()].rstrip() if marker else cleaned
+
+
 def legacy_json_object(text: str) -> dict[str, Any] | None:
     """A JSON object the role volunteered, if it did. Never required.
 
@@ -386,5 +405,6 @@ __all__ = [
     "read_list_semicolon",
     "read_optional",
     "read_records",
+    "strip_control_footer",
     "strip_named_lines",
 ]

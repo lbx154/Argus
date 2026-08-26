@@ -313,7 +313,8 @@ def build_fast_vertical_decision_prompt(
         "For research_direction_mode, the only valid values are `broad` (the "
         "direction is still being discovered) and `locked` (the operator fixed the "
         "hypothesis/direction). Never invent another direction-mode value. Never "
-        "infer a publication venue.\n\n"
+        "infer a publication venue. Set `require_independent_review=true` only when "
+        "the operator explicitly asks for independent review.\n\n"
         "## Task\n"
         f"{(task or '').strip()}\n\n"
         + decision_footer_instruction(
@@ -321,6 +322,7 @@ def build_fast_vertical_decision_prompt(
             "VERTICAL=software\n"
             "DOMAIN=\n"
             "WORKFLOW_MODE=direct\n"
+            "REQUIRE_INDEPENDENT_REVIEW=false\n"
             "CONFIDENCE=0.9\n"
             "RATIONALE=brief reason"
         )
@@ -400,7 +402,9 @@ def build_vertical_decision_prompt(
         "and doctoral only when explicit. For research_direction_mode, use only `broad` "
         "when the direction is still being discovered or `locked` when the operator fixed "
         "the hypothesis/direction; values such as `exploratory`, `publishable`, or "
-        "`experimental_validation` are invalid. Never infer a venue.\n\n"
+        "`experimental_validation` are invalid. Never infer a venue. Set "
+        "`require_independent_review=true` only when the operator explicitly asks "
+        "for it.\n\n"
         "State `choice`, `vertical`, `domain`, `workflow_mode`, and `rationale` "
         "at the end. Add `stages` only for a revised project domain or new vertical. "
         "Omit `execution_task` for a standalone existing route; include it only when "
@@ -415,6 +419,7 @@ def build_vertical_decision_prompt(
             "VERTICAL=software\n"
             "DOMAIN=\n"
             "WORKFLOW_MODE=direct\n"
+            "REQUIRE_INDEPENDENT_REVIEW=false\n"
             "RATIONALE=brief reason"
         )
         + "\n"

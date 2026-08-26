@@ -82,6 +82,7 @@ _DECISION_KEYS = (
     "TARGET_VENUE",
     "RATIONALE",
     "EXECUTION_TASK",
+    "REQUIRE_INDEPENDENT_REVIEW",
     "STAGES",
     "PRECISE_CONSTRAINTS",
     "EXCLUSIONS",
@@ -111,6 +112,7 @@ def _decision_fields(
 
     from ..core.role_reply import (
         legacy_json_object,
+        read_bool,
         read_key_values,
         read_list,
         read_list_semicolon,
@@ -143,6 +145,11 @@ def _decision_fields(
             # confidence as "not a usable answer" and escalate, which is the
             # correct response to a number we could not read.
             pass
+    if "REQUIRE_INDEPENDENT_REVIEW" in values:
+        fields["require_independent_review"] = read_bool(
+            values,
+            "REQUIRE_INDEPENDENT_REVIEW",
+        )
     if "STAGES" in values:
         fields["stages"] = list(read_list(values, "STAGES"))
     # The three requirement lines. `_stated_requirements` reads them off this
@@ -436,6 +443,7 @@ class VerticalDecision:
     # Empty means "not explicitly selected"; venue discovery remains a separate
     # bounded research operation rather than a keyword guess in the harness.
     target_venue: str = ""
+    require_independent_review: bool = False
     # Requirements the operator actually stated, split by how they can be
     # checked. `precise_constraints` are mechanically checkable things the
     # operator chose (a number, a baseline, a budget) and are recorded verbatim;
@@ -470,6 +478,7 @@ class FastVerticalRoute:
     research_target_level: str = ""
     research_direction_mode: str = ""
     target_venue: str = ""
+    require_independent_review: bool = False
 
 
 def parse_fast_vertical_decision(
@@ -571,6 +580,9 @@ def parse_fast_vertical_decision(
         research_target_level=target_level,
         research_direction_mode=direction_mode,
         target_venue=target_venue,
+        require_independent_review=(
+            obj.get("require_independent_review") is True
+        ),
     )
 
 
@@ -749,6 +761,9 @@ def parse_vertical_decision(
                 research_target_level=target_level,
                 research_direction_mode=direction_mode,
                 target_venue=target_venue,
+                require_independent_review=(
+                    obj.get("require_independent_review") is True
+                ),
                 precise_constraints=stated,
                 exclusions=exclusions,
                 ambiguities=ambiguities,
@@ -777,6 +792,9 @@ def parse_vertical_decision(
             live_view=parsed_live_view,
             live_view_decided=live_view_decided,
             execution_task=execution_task,
+            require_independent_review=(
+                obj.get("require_independent_review") is True
+            ),
             precise_constraints=stated,
             exclusions=exclusions,
             ambiguities=ambiguities,

@@ -318,8 +318,8 @@ def build_mission_prompt(
         "branch/worktree, or commit; Planner owns the campaign plan. Delegate wide "
         "reading, sweeps and long runs to subagents; take back the answer, not the "
         "transcript. Your context is the budget.\n"
-        "Never repeat unchanged checks/reads; batch tools and cap results at 200 "
-        "lines. At 18 tool calls, synthesize or checkpoint/yield; never exceed 24.\n"
+        "Never repeat unchanged checks or reads. Ignore `__pycache__`/`.pyc`; "
+        "Python tests already import code, so avoid compile-only ceremony.\n"
         "Use primary sources when external behavior matters. If repeated attempts fail, "
         "recheck the underlying assumption instead of making another cosmetic tweak.\n"
         + _long_experiment_rule(task)

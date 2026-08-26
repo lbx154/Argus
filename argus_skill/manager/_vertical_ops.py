@@ -925,6 +925,7 @@ class _VerticalDecisionMixin:
                     domain="",
                     workflow_mode=decision.workflow_mode,
                     execution_task=decision.execution_task,
+                    require_independent_review=decision.require_independent_review,
                     proposed_domain=proposal, pending_confirmation=True,
                 )
                 self._apply_vertical_decision_rendering(decision)
@@ -935,6 +936,9 @@ class _VerticalDecisionMixin:
                 _old_vertical=old_vertical,
                 execution_task=decision.execution_task,
                 workflow_mode=decision.workflow_mode,
+            )
+            division.require_independent_review = (
+                decision.require_independent_review
             )
             if force_stage_reset:
                 vertical_select.reset_stage_for_new_intent(
@@ -1012,6 +1016,7 @@ class _VerticalDecisionMixin:
             stages=stages,
             workflow_mode=decision.workflow_mode,
             execution_task=decision.execution_task,
+            require_independent_review=decision.require_independent_review,
             learned_vertical_status=(
                 getattr(
                     load_data_domain(vertical, self.project_root),

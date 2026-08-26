@@ -993,16 +993,27 @@ class MissionExecutionSettlementMixin:
             getattr(outcome, "final_planner_report", {}) or {}
         )
         plan_challenge = dict(getattr(outcome, "plan_challenge", {}) or {})
-        mission_summary = " ".join(
-            str(
-                getattr(outcome, "summary", "")
-                or getattr(outcome, "final_message", "")
-                or getattr(outcome, "final_review_reason", "")
-                or getattr(outcome, "reason", "")
-                or planner_report.get("summary")
-                or ""
-            ).split()
-        )[:1200]
+        raw_mission_summary = str(
+            getattr(outcome, "summary", "")
+            or getattr(outcome, "final_message", "")
+            or getattr(outcome, "final_review_reason", "")
+            or getattr(outcome, "reason", "")
+            or planner_report.get("summary")
+            or ""
+        )
+        from ...core.role_reply import strip_control_footer
+
+        raw_mission_summary = strip_control_footer(
+            raw_mission_summary,
+            (
+                "MILESTONE_STATUS",
+                "RESULT",
+                "NEXT_OWNER",
+                "OPERATOR_QUESTION",
+                "OPERATOR_OPTIONS",
+            ),
+        )
+        mission_summary = " ".join(raw_mission_summary.split())[:1200]
         # A completed mission needs one durable, operator-facing receipt rather
         # than three loosely related hints (event, chat text, and sidebar).
         # Resolve targets only from the final Reviewer evidence, vertical

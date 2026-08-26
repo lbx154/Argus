@@ -104,6 +104,7 @@ def _plan_bounded_execution(
     chat_state: dict[str, Any],
     *,
     root_task_id: str | None = None,
+    require_independent_review: bool = False,
 ) -> Any:
     runner = front_door._ensure_manager_runner(chat_state, mem)
     backend = getattr(runner, "planner_backend", None) if runner is not None else None
@@ -125,6 +126,7 @@ def _plan_bounded_execution(
             execution_body,
             workdir=workdir,
             state_root=getattr(mem, "project_root", None),
+            require_independent_review=require_independent_review,
             model=model,
             reasoning_effort=resolve_role_reasoning_effort(
                 "ARGUS_SKILL_BOUNDED_DAG_REASONING_EFFORT",
@@ -371,6 +373,14 @@ def enqueue_mission(
         alive, pid = _daemon_status(life_dir)
         return item, alive, pid
 
+    if prepared_handoff is None:
+        prepared_handoff = front_door.prepare_manager_execution_task(
+            mem,
+            body,
+            chat_state,
+            root_task_id=root_task_id,
+        )
+
     planned: dict[str, Any] = {}
 
     def _hydrate_context_refs(nodes: list[Any]) -> dict[str, list[dict[str, Any]]]:
@@ -417,6 +427,13 @@ def enqueue_mission(
             execution_body,
             chat_state,
             root_task_id=root_task_id,
+            require_independent_review=bool(
+                getattr(
+                    getattr(prepared_handoff, "decision", None),
+                    "require_independent_review",
+                    False,
+                )
+            ),
         )
         nodes = _stable_topological_nodes(tuple(plan.tasks))
         if not nodes:
@@ -508,7 +525,9 @@ def enqueue_mission(
             stage_closing = bool(getattr(node, "stage_closing", False))
             require_review = bool(
                 getattr(node, "require_independent_review", False)
-            ) or learned_candidate
+            ) or learned_candidate or bool(
+                manager_decision.get("require_independent_review")
+            )
             skip_stage_transition = bool(
                 getattr(node, "skip_stage_transition", False)
             )

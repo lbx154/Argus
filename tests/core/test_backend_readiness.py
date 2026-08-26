@@ -20,7 +20,14 @@ def _completed(
 
 
 def _fake_codex(monkeypatch, version: str, *, auth_returncode: int = 0) -> None:
+    from argus_skill.tools import capability_vault
+
     monkeypatch.setattr(readiness, "resolve_runner_bin", lambda *_args: "/bin/codex")
+    monkeypatch.setattr(
+        capability_vault,
+        "read_codex_provider_config",
+        lambda _env=None: None,
+    )
 
     def run(command, *, timeout_s, input_text=None):
         del timeout_s, input_text
@@ -162,6 +169,33 @@ def test_auth_failure_uses_exit_status(monkeypatch) -> None:
     assert not report.ok
     assert report.problems[0].capability == "authentication"
     assert "codex login" in report.problems[0].remediation
+
+
+def test_codex_custom_provider_can_own_auth_without_openai_login(
+    monkeypatch,
+) -> None:
+    from argus_skill.tools import capability_vault
+
+    _fake_codex(monkeypatch, readiness.CODEX_RECOMMENDED_VERSION, auth_returncode=1)
+    monkeypatch.setattr(
+        capability_vault,
+        "read_codex_provider_config",
+        lambda _env=None: capability_vault.CodexProviderConfig(
+            name="local-relay",
+            base_url="http://127.0.0.1:41419/v1",
+            wire_api="responses",
+            requires_openai_auth=False,
+        ),
+    )
+
+    report = readiness.check_backend_readiness(
+        "codex",
+        "subscription_cli",
+    )
+
+    assert report.ok
+    assert report.auth_checked
+    assert any("requires_openai_auth=false" in warning for warning in report.warnings)
 
 
 def test_pi_readiness_uses_model_listing_without_spending_a_turn(monkeypatch) -> None:

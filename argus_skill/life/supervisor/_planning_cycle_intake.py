@@ -69,10 +69,12 @@ class PlanningCycleIntakeMixin:
         vertical = str(intent.get("vertical") or "").strip()
         from ...verticals._base import load_vertical_contract
 
-        requires_review = load_vertical_contract(
-            vertical,
-            project_root=self._artifact_root(),
-        ).requires_independent_review
+        requires_review = bool(intent.get("require_independent_review")) or (
+            load_vertical_contract(
+                vertical,
+                project_root=self._artifact_root(),
+            ).requires_independent_review
+        )
         manager_decision = {**intent, "routed": True, "route_source": "manager"}
         item = BacklogItem.new(
             title=title,

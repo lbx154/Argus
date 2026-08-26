@@ -602,6 +602,7 @@ class PlanningContextMixin:
                 "stage",
                 "current_stage",
                 "workflow_mode",
+                "require_independent_review",
                 "research_target_level",
                 "learned_vertical_status",
                 "continuous_generation",

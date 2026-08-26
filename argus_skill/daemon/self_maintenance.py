@@ -64,6 +64,28 @@ _EVENT_AUDIT_TYPES = frozenset({
     "life.runtime_failure.circuit_opened",
     "wiki.hook.warning",
 })
+
+
+def _observation_needs_adjudication(row: dict[str, Any]) -> bool:
+    event_type = str(row.get("type") or "")
+    if event_type in _EVENT_AUDIT_TYPES or event_type == "framework.update_available":
+        return True
+    if event_type != "life.mission.completed":
+        return False
+    details = row.get("details")
+    details = details if isinstance(details, dict) else {}
+    status = str(
+        details.get("terminal_status") or details.get("status") or ""
+    ).strip().lower()
+    return bool(
+        str(
+            details.get("failure_reason")
+            or details.get("stop_reason")
+            or details.get("error")
+            or ""
+        ).strip()
+        or status not in {"", "done", "completed", "success"}
+    )
 _COMMON_OBSERVATION_DETAIL_KEYS = (
     "status",
     "error",
@@ -1078,6 +1100,18 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
         observations = self._observations()
         self._write_state(last_audit_at=now, event_audit_pending=False)
         if not observations:
+            return ""
+        if (
+            phase != "preparing"
+            and not any(
+                _observation_needs_adjudication(row)
+                for row in observations
+            )
+        ):
+            # Successful missions are useful context once a real framework
+            # incident occurs; by themselves they are not a reason to buy a
+            # periodic Manager call that can only conclude `no_action`.
+            self._mark_observations_adjudicated(observations)
             return ""
         decision = self.manager.decide_self_maintenance(
             observations,

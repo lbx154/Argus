@@ -36,6 +36,7 @@ class Division:
     domain: str = ""         # optional built-in overlay, currently for research
     workflow_mode: str = "staged"
     execution_task: str = ""
+    require_independent_review: bool = False
     # Set when the Manager AUTHORED a new data domain for a task that fit no
     # preset vertical. ``pending_confirmation`` means the proposal has NOT been
     # written yet — the interactive caller must confirm and then call

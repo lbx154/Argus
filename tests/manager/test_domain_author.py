@@ -128,7 +128,26 @@ def test_vertical_prompt_does_not_escalate_bounded_repo_fix_to_new_domain() -> N
 
     assert "capability VERTICAL" in prompt
     assert "WORKFLOW_MODE=direct" in prompt
+    assert "REQUIRE_INDEPENDENT_REVIEW=false" in prompt
     assert "software" in prompt
+
+
+def test_vertical_parser_preserves_explicit_independent_review() -> None:
+    decision = parse_vertical_decision(
+        "\n".join([
+            "CHOICE=existing",
+            "VERTICAL=software",
+            "DOMAIN=",
+            "WORKFLOW_MODE=direct",
+            "REQUIRE_INDEPENDENT_REVIEW=true",
+            "RATIONALE=the operator explicitly requested an independent Reviewer",
+        ]),
+        known_verticals=("software",),
+        default_execution_task="Implement and review the cache.",
+    )
+
+    assert decision is not None
+    assert decision.require_independent_review is True
 
 
 def test_new_domain_starts_with_real_work_not_process_ceremony() -> None:

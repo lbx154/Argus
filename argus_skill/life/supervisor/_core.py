@@ -1573,9 +1573,24 @@ class LifeSupervisor(
             title = str(event.get("title") or "Team mission").strip()
             success = bool(event.get("success"))
             summary = str(event.get("summary") or "").strip()
+            from ...core.role_reply import strip_control_footer
+
+            summary = strip_control_footer(
+                summary,
+                (
+                    "MILESTONE_STATUS",
+                    "RESULT",
+                    "NEXT_OWNER",
+                    "OPERATOR_QUESTION",
+                    "OPERATOR_OPTIONS",
+                ),
+            )
             outcome = event.get("outcome")
             outcome = outcome if isinstance(outcome, dict) else {}
             review = str(outcome.get("review_status") or "").strip()
+            independent_review_required = bool(
+                event.get("independent_review_required")
+            )
             final_submission_certified = (
                 event.get("final_submission_certified") is True
             )
@@ -1621,7 +1636,7 @@ class LifeSupervisor(
             if success:
                 if campaign_continues:
                     completion_label = "任务已继续" if chinese else "Task continued"
-                elif overall_complete and delivery_ready:
+                elif overall_complete:
                     completion_label = (
                         "交付已认证"
                         if chinese and final_submission_certified
@@ -1633,8 +1648,16 @@ class LifeSupervisor(
                     )
                 else:
                     completion_label = "任务已结束" if chinese else "Task ended"
-                result = f"{completion_label} · {title}"
-                if review and review not in {"none", "not_assessed"}:
+                result = (
+                    completion_label
+                    if chinese and overall_complete
+                    else f"{completion_label} · {title}"
+                )
+                if (
+                    review
+                    and review not in {"none", "not_assessed"}
+                    and not (overall_complete and independent_review_required)
+                ):
                     result += f" · review={review}"
             else:
                 status = str(event.get("status") or event.get("outcome_class") or "ended")
@@ -1708,24 +1731,36 @@ class LifeSupervisor(
                     if chinese
                     else "Task continues; Planner is selecting the next work item."
                 )
-            elif final_submission_certified and delivery_ready:
+            elif final_submission_certified:
                 continuation = (
                     "最终交付已通过独立审核。"
                     if chinese
                     else "The final submission passed independent review."
                 )
-            elif str(outcome.get("stage_certification") or "").strip() == "deferred":
+            elif overall_complete and independent_review_required and review == "done":
                 continuation = (
-                    "本计划工作项已完成；审核结果已记录，阶段结论需等待计划其余部分。"
+                    "独立 Reviewer 已检查实现和测试，未发现阻断问题。"
                     if chinese
                     else (
-                        "This planned work item is finished; its review is on "
-                        "record and the stage decision waits for the rest of "
-                        "the plan."
+                        "An independent Reviewer checked the implementation and "
+                        "tests and found no blocking issue."
                     )
                 )
-            elif overall_complete and delivery_ready:
-                continuation = "交付成果可打开。" if chinese else "The deliverable is ready to open."
+            elif str(outcome.get("stage_certification") or "").strip() == "deferred":
+                continuation = (
+                    "此工作项已完成；其他计划项仍在进行。"
+                    if chinese
+                    else (
+                        "This work item is complete; other planned work is still "
+                        "in progress."
+                    )
+                )
+            elif overall_complete:
+                continuation = (
+                    "请求的工作已完成。"
+                    if chinese
+                    else "The requested work is complete."
+                )
             else:
                 continuation = (
                     "本次处理已结束，但没有可打开的交付成果。"

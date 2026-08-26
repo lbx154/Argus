@@ -50,6 +50,7 @@ def _prompt(
     project_root: Path | str,
     *,
     state_root: Path | str | None = None,
+    require_independent_review: bool = False,
 ) -> str:
     from ..roles.prompts.planner import build_bounded_dag_prompt
 
@@ -57,6 +58,7 @@ def _prompt(
         objective,
         project_root=project_root,
         state_root=state_root,
+        require_independent_review=require_independent_review,
     )
 
 
@@ -259,6 +261,7 @@ def plan_bounded_dag(
     *,
     workdir: Path | str,
     state_root: Path | str | None = None,
+    require_independent_review: bool = False,
     model: str | None = None,
     reasoning_effort: str = "high",
 ) -> BoundedDagPlan:
@@ -269,7 +272,12 @@ def plan_bounded_dag(
         "reasoning_output_tokens": 0,
         "premium_requests": 0.0,
     }
-    prompt = _prompt(objective, workdir, state_root=state_root)
+    prompt = _prompt(
+        objective,
+        workdir,
+        state_root=state_root,
+        require_independent_review=require_independent_review,
+    )
     for attempt in range(2):
         try:
             result = gateway_run_exec(
@@ -336,6 +344,7 @@ def plan_bounded_dag(
                     validation_error,
                     project_root=workdir,
                     state_root=state_root,
+                    require_independent_review=require_independent_review,
                 )
                 continue
             return BoundedDagPlan(

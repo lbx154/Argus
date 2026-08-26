@@ -149,6 +149,7 @@ def build_bounded_dag_prompt(
     *,
     project_root: Path | str | None = None,
     state_root: Path | str | None = None,
+    require_independent_review: bool = False,
 ) -> str:
     verification = ""
     policy_root = state_root if state_root is not None else project_root
@@ -181,10 +182,18 @@ def build_bounded_dag_prompt(
             )
     shell_contract = native_shell_contract()
     shell_block = "\n\n" + shell_contract if shell_contract else ""
+    review_policy = (
+        "\n\nManager review policy: independent review is required. Put "
+        "`TASK_REQUIRE_INDEPENDENT_REVIEW=true` on each substantive work node. "
+        "Host invokes Reviewer after Engineer; do not create a review-only task."
+        if require_independent_review
+        else ""
+    )
     return sanitize_model_visible_text(
         "Plan the Manager handoff as a small executable DAG. Do not do the work."
         + verification
         + shell_block
+        + review_policy
         + "\n\n"
         "Rules:\n"
         "- Default to one node. Split only for a hard dependency or genuinely "
@@ -234,6 +243,7 @@ def build_bounded_dag_repair_prompt(
     *,
     project_root: Path | str | None = None,
     state_root: Path | str | None = None,
+    require_independent_review: bool = False,
 ) -> str:
     """Request one complete replacement after a mechanically invalid DAG."""
     prior = sanitize_model_visible_text(str(previous_output or "")[-40_000:])
@@ -243,6 +253,7 @@ def build_bounded_dag_repair_prompt(
             objective,
             project_root=project_root,
             state_root=state_root,
+            require_independent_review=require_independent_review,
         )
         + "\n\nYour previous conclusion could not be read as an executable DAG. "
         "Send one complete corrected footer. Keep "
