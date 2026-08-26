@@ -53,6 +53,9 @@ def test_kernel_engineering_banner_prioritizes_direct_measured_work() -> None:
     assert "portfolio of genuinely different mechanisms" in planner
     assert "Prefer expected upside and information gain over low execution risk" in planner
     assert "one clean screen is enough" in planner
+    assert "keep one conversion lane active" in planner
+    assert "other slots remain free for unconstrained exploration" in planner
+    assert "continue through real runtime wiring" in engineer
     assert "Do not prefer the smallest patch" in engineer
     assert "produce a concise decision-useful research report" in engineer
     assert "immediate verification" in engineer

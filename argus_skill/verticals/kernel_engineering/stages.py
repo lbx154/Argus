@@ -152,6 +152,12 @@ def role_banner(role: str) -> str:
             "upside and information gain over low execution risk. Do not spend mission "
             "slots repeating seeds, controls, or unchanged benchmarks for exploratory "
             "ideas; one clean screen is enough until a candidate is promising. "
+            "When at least two mission slots are available, keep one conversion lane "
+            "active whenever a screened or implemented candidate still lacks an "
+            "end-to-end target measurement. That lane owns runtime integration through "
+            "one decisive screen or a concrete terminal failure; other slots remain "
+            "free for unconstrained exploration. Do not let another report or mechanism "
+            "variant displace ready conversion work. "
             "When a long external benchmark is already running or a task will launch "
             "one, use the same decision to fill spare mission slots with useful "
             "independent source analysis or implementation that does not need its "
@@ -173,7 +179,10 @@ def role_banner(role: str) -> str:
             "high-uncertainty mechanisms over low-risk incrementalism when their potential "
             "justifies exploration. Use one clean run for exploratory screening; do not "
             "default to multi-seed or repeated-run campaigns. Once implementation begins, "
-            "keep it one coherent implementation rather than unrelated edits."
+            "keep it one coherent implementation rather than unrelated edits. On a "
+            "conversion-lane task, continue through real runtime wiring and the "
+            "end-to-end screen instead of stopping at a microbenchmark or source-complete "
+            "artifact."
         )
     if role == "reviewer":
         return (
