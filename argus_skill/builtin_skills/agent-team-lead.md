@@ -46,7 +46,11 @@ Use `python -m argus_skill.tools.team`.
 4. Inspect progress with `status --root <team_root>` and read landed `shards/*.jsonl` plus `leaderboard.json`.
 5. A task waiting on a real operator-owned decision is `blocked`, retains its owner and question, and is not retried. After the operator answers, run `resume --root <team_root> --task-id <task_id> --answer "<answer>"` to requeue it with that answer.
 6. Refresh or extend the backlog with `form`. Re-forming claimed, running, or blocked work preserves its lifecycle state; re-forming a done or failed task deliberately reopens it.
-7. Wind down with `pool-set --state draining`, synthesize the canonical artifact, pass the normal mission Reviewer, then run `dissolve --root <team_root>`.
+7. After every teammate settles, set `pool-set --state draining`, read the final
+   shards, synthesize and verify the canonical artifact, then run
+   `dissolve --root <team_root>` before handing off to the normal mission
+   Reviewer. Reviewer validates the durable project artifacts and does not need
+   a live Team runtime.
 
 The lead never manually spawns, claims, waits for, reassigns, or kills teammates. Those are Curator responsibilities.
 

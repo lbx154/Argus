@@ -151,6 +151,7 @@ def test_agent_team_lead_is_a_common_builtin() -> None:
     assert "agent-team-lead.md" in common
     assert "engineer/agent-team-lead.md" not in packaged
     assert "Every role may discover this Skill" in common["agent-team-lead.md"]
+    assert "before handing off to the normal mission" in common["agent-team-lead.md"]
 
 
 def test_machine_specific_nanochat_playbooks_are_retired() -> None:

@@ -25,6 +25,23 @@ applyTo: '**/*.{py,ts,tsx,js,mjs}'
   freshness, or correctness. Prefer direct names and explicit persisted state;
   do not add defensive fallbacks or guards for states the current contract
   cannot reach.
+- Without a demonstrated current requirement, do not add UUIDs, random tokens,
+  custom idempotency/deduplication keys, retries, backoff, circuit breakers,
+  fallback chains, compatibility layers, speculative locks, future fields, or
+  placeholder interfaces. Existing framework and upstream invariants are the
+  default; validate only real external-input, permission, persistence, security,
+  and irreversible-action boundaries.
+- Keep errors transparent. Do not turn defects into empty results, default
+  values, broad catches, or success-shaped degradation.
+- Do not create helpers, wrappers, services, factories, or abstractions unless
+  they remove existing semantic duplication, enforce a real boundary, or make
+  the current call path materially easier to understand. Prefer direct local
+  code and stop when the requested behavior is complete.
+- Parallel and Team execution must be real rather than ceremonial: independent
+  work, disjoint writable paths, explicit completion evidence, one lead-owned
+  synthesis, and normal Reviewer acceptance. DSH native subagents may assist
+  flexibly inside that structure; do not confuse them with or forbid the Argus
+  Team mechanism the operator requested.
 - Test the changed surface and reachable consumers. Run an end-to-end smoke
   test for a newly exercised path; broaden only when the blast radius is broad.
 
