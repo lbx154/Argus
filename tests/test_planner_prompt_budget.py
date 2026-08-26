@@ -35,8 +35,12 @@ from argus_skill.skills.vertical_select import persist_vertical
 # Raised for the stage checklist intentionally added to staged Planner prompts:
 # this is now the shared definition of useful progress for Planner and Reviewer,
 # rather than unrelated prompt ceremony. Direct workflows still omit it.
-MATH_SCOPE_BUDGET = 11_250
-MATURE_MATH_SCOPE_BUDGET = 17_050
+# Raised by 1,100 for the fixed living-research-plan contract. The plan itself
+# has a separate 8,000-character projection cap tested below, so future policy
+# prose cannot silently consume that dynamic-state allowance.
+MATH_SCOPE_BUDGET = 12_350
+MATURE_MATH_SCOPE_BUDGET = 18_150
+RESEARCH_PLAN_DYNAMIC_BUDGET = 8_000
 
 
 def _build_math_scope_prompt(
@@ -272,3 +276,74 @@ def test_planner_journal_uses_latest_three_terminal_outcomes() -> None:
     assert all(f"terminal-{index}" in rendered for index in range(2, 4))
     assert "paused-methods" in rendered
     assert len(rendered) <= 3 * 1_800 + 2
+
+
+def _research_plan(*, experiment_fill: str = "") -> str:
+    return (
+        "# Research plan\n"
+        "Objective: establish a decisive publishable result.\n\n"
+        "## Central hypotheses\n"
+        "1. [untested] H1 — evidence: journal mission-1\n\n"
+        "## Experiment program\n"
+        "- Run the discriminating experiment. " + experiment_fill + "\n\n"
+        "## Established results\n"
+        "- Baseline reproduced — evidence: results/base.json\n\n"
+        "## Dead ends\n"
+        "- Old route — abandoned after null result in journal mission-0\n\n"
+        "## Next milestone\n"
+        "A cross-dataset effect with an independently checked mechanism."
+    )
+
+
+def test_planner_prompt_renders_existing_living_research_plan(
+    tmp_path,
+) -> None:
+    from argus_skill.life.research_plan import render_research_plan_for_planner
+
+    plan = _research_plan()
+    (tmp_path / "RESEARCH_PLAN.md").write_text(plan, encoding="utf-8")
+    rendered = render_research_plan_for_planner(tmp_path)
+    prompt = Planner._build_planner_prompt(
+        continuous_objective="Establish the result.",
+        journal_tail="(empty)",
+        research_plan=rendered,
+        planning_cycle=2,
+        project_root=tmp_path,
+        state_root=tmp_path,
+    )
+
+    assert "## Research plan (living document)" in prompt
+    assert plan in prompt
+    assert "PLAN_UPDATE" in prompt
+    assert "never delete a Dead" not in prompt  # guard exact contract wording below
+    assert "Never delete a Dead\nends entry" in prompt
+
+
+def test_planner_prompt_marks_absent_or_corrupt_plan_for_creation(tmp_path) -> None:
+    from argus_skill.life.research_plan import render_research_plan_for_planner
+
+    absent = render_research_plan_for_planner(tmp_path)
+    (tmp_path / "RESEARCH_PLAN.md").write_text("not the contract", encoding="utf-8")
+    corrupt = render_research_plan_for_planner(tmp_path)
+
+    assert "no plan yet" in absent
+    assert "create RESEARCH_PLAN.md" in absent
+    assert corrupt == absent
+
+
+def test_oversize_research_plan_keeps_head_and_next_milestone_with_hard_cap(
+    tmp_path,
+) -> None:
+    from argus_skill.life.research_plan import render_research_plan_for_planner
+
+    (tmp_path / "RESEARCH_PLAN.md").write_text(
+        _research_plan(experiment_fill="x" * 12_000),
+        encoding="utf-8",
+    )
+    rendered = render_research_plan_for_planner(tmp_path)
+
+    assert len(rendered) <= RESEARCH_PLAN_DYNAMIC_BUDGET
+    assert rendered.startswith("# Research plan")
+    assert "living plan truncated" in rendered
+    assert "## Next milestone" in rendered
+    assert "independently checked mechanism" in rendered

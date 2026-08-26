@@ -88,7 +88,31 @@ commands, tests, and iteration.
   poll: use `wait_mode=event`, `wake_on` from """ + _WAKE_SOURCES + """;
   `artifact_revision` requires nonempty `watched_paths`.
 - Use the operator's language.
-""" + _PLANNER_DECISION_FOOTER
+""" + _PLANNER_DECISION_FOOTER + """
+
+The footer may optionally end with `PLAN_UPDATE=` followed by the complete
+multi-line Markdown for RESEARCH_PLAN.md. Put it after every `TASK_*` block.
+"""
+
+_RESEARCH_PLAN_CONTRACT = """## Research plan (living document)
+Planner owns `RESEARCH_PLAN.md` in the daemon state directory. If there is no
+valid plan below, create it now from the Manager mission brief/OBJECTIVE.md and
+journal. Update it whenever a hypothesis changes status, an experiment settles,
+or the program changes direction. Return the complete replacement in the
+optional final `PLAN_UPDATE` block; otherwise the file stays unchanged.
+
+Keep it under ~300 lines and use exactly this section order: `# Research plan`
+then an objective one-liner; `## Central hypotheses` (numbered, each marked
+untested/supported/refuted/abandoned with a one-line evidence pointer);
+`## Experiment program` (what runs next and why each is the highest-information
+move, including at least one bold/high-variance bet); `## Established results`
+with evidence refs; `## Dead ends` with what was tried and why abandoned; and
+`## Next milestone` stating what would let the paper start. Never delete a Dead
+ends entry. If the projection says it was truncated, prune repetition while
+preserving those entries.
+
+Current document:
+"""
 
 _EXTERNAL_TARGET_CONTRACT = (
     "## External-target optimization\n"
@@ -269,6 +293,7 @@ def build_continuous_prompt(
     *,
     continuous_objective: str,
     journal_tail: str,
+    research_plan: str = "",
     planning_cycle: int,
     runtime_change_summary: str = "",
     mission: Any | None = None,
@@ -519,6 +544,11 @@ def build_continuous_prompt(
         "## Manager mission brief (authoritative)\n" + continuous_objective.strip(),
         "## Journal of completed work (most recent last)\n"
         + (journal_tail.strip() or "(no completed work yet — this is the first cycle)"),
+        _RESEARCH_PLAN_CONTRACT
+        + (
+            research_plan.strip()
+            or "(no plan yet — create RESEARCH_PLAN.md in this planning cycle)"
+        ),
         "## Current reality (authoritative over the journal above)\n"
         + (runtime_change_summary.strip() or "(no additional runtime context)"),
         planner_hygiene_block,
@@ -533,6 +563,7 @@ def build_continuous_resume_prompt(
     *,
     continuous_objective: str,
     journal_tail: str,
+    research_plan: str = "",
     planning_cycle: int,
     runtime_change_summary: str = "",
     mission: Any | None = None,
@@ -582,6 +613,11 @@ def build_continuous_resume_prompt(
         "## Manager mission brief (authoritative)\n" + continuous_objective.strip(),
         "## Journal of completed work (most recent last)\n"
         + (journal_tail.strip() or "(no completed work yet — this is the first cycle)"),
+        _RESEARCH_PLAN_CONTRACT
+        + (
+            research_plan.strip()
+            or "(no plan yet — create RESEARCH_PLAN.md in this planning cycle)"
+        ),
         "## Current reality (authoritative over the journal above)\n"
         + (runtime_change_summary.strip() or "(no additional runtime context)"),
         f"This is planning cycle #{planning_cycle + 1}.",

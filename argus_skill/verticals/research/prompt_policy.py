@@ -171,7 +171,11 @@ def _planner_manuscript_block(project_root: Path | None) -> str:
 
 
 def _reviewer_fragment(stage: str, scope: str, project_root: Path | None) -> str:
-    blocks: list[str] = []
+    blocks: list[str] = [
+        "## Research-program adjudication\n"
+        "Judge whether the mission advanced the research plan's stated program, "
+        "not merely whether it completed its own scope."
+    ]
     # Reading the paper as a paper used to wait for the campaign to declare a
     # writing stage. They do not: run-07 held a twenty-page manuscript at
     # `benchmark` and spent a hundred and seventy consecutive reviews checking

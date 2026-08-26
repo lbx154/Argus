@@ -169,6 +169,7 @@ class PlanningCycleVerdictMixin:
                 state.verdict = planner.plan_next(
                     continuous_objective=self.config.continuous_objective,
                     journal_tail=journal_tail,
+                    research_plan=self._render_research_plan_for_planner(),
                     planning_cycle=self._planning_cycles - 1,
                     runtime_change_summary="\n\n".join(
                         part
@@ -187,6 +188,7 @@ class PlanningCycleVerdictMixin:
                     ),
                     config=self._planner_config(),
                 )
+                self._apply_research_plan_update(state.verdict.raw_text)
             finally:
                 if stream_ctx:
                     stream_ctx.__exit__(None, None, None)

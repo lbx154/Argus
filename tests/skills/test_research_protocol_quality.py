@@ -491,6 +491,29 @@ def test_probes_still_cannot_veto_a_selected_idea() -> None:
     assert "claim-bearing evidence at " in vertical_role_banner(research, "planner")
 
 
+def test_research_reviewer_adjudicates_progress_against_living_plan(tmp_path) -> None:
+    from argus_skill.reviewer import Reviewer
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    persist_vertical(tmp_path, "research")
+    reviewer = Reviewer(runner=None, skill_store=None)._build_prompt(
+        objective="run the decisive experiment",
+        operator_messages=[],
+        planner_review_instruction="",
+        round_index=1,
+        session_id=None,
+        main_summary="experiment completed",
+        main_error=None,
+        prior_checkpoint={},
+        working_dir=tmp_path,
+    )
+
+    assert (
+        "Judge whether the mission advanced the research plan's stated program, "
+        "not merely whether it completed its own scope."
+    ) in reviewer
+
+
 def test_only_the_manager_retires_an_idea_and_only_reluctantly() -> None:
     """Grinding the gap down is the campaign's normal state. Deciding an idea is
     dead is one role's call, it is meant to be rare, and impatience is named as

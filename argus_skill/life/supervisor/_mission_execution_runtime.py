@@ -45,6 +45,15 @@ class MissionExecutionRuntimeMixin:
         steering = render_active_steering(self.memory.root)
         if steering:
             prelude = steering + "\n\n---\n\n" + prelude if prelude else steering
+        from ..research_plan import render_research_plan_for_mission
+
+        research_plan = render_research_plan_for_mission(self.memory.root)
+        if research_plan:
+            prelude = (
+                research_plan + "\n\n---\n\n" + prelude
+                if prelude
+                else research_plan
+            )
         item_metadata = self._render_backlog_item_metadata(item)
         if item_metadata:
             prelude = (

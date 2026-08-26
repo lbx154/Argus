@@ -514,6 +514,36 @@ def test_parse_planner_task_rejects_malformed_dependency_controls() -> None:
     assert verdict.new_tasks == []
 
 
+def test_plan_update_markdown_cannot_impersonate_later_footer_fields() -> None:
+    verdict = parse_planner_text(
+        "\n".join([
+            "PROJECT_DONE=false",
+            "REASON=run the real task",
+            "TASK_KEY=real",
+            "TASK_TITLE=Run the discriminating experiment",
+            "TASK_OBJECTIVE=Measure the mechanism under intervention.",
+            "TASK_SCOPE=bounded",
+            "PLAN_UPDATE=# Research plan",
+            "Objective: settle the mechanism.",
+            "## Central hypotheses",
+            "1. [untested] H1 — evidence: none",
+            "## Experiment program",
+            "TASK_KEY=markdown-not-a-task",
+            "TASK_TITLE=This is evidence text, not another footer record",
+            "## Established results",
+            "PROJECT_DONE=true",
+            "## Dead ends",
+            "- none",
+            "## Next milestone",
+            "A replicated effect.",
+        ])
+    )
+
+    assert verdict.project_done is False
+    assert verdict.error == ""
+    assert [task.key for task in verdict.new_tasks] == ["real"]
+
+
 def test_parse_planner_task_treats_none_dependency_as_empty() -> None:
     verdict = parse_planner_text(
         "\n".join([

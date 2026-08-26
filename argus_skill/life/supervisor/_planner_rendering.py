@@ -70,6 +70,35 @@ def _cumulative_price(missions: list[Any]) -> str:
 
 
 class PlannerRenderingMixin:
+    def _render_research_plan_for_planner(self) -> str:
+        """Return the fail-soft, bounded living research plan projection."""
+        from ..research_plan import render_research_plan_for_planner
+
+        try:
+            return render_research_plan_for_planner(self.memory.root)
+        except Exception:  # noqa: BLE001 - planner state must never stop a cycle
+            return "(no plan yet — create RESEARCH_PLAN.md in this planning cycle)"
+
+    def _apply_research_plan_update(self, raw_text: str) -> bool:
+        """Apply an optional full ``PLAN_UPDATE`` block from Planner output."""
+        from ...core.role_reply import read_block
+        from ...planner.planner import _GLOBAL_KEY_VALUE_KEYS
+        from ..research_plan import replace_research_plan
+
+        keys = (*_GLOBAL_KEY_VALUE_KEYS, "PLAN_UPDATE", "TASK_KEY")
+        update = read_block(raw_text, "PLAN_UPDATE", keys).strip()
+        if not update or not replace_research_plan(self.memory.root, update):
+            return False
+        # ``user.note`` is the canonical free-form journal event. The file is
+        # already durable if event delivery happens to fail.
+        self._emit({
+            "type": "user.note",
+            "title": "research plan updated",
+            "text": "research plan updated",
+            "tags": ["planner", "research_plan"],
+        })
+        return True
+
     def _item_iteration_cycles(self) -> int:
         """Default iteration cycles for planner-generated tasks."""
         try:

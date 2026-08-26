@@ -212,6 +212,7 @@ class Planner:
         *,
         continuous_objective: str,
         journal_tail: str = "",
+        research_plan: str = "",
         planning_cycle: int = 0,
         runtime_change_summary: str = "",
         config: PlannerConfig | None = None,
@@ -252,6 +253,7 @@ class Planner:
         prompt = prompt_builder(
             continuous_objective=continuous_objective,
             journal_tail=journal_tail,
+            research_plan=research_plan,
             planning_cycle=planning_cycle,
             runtime_change_summary=runtime_change_summary,
             mission=self.mission,
@@ -411,6 +413,7 @@ class Planner:
         *,
         continuous_objective: str,
         journal_tail: str,
+        research_plan: str = "",
         planning_cycle: int,
         runtime_change_summary: str = "",
         mission: Any | None = None,
@@ -424,6 +427,7 @@ class Planner:
         prompt = build_continuous_resume_prompt(
             continuous_objective=continuous_objective,
             journal_tail=journal_tail,
+            research_plan=research_plan,
             planning_cycle=planning_cycle,
             runtime_change_summary=runtime_change_summary,
             mission=mission,
@@ -437,6 +441,7 @@ class Planner:
         *,
         continuous_objective: str,
         journal_tail: str,
+        research_plan: str = "",
         planning_cycle: int,
         runtime_change_summary: str = "",
         mission: Any | None = None,
@@ -450,6 +455,7 @@ class Planner:
         prompt = build_continuous_prompt(
             continuous_objective=continuous_objective,
             journal_tail=journal_tail,
+            research_plan=research_plan,
             planning_cycle=planning_cycle,
             runtime_change_summary=runtime_change_summary,
             mission=mission,
@@ -571,6 +577,7 @@ _GLOBAL_KEY_VALUE_KEYS = (
     "WAKE_ON",
     "WATCHED_PATHS",
     "EXPIRES_AT",
+    "PLAN_UPDATE",
 )
 _TASK_KEY_VALUE_FIELDS = (
     "KEY",
@@ -620,6 +627,11 @@ def _planner_key_values(text: str) -> tuple[dict[str, str], list[dict[str, str]]
             continue
         key = match.group("key").upper()
         value = match.group("value").strip()
+        # PLAN_UPDATE owns the rest of the footer as free-form Markdown. It is
+        # parsed separately with role_reply.read_block by the supervisor; no
+        # heading or evidence line inside it may impersonate task metadata.
+        if key == "PLAN_UPDATE":
+            break
         numbered_match = _NUMBERED_TASK_KEY.match(key)
         if numbered_match is not None:
             index = numbered_match.group("index")
