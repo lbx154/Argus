@@ -6,6 +6,7 @@ from pathlib import Path
 from argus_skill.verticals.research.paper_infrastructure_review import (
     REQUIRED_CHECKED_SCOPES,
     PaperInfrastructureReviewError,
+    _parse_review_text,
     _review_prompt,
     generate_paper_infrastructure_review,
 )
@@ -14,7 +15,9 @@ from argus_skill.verticals.research.paper_infrastructure_review import (
 )
 
 
-def test_missing_model_evidence_spans_is_blocking(monkeypatch, tmp_path: Path) -> None:
+def test_missing_model_evidence_spans_does_not_become_a_harness_gate(
+    monkeypatch, tmp_path: Path
+) -> None:
     paper_dir = tmp_path / "paper"
     paper_dir.mkdir()
     (paper_dir / "main.tex").write_text("\\section{Intro}\nHello.\n", encoding="utf-8")
@@ -47,10 +50,25 @@ def test_missing_model_evidence_spans_is_blocking(monkeypatch, tmp_path: Path) -
 
     result = generate_paper_infrastructure_review(tmp_path, write=False)
 
-    assert result["structural_status"] == "blocked"
-    assert result["evidence_spans"] == []
+    assert result["structural_status"] == "ok"
+    assert "evidence_spans" not in result
     codes = {issue["code"] for issue in result["blocking_issues"]}
-    assert "model_review_missing_evidence_spans" in codes
+    assert "model_review_missing_evidence_spans" not in codes
+
+
+def test_prose_review_reads_only_consumed_named_lines() -> None:
+    raw = (
+        "Major — paper/main.tex:L8 quotes `/root/cache`; move this local path "
+        "to supplementary metadata.\n\n"
+        "LEAK_FREE=false\n"
+        "CHECKED_SCOPE=title; abstract; body; captions\n"
+    )
+
+    parsed = _parse_review_text(raw)
+
+    assert parsed["review_text"] == raw
+    assert parsed["leak_free"] is False
+    assert parsed["checked_scope"] == ["title", "abstract", "body", "captions"]
 
 
 def test_cli_resolves_venue_from_project_root_not_cwd(
@@ -178,3 +196,6 @@ def test_review_prompt_preserves_complete_middle_source() -> None:
     assert "Complete numbered LaTeX sources:" in prompt
     assert "MIDDLE_SENTINEL_LOCAL_PATH_CHECK" in prompt
     assert "[truncated" not in prompt
+    assert "Write a prose review, not JSON" in prompt
+    assert "score_1_to_5" not in prompt
+    assert "revision_directives" not in prompt

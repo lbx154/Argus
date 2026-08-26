@@ -35,7 +35,6 @@ from ._reviewer_runner_fallback import (
 from .academic_language_review import (
     PAPER_MAIN_TEX_PATH,
     _append_history,
-    _parse_json_object_from_text,
     _read_source_texts,
     _write_json,
     _write_text,
@@ -57,16 +56,6 @@ REQUIRED_CHECKED_SCOPES: tuple[str, ...] = (
     "tables",
     "appendix",
 )
-ALLOWED_DIRECTIVE_ACTIONS = {
-    "remove_infrastructure_leak",
-    "rewrite_setup_as_paper_facing",
-    "move_local_config_to_artifact",
-    "redact_internal_route",
-    "rename_internal_label",
-    "resolve_venue_profile",
-}
-
-
 class PaperInfrastructureReviewError(RuntimeError):
     """Raised when the infrastructure-leak review cannot be generated."""
 
@@ -136,13 +125,9 @@ def generate_paper_infrastructure_review(
         )
 
     blocking_issues = [issue for issue in issues if issue.get("severity") == "blocking"]
-    major_issues: list[dict[str, Any]] = []
-    directives: list[dict[str, Any]] = []
-    evidence_spans: list[dict[str, Any]] = []
     checked_scope: list[str] = []
     model_review: dict[str, Any] | None = None
     leak_free: bool | None = None
-    leak_findings: list[dict[str, Any]] = []
 
     if source_text_by_path and not blocking_issues and venue is not None:
         try:
@@ -165,42 +150,13 @@ def generate_paper_infrastructure_review(
             issues.append(issue)
             blocking_issues.append(issue)
         else:
-            leak_free = model_review.get("leak_free") is True
+            raw_leak_free = model_review.get("leak_free")
+            leak_free = raw_leak_free if isinstance(raw_leak_free, bool) else None
             checked_scope = [
                 str(item).strip()
                 for item in model_review.get("checked_scope", [])
                 if isinstance(item, str) and item.strip()
             ]
-            evidence_spans = _dict_list(model_review.get("evidence_spans"))
-            if not evidence_spans:
-                issue = _issue(
-                    "model_review_missing_evidence_spans",
-                    "blocking",
-                    "reviewer model returned no evidence_spans; the harness will not fabricate reader-facing evidence",
-                    action="rerun_paper_infrastructure_review",
-                )
-                issues.append(issue)
-                blocking_issues.append(issue)
-            blocking_issues.extend(_dict_list(model_review.get("blocking_issues")))
-            major_issues.extend(_dict_list(model_review.get("major_issues")))
-            directives.extend(_dict_list(model_review.get("revision_directives")))
-            # The reviewer MODEL (an agent) reports leak findings; the harness
-            # relays them as publication-safety findings. It does NOT convert
-            # them into a harness-authored quality verdict/score — whether the
-            # manuscript is acceptable is the reviewer agent's call against the
-            # checklist, informed by these findings.
-            leak_findings = _dict_list(model_review.get("major_issues")) + _dict_list(
-                model_review.get("blocking_issues")
-            )
-            if leak_free is False:
-                leak_findings.append(
-                    _issue(
-                        "paper_infrastructure_leak_reported",
-                        "major",
-                        "reviewer reported paper-facing local infrastructure, device, cache, or route details",
-                        action="remove_infrastructure_leak",
-                    )
-                )
     elif not source_text_by_path:
         issue = _issue(
             "missing_reviewable_latex_source",
@@ -227,21 +183,16 @@ def generate_paper_infrastructure_review(
         "no_harness_quality_verdict": True,
         "structural_status": structural_status,
         "leak_free": leak_free,
-        "leak_findings": leak_findings,
         "checked_scope": checked_scope,
         "source_snapshots": source_snapshots,
         "reviewed_source_count": len(source_snapshots),
-        "evidence_spans": evidence_spans,
         "issues": issues,
         "blocking_issues": blocking_issues,
-        "major_issues": major_issues,
-        "revision_directives": directives,
         "review_policy": {
             "rubric": "paper-facing-infrastructure-leak-v2",
             "decision_authority": "reviewer agent decides against the stage checklist; "
             "the harness reports leak findings only and emits no quality verdict",
             "required_checked_scope": list(REQUIRED_CHECKED_SCOPES),
-            "allowed_directive_actions": sorted(ALLOWED_DIRECTIVE_ACTIONS),
             "paper_facing_target": "title, abstract, body prose, captions, tables, and appendix prose",
         },
     }
@@ -313,7 +264,7 @@ def _run_model_review(
             raw_text = _parse_chat_text(data)
     if not raw_text:
         raise PaperInfrastructureReviewError("reviewer model returned no text")
-    parsed = _parse_json_object_from_text(raw_text)
+    parsed = _parse_review_text(raw_text)
     parsed["raw_review_text"] = raw_text
     parsed["model"] = review_model
     parsed["endpoint"] = endpoint
@@ -335,6 +286,7 @@ def _run_model_review(
 def _review_prompt(
     *, source_text_by_path: Mapping[str, str], threshold: float, venue: VenueProfile
 ) -> str:
+    _ = threshold
     numbered_source = _complete_numbered_source(source_text_by_path)
     return (
         f"You are a strict {venue.reviewer_persona} paper reviewer checking only whether reader-facing "
@@ -374,24 +326,45 @@ def _review_prompt(
         "method detail rather than local machine or authoring environment "
         "configuration. If the paper "
         "actually studies infrastructure, require the manuscript to distinguish "
-        "the studied system from the authoring/review infrastructure. Return "
-        "strict JSON only with keys: verdict (PASS or FAIL), score_1_to_5 "
-        "(number), leak_free (boolean), checked_scope list containing title, "
-        "abstract, body, captions, tables, appendix, blocking_issues list, "
-        "major_issues list, evidence_spans list with source_path, line, quote, "
-        "why, section, revision_directives list with action/target/rationale/"
-        "expected_effect, and pass_or_revise as pass or revise. Quote source "
-        "text verbatim in evidence_spans. A PASS still requires at least three "
-        "evidence_spans from different inspected scopes that justify leak_free=true; "
-        "for each, quote a representative paper-facing sentence/table cell and "
-        "explain why it is research-method prose rather than local environment, "
-        "device, cache, route, or authoring configuration. Any reader-facing leak, any missing "
-        f"scope, or any score below {threshold:g} means revise. The source inventory "
+        "the studied system from the authoring/review infrastructure. Write a prose "
+        "review, not JSON. Order findings by severity; for every material finding give "
+        "the source path and line or section, quote the reader-facing evidence, and "
+        "suggest a concrete fix. If no leak is present, say so plainly. End with these "
+        "two tolerant named lines (semicolon-separate the inspected scopes):\n"
+        "LEAK_FREE=true or false\n"
+        "CHECKED_SCOPE=title; abstract; body; captions; tables; appendix\n"
+        "The source inventory "
         "below is complete and untruncated for the reviewed LaTeX files; if no "
         "appendix source appears, treat the appendix as absent rather than as an "
         "uninspected missing scope.\n\n"
         f"Complete numbered LaTeX sources:\n{numbered_source}"
     )
+
+
+def _parse_review_text(text: str) -> dict[str, Any]:
+    """Read two useful facts while preserving all reviewer prose verbatim."""
+    from ...core.role_reply import legacy_json_object, read_block, read_key_values, read_list
+
+    legacy = legacy_json_object(text)
+    if legacy is not None:
+        parsed = dict(legacy)
+    else:
+        keys = ("LEAK_FREE", "CHECKED_SCOPE")
+        values = read_key_values(text, keys)
+        checked_scope = read_block(text, "CHECKED_SCOPE", keys)
+        if checked_scope:
+            values["CHECKED_SCOPE"] = checked_scope
+        raw_leak_free = str(values.get("LEAK_FREE") or "").strip().casefold()
+        parsed = {
+            "leak_free": (
+                True if raw_leak_free in {"true", "yes"}
+                else False if raw_leak_free in {"false", "no"}
+                else None
+            ),
+            "checked_scope": list(read_list(values, "CHECKED_SCOPE")),
+        }
+    parsed["review_text"] = text
+    return parsed
 
 
 def _complete_numbered_source(source_text_by_path: Mapping[str, str]) -> str:
@@ -422,15 +395,6 @@ def _review_markdown(result: dict[str, Any]) -> str:
         f"- Leak free (reviewer model): `{result['leak_free']}`",
         "",
     ]
-    leak_findings = result.get("leak_findings")
-    if isinstance(leak_findings, list) and leak_findings:
-        lines.extend(["## Leak findings", ""])
-        for finding in leak_findings:
-            if isinstance(finding, dict):
-                lines.append(
-                    f"- `{finding.get('severity', 'unknown')}` {finding.get('message', '')}"
-                )
-        lines.append("")
     issues = result.get("issues")
     if isinstance(issues, list) and issues:
         lines.extend(["## Structural issues", ""])
@@ -438,18 +402,9 @@ def _review_markdown(result: dict[str, Any]) -> str:
             if isinstance(issue, dict):
                 lines.append(f"- `{issue.get('severity', 'unknown')}` {issue.get('message', '')}")
         lines.append("")
-    directives = result.get("revision_directives")
-    if isinstance(directives, list) and directives:
-        lines.extend(["## Revision directives", ""])
-        for directive in directives:
-            if not isinstance(directive, dict):
-                continue
-            lines.append(
-                f"- `{directive.get('action', 'revise')}` on "
-                f"`{directive.get('target', 'paper/main.tex')}`: "
-                f"{directive.get('rationale', '')}"
-            )
-        lines.append("")
+    review = result.get("model_review")
+    if isinstance(review, dict) and str(review.get("review_text") or "").strip():
+        lines.extend(["## Advisory infrastructure review", "", str(review["review_text"]), ""])
     return "\n".join(lines)
 
 
@@ -467,14 +422,7 @@ def _issue(
         "message": message,
         "target": target,
         "action": action,
-        "hard_gate": True,
     }
-
-
-def _dict_list(value: object) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-    return [item for item in value if isinstance(item, dict)]
 
 
 def _next_iteration(root: Path) -> int:

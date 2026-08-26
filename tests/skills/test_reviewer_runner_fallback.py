@@ -65,6 +65,8 @@ def test_fallback_uses_canonical_reviewer_config_and_timeout(
 
     assert raw == '{"accepted":true}'
     assert label == "runner:claude:claude-reviewer"
+    assert "answer in clear prose" in captured["prompt"]
+    assert "ONLY the single JSON" not in captured["prompt"]
     assert captured["backend_kwargs"] == {
         "backend": "claude",
         "runner_bin": "/opt/reviewer",

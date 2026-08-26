@@ -277,7 +277,6 @@ def generate_academic_language_review(
                 "missing_main_tex",
                 "blocking",
                 "paper/main.tex is missing; draft the paper before academic-language review",
-                hard_gate=True,
                 action="rewrite_introduction",
             )
         )
@@ -287,7 +286,6 @@ def generate_academic_language_review(
                 "missing_latex_source",
                 "blocking",
                 f"referenced LaTeX source {rel_path} is missing",
-                hard_gate=True,
                 action="rewrite_introduction",
                 target=rel_path,
             )
@@ -332,7 +330,6 @@ def generate_academic_language_review(
                     "blocking",
                     f"text reviewer could not review paper prose: "
                     f"{describe_reviewer_route_unavailable(exc, env)}",
-                    hard_gate=True,
                     action="rewrite_introduction",
                 )
             )
@@ -520,7 +517,6 @@ def _deterministic_assessment(tex_text: str, *, venue: VenueProfile) -> dict[str
                 "missing_abstract",
                 "major",
                 "paper needs a concise abstract with problem, gap, method, evidence, and so-what",
-                hard_gate=True,
                 action="rewrite_abstract",
             )
         )
@@ -535,7 +531,6 @@ def _deterministic_assessment(tex_text: str, *, venue: VenueProfile) -> dict[str
                     "weak_abstract_shape",
                     "major",
                     f"abstract has {sentence_count} sentence(s); target five evidence-backed sentences",
-                    hard_gate=True,
                     action="rewrite_abstract",
                 )
             )
@@ -548,7 +543,6 @@ def _deterministic_assessment(tex_text: str, *, venue: VenueProfile) -> dict[str
                     code,
                     "major",
                     message,
-                    hard_gate=True,
                     action="rewrite_abstract",
                 )
             )
@@ -572,7 +566,6 @@ def _deterministic_assessment(tex_text: str, *, venue: VenueProfile) -> dict[str
                 "missing_expected_section",
                 "major",
                 f"paper is missing an expected {section_key.replace('_', ' ')} section",
-                hard_gate=section_key in {"introduction", "experiments", "limitations"},
                 action=_missing_section_action(section_key),
             )
         )
@@ -607,7 +600,6 @@ def _deterministic_assessment(tex_text: str, *, venue: VenueProfile) -> dict[str
                     code,
                     "major",
                     message,
-                    hard_gate=True,
                     action="rewrite_introduction",
                 )
             )
@@ -627,7 +619,6 @@ def _deterministic_assessment(tex_text: str, *, venue: VenueProfile) -> dict[str
                     "or scoped comparator; name a mechanism only when the current "
                     "ablations isolate it"
                 ),
-                hard_gate=True,
                 action="tighten_contribution_sentence",
             )
         )
@@ -644,7 +635,6 @@ def _deterministic_assessment(tex_text: str, *, venue: VenueProfile) -> dict[str
                 code,
                 "major",
                 message,
-                hard_gate=True,
                 action="clarify_method_mechanism",
                 target="paper/main.tex",
             )
@@ -661,7 +651,6 @@ def _deterministic_assessment(tex_text: str, *, venue: VenueProfile) -> dict[str
                     code,
                     "major",
                     "opening uses generic template prose instead of problem-specific framing",
-                    hard_gate=True,
                     action="rewrite_introduction",
                 )
             )
@@ -684,7 +673,6 @@ def _deterministic_assessment(tex_text: str, *, venue: VenueProfile) -> dict[str
                     f"paper uses hype/superlative language {len(matches)} time(s); "
                     f"calibrate claims at {match_summary}"
                 ),
-                hard_gate=len(matches) > 1,
                 action="replace_hype_language",
                 target=_line_target(match_spans),
                 evidence_spans=match_spans,
@@ -700,7 +688,6 @@ def _deterministic_assessment(tex_text: str, *, venue: VenueProfile) -> dict[str
                 "placeholder_text_remaining",
                 "blocking",
                 "paper still contains TODO/TBD/placeholder text",
-                hard_gate=True,
                 action="delete_filler",
             )
         )
@@ -714,7 +701,6 @@ def _deterministic_assessment(tex_text: str, *, venue: VenueProfile) -> dict[str
                 "code_like_display_label",
                 "major",
                 f"display prose contains code-like labels: {', '.join(sorted(code_labels)[:4])}",
-                hard_gate=True,
                 action="rename_code_like_label",
             )
         )
@@ -728,7 +714,6 @@ def _deterministic_assessment(tex_text: str, *, venue: VenueProfile) -> dict[str
                 "missing_quantified_evidence_claim",
                 "major",
                 "paper needs at least one quantified result tied to the headline claim",
-                hard_gate=True,
                 action="add_evidence_sentence",
             )
         )
@@ -804,7 +789,7 @@ def _run_model_review(
             raw_text = _parse_chat_text(data)
     if not raw_text:
         raise AcademicLanguageReviewError("reviewer model returned no text")
-    parsed = _parse_json_object_from_text(raw_text)
+    parsed = _parse_review_text(raw_text)
     parsed["raw_review_text"] = raw_text
     parsed["model"] = review_model
     parsed["endpoint"] = endpoint
@@ -914,9 +899,7 @@ def _review_prompt(
         "abstract and introduction and pay it off in the analysis. Reject papers "
         "whose sections read as parallel unconnected experiments, whose "
         "contribution is only 'we ran X on Y', or where no single sentence could "
-        "name what the paper is about; record such failures under the "
-        "central_thesis_and_stated_insight check and the "
-        "idea_centrality_and_insight score. "
+        "name what the paper is about. "
         "Evidence spans are reviewer-internal audit artifacts: do not ask "
         "authors to paste source paths, appendix/figure references, validation-gate "
         "vocabulary, or evidence quotes into the abstract to satisfy this review. Reject "
@@ -984,35 +967,21 @@ def _review_prompt(
         "the core claim need not be reported. A scoped reframing is valid only when "
         "the scenario, mechanism, and contribution are supported by the paper's own "
         "evidence or cited literature — never imply untested superiority. On an "
-        "unsupported concession or an over-broad claim, emit `scope_claim_to_regime` "
-        "and/or `add_boundary_analysis` directives rather than telling the author to "
-        "delete the losing comparison. "
-        "Make revision guidance stable: emit at most one "
-        "revision directive per section/action pair. If the Introduction fails for "
+        "unsupported concession or an over-broad claim, recommend scoping the claim "
+        "to the supported regime and adding boundary analysis rather than telling the "
+        "author to delete the losing comparison. "
+        "Make revision guidance stable: give at most one suggested repair per section. "
+        "If the Introduction fails for "
         "problem/gap/contribution, quantified preview, contribution framing, or claim "
-        "calibration, provide one coherent `rewrite_introduction` directive targeted "
-        "at `Introduction` with a paragraph-level repair plan, rather than separate "
-        "rewrite/calibrate/tighten directives that cause local edit oscillation. "
-        "Calibrate severity tightly: `blocking_issues`, "
-        "`major_issues`, and `revision_directives` are for problems that should keep "
-        "the paper from passing this gate. Do not list optional polish, minor wording "
-        "preferences, or already-contained caveats as major issues once the score is "
-        f"at least {threshold:g}, every required check is true, evidence spans are "
-        "present, and no unsupported headline claim remains; in that case set "
-        "`pass_or_revise` to `pass` and leave those three lists empty. Return strict JSON only "
-        "with keys: score_1_to_5 (number), section_scores object containing exactly "
-        f"{list(SECTION_SCORE_KEYS)}, required_checks object containing exactly "
-        f"{list(REQUIRED_CHECK_KEYS)}, evidence_spans list with at least one entry for "
-        "each section score (source_path, line, quote, why, section), blocking_issues "
-        "list, major_issues list, revision_directives list with action/target/rationale/"
-        "expected_effect (for underperformance versus a baseline prefer the "
-        "`scope_claim_to_regime` and `add_boundary_analysis` actions over deleting "
-        "the comparison), and pass_or_revise as pass or revise. A score below "
-        f"{threshold:g}, any missing evidence span, or any unsupported headline claim "
-        "means revise. Quote source text verbatim in evidence_spans, but choose "
-        "reader-facing prose or caption sentences rather than LaTeX boilerplate, "
-        "preamble lines, table syntax, `\\begin`/`\\end`, `\\includegraphics`, "
-        "or source comments.\n\n"
+        "calibration, provide one coherent paragraph-level Introduction repair plan, "
+        "rather than separate micro-edits that cause local oscillation. "
+        "Calibrate severity tightly: distinguish publication-blocking defects from optional "
+        "polish and minor wording preferences. Write a prose review, not JSON. Order findings "
+        "by severity; for each material finding give the source path and line or section, quote "
+        "the reader-facing evidence, and suggest a concrete fix. For underperformance versus a "
+        "baseline, prefer scoping the claim and adding boundary analysis over deleting the "
+        "comparison. If no material defect remains, say so plainly. The review is advisory to "
+        "the agent checklist. Do not quote LaTeX boilerplate or comments as evidence.\n\n"
         f"Deterministic signals:\n{json.dumps(deterministic, ensure_ascii=False)[:7000]}\n\n"
         f"Reviewer source context:\n{source_context}"
     )
@@ -1053,22 +1022,13 @@ def _frontiers_sleep_review_prompt(
         "paths. Reject unsupported efficacy, treatment, generalization, priority, or "
         "causal claims. Do not ask the authors to paste validation vocabulary, source "
         "paths, evidence quotes, or defensive audit prose into the manuscript.\n\n"
-        "Calibrate severity tightly. Blocking/major issues and revision directives are "
-        "only for defects that prevent publication-quality language or honest scientific "
-        "interpretation. At most one directive per section/action pair; give a coherent "
-        "paragraph-level repair plan rather than oscillating micro-edits. If the score is "
-        f"at least {threshold:g}, all required checks pass, evidence spans are present, "
-        "and no unsupported headline claim remains, set pass_or_revise to pass and leave "
-        "blocking_issues, major_issues, and revision_directives empty.\n\n"
-        "Return strict JSON only with keys: score_1_to_5 (number), section_scores "
-        f"object containing exactly {list(SECTION_SCORE_KEYS)}, required_checks object "
-        f"containing exactly {list(REQUIRED_CHECK_KEYS)}, evidence_spans list with at "
-        "least one entry for each section score (source_path, line, quote, why, section), "
-        "blocking_issues list, major_issues list, revision_directives list with "
-        "action/target/rationale/expected_effect, and pass_or_revise as pass or revise. "
-        f"A score below {threshold:g}, any missing evidence span, or any unsupported "
-        "headline claim means revise. Quote reader-facing source text verbatim, not "
-        "LaTeX boilerplate or comments.\n\n"
+        "Calibrate severity tightly. Separate publication-blocking defects from optional "
+        "polish, and give one coherent paragraph-level repair plan instead of oscillating "
+        "micro-edits. Write a prose review, not JSON. Order findings by severity; for each "
+        "material finding give the source path and line or section, quote the reader-facing "
+        "evidence, and suggest a concrete fix. If no material defect remains, say so plainly. "
+        "The review is advisory to the agent checklist. Do not quote LaTeX boilerplate or "
+        "comments as evidence.\n\n"
         f"Deterministic signals:\n"
         f"{json.dumps(deterministic, ensure_ascii=False)[:7000]}\n\n"
         f"Reviewer source context:\n{source_context}"
@@ -1117,7 +1077,6 @@ def _issue(
     severity: str,
     message: str,
     *,
-    hard_gate: bool = False,
     action: str = "calibrate_claim",
     target: str | None = None,
     evidence_spans: list[dict[str, Any]] | None = None,
@@ -1128,8 +1087,6 @@ def _issue(
         "message": message,
         "action": _normalize_action(action) or "calibrate_claim",
     }
-    if hard_gate:
-        issue["hard_gate"] = True
     if target:
         issue["target"] = target
     if evidence_spans:
@@ -1934,24 +1891,14 @@ def _truncate_text_preserving_tail(text: str, limit: int, tail_budget: int) -> s
     return f"{head}{marker}{tail}"
 
 
-def _parse_json_object_from_text(text: str) -> dict[str, Any]:
-    stripped = text.strip()
-    if stripped.startswith("```"):
-        stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
-        stripped = re.sub(r"\s*```$", "", stripped)
-    try:
-        value = json.loads(stripped)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", stripped, re.S)
-        if match is None:
-            raise AcademicLanguageReviewError("review text did not contain a JSON object")
-        try:
-            value = json.loads(match.group(0))
-        except json.JSONDecodeError as exc:
-            raise AcademicLanguageReviewError(f"review JSON was invalid: {exc.msg}") from exc
-    if not isinstance(value, dict):
-        raise AcademicLanguageReviewError("review JSON must be an object")
-    return value
+def _parse_review_text(text: str) -> dict[str, Any]:
+    """Preserve an ordinary review; accept volunteered legacy JSON without requiring it."""
+    from ...core.role_reply import legacy_json_object
+
+    legacy = legacy_json_object(text)
+    parsed = dict(legacy) if legacy is not None else {}
+    parsed["review_text"] = text
+    return parsed
 
 
 def _review_markdown(result: dict[str, Any]) -> str:
@@ -1990,6 +1937,9 @@ def _review_markdown(result: dict[str, Any]) -> str:
                 continue
             lines.append(f"- `{issue.get('severity', 'unknown')}` {issue.get('message', '')}")
         lines.append("")
+    review = result.get("model_review")
+    if isinstance(review, dict) and str(review.get("review_text") or "").strip():
+        lines.extend(["## Advisory language review", "", str(review["review_text"]), ""])
     return "\n".join(lines)
 
 

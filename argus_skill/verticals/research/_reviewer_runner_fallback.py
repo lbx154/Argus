@@ -1,8 +1,8 @@
 """In-fleet agent-runner fallback for the text reviewer gates.
 
-The ``paper_infrastructure_review`` and ``academic_language_review`` gates ask a
-strict reviewer *model* to inspect manuscript PROSE (never figures) and return a
-JSON verdict. Historically they required an OpenAI-compatible ``reviewer`` model
+The ``paper_infrastructure_review`` and ``academic_language_review`` tools ask a
+reviewer *model* to inspect manuscript PROSE (never figures) and return an
+advisory review. Historically they required an OpenAI-compatible ``reviewer`` model
 API route (api_key + base_url + model). On fleets that drive their agents through
 an agent-CLI runner (e.g. copilot) instead of a raw model-API vault, that route
 is often unconfigured, which hard-blocked the paper at ``model_review_unavailable``.
@@ -44,11 +44,11 @@ _EFFORT_ENV = "ARGUS_SKILL_REVIEWER_REASONING_EFFORT"
 _TRUE_TOKENS = {"1", "true", "yes", "on"}
 
 _RUNNER_PREAMBLE = (
-    "You are running as a strict, independent academic paper reviewer. Follow "
-    "the review instructions below EXACTLY. Reply with ONLY the single JSON "
-    "object the instructions request — no prose before or after, no Markdown "
-    "code fence, and do NOT call any tools or run any commands. Base your "
-    "verdict solely on the manuscript text supplied in the instructions.\n\n"
+    "You are running as an independent academic paper reviewer. Follow the "
+    "review instructions below and answer in clear prose. Put material findings "
+    "in severity order, with a location, evidence, and suggested fix for each. "
+    "Finish with any short named lines the review instructions request. Do not "
+    "call tools or run commands; base the review solely on the supplied manuscript.\n\n"
 )
 
 
@@ -96,7 +96,7 @@ def run_reviewer_prompt_via_runner(
     """Run the reviewer PROMPT through the fleet agent-CLI runner.
 
     Returns ``(raw_text, model_label)`` where ``raw_text`` is the model's reply
-    (expected to be the reviewer JSON object) and ``model_label`` records which
+    and ``model_label`` records which
     runner/model produced it. Raises on any failure so the caller can fall back
     to the historic ``model_review_unavailable`` block.
     """

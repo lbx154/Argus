@@ -566,7 +566,6 @@ def _deterministic_assessment(
                     f"research.md requires no Overfull \\hbox > "
                     f"{MAX_RESEARCH_MD_OVERFULL_HBOX_PT:g}pt"
                 ),
-                hard_gate=True,
                 action="fix_overfull_box",
             )
         )
@@ -578,7 +577,6 @@ def _deterministic_assessment(
                 "appendix_before_references",
                 "major",
                 "references appear after appendix material",
-                hard_gate=True,
                 action="fix_bibliography_appendix_order",
             )
         )
@@ -594,7 +592,6 @@ def _deterministic_assessment(
                     f"mostly blank or push Conclusion to page {venue.conclusion_max_page + 1}; rebalance body content and "
                     "floats instead of forcing the section break"
                 ),
-                hard_gate=True,
                 action="rebalance_columns",
                 target="pre-Conclusion page break",
             )
@@ -664,8 +661,8 @@ def _deterministic_assessment(
     ):
         # Advisory, not a gate. The venue page count is a *limit*, not a quota:
         # a complete, well-argued paper that ends early is not deficient for
-        # ending early. This used to carry hard_gate=True, which rejected short
-        # papers on arithmetic and pushed authors to pad the body. Reviewers
+        # ending early. Earlier harness scoring rejected short papers on
+        # arithmetic and pushed authors to pad the body. Reviewers
         # should block only when a page count that low means something material
         # is actually missing — which they judge by reading the paper, not from
         # this signal.
@@ -702,7 +699,6 @@ def _deterministic_assessment(
                     "body material to the appendix or tighten prose without deleting evidence"
                 ),
                 page=conclusion_page,
-                hard_gate=True,
                 action="trim_or_move_content",
                 target=f"page {conclusion_page} late Conclusion",
             )
@@ -785,7 +781,6 @@ def _deterministic_assessment(
                         )
                     ),
                     page=references_page,
-                    hard_gate=True,
                     action="fix_reference_boundary",
                     target=f"page {references_page} References boundary",
                 )
@@ -806,7 +801,6 @@ def _deterministic_assessment(
                         "expand from verified evidence instead of padding"
                     ),
                     page=references_page,
-                    hard_gate=True,
                     action="expand_evidence_content",
                     target=f"page {references_page} early References",
                 )
@@ -826,7 +820,6 @@ def _deterministic_assessment(
                     f"content until References naturally start on page {venue.references_min_page} or later"
                 ),
                 page=references_page,
-                hard_gate=True,
                 action="expand_evidence_content",
                 target="pre-References page break",
             )
@@ -842,7 +835,6 @@ def _deterministic_assessment(
                     "major",
                     f"page {stat['page']} contains {stat['table_captions']} table captions",
                     page=stat["page"],
-                    hard_gate=True,
                     action="split_table",
                 )
             )
@@ -854,7 +846,6 @@ def _deterministic_assessment(
                     "major",
                     f"page {stat['page']} contains {stat['table_captions']} table captions",
                     page=stat["page"],
-                    hard_gate=True,
                     action="move_float",
                 )
             )
@@ -866,7 +857,6 @@ def _deterministic_assessment(
                     "major",
                     f"page {stat['page']} contains {stat['float_captions']} figure/table captions",
                     page=stat["page"],
-                    hard_gate=True,
                     action="move_float",
                 )
             )
@@ -878,7 +868,6 @@ def _deterministic_assessment(
                     "major",
                     f"page {stat['page']} is dominated by captions/floats rather than readable prose",
                     page=stat["page"],
-                    hard_gate=True,
                     action="move_float",
                 )
             )
@@ -899,7 +888,10 @@ def _deterministic_assessment(
         "float_balance": max(1.0, 5.0 - sum(1.0 for issue in issues if "float" in issue["code"])),
         "table_readability": max(1.0, 5.0 - sum(0.8 for issue in issues if "table" in issue["code"])),
         "typography": max(1.0, 5.0 - sum(0.6 for issue in issues if issue["code"] in {"tiny_table_or_caption_font", "severe_overfull_hbox"})),
-        "page_flow": max(1.0, 5.0 - sum(0.8 for issue in issues if issue.get("hard_gate"))),
+        "page_flow": max(
+            1.0,
+            5.0 - sum(0.8 for issue in issues if issue.get("severity") == "blocking"),
+        ),
     }
     return {
         "score_1_to_5": round(score, 2),
@@ -995,7 +987,7 @@ def _run_vision_review(
         raw_text = _parse_chat_text(data)
     if not raw_text:
         raise LayoutReviewError("vision model returned no text")
-    parsed = _parse_json_object_from_text(raw_text)
+    parsed = _parse_review_text(raw_text)
     parsed["raw_review_text"] = raw_text
     parsed["model"] = route.model
     parsed["endpoint"] = endpoint
@@ -1039,7 +1031,6 @@ def _venue_neutral_signals(deterministic: dict[str, Any]) -> dict[str, Any]:
 def _vision_prompt(
     *, deterministic: dict[str, Any], threshold: float, venue: VenueProfile
 ) -> str:
-    allowed_actions = ", ".join(sorted(ALLOWED_DIRECTIVE_ACTIONS))
     if venue.key == "EMNLP":
         # EMNLP keeps a venue-specific literal; policy changes intentionally
         # invalidate the persisted prompt/input hashes.
@@ -1075,12 +1066,10 @@ def _vision_prompt(
             "cause, concrete source edits, visual goal, and verification steps. Do not ask the "
             "author to pad the manuscript to resemble an exemplar or to move References to an "
             "arbitrary page.\n\n"
-            "Return strict JSON only with score_1_to_5, criteria_scores, blocking_issues, "
-            "major_issues, revision_directives, and pass_or_revise. Issue objects must include "
-            "issue, page, target, visual_evidence, action, and guidance; guidance must include "
-            "root_cause, source_targets, specific_edits, visual_goal, and verification. "
-            f"Allowed action values: {allowed_actions}. A score below {threshold:g} or any "
-            "major visual defect means revise.\n\n"
+            "Write a prose review, not JSON. Order material findings by severity. For each "
+            "finding give the page or visual target, the evidence visible in the rendering, "
+            "and a concrete source-level fix with a verification step. If there is no material "
+            "defect, say so plainly. This review is advisory to the agent checklist.\n\n"
             f"Deterministic layout signals:\n"
             f"{json.dumps(deterministic, ensure_ascii=False)[:6000]}"
         )
@@ -1166,16 +1155,10 @@ def _vision_prompt(
         "captions with numerical headlines, readable research-style tables, adaptive/landscape "
         "conceptual figures rather than cramped squares, and no weird fonts, tiny labels, heavy "
         "gradients, photorealism, or code-like labels in paper-facing visuals.\n\n"
-        "Return strict JSON only, no markdown. Use this schema: score_1_to_5 (number), "
-        "criteria_scores object with typography/table_readability/float_balance/page_flow/"
-        "figure_quality/submission_standardness, blocking_issues list, major_issues list, "
-        "revision_directives list, and pass_or_revise as pass or revise. Each blocking_issues and "
-        "major_issues item must be an object with issue, page, target, visual_evidence, action, and "
-        "guidance. The guidance object must include root_cause, source_targets, specific_edits, "
-        "visual_goal, and verification. Each revision_directives item must have action, target, "
-        "rationale, expected_effect, and implementation_guidance with the same concrete fields. "
-        f"Allowed action values: {allowed_actions}. A score below {threshold:g} or any major "
-        "visual defect means revise.\n\n"
+        "Write a prose review, not JSON. Order material findings by severity. For every finding, "
+        "name the page or target, cite the visible evidence, and suggest a concrete source-level "
+        "fix plus a verification step. If no material defect remains, say so plainly. The review "
+        "is advisory to the agent checklist.\n\n"
         f"Deterministic layout signals:\n{json.dumps(deterministic, ensure_ascii=False)[:6000]}"
     )
 
@@ -1184,7 +1167,6 @@ def _vision_prompt_emnlp_literal(
     *, deterministic: dict[str, Any], threshold: float
 ) -> str:
     """Build the EMNLP-specific visual-review prompt."""
-    allowed_actions = ", ".join(sorted(ALLOWED_DIRECTIVE_ACTIONS))
     return (
         "Role: You are an independent visual reviewer for an EMNLP 2026 paper that is being "
         "prepared for submission. Your job is to judge the rendered PDF screenshots as a polished, "
@@ -1262,16 +1244,10 @@ def _vision_prompt_emnlp_literal(
         "captions with numerical headlines, readable research-style tables, adaptive/landscape "
         "conceptual figures rather than cramped squares, and no weird fonts, tiny labels, heavy "
         "gradients, photorealism, or code-like labels in paper-facing visuals.\n\n"
-        "Return strict JSON only, no markdown. Use this schema: score_1_to_5 (number), "
-        "criteria_scores object with typography/table_readability/float_balance/page_flow/"
-        "figure_quality/submission_standardness, blocking_issues list, major_issues list, "
-        "revision_directives list, and pass_or_revise as pass or revise. Each blocking_issues and "
-        "major_issues item must be an object with issue, page, target, visual_evidence, action, and "
-        "guidance. The guidance object must include root_cause, source_targets, specific_edits, "
-        "visual_goal, and verification. Each revision_directives item must have action, target, "
-        "rationale, expected_effect, and implementation_guidance with the same concrete fields. "
-        f"Allowed action values: {allowed_actions}. A score below {threshold:g} or any major "
-        "visual defect means revise.\n\n"
+        "Write a prose review, not JSON. Order material findings by severity. For every finding, "
+        "name the page or target, cite the visible evidence, and suggest a concrete source-level "
+        "fix plus a verification step. If no material defect remains, say so plainly. The review "
+        "is advisory to the agent checklist.\n\n"
         f"Deterministic layout signals:\n{json.dumps(deterministic, ensure_ascii=False)[:6000]}"
     )
 
@@ -1290,7 +1266,6 @@ def _issue(
     message: str,
     *,
     page: int | None = None,
-    hard_gate: bool = False,
     action: str = "rebalance_columns",
     target: str | None = None,
 ) -> dict[str, Any]:
@@ -1302,8 +1277,6 @@ def _issue(
     }
     if page is not None:
         issue["page"] = page
-    if hard_gate:
-        issue["hard_gate"] = True
     if target:
         issue["target"] = target
     return issue
@@ -1376,24 +1349,14 @@ def _forced_break_before_references(tex_text: str) -> bool:
     )
 
 
-def _parse_json_object_from_text(text: str) -> dict[str, Any]:
-    stripped = text.strip()
-    if stripped.startswith("```"):
-        stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
-        stripped = re.sub(r"\s*```$", "", stripped)
-    try:
-        value = json.loads(stripped)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", stripped, re.S)
-        if match is None:
-            raise LayoutReviewError("vision review did not contain a JSON object")
-        try:
-            value = json.loads(match.group(0))
-        except json.JSONDecodeError as exc:
-            raise LayoutReviewError(f"vision review JSON was invalid: {exc.msg}") from exc
-    if not isinstance(value, dict):
-        raise LayoutReviewError("vision review JSON must be an object")
-    return value
+def _parse_review_text(text: str) -> dict[str, Any]:
+    """Preserve an ordinary review; accept volunteered legacy JSON without requiring it."""
+    from ...core.role_reply import legacy_json_object
+
+    legacy = legacy_json_object(text)
+    parsed = dict(legacy) if legacy is not None else {}
+    parsed["review_text"] = text
+    return parsed
 
 
 def _layout_review_markdown(result: dict[str, Any]) -> str:
@@ -1421,6 +1384,9 @@ def _layout_review_markdown(result: dict[str, Any]) -> str:
             page = f" page {issue['page']}:" if "page" in issue else ""
             lines.append(f"- `{issue.get('severity', 'unknown')}`{page} {issue.get('message', '')}")
         lines.append("")
+    review = result.get("vision_review")
+    if isinstance(review, dict) and str(review.get("review_text") or "").strip():
+        lines.extend(["## Advisory visual review", "", str(review["review_text"]), ""])
     return "\n".join(lines)
 
 

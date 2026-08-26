@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from argus_skill.verticals.research.paper_layout_review import (
     _deterministic_assessment,
+    _parse_review_text,
     _vision_prompt,
 )
 from argus_skill.verticals.research.venue_profiles import AAAI_PROFILE, EMNLP_PROFILE
@@ -77,6 +78,15 @@ def test_figure_review_uses_good_enough_non_looping_standard() -> None:
     assert "good-looking-enough" in prompt
     assert "at most one targeted aesthetic repair" in prompt
     assert "Optional renderer metadata may help" in prompt
+    assert "Write a prose review, not JSON" in prompt
+    assert "score_1_to_5" not in prompt
+    assert "criteria_scores" not in prompt
+
+
+def test_layout_review_preserves_unstructured_prose() -> None:
+    raw = "Blocking — page 3, Table 2 overlaps text. Split the table and recompile."
+
+    assert _parse_review_text(raw) == {"review_text": raw}
 
 
 def test_top_level_heading_detection_ignores_abstract_conclusion_label() -> None:

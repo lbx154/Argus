@@ -7,7 +7,10 @@ advisory (no-hard-floor) abstract policy, and the 7-page body budget.
 """
 from __future__ import annotations
 
-from argus_skill.verticals.research.academic_language_review import _review_prompt
+from argus_skill.verticals.research.academic_language_review import (
+    _parse_review_text,
+    _review_prompt,
+)
 from argus_skill.verticals.research.venue_profiles import AAAI_PROFILE, EMNLP_PROFILE
 
 _SRC = {"paper/main.tex": "x"}
@@ -38,3 +41,18 @@ def test_aaai_prompt_is_venue_correct() -> None:
     # AAAI 7-page body budget, not the ACL eight-page one.
     assert "7-page body budget" in p
     assert "eight-page body budget" not in p
+
+
+def test_language_prompt_requests_prose_without_schema_ceremony() -> None:
+    prompt = _prompt(EMNLP_PROFILE)
+
+    assert "Write a prose review, not JSON" in prompt
+    assert "score_1_to_5" not in prompt
+    assert "section_scores object" not in prompt
+    assert "revision_directives list" not in prompt
+
+
+def test_language_review_preserves_unstructured_prose() -> None:
+    raw = "Major — Introduction, line 12: the claim is unsupported. Cite the result."
+
+    assert _parse_review_text(raw) == {"review_text": raw}
