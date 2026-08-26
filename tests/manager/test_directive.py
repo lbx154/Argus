@@ -8,9 +8,11 @@ import pytest
 
 from argus_skill.manager.directive import (
     ACTIVE_MANAGER_DIRECTIVE_FILENAME,
-    ACTIVE_MANAGER_DIRECTIVE_PREFIX,
+    STEERING_HEADER,
+    STEERING_LEDGER_FILENAME,
     active_manager_directive_message,
     active_operator_question_policy,
+    append_steering_directive,
     clear_active_manager_directive,
     load_active_manager_directive,
     set_active_manager_directive,
@@ -24,18 +26,30 @@ def _set_objective(root: Path, objective: str) -> None:
     )
 
 
-def test_directive_persists_until_replaced_or_cleared(tmp_path: Path) -> None:
+def test_directives_accumulate_until_explicitly_retracted(tmp_path: Path) -> None:
     _set_objective(tmp_path, "prove the theorem")
 
     first = set_active_manager_directive(tmp_path, "stop row-by-row work")
     assert load_active_manager_directive(tmp_path) == first
-    assert active_manager_directive_message(tmp_path) == (
-        ACTIVE_MANAGER_DIRECTIVE_PREFIX + "stop row-by-row work"
-    )
+    assert STEERING_HEADER in active_manager_directive_message(tmp_path)
+    assert "stop row-by-row work" in active_manager_directive_message(tmp_path)
 
     second = set_active_manager_directive(tmp_path, "use a structural batch")
     assert second.revision != first.revision
     assert load_active_manager_directive(tmp_path) == second
+    standing = active_manager_directive_message(tmp_path)
+    assert standing.index("use a structural batch") < standing.index(
+        "stop row-by-row work"
+    )
+    records = [
+        json.loads(line)
+        for line in (tmp_path / STEERING_LEDGER_FILENAME).read_text().splitlines()
+    ]
+    assert [row["text"] for row in records if row["kind"] == "directive"] == [
+        "stop row-by-row work",
+        "use a structural batch",
+    ]
+    assert all("timestamp" in row for row in records)
 
     assert clear_active_manager_directive(tmp_path) is True
     assert clear_active_manager_directive(tmp_path) is False
@@ -50,6 +64,43 @@ def test_directive_is_scoped_to_the_objective(tmp_path: Path) -> None:
 
     assert load_active_manager_directive(tmp_path) is None
     assert (tmp_path / ACTIVE_MANAGER_DIRECTIVE_FILENAME).exists()
+    standing = active_manager_directive_message(tmp_path)
+    assert "first-objective policy" in standing
+    assert "OBJECTIVE.md changed on" in standing
+
+
+def test_inbox_retract_retires_matching_directive_only(tmp_path: Path) -> None:
+    _set_objective(tmp_path, "prove the theorem")
+    append_steering_directive(tmp_path, "keep the proof structural")
+    append_steering_directive(tmp_path, "run the focused verifier")
+
+    append_steering_directive(tmp_path, "retract: focused verifier")
+
+    standing = active_manager_directive_message(tmp_path)
+    assert "keep the proof structural" in standing
+    assert "run the focused verifier" not in standing
+    records = [
+        json.loads(line)
+        for line in (tmp_path / STEERING_LEDGER_FILENAME).read_text().splitlines()
+    ]
+    assert records[-1]["kind"] == "retraction"
+    assert records[-1]["retired_ids"]
+
+
+def test_standing_render_is_newest_first_and_budget_capped(tmp_path: Path) -> None:
+    _set_objective(tmp_path, "prove the theorem")
+    for index in range(12):
+        append_steering_directive(
+            tmp_path,
+            f"directive-{index:02d} " + ("x" * 450),
+        )
+
+    standing = active_manager_directive_message(tmp_path)
+
+    assert len(standing) <= 4000
+    assert "directive-11" in standing
+    assert "directive-00" not in standing
+    assert standing.index("directive-11") < standing.index("directive-10")
 
 
 def test_empty_directive_is_rejected(tmp_path: Path) -> None:
@@ -285,7 +336,8 @@ def test_concurrent_replacement_steer_is_stale_and_not_queued(
     ).hexdigest()
     assert payload["authorized_objective"] == "authorized standing objective"
     assert load_active_manager_directive(tmp_path) is None
-    assert not (tmp_path / "inbox.jsonl").exists()
+    assert (tmp_path / "inbox.jsonl").exists()
+    assert "steer objective A" in active_manager_directive_message(tmp_path)
     assert chat_state["config"]["continuous"] is True
     assert chat_state["continuous_objective"] == "objective B"
 
@@ -377,7 +429,11 @@ def test_unchanged_policy_inheritance_stays_bound_to_captured_objective(
         )
         == "unchanged"
     )
-    assert not (tmp_path / "inbox.jsonl").exists()
+    assert (tmp_path / "inbox.jsonl").exists()
+    standing = active_manager_directive_message(tmp_path)
+    assert "objective A policy" in standing
+    assert "continue the captured objective" in standing
+    assert "OBJECTIVE.md changed on" in standing
 
 
 def test_directive_write_failure_happens_before_standing_cas(

@@ -45,16 +45,18 @@ def _engineer_guidance(
     from ..skills.stage_machine import current_stage
     from ._inbox import drain_inbox_messages
 
+    transient = drain_inbox_messages(
+        state_root,
+        current_stage=current_stage(workdir),
+    )
+    from ..manager.directive import record_operator_messages
+
+    record_operator_messages(state_root, transient)
     messages: list[str] = []
     active_directive = active_manager_directive_message(state_root)
     if active_directive:
         messages.append(active_directive)
-    messages.extend(
-        drain_inbox_messages(
-            state_root,
-            current_stage=current_stage(workdir),
-        )
-    )
+    messages.extend(transient)
     return list(dict.fromkeys(messages))
 
 

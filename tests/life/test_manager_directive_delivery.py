@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from argus_skill.apps._inbox import queue_inbox_message
 from argus_skill.apps._runtime_execute import _engineer_guidance
 from argus_skill.core.models import ReviewDecision, RunnerResult
 from argus_skill.engineer.round_config import SupervisedConfig
@@ -10,12 +11,15 @@ from argus_skill.engineer.round_reviewer import RoundReviewerMixin
 from argus_skill.engineer.round_state import RoundLoopState
 from argus_skill.life.memory import LifeMemory
 from argus_skill.life.supervisor._constants import PLAN_ERROR
+from argus_skill.life.supervisor._mission_execution_runtime import (
+    MissionExecutionRuntimeMixin,
+)
 from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
 from argus_skill.life.supervisor._planning_cycle_intake import (
     PlanningCycleIntakeMixin,
 )
 from argus_skill.manager.directive import (
-    ACTIVE_MANAGER_DIRECTIVE_PREFIX,
+    STEERING_HEADER,
     set_active_manager_directive,
 )
 
@@ -65,10 +69,9 @@ def test_active_directive_reaches_each_planning_cycle(tmp_path: Path) -> None:
             }
         )
         assert supervisor._pc_intake_gate(state) == PLAN_ERROR
-        assert state.operator_messages == [
-            ACTIVE_MANAGER_DIRECTIVE_PREFIX
-            + "do not schedule one-row missions"
-        ]
+        assert len(state.operator_messages) == 1
+        assert STEERING_HEADER in state.operator_messages[0]
+        assert "do not schedule one-row missions" in state.operator_messages[0]
 
 
 def test_active_directive_reaches_each_engineer_round(tmp_path: Path) -> None:
@@ -78,12 +81,53 @@ def test_active_directive_reaches_each_engineer_round(tmp_path: Path) -> None:
     first = _engineer_guidance(tmp_path, tmp_path)
     second = _engineer_guidance(tmp_path, tmp_path)
 
-    expected = (
-        ACTIVE_MANAGER_DIRECTIVE_PREFIX
-        + "batch the unresolved frontier"
+    assert len(first) == len(second) == 1
+    assert first == second
+    assert STEERING_HEADER in first[0]
+    assert "batch the unresolved frontier" in first[0]
+
+
+def test_new_inbox_messages_accumulate_in_standing_engineer_guidance(
+    tmp_path: Path,
+) -> None:
+    _set_objective(tmp_path)
+    queue_inbox_message(tmp_path, "keep the invariant", source="test")
+    first = _engineer_guidance(tmp_path, tmp_path)
+    queue_inbox_message(tmp_path, "also run the public check", source="test")
+    second = _engineer_guidance(tmp_path, tmp_path)
+
+    assert "keep the invariant" in first[0]
+    assert "also run the public check" in second[0]
+    assert "keep the invariant" in second[0]
+    assert second[0].index("also run the public check") < second[0].index(
+        "keep the invariant"
     )
-    assert first == [expected]
-    assert second == [expected]
+
+
+def test_standing_steering_reaches_every_mission_prelude(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    from argus_skill.life.memory import BacklogItem
+
+    _set_objective(tmp_path)
+    set_active_manager_directive(tmp_path, "preserve the public contract")
+
+    class Harness(MissionExecutionRuntimeMixin):
+        def __init__(self) -> None:
+            self.memory = LifeMemory.open(tmp_path)
+            self.config = SimpleNamespace(runtime_context="")
+
+        @staticmethod
+        def _render_backlog_item_metadata(_item) -> str:
+            return ""
+
+    item = BacklogItem.new(title="mission", objective="implement the change")
+    first = Harness()._build_mission_prelude(item)
+    second = Harness()._build_mission_prelude(item)
+
+    assert STEERING_HEADER in first
+    assert "preserve the public contract" in first
+    assert first == second
 
 
 def test_active_directive_reaches_reviewer(tmp_path: Path) -> None:
@@ -126,6 +170,7 @@ def test_active_directive_reaches_reviewer(tmp_path: Path) -> None:
     )
 
     assert result.status == "done"
-    assert harness.reviewer.kwargs["operator_messages"] == [
-        ACTIVE_MANAGER_DIRECTIVE_PREFIX + "review the replacement target"
-    ]
+    delivered = harness.reviewer.kwargs["operator_messages"]
+    assert len(delivered) == 1
+    assert STEERING_HEADER in delivered[0]
+    assert "review the replacement target" in delivered[0]

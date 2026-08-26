@@ -108,6 +108,12 @@ class IdleCycleMixin:
             if text:
                 out.append(text)
         if out:
+            try:
+                from ...manager.directive import record_operator_messages
+
+                record_operator_messages(self.memory.root, out)
+            except Exception:  # noqa: BLE001 - inbox delivery remains fail-soft
+                log.exception("could not persist operator steering ledger")
             self._emit({
                 "type": EventType.LIFE_INBOX_DRAINED,
                 "count": len(out),

@@ -956,7 +956,7 @@ def test_manager_steer_persists_high_priority_live_directive(
         json.loads(line)
         for line in (life / "inbox.jsonl").read_text().splitlines()
     ]
-    assert "MANAGER STEERING" in inbox[-1]["text"]
+    assert "Operator steering (standing)" in inbox[-1]["text"]
     assert "检索最接近的前人研究" in inbox[-1]["text"]
     assert "发明新的数学工具" not in inbox[-1]["text"]
     from argus_skill.manager.directive import load_active_manager_directive

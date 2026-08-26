@@ -483,18 +483,12 @@ def test_manager_reselects_vertical_for_each_planned_mission(tmp_path) -> None:
     supervisor._vertical_resolved = False
     second = supervisor._resolve_vertical_once()
 
-    assert calls == [
-        (
-            "optimize the current project\n\n"
-            "[ACTIVE MANAGER STEERING DIRECTIVE - persists until replaced or "
-            "cleared] Build the Apple-specific inference kernel."
-        ),
-        (
-            "optimize the current project\n\n"
-            "[ACTIVE MANAGER STEERING DIRECTIVE - persists until replaced or "
-            "cleared] Build the Apple-specific inference kernel."
-        ),
-    ]
+    assert len(calls) == 2
+    assert calls[0] == calls[1]
+    assert calls[0].startswith(
+        "optimize the current project\n\n## Operator steering (standing)"
+    )
+    assert "Build the Apple-specific inference kernel." in calls[0]
     assert first["vertical"] == second["vertical"] == "device_tuning"
 
 

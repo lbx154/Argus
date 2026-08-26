@@ -19,17 +19,27 @@ twice. What must not happen is the guidance disappearing from every other reader
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
+from argus_skill.life.memory import LifeMemory
 from argus_skill.life.supervisor._idle_cycle import IdleCycleMixin
+from argus_skill.manager.directive import render_active_steering
 
 
 class _Supervisor(IdleCycleMixin):
     """Only the inbox seam is stubbed; the carryover logic is the real one."""
 
-    def __init__(self, messages: list[str], *, resolves: bool = True) -> None:
+    def __init__(
+        self,
+        messages: list[str],
+        root: Path,
+        *,
+        resolves: bool = True,
+    ) -> None:
         self._messages = list(messages)
         self._resolves = resolves
+        self.memory = LifeMemory.open(root)
         self.statuses: list[str] = []
         self.events: list[dict] = []
         self.config = SimpleNamespace(
@@ -57,8 +67,10 @@ class _Supervisor(IdleCycleMixin):
 _ANSWER = "There is no GPU and none can be provisioned. Do not wait for one."
 
 
-def test_the_answer_that_unblocked_a_mission_reaches_the_next_plan() -> None:
-    supervisor = _Supervisor([_ANSWER])
+def test_the_answer_that_unblocked_a_mission_reaches_the_next_plan(
+    tmp_path: Path,
+) -> None:
+    supervisor = _Supervisor([_ANSWER], tmp_path)
     item = SimpleNamespace(id="item-1", pending_question="need a GPU")
 
     assert supervisor._resolve_pending_question_from_inbox([item]) is True
@@ -66,31 +78,34 @@ def test_the_answer_that_unblocked_a_mission_reaches_the_next_plan() -> None:
     assert supervisor._pop() is None
 
     assert supervisor._take_operator_guidance_carryover() == [_ANSWER]
+    assert _ANSWER in render_active_steering(tmp_path)
 
 
-def test_the_carryover_is_handed_over_only_once() -> None:
-    """It is guidance for the next plan, not a permanent banner."""
-    supervisor = _Supervisor([_ANSWER])
+def test_the_one_shot_carryover_is_handed_over_only_once(tmp_path: Path) -> None:
+    """The immediate note is one-shot while the standing ledger persists."""
+    supervisor = _Supervisor([_ANSWER], tmp_path)
     supervisor._resolve_pending_question_from_inbox(
         [SimpleNamespace(id="i", pending_question="q")]
     )
 
     assert supervisor._take_operator_guidance_carryover() == [_ANSWER]
     assert supervisor._take_operator_guidance_carryover() == []
+    assert _ANSWER in render_active_steering(tmp_path)
 
 
-def test_an_unresolved_question_carries_nothing_over() -> None:
+def test_an_unresolved_question_carries_nothing_over(tmp_path: Path) -> None:
     """If the answer did not resolve anything, it was not consumed on our behalf."""
-    supervisor = _Supervisor([_ANSWER], resolves=False)
+    supervisor = _Supervisor([_ANSWER], tmp_path, resolves=False)
 
     assert supervisor._resolve_pending_question_from_inbox(
         [SimpleNamespace(id="i", pending_question="q")]
     ) is False
     assert supervisor._take_operator_guidance_carryover() == []
+    assert _ANSWER in render_active_steering(tmp_path)
 
 
-def test_nothing_carries_over_when_the_inbox_was_empty() -> None:
-    supervisor = _Supervisor([])
+def test_nothing_carries_over_when_the_inbox_was_empty(tmp_path: Path) -> None:
+    supervisor = _Supervisor([], tmp_path)
 
     assert supervisor._resolve_pending_question_from_inbox(
         [SimpleNamespace(id="i", pending_question="q")]

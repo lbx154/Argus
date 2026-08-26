@@ -40,6 +40,11 @@ class MissionExecutionRuntimeMixin:
         except TypeError:
             # Compatibility with narrow host-provided memory views.
             prelude = self.memory.render_prelude()
+        from ...manager.directive import render_active_steering
+
+        steering = render_active_steering(self.memory.root)
+        if steering:
+            prelude = steering + "\n\n---\n\n" + prelude if prelude else steering
         item_metadata = self._render_backlog_item_metadata(item)
         if item_metadata:
             prelude = (
