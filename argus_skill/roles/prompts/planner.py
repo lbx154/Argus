@@ -370,8 +370,8 @@ def build_continuous_prompt(
     search_altitude_block = prompt_context.search_altitude
 
     _vstage_order = list(prompt_context.stage_order)
-    stage_checklist = ""
     if workflow_mode == "direct":
+        stage_checklist = ""
         stage_gate_block = (
             "## Current workflow stage\n"
             "## Direct workflow — objective first\n"

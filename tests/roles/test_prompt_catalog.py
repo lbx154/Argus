@@ -16,6 +16,8 @@ from argus_skill.roles.prompts.manager import (
     stage_decision_request,
 )
 from argus_skill.roles.prompts.planner import (
+    build_continuous_prompt,
+    build_continuous_resume_prompt,
     continuous_request,
     preview_request,
 )
@@ -115,6 +117,44 @@ def test_research_planner_receives_dynamic_paper_policy(tmp_path) -> None:
     assert "## Parallel paper-drafting track" in context.role_banner
     assert "paper/RESULT_PLACEHOLDERS.md" in context.role_banner
     assert "vertical:research:prompt:planner:continuous" in context.fragment_ids
+
+
+def test_research_planner_prompt_keeps_proportional_stage_checklist(tmp_path) -> None:
+    persist_vertical(tmp_path, "research")
+    _set_stage(tmp_path, "research")
+
+    prompt = build_continuous_prompt(
+        continuous_objective="Develop a publishable research result.",
+        journal_tail="",
+        planning_cycle=0,
+        project_root=tmp_path,
+        state_root=tmp_path,
+    )
+    resume_prompt = build_continuous_resume_prompt(
+        continuous_objective="Develop a publishable research result.",
+        journal_tail="",
+        planning_cycle=1,
+        project_root=tmp_path,
+        state_root=tmp_path,
+    )
+
+    assert "research.literature" in prompt
+    assert "research.literature" in resume_prompt
+
+
+def test_direct_planner_prompt_omits_stage_checklist(tmp_path) -> None:
+    persist_vertical(tmp_path, "research", workflow_mode="direct")
+
+    prompt = build_continuous_prompt(
+        continuous_objective="Run the requested experiment directly.",
+        journal_tail="",
+        planning_cycle=0,
+        project_root=tmp_path,
+        state_root=tmp_path,
+    )
+
+    assert "research.literature" not in prompt
+    assert "workflow_mode=direct" in prompt
 
 
 def test_manager_stage_decision_preserves_planner_checklist_framing(
