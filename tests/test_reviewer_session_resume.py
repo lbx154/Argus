@@ -6,12 +6,15 @@ from pathlib import Path
 
 from argus_skill import SkillLoop, SkillLoopConfig
 from argus_skill.adapters.memory_backend import CannedResponse, MemoryBackend
+from argus_skill.core.models import ReviewDecision, RoundRecord
+from argus_skill.engineer.round_reviewer import _previous_review_summary
+from argus_skill.engineer.round_state import RoundLoopState
 from argus_skill.reviewer import Reviewer
 from argus_skill.reviewer._core import ReviewerConfig
 
 # A static-preamble marker (lives in the rubric) + a delta marker (per round).
 _STATIC_MARKER = "## Decision"
-_DELTA_HEADER = "Main agent last summary"
+_DELTA_HEADER = "## Engineer's account of this round"
 _REEVALUATE = "RE-EVALUATE INDEPENDENTLY"
 
 
@@ -205,10 +208,33 @@ def test_reviewer_is_fresh_across_rounds(tmp_path: Path) -> None:
     ]
     assert "previous_review_summary" not in reviewer_prompts[0]
     assert "## Incremental re-review boundary" in reviewer_prompts[1]
-    assert "status: continue" in reviewer_prompts[1]
-    assert "reason: r" in reviewer_prompts[1]
-    assert "next_action: do the next thing" in reviewer_prompts[1]
+    assert "Round 1 — continue: r" in reviewer_prompts[1]
     assert "do not invent a new unrelated repair round" in reviewer_prompts[1]
+
+
+def test_previous_review_summary_keeps_only_last_three_one_line_verdicts() -> None:
+    state = RoundLoopState()
+    for index in range(1, 5):
+        state.rounds.append(RoundRecord(
+            round_index=index,
+            engineer_message=f"work {index}",
+            engineer_exit_code=0,
+            review=ReviewDecision(
+                status="continue",
+                reason=f"Repeated reason {index}\nwith extra whitespace",
+                next_action=f"action {index}",
+            ),
+        ))
+
+    summary = _previous_review_summary(state)
+
+    assert "Round 1" not in summary
+    assert summary.splitlines() == [
+        "Round 2 — continue: Repeated reason 2 with extra whitespace",
+        "Round 3 — continue: Repeated reason 3 with extra whitespace",
+        "Round 4 — continue: Repeated reason 4 with extra whitespace",
+    ]
+    assert "next_action" not in summary
 
 
 def test_reviewer_retry_after_backend_death_starts_fresh_session(

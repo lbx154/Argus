@@ -212,6 +212,8 @@ class RoundSettlementMixin:
         decision_idle_seconds: float = 0.0,
         decision_timeout_seconds: int = 0,
         policy_retry: bool = False,
+        soft_limit_stalled: bool = False,
+        soft_round_limit: int = 0,
     ) -> tuple[LoopStatus | None, str]:
         if _review_plan_signal(review) == "reconsider":
             report = review.planner_report if isinstance(review.planner_report, dict) else {}
@@ -244,6 +246,13 @@ class RoundSettlementMixin:
                 "no_progress",
                 "Engineer produced no effective output for "
                 f"{no_progress_streak} consecutive rounds." + _STALL_REDIRECT,
+            )
+        if soft_limit_stalled:
+            return (
+                "no_progress",
+                f"Soft round limit {soft_round_limit} passed and neither of the "
+                "last two Reviewer verdicts reported forward progress."
+                + _STALL_REDIRECT,
             )
         if (
             stall_threshold > 0
@@ -441,6 +450,16 @@ class RoundSettlementMixin:
             decision_idle_seconds=decision_idle_seconds,
             decision_timeout_seconds=(supervised_config.decision_progress_timeout_seconds),
             policy_retry=policy_retry,
+            soft_limit_stalled=bool(
+                supervised_config.soft_round_limit > 0
+                and round_index > supervised_config.soft_round_limit
+                and len(state.rounds) >= 2
+                and all(
+                    _review_forward_progress(row.review) is not True
+                    for row in state.rounds[-2:]
+                )
+            ),
+            soft_round_limit=supervised_config.soft_round_limit,
         )
         if terminal_status is not None:
             return control_return(

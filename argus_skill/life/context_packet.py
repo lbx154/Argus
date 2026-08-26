@@ -136,9 +136,10 @@ def _latest_reviewed_handoff(root: Path) -> dict[str, Any]:
 def render_mission_brief(path: Path | str | None) -> str:
     """Project canonical mission/frontier state into one compact role briefing.
 
-    The projection selects named semantic fields only.  In particular it never
-    reads a checkpoint or copies an Engineer transcript/summary, and it writes
-    no state of its own.  Missing fields are omitted rather than inferred.
+    The projection selects named semantic fields only. It never reads a
+    checkpoint or transcript and writes no state of its own. The prior round's
+    capped Engineer account is carried explicitly so a fresh continuation does
+    not have to infer work from Reviewer status enums.
     """
     if not path:
         return ""
@@ -207,6 +208,9 @@ def render_mission_brief(path: Path | str | None) -> str:
     if reason:
         result = f"{status}: {reason}" if status else reason
         lines.append(f"- Decisive result: {result}")
+    engineer_summary = _brief_text(reviewed.get("engineer_summary"), limit=1200)
+    if engineer_summary:
+        lines.append(f"- Engineer account: {engineer_summary}")
     if reviewed and status != "done":
         missing = _brief_items(frontier.get("remaining_work"))
         if missing:
@@ -359,7 +363,6 @@ def record_engineer_handoff(
         return None
     mission_path = Path(mission_context_path)
     root = mission_path.parent
-    _ = engineer_summary
     payload = {
         "schema_version": CONTEXT_PACKET_VERSION,
         "kind": "round_engineer_handoff",
@@ -367,6 +370,7 @@ def record_engineer_handoff(
         "mission_id": root.name,
         "round": max(1, int(round_index)),
         "producer_role": "engineer",
+        "engineer_summary": str(engineer_summary or "").strip()[:4000],
         "session_id": str(thread_id or ""),
         "checkpoint": _file_reference(checkpoint_path),
         "frontier": _file_reference(root / FRONTIER_FILENAME),
@@ -396,7 +400,6 @@ def record_reviewed_handoff(
         return None
     mission_path = Path(mission_context_path)
     root = mission_path.parent
-    _ = engineer_summary
     review_payload: dict[str, Any] = {
         "status": str(getattr(review, "status", "") or ""),
         "reason": str(getattr(review, "reason", "") or "")[:4000],
@@ -423,6 +426,7 @@ def record_reviewed_handoff(
         "mission_id": root.name,
         "round": max(1, int(round_index)),
         "producer_role": "reviewer",
+        "engineer_summary": str(engineer_summary or "").strip()[:4000],
         "review": review_payload,
         "checkpoint": _file_reference(checkpoint_path),
         "frontier": _file_reference(frontier_path),

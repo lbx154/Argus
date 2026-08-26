@@ -51,23 +51,17 @@ log = logging.getLogger(__name__)
 
 
 def _previous_review_summary(state: RoundLoopState) -> str:
-    """Render the settled prior verdict as a compact re-review boundary."""
+    """Render the last three verdicts so repetition is visible to Reviewer."""
     if not state.rounds:
         return ""
-    review = state.rounds[-1].review
-    lines = [
-        f"status: {str(review.status or '').strip()}",
-        f"reason: {str(review.reason or '').strip()}",
-        f"next_action: {str(review.next_action or '').strip() or '(none)'}",
-    ]
-    frontier = review.frontier_report if isinstance(review.frontier_report, dict) else {}
-    for key in ("resolved_obligations", "remaining_work", "new_obligations"):
-        values = frontier.get(key)
-        if isinstance(values, list) and values:
-            lines.append(
-                f"{key}: "
-                + "; ".join(str(value).strip() for value in values if str(value).strip())
-            )
+    lines: list[str] = []
+    for record in state.rounds[-3:]:
+        review = record.review
+        status = " ".join(str(review.status or "").split()) or "unknown"
+        reason = " ".join(str(review.reason or "").split()) or "(no reason)"
+        lines.append(
+            f"Round {record.round_index} — {status}: {reason[:600]}"
+        )
     return "\n".join(lines)
 
 
@@ -164,6 +158,8 @@ class RoundReviewerMixin:
                 capsule_block,
                 rotation_block,
                 reviewer_background_context,
+                *state.pending_secret_guard_notes,
+                process_ownership_note,
             )
             if part
         )
@@ -179,15 +175,7 @@ class RoundReviewerMixin:
                 round_max=supervised_config.max_rounds,
                 session_id=supervised_config.session_id,
                 main_summary=(
-                    "\n\n".join(
-                        part
-                        for part in (
-                            engineer_message or "(no message)",
-                            *state.pending_secret_guard_notes,
-                            process_ownership_note,
-                        )
-                        if part
-                    )
+                    (engineer_message or "(no message)")[:6000]
                 ),
                 main_error=safe_fatal_error,
                 config=replace(self.reviewer_config, working_dir=str(workdir)),
@@ -338,38 +326,18 @@ class RoundReviewerMixin:
                 "round_max": supervised_config.max_rounds,
                 "session_id": supervised_config.session_id,
             })
-        # Anti-livelock escalation hint: past the soft round limit, tell the
-        # reviewer to escalate an unresolvable EXTERNAL blocker to `blocked`
-        # (which ends the mission) rather than looping `continue` forever.
+        # State the harness rule before it can fire so the Reviewer knows that
+        # an explicit true progress judgment preserves productive long work.
         escalate_hint = ""
         if (
             supervised_config.soft_round_limit
             and round_index >= supervised_config.soft_round_limit
         ):
             escalate_hint = (
-                f"This mission has now run {round_index} rounds without "
-                "reaching `done`. If the binding constraint is an EXTERNAL "
-                "blocker the engineer cannot resolve by itself — infrastructure, "
-                "GPU quota / preemption, missing credentials, or a host that "
-                "stays unreachable after retries — return status=`blocked` with "
-                "a precise operator ask INSTEAD of `continue`. Do not keep "
-                "looping on an unresolvable external dependency.\n"
-                "This also applies to an INTERNAL blocker: if the last 2+ "
-                "rounds have independently re-derived the SAME root-cause "
-                "finding that a frozen upstream artifact/contract (e.g. plan, "
-                "run contract, curriculum, checklist) is defective and the fix "
-                "requires a Manager-owned stage rollback or edit this mission's "
-                "own scope forbids performing, do not keep re-verifying that "
-                "same finding. Return status=`blocked` with `reason` naming the "
-                "repeated finding and the exact stage/artifact that needs "
-                "Manager-owned repair, so the mission ends now and control "
-                "returns to the Planner/Manager instead of waiting for the "
-                "hard continuation boundary. At or beyond that boundary, set "
-                "planner_report.forward_progress explicitly: use true when the "
-                "task frontier is still advancing, even if a local metric has "
-                "temporarily regressed; use false for a genuine no-progress "
-                "round. Do not call productive work blocked merely because the "
-                "round count is high."
+                f"After round {supervised_config.soft_round_limit}, the harness "
+                "settles the mission as stalled when neither of the last two "
+                "Reviewer verdicts has `forward_progress=true`; genuine progress "
+                "continues normally."
             )
             if on_event and round_index == supervised_config.soft_round_limit:
                 on_event({
@@ -379,8 +347,8 @@ class RoundReviewerMixin:
                     "hard_escalate_rounds": supervised_config.hard_escalate_rounds,
                     "text": (
                         f"round {round_index} reached soft limit "
-                        f"{supervised_config.soft_round_limit}: reviewer asked to "
-                        "escalate external blockers to `blocked`"
+                        f"{supervised_config.soft_round_limit}: reviewer told the "
+                        "enforced two-verdict progress rule"
                     ),
                 })
         # Evaluate the reviewer, retrying ONLY the reviewer on an infra flake.

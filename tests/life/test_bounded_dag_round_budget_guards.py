@@ -195,6 +195,90 @@ def test_explicit_progress_continues_beyond_three_rounds(tmp_path) -> None:
     assert len(rounds) == 5
 
 
+def test_soft_limit_stalls_after_two_verdicts_without_true_progress(
+    tmp_path,
+) -> None:
+    backend = MemoryBackend()
+    _queue_round(backend, 1, forward_progress=True)
+    _queue_round(backend, 2, forward_progress=False)
+    _queue_round(backend, 3, forward_progress=None)
+
+    status, rounds, _final, reason, _thread = _engineer(backend).run(
+        objective="Stop repeating a route that no longer advances.",
+        engineer_prompt_builder=lambda _next, _static=True: "Do the task.",
+        supervised_config=SupervisedConfig(
+            max_rounds=5,
+            no_progress_threshold=99,
+            stall_threshold=0,
+            soft_round_limit=2,
+            hard_escalate_rounds=0,
+            decision_progress_timeout_seconds=0,
+        ),
+        workdir=tmp_path,
+    )
+
+    assert status == "no_progress"
+    assert len(rounds) == 3
+    assert "Soft round limit 2 passed" in reason
+    assert "neither of the last two Reviewer verdicts" in reason
+
+
+def test_true_progress_in_last_two_verdicts_continues_past_soft_limit(
+    tmp_path,
+) -> None:
+    backend = MemoryBackend()
+    _queue_round(backend, 1, forward_progress=False)
+    _queue_round(backend, 2, forward_progress=True)
+    _queue_round(backend, 3, forward_progress=False)
+    _queue_round(backend, 4, status="done", forward_progress=True)
+
+    status, rounds, _final, _reason, _thread = _engineer(backend).run(
+        objective="Continue while the frontier genuinely advances.",
+        engineer_prompt_builder=lambda _next, _static=True: "Do the task.",
+        supervised_config=SupervisedConfig(
+            max_rounds=5,
+            no_progress_threshold=99,
+            stall_threshold=0,
+            soft_round_limit=2,
+            hard_escalate_rounds=0,
+            decision_progress_timeout_seconds=0,
+        ),
+        workdir=tmp_path,
+    )
+
+    assert status == "done"
+    assert len(rounds) == 4
+
+
+def test_soft_limit_prompt_states_enforced_rule_in_one_sentence(tmp_path) -> None:
+    backend = MemoryBackend()
+    _queue_round(backend, 1, forward_progress=True)
+    _queue_round(backend, 2, status="done", forward_progress=True)
+
+    status, _rounds, _final, _reason, _thread = _engineer(backend).run(
+        objective="Finish after the boundary warning.",
+        engineer_prompt_builder=lambda _next, _static=True: "Do the task.",
+        supervised_config=SupervisedConfig(
+            max_rounds=3,
+            soft_round_limit=2,
+            hard_escalate_rounds=0,
+            decision_progress_timeout_seconds=0,
+        ),
+        workdir=tmp_path,
+    )
+
+    assert status == "done"
+    reviewer_prompts = [
+        prompt for label, prompt, _options in backend.history if label == "reviewer"
+    ]
+    assert (
+        "After round 2, the harness settles the mission as stalled when neither "
+        "of the last two Reviewer verdicts has `forward_progress=true`; genuine "
+        "progress continues normally."
+    ) in reviewer_prompts[1]
+    assert "GPU quota / preemption" not in reviewer_prompts[1]
+
+
 def test_productive_mission_crosses_round_24_with_a_local_regression(
     tmp_path,
 ) -> None:

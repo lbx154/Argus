@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -14,7 +13,6 @@ from ...core.model_visible_text import (
 from ...core.role_decision import decision_footer_instruction
 from ..task_contract import (
     EFFECTIVE_TASK_CONTRACT,
-    format_native_shell_command,
     native_shell_summary,
 )
 from .types import ChecklistMode, RoleName, RolePromptRequest
@@ -193,89 +191,14 @@ def _engineer_log_audit_block(
     measured: bool,  # noqa: ARG001 — kept for call-site symmetry
     compact: bool = False,
 ) -> str:
-    """Reviewer prompt section for auditing the engineer's execution log."""
+    """One-line fallback pointer when the Engineer's own account looks wrong."""
     path = (engineer_log_path or "").strip()
     if not path:
         return ""
     call_id = (engineer_call_id or "").strip()
-    if compact:
-        scope = f"current engineer call id `{call_id}`" if call_id else "the current engineer round"
-        return (
-            "## Engineer execution log (on-demand)\n"
-            f"Log: `{path}`; scope: {scope}. Do not read or grep it routinely. "
-            "Previously certified process evidence remains valid. Inspect this log "
-            "only for a concrete contradiction, implausible result, missing material "
-            "provenance, or suspected shortcut; otherwise spend the review judging "
-            "the result and next research decision.\n\n"
-        )
-    if call_id:
-        current_call_rows = format_native_shell_command(
-            [
-                sys.executable,
-                "-I",
-                "-m",
-                "argus_skill.tools.event_log_query",
-                "--log",
-                path,
-                "--call-id",
-                call_id,
-            ]
-        )
-        query_block = (
-            f"Current engineer call id: `{call_id}`. Scope every audit command "
-            "to this id so prior rounds and this Reviewer's own prompt cannot "
-            "pollute the evidence. The query parses top-level JSON fields and "
-            "reads rolled logs in chronological order:\n"
-            f"    {current_call_rows}\n"
-        )
-        log_row_description = (
-            "The call-scoped raw `agent.io.*` rows record the commands, tool "
-            "results, and assistant messages produced by this invocation."
-        )
-    else:
-        query_block = (
-            "No exact call id is available. Do not scan the whole project history "
-            "unless a concrete concern cannot be resolved from current artifacts.\n"
-        )
-        log_row_description = (
-            "Each `engineer.progress` event's `text` field is what the engineer "
-            "actually DID this round — a shell command it ran, a tool call, or a "
-            "reasoning beat."
-        )
-    if measured:
-        when_clause = (
-            "MEASURED-BENCHMARK mode is active, so this is a RED-FLAG-ONLY check: "
-            "you already TRUST the frozen scorer's pasted RESULT line and must NOT "
-            "burn the round re-deriving an honest number. Inspect the log ONLY when "
-            "the engineer pasted NO RESULT line, the number is implausible / "
-            "self-contradictory, or the score jumped suspiciously. Otherwise "
-            "skip this section.\n"
-        )
-    else:
-        when_clause = (
-            "Decide WHEN to dig: you do not need to read the log every round, but "
-            "you SHOULD when the artifact is suspicious, the result is "
-            "surprisingly good, a checklist item cannot be independently verified "
-            "from the produced files, or the summary is thin on HOW the work was "
-            "done. When the engineer's own summary already shows the verification "
-            "output and it is internally consistent, a quick log skim is enough.\n"
-        )
+    scope = f" (current call `{call_id}`)" if call_id else ""
     return (
-        "## Engineer execution-log audit (process correctness — SUPPLEMENTARY)\n"
-        "This round's engineer EXECUTION LOG is on disk at:\n"
-        f"  {path}\n"
-        "It is the per-project event log (NOT in the git work-tree). "
-        f"{log_row_description}\n"
-        f"{query_block}\n"
-        "Result-traceability (does the final artifact match the checklist?) tells "
-        "you the OUTCOME is real. This log tells you the PROCESS was honest — the "
-        "two are different, and an artifact can match the checklist while the "
-        "process may still contradict the claim.\n\n"
-        f"{when_clause}\n"
-        "Choose any further inspection yourself from the concrete concern and the "
-        "actual event fields; do not classify the process by a preset keyword list. "
-        "If the process matches the claim, judge the result as usual. This audit "
-        "supplements result traceability and never changes frozen measurements.\n\n"
+        f"The event log is at `{path}`{scope} if the Engineer's account seems wrong.\n\n"
     )
 
 
@@ -600,23 +523,16 @@ def render_reviewer_prompt(
     _ = prior_checkpoint
     _ = checkpoint_path
     checkpoint_block = ""
-    # Anti-livelock escalation directive (supplied by the round loop once a
-    # mission passes the soft round limit): tell the reviewer to escalate an
-    # unresolvable EXTERNAL blocker to `blocked` instead of looping `continue`.
+    # Anti-livelock rule supplied at the soft round boundary.
     escalate_block = ""
     if escalate_hint:
         escalate_block = (
             f"## Escalation directive (operator harness — IMPORTANT)\n{escalate_hint}\n\n"
         )
-    # Engineer execution-log audit (process correctness). The reviewer runs
-    # in the project work-tree and only receives the engineer's final
-    # summary, so it cannot otherwise SEE how a result was produced. When the
-    # supervisor threads the absolute path to this mission's execution log
-    # (``<life_dir>/events.jsonl``), give the reviewer grep recipes to audit
-    # PROCESS correctness — not just whether the artifact matches the
-    # checklist, but whether the engineer reached it honestly. Empty path
-    # (memory backend / tests / unresolvable life_dir) → block omitted, prompt
-    # byte-for-byte unchanged (back-compat).
+    # The Engineer's own account is primary. Keep the execution log as a
+    # one-line fallback pointer for a concrete contradiction instead of asking
+    # every Reviewer to reconstruct the round from grep recipes. Empty path
+    # (memory backend / tests / unresolvable life_dir) omits the pointer.
     engineer_log_audit_block = _engineer_log_audit_block(
         engineer_log_path,
         engineer_call_id=engineer_call_id,
@@ -745,8 +661,8 @@ def render_reviewer_prompt(
         + f"{incremental_review_block}"
         + f"{background_block}"
         + f"Main agent fatal error: {error_text}\n\n"
-        + "Main agent last summary:\n"
-        + f"{main_summary}\n\n"
+        + "## Engineer's account of this round\n"
+        + f"{main_summary[:6000]}\n\n"
         + f"{evidence_block}"
     )
     objective_context = f"{objective_block}{operator_text}\n{planner_review_instruction or 'none'}"

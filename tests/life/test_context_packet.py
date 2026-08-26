@@ -112,7 +112,7 @@ def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> 
     assert "sha256" not in engineer_payload["checkpoint"]
     assert "control" not in engineer_payload
     assert "text" not in engineer_payload["checkpoint"]
-    assert "engineer_summary" not in engineer_payload
+    assert engineer_payload["engineer_summary"] == "Created the screen packet."
 
     reviewed = record_reviewed_handoff(
         mission_context_path=mission,
@@ -152,7 +152,7 @@ def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> 
     frontier = json.loads(frontier_path.read_text(encoding="utf-8"))
     assert frontier["history"][-1]["change"] == "uncertainty_reduced"
     assert reviewed_payload["review"]["frontier_disposition"] == "continue"
-    assert "engineer_summary" not in reviewed_payload
+    assert reviewed_payload["engineer_summary"] == "Created the screen packet."
     assert "text" not in reviewed_payload["checkpoint"]
     rendered = render_mission_contract(mission)
     assert rendered.count("Screen one candidate on public tasks.") == 1
@@ -192,6 +192,25 @@ def test_context_refresh_never_overwrites_role_authored_checkpoint(tmp_path: Pat
     }
 
 
+def test_round_packets_cap_engineer_account_at_4000_chars(tmp_path: Path) -> None:
+    mission = create_mission_context(
+        life_dir=tmp_path,
+        mission_id="account-cap",
+        stage="change",
+        objective="Keep the actual account compact.",
+    )
+    handoff = record_engineer_handoff(
+        mission_context_path=mission,
+        round_index=1,
+        engineer_summary="a" * 5000,
+        checkpoint_path=None,
+    )
+
+    assert handoff is not None
+    payload = json.loads(handoff.read_text(encoding="utf-8"))
+    assert payload["engineer_summary"] == "a" * 4000
+
+
 def test_mission_brief_projects_only_named_authoritative_fields(tmp_path: Path) -> None:
     workdir = tmp_path / "work"
     workdir.mkdir()
@@ -215,7 +234,7 @@ def test_mission_brief_projects_only_named_authoritative_fields(tmp_path: Path) 
     record_reviewed_handoff(
         mission_context_path=mission,
         round_index=1,
-        engineer_summary="TRANSCRIPT COPY MUST NOT APPEAR",
+        engineer_summary="Implemented the focused behavior and ran its check.",
         review=SimpleNamespace(
             status="continue",
             reason="The focused check passed but one condition remains.",
@@ -249,11 +268,12 @@ def test_mission_brief_projects_only_named_authoritative_fields(tmp_path: Path) 
         "- Tools/resources: tool: tools/native_check.py (public native verifier)\n"
         "- Native check: python -m pytest tests/life/test_context_packet.py\n"
         "- Decisive result: continue: The focused check passed but one condition remains.\n"
+        "- Engineer account: Implemented the focused behavior and ran its check.\n"
         "- Missing condition: public entry-point trial\n"
         "- Next action: Exercise the public entry point."
     )
     assert "objective" not in brief.lower()
-    assert "transcript" not in brief.lower()
+    assert "mission transcript must not appear" not in brief.lower()
     assert "focused pytest" not in brief
 
 

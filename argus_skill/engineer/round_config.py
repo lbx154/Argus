@@ -251,12 +251,10 @@ class SupervisedConfig:
             _DEFAULT_DECISION_PROGRESS_TIMEOUT_SECONDS,
         )
     )
-    # Anti-livelock escalation — distinct from the stall guards above, which fire
-    # when the engineer is idle or the Reviewer classifies repeated rounds as
-    # nondecision work. A mission that makes evidence progress every round but
-    # never passes its gate would otherwise drift to ``max_rounds``.
-    # At ``soft_round_limit`` the reviewer is instructed to return ``blocked`` if
-    # the binding constraint is an external/unresolvable dependency. At
+    # Anti-livelock escalation — after ``soft_round_limit``, two consecutive
+    # Reviewer verdicts without ``forward_progress=true`` settle through the
+    # existing no-progress path. Any true verdict in that two-round window lets
+    # productive long work continue. At
     # ``hard_escalate_rounds`` the loop requires an explicit Reviewer progress
     # judgment: known progress (including a short bounded regression before the
     # stall threshold) may continue, while a missing signal ends the mission so
@@ -285,11 +283,10 @@ class SupervisedConfig:
     # ``<life_dir>/events.jsonl``). The reviewer runs in the project work-tree
     # and only sees the engineer's final summary, so it cannot otherwise tell
     # HOW a result was produced (hardcoded answer? skipped step? cheat method?
-    # faked metric?). When set, the reviewer prompt gains an execution-log
-    # audit section pointing here with grep recipes; empty string (memory
-    # backend / tests / unresolvable path) = legacy behaviour, no audit section,
-    # byte-for-byte unchanged. The engineer's shell commands land in the
-    # ``text`` field of each ``engineer.progress`` event in this file.
+    # faked metric?). When set, the reviewer prompt gains a one-line fallback
+    # pointer; empty string (memory backend / tests / unresolvable path) omits
+    # it. The engineer's shell commands still land in the ``text`` field of
+    # each ``engineer.progress`` event in this file.
     engineer_log_path: str = ""
     # Ordinary Markdown file edited directly by Engineer and Reviewer. None
     # disables the shared checkpoint for callers that intentionally opt out.
@@ -344,8 +341,8 @@ class SupervisedConfig:
           final round, it is disabled rather than silently becoming a one-strike
           policy. Callers may still request ``stall_threshold=1`` explicitly
           when a two-round budget should stop after its first negative verdict.
-        * ``soft_round_limit`` advises the Reviewer partway through, so it
-          must also land strictly inside the budget.
+        * ``soft_round_limit`` enforces a two-verdict progress window after the
+          boundary, so it must land strictly inside the budget.
         * ``hard_escalate_rounds`` is the point where continuation must be backed
           by the Reviewer's explicit progress judgment. A missing signal ends
           with a planner-readable reason; reaching this boundary on the final

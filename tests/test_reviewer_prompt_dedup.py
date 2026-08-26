@@ -3,7 +3,7 @@ prompt exactly ONCE.
 
 Before the fix, ``engineer/runner.py`` fed the SAME ``engineer_message`` string
 to both ``main_summary`` and ``engineer_reasoning_summary``, so it was echoed
-twice in the reviewer prompt — under "Main agent last summary" AND under
+twice in the reviewer prompt — under the Engineer account AND under
 "- engineer_reasoning_summary:" — duplicating input tokens on every reviewer
 round. The engineer's full reasoning/process already reaches the reviewer via
 the ``engineer_log_path`` audit block, so the duplicate field carried zero
