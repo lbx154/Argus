@@ -194,12 +194,12 @@ def test_stage_checklist_completeness() -> None:
     review_ids = {item.id for item in STAGE_CHECKLISTS["review"]}
     assert "review.infrastructure" in review_ids
     assert "review.publication_value" in review_ids
-    assert "review.research.method_faithfulness" in review_ids
+    assert "review.research.method_faithfulness" not in review_ids
 
     submission_ids = {item.id for item in STAGE_CHECKLISTS["submission"]}
     assert "submission.upstream" in submission_ids
     assert "submission.anonymous" in submission_ids
-    assert "submission.research.method_faithfulness" in submission_ids
+    assert "submission.research.method_faithfulness" not in submission_ids
 
 
 def test_research_late_stages_accept_manager_selected_survey_shape() -> None:

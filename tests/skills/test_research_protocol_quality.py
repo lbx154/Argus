@@ -33,22 +33,30 @@ def _builtin_skill(relative: str) -> str:
     return (_BUILTIN_SKILLS / relative).read_text(encoding="utf-8")
 
 
-def test_method_faithfulness_is_a_late_stage_research_obligation() -> None:
+def test_method_faithfulness_is_one_draft_stage_research_obligation() -> None:
     from argus_skill.verticals.research.stages import _PLANNER_RESEARCH_ORCHESTRATION
 
-    expected_ids = {
-        "draft": "draft.research.method_faithfulness",
-        "review": "review.research.method_faithfulness",
-        "submission": "submission.research.method_faithfulness",
-    }
-    for stage, item_id in expected_ids.items():
-        item = next(item for item in STAGE_CHECKLISTS[stage] if item.id == item_id)
-        normalized = " ".join(item.statement.split())
-        assert "training/eval" in normalized
-        assert "file:line" in normalized
-        assert "implement the claimed mechanism" in normalized
-        assert "rewrite the paper to describe what the code actually does" in normalized
-        assert "CLAIM_TO_CODE_TRACE.md" in item.evidence_hint
+    faithfulness_ids = [
+        item.id
+        for checklist in STAGE_CHECKLISTS.values()
+        for item in checklist
+        if "method_faithfulness" in item.id
+    ]
+    assert faithfulness_ids == ["draft.research.method_faithfulness"]
+
+    item = next(
+        item
+        for item in STAGE_CHECKLISTS["draft"]
+        if item.id == "draft.research.method_faithfulness"
+    )
+    normalized = " ".join(item.statement.split())
+    assert "training/eval" in normalized
+    assert "file:line" in normalized
+    assert "record the trace in `paper/CLAIM_TO_CODE_TRACE.md`" in normalized
+    assert "implement the claimed mechanism" in normalized
+    assert "rewrite the paper to describe what the code actually does" in normalized
+    assert "independently certify" not in normalized.lower()
+    assert "evidence chain" not in normalized.lower()
 
     planner = " ".join(_PLANNER_RESEARCH_ORCHESTRATION.split())
     assert "Before the writing stage begins" in planner

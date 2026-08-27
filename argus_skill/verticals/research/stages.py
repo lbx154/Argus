@@ -606,12 +606,13 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="draft.research.method_faithfulness",
             statement=(
-                "Complete the `research.method_faithfulness` audit before method "
-                "claims enter the manuscript's evidence chain. Trace every named "
+                "Complete the scheduled claim-to-code-trace mission before method "
+                "claims enter the manuscript. Trace every named "
                 "mechanism, loss term, equation, and algorithm-box step to a code "
                 "anchor (`file:line`) and evidence that the training/eval path "
                 "actually executes it: follow the call chain from the real entry "
-                "point. A function existing with the right name is not evidence — "
+                "point, and record the trace in `paper/CLAIM_TO_CODE_TRACE.md`. A "
+                "function existing with the right name is not evidence — "
                 "names lie, call graphs do not. Treat any central claim with no "
                 "executed anchor, or with an anchor that contradicts the claim, as "
                 "a top-severity finding with exactly two exits: implement the "
@@ -619,8 +620,8 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "actually does."
             ),
             evidence_hint=(
-                "paper/CLAIM_TO_CODE_TRACE.md in the paper evidence chain + "
-                "manuscript claims + training/eval entry points and file:line call-chain evidence"
+                "paper/CLAIM_TO_CODE_TRACE.md + manuscript claims + training/eval "
+                "entry points and file:line call-chain evidence"
             ),
         ),
         ChecklistItem(
@@ -743,24 +744,6 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ),
     ),
     "review": _checklist(
-        ChecklistItem(
-            id="review.research.method_faithfulness",
-            statement=(
-                "Independently certify the `research.method_faithfulness` audit: "
-                "for every named mechanism, loss term, equation, and algorithm-box "
-                "step, verify its `file:line` anchor and trace from the actual "
-                "training/eval entry point that executes it. A matching function "
-                "name is not evidence — names lie, call graphs do not. A central "
-                "claim that is unanchored or contradicted by its executed code is a "
-                "top-severity finding, not a prose concern, and has exactly two "
-                "exits: implement the claimed mechanism, or rewrite the paper to "
-                "describe what the code actually does."
-            ),
-            evidence_hint=(
-                "paper/CLAIM_TO_CODE_TRACE.md + paper/main.tex + independently inspected "
-                "training/eval entry-point call chains at cited file:line anchors"
-            ),
-        ),
         ChecklistItem(
             id="review.infrastructure",
             statement=(
@@ -909,22 +892,6 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             evidence_hint=(
                 "the endpoint number beside the baseline it was measured against, "
                 "and the margin declared at selection"
-            ),
-        ),
-        ChecklistItem(
-            id="submission.research.method_faithfulness",
-            statement=(
-                "The final `research.method_faithfulness` result is current in the "
-                "paper's evidence chain: every manuscript mechanism, loss, equation, "
-                "and algorithm step has an executed training/eval `file:line` "
-                "call-chain anchor, and no central claim remains unanchored or "
-                "contradicted by code. Such a top-severity mismatch has only two "
-                "exits before submission: implement the claimed mechanism, or "
-                "rewrite the paper to describe what the code actually does."
-            ),
-            evidence_hint=(
-                "current paper/CLAIM_TO_CODE_TRACE.md + final paper/main.tex + "
-                "training/eval code at every recorded file:line anchor"
             ),
         ),
         ChecklistItem(
