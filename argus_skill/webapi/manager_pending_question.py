@@ -17,6 +17,71 @@ from typing import Any
 from ..core import paths as core_paths
 
 
+def _manager_failure_facts(exc: Exception) -> dict[str, Any]:
+    """Preserve the most specific structured/provider cause in an exception chain."""
+    current: BaseException | None = exc
+    structured: BaseException | None = None
+    deepest: BaseException = exc
+    while current is not None:
+        deepest = current
+        if getattr(current, "phase", "") and structured is None:
+            structured = current
+        current = current.__cause__ or current.__context__
+    source = structured or deepest
+    raw_cause = str(getattr(source, "cause", "") or str(source)).strip()
+    from ..core.secret_guard import known_secret_values, redact_secrets_text
+
+    cause = redact_secrets_text(
+        raw_cause,
+        known_values=known_secret_values(),
+    )
+    phase = str(getattr(source, "phase", "") or "").strip()
+    if not phase:
+        phase = "timeout" if isinstance(source, TimeoutError) else "backend"
+    backend_error = redact_secrets_text(
+        str(getattr(source, "backend_error", "") or "").strip(),
+        known_values=known_secret_values(),
+    )
+    if phase in {"backend", "timeout"} and not backend_error:
+        backend_error = cause
+    return {
+        "phase": phase,
+        "cause": cause,
+        "contract_field": str(
+            getattr(source, "contract_field", "") or ""
+        ).strip(),
+        "attempts": max(1, int(getattr(source, "attempts", 1) or 1)),
+        "model_reply_snippet": str(
+            getattr(source, "model_reply_snippet", "") or ""
+        )[:300],
+        "backend_error": backend_error,
+    }
+
+
+def _emit_pending_question_failure(
+    mem: Any,
+    item: Any,
+    facts: dict[str, Any],
+    *,
+    error: str,
+    answer_preserved: bool,
+) -> None:
+    from ..life.event_log import JsonlEventSink
+
+    JsonlEventSink(None, life_dir=Path(mem.project_root)).append({
+        "type": "life.manager.intent.failed",
+        "agent_layer": "manager",
+        "intent_id": f"pending-question-{item.id}-{time.time_ns()}",
+        "item_id": item.id,
+        "source": "operator_answer",
+        "objective": f"interpret pending question answer for item {item.id}",
+        "error": error,
+        **facts,
+        "answer_preserved": answer_preserved,
+        "text": "manager pending-question interpretation failed",
+    })
+
+
 def _bridge():
     """Lazily resolve ``manager_bridge`` so tests that monkeypatch
     ``manager_bridge._lock_for`` (etc.) still take effect for calls made
@@ -317,18 +382,62 @@ def _resolve_pending_question_with_manager(
             on_fragment=None,
         )
     except Exception as exc:  # noqa: BLE001
+        facts = _manager_failure_facts(exc)
+        raw_error = f"{type(exc).__name__}: {facts['cause']}"
+        message = (
+            "Manager pending-question interpretation failed "
+            f"[{facts['phase']}]: {facts['cause']}. "
+            "Your answer is preserved in the inbox/steering record and Manager "
+            "interpretation will be retried; the answer was not rejected."
+        )
+        _emit_pending_question_failure(
+            mem,
+            item,
+            facts,
+            error=raw_error,
+            answer_preserved=True,
+        )
         return {
-            "error": (
-                "Manager could not interpret the pending-question response: "
-                f"{type(exc).__name__}: {exc}"
-            ),
+            "error": message,
             "answered_item_id": item.id,
+            "answer_preserved": True,
+            **facts,
         }
     parsed = _parse_pending_question_decision(manager_reply or "")
     if parsed is None:
+        from ..manager.domain_author import sanitize_model_reply_snippet
+
+        snippet = sanitize_model_reply_snippet(manager_reply or "")
+        if snippet:
+            phase = "contract"
+            cause = (
+                "pending_question_decision rejected: IS_ANSWER and RESOLVED "
+                "must be booleans, and a resolved answer requires DECISION"
+            )
+        else:
+            phase = "parse"
+            cause = "model reply was empty; expected a pending-question decision"
+        facts = {
+            "phase": phase,
+            "cause": cause,
+            "contract_field": "pending_question_decision",
+            "attempts": 1,
+            "model_reply_snippet": snippet,
+            "backend_error": "",
+        }
+        raw_error = "Manager pending-question decision contract failed"
+        _emit_pending_question_failure(
+            mem,
+            item,
+            facts,
+            error=raw_error,
+            answer_preserved=True,
+        )
         return {
-            "error": "Manager could not produce a valid pending-question decision",
+            "error": f"Manager pending-question interpretation failed [{phase}]: {cause}",
             "answered_item_id": item.id,
+            "answer_preserved": True,
+            **facts,
         }
     if not parsed["is_answer"]:
         return {
