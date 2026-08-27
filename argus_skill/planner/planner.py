@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import time
+import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -26,7 +27,6 @@ from ..core.role_session import (
 )
 from ..core.run_gateway import run_exec as gateway_run_exec
 from .work_kind import (
-    INVALID_WORK_KIND_ERROR,
     parse_work_kind,
     planner_work_kind_guidance,
 )
@@ -35,25 +35,13 @@ TASK_SCOPE_BOUNDED = "bounded"
 TASK_SCOPE_FINAL_SUBMISSION = "final_submission"
 NO_CONCRETE_TASKS_ERROR = "planner said not done but produced no concrete tasks"
 FORBIDDEN_BARE_VERDICT_ERROR = "planner used a forbidden bare launch verdict"
-INVALID_DEPENDENCY_IDENTIFIER_ERROR = "invalid planner task dependency identifier"
-PROSE_ONLY_FINAL_SUBMISSION_SCOPE_ERROR = (
-    "final_submission scope must be declared in structured task scope metadata, "
-    "not only in task prose"
-)
 OPEN_ENDED_PROJECT_DONE_ERROR = (
     "standing continuous objective cannot finish with PROJECT_DONE=true; "
     "delegate the next distinct task or report an explicit wait"
 )
 PLANNER_SUPERSEDED_ERROR = "planner superseded by newer continuous generation"
-MISSING_STAGE_DECISION_ERROR = "planner staged decision requires advance_to_stage"
 _PLANNER_REPAIR_ATTEMPTS = 1
 _PLANNER_REPAIR_TEXT_LIMIT = 8000
-_FORBIDDEN_BINARY_OUTCOME = re.compile(
-    r"(?<![a-z0-9])no[\s_-]?go(?![a-z0-9])",
-    re.IGNORECASE,
-)
-
-
 @dataclass
 class PlannerConfig:
     """Knobs the supervisor passes down to a Planner.plan_next() call."""
@@ -155,6 +143,10 @@ class WaitingContract:
     watched_paths: tuple[str, ...] = ()
     expires_at: float = 0.0
     observed_revision: str = ""
+    # Optional registry identity named by the Planner. The Host resolves it
+    # against observed external-work records before selecting a subagent wake
+    # source; it is never trusted as a filesystem path.
+    wait_id: str = ""
     # True when only fresh operator input can change the blocker (for example,
     # new credentials, a scope choice, or authorization for an additional
     # mission/thesis).  Manager owns stage transitions, not operator scope.
@@ -179,6 +171,10 @@ class PlannerVerdict:
     waiting_reason: str = ""
     waiting_contract: WaitingContract | None = None
     advance_to_stage: str = ""
+    # Host-visible, non-error parser degradations. The Supervisor emits these
+    # separately so malformed formality fields never masquerade as a failed
+    # planning round.
+    diagnostics: tuple[str, ...] = ()
 
 
 class Planner:
@@ -373,18 +369,16 @@ class Planner:
             and verdict.new_tasks
             and not verdict.advance_to_stage
         ):
-            rejection = (
-                f"{MISSING_STAGE_DECISION_ERROR}; set it to "
-                f"{cfg.current_stage!r} or a later canonical stage"
+            verdict = _with_planner_diagnostic(
+                verdict,
+                "advance_to_stage missing; holding current stage",
             )
         open_ended_done = bool(cfg.open_ended and verdict.project_done)
         if open_ended_done:
             rejection = OPEN_ENDED_PROJECT_DONE_ERROR
         repairable_metadata_error = str(rejection or "").startswith(
             ("invalid planner task metadata:", "planner task ")
-        ) or rejection == INVALID_DEPENDENCY_IDENTIFIER_ERROR or str(
-            rejection or ""
-        ).startswith(MISSING_STAGE_DECISION_ERROR)
+        )
         if (
             rejection == NO_CONCRETE_TASKS_ERROR
             or rejection == FORBIDDEN_BARE_VERDICT_ERROR
@@ -485,7 +479,6 @@ class Planner:
                 previous_raw_text=raw_attempts[-1],
                 previous_error=last_error,
                 open_ended=open_ended,
-                required_stage=required_stage,
             )
             try:
                 result = gateway_run_exec(
@@ -522,26 +515,20 @@ class Planner:
                 if process_decision is not None
                 else parse_planner_text(text)
             )
-            missing_stage = bool(
-                required_stage
-                and repaired.new_tasks
-                and not repaired.advance_to_stage
-            )
             if (
                 not repaired.error
                 and not (open_ended and repaired.project_done)
-                and not missing_stage
             ):
+                if required_stage and repaired.new_tasks and not repaired.advance_to_stage:
+                    repaired = _with_planner_diagnostic(
+                        repaired,
+                        "advance_to_stage missing; holding current stage",
+                    )
                 return repaired
             last_error = (
                 OPEN_ENDED_PROJECT_DONE_ERROR
                 if open_ended and repaired.project_done
-                else (
-                    f"{MISSING_STAGE_DECISION_ERROR}; set it to "
-                    f"{required_stage!r} or a later canonical stage"
-                    if missing_stage
-                    else repaired.error
-                )
+                else repaired.error
             )
         return PlannerVerdict(
             project_done=False,
@@ -577,6 +564,7 @@ _GLOBAL_KEY_VALUE_KEYS = (
     "WAKE_ON",
     "WATCHED_PATHS",
     "EXPIRES_AT",
+    "WAIT_ID",
     "PLAN_UPDATE",
 )
 _TASK_KEY_VALUE_FIELDS = (
@@ -678,38 +666,52 @@ def _key_value_float(raw: str, default: float = 0.0) -> float:
         return default
 
 
-def parse_task_scope(raw: str) -> str:
-    """Return the leading scope token without accepting a different scope."""
+def _normalize_task_scope(raw: object) -> tuple[str, bool]:
+    """Return a safe scope plus whether a supplied value was normalized."""
     value = str(raw or "").strip()
     if not value:
-        return TASK_SCOPE_BOUNDED
+        return TASK_SCOPE_BOUNDED, False
     match = re.match(
         r"^(bounded|final[_-]submission)(?:$|[^a-z0-9_])",
         value,
         re.IGNORECASE,
     )
     if match is None:
-        raise ValueError("TASK_SCOPE must be bounded or final_submission")
-    return match.group(1).casefold().replace("-", "_")
+        return TASK_SCOPE_BOUNDED, True
+    return match.group(1).casefold().replace("-", "_"), False
 
 
-_PROSE_FINAL_SUBMISSION_SCOPE = re.compile(
-    r"(?:TASK_SCOPE\s*=\s*|scope\s*:\s*[\"']?)final[_-]submission",
-    re.IGNORECASE,
-)
+def parse_task_scope(raw: str) -> str:
+    """Return the understood scope, safely defaulting formality mismatches."""
+    return _normalize_task_scope(raw)[0]
 
 
-def _task_prose_mentions_final_submission_scope(row: dict[str, str]) -> bool:
-    prose = "\n".join(
-        str(row.get(field, "") or "")
-        for field in (
-            "TASK_TITLE",
-            "TASK_OBJECTIVE",
-            "TASK_ACCEPTANCE_CHECK",
-            "TASK_NON_GOALS",
-        )
-    )
-    return bool(_PROSE_FINAL_SUBMISSION_SCOPE.search(prose))
+def _normalize_work_kind(raw: object) -> tuple[str, bool]:
+    try:
+        return parse_work_kind(raw), False
+    except ValueError:
+        return "scope", True
+
+
+def _canonical_task_identifier(raw: object) -> tuple[str, bool]:
+    """Map a model-written DAG token deterministically into the safe charset."""
+    value = str(raw or "").strip()
+    if not value or re.fullmatch(r"[A-Za-z0-9_.:-]+", value) is not None:
+        return value, False
+    normalized = unicodedata.normalize("NFKD", value)
+    stem = re.sub(r"[^A-Za-z0-9_.:-]+", "-", normalized).strip("-._:")
+    stem = stem[:80].rstrip("-._:") or "task"
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:10]
+    return f"{stem}-{digest}", True
+
+
+def _with_planner_diagnostic(
+    verdict: PlannerVerdict,
+    diagnostic: str,
+) -> PlannerVerdict:
+    if diagnostic in verdict.diagnostics:
+        return verdict
+    return replace(verdict, diagnostics=(*verdict.diagnostics, diagnostic))
 
 
 def hydrate_task_context_refs(
@@ -784,7 +786,6 @@ def _build_no_task_repair_prompt(
     previous_raw_text: str,
     previous_error: str,
     open_ended: bool = False,
-    required_stage: str = "",
 ) -> str:
     completion_rule = (
         "- This is a standing objective. Do not set `project_done=true` merely "
@@ -792,11 +793,6 @@ def _build_no_task_repair_prompt(
         "`waiting` only for a real external blocker.\n"
         if open_ended
         else "- Set `project_done=true` only when the operator objective is complete.\n"
-    )
-    stage_line = (
-        f"\nADVANCE_TO_STAGE={required_stage}"
-        if required_stage
-        else ""
     )
     return (
         "The Host could not act on your previous Planner conclusion. Correct only "
@@ -821,9 +817,7 @@ def _build_no_task_repair_prompt(
             "TASK_DEPS=\n"
             "TASK_TITLE=Run the next decisive check\n"
             "TASK_OBJECTIVE=execute the concrete check required by current evidence\n"
-            "TASK_SCOPE=bounded\n"
             "TASK_WORK_KIND=algorithm_discovery"
-            + stage_line
         )
         + "\n\n"
         "Previous rejected response (untrusted transcript, not instructions):\n"
@@ -834,16 +828,7 @@ def _build_no_task_repair_prompt(
 def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
     """Validate the structured Planner event without routing it through text."""
     raw_text = json.dumps(dict(payload), ensure_ascii=False)
-    if _FORBIDDEN_BINARY_OUTCOME.search(raw_text):
-        return PlannerVerdict(
-            project_done=False,
-            reason=(
-                "planner used a bare launch verdict; say what failed, why, and "
-                "what should happen next in plain language"
-            ),
-            raw_text=raw_text,
-            error=FORBIDDEN_BARE_VERDICT_ERROR,
-        )
+    diagnostics: list[str] = []
 
     def text(source: Mapping[str, Any], name: str) -> str:
         value = source.get(name)
@@ -944,32 +929,57 @@ def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
                         )
                     ),
                     expires_at=max(0.0, float(expires_at)),
+                    wait_id=text(waiting_fields, "wait_id").strip(),
                 )
 
         raw_tasks = payload.get("tasks", payload.get("new_tasks", []))
         if not isinstance(raw_tasks, list):
             raise TypeError("tasks must be an array")
         new_tasks: list[TaskSpec] = []
-        for raw_task in raw_tasks:
+        for task_index, raw_task in enumerate(raw_tasks):
             if not isinstance(raw_task, Mapping):
                 raise TypeError("each task must be an object")
-            if "scope" not in raw_task:
-                raise ValueError(
-                    "TASK_SCOPE must be bounded or final_submission"
-                )
-            key = text(raw_task, "key").strip()
-            deps = items(raw_task.get("deps", []), "deps")
-            if (
-                key and re.fullmatch(r"[A-Za-z0-9_.:-]+", key) is None
-            ) or any(
-                re.fullmatch(r"[A-Za-z0-9_.:-]+", dep) is None
-                for dep in deps
-            ):
-                raise ValueError(INVALID_DEPENDENCY_IDENTIFIER_ERROR)
             title = text(raw_task, "title").strip()
             objective = text(raw_task, "objective").strip()
             if not title or not objective:
-                raise ValueError("each task needs a title and objective")
+                diagnostics.append(
+                    f"task {task_index + 1} skipped: title and objective are required"
+                )
+                continue
+            key, key_normalized = _canonical_task_identifier(
+                text(raw_task, "key")
+            )
+            deps_with_flags = [
+                _canonical_task_identifier(dep)
+                for dep in items(raw_task.get("deps", []), "deps")
+            ]
+            deps = [dep for dep, _normalized in deps_with_flags]
+            if key_normalized or any(flag for _dep, flag in deps_with_flags):
+                diagnostics.append(
+                    f"task {task_index + 1} dependency identifiers normalized"
+                )
+            scope, scope_normalized = _normalize_task_scope(raw_task.get("scope"))
+            if "scope" not in raw_task:
+                diagnostics.append(
+                    f"task {task_index + 1} scope defaulted to bounded"
+                )
+            elif scope_normalized:
+                diagnostics.append(
+                    f"task {task_index + 1} unsupported scope defaulted to bounded"
+                )
+            work_kind, work_kind_normalized = _normalize_work_kind(
+                raw_task.get("work_kind")
+            )
+            if "work_kind" not in raw_task or not str(
+                raw_task.get("work_kind") or ""
+            ).strip():
+                diagnostics.append(
+                    f"task {task_index + 1} work_kind defaulted to scope"
+                )
+            elif work_kind_normalized:
+                diagnostics.append(
+                    f"task {task_index + 1} unsupported work_kind defaulted to scope"
+                )
             new_tasks.append(
                 TaskSpec(
                     title=title,
@@ -988,8 +998,8 @@ def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
                     non_goals=items(
                         raw_task.get("non_goals", []), "non_goals"
                     ),
-                    scope=parse_task_scope(text(raw_task, "scope")),
-                    work_kind=parse_work_kind(text(raw_task, "work_kind")),
+                    scope=scope,
+                    work_kind=work_kind,
                     key=key,
                     deps=deps,
                     parallel_safe=boolean(raw_task, "parallel_safe"),
@@ -1004,15 +1014,7 @@ def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
             )
     except (TypeError, ValueError) as exc:
         detail = str(exc)
-        if detail in {
-            "TASK_SCOPE must be bounded or final_submission",
-            INVALID_WORK_KIND_ERROR,
-        }:
-            message = f"invalid planner task metadata: {detail}"
-        elif detail == INVALID_DEPENDENCY_IDENTIFIER_ERROR:
-            message = detail
-        else:
-            message = f"invalid structured planner decision: {detail}"
+        message = f"invalid structured planner decision: {detail}"
         return PlannerVerdict(
             project_done=False,
             reason=message,
@@ -1028,6 +1030,7 @@ def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
         waiting_reason=waiting_reason,
         waiting_contract=waiting_contract,
         new_tasks=new_tasks,
+        diagnostics=tuple(diagnostics),
     )
 
 
@@ -1083,16 +1086,7 @@ def _planner_verdict_from_fields(
     values: dict[str, str],
     task_rows: list[dict[str, str]],
 ) -> PlannerVerdict:
-    if _FORBIDDEN_BINARY_OUTCOME.search(text):
-        return PlannerVerdict(
-            project_done=False,
-            reason=(
-                "planner used a bare launch verdict; say what failed, why, and "
-                "what should happen next in plain language"
-            ),
-            raw_text=text,
-            error=FORBIDDEN_BARE_VERDICT_ERROR,
-        )
+    diagnostics: list[str] = []
     project_done = _parse_completion_bool(values)
     reason = values.get("REASON") or values.get("SUMMARY") or ""
     advance_to_stage = values.get("ADVANCE_TO_STAGE", "").strip().lower()
@@ -1150,55 +1144,49 @@ def _planner_verdict_from_fields(
                     0.0,
                     _key_value_float(values.get("EXPIRES_AT", "")),
                 ),
+                wait_id=values.get("WAIT_ID", "").strip(),
             )
 
     new_tasks: list[TaskSpec] = []
-    for row in task_rows:
+    for task_index, row in enumerate(task_rows):
         title = row.get("TASK_TITLE", "").strip()
         objective = row.get("TASK_OBJECTIVE", "").strip()
         if not title or not objective:
             continue
-        key = row.get("TASK_KEY", "").strip()
+        key, key_normalized = _canonical_task_identifier(
+            row.get("TASK_KEY", "")
+        )
         raw_deps = row.get("TASK_DEPS", "").strip()
-        deps = (
+        raw_dep_values = (
             []
             if raw_deps.lower() == "none"
             else [dep.strip() for dep in raw_deps.split(",") if dep.strip()]
         )
-        if (
-            key and re.fullmatch(r"[A-Za-z0-9_.:-]+", key) is None
-        ) or any(
-            re.fullmatch(r"[A-Za-z0-9_.:-]+", dep) is None
-            for dep in deps
-        ):
-            return PlannerVerdict(
-                project_done=False,
-                reason="planner emitted an invalid TASK_KEY or TASK_DEPS value",
-                raw_text=text,
-                error=INVALID_DEPENDENCY_IDENTIFIER_ERROR,
+        deps_with_flags = [_canonical_task_identifier(dep) for dep in raw_dep_values]
+        deps = [dep for dep, _normalized in deps_with_flags]
+        if key_normalized or any(flag for _dep, flag in deps_with_flags):
+            diagnostics.append(
+                f"task {task_index + 1} dependency identifiers normalized"
             )
         raw_scope = row.get("TASK_SCOPE", "")
-        if not str(raw_scope or "").strip() and _task_prose_mentions_final_submission_scope(row):
-            return PlannerVerdict(
-                project_done=False,
-                reason=PROSE_ONLY_FINAL_SUBMISSION_SCOPE_ERROR,
-                new_tasks=[],
-                raw_text=text,
-                error=(
-                    "invalid planner task metadata: "
-                    f"{PROSE_ONLY_FINAL_SUBMISSION_SCOPE_ERROR}"
-                ),
+        scope, scope_normalized = _normalize_task_scope(raw_scope)
+        if not str(raw_scope or "").strip():
+            diagnostics.append(
+                f"task {task_index + 1} scope defaulted to bounded"
             )
-        try:
-            scope = parse_task_scope(raw_scope)
-            work_kind = parse_work_kind(row.get("TASK_WORK_KIND", ""))
-        except ValueError as exc:
-            return PlannerVerdict(
-                project_done=False,
-                reason=str(exc),
-                new_tasks=[],
-                raw_text=text,
-                error=f"invalid planner task metadata: {exc}",
+        elif scope_normalized:
+            diagnostics.append(
+                f"task {task_index + 1} unsupported scope defaulted to bounded"
+            )
+        raw_work_kind = row.get("TASK_WORK_KIND", "")
+        work_kind, work_kind_normalized = _normalize_work_kind(raw_work_kind)
+        if not str(raw_work_kind or "").strip():
+            diagnostics.append(
+                f"task {task_index + 1} work_kind defaulted to scope"
+            )
+        elif work_kind_normalized:
+            diagnostics.append(
+                f"task {task_index + 1} unsupported work_kind defaulted to scope"
             )
         new_tasks.append(
             TaskSpec(
@@ -1246,6 +1234,7 @@ def _planner_verdict_from_fields(
         waiting_reason=values.get("WAITING_REASON", ""),
         waiting_contract=waiting_contract,
         new_tasks=new_tasks,
+        diagnostics=tuple(diagnostics),
     )
 
 
@@ -1259,14 +1248,31 @@ def _finish_planner_verdict(
     waiting_reason: str,
     waiting_contract: WaitingContract | None,
     new_tasks: list[TaskSpec],
+    diagnostics: tuple[str, ...] = (),
 ) -> PlannerVerdict:
-    if waiting and (project_done or new_tasks):
+    if waiting and not project_done and new_tasks:
         return PlannerVerdict(
             project_done=False,
-            reason="planner waiting marker conflicts with completion or task blocks",
+            reason=reason or waiting_reason or "planner waiting with runnable tasks",
+            new_tasks=new_tasks,
+            raw_text=text,
+            waiting=True,
+            waiting_reason=waiting_reason or reason,
+            waiting_contract=waiting_contract,
+            advance_to_stage=advance_to_stage,
+            diagnostics=(
+                *diagnostics,
+                "waiting declared with tasks; preserving both for Supervisor handling",
+            ),
+        )
+    if waiting and project_done:
+        return PlannerVerdict(
+            project_done=False,
+            reason="planner waiting marker conflicts with completion",
             new_tasks=[],
             raw_text=text,
-            error="planner waiting marker conflicts with completion or task blocks",
+            error="planner waiting marker conflicts with completion",
+            diagnostics=diagnostics,
         )
     if project_done and new_tasks:
         return PlannerVerdict(
@@ -1274,6 +1280,7 @@ def _finish_planner_verdict(
             reason="planner reported completion together with remaining tasks",
             raw_text=text,
             error="planner completion marker conflicts with task blocks",
+            diagnostics=diagnostics,
         )
     if waiting:
         return PlannerVerdict(
@@ -1284,6 +1291,7 @@ def _finish_planner_verdict(
             waiting=True,
             waiting_reason=waiting_reason or reason,
             waiting_contract=waiting_contract,
+            diagnostics=diagnostics,
         )
     if not project_done and not new_tasks:
         return PlannerVerdict(
@@ -1291,7 +1299,8 @@ def _finish_planner_verdict(
             reason=reason or "planner reported direct execution incomplete",
             new_tasks=[],
             raw_text=text,
-            error=NO_CONCRETE_TASKS_ERROR,
+            error=(NO_CONCRETE_TASKS_ERROR if reason else FORBIDDEN_BARE_VERDICT_ERROR),
+            diagnostics=diagnostics,
         )
     if not project_done:
         return PlannerVerdict(
@@ -1300,10 +1309,12 @@ def _finish_planner_verdict(
             new_tasks=new_tasks,
             raw_text=text,
             advance_to_stage=advance_to_stage,
+            diagnostics=diagnostics,
         )
     return PlannerVerdict(
         project_done=True,
         reason=reason or "planner completed direct project execution",
         new_tasks=[],
         raw_text=text,
+        diagnostics=diagnostics,
     )
