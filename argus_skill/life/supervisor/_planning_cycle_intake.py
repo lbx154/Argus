@@ -57,7 +57,7 @@ class PlanningCycleIntakeMixin:
             return None
         if any(
             item.status in {"pending", "running", "claimed"}
-            for item in self.memory.backlog.all()
+            for item in self.memory.backlog.active()
         ):
             return None
 
@@ -243,7 +243,9 @@ class PlanningCycleIntakeMixin:
                 revision_request = None
         if revision_request is not None:
             try:
-                backlog_items = self.memory.backlog.all()
+                # A replan witness may already have terminalized its source;
+                # the source id/version lives in the append-only archive.
+                backlog_items = self.memory.backlog.history()
             except Exception as exc:  # noqa: BLE001
                 self._emit({
                     "type": EventType.LIFE_PLAN_REVISION_REJECTED,

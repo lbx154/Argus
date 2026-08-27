@@ -346,6 +346,24 @@ class PlanningContextMixin:
                 continue
             extra = getattr(entry, "extra", {}) or {}
             if isinstance(extra, dict) and bool(extra.get("final_submission_certified")):
+                manuscript_binding = extra.get("manuscript_snapshot")
+                if (
+                    (Path(self._project_workdir()) / "paper/main.tex").is_file()
+                    and not isinstance(manuscript_binding, dict)
+                ):
+                    continue
+                if isinstance(manuscript_binding, dict):
+                    try:
+                        from ...core.manuscript_snapshot import (
+                            manuscript_review_status,
+                        )
+
+                        if manuscript_review_status(
+                            extra, self._project_workdir()
+                        ).get("status") != "current":
+                            continue
+                    except Exception:  # noqa: BLE001 - unreadable binding fails closed
+                        continue
                 certified_signature = str(extra.get("final_submission_signature") or "")
                 if certified_signature:
                     if bool(current_signature) and certified_signature == current_signature:
@@ -1729,7 +1747,7 @@ class PlanningContextMixin:
         recheck_token = str(pending.get("recheck_token") or "")
         try:
             item_exists = any(
-                getattr(item, "id", "") == item_id for item in self.memory.backlog.all()
+                getattr(item, "id", "") == item_id for item in self.memory.backlog.history()
             )
         except Exception:  # noqa: BLE001
             log.exception("failed to reconcile pending planner verification probe")
@@ -1951,7 +1969,7 @@ class PlanningContextMixin:
             return False
         # Never stack a second probe while one is still pending/running.
         try:
-            for it in self.memory.backlog.all():
+            for it in self.memory.backlog.active():
                 if "verification_probe" in (getattr(it, "tags", []) or []) and getattr(
                     it, "status", ""
                 ) in ("pending", "running"):

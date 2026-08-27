@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
-import time
 from pathlib import Path
 
+from argus_skill.core.manuscript_snapshot import manuscript_snapshot
 from argus_skill.life.memory import LifeMemory
 from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 from argus_skill.life.terminal_state import build_project_state_signature
@@ -45,6 +44,7 @@ def test_final_submission_cert_tracks_current_project_state(tmp_path: Path):
     source = paper / "main.tex"
     source.write_text("certified\n", encoding="utf-8")
     signature = sup._final_submission_signature()
+    binding = manuscript_snapshot(tmp_path / "project")
     events = tmp_path / "life" / "events.jsonl"
     with events.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps({
@@ -53,6 +53,7 @@ def test_final_submission_cert_tracks_current_project_state(tmp_path: Path):
             "success": True,
             "final_submission_certified": True,
             "final_submission_signature": signature,
+            "manuscript_snapshot": binding,
         }) + "\n")
     for idx in range(51):
         with events.open("a", encoding="utf-8") as fh:
@@ -73,25 +74,19 @@ def test_final_submission_cert_tracks_current_project_state(tmp_path: Path):
     assert sup._journal_has_final_certification() is False
 
 
-def test_legacy_cert_is_valid_only_while_project_is_unchanged(tmp_path: Path):
+def test_unbound_legacy_cert_never_certifies_a_manuscript(tmp_path: Path):
     sup = _make_supervisor(tmp_path)
     source = tmp_path / "project" / "paper" / "main.tex"
     source.parent.mkdir()
     source.write_text("legacy certified\n", encoding="utf-8")
-    certified_at = time.time()
-    os.utime(source, (certified_at - 1, certified_at - 1))
     events = tmp_path / "life" / "events.jsonl"
     events.write_text(json.dumps({
         "type": "life.mission.completed",
         "title": "legacy final submission",
         "success": True,
         "final_submission_certified": True,
-        "ts": certified_at,
     }) + "\n", encoding="utf-8")
 
-    assert sup._journal_has_final_certification() is True
-    source.write_text("changed\n", encoding="utf-8")
-    os.utime(source, (certified_at + 1, certified_at + 1))
     assert sup._journal_has_final_certification() is False
 
 
@@ -103,8 +98,10 @@ def test_gate_can_match_older_certification_after_exact_revert(tmp_path: Path):
 
     source.write_text("state A\n", encoding="utf-8")
     signature_a = sup._final_submission_signature()
+    binding_a = manuscript_snapshot(tmp_path / "project")
     source.write_text("state B\n", encoding="utf-8")
     signature_b = sup._final_submission_signature()
+    binding_b = manuscript_snapshot(tmp_path / "project")
     events.write_text(
         "\n".join([
             json.dumps({
@@ -113,6 +110,7 @@ def test_gate_can_match_older_certification_after_exact_revert(tmp_path: Path):
                 "success": True,
                 "final_submission_certified": True,
                 "final_submission_signature": signature_a,
+                "manuscript_snapshot": binding_a,
             }),
             json.dumps({
                 "type": "life.mission.completed",
@@ -120,6 +118,7 @@ def test_gate_can_match_older_certification_after_exact_revert(tmp_path: Path):
                 "success": True,
                 "final_submission_certified": True,
                 "final_submission_signature": signature_b,
+                "manuscript_snapshot": binding_b,
             }),
         ]) + "\n",
         encoding="utf-8",

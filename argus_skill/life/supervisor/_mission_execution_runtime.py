@@ -149,7 +149,7 @@ class MissionExecutionRuntimeMixin:
             try:
                 active_item_ids = [
                     row.id
-                    for row in self.memory.backlog.all()
+                    for row in self.memory.backlog.active()
                     if row.plan_id == item.plan_id
                     and row.plan_version == item.plan_version
                     and row.status

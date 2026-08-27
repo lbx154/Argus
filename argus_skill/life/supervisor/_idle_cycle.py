@@ -303,7 +303,7 @@ class IdleCycleMixin:
                     str(getattr(item, "title", "")),
                     str(getattr(item, "status", "")),
                 )
-                for item in self.memory.backlog.all()
+                for item in self.memory.backlog.active()
             )
         except Exception:  # noqa: BLE001
             backlog = []

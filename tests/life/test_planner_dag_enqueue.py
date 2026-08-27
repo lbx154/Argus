@@ -115,13 +115,55 @@ def test_commit_resolves_dependency_from_prior_planning_cycle(tmp_path: Path) ->
             raise AssertionError("known cross-cycle dependency must not back off")
 
     state = _PlanCycleState(None)
-    state.existing_items = backlog.all()
+    # The completed node has already moved to backlog.archive.jsonl. Planner
+    # dependency resolution must deliberately consult historical node keys.
+    state.existing_items = backlog.history()
     state.manager_intent = {}
     state.pending_items = [(task, review)]
 
     assert Harness()._pc_commit_pending_items(state) is None
     persisted = next(item for item in backlog.all() if item.id == review.id)
     assert persisted.deps == [implementation.id]
+
+
+def test_planner_dedup_index_includes_archived_completed_signature(
+    tmp_path: Path,
+) -> None:
+    backlog = Backlog(tmp_path / "backlog.jsonl")
+    completed = backlog.add(BacklogItem.new(
+        title="Publication scale assessment",
+        objective="Assess the completed manuscript.",
+    ))
+    backlog.mark_done(completed.id)
+    assert backlog.active() == []
+
+    class Harness(PlanningCycleEnqueueMixin):
+        memory = SimpleNamespace(backlog=backlog)
+
+        @staticmethod
+        def _planner_scope_from_item(_item):
+            return "bounded"
+
+        @staticmethod
+        def _item_is_stage_closing(_item):
+            return False
+
+        @staticmethod
+        def _item_requires_independent_review(_item):
+            return True
+
+        @staticmethod
+        def _item_skips_stage_transition(_item):
+            return False
+
+        @staticmethod
+        def _recent_no_progress_failures():
+            return {}
+
+    state = _PlanCycleState(None)
+    assert Harness()._pc_build_dedupe_index(state) is None
+
+    assert completed.id in {item.id for item in state.seen_signatures.values()}
 
 
 def test_commit_resolves_dependency_from_existing_backlog_item_id(

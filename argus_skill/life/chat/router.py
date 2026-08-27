@@ -307,7 +307,7 @@ class CommandRouter:
         from ..memory import LifeMemory, MemoryBundle
 
         mem = LifeMemory.open(self.life_dir)
-        current_task = select_current_running_item(mem.backlog.all())
+        current_task = select_current_running_item(mem.backlog.active())
         daemon_status = read_daemon_status(self.life_dir)
         if daemon_status.alive and current_task is not None:
             text = text.strip()
@@ -359,7 +359,9 @@ class CommandRouter:
         ds = read_daemon_status(self.life_dir)
         cs = read_continuous_state(self.life_dir)
 
-        all_items = mem.backlog.all()
+        # /status reports cumulative done/failed/skipped counts, so it is an
+        # explicit history consumer rather than a live scheduling read.
+        all_items = mem.backlog.history()
         pending, running, paused, done, failed, skipped = count_backlog_statuses(
             all_items
         )

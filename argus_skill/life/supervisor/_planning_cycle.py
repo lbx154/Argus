@@ -293,7 +293,7 @@ class PlanningCycleMixin(
         try:
             if any(
                 item.status in {"pending", "running"} and item.title == title
-                for item in self.memory.backlog.all()
+                for item in self.memory.backlog.active()
             ):
                 return None
         except Exception:  # noqa: BLE001
@@ -431,7 +431,7 @@ class PlanningCycleMixin(
         if not stage:
             return None
         items = sorted(
-            self.memory.backlog.all(),
+            self.memory.backlog.history(),
             key=lambda item: (float(item.finished_ts or 0), float(item.ts or 0)),
             reverse=True,
         )
