@@ -30,8 +30,10 @@ from ._registry import (
     _lane_of,
     _list_tasks,
     _open_discussion_blockers,
+    _process_identity,
     _progress_summary,
     _read_task,
+    _recorded_process_alive,
     _run_dir_from_command,
     _task_log_dir,
     _unlink_task_records,
@@ -41,6 +43,7 @@ from ._registry import (
 from ._supervised_run import _run_supervised
 
 _ACTIVE_STATES = frozenset({"starting", "preflight", "running", "discussing"})
+_DEFAULT_TIMEOUT_SECONDS = 7200
 
 
 def _detach_child_stdio() -> None:
@@ -64,7 +67,7 @@ def _busy_owner_pid(task: dict) -> int:
             pid = int(task.get(key) or 0)
         except (TypeError, ValueError):
             continue
-        if pid > 0 and _is_pid_alive(pid):
+        if pid > 0 and _recorded_process_alive(task, key):
             live_pids.append(pid)
     if not live_pids:
         return 0
@@ -228,6 +231,8 @@ def cmd_worker(args: argparse.Namespace) -> int:
     }
     worker_task["worker_pid"] = os.getpid()
     worker_task.setdefault("pid", os.getpid())
+    worker_task["worker_process_identity"] = _process_identity(os.getpid())
+    worker_task.setdefault("timeout_seconds", args.timeout)
     _write_task(task_id, worker_task)
     try:
         _cpu_admission.apply_current_process_affinity(
@@ -297,6 +302,17 @@ def cmd_submit(args: argparse.Namespace) -> int:
     if run_dir:
         rp = Path(run_dir).expanduser()
         run_dir = str((rp if rp.is_absolute() else Path(cwd) / rp).resolve())
+    timeout_was_explicit = args.timeout is not None
+    timeout_seconds = int(
+        args.timeout if timeout_was_explicit else _DEFAULT_TIMEOUT_SECONDS
+    )
+    timeout_defaulted = bool(run_dir and not timeout_was_explicit)
+    timeout_notice = (
+        "Hard timeout defaulted to 7200 seconds (2h) for this experiment; "
+        "override it with --timeout <seconds> for a longer run."
+        if timeout_defaulted
+        else ""
+    )
 
     # Forced-discussion gate: while a supervisor is parked on an OPEN discussion
     # (it stopped a run and is waiting on the engineer), block launching new runs
@@ -388,6 +404,9 @@ def cmd_submit(args: argparse.Namespace) -> int:
                 "cwd": str(Path(cwd).resolve()),
                 "submitted_at": time.time(),
                 "submitter_pid": os.getpid(),
+                "submitter_process_identity": _process_identity(os.getpid()),
+                "timeout_seconds": timeout_seconds,
+                "timeout_defaulted": timeout_defaulted,
             }
             if selected_cpu_ids:
                 initial_task["cpu_ids"] = list(selected_cpu_ids)
@@ -413,7 +432,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
                 description=args.description,
                 command=args.command,
                 mode=mode,
-                timeout=args.timeout,
+                timeout=timeout_seconds,
                 monitor_interval=args.monitor_interval or 120,
                 model=args.model,
                 cwd=cwd,
@@ -433,8 +452,9 @@ def cmd_submit(args: argparse.Namespace) -> int:
         rec = _read_task(task_id) or initial_task
         rec.setdefault("worker_pid", worker.pid)
         rec.setdefault("pid", worker.pid)
+        rec["worker_process_identity"] = _process_identity(worker.pid)
         _write_task(task_id, rec)
-        print(json.dumps({
+        result = {
             "state": "submitted",
             "task_id": task_id,
             "run_id": run_id,
@@ -443,6 +463,8 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "run_dir": run_dir,
             "description": args.description,
             "cpu_ids": list(selected_cpu_ids),
+            "timeout_seconds": timeout_seconds,
+            "timeout_defaulted": timeout_defaulted,
             "check_with": shlex.join([
                 sys.executable,
                 "-m",
@@ -451,7 +473,10 @@ def cmd_submit(args: argparse.Namespace) -> int:
                 "--task-id",
                 task_id,
             ]),
-        }))
+        }
+        if timeout_notice:
+            result["timeout_notice"] = timeout_notice
+        print(json.dumps(result))
         return 0
 
     # Fork: parent returns immediately
@@ -474,11 +499,14 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "run_id": run_id,
             "description": args.description, "command": args.command,
             "mode": mode, "run_dir": run_dir, "submitted_at": time.time(),
+            "timeout_seconds": timeout_seconds,
+            "timeout_defaulted": timeout_defaulted,
         }
         rec["worker_pid"] = pid
         rec.setdefault("pid", pid)
+        rec["worker_process_identity"] = _process_identity(pid)
         _write_task(task_id, rec)
-        print(json.dumps({
+        result = {
             "state": "submitted",
             "task_id": task_id,
             "run_id": run_id,
@@ -487,6 +515,8 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "run_dir": run_dir,
             "description": args.description,
             "cpu_ids": list(selected_cpu_ids),
+            "timeout_seconds": timeout_seconds,
+            "timeout_defaulted": timeout_defaulted,
             "check_with": shlex.join([
                 sys.executable,
                 "-m",
@@ -495,7 +525,10 @@ def cmd_submit(args: argparse.Namespace) -> int:
                 "--task-id",
                 task_id,
             ]),
-        }))
+        }
+        if timeout_notice:
+            result["timeout_notice"] = timeout_notice
+        print(json.dumps(result))
         return 0
 
     # Child: detach and run
@@ -509,6 +542,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "error": f"stdio detach failed: {exc}",
             "completed_at": time.time(),
             "worker_pid": os.getpid(),
+            "worker_process_identity": _process_identity(os.getpid()),
         })
         _write_task(task_id, task)
         os._exit(1)
@@ -521,6 +555,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "error": f"CPU affinity setup failed: {exc}",
             "completed_at": time.time(),
             "worker_pid": os.getpid(),
+            "worker_process_identity": _process_identity(os.getpid()),
         })
         _write_task(task_id, task)
         os._exit(1)
@@ -530,7 +565,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
             task_id=task_id,
             command=args.command,
             description=args.description,
-            timeout=args.timeout,
+            timeout=timeout_seconds,
             monitor_interval=args.monitor_interval or 120,
             model=args.model or resolve_supervisor_model(),
             cwd=cwd,
@@ -542,7 +577,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
             task_id=task_id,
             command=args.command,
             description=args.description,
-            timeout=args.timeout,
+            timeout=timeout_seconds,
             cwd=cwd,
             run_dir=run_dir,
         )
@@ -606,7 +641,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     # Enrich with a live-process flag and run-directory progress so a single
     # poll tells the engineer whether the job is alive and advancing, without
     # it having to hand-inspect progress.jsonl/status.json itself.
-    task["live"] = bool(pid and _is_pid_alive(pid))
+    task["live"] = bool(pid and _recorded_process_alive(task, "pid"))
     progress = _progress_summary(_effective_run_dir(task))
     if progress:
         task["progress"] = progress
@@ -758,7 +793,7 @@ def cmd_reply(args: argparse.Namespace) -> int:
     # A live supervisor = worker process alive, supervised, in a live state, and
     # a fresh heartbeat (guards against PID reuse on a stale record).
     supervisor_alive = bool(
-        worker_pid and _is_pid_alive(worker_pid)
+        worker_pid and _recorded_process_alive(task, "worker_pid")
         and task.get("mode") == "supervised"
         and task.get("state") in ("running", "discussing")
         and (hb_age is None or hb_age < DISCUSSION_POLL_INTERVAL * 6)
@@ -801,7 +836,7 @@ def main() -> int:
     p_submit.add_argument("--command", required=True, help="Shell command to run")
     p_submit.add_argument("--mode", choices=["direct", "supervised"], default="direct",
                           help="direct: just run (no LLM). supervised: run + periodic LLM monitoring")
-    p_submit.add_argument("--timeout", type=int, default=7200, help="Max seconds (default: 2h)")
+    p_submit.add_argument("--timeout", type=int, default=None, help="Max seconds (default: 2h)")
     p_submit.add_argument("--monitor-interval", type=int, default=120,
                           help="Base seconds between supervisor checks; backs off "
                                "while healthy, tightens when degrading (supervised mode)")

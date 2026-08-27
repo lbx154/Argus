@@ -26,6 +26,7 @@ from ._registry import (
     _apply_supervisor_usage_fields,
     _exit_status_path,
     _launch_durable_command,
+    _process_identity,
     _read_task,
     _task_log_dir,
     _write_task,
@@ -334,10 +335,17 @@ def _run_direct(
     stderr_path = log_dir / "stderr.log"
 
     start_time = time.time()
+    submitted_task = _read_task(task_id) or {}
     run_id = str(
-        (_read_task(task_id) or {}).get("run_id")
+        submitted_task.get("run_id")
         or f"{task_id}-{time.time_ns()}"
     )
+    timeout_defaulted = bool(submitted_task.get("timeout_defaulted", False))
+    timeout_fields = {
+        "timeout_seconds": timeout,
+        "timeout_defaulted": timeout_defaulted,
+    }
+    worker_identity = _process_identity(os.getpid())
     claim_owner = f"{run_id}:{os.getpid()}:{time.time_ns()}"
     try:
         rejected, concern = experiment_launch_preflight(
@@ -360,7 +368,9 @@ def _run_direct(
                 "completed_at": time.time(),
                 "mode": "direct",
                 "worker_pid": os.getpid(),
+                "worker_process_identity": worker_identity,
                 "run_dir": run_dir,
+                **timeout_fields,
             }
             _apply_supervisor_usage_fields(td, model="", totals=_ZERO_USAGE_TUPLE)
             _write_task(task_id, td)
@@ -375,17 +385,21 @@ def _run_direct(
                 stderr=err,
                 cwd=cwd,
             )
+            command_identity = _process_identity(proc.pid)
             running_task = _apply_supervisor_usage_fields({
                 "state": "running", "task_id": task_id,
                 "run_id": run_id,
                 "description": description, "command": command,
                 "pid": proc.pid, "worker_pid": os.getpid(),
+                "process_identity": command_identity,
+                "worker_process_identity": worker_identity,
                 "started_at": time.time(), "mode": "direct",
                 "run_dir": run_dir,
                 "exit_status_path": str(
                     _exit_status_path(task_id, run_id).resolve()
                 ),
                 "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
+                **timeout_fields,
             }, model="", totals=_ZERO_USAGE_TUPLE)
             _write_task(task_id, running_task)
             try:
@@ -399,7 +413,19 @@ def _run_direct(
                     "run_id": run_id,
                     "description": description, "command": command,
                     "pid": proc.pid, "worker_pid": os.getpid(),
-                    "timeout_seconds": timeout,
+                    "process_identity": command_identity,
+                    "worker_process_identity": worker_identity,
+                    **timeout_fields,
+                    "timeout_message": (
+                        f"Hard timeout reached after {timeout} seconds"
+                        + (
+                            "; this was the default 2h limit because no "
+                            "--timeout was supplied. Resubmit with "
+                            "--timeout <seconds> for a longer run."
+                            if timeout_defaulted
+                            else "; this was the configured --timeout limit."
+                        )
+                    ),
                     "elapsed_seconds": round(time.time() - start_time, 1),
                     "completed_at": time.time(), "mode": "direct",
                     "run_dir": run_dir,
@@ -419,9 +445,12 @@ def _run_direct(
             "command": command, "exit_code": proc.returncode,
             "elapsed_seconds": elapsed, "completed_at": time.time(),
             "pid": proc.pid, "worker_pid": os.getpid(), "mode": "direct",
+            "process_identity": command_identity,
+            "worker_process_identity": worker_identity,
             "run_dir": run_dir,
             "stdout_tail": stdout_tail, "stderr_tail": stderr_tail,
             "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
+            **timeout_fields,
         }
         _apply_supervisor_usage_fields(td, model="", totals=_ZERO_USAGE_TUPLE)
         _write_task(task_id, td)
@@ -436,7 +465,9 @@ def _run_direct(
             "elapsed_seconds": round(time.time() - start_time, 1),
             "completed_at": time.time(), "mode": "direct",
             "worker_pid": os.getpid(),
+            "worker_process_identity": worker_identity,
             "run_dir": run_dir,
+            **timeout_fields,
         }
         _apply_supervisor_usage_fields(td, model="", totals=_ZERO_USAGE_TUPLE)
         _write_task(task_id, td)

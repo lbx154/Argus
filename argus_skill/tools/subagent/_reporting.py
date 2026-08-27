@@ -30,6 +30,22 @@ from ._text import (
 
 log = logging.getLogger(__name__)
 
+
+def _timeout_notice(task_data: dict[str, Any]) -> str:
+    message = str(task_data.get("timeout_message") or "").strip()
+    if message:
+        return message
+    seconds = task_data.get("timeout_seconds")
+    if seconds in (None, ""):
+        return ""
+    if task_data.get("timeout_defaulted"):
+        return (
+            f"Hard timeout reached after {seconds} seconds (default 2h limit; "
+            "no --timeout was supplied). Resubmit with --timeout <seconds> "
+            "for a longer run."
+        )
+    return f"Hard timeout reached after {seconds} seconds (configured --timeout limit)."
+
 # ---------------------------------------------------------------------------
 # LLM-authored supervisor summary
 # ---------------------------------------------------------------------------
@@ -91,6 +107,8 @@ def _supervisor_summarize_report(task_id: str, event: str, task_data: dict[str, 
             "YOUR DIAGNOSIS (authoritative — this is WHY; ground the report and "
             f"next step in it): {concern}\n"
         )
+    if event == "TIMEOUT":
+        prompt += f"Mechanical timeout: {_timeout_notice(task_data)}\n"
     if verdict_tail:
         prompt += f"\n=== your recent verdicts (supervisor.jsonl tail) ===\n{verdict_tail}\n"
     if progress_tail:
@@ -235,6 +253,8 @@ def _build_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:
     # supervisor's own prose too (e.g. when an early-stop carries a diagnosis).
     concern = task_data.get("concern", "") or task_data.get("last_supervisor_concern", "")
     concern_block = f"**Supervisor concern**: {concern}\n\n" if concern else ""
+    timeout_notice = _timeout_notice(task_data) if event == "TIMEOUT" else ""
+    timeout_block = f"**Hard timeout**: {timeout_notice}\n\n" if timeout_notice else ""
     reply_block = _reply_back_block(task_id, event)
     # The supervisor — which watched the run and made the call — writes the
     # summary and the next step, grounded in its own diagnosis.
@@ -251,7 +271,7 @@ def _build_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:
     if llm_report and len(llm_report) > 50:
         return (
             f"## Subagent Report: {task_id} [{event}]\n\n"
-            f"{concern_block}{llm_report}{reply_block}"
+            f"{timeout_block}{concern_block}{llm_report}{reply_block}"
         )
 
     # Fallback: template-based report
@@ -262,6 +282,8 @@ def _build_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:
     if concern:
         lines.append(f"**Supervisor concern**: {concern}")
         lines.append("")
+    if timeout_notice:
+        lines.extend([f"**Hard timeout**: {timeout_notice}", ""])
 
     desc = task_data.get("description", "")
     cmd = task_data.get("command", "")
