@@ -280,13 +280,29 @@ def test_fallback_handoff_reads_only_the_explicit_footer() -> None:
     assert _round_handoff(outcome).waits_for_operator is False
 
 
-def test_legacy_review_request_is_not_mistaken_for_operator_authority() -> None:
+def test_legacy_review_request_without_an_owner_stays_with_operator() -> None:
     handoff = parse_engineer_handoff(
         "OPERATOR_QUESTION=Run an independent reviewer before the production release."
     )
 
-    assert handoff.next_owner == "reviewer"
-    assert handoff.waits_for_operator is False
+    assert handoff.next_owner == "operator"
+    assert handoff.waits_for_operator is True
+
+
+def test_explicit_reviewer_owner_is_authoritative_over_handoff_vocabulary() -> None:
+    questions = (
+        "Review the production release.",
+        "Confirm production configuration before release.",
+        "Delete the temporary review artifact.",
+    )
+
+    for question in questions:
+        handoff = parse_engineer_handoff(
+            f"NEXT_OWNER=reviewer\nOPERATOR_QUESTION={question}"
+        )
+
+        assert handoff.next_owner == "reviewer"
+        assert handoff.waits_for_operator is False
 
 
 def test_legacy_publication_choice_still_belongs_to_operator() -> None:

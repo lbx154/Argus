@@ -618,7 +618,9 @@ def test_no_review_legacy_blocked_marker_settles_immediately(
     assert reason == "Engineer reported an unresolved blocker."
 
 
-def test_engineer_reviewer_request_enters_independent_review(tmp_path: Path) -> None:
+def test_legacy_reviewer_request_without_owner_stays_with_operator(
+    tmp_path: Path,
+) -> None:
     backend = MemoryBackend()
     backend.queue(
         "engineer-r1",
@@ -634,8 +636,6 @@ def test_engineer_reviewer_request_enters_independent_review(tmp_path: Path) -> 
             thread_id="t1",
         ),
     )
-    backend.queue("reviewer", CannedResponse(message=_done_review(), thread_id="v1"))
-
     status, rounds, _final, _reason, _tid = _engineer(backend).run(
         objective="complete and independently review the artifact",
         engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
@@ -643,16 +643,13 @@ def test_engineer_reviewer_request_enters_independent_review(tmp_path: Path) -> 
         workdir=tmp_path,
     )
 
-    assert [label for label, _prompt, _options in backend.history] == [
-        "engineer-r1",
-        "reviewer",
-    ]
-    assert status == "done"
-    assert rounds[0].review.review_source == "reviewer"
-    assert rounds[0].review.operator_question == ""
+    assert [label for label, _prompt, _options in backend.history] == ["engineer-r1"]
+    assert status == "blocked"
+    assert rounds[0].review.review_source == "engineer_operator_question"
+    assert rounds[0].review.operator_question.startswith("Please invoke")
 
 
-def test_structured_reviewer_handoff_does_not_override_real_authority(
+def test_structured_reviewer_handoff_is_authoritative_over_summary_vocabulary(
     tmp_path: Path,
 ) -> None:
     backend = MemoryBackend()
@@ -669,6 +666,7 @@ def test_structured_reviewer_handoff_does_not_override_real_authority(
             thread_id="t1",
         ),
     )
+    backend.queue("reviewer", CannedResponse(message=_done_review(), thread_id="v1"))
 
     status, rounds, _final, _reason, _tid = _engineer(backend).run(
         objective="publish an artifact",
@@ -677,9 +675,13 @@ def test_structured_reviewer_handoff_does_not_override_real_authority(
         workdir=tmp_path,
     )
 
-    assert [label for label, _prompt, _options in backend.history] == ["engineer-r1"]
-    assert status == "blocked"
-    assert rounds[0].review.operator_question.startswith("Authorize the budget")
+    assert [label for label, _prompt, _options in backend.history] == [
+        "engineer-r1",
+        "reviewer",
+    ]
+    assert status == "done"
+    assert rounds[0].review.review_source == "reviewer"
+    assert rounds[0].review.operator_question == ""
 
 
 def test_explicit_operator_handoff_is_authoritative_for_reviewer_wording(

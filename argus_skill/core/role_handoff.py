@@ -1,7 +1,6 @@
 """Structured role handoff parsing for model-authored round summaries."""
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import Literal, Mapping, Sequence
 
@@ -10,20 +9,6 @@ from .operator_decision import normalize_agent_options, parse_agent_operator_opt
 HandoffOwner = Literal["engineer", "reviewer", "operator"]
 
 _EMPTY_VALUES = frozenset({"", "none", "n/a", "na", "null"})
-_REVIEW_ACTION_RE = re.compile(
-    r"\b(?:invoke|request|run|perform|start|proceed(?:\s+with)?|send(?:\s+to)?)\b"
-    r".{0,80}\b(?:independent|hostile|adversarial)?\s*review(?:er)?\b"
-    r"|\b(?:independent|hostile|adversarial)\s+review(?:er)?\b.{0,80}"
-    r"\b(?:invoke|request|run|perform|start|proceed)\b",
-    re.IGNORECASE,
-)
-_OPERATOR_REVIEW_AUTHORITY_RE = re.compile(
-    r"\b(?:operator|human|user)(?:'s)?\s+"
-    r"(?:approval|authorization|consent|confirmation)\b"
-    r"|\bafter\s+(?:operator|human|user)(?:'s)?\s+"
-    r"(?:approval|authorization|consent|confirmation)\b",
-    re.IGNORECASE,
-)
 
 
 @dataclass(frozen=True)
@@ -58,29 +43,6 @@ def _named_value(message: str, name: str, *, limit: int = 500) -> str:
     return value
 
 
-def _runtime_owned_review_request(question: str, options: list[dict]) -> bool:
-    """Recognize legacy Reviewer requests that predate ``NEXT_OWNER``.
-
-    This is intentionally a narrow migration path. Structured ``NEXT_OWNER`` is
-    authoritative for new turns. The explicit request to invoke a Reviewer is
-    enough here: ordinary engineering nouns such as ``production`` or
-    ``release`` do not turn review scheduling into an operator decision.
-    """
-
-    text = "\n".join(
-        [
-            question,
-            *(
-                f"{option.get('label', '')} {option.get('description', '')}"
-                for option in options
-            ),
-        ]
-    )
-    return bool(_REVIEW_ACTION_RE.search(text)) and not bool(
-        _OPERATOR_REVIEW_AUTHORITY_RE.search(text)
-    )
-
-
 def resolve_engineer_handoff(
     *,
     next_owner: object,
@@ -100,16 +62,12 @@ def resolve_engineer_handoff(
     question = question[:500]
     options = tuple(operator_options or ())
 
+    if owner == "reviewer":
+        return EngineerHandoff("reviewer", source="structured")
     if owner == "operator" and question:
         return EngineerHandoff("operator", question, options, source="structured")
-    if owner == "reviewer" and (
-        not question or _runtime_owned_review_request(question, list(options))
-    ):
-        return EngineerHandoff("reviewer", source="structured")
     if owner == "engineer" and not question:
         return EngineerHandoff("engineer", source="structured")
-    if not owner and question and _runtime_owned_review_request(question, list(options)):
-        return EngineerHandoff("reviewer", source="legacy_reviewer_request")
     if question:
         return EngineerHandoff(
             "operator", question, options, source="operator_question"
